@@ -5,7 +5,6 @@
 mod branch;
 mod checkpoint;
 pub mod compaction;
-pub mod context;
 mod cwd;
 mod event;
 pub mod export;
@@ -30,6 +29,9 @@ pub use compaction::{
     compaction_summary_message, compose_compaction_summary, extract_file_ops, generate_fallback_summary,
     merge_split_turn_summary, render_file_lists_xml, serialize_conversation,
 };
+
+pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
+pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
 pub use cwd::{last_session_for_cwd, last_session_for_cwd_async, record_session_for_cwd, record_session_for_cwd_async};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use format::{create_session_file, create_session_file_async, load_file, load_file_async};

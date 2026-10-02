@@ -7,12 +7,13 @@
 //! the helpers defined here.
 
 use super::mock::final_event;
+use crate::adapter::rig::RigSessionMemory;
+use crate::adapter::rig::context::{context_memory, model_visible_bytes};
 use crate::engine::AgentEngine;
 use crate::engine::metrics::{RunTracker, TerminalStatus};
 use crate::engine::runner::TurnRequest;
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
-use rho_harness_core::session::context::{context_memory, model_visible_bytes};
 use rig::agent::ModelHandle;
 use rig::completion::Usage;
 use rig::memory::ConversationMemory;
@@ -54,7 +55,7 @@ fn build_eval_memory(store: &SessionManager, bounded: bool) -> Arc<dyn Conversat
     if bounded {
         context_memory(store.clone(), 4, 512)
     } else {
-        Arc::new(store.clone())
+        Arc::new(RigSessionMemory::new(store.clone()))
     }
 }
 
@@ -110,7 +111,8 @@ fn build_context_eval_result(history: &[Message], res: crate::engine::runner::Tu
 pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> ContextEvaluation {
     let sessions = input.base_dir.join(if input.bounded { "bounded" } else { "full" });
     let store = SessionManager::new(&sessions, None).unwrap();
-    ConversationMemory::append(&store, &store.session_id, input.history.to_vec())
+    let rig_store = crate::adapter::rig::RigSessionMemory::new(store.clone());
+    ConversationMemory::append(&rig_store, &store.session_id, input.history.to_vec())
         .await
         .unwrap();
 

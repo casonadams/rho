@@ -3,8 +3,8 @@
 
 mod branch {
     use rho_harness_core::config::Config;
+    use rho_harness_core::model::ChatMessage;
     use rig::agent::ModelHandle;
-    use rig::message::Message;
     use rig::test_utils::MockCompletionModel;
 
     use crate::auth::AuthStore;
@@ -40,8 +40,8 @@ mod branch {
         let engine = test_engine("fallback", None).await;
 
         let messages = vec![
-            Message::user("Investigate memory optimization in parser"),
-            Message::assistant("Found redundant clone in AST node creation"),
+            ChatMessage::user("Investigate memory optimization in parser"),
+            ChatMessage::assistant("Found redundant clone in AST node creation"),
         ];
 
         let summary = engine.summarize_branch(&messages).await;
@@ -56,8 +56,8 @@ mod branch {
         let engine = test_engine("llm", Some(model)).await;
 
         let messages = vec![
-            Message::user("Investigate memory optimization"),
-            Message::assistant("Done benchmarking"),
+            ChatMessage::user("Investigate memory optimization"),
+            ChatMessage::assistant("Done benchmarking"),
         ];
 
         let summary = engine.summarize_branch(&messages).await;
@@ -73,8 +73,8 @@ mod branch {
         engine.session_manager.add_secrets(vec![secret.to_string()]).unwrap();
 
         let messages = vec![
-            Message::user("Found an api key in branch"),
-            Message::assistant("Logging key"),
+            ChatMessage::user("Found an api key in branch"),
+            ChatMessage::assistant("Logging key"),
         ];
 
         let summary = engine.summarize_branch(&messages).await;
@@ -84,8 +84,8 @@ mod branch {
 }
 
 mod compactor {
+    use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
     use rig::agent::ModelHandle;
-    use rig::message::{AssistantContent, Message, ToolCall, ToolCallId, ToolFunction};
     use rig::test_utils::{MockCompletionModel, MockTurn};
 
     use crate::engine::compactor::llm::{LlmCompactor, SummarizeOptions};
@@ -94,8 +94,8 @@ mod compactor {
     async fn test_llm_compactor_fallback_when_model_is_none() {
         let compactor = LlmCompactor::new(None);
         let messages = vec![
-            Message::user("Please implement feature X in src/app.rs"),
-            Message::assistant("I have completed feature X in src/app.rs."),
+            rho_harness_core::model::ChatMessage::user("Please implement feature X in src/app.rs"),
+            rho_harness_core::model::ChatMessage::assistant("I have completed feature X in src/app.rs."),
         ];
 
         let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
@@ -105,20 +105,19 @@ mod compactor {
 
     #[test]
     fn test_strip_media_for_summarization_replaces_image_with_stub() {
-        use rig::completion::message::ImageMediaType;
-        use rig::message::{ToolResultContent, UserContent};
+        use rho_harness_core::model::{ChatMessage, ToolResult, ToolResultContent, UserContent};
 
-        let msg_with_image = Message::User {
+        let msg_with_image = ChatMessage::User {
             content: vec![
                 UserContent::text("Here is an image:"),
-                UserContent::image_base64("iVBORw0KGgoAAAANSUhEUgA=", Some(ImageMediaType::PNG), None),
-                UserContent::ToolResult(rig::message::ToolResult {
-                    call: rig::message::ToolCallId::new_or_mint("c1"),
+                UserContent::image("iVBORw0KGgoAAAANSUhEUgA=", Some("image/png".to_string())),
+                UserContent::ToolResult(ToolResult {
+                    call: "c1".to_string(),
                     provider: None,
                     name: "screenshot".to_string(),
                     content: vec![
                         ToolResultContent::text("Captured screen"),
-                        ToolResultContent::image_base64("iVBORw0KGgoAAAANSUhEUgA=", Some(ImageMediaType::JPEG), None),
+                        ToolResultContent::image("iVBORw0KGgoAAAANSUhEUgA=", Some("image/jpeg".to_string())),
                     ],
                 }),
             ],
@@ -126,7 +125,7 @@ mod compactor {
 
         let stripped = crate::engine::compactor::llm::strip_media_for_summarization(&[msg_with_image]);
         assert_eq!(stripped.len(), 1);
-        let Message::User { content } = &stripped[0] else {
+        let ChatMessage::User { content } = &stripped[0] else {
             panic!()
         };
         assert_eq!(content.len(), 3);
@@ -158,8 +157,8 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Please implement feature Y"),
-            Message::assistant("Done feature Y"),
+            ChatMessage::user("Please implement feature Y"),
+            ChatMessage::assistant("Done feature Y"),
         ];
 
         let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
@@ -172,7 +171,7 @@ mod compactor {
         assert_eq!(requests.len(), 1);
         assert_eq!(
             requests[0].chat_history[0],
-            Message::System {
+            rig::message::Message::System {
                 content: rho_harness_core::session::compaction::SUMMARIZATION_SYSTEM_PROMPT.to_string(),
             }
         );
@@ -224,8 +223,8 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Please build fast CLI"),
-            Message::assistant("I scaffolded the repo"),
+            ChatMessage::user("Please build fast CLI"),
+            ChatMessage::assistant("I scaffolded the repo"),
         ];
 
         let summary = compactor
@@ -260,7 +259,10 @@ mod compactor {
         let handle = ModelHandle::new(mock);
         let compactor = LlmCompactor::new(Some(handle));
 
-        let messages = vec![Message::user("Please test fallback"), Message::assistant("Will do")];
+        let messages = vec![
+            ChatMessage::user("Please test fallback"),
+            ChatMessage::assistant("Will do"),
+        ];
 
         let summary = compactor
             .summarize(
@@ -288,8 +290,8 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Critical task to summarize"),
-            Message::assistant("Work in progress"),
+            ChatMessage::user("Critical task to summarize"),
+            ChatMessage::assistant("Work in progress"),
         ];
 
         let summary = compactor
@@ -313,8 +315,8 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Next step for task"),
-            Message::assistant("Finished next step"),
+            ChatMessage::user("Next step for task"),
+            ChatMessage::assistant("Finished next step"),
         ];
 
         let prior = "## Goal\nOriginal goal";
@@ -345,12 +347,12 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Do huge operation"),
-            Message::Assistant {
+            ChatMessage::user("Do huge operation"),
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(ToolCall::new(
-                    ToolCallId::new_or_mint("c1"),
-                    ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/main.rs"})),
+                    "c1",
+                    ToolFunction::new("read", serde_json::json!({"path": "src/main.rs"})),
                 ))],
             },
         ];
@@ -377,10 +379,10 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Turn 1 user request to be dropped on overflow"),
-            Message::assistant("Turn 1 assistant response"),
-            Message::user("Turn 2 user request that should be kept"),
-            Message::assistant("Turn 2 assistant response"),
+            ChatMessage::user("Turn 1 user request to be dropped on overflow"),
+            ChatMessage::assistant("Turn 1 assistant response"),
+            ChatMessage::user("Turn 2 user request that should be kept"),
+            ChatMessage::assistant("Turn 2 assistant response"),
         ];
 
         let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
@@ -410,16 +412,16 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Turn 1"),
-            Message::assistant("Resp 1"),
-            Message::user("Turn 2"),
-            Message::assistant("Resp 2"),
-            Message::user("Turn 3"),
-            Message::assistant("Resp 3"),
-            Message::user("Turn 4"),
-            Message::assistant("Resp 4"),
-            Message::user("Turn 5"),
-            Message::assistant("Resp 5"),
+            ChatMessage::user("Turn 1"),
+            ChatMessage::assistant("Resp 1"),
+            ChatMessage::user("Turn 2"),
+            ChatMessage::assistant("Resp 2"),
+            ChatMessage::user("Turn 3"),
+            ChatMessage::assistant("Resp 3"),
+            ChatMessage::user("Turn 4"),
+            ChatMessage::assistant("Resp 4"),
+            ChatMessage::user("Turn 5"),
+            ChatMessage::assistant("Resp 5"),
         ];
 
         let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
@@ -435,8 +437,8 @@ mod compactor {
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
-            Message::user("Only turn user prompt"),
-            Message::assistant("Only turn assistant response"),
+            ChatMessage::user("Only turn user prompt"),
+            ChatMessage::assistant("Only turn assistant response"),
         ];
 
         let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
@@ -453,6 +455,16 @@ mod common {
     use rho_harness_core::presentation::presenter::Presenter;
     use rho_harness_core::presentation::stream::ToolStreamPort;
     use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
+
+    pub async fn append_test_messages(
+        sm: &rho_harness_core::session::SessionManager,
+        sid: &str,
+        msgs: Vec<rig::message::Message>,
+    ) {
+        let memory = crate::adapter::rig::RigSessionMemory::new(sm.clone());
+        use rig::memory::ConversationMemory;
+        ConversationMemory::append(&memory, sid, msgs).await.unwrap();
+    }
 
     #[derive(Default)]
     pub struct CapturingPresenter {
@@ -494,10 +506,10 @@ mod common {
 }
 
 mod orchestrator {
+    use super::common;
     use rho_harness_core::config::Config;
     use rho_harness_core::session::tree::TreeNodeKind;
     use rig::agent::ModelHandle;
-    use rig::memory::ConversationMemory;
     use rig::message::{
         AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
     };
@@ -556,7 +568,7 @@ mod orchestrator {
             turn2,
             vec![Message::user("Verify"), Message::assistant("Verified")],
         ] {
-            ConversationMemory::append(sm, sid, turn).await.unwrap();
+            common::append_test_messages(sm, sid, turn).await;
         }
     }
 
@@ -589,7 +601,10 @@ mod orchestrator {
         assert!(meta.modified_files.contains(&"src/storage.rs".to_string()));
 
         let active_messages = tree.active_messages();
-        assert!(matches!(&active_messages[0], Message::System { .. }));
+        assert!(matches!(
+            &active_messages[0],
+            rho_harness_core::model::ChatMessage::System { .. }
+        ));
     }
 
     #[tokio::test]
@@ -630,13 +645,12 @@ mod orchestrator {
         assert_eq!(stats.saved_tokens, 0);
 
         let session_id = engine.session_manager.session_id.clone();
-        ConversationMemory::append(
+        common::append_test_messages(
             &engine.session_manager,
             &session_id,
             vec![Message::user("Hello"), Message::assistant("Hi")],
         )
-        .await
-        .unwrap();
+        .await;
 
         let stats2 = engine.compact_session(None).await.unwrap();
         assert_eq!(stats2.saved_tokens, 0);
@@ -653,11 +667,14 @@ mod orchestrator {
         ]
     }
 
-    fn assert_preamble_omitted(messages: &[Message]) {
-        assert!(matches!(&messages[0], Message::System { .. }));
+    fn assert_preamble_omitted(messages: &[rho_harness_core::model::ChatMessage]) {
+        assert!(matches!(
+            &messages[0],
+            rho_harness_core::model::ChatMessage::System { .. }
+        ));
         assert!(!messages.iter().any(|m| match m {
-            Message::User { content } => content.iter().any(|c| match c {
-                rig::message::UserContent::Text(t) => t.text.contains("Preamble prompt"),
+            rho_harness_core::model::ChatMessage::User { content } => content.iter().any(|c| match c {
+                rho_harness_core::model::UserContent::Text(t) => t.text.contains("Preamble prompt"),
                 _ => false,
             }),
             _ => false,
@@ -787,9 +804,7 @@ mod orchestrator {
         let mock = MockCompletionModel::text("## Goal\nComplete huge operation");
         let engine = test_engine("split_turn", Some(mock)).await;
         let sid = engine.session_manager.session_id.clone();
-        ConversationMemory::append(&engine.session_manager, &sid, split_turn_fixture())
-            .await
-            .unwrap();
+        common::append_test_messages(&engine.session_manager, &sid, split_turn_fixture()).await;
 
         let stats = engine.compact_session(None).await.unwrap();
         assert!(stats.tokens_before > 0);
@@ -825,10 +840,12 @@ mod orchestrator {
 
         let sid = &engine.session_manager.session_id;
         let messages = vec![
-            Message::user("Please build an entire large subsystem with lots of details."),
-            Message::assistant("I will now write multiple files and refactor the architecture comprehensively."),
+            rho_harness_core::model::ChatMessage::user("Please build an entire large subsystem with lots of details."),
+            rho_harness_core::model::ChatMessage::assistant(
+                "I will now write multiple files and refactor the architecture comprehensively.",
+            ),
         ];
-        engine.session_manager.append(sid, messages).await.unwrap();
+        engine.session_manager.append_messages(sid, messages).await.unwrap();
 
         let stats = engine.compact_session(None).await.unwrap();
         assert!(stats.summary.len() <= 120);
@@ -886,12 +903,12 @@ mod overflow {
 }
 
 mod recovery {
+    use super::common;
+    use rig::message::Message;
     use std::sync::Arc;
 
     use rho_harness_core::config::Config;
     use rig::completion::Usage;
-    use rig::memory::ConversationMemory;
-    use rig::message::Message;
     use rig::test_utils::{MockCompletionModel, MockError, MockStreamEvent};
 
     use super::common::CapturingPresenter;
@@ -904,7 +921,7 @@ mod recovery {
                 Message::user(format!("Old turn {i}")),
                 Message::assistant(format!("Old response {i}")),
             ];
-            ConversationMemory::append(sm, sid, msgs).await.unwrap();
+            common::append_test_messages(sm, sid, msgs).await;
         }
     }
 
@@ -1005,10 +1022,10 @@ mod recovery {
 }
 
 mod sequential {
+    use super::common;
     use rho_harness_core::config::Config;
     use rho_harness_core::session::tree::TreeNodeKind;
     use rig::agent::ModelHandle;
-    use rig::memory::ConversationMemory;
     use rig::message::{
         AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
     };
@@ -1065,7 +1082,7 @@ mod sequential {
     ) {
         for (call_id, tool, path) in turns {
             let turn = file_turn(call_id, tool, path);
-            ConversationMemory::append(sm, sid, turn).await.unwrap();
+            common::append_test_messages(sm, sid, turn).await;
         }
     }
 
@@ -1131,13 +1148,13 @@ mod sequential {
 }
 
 mod auto_compact {
+    use super::common;
+    use rig::message::Message;
     use std::sync::Arc;
 
     use rho_harness_core::config::Config;
     use rho_harness_core::session::tree::TreeNodeKind;
     use rig::completion::Usage;
-    use rig::memory::ConversationMemory;
-    use rig::message::Message;
     use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 
     use super::common::CapturingPresenter;
@@ -1150,7 +1167,7 @@ mod auto_compact {
                 Message::user(format!("Turn {i} request with many tokens")),
                 Message::assistant(format!("Turn {i} response")),
             ];
-            ConversationMemory::append(sm, sid, msgs).await.unwrap();
+            common::append_test_messages(sm, sid, msgs).await;
         }
     }
 
@@ -1238,7 +1255,7 @@ mod auto_compact {
     async fn check_compaction_step(
         engine: &crate::engine::AgentEngine,
         presenter: &CapturingPresenter,
-        history: &mut Vec<Message>,
+        history: &mut Vec<rho_harness_core::model::ChatMessage>,
         tokens: u64,
     ) {
         record_test_turn_usage(engine, tokens);
@@ -1270,13 +1287,11 @@ mod auto_compact {
         )
     }
 
-    async fn seed_threshold_history(engine: &crate::engine::AgentEngine) -> Vec<Message> {
+    async fn seed_threshold_history(engine: &crate::engine::AgentEngine) -> Vec<rho_harness_core::model::ChatMessage> {
         let sid = &engine.session_manager.session_id;
         let msgs = vec![Message::user("prior prompt"), Message::assistant("prior response")];
-        ConversationMemory::append(&engine.session_manager, sid, msgs)
-            .await
-            .unwrap();
-        ConversationMemory::load(&engine.session_manager, sid).await.unwrap()
+        common::append_test_messages(&engine.session_manager, sid, msgs).await;
+        engine.session_manager.load_messages().await.unwrap()
     }
 
     #[tokio::test]

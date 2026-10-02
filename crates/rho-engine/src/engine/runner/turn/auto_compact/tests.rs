@@ -13,7 +13,6 @@ use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 use rho_harness_core::session::tree::TreeNodeKind;
 use rig::agent::hook::CompletionCallAction;
 use rig::completion::Usage;
-use rig::memory::ConversationMemory;
 use rig::message::Message;
 use rig::message::{AssistantContent, ToolResultContent, UserContent};
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
@@ -93,13 +92,11 @@ fn engine_for(dir: &std::path::Path, model: MockCompletionModel) -> crate::engin
 
 async fn seed_history(engine: &crate::engine::AgentEngine) {
     let sid = &engine.session_manager.session_id;
-    ConversationMemory::append(
-        &engine.session_manager,
-        sid,
-        vec![Message::user("prior prompt"), Message::assistant("prior response")],
-    )
-    .await
-    .unwrap();
+    let msgs = vec![
+        rho_harness_core::model::ChatMessage::user("prior prompt"),
+        rho_harness_core::model::ChatMessage::assistant("prior response"),
+    ];
+    engine.session_manager.append_messages(sid, msgs).await.unwrap();
 }
 
 async fn assert_compaction_node_present(engine: &crate::engine::AgentEngine) {
@@ -186,7 +183,9 @@ async fn test_mid_run_auto_compaction_falls_back_to_ephemeral_summary_with_pendi
     seed_history(&engine).await;
     engine
         .session_manager
-        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .save_checkpoint(vec![rho_harness_core::model::ChatMessage::user(
+            "pending checkpoint work",
+        )])
         .await
         .unwrap();
     let usage = Usage {
@@ -388,7 +387,9 @@ async fn test_auto_compact_hook_forwards_evicted_messages_to_demotion_hook() {
     seed_history(&engine).await;
     engine
         .session_manager
-        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .save_checkpoint(vec![rho_harness_core::model::ChatMessage::user(
+            "pending checkpoint work",
+        )])
         .await
         .unwrap();
     let usage = Usage {
@@ -435,7 +436,9 @@ async fn test_auto_compact_hook_failing_demotion_hook_does_not_abort_turn() {
     seed_history(&engine).await;
     engine
         .session_manager
-        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .save_checkpoint(vec![rho_harness_core::model::ChatMessage::user(
+            "pending checkpoint work",
+        )])
         .await
         .unwrap();
     let usage = Usage {
@@ -480,7 +483,9 @@ async fn test_auto_compact_hook_panicking_demotion_hook_does_not_abort_turn() {
     seed_history(&engine).await;
     engine
         .session_manager
-        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .save_checkpoint(vec![rho_harness_core::model::ChatMessage::user(
+            "pending checkpoint work",
+        )])
         .await
         .unwrap();
     let usage = Usage {
@@ -556,11 +561,11 @@ async fn test_auto_compaction_check_with_20_messages_reuses_cached_counts() {
     let mut history = Vec::new();
     for i in 0..20 {
         if i % 2 == 0 {
-            history.push(Message::user(format!(
+            history.push(rho_harness_core::model::ChatMessage::user(format!(
                 "User message {i} with some detailed context text."
             )));
         } else {
-            history.push(Message::assistant(format!(
+            history.push(rho_harness_core::model::ChatMessage::assistant(format!(
                 "Assistant response {i} providing helpful explanations."
             )));
         }
@@ -594,9 +599,9 @@ fn test_trigger_tokens_reconciles_anchor_with_trailing_messages() {
     let provider = "openai";
 
     let history = vec![
-        Message::user("First question"),
-        Message::assistant("First answer"),
-        Message::user("Follow-up question with some detail"),
+        rho_harness_core::model::ChatMessage::user("First question"),
+        rho_harness_core::model::ChatMessage::assistant("First answer"),
+        rho_harness_core::model::ChatMessage::user("Follow-up question with some detail"),
     ];
 
     let anchor = StructuralUsage {
@@ -623,7 +628,9 @@ fn test_trigger_tokens_without_assistant_message_uses_anchor_max_fallback() {
     let model = "gpt-4o";
     let provider = "openai";
 
-    let history = vec![Message::user("First question without any assistant response yet")];
+    let history = vec![rho_harness_core::model::ChatMessage::user(
+        "First question without any assistant response yet",
+    )];
     let anchor = StructuralUsage {
         input_tokens: 5_000,
         output_tokens: 200,
@@ -648,7 +655,9 @@ async fn test_speculative_compaction_plan_adopted_immediately() {
     let engine = engine_for(dir.path(), model);
     let presenter = Arc::new(CapturingPresenter::default());
 
-    let speculative_prefix = vec![Message::user("Precomputed speculative summary")];
+    let speculative_prefix = vec![rho_harness_core::model::ChatMessage::user(
+        "Precomputed speculative summary",
+    )];
     let precomputed_plan = super::PatchPlan {
         cut: 2,
         prefix: speculative_prefix.clone(),
@@ -937,7 +946,7 @@ async fn test_speculative_plan_discarded_if_history_reset() {
 
     let precomputed_plan = super::PatchPlan {
         cut: 10,
-        prefix: vec![Message::user("Stale speculative summary")],
+        prefix: vec![rho_harness_core::model::ChatMessage::user("Stale speculative summary")],
     };
 
     let hook = AutoCompactHook::new(
@@ -981,7 +990,7 @@ async fn test_speculative_plan_discarded_if_cut_exceeds_base_len() {
 
     let invalid_plan = super::PatchPlan {
         cut: 4,
-        prefix: vec![Message::user("Summary")],
+        prefix: vec![rho_harness_core::model::ChatMessage::user("Summary")],
     };
 
     let hook = AutoCompactHook::new(

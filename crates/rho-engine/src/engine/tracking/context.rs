@@ -1,5 +1,5 @@
+use rho_harness_core::model::ChatMessage;
 use rho_harness_core::tokens::{ContextTokenStats, MessageTokenCache};
-use rig::message::Message;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Default)]
@@ -25,11 +25,11 @@ impl ContextTracker {
         ))
     }
 
-    pub fn estimate_message_tokens(&self, message: &Message, model: &str) -> usize {
+    pub fn estimate_message_tokens(&self, message: &ChatMessage, model: &str) -> usize {
         self.token_cache.lock().unwrap().get_or_compute(message, model)
     }
 
-    pub fn estimate_messages_tokens(&self, messages: &[Message], model: &str) -> usize {
+    pub fn estimate_messages_tokens(&self, messages: &[ChatMessage], model: &str) -> usize {
         self.token_cache
             .lock()
             .unwrap()
@@ -38,7 +38,7 @@ impl ContextTracker {
 
     pub fn calculate_context_tokens(
         &self,
-        messages: &[Message],
+        messages: &[ChatMessage],
         last_usage_anchor: Option<(usize, usize)>,
         model: &str,
     ) -> ContextTokenStats {

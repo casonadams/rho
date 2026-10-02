@@ -1,6 +1,5 @@
 use super::{SessionEventKind, SessionManager, complete_tool_turn, temp_dir};
-use rig::memory::ConversationMemory;
-use rig::message::{Message, ToolCallId, UserContent};
+use crate::model::{ChatMessage, UserContent};
 
 #[tokio::test]
 async fn empty_v2_session_round_trips_after_reopen() {
@@ -18,16 +17,18 @@ async fn canonical_memory_round_trips_multi_turn_and_multi_tool_order() {
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
     let id = store.session_id.clone();
-    ConversationMemory::append(&store, &id, complete_tool_turn(&["call-1", "call-2"]))
+    store
+        .append_messages(&id, complete_tool_turn(&["call-1", "call-2"]))
         .await
         .unwrap();
-    ConversationMemory::append(&store, &id, vec![Message::user("next"), Message::assistant("answer")])
+    store
+        .append_messages(&id, vec![ChatMessage::user("next"), ChatMessage::assistant("answer")])
         .await
         .unwrap();
-    let expected = ConversationMemory::load(&store, &id).await.unwrap();
+    let expected = store.load_messages().await.unwrap();
     drop(store);
     let reopened = SessionManager::new(&dir, Some(&id)).unwrap();
-    assert_eq!(ConversationMemory::load(&reopened, &id).await.unwrap(), expected);
+    assert_eq!(reopened.load_messages().await.unwrap(), expected);
 }
 
 #[tokio::test]
@@ -37,18 +38,21 @@ async fn rejects_orphan_dangling_and_miscorrelated_tools() {
     let id = store.session_id.clone();
     let mut dangling = complete_tool_turn(&["call-1"]);
     dangling.truncate(2);
-    assert!(ConversationMemory::append(&store, &id, dangling).await.is_err());
+    assert!(store.append_messages(&id, dangling).await.is_err());
 
-    let orphan = vec![complete_tool_turn(&["call-1"])[2].clone(), Message::assistant("done")];
-    assert!(ConversationMemory::append(&store, &id, orphan).await.is_err());
+    let orphan = vec![
+        complete_tool_turn(&["call-1"])[2].clone(),
+        ChatMessage::assistant("done"),
+    ];
+    assert!(store.append_messages(&id, orphan).await.is_err());
 
     let mut wrong = complete_tool_turn(&["call-1"]);
-    if let Message::User { content } = &mut wrong[2]
+    if let ChatMessage::User { content } = &mut wrong[2]
         && let UserContent::ToolResult(result) = &mut content[0]
     {
-        result.call = ToolCallId::new("other").unwrap();
+        result.call = "other".to_string();
     }
-    assert!(ConversationMemory::append(&store, &id, wrong).await.is_err());
+    assert!(store.append_messages(&id, wrong).await.is_err());
     assert!(store.load_messages().await.unwrap().is_empty());
 }
 
@@ -57,13 +61,15 @@ async fn tool_call_id_reused_across_turns_succeeds() {
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
     let id = store.session_id.clone();
-    ConversationMemory::append(&store, &id, complete_tool_turn(&["call-1"]))
+    store
+        .append_messages(&id, complete_tool_turn(&["call-1"]))
         .await
         .unwrap();
-    ConversationMemory::append(&store, &id, complete_tool_turn(&["call-1"]))
+    store
+        .append_messages(&id, complete_tool_turn(&["call-1"]))
         .await
         .unwrap();
-    assert_eq!(ConversationMemory::load(&store, &id).await.unwrap().len(), 8);
+    assert_eq!(store.load_messages().await.unwrap().len(), 8);
 }
 
 #[tokio::test]
@@ -72,26 +78,24 @@ async fn duplicate_tool_call_id_within_same_message_is_rejected() {
     let store = SessionManager::new(&dir, None).unwrap();
     let id = store.session_id.clone();
     let duplicate = complete_tool_turn(&["call-1", "call-1"]);
-    assert!(ConversationMemory::append(&store, &id, duplicate).await.is_err());
+    assert!(store.append_messages(&id, duplicate).await.is_err());
 }
 
 #[tokio::test]
 async fn memory_identity_failures_do_not_change_history() {
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
-    assert!(ConversationMemory::load(&store, "wrong-id").await.is_err());
+    assert!(store.ensure_conversation("wrong-id").is_err());
     assert!(
-        ConversationMemory::append(
-            &store,
-            "wrong-id",
-            vec![Message::user("prompt"), Message::assistant("answer")],
-        )
-        .await
-        .is_err()
+        store
+            .append_messages(
+                "wrong-id",
+                vec![ChatMessage::user("prompt"), ChatMessage::assistant("answer")],
+            )
+            .await
+            .is_err()
     );
     assert!(store.load_messages().await.unwrap().is_empty());
-    let error = store.take_memory_error().unwrap();
-    assert!(error.contains("identity mismatch"));
 }
 
 #[tokio::test]
@@ -99,7 +103,8 @@ async fn clear_preserves_file_and_audit_but_starts_fresh_history() {
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
     let id = store.session_id.clone();
-    ConversationMemory::append(&store, &id, vec![Message::user("old"), Message::assistant("answer")])
+    store
+        .append_messages(&id, vec![ChatMessage::user("old"), ChatMessage::assistant("answer")])
         .await
         .unwrap();
     store
@@ -109,8 +114,8 @@ async fn clear_preserves_file_and_audit_but_starts_fresh_history() {
         )
         .await
         .unwrap();
-    ConversationMemory::clear(&store, &id).await.unwrap();
-    assert!(ConversationMemory::load(&store, &id).await.unwrap().is_empty());
+    store.clear_messages(&id).await.unwrap();
+    assert!(store.load_messages().await.unwrap().is_empty());
     assert_eq!(store.load_events().await.unwrap().len(), 1);
     let reopened = SessionManager::new(&dir, Some(&id)).unwrap();
     assert!(reopened.load_messages().await.unwrap().is_empty());

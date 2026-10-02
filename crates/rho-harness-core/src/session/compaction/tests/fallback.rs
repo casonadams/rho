@@ -1,7 +1,5 @@
 use super::super::fallback::generate_fallback_summary;
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
-};
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
 
 #[test]
 fn test_fallback_summary_empty_messages() {
@@ -24,18 +22,18 @@ fn test_fallback_summary_empty_messages() {
 #[test]
 fn test_fallback_summary_extracts_goal_and_tool_calls() {
     let messages = vec![
-        Message::user("Refactor database pooling"),
-        Message::Assistant {
+        ChatMessage::user("Refactor database pooling"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![
                 AssistantContent::text("Starting pool implementation."),
                 AssistantContent::ToolCall(ToolCall::new(
-                    ToolCallId::new_or_mint("c1"),
-                    ToolFunction::new("edit".to_string(), serde_json::json!({"path": "./src/pool.rs"})),
+                    "c1",
+                    ToolFunction::new("edit", serde_json::json!({"path": "./src/pool.rs"})),
                 )),
                 AssistantContent::ToolCall(ToolCall::new(
-                    ToolCallId::new_or_mint("c2"),
-                    ToolFunction::new("bash".to_string(), serde_json::json!({"command": "cargo check"})),
+                    "c2",
+                    ToolFunction::new("bash", serde_json::json!({"command": "cargo check"})),
                 )),
             ],
         },
@@ -52,16 +50,13 @@ fn test_fallback_summary_extracts_goal_and_tool_calls() {
 #[test]
 fn test_fallback_summary_captures_errors_in_blocked() {
     let messages = vec![
-        Message::user("Run migration script"),
-        Message::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("call-err"),
-                provider: None,
-                name: "bash".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new(
-                    "error: failed to connect to database at localhost:5432",
-                ))],
-            })],
+        ChatMessage::user("Run migration script"),
+        ChatMessage::User {
+            content: vec![UserContent::ToolResult(ToolResult::new(
+                "call-err",
+                "bash",
+                "error: failed to connect to database at localhost:5432",
+            ))],
         },
     ];
 
@@ -78,10 +73,10 @@ fn sample_prior_summary() -> &'static str {
 
 #[test]
 fn test_fallback_summary_preserves_prior_summary() {
-    let messages = vec![Message::Assistant {
+    let messages = vec![ChatMessage::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new_or_mint("c3"),
+            "c3",
             ToolFunction::new("write".to_string(), serde_json::json!({"path": "src/jwt.rs"})),
         ))],
     }];
@@ -104,7 +99,7 @@ fn test_fallback_summary_preserves_prior_summary() {
 
 #[test]
 fn test_fallback_summary_with_custom_instructions() {
-    let messages = vec![Message::user("Cleanup codebase")];
+    let messages = vec![ChatMessage::user("Cleanup codebase")];
     let summary = generate_fallback_summary(&messages, None, Some("Strictly maintain 100% test coverage"));
 
     assert!(summary.contains("## Constraints & Preferences\n- Additional focus: Strictly maintain 100% test coverage"));
@@ -114,10 +109,10 @@ fn test_fallback_summary_with_custom_instructions() {
 fn test_fallback_summary_bounds_done_items() {
     let mut messages = Vec::new();
     for i in 0..25 {
-        messages.push(Message::Assistant {
+        messages.push(ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint(format!("call-{i}")),
+                format!("call-{i}"),
                 ToolFunction::new(
                     "write".to_string(),
                     serde_json::json!({"path": format!("src/file_{i}.rs")}),

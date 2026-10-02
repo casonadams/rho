@@ -509,7 +509,6 @@ mod tool_search_activation {
         DeferredMcpTool, DynamicToolActivator, ToolSearchCatalog, build_tool_search_tool, extract_invoked_tool_names,
     };
     use rig::agent::{AgentBuilder, ModelHandle};
-    use rig::message::{AssistantContent, Message, ToolCall, ToolFunction};
     use rig::test_utils::{MockCompletionModel, MockTurn};
     use std::sync::Arc;
 
@@ -574,15 +573,17 @@ mod tool_search_activation {
     #[test]
     fn test_pre_activation_extracts_invoked_tools_from_session_history() {
         let history = vec![
-            Message::user("Please check the issue"),
-            Message::Assistant {
-                content: vec![AssistantContent::ToolCall(ToolCall::from_wire(
-                    "call-1",
-                    ToolFunction::new("github_create_issue".to_string(), serde_json::json!({})),
-                ))],
+            rho_harness_core::model::ChatMessage::user("Please check the issue"),
+            rho_harness_core::model::ChatMessage::Assistant {
+                content: vec![rho_harness_core::model::AssistantContent::ToolCall(
+                    rho_harness_core::model::ToolCall::new(
+                        "call-1",
+                        rho_harness_core::model::ToolFunction::new("github_create_issue", serde_json::json!({})),
+                    ),
+                )],
                 id: None,
             },
-            Message::user("Also check weather"),
+            rho_harness_core::model::ChatMessage::user("Also check weather"),
         ];
 
         let invoked = extract_invoked_tool_names(&history);

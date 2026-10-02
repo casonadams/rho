@@ -90,7 +90,7 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
     assert_checkpoint_promoted_in_stores(&resumed, (&dir, &id)).await;
 }
 
-async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rig::message::Message>, String, PathBuf) {
+async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rho_harness_core::model::ChatMessage>, String, PathBuf) {
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": probe})),
         final_event(Usage::new()),

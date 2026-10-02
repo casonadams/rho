@@ -1,5 +1,6 @@
-use rig::message::{AssistantContent, Message, UserContent};
 use std::sync::LazyLock;
+
+use crate::model::{AssistantContent, ChatMessage, ReasoningContent, ToolResultContent, UserContent};
 
 pub mod cut_point;
 pub mod memo;
@@ -95,7 +96,7 @@ pub struct ContextTokenStats {
 }
 
 pub fn calculate_context_tokens(
-    messages: &[Message],
+    messages: &[ChatMessage],
     last_usage_anchor: Option<(usize, usize)>,
     model: &str,
 ) -> ContextTokenStats {
@@ -192,29 +193,23 @@ pub fn estimate_char_tokens(text: &str) -> usize {
     chars.div_ceil(4)
 }
 
+fn estimate_tool_result_content_tokens(c: &ToolResultContent, tokenizer: ModelTokenizer) -> usize {
+    match c {
+        ToolResultContent::Text(text) => tokenizer.count(&text.text),
+        ToolResultContent::Image(_) => ESTIMATED_IMAGE_TOKENS,
+        ToolResultContent::Json { value } => tokenizer.count(&value.to_string()),
+    }
+}
+
 fn estimate_user_content_tokens(item: &UserContent, tokenizer: ModelTokenizer) -> usize {
     match item {
         UserContent::Text(text) => tokenizer.count(&text.text),
         UserContent::Image(_) => ESTIMATED_IMAGE_TOKENS,
-        UserContent::ToolResult(result) => {
-            let mut total = 0usize;
-            for c in &result.content {
-                match c {
-                    rig::message::ToolResultContent::Text(text) => {
-                        total = total.saturating_add(tokenizer.count(&text.text));
-                    }
-                    rig::message::ToolResultContent::Image(_) => {
-                        total = total.saturating_add(ESTIMATED_IMAGE_TOKENS);
-                    }
-                    rig::message::ToolResultContent::Json { value } => {
-                        let text = value.to_string();
-                        total = total.saturating_add(tokenizer.count(&text));
-                    }
-                }
-            }
-            total
-        }
-        _ => 0,
+        UserContent::ToolResult(result) => result
+            .content
+            .iter()
+            .map(|c| estimate_tool_result_content_tokens(c, tokenizer))
+            .sum(),
     }
 }
 
@@ -239,26 +234,46 @@ fn estimate_assistant_content_tokens_with(item: &AssistantContent, tokenizer: Mo
             let arg_tokens = tokenizer.count(&args_str);
             name_tokens.saturating_add(arg_tokens)
         }
-        _ => 0,
+        AssistantContent::Reasoning(r) => {
+            let mut total = 0usize;
+            for c in &r.content {
+                match c {
+                    ReasoningContent::Text { text, .. } => {
+                        total = total.saturating_add(tokenizer.count(text));
+                    }
+                    ReasoningContent::Summary(s) => {
+                        total = total.saturating_add(tokenizer.count(s));
+                    }
+                    ReasoningContent::Redacted { data } => {
+                        total = total.saturating_add(tokenizer.count(data));
+                    }
+                    ReasoningContent::Encrypted(e) => {
+                        total = total.saturating_add(tokenizer.count(e));
+                    }
+                }
+            }
+            total
+        }
+        AssistantContent::Image(_) => ESTIMATED_IMAGE_TOKENS,
     }
 }
 
-pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
+pub fn estimate_message_tokens(message: &ChatMessage, model: &str) -> usize {
     estimate_message_tokens_with(message, ModelTokenizer::for_model(model))
 }
 
-fn estimate_message_tokens_with(message: &Message, tokenizer: ModelTokenizer) -> usize {
+fn estimate_message_tokens_with(message: &ChatMessage, tokenizer: ModelTokenizer) -> usize {
     let mut tokens = DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE;
     match message {
-        Message::System { content } => {
+        ChatMessage::System { content } => {
             tokens = tokens.saturating_add(tokenizer.count(content));
         }
-        Message::User { content } => {
+        ChatMessage::User { content } => {
             for item in content {
                 tokens = tokens.saturating_add(estimate_user_content_tokens(item, tokenizer));
             }
         }
-        Message::Assistant { content, .. } => {
+        ChatMessage::Assistant { content, .. } => {
             for item in content {
                 tokens = tokens.saturating_add(estimate_assistant_content_tokens_with(item, tokenizer));
             }
@@ -267,7 +282,7 @@ fn estimate_message_tokens_with(message: &Message, tokenizer: ModelTokenizer) ->
     tokens
 }
 
-pub fn estimate_messages_tokens(messages: &[Message], model: &str) -> usize {
+pub fn estimate_messages_tokens(messages: &[ChatMessage], model: &str) -> usize {
     let tokenizer = ModelTokenizer::for_model(model);
     messages
         .iter()
@@ -284,10 +299,8 @@ impl BpeTokenCounter {
     pub fn new(model: impl Into<String>) -> Self {
         Self { model: model.into() }
     }
-}
 
-impl rig_memory::TokenCounter for BpeTokenCounter {
-    fn count(&self, message: &Message) -> usize {
+    pub fn count(&self, message: &ChatMessage) -> usize {
         estimate_message_tokens(message, &self.model)
     }
 }

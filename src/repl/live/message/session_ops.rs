@@ -202,7 +202,9 @@ async fn summarize_if_confirmed(ctx: &mut BranchSwitchContext<'_, '_, '_, impl T
     confirmed.then_some(())
 }
 
-fn abandoned_messages(abandoned: &[&rho_harness_core::session::tree::TreeNodeData]) -> Vec<rig::message::Message> {
+fn abandoned_messages(
+    abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
+) -> Vec<rho_harness_core::model::ChatMessage> {
     abandoned.iter().flat_map(|n| n.messages.clone()).collect()
 }
 

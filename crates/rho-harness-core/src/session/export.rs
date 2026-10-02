@@ -1,7 +1,7 @@
 //! Render a session branch as a shareable Markdown or HTML artifact.
 
 use super::tree::SessionTree;
-use rig::message::{AssistantContent, Message, UserContent};
+use crate::model::{AssistantContent, ChatMessage, UserContent};
 
 enum Block {
     Text { role: &'static str, text: String },
@@ -51,9 +51,9 @@ fn blocks(tree: &SessionTree) -> Vec<Block> {
     let mut blocks = Vec::new();
     for message in tree.active_messages() {
         match message {
-            Message::System { .. } => {}
-            Message::User { content } => push_user_content(&content, &mut blocks),
-            Message::Assistant { content, .. } => push_assistant_content(&content, &mut blocks),
+            ChatMessage::System { .. } => {}
+            ChatMessage::User { content } => push_user_content(&content, &mut blocks),
+            ChatMessage::Assistant { content, .. } => push_assistant_content(&content, &mut blocks),
         }
     }
     blocks

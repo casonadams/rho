@@ -6,9 +6,7 @@ mod storage;
 mod tree;
 
 use super::{SessionEventKind, SessionManager};
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
-};
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
 use std::path::PathBuf;
 
 pub(crate) fn temp_dir() -> PathBuf {
@@ -19,8 +17,8 @@ fn make_tool_calls(ids: &[&str]) -> Vec<AssistantContent> {
     ids.iter()
         .map(|id| {
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new(*id).unwrap(),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": id})),
+                *id,
+                ToolFunction::new("read", serde_json::json!({"path": id})),
             ))
         })
         .collect()
@@ -28,27 +26,20 @@ fn make_tool_calls(ids: &[&str]) -> Vec<AssistantContent> {
 
 fn make_tool_results(ids: &[&str]) -> Vec<UserContent> {
     ids.iter()
-        .map(|id| {
-            UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new(*id).unwrap(),
-                provider: None,
-                name: "read".to_string(),
-                content: vec![ToolResultContent::text("ok")],
-            })
-        })
+        .map(|id| UserContent::ToolResult(ToolResult::new(*id, "read", "ok")))
         .collect()
 }
 
-pub(crate) fn complete_tool_turn(ids: &[&str]) -> Vec<Message> {
+pub(crate) fn complete_tool_turn(ids: &[&str]) -> Vec<ChatMessage> {
     vec![
-        Message::user("read files"),
-        Message::Assistant {
+        ChatMessage::user("read files"),
+        ChatMessage::Assistant {
             id: None,
             content: make_tool_calls(ids),
         },
-        Message::User {
+        ChatMessage::User {
             content: make_tool_results(ids),
         },
-        Message::assistant("done"),
+        ChatMessage::assistant("done"),
     ]
 }

@@ -2,7 +2,6 @@ use super::*;
 use crate::auth::AuthStore;
 use crate::mcp::load_mcp_tools;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
-use rig::memory::ConversationMemory;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -91,14 +90,14 @@ async fn wait_for_server_count(pattern: &str, expected: usize) {
     );
 }
 
-async fn seed_test_engine_history(engine: &AgentEngine) -> (Vec<rig::message::Message>, Vec<u8>) {
+async fn seed_test_engine_history(engine: &AgentEngine) -> (Vec<rho_harness_core::model::ChatMessage>, Vec<u8>) {
     let sid = &engine.session_manager.session_id;
     let msgs = vec![
-        rig::message::Message::user("remember this line"),
-        rig::message::Message::assistant("recorded"),
+        rho_harness_core::model::ChatMessage::user("remember this line"),
+        rho_harness_core::model::ChatMessage::assistant("recorded"),
     ];
-    engine.session_manager.append(sid, msgs).await.unwrap();
-    let history = engine.session_manager.load(sid).await.unwrap();
+    engine.session_manager.append_messages(sid, msgs).await.unwrap();
+    let history = engine.session_manager.load_messages().await.unwrap();
     let jsonl = engine.config.sessions_dir.join(format!("{sid}.jsonl"));
     let bytes = std::fs::read(&jsonl).unwrap();
     (history, bytes)
@@ -112,8 +111,13 @@ fn assert_rebuilt_meta(rebuilt: &AgentEngine, sid: &str, tool_count: usize) {
     assert_eq!(rebuilt.tool_names().len(), tool_count);
 }
 
-async fn assert_rebuilt_storage(rebuilt: &AgentEngine, sid: &str, history: &[rig::message::Message], jsonl: &[u8]) {
-    assert_eq!(rebuilt.session_manager.load(sid).await.unwrap(), history);
+async fn assert_rebuilt_storage(
+    rebuilt: &AgentEngine,
+    sid: &str,
+    history: &[rho_harness_core::model::ChatMessage],
+    jsonl: &[u8],
+) {
+    assert_eq!(rebuilt.session_manager.load_messages().await.unwrap(), history);
     assert_eq!(
         std::fs::read(rebuilt.config.sessions_dir.join(format!("{sid}.jsonl"))).unwrap(),
         jsonl

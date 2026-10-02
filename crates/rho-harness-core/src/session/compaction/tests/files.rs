@@ -1,6 +1,6 @@
 use super::super::files::{extract_file_ops, normalize_path, render_file_lists_xml};
 use super::super::types::CompactionDetails;
-use rig::message::{AssistantContent, Message, ToolCall, ToolCallId, ToolFunction};
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
 
 #[test]
 fn test_normalize_path() {
@@ -19,20 +19,20 @@ fn test_extract_file_ops_empty() {
 
 #[test]
 fn test_extract_file_ops_single_turn() {
-    let messages = vec![Message::Assistant {
+    let messages = vec![ChatMessage::Assistant {
         id: None,
         content: vec![
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": " ./src/read.rs "})),
+                "c1",
+                ToolFunction::new("read", serde_json::json!({"path": " ./src/read.rs "})),
             )),
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c2"),
-                ToolFunction::new("write".to_string(), serde_json::json!({"path": "src/written.rs"})),
+                "c2",
+                ToolFunction::new("write", serde_json::json!({"path": "src/written.rs"})),
             )),
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c3"),
-                ToolFunction::new("edit".to_string(), serde_json::json!({"path": "./src/edited.rs"})),
+                "c3",
+                ToolFunction::new("edit", serde_json::json!({"path": "./src/edited.rs"})),
             )),
         ],
     }];
@@ -44,16 +44,16 @@ fn test_extract_file_ops_single_turn() {
 
 #[test]
 fn test_extract_file_ops_modified_supersedes_read() {
-    let messages = vec![Message::Assistant {
+    let messages = vec![ChatMessage::Assistant {
         id: None,
         content: vec![
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/shared.rs"})),
+                "c1",
+                ToolFunction::new("read", serde_json::json!({"path": "src/shared.rs"})),
             )),
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c2"),
-                ToolFunction::new("edit".to_string(), serde_json::json!({"path": "src/shared.rs"})),
+                "c2",
+                ToolFunction::new("edit", serde_json::json!({"path": "src/shared.rs"})),
             )),
         ],
     }];
@@ -70,16 +70,16 @@ fn test_extract_file_ops_accumulate_with_prior() {
         modified_files: vec!["src/lib.rs".to_string()],
     };
 
-    let messages = vec![Message::Assistant {
+    let messages = vec![ChatMessage::Assistant {
         id: None,
         content: vec![
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("edit".to_string(), serde_json::json!({"path": "docs/spec.md"})),
+                "c1",
+                ToolFunction::new("edit", serde_json::json!({"path": "docs/spec.md"})),
             )),
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c2"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "Cargo.toml"})),
+                "c2",
+                ToolFunction::new("read", serde_json::json!({"path": "Cargo.toml"})),
             )),
         ],
     }];

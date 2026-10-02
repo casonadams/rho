@@ -1,4 +1,4 @@
-use rig::message::{AssistantContent, Message, UserContent};
+use crate::model::{AssistantContent, ChatMessage, ToolResult, UserContent};
 
 pub const MAX_TOOL_RESULT_CHARS: usize = 2000;
 pub const MAX_FULL_TOOL_RESULTS: usize = 3;
@@ -15,7 +15,7 @@ fn format_truncated_tool_text(text: String) -> String {
     }
 }
 
-fn serialize_tool_result_content(result: &rig::message::ToolResult) -> String {
+fn serialize_tool_result_content(result: &ToolResult) -> String {
     let mut total_chars = 0;
     let mut text = String::new();
     for t in result.content.iter().filter_map(|c| c.as_text()) {
@@ -140,20 +140,25 @@ fn push_assistant_content_block(item: &AssistantContent, blocks: &mut Vec<String
     }
 }
 
-fn serialize_message(msg: &Message, blocks: &mut Vec<String>, tool_result_idx: &mut usize, keep_full_from_idx: usize) {
+fn serialize_message(
+    msg: &ChatMessage,
+    blocks: &mut Vec<String>,
+    tool_result_idx: &mut usize,
+    keep_full_from_idx: usize,
+) {
     match msg {
-        Message::System { content } => {
+        ChatMessage::System { content } => {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
                 blocks.push(format!("[System]: {trimmed}"));
             }
         }
-        Message::User { content } => {
+        ChatMessage::User { content } => {
             for item in content {
                 push_user_content_block(item, blocks, tool_result_idx, keep_full_from_idx);
             }
         }
-        Message::Assistant { content, .. } => {
+        ChatMessage::Assistant { content, .. } => {
             for item in content {
                 push_assistant_content_block(item, blocks);
             }
@@ -161,11 +166,11 @@ fn serialize_message(msg: &Message, blocks: &mut Vec<String>, tool_result_idx: &
     }
 }
 
-pub fn serialize_conversation(messages: &[Message]) -> String {
+pub fn serialize_conversation(messages: &[ChatMessage]) -> String {
     let total_tool_results: usize = messages
         .iter()
         .map(|msg| match msg {
-            Message::User { content } => content
+            ChatMessage::User { content } => content
                 .iter()
                 .filter(|item| matches!(item, UserContent::ToolResult(_)))
                 .count(),

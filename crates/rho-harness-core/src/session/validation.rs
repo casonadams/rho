@@ -1,5 +1,5 @@
 use crate::error::Result;
-use rig::message::{AssistantContent, Message, UserContent};
+use crate::model::{AssistantContent, ChatMessage, UserContent};
 use std::collections::HashSet;
 
 use super::session_error;
@@ -14,7 +14,7 @@ fn validate_assistant_content(content: &[AssistantContent], pending: &mut Vec<(S
     let mut message_calls = HashSet::new();
     for item in content {
         if let AssistantContent::ToolCall(call) = item {
-            let call_id = call.id.to_string();
+            let call_id = call.id.clone();
             if !message_calls.insert(call_id.clone()) {
                 return Err(session_error("canonical tool-call id is duplicated"));
             }
@@ -47,23 +47,23 @@ impl CanonicalHistory {
     pub(crate) fn clear(&mut self) {}
 
     /// Validate a batch that will be joined to the canonical history.
-    pub(crate) fn check_canonical_batch(&mut self, messages: &[Message]) -> Result<()> {
+    pub(crate) fn check_canonical_batch(&mut self, messages: &[ChatMessage]) -> Result<()> {
         self.check_history(messages, true)
     }
 
     /// Validate a candidate checkpoint.
-    pub(crate) fn check_checkpoint_batch(&self, messages: &[Message]) -> Result<()> {
+    pub(crate) fn check_checkpoint_batch(&self, messages: &[ChatMessage]) -> Result<()> {
         self.check_history(messages, false)
     }
 
     fn scan_history_message(
         &self,
-        message: &Message,
+        message: &ChatMessage,
         (pending, last_was_assistant): (&mut Vec<(String, String)>, &mut bool),
     ) -> Result<()> {
         match message {
-            Message::System { .. } => Err(session_error("system messages are not canonical conversation memory")),
-            Message::User { content } => {
+            ChatMessage::System { .. } => Err(session_error("system messages are not canonical conversation memory")),
+            ChatMessage::User { content } => {
                 if content.is_empty() {
                     return Err(session_error("canonical message role ordering is invalid"));
                 }
@@ -71,7 +71,7 @@ impl CanonicalHistory {
                 *last_was_assistant = false;
                 Ok(())
             }
-            Message::Assistant { content, .. } => {
+            ChatMessage::Assistant { content, .. } => {
                 validate_assistant_content(content, pending)?;
                 *last_was_assistant = true;
                 Ok(())
@@ -81,7 +81,7 @@ impl CanonicalHistory {
 
     fn scan_history_messages(
         &self,
-        messages: &[Message],
+        messages: &[ChatMessage],
         mut state: (&mut Vec<(String, String)>, &mut bool),
     ) -> Result<()> {
         for message in messages {
@@ -90,7 +90,7 @@ impl CanonicalHistory {
         Ok(())
     }
 
-    fn check_history(&self, messages: &[Message], require_assistant_end: bool) -> Result<()> {
+    fn check_history(&self, messages: &[ChatMessage], require_assistant_end: bool) -> Result<()> {
         let mut pending: Vec<(String, String)> = Vec::new();
         let mut last_was_assistant = false;
 

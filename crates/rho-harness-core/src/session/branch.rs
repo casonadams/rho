@@ -2,12 +2,12 @@ use super::SessionManager;
 use super::format::{SessionRecord, append_durable_record};
 use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use crate::error::Result;
+use crate::model::ChatMessage;
 use chrono::Utc;
-use rig::message::Message;
 use std::path::Path;
 
 fn create_branch_summary_node(parent_id: Option<String>, source_leaf_id: &str, summary: &str) -> TreeNodeData {
-    let summary_message = Message::assistant(format!("[Branch Summary from {source_leaf_id}]: {summary}"));
+    let summary_message = ChatMessage::assistant(format!("[Branch Summary from {source_leaf_id}]: {summary}"));
     TreeNodeData {
         id: uuid::Uuid::new_v4().to_string(),
         parent_id,
@@ -28,7 +28,7 @@ impl SessionManager {
         Ok(self.state.lock().await.tree.active_leaf_id.clone())
     }
 
-    pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<Message>> {
+    pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<ChatMessage>> {
         let mut state = self.state.lock().await;
         state.tree.set_active_leaf(leaf_id.clone());
         let messages = state.tree.active_messages();
@@ -172,7 +172,6 @@ fn resolve_turn_node_id_from_tree(
 mod tests {
     use super::*;
     use crate::session::tree::{TreeNodeData, TreeNodeKind};
-    use rig::message::Message;
 
     fn create_test_node(id: &str, parent_id: Option<&str>) -> TreeNodeData {
         TreeNodeData {
@@ -222,8 +221,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let session = SessionManager::new(&dir, None).unwrap();
         let sid = session.session_id.clone();
-        let m1 = Message::user("hello");
-        let m2 = Message::assistant("world");
+        let m1 = ChatMessage::user("hello");
+        let m2 = ChatMessage::assistant("world");
         session.append_messages(&sid, vec![m1, m2]).await.unwrap();
 
         let forked_turn = session.fork_session(&dir, Some("1")).await.unwrap();

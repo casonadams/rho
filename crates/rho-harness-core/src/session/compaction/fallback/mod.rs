@@ -1,6 +1,6 @@
 pub mod extract;
 
-use rig::message::Message;
+use crate::model::ChatMessage;
 
 use extract::{clean_item, extract_message_facts};
 
@@ -36,7 +36,7 @@ fn trim_excess_done(done: &mut Vec<String>) {
 }
 
 pub fn generate_fallback_summary(
-    messages: &[Message],
+    messages: &[ChatMessage],
     prior_summary: Option<&str>,
     custom_instructions: Option<&str>,
 ) -> String {

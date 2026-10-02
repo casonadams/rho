@@ -7,11 +7,11 @@ use crate::engine::compactor::llm::{LlmCompactor, SummarizeOptions};
 use crate::engine::metrics::StructuralUsage;
 use crate::engine::tracking::{ContextTracker, UsageTracker};
 use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::session::compaction::compaction_summary_message;
 use rho_harness_core::tokens::{context_window_size_for_provider, find_token_cut_point, should_compact};
 use rig::agent::hook::{AgentHook, CompletionCall, CompletionCallAction, HookContext, RequestPatch};
-use rig::memory::ConversationMemory;
 use rig::message::Message;
 
 /// Provider-anchored context size: input, output, and cache reads/writes of the
@@ -21,12 +21,12 @@ fn usage_anchor_tokens(usage: &StructuralUsage, provider: &str) -> usize {
     consumed.saturating_add(usage.output_tokens) as usize
 }
 
-fn estimated_tokens(messages: &[Message], model: &str, context: &ContextTracker) -> usize {
+fn estimated_tokens(messages: &[ChatMessage], model: &str, context: &ContextTracker) -> usize {
     context.calculate_context_tokens(messages, None, model).total_tokens
 }
 
 fn trigger_tokens(
-    messages: &[Message],
+    messages: &[ChatMessage],
     usage: Option<&StructuralUsage>,
     model: &str,
     provider: &str,
@@ -34,7 +34,9 @@ fn trigger_tokens(
 ) -> usize {
     let anchor_tokens = usage.map(|u| usage_anchor_tokens(u, provider)).unwrap_or(0);
     if anchor_tokens > 0 {
-        let anchor_idx = messages.iter().rposition(|m| matches!(m, Message::Assistant { .. }));
+        let anchor_idx = messages
+            .iter()
+            .rposition(|m| matches!(m, ChatMessage::Assistant { .. }));
         if let Some(idx) = anchor_idx {
             context
                 .calculate_context_tokens(messages, Some((idx, anchor_tokens)), model)
@@ -66,11 +68,11 @@ pub(crate) struct CompactState {
 #[derive(Debug, Clone)]
 pub(crate) struct PatchPlan {
     cut: usize,
-    prefix: Vec<Message>,
+    prefix: Vec<ChatMessage>,
 }
 
 impl PatchPlan {
-    fn apply(&self, history: &[Message]) -> Vec<Message> {
+    fn apply(&self, history: &[ChatMessage]) -> Vec<ChatMessage> {
         let mut messages = self.prefix.clone();
         messages.extend_from_slice(&history[self.cut.min(history.len())..]);
         messages
@@ -143,7 +145,7 @@ impl AutoCompactHook {
         self.compactor.model_name()
     }
 
-    async fn compact_and_plan(&self, history: &[Message], base_len: usize) -> Option<PatchPlan> {
+    async fn compact_and_plan(&self, history: &[ChatMessage], base_len: usize) -> Option<PatchPlan> {
         self.speculative_epoch.fetch_add(1, Ordering::SeqCst);
         *self.speculative_plan.lock().unwrap() = None;
         let spinner = self.presenter.start_spinner("Compacting...");
@@ -155,7 +157,7 @@ impl AutoCompactHook {
                     stats.tokens_before, stats.tokens_after, stats.saved_tokens
                 ));
                 let session_manager = self.compactor.session_manager();
-                match ConversationMemory::load(session_manager, &session_manager.session_id).await {
+                match session_manager.active_messages().await {
                     Ok(reloaded) => Some(PatchPlan {
                         cut: base_len,
                         prefix: reloaded,
@@ -180,7 +182,7 @@ impl AutoCompactHook {
         }
     }
 
-    async fn ephemeral_plan(&self, history: &[Message], base_len: usize) -> Option<PatchPlan> {
+    async fn ephemeral_plan(&self, history: &[ChatMessage], base_len: usize) -> Option<PatchPlan> {
         run_ephemeral_plan(
             &self.compactor,
             self.demotion_hook.as_ref(),
@@ -210,7 +212,7 @@ async fn run_ephemeral_plan(
     demotion_hook: Option<&Arc<dyn rig::memory::DemotionHook>>,
     context: &ContextTracker,
     usage: &UsageTracker,
-    history: &[Message],
+    history: &[ChatMessage],
     base_len: usize,
 ) -> Option<PatchPlan> {
     let model = compactor.model_name();
@@ -275,7 +277,7 @@ impl AgentHook for AutoCompactHook {
 }
 
 impl AutoCompactHook {
-    fn spawn_speculative_compaction(&self, history: &[Message], base_len: usize) {
+    fn spawn_speculative_compaction(&self, history: &[ChatMessage], base_len: usize) {
         if self.speculative_plan.lock().unwrap().is_some() {
             return;
         }
@@ -312,8 +314,8 @@ impl AutoCompactHook {
 
     async fn check_and_execute_compaction(
         &self,
-        effective_history: &[Message],
-        prompt: &Message,
+        effective_history: &[ChatMessage],
+        prompt: &ChatMessage,
         base_len: usize,
     ) -> Option<PatchPlan> {
         let window = context_window(self.model_name(), &self.provider, &self.context);
@@ -350,9 +352,11 @@ impl AutoCompactHook {
         history: &[Message],
         prompt: &Message,
     ) -> CompletionCallAction {
-        let pruned = super::prune::prune_historical_tool_outputs_with_policy(history, &self.prune_policy);
-        let was_pruned = pruned != history;
-        let effective_history = if was_pruned { &pruned } else { history };
+        let domain_history: Vec<ChatMessage> = history.iter().map(crate::adapter::rig::from_rig_message).collect();
+        let domain_prompt = crate::adapter::rig::from_rig_message(prompt);
+        let pruned = super::prune::prune_historical_tool_outputs_with_policy(&domain_history, &self.prune_policy);
+        let was_pruned = pruned != domain_history;
+        let effective_history = if was_pruned { &pruned } else { &domain_history };
 
         let mut local_state = CompactState::default();
         let (tripped, base_len) = if let Some(c) = ctx {
@@ -367,7 +371,7 @@ impl AutoCompactHook {
 
         if !tripped
             && let Some(plan) = self
-                .check_and_execute_compaction(effective_history, prompt, base_len)
+                .check_and_execute_compaction(effective_history, &domain_prompt, base_len)
                 .await
         {
             if let Some(c) = ctx {
@@ -388,11 +392,32 @@ impl AutoCompactHook {
             local_state.patch.map(|plan| plan.apply(effective_history))
         };
 
-        match replacement {
-            Some(replacement) => CompletionCallAction::patch(RequestPatch::new().history(replacement)),
-            None if was_pruned => CompletionCallAction::patch(RequestPatch::new().history(pruned)),
-            None => CompletionCallAction::continue_run(),
-        }
+        resolve_completion_action(replacement, was_pruned, pruned)
+    }
+}
+
+fn resolve_completion_action(
+    replacement: Option<Vec<ChatMessage>>,
+    was_pruned: bool,
+    pruned: Vec<ChatMessage>,
+) -> CompletionCallAction {
+    match replacement {
+        Some(rep) => CompletionCallAction::patch(
+            RequestPatch::new().history(
+                rep.into_iter()
+                    .map(crate::adapter::rig::into_rig_message)
+                    .collect::<Vec<_>>(),
+            ),
+        ),
+        None if was_pruned => CompletionCallAction::patch(
+            RequestPatch::new().history(
+                pruned
+                    .into_iter()
+                    .map(crate::adapter::rig::into_rig_message)
+                    .collect::<Vec<_>>(),
+            ),
+        ),
+        None => CompletionCallAction::continue_run(),
     }
 }
 
@@ -400,7 +425,7 @@ impl AgentEngine {
     pub(super) async fn perform_proactive_compaction(
         &self,
         presenter: &dyn Presenter,
-        history: &mut Vec<Message>,
+        history: &mut Vec<ChatMessage>,
     ) -> Result<Option<crate::engine::CompactionStats>> {
         let spinner = presenter.start_spinner("Compacting...");
         match self.compact_session(None).await {
@@ -410,11 +435,9 @@ impl AgentEngine {
                     "[Auto-compacted context: {} -> {} tokens (saved {})]",
                     stats.tokens_before, stats.tokens_after, stats.saved_tokens
                 ));
-                *history = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
-                    .await
-                    .map_err(|e| {
-                        AppError::Session(format!("Model-visible session history could not be loaded: {e}"))
-                    })?;
+                *history = self.session_manager.active_messages().await.map_err(|e| {
+                    AppError::Session(format!("Model-visible session history could not be loaded: {e}"))
+                })?;
                 Ok(Some(stats))
             }
             Err(err) => {
@@ -428,7 +451,7 @@ impl AgentEngine {
     pub(crate) async fn check_proactive_compaction(
         &self,
         presenter: &dyn Presenter,
-        (history, additional_tokens): (&mut Vec<Message>, usize),
+        (history, additional_tokens): (&mut Vec<ChatMessage>, usize),
     ) -> Result<Option<crate::engine::CompactionStats>> {
         let window = context_window(&self.config.model, &self.config.provider, &self.context);
         let tokens = trigger_tokens(

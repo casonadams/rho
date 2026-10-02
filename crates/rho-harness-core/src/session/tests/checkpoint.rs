@@ -1,10 +1,9 @@
 use super::{SessionEventKind, SessionManager, complete_tool_turn, temp_dir};
-use rig::memory::ConversationMemory;
-use rig::message::Message;
+use crate::model::ChatMessage;
 
-async fn setup_checkpoint(store: &SessionManager, id: &str) -> Vec<Message> {
-    let msgs = vec![Message::user("earlier"), Message::assistant("answer")];
-    let _ = ConversationMemory::append(store, id, msgs).await;
+async fn setup_checkpoint(store: &SessionManager, id: &str) -> Vec<ChatMessage> {
+    let msgs = vec![ChatMessage::user("earlier"), ChatMessage::assistant("answer")];
+    let _ = store.append_messages(id, msgs).await;
     let mut checkpoint = complete_tool_turn(&["call-1", "call-2"]);
     checkpoint.pop();
     let _ = store.save_checkpoint(checkpoint.clone()).await;
@@ -17,11 +16,11 @@ async fn assert_checkpoint_promoted(store: &SessionManager) {
 }
 
 async fn promote_checkpoint_in_session(resumed: &SessionManager) {
-    let cont = vec![Message::user("please continue"), Message::assistant("done")];
+    let cont = vec![ChatMessage::user("please continue"), ChatMessage::assistant("done")];
     let _ = resumed.promote_checkpoint(cont).await;
 }
 
-async fn promote_and_verify(dir: &std::path::Path, id: &str, checkpoint: Vec<Message>) {
+async fn promote_and_verify(dir: &std::path::Path, id: &str, checkpoint: Vec<ChatMessage>) {
     let resumed = SessionManager::new(dir, Some(id)).unwrap();
     assert_eq!(resumed.load_checkpoint().await.unwrap(), Some(checkpoint));
     promote_checkpoint_in_session(&resumed).await;
@@ -46,7 +45,7 @@ async fn budget_checkpoint_rejects_dangling_tools_and_credentials() {
     dangling.truncate(2);
     assert!(store.save_checkpoint(dangling).await.is_err());
     let error = store
-        .save_checkpoint(vec![Message::user("credential-sentinel")])
+        .save_checkpoint(vec![ChatMessage::user("credential-sentinel")])
         .await
         .unwrap_err()
         .to_string();
@@ -67,8 +66,8 @@ async fn append_cancellation_event(store: &SessionManager, boundary: &str) {
 async fn resume_and_append(dir: &std::path::Path, id: &str) {
     let reopened = SessionManager::new(dir, Some(id)).unwrap();
     assert!(reopened.load_messages().await.unwrap().is_empty());
-    let msgs = vec![Message::user("after cancel"), Message::assistant("resumed")];
-    let _ = ConversationMemory::append(&reopened, id, msgs).await;
+    let msgs = vec![ChatMessage::user("after cancel"), ChatMessage::assistant("resumed")];
+    let _ = reopened.append_messages(id, msgs).await;
 }
 
 async fn assert_resumed_count(dir: &std::path::Path, id: &str) {

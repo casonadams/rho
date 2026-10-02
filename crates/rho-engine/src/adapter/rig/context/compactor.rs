@@ -9,10 +9,10 @@ use rig::memory::{Compactor, ConversationMemory};
 use rig::message::Message;
 use rig_memory::{CompactingMemory, MemoryError, SlidingWindowMemory, TemplateCompactor};
 
-use super::SessionManager;
 use super::artifact::{ArtifactParams, build_artifact};
 use super::hashing::message_hashes;
 use super::state::{CompactionInputParams, CompactionState, compaction_input};
+use rho_harness_core::session::SessionManager;
 
 #[derive(Debug, Clone)]
 pub struct CodingArtifact(String);
@@ -143,7 +143,7 @@ pub fn context_memory(
 ) -> Arc<dyn ConversationMemory> {
     let compactor = CodingCompactor::new(durable.clone(), compaction_max_bytes);
     Arc::new(CompactingMemory::new(
-        durable,
+        crate::adapter::rig::RigSessionMemory::new(durable),
         SlidingWindowMemory::last_messages(window_messages),
         compactor,
     ))

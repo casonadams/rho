@@ -1,27 +1,27 @@
 use std::borrow::Borrow;
 
-use rig::message::{Message, UserContent};
+use crate::model::{ChatMessage, UserContent};
 
 use super::estimate_message_tokens;
 use crate::session::compaction::CompactionCut;
 use crate::session::tree::TreeNodeData;
 
-pub fn is_tool_result_message(message: &Message) -> bool {
-    if let Message::User { content } = message {
+pub fn is_tool_result_message(message: &ChatMessage) -> bool {
+    if let ChatMessage::User { content } = message {
         content.iter().any(|c| matches!(c, UserContent::ToolResult(_)))
     } else {
         false
     }
 }
 
-pub fn is_user_turn_start(message: &Message) -> bool {
+pub fn is_user_turn_start(message: &ChatMessage) -> bool {
     match message {
-        Message::User { content } => !content.iter().any(|c| matches!(c, UserContent::ToolResult(_))),
+        ChatMessage::User { content } => !content.iter().any(|c| matches!(c, UserContent::ToolResult(_))),
         _ => false,
     }
 }
 
-fn scan_backwards_for_token_budget<M: Borrow<Message>>(messages: &[M], keep_tokens: usize, model: &str) -> usize {
+fn scan_backwards_for_token_budget<M: Borrow<ChatMessage>>(messages: &[M], keep_tokens: usize, model: &str) -> usize {
     let mut accumulated: usize = 0;
     let mut cut_idx = messages.len();
     for i in (0..messages.len()).rev() {
@@ -34,18 +34,18 @@ fn scan_backwards_for_token_budget<M: Borrow<Message>>(messages: &[M], keep_toke
     cut_idx
 }
 
-fn adjust_for_tool_results<M: Borrow<Message>>(messages: &[M], mut cut_idx: usize) -> usize {
+fn adjust_for_tool_results<M: Borrow<ChatMessage>>(messages: &[M], mut cut_idx: usize) -> usize {
     while cut_idx > 0 && is_tool_result_message(messages[cut_idx].borrow()) {
         cut_idx -= 1;
     }
     cut_idx
 }
 
-fn determine_split_turn<M: Borrow<Message>>(messages: &[M], cut_idx: usize) -> bool {
+fn determine_split_turn<M: Borrow<ChatMessage>>(messages: &[M], cut_idx: usize) -> bool {
     cut_idx > 0 && cut_idx < messages.len() && !is_user_turn_start(messages[cut_idx].borrow())
 }
 
-pub fn find_token_cut_point<M: Borrow<Message>>(
+pub fn find_token_cut_point<M: Borrow<ChatMessage>>(
     messages: &[M],
     keep_recent_tokens: usize,
     model: &str,
@@ -92,7 +92,7 @@ pub fn find_node_token_cut_point(nodes: &[&TreeNodeData], keep_recent_tokens: us
         };
     }
 
-    let messages: Vec<&Message> = nodes.iter().flat_map(|n| &n.messages).collect();
+    let messages: Vec<&ChatMessage> = nodes.iter().flat_map(|n| &n.messages).collect();
     let mut cut = find_token_cut_point(&messages, keep_recent_tokens, model);
     if cut.cut_index < messages.len()
         && let Some((node_id, msg_idx)) = message_position_at(nodes, cut.cut_index)

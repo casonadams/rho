@@ -98,6 +98,19 @@ pub enum UserContent {
     Image(ImageContent),
 }
 
+impl UserContent {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(TextContent::new(text))
+    }
+
+    pub fn image(data: impl Into<String>, media_type: Option<String>) -> Self {
+        Self::Image(ImageContent {
+            data: data.into(),
+            media_type,
+        })
+    }
+}
+
 /// Content block in an assistant message.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -110,6 +123,12 @@ pub enum AssistantContent {
     Reasoning(Reasoning),
     /// Image content emitted by the assistant.
     Image(ImageContent),
+}
+
+impl AssistantContent {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(TextContent::new(text))
+    }
 }
 
 /// Text payload for a content block.
@@ -209,6 +228,17 @@ pub enum ToolResultContent {
 }
 
 impl ToolResultContent {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(TextContent::new(text))
+    }
+
+    pub fn image(data: impl Into<String>, media_type: Option<String>) -> Self {
+        Self::Image(ImageContent {
+            data: data.into(),
+            media_type,
+        })
+    }
+
     pub fn as_text(&self) -> Option<&str> {
         if let Self::Text(t) = self {
             Some(t.text.as_str())

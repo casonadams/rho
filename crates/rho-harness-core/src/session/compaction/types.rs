@@ -1,4 +1,4 @@
-use rig::message::Message;
+use crate::model::ChatMessage;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,8 +71,8 @@ impl CompactionSummaryPayload {
     }
 }
 
-pub fn compaction_summary_message(summary: &str) -> Message {
-    Message::System {
+pub fn compaction_summary_message(summary: &str) -> ChatMessage {
+    ChatMessage::System {
         content: summary.to_string(),
     }
 }

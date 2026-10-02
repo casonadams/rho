@@ -4,9 +4,9 @@ use std::time::Instant;
 
 use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
 use rig::agent::{AgentRunner, CompletionCall, MultiTurnStreamItem, PromptResponse, StreamingError};
-use rig::memory::ConversationMemory;
 use rig::message::Message;
 use rig::streaming::StreamedAssistantContent;
 
@@ -191,7 +191,7 @@ impl AgentEngine {
     async fn try_recover_overflow(
         &self,
         presenter: &dyn Presenter,
-        (visible_history, checkpoint): (&mut Vec<Message>, &mut Option<Vec<Message>>),
+        (visible_history, checkpoint): (&mut Vec<ChatMessage>, &mut Option<Vec<ChatMessage>>),
     ) -> Result<bool> {
         presenter.print_notice("[Context overflow detected: auto-compacting...]");
         let spinner = presenter.start_spinner("Compacting...");
@@ -209,7 +209,9 @@ impl AgentEngine {
         };
         spinner.finish_and_clear();
         print_overflow_compaction_notices(presenter, &stats);
-        *visible_history = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
+        *visible_history = self
+            .session_manager
+            .active_messages()
             .await
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
         *checkpoint = self.session_manager.load_checkpoint().await?;
@@ -219,7 +221,7 @@ impl AgentEngine {
     async fn handle_budget_continuation(
         &self,
         presenter: &dyn Presenter,
-        (turns, hist, vis_hist, chk): (usize, &[Message], &[Message], &mut Option<Vec<Message>>),
+        (turns, hist, vis_hist, chk): (usize, &[ChatMessage], &[ChatMessage], &mut Option<Vec<ChatMessage>>),
     ) -> Result<bool> {
         let pending = checkpoint_messages(vis_hist, hist)?;
         self.session_manager.save_checkpoint(pending.clone()).await?;
@@ -230,7 +232,11 @@ impl AgentEngine {
     async fn try_context_overflow(
         &self,
         (error, presenter): (&StreamingError, &dyn Presenter),
-        (visible_history, checkpoint, overflow_recovered): (&mut Vec<Message>, &mut Option<Vec<Message>>, &mut bool),
+        (visible_history, checkpoint, overflow_recovered): (
+            &mut Vec<ChatMessage>,
+            &mut Option<Vec<ChatMessage>>,
+            &mut bool,
+        ),
     ) -> Result<bool> {
         if !*overflow_recovered && crate::engine::compactor::is_context_overflow_error(error) {
             *overflow_recovered = true;
@@ -244,11 +250,12 @@ impl AgentEngine {
     async fn try_budget_continuation(
         &self,
         (error, presenter): (&StreamingError, &dyn Presenter),
-        (visible_history, checkpoint): (&[Message], &mut Option<Vec<Message>>),
+        (visible_history, checkpoint): (&[ChatMessage], &mut Option<Vec<ChatMessage>>),
     ) -> Result<bool> {
         if let Some((turns, hist)) = budget_history(error) {
+            let rho_hist: Vec<ChatMessage> = hist.into_iter().map(crate::adapter::rig::into_rho_message).collect();
             return self
-                .handle_budget_continuation(presenter, (turns, &hist, visible_history, checkpoint))
+                .handle_budget_continuation(presenter, (turns, &rho_hist, visible_history, checkpoint))
                 .await;
         }
         Ok(false)
@@ -270,8 +277,8 @@ impl AgentEngine {
         &self,
         (error, presenter, sink): (StreamingError, &dyn Presenter, &Arc<TerminalApprovalSink>),
         (visible_history, checkpoint, overflow_recovered, rate_limit_retries, network_retries, content_emitted): (
-            &mut Vec<Message>,
-            &mut Option<Vec<Message>>,
+            &mut Vec<ChatMessage>,
+            &mut Option<Vec<ChatMessage>>,
             &mut bool,
             &mut usize,
             &mut usize,
@@ -327,8 +334,8 @@ impl AgentEngine {
         (runner, sink, presenter): (AgentRunner, &Arc<TerminalApprovalSink>, &dyn Presenter),
         (active_model, visible_history, checkpoint, overflow_recovered, rate_limit_retries, network_retries): (
             &str,
-            &mut Vec<Message>,
-            &mut Option<Vec<Message>>,
+            &mut Vec<ChatMessage>,
+            &mut Option<Vec<ChatMessage>>,
             &mut bool,
             &mut usize,
             &mut usize,
@@ -369,13 +376,17 @@ impl AgentEngine {
     async fn promote_continuation_checkpoint(
         &self,
         messages: Option<Vec<Message>>,
-        checkpoint: Option<&[Message]>,
+        checkpoint: Option<&[ChatMessage]>,
     ) -> Result<()> {
         if checkpoint.is_some() {
             let messages = messages.ok_or_else(|| {
                 AppError::Session("Completed continuation did not return canonical messages".to_string())
             })?;
-            self.session_manager.promote_checkpoint(messages).await?;
+            let rho_messages = messages
+                .into_iter()
+                .map(crate::adapter::rig::into_rho_message)
+                .collect();
+            self.session_manager.promote_checkpoint(rho_messages).await?;
         }
         Ok(())
     }
@@ -399,7 +410,7 @@ impl AgentEngine {
     pub(super) async fn finalize_turn_execution(
         &self,
         state: TurnStreamState,
-        (sink, checkpoint): (&Arc<TerminalApprovalSink>, Option<&[Message]>),
+        (sink, checkpoint): (&Arc<TerminalApprovalSink>, Option<&[ChatMessage]>),
     ) -> Result<TurnOutput> {
         let elapsed = Self::elapsed_generation_ms(&state);
         sink.finish_spinner();
@@ -487,8 +498,8 @@ mod tests {
         );
         let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
         let sink = engine.create_approval_sink(&presenter);
-        let mut visible_history = Vec::new();
-        let mut checkpoint = None;
+        let mut visible_history: Vec<ChatMessage> = Vec::new();
+        let mut checkpoint: Option<Vec<ChatMessage>> = None;
         let mut overflow_recovered = false;
         let mut rate_limit_retries = 0;
         let mut network_retries = 0;
@@ -566,8 +577,8 @@ mod tests {
         );
         let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
         let sink = engine.create_approval_sink(&presenter);
-        let mut visible_history = Vec::new();
-        let mut checkpoint = None;
+        let mut visible_history: Vec<ChatMessage> = Vec::new();
+        let mut checkpoint: Option<Vec<ChatMessage>> = None;
         let mut overflow_recovered = false;
         let mut rate_limit_retries = 0;
         let mut network_retries = 0;

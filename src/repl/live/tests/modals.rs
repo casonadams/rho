@@ -884,7 +884,7 @@ fn make_tree_with_node(id: &str, label: Option<&str>) -> rho_harness_core::sessi
         parent_id: None,
         timestamp: chrono::Utc::now(),
         kind: rho_harness_core::session::tree::TreeNodeKind::UserTurn,
-        messages: vec![rig::message::Message::user("Hello")],
+        messages: vec![rho_harness_core::model::ChatMessage::user("Hello")],
         label: label.map(Into::into),
         metadata: None,
     });

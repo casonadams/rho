@@ -1,4 +1,5 @@
 use rho_harness_core::error::Result;
+use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::compaction::{
     CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message, compose_compaction_summary,
     extract_file_ops, render_file_lists_xml,
@@ -7,7 +8,6 @@ use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 use rho_harness_core::tokens::{find_token_cut_point, is_tool_result_message};
 use rig::agent::ModelHandle;
 use rig::memory::DemotionHook;
-use rig::message::Message;
 use std::sync::Arc;
 
 use super::llm::LlmCompactor;
@@ -36,7 +36,7 @@ impl CompactionStats {
 }
 
 struct FinalizeCompactionPlan<'a> {
-    messages: &'a [Message],
+    messages: &'a [ChatMessage],
     cut_index: usize,
     is_split_turn: bool,
     prior_summary: Option<&'a str>,
@@ -85,7 +85,7 @@ fn resolve_prior_compaction<'a>(
 }
 
 fn calculate_effective_cut(
-    all_msgs: &[Message],
+    all_msgs: &[ChatMessage],
     positions: &[(String, usize)],
     (keep_tokens, model): (usize, &str),
 ) -> CompactionCut {
@@ -105,7 +105,7 @@ fn calculate_effective_cut(
     cut
 }
 
-fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str, context: &ContextTracker) -> usize {
+fn compute_post_compaction_tokens(summary: &str, kept: &[ChatMessage], model: &str, context: &ContextTracker) -> usize {
     let summary_msg = compaction_summary_message(summary);
     let mut kept_with_summary = vec![summary_msg];
     kept_with_summary.extend_from_slice(kept);
@@ -117,7 +117,7 @@ fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str, 
 fn filter_conversation_messages(
     nodes: &[&TreeNodeData],
     first_node_msg_offset: usize,
-) -> (Vec<Message>, Vec<(String, usize)>) {
+) -> (Vec<ChatMessage>, Vec<(String, usize)>) {
     let mut msgs = Vec::new();
     let mut positions = Vec::new();
     let mut is_first = true;
@@ -244,7 +244,7 @@ impl SessionCompactor {
 
     async fn generate_compaction_summary(
         &self,
-        msgs: &[Message],
+        msgs: &[ChatMessage],
         (prior_summary, custom_instructions, is_split_turn): (Option<&str>, Option<&str>, bool),
     ) -> String {
         let compactor = LlmCompactor::new(self.model.clone());
@@ -360,14 +360,14 @@ impl AgentEngine {
     }
 }
 
-pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, session_id: &str, messages: &[Message]) {
+pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, session_id: &str, messages: &[ChatMessage]) {
     if let Some(hook) = hook {
         if messages.is_empty() {
             return;
         }
         let hook = Arc::clone(hook);
         let sid = session_id.to_string();
-        let msgs = messages.to_vec();
+        let msgs = messages.iter().map(crate::adapter::rig::to_rig_message).collect();
         let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(&sid, msgs).await });
         match futures::FutureExt::catch_unwind(fut).await {
             Ok(Ok(())) => {}

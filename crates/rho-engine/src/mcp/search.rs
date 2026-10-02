@@ -295,12 +295,12 @@ impl DynamicToolActivator {
     }
 }
 
-pub fn extract_invoked_tool_names(messages: &[rig::message::Message]) -> HashSet<String> {
+pub fn extract_invoked_tool_names(messages: &[rho_harness_core::model::ChatMessage]) -> HashSet<String> {
     let mut names = HashSet::new();
     for msg in messages {
-        if let rig::message::Message::Assistant { content, .. } = msg {
+        if let rho_harness_core::model::ChatMessage::Assistant { content, .. } = msg {
             for item in content {
-                if let rig::message::AssistantContent::ToolCall(call) = item {
+                if let rho_harness_core::model::AssistantContent::ToolCall(call) = item {
                     names.insert(call.function.name.clone());
                 }
             }
@@ -432,7 +432,6 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
 mod tests {
     use super::*;
     use crate::mcp::transport::McpTransport;
-    use rig::message::{AssistantContent, Message, ToolCall, ToolFunction};
 
     fn make_test_client(name: &str) -> Arc<McpClient> {
         let transport = McpTransport::new_http(
@@ -554,12 +553,14 @@ mod tests {
     #[test]
     fn test_extract_invoked_tool_names() {
         let messages = vec![
-            Message::user("Hello"),
-            Message::Assistant {
-                content: vec![AssistantContent::ToolCall(ToolCall::from_wire(
-                    "c1",
-                    ToolFunction::new("github_create_issue".to_string(), serde_json::json!({})),
-                ))],
+            rho_harness_core::model::ChatMessage::user("Hello"),
+            rho_harness_core::model::ChatMessage::Assistant {
+                content: vec![rho_harness_core::model::AssistantContent::ToolCall(
+                    rho_harness_core::model::ToolCall::new(
+                        "c1",
+                        rho_harness_core::model::ToolFunction::new("github_create_issue", serde_json::json!({})),
+                    ),
+                )],
                 id: None,
             },
         ];

@@ -117,12 +117,10 @@ async fn headless_run_turn_stops_on_proactive_compaction() {
     let engine = proactive_compaction_engine(&workspace);
     let sid = engine.session_manager.session_id.clone();
     let msgs = vec![
-        rig::message::Message::user("Old turn"),
-        rig::message::Message::assistant("Old response"),
+        rho_harness_core::model::ChatMessage::user("Old turn"),
+        rho_harness_core::model::ChatMessage::assistant("Old response"),
     ];
-    rig::memory::ConversationMemory::append(&engine.session_manager, &sid, msgs)
-        .await
-        .unwrap();
+    engine.session_manager.append_messages(&sid, msgs).await.unwrap();
 
     let recording = RecordingSink::default();
     let presenter = Arc::new(StructuredPresenter::recording(recording.clone()));

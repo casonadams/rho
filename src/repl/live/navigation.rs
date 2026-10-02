@@ -217,7 +217,7 @@ pub fn restore_queued_messages<B: TerminalBackend>(controller: &mut TerminalCont
     }
 }
 
-fn tool_result_text(result: &rig::message::ToolResult) -> String {
+fn tool_result_text(result: &rho_harness_core::model::ToolResult) -> String {
     result
         .content
         .iter()
@@ -226,7 +226,10 @@ fn tool_result_text(result: &rig::message::ToolResult) -> String {
         .join("\n")
 }
 
-fn apply_tool_result(pending: &mut HashMap<String, ToolItem>, result: &rig::message::ToolResult) -> ToolItem {
+fn apply_tool_result(
+    pending: &mut HashMap<String, ToolItem>,
+    result: &rho_harness_core::model::ToolResult,
+) -> ToolItem {
     let text = tool_result_text(result);
     match pending.remove(result.call.as_str()) {
         Some(mut tool) => {
@@ -249,17 +252,17 @@ fn push_user_content(
     items: &mut Vec<TranscriptItem>,
     pending: &mut HashMap<String, ToolItem>,
     history: &mut InteractiveHistory,
-    content: &[rig::message::UserContent],
+    content: &[rho_harness_core::model::UserContent],
 ) {
     for item in content {
         match item {
-            rig::message::UserContent::Text(t) => {
+            rho_harness_core::model::UserContent::Text(t) => {
                 if !t.text.trim().is_empty() {
                     let _ = history.record(&t.text);
                     items.push(TranscriptItem::UserMessage(t.text.clone()));
                 }
             }
-            rig::message::UserContent::ToolResult(result) => {
+            rho_harness_core::model::UserContent::ToolResult(result) => {
                 let tool = apply_tool_result(pending, result);
                 items.push(TranscriptItem::Tool(tool));
             }
@@ -271,16 +274,16 @@ fn push_user_content(
 fn push_assistant_content(
     items: &mut Vec<TranscriptItem>,
     pending: &mut HashMap<String, ToolItem>,
-    content: &[rig::message::AssistantContent],
+    content: &[rho_harness_core::model::AssistantContent],
 ) {
     for item in content {
         match item {
-            rig::message::AssistantContent::Text(t) => {
+            rho_harness_core::model::AssistantContent::Text(t) => {
                 if !t.text.trim().is_empty() {
                     items.push(TranscriptItem::AssistantText(t.text.clone()));
                 }
             }
-            rig::message::AssistantContent::ToolCall(call) => {
+            rho_harness_core::model::AssistantContent::ToolCall(call) => {
                 let tool = ToolItem {
                     name: call.function.name.clone(),
                     arguments: call.function.arguments.clone(),
@@ -306,10 +309,10 @@ pub fn hydrate_session_transcript<B: TerminalBackend>(
 
     for message in tree.active_messages() {
         match message {
-            rig::message::Message::User { content } => {
+            rho_harness_core::model::ChatMessage::User { content } => {
                 push_user_content(&mut items, &mut pending_tools, history, content.as_slice());
             }
-            rig::message::Message::Assistant { content, .. } => {
+            rho_harness_core::model::ChatMessage::Assistant { content, .. } => {
                 push_assistant_content(&mut items, &mut pending_tools, content.as_slice());
             }
             _ => {}

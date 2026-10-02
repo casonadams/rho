@@ -1,7 +1,7 @@
 use super::format::{StoreState, load_file, load_file_async};
 use crate::error::Result;
+use crate::model::{ChatMessage, UserContent};
 use chrono::{DateTime, Utc};
-use rig::message::Message;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -131,9 +131,9 @@ fn extract_root_preview(state: &StoreState) -> String {
         .first()
         .and_then(|n| {
             n.messages.iter().find_map(|m| match m {
-                Message::User { content } => content.first().map(|c| match c {
-                    rig::message::UserContent::Text(t) => t.text.clone(),
-                    _ => String::new(),
+                ChatMessage::User { content } => content.first().and_then(|c| match c {
+                    UserContent::Text(t) => Some(t.text.clone()),
+                    _ => None,
                 }),
                 _ => None,
             })
@@ -181,8 +181,8 @@ pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::ChatMessage;
     use crate::session::SessionManager;
-    use rig::message::Message;
 
     fn temp_test_dir(label: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("session_summary_test_{label}_{}", uuid::Uuid::new_v4()));
@@ -249,26 +249,19 @@ mod tests {
         let session_a = SessionManager::new(&dir, None).unwrap();
         let sid_a = session_a.session_id.clone();
         session_a.set_session_name("Alpha Session").await.unwrap();
-        session_a
-            .append_messages(
-                &sid_a,
-                vec![Message::user("first question"), Message::assistant("first reply")],
-            )
-            .await
-            .unwrap();
+        let msgs_a = vec![
+            ChatMessage::user("first question"),
+            ChatMessage::assistant("first reply"),
+        ];
+        session_a.append_messages(&sid_a, msgs_a).await.unwrap();
 
         let session_b = SessionManager::new(&dir, None).unwrap();
         let sid_b = session_b.session_id.clone();
-        session_b
-            .append_messages(
-                &sid_b,
-                vec![
-                    Message::user("second session prompt"),
-                    Message::assistant("second reply"),
-                ],
-            )
-            .await
-            .unwrap();
+        let msgs_b = vec![
+            ChatMessage::user("second session prompt"),
+            ChatMessage::assistant("second reply"),
+        ];
+        session_b.append_messages(&sid_b, msgs_b).await.unwrap();
 
         let session_c = SessionManager::new(&dir, None).unwrap();
         let sid_c = session_c.session_id.clone();

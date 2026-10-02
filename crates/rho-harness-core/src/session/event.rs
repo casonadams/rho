@@ -1,8 +1,8 @@
 use super::SessionManager;
 use super::format::{SessionEvent, SessionEventKind, SessionRecord, append_record};
 use crate::error::Result;
+use crate::model::ChatMessage;
 use chrono::Utc;
-use rig::message::Message;
 use serde_json::Value;
 
 impl SessionManager {
@@ -30,7 +30,7 @@ impl SessionManager {
         Ok(self.state.lock().await.events.clone())
     }
 
-    pub async fn load_messages(&self) -> Result<Vec<Message>> {
+    pub async fn load_messages(&self) -> Result<Vec<ChatMessage>> {
         Ok(self.state.lock().await.messages.clone())
     }
 }

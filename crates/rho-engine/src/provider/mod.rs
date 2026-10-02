@@ -1,9 +1,12 @@
+pub mod adapter;
 mod builders;
 pub mod capabilities;
 pub mod discovery;
 mod extras;
 pub mod sse;
 pub mod store;
+
+pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 
 pub use capabilities::supports_tool_result_images;
 pub use discovery::DiscoveredModel;

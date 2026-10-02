@@ -8,8 +8,6 @@ use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::eval::mock::{MockEngineConfig, mock_engine_with_session};
 use rho_harness_core::session::SessionManager;
-use rig::memory::ConversationMemory;
-use rig::message::Message;
 use rig::test_utils::MockCompletionModel;
 use tokio::sync::mpsc;
 
@@ -78,13 +76,13 @@ async fn compact_command_with_instructions_dispatches() {
 
 async fn seed_long_turns(session_mgr: &SessionManager, sid: &str) {
     for i in 0..4 {
-        let u = Message::user(format!(
+        let u = rho_harness_core::model::ChatMessage::user(format!(
             "Detailed query {i} with long description to consume context tokens"
         ));
-        let a = Message::assistant(format!(
+        let a = rho_harness_core::model::ChatMessage::assistant(format!(
             "Comprehensive answer {i} analyzing the system and reviewing code"
         ));
-        session_mgr.append(sid, vec![u, a]).await.unwrap();
+        session_mgr.append_messages(sid, vec![u, a]).await.unwrap();
     }
 }
 
@@ -272,10 +270,10 @@ async fn export_command_writes_markdown_default_path() {
     let workspace = std::env::temp_dir().join(format!("export_cmd_{}", uuid::Uuid::new_v4()));
     let (mut config, session_manager, session_id) = setup_export_session(&workspace).await;
     let msgs = vec![
-        Message::user("hello for export"),
-        Message::assistant("hello from the transcript"),
+        rho_harness_core::model::ChatMessage::user("hello for export"),
+        rho_harness_core::model::ChatMessage::assistant("hello from the transcript"),
     ];
-    session_manager.append(&session_id, msgs).await.unwrap();
+    session_manager.append_messages(&session_id, msgs).await.unwrap();
 
     let (mut auth, (renderer, mut events)) = (AuthStore::default(), collecting_renderer());
     let mut context = SlashCommandContext {

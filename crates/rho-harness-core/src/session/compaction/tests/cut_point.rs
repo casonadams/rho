@@ -1,31 +1,24 @@
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
 use crate::session::tree::{TreeNodeData, TreeNodeKind};
 use crate::tokens::{find_node_token_cut_point, find_token_cut_point};
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
-};
 
 #[test]
 fn test_find_token_cut_point_preserves_atomic_tool_pairs() {
     let messages = vec![
-        Message::user("Turn 1 user request"),
-        Message::assistant("Turn 1 assistant response"),
-        Message::user("Turn 2 user request"),
-        Message::Assistant {
+        ChatMessage::user("Turn 1 user request"),
+        ChatMessage::assistant("Turn 1 assistant response"),
+        ChatMessage::user("Turn 2 user request"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/main.rs"})),
+                "c1",
+                ToolFunction::new("read", serde_json::json!({"path": "src/main.rs"})),
             ))],
         },
-        Message::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("c1"),
-                provider: None,
-                name: "read".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new("fn main() {}"))],
-            })],
+        ChatMessage::User {
+            content: vec![UserContent::ToolResult(ToolResult::new("c1", "read", "fn main() {}"))],
         },
-        Message::assistant("Turn 2 final answer"),
+        ChatMessage::assistant("Turn 2 final answer"),
     ];
 
     let cut = find_token_cut_point(&messages, 20, "claude-3-7-sonnet");
@@ -36,10 +29,10 @@ fn test_find_token_cut_point_preserves_atomic_tool_pairs() {
 #[test]
 fn test_find_token_cut_point_split_turn_detection() {
     let messages = vec![
-        Message::user("User turn 1"),
-        Message::assistant("Assistant turn 1"),
-        Message::user("User turn 2"),
-        Message::assistant("Assistant turn 2"),
+        ChatMessage::user("User turn 1"),
+        ChatMessage::assistant("Assistant turn 1"),
+        ChatMessage::user("User turn 2"),
+        ChatMessage::assistant("Assistant turn 2"),
     ];
 
     let cut_clean = find_token_cut_point(&messages, 20, "gpt-4");
@@ -48,9 +41,9 @@ fn test_find_token_cut_point_split_turn_detection() {
     }
 
     let oversized_turn = vec![
-        Message::user("User initial prompt"),
-        Message::assistant("Assistant step 1: beginning analysis of the problem in great detail with many tokens."),
-        Message::assistant("Assistant step 2: continuing the analysis and generating a very large response."),
+        ChatMessage::user("User initial prompt"),
+        ChatMessage::assistant("Assistant step 1: beginning analysis of the problem in great detail with many tokens."),
+        ChatMessage::assistant("Assistant step 2: continuing the analysis and generating a very large response."),
     ];
 
     let cut_split = find_token_cut_point(&oversized_turn, 15, "gpt-4");
@@ -65,7 +58,10 @@ fn sample_cut_nodes() -> (TreeNodeData, TreeNodeData) {
         parent_id: None,
         timestamp: now,
         kind: TreeNodeKind::UserTurn,
-        messages: vec![Message::user("Turn 1 user"), Message::assistant("Turn 1 assistant")],
+        messages: vec![
+            ChatMessage::user("Turn 1 user"),
+            ChatMessage::assistant("Turn 1 assistant"),
+        ],
         label: None,
         metadata: None,
     };
@@ -74,7 +70,10 @@ fn sample_cut_nodes() -> (TreeNodeData, TreeNodeData) {
         parent_id: Some("node-1".to_string()),
         timestamp: now,
         kind: TreeNodeKind::UserTurn,
-        messages: vec![Message::user("Turn 2 user"), Message::assistant("Turn 2 assistant")],
+        messages: vec![
+            ChatMessage::user("Turn 2 user"),
+            ChatMessage::assistant("Turn 2 assistant"),
+        ],
         label: None,
         metadata: None,
     };

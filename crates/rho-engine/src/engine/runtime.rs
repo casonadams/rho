@@ -42,7 +42,7 @@ pub fn build_coding_agent(
     let tool_server = rig::tool::server::ToolServer::new().dynamic_tools(tools);
     let tool_handle = tool_server.run();
     let builder = AgentBuilder::from_model_handle(model)
-        .memory(memory)
+        .memory(crate::adapter::rig::RigSessionMemory::new(memory))
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
         .tool_server_handle(tool_handle.clone());

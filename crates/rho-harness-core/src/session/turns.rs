@@ -1,6 +1,6 @@
 use super::SessionManager;
 use crate::error::Result;
-use rig::message::Message;
+use crate::model::{AssistantContent, ChatMessage, UserContent};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -42,8 +42,8 @@ impl TurnAccumulator {
         }
     }
 
-    fn push_user_part(&mut self, part: &rig::message::UserContent) {
-        if let rig::message::UserContent::Text(t) = part {
+    fn push_user_part(&mut self, part: &UserContent) {
+        if let UserContent::Text(t) = part {
             if !self.prompt.is_empty() {
                 self.prompt.push(' ');
             }
@@ -51,23 +51,23 @@ impl TurnAccumulator {
         }
     }
 
-    fn push_assistant_part(&mut self, part: &rig::message::AssistantContent) {
+    fn push_assistant_part(&mut self, part: &AssistantContent) {
         match part {
-            rig::message::AssistantContent::Text(t) => {
+            AssistantContent::Text(t) => {
                 if !self.assistant.is_empty() {
                     self.assistant.push(' ');
                 }
                 self.assistant.push_str(&t.text);
             }
-            rig::message::AssistantContent::ToolCall(_) => self.tool_calls += 1,
+            AssistantContent::ToolCall(_) => self.tool_calls += 1,
             _ => {}
         }
     }
 
-    fn process_message(&mut self, msg: &Message) {
+    fn process_message(&mut self, msg: &ChatMessage) {
         match msg {
-            Message::User { content } => {
-                let has_text = content.iter().any(|c| matches!(c, rig::message::UserContent::Text(_)));
+            ChatMessage::User { content } => {
+                let has_text = content.iter().any(|c| matches!(c, UserContent::Text(_)));
                 if has_text {
                     self.flush();
                 }
@@ -75,17 +75,17 @@ impl TurnAccumulator {
                     self.push_user_part(part);
                 }
             }
-            Message::Assistant { content, .. } => {
+            ChatMessage::Assistant { content, .. } => {
                 for part in content {
                     self.push_assistant_part(part);
                 }
             }
-            Message::System { .. } => {}
+            ChatMessage::System { .. } => {}
         }
     }
 }
 
-pub fn extract_turns(messages: &[Message]) -> Vec<ConversationTurn> {
+pub fn extract_turns(messages: &[ChatMessage]) -> Vec<ConversationTurn> {
     let mut acc = TurnAccumulator::new();
     for msg in messages {
         acc.process_message(msg);
@@ -94,11 +94,11 @@ pub fn extract_turns(messages: &[Message]) -> Vec<ConversationTurn> {
     acc.turns
 }
 
-fn is_user_text_turn(msg: &Message) -> bool {
-    matches!(msg, Message::User { content } if content.iter().any(|c| matches!(c, rig::message::UserContent::Text(_))))
+fn is_user_text_turn(msg: &ChatMessage) -> bool {
+    matches!(msg, ChatMessage::User { content } if content.iter().any(|c| matches!(c, UserContent::Text(_))))
 }
 
-pub fn calculate_rewind_cutoff(messages: &[Message], target_turn: usize) -> usize {
+pub fn calculate_rewind_cutoff(messages: &[ChatMessage], target_turn: usize) -> usize {
     let mut user_turn_count = 0;
     let mut cutoff_idx = 0;
 

@@ -280,32 +280,32 @@ async fn test_rpc_config_update_handlers() {
 
 #[test]
 fn test_extract_chat_messages_preserves_tools() {
-    use rig::message::{
-        AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+    use rho_harness_core::model::{
+        AssistantContent, ChatMessage, TextContent, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
     };
     let msgs = vec![
-        Message::user("run check"),
-        Message::Assistant {
+        ChatMessage::user("run check"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![
-                AssistantContent::text("I will run the command."),
+                AssistantContent::Text(TextContent::new("I will run the command.")),
                 AssistantContent::ToolCall(ToolCall::new(
-                    ToolCallId::new_or_mint("call_1"),
-                    ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo check" })),
+                    "call_1",
+                    ToolFunction::new("bash", serde_json::json!({ "command": "cargo check" })),
                 )),
             ],
         },
-        Message::User {
+        ChatMessage::User {
             content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("call_1"),
+                call: "call_1".to_string(),
                 provider: None,
                 name: "bash".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new(
+                content: vec![ToolResultContent::Text(TextContent::new(
                     "Finished dev [unoptimized + debuginfo]",
                 ))],
             })],
         },
-        Message::assistant("Check passed cleanly."),
+        ChatMessage::assistant("Check passed cleanly."),
     ];
 
     let extracted = extract_chat_messages(&msgs);

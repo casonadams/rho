@@ -2,6 +2,7 @@ use super::super::session_error;
 use super::super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use super::types::{SessionRecord, StoreState};
 use crate::error::Result;
+use crate::model::ChatMessage;
 
 macro_rules! extract_record_ident {
     ($record:expr) => {
@@ -53,7 +54,7 @@ fn validate_record_ordering(sequence: u64, session_id: &str, expected_id: &str, 
 
 fn apply_canonical_messages(
     state: &mut StoreState,
-    messages: Vec<rig::message::Message>,
+    messages: Vec<ChatMessage>,
     timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     if messages.is_empty() {
@@ -74,7 +75,7 @@ fn apply_canonical_messages(
     Ok(())
 }
 
-fn apply_checkpoint_record(state: &mut StoreState, messages: Vec<rig::message::Message>) -> Result<()> {
+fn apply_checkpoint_record(state: &mut StoreState, messages: Vec<ChatMessage>) -> Result<()> {
     if messages.is_empty() {
         return Err(session_error("run checkpoints cannot be empty"));
     }
@@ -85,7 +86,7 @@ fn apply_checkpoint_record(state: &mut StoreState, messages: Vec<rig::message::M
 
 fn apply_checkpoint_promoted(
     state: &mut StoreState,
-    messages: Vec<rig::message::Message>,
+    messages: Vec<ChatMessage>,
     timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<()> {
     let checkpoint = state

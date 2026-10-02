@@ -21,8 +21,6 @@ anyhow.workspace = true
 chrono.workspace = true
 clap = { version = "4.5", features = ["derive", "env"] }
 dotenvy = "0.15"
-rig.workspace = true
-rig-memory.workspace = true
 toml.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"] }
 uuid = { workspace = true, features = ["v4"] }

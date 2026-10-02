@@ -1,6 +1,7 @@
 use super::*;
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+use crate::model::{
+    AssistantContent, ChatMessage, ImageContent, TextContent, ToolCall, ToolFunction, ToolResult, ToolResultContent,
+    UserContent,
 };
 
 #[test]
@@ -41,10 +42,13 @@ fn test_estimate_text_tokens_claude_calibration() {
 
 #[test]
 fn test_estimate_image_tokens() {
-    let msg = Message::User {
+    let msg = ChatMessage::User {
         content: vec![
-            UserContent::text("Analyze this image:"),
-            UserContent::image_raw(vec![1, 2, 3, 4], None, None),
+            UserContent::Text(TextContent::new("Analyze this image:")),
+            UserContent::Image(ImageContent {
+                data: "raw_bytes".to_string(),
+                media_type: None,
+            }),
         ],
     };
     let tokens = estimate_message_tokens(&msg, "gpt-4o");
@@ -57,14 +61,17 @@ fn test_estimate_image_tokens() {
 
 #[test]
 fn test_estimate_tool_result_image_tokens() {
-    let unpruned_msg = Message::User {
+    let unpruned_msg = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("call-1"),
+            call: "call-1".to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(rig::message::Text::new("Read image file [image/png]")),
-                ToolResultContent::image_base64("iVBORw0KGgo=", None, None),
+                ToolResultContent::Text(TextContent::new("Read image file [image/png]")),
+                ToolResultContent::Image(ImageContent {
+                    data: "iVBORw0KGgo=".to_string(),
+                    media_type: None,
+                }),
             ],
         })],
     };
@@ -75,12 +82,12 @@ fn test_estimate_tool_result_image_tokens() {
         text_tokens + ESTIMATED_IMAGE_TOKENS + DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE
     );
 
-    let pruned_msg = Message::User {
+    let pruned_msg = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("call-1"),
+            call: "call-1".to_string(),
             provider: None,
             name: "read".to_string(),
-            content: vec![ToolResultContent::Text(rig::message::Text::new(
+            content: vec![ToolResultContent::Text(TextContent::new(
                 "[Image 'foo.png' (image/png) read. Image content pruned for historical turn.]",
             ))],
         })],
@@ -91,16 +98,14 @@ fn test_estimate_tool_result_image_tokens() {
 
 #[test]
 fn test_estimate_message_tokens() {
-    let msg = Message::User {
+    let msg = ChatMessage::User {
         content: vec![
-            UserContent::text("Hello world!"),
+            UserContent::Text(TextContent::new("Hello world!")),
             UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("call-1"),
+                call: "call-1".to_string(),
                 provider: None,
                 name: "read".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new(
-                    "file content sample line",
-                ))],
+                content: vec![ToolResultContent::Text(TextContent::new("file content sample line"))],
             }),
         ],
     };
@@ -112,9 +117,9 @@ fn test_estimate_message_tokens() {
 #[test]
 fn test_calculate_context_tokens() {
     let messages = vec![
-        Message::user("Initial prompt"),
-        Message::assistant("Response 1"),
-        Message::user("Trailing query"),
+        ChatMessage::user("Initial prompt"),
+        ChatMessage::assistant("Response 1"),
+        ChatMessage::user("Trailing query"),
     ];
 
     let stats_no_anchor = calculate_context_tokens(&messages, None, "gpt-4");
@@ -145,34 +150,34 @@ fn test_should_compact_thresholds() {
 #[test]
 fn test_is_in_lead_band() {
     let window = 200_000;
-    let reserve = 20_000; // threshold = 180_000, lead_threshold = 180_000 * 0.85 = 153_000
+    let reserve = 20_000;
     assert!(!is_in_lead_band(100_000, window, reserve));
     assert!(is_in_lead_band(153_000, window, reserve));
     assert!(is_in_lead_band(170_000, window, reserve));
     assert!(is_in_lead_band(180_000, window, reserve));
-    assert!(!is_in_lead_band(180_001, window, reserve)); // above threshold
+    assert!(!is_in_lead_band(180_001, window, reserve));
 }
 
 #[test]
 fn test_find_token_cut_point_and_tool_pair_preservation() {
     let messages = vec![
-        Message::user("User message 1"),
-        Message::Assistant {
+        ChatMessage::user("User message 1"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("call-1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "test.txt"})),
+                "call-1",
+                ToolFunction::new("read", serde_json::json!({"path": "test.txt"})),
             ))],
         },
-        Message::User {
+        ChatMessage::User {
             content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("call-1"),
+                call: "call-1".to_string(),
                 provider: None,
                 name: "read".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new("test content"))],
+                content: vec![ToolResultContent::Text(TextContent::new("test content"))],
             })],
         },
-        Message::assistant("Assistant final"),
+        ChatMessage::assistant("Assistant final"),
     ];
 
     let cut = find_token_cut_point(&messages, 10, "gpt-4");
@@ -225,28 +230,26 @@ fn context_window_size_for_gpt_6_reasoning_models_is_372k() {
 
 #[test]
 fn test_bpe_token_counter_matches_estimate_message_tokens() {
-    use rig_memory::TokenCounter;
-
     let model = "gpt-4";
     let counter = BpeTokenCounter::new(model);
 
     let messages = [
-        Message::system("System instructions for testing"),
-        Message::user("Hello user prompt"),
-        Message::assistant("Hello assistant response"),
-        Message::Assistant {
+        ChatMessage::system("System instructions for testing"),
+        ChatMessage::user("Hello user prompt"),
+        ChatMessage::assistant("Hello assistant response"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("call-1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "file.txt"})),
+                "call-1",
+                ToolFunction::new("read", serde_json::json!({"path": "file.txt"})),
             ))],
         },
-        Message::User {
+        ChatMessage::User {
             content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("call-1"),
+                call: "call-1".to_string(),
                 provider: None,
                 name: "read".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new("file contents"))],
+                content: vec![ToolResultContent::Text(TextContent::new("file contents"))],
             })],
         },
     ];
@@ -257,27 +260,22 @@ fn test_bpe_token_counter_matches_estimate_message_tokens() {
     }
 
     let default_counter = BpeTokenCounter::default();
-    let text_msg = Message::user("Another test message");
+    let text_msg = ChatMessage::user("Another test message");
     assert_eq!(default_counter.count(&text_msg), estimate_message_tokens(&text_msg, ""));
-
-    let _policy = rig_memory::TokenWindowMemory::new(1000, counter);
 }
 
 #[test]
 fn test_estimate_assistant_tool_call_compact_json() {
     let pretty_call = AssistantContent::ToolCall(ToolCall::new(
-        ToolCallId::new_or_mint("call-1"),
+        "call-1",
         ToolFunction::new(
-            "write".to_string(),
+            "write",
             serde_json::Value::String("{\n  \"path\": \"hello.rs\",\n  \"content\": \"world\"\n}".to_string()),
         ),
     ));
     let compact_call = AssistantContent::ToolCall(ToolCall::new(
-        ToolCallId::new_or_mint("call-1"),
-        ToolFunction::new(
-            "write".to_string(),
-            serde_json::json!({"path": "hello.rs", "content": "world"}),
-        ),
+        "call-1",
+        ToolFunction::new("write", serde_json::json!({"path": "hello.rs", "content": "world"})),
     ));
     let tokens_pretty = estimate_assistant_content_tokens(&pretty_call, "gpt-4");
     let tokens_compact = estimate_assistant_content_tokens(&compact_call, "gpt-4");
@@ -288,9 +286,9 @@ fn test_estimate_assistant_tool_call_compact_json() {
 fn test_message_token_cache_memoization() {
     let mut cache = MessageTokenCache::new();
     let messages = vec![
-        Message::user("First user message"),
-        Message::assistant("First assistant reply"),
-        Message::user("Second user query"),
+        ChatMessage::user("First user message"),
+        ChatMessage::assistant("First assistant reply"),
+        ChatMessage::user("Second user query"),
     ];
 
     let count1 = cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
@@ -308,18 +306,16 @@ fn test_message_token_cache_memoization() {
 fn test_message_token_cache_incremental_addition() {
     let mut cache = MessageTokenCache::new();
     let mut messages = vec![
-        Message::user("First user message"),
-        Message::assistant("First assistant reply"),
+        ChatMessage::user("First user message"),
+        ChatMessage::assistant("First assistant reply"),
     ];
 
     cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
     assert_eq!(cache.misses(), 2);
     assert_eq!(cache.hits(), 0);
 
-    // Add 1 message
-    messages.push(Message::user("Third message newly added"));
+    messages.push(ChatMessage::user("Third message newly added"));
     cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
-    // Prior 2 messages were hits, 1 new message was a miss
     assert_eq!(cache.misses(), 3);
     assert_eq!(cache.hits(), 2);
 }
@@ -328,9 +324,9 @@ fn test_message_token_cache_incremental_addition() {
 fn test_message_token_cache_context_tokens_calculation() {
     let mut cache = MessageTokenCache::new();
     let messages = vec![
-        Message::user("User question 1"),
-        Message::assistant("Assistant answer 1"),
-        Message::user("User question 2"),
+        ChatMessage::user("User question 1"),
+        ChatMessage::assistant("Assistant answer 1"),
+        ChatMessage::user("User question 2"),
     ];
 
     let stats_unanchored = cache.calculate_context_tokens(&messages, None, "gpt-4");
@@ -345,7 +341,7 @@ fn test_message_token_cache_context_tokens_calculation() {
 #[test]
 fn test_message_token_cache_clear() {
     let mut cache = MessageTokenCache::new();
-    let msg = Message::user("test message");
+    let msg = ChatMessage::user("test message");
     cache.get_or_compute(&msg, "gpt-4");
     assert_eq!(cache.len(), 1);
     assert_eq!(cache.misses(), 1);
@@ -358,17 +354,29 @@ fn test_message_token_cache_clear() {
 
 #[test]
 fn test_hash_message_image_efficiency() {
-    let msg1 = Message::User {
-        content: vec![UserContent::image_raw(vec![1, 2, 3, 4], None, None)],
+    let msg1 = ChatMessage::User {
+        content: vec![UserContent::Image(ImageContent {
+            data: "raw_bytes_1".to_string(),
+            media_type: None,
+        })],
     };
-    let msg2 = Message::User {
-        content: vec![UserContent::image_raw(vec![1, 2, 3, 4], None, None)],
+    let msg2 = ChatMessage::User {
+        content: vec![UserContent::Image(ImageContent {
+            data: "raw_bytes_1".to_string(),
+            media_type: None,
+        })],
     };
-    let msg3 = Message::User {
-        content: vec![UserContent::image_raw(vec![1, 2, 3, 5], None, None)],
+    let msg3 = ChatMessage::User {
+        content: vec![UserContent::Image(ImageContent {
+            data: "raw_bytes_2".to_string(),
+            media_type: None,
+        })],
     };
-    let msg4 = Message::User {
-        content: vec![UserContent::image_base64("aGVsbG8=", None, None)],
+    let msg4 = ChatMessage::User {
+        content: vec![UserContent::Image(ImageContent {
+            data: "raw_bytes_1".to_string(),
+            media_type: Some("image/png".to_string()),
+        })],
     };
 
     let hash1 = hash_message(&msg1, "gpt-4o");
@@ -383,36 +391,45 @@ fn test_hash_message_image_efficiency() {
 
 #[test]
 fn test_hash_message_tool_result_image() {
-    let msg1 = Message::User {
+    let msg1 = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("call-1"),
+            call: "call-1".to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(rig::message::Text::new("Read image")),
-                ToolResultContent::image_base64("data1", None, None),
+                ToolResultContent::Text(TextContent::new("Read image")),
+                ToolResultContent::Image(ImageContent {
+                    data: "data1".to_string(),
+                    media_type: None,
+                }),
             ],
         })],
     };
-    let msg2 = Message::User {
+    let msg2 = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("call-1"),
+            call: "call-1".to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(rig::message::Text::new("Read image")),
-                ToolResultContent::image_base64("data1", None, None),
+                ToolResultContent::Text(TextContent::new("Read image")),
+                ToolResultContent::Image(ImageContent {
+                    data: "data1".to_string(),
+                    media_type: None,
+                }),
             ],
         })],
     };
-    let msg3 = Message::User {
+    let msg3 = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("call-1"),
+            call: "call-1".to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(rig::message::Text::new("Read image")),
-                ToolResultContent::image_base64("data2", None, None),
+                ToolResultContent::Text(TextContent::new("Read image")),
+                ToolResultContent::Image(ImageContent {
+                    data: "data2".to_string(),
+                    media_type: None,
+                }),
             ],
         })],
     };
@@ -426,28 +443,25 @@ fn test_message_token_cache_bounded() {
     let mut cache = MessageTokenCache::with_capacity(3);
     assert_eq!(cache.capacity(), 3);
 
-    let m1 = Message::user("message 1");
-    let m2 = Message::user("message 2");
-    let m3 = Message::user("message 3");
-    let m4 = Message::user("message 4");
+    let m1 = ChatMessage::user("message 1");
+    let m2 = ChatMessage::user("message 2");
+    let m3 = ChatMessage::user("message 3");
+    let m4 = ChatMessage::user("message 4");
 
     cache.get_or_compute(&m1, "gpt-4o");
     cache.get_or_compute(&m2, "gpt-4o");
     cache.get_or_compute(&m3, "gpt-4o");
     assert_eq!(cache.len(), 3);
 
-    // Adding 4th message should evict oldest (m1)
     cache.get_or_compute(&m4, "gpt-4o");
     assert_eq!(cache.len(), 3);
 
-    // m2, m3, m4 should be hits
     let hits_before = cache.hits();
     cache.get_or_compute(&m2, "gpt-4o");
     cache.get_or_compute(&m3, "gpt-4o");
     cache.get_or_compute(&m4, "gpt-4o");
     assert_eq!(cache.hits(), hits_before + 3);
 
-    // m1 was evicted, so accessing it should miss
     let misses_before = cache.misses();
     cache.get_or_compute(&m1, "gpt-4o");
     assert_eq!(cache.misses(), misses_before + 1);

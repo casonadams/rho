@@ -1,6 +1,5 @@
+use rho_harness_core::model::{ChatMessage, ToolResult, ToolResultContent, UserContent};
 use rig::agent::ModelHandle;
-use rig::completion::message::MimeType;
-use rig::message::{Message, ToolResultContent, UserContent};
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
@@ -83,7 +82,7 @@ where
     }
 }
 
-fn truncate_oldest_round(messages: &[Message]) -> Option<Vec<Message>> {
+fn truncate_oldest_round(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
     let first_user_idx = messages.iter().position(is_user_turn_start)?;
     let second_user_idx = messages[first_user_idx + 1..]
         .iter()
@@ -98,14 +97,14 @@ fn truncate_oldest_round(messages: &[Message]) -> Option<Vec<Message>> {
     Some(truncated)
 }
 
-pub fn strip_media_for_summarization(messages: &[Message]) -> Vec<Message> {
+pub fn strip_media_for_summarization(messages: &[ChatMessage]) -> Vec<ChatMessage> {
     messages.iter().map(strip_media_from_message).collect()
 }
 
 fn strip_media_from_user_content(item: &UserContent) -> UserContent {
     match item {
         UserContent::Image(img) => {
-            let mime = img.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+            let mime = img.media_type.as_deref().unwrap_or("unknown");
             UserContent::text(format!("[Image: {mime}]"))
         }
         UserContent::ToolResult(res) => {
@@ -114,13 +113,13 @@ fn strip_media_from_user_content(item: &UserContent) -> UserContent {
                 .iter()
                 .map(|c| match c {
                     ToolResultContent::Image(img) => {
-                        let mime = img.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+                        let mime = img.media_type.as_deref().unwrap_or("unknown");
                         ToolResultContent::text(format!("[Image: {mime}]"))
                     }
                     other => other.clone(),
                 })
                 .collect();
-            UserContent::ToolResult(rig::message::ToolResult {
+            UserContent::ToolResult(ToolResult {
                 call: res.call.clone(),
                 provider: res.provider.clone(),
                 name: res.name.clone(),
@@ -131,11 +130,11 @@ fn strip_media_from_user_content(item: &UserContent) -> UserContent {
     }
 }
 
-fn strip_media_from_message(msg: &Message) -> Message {
+fn strip_media_from_message(msg: &ChatMessage) -> ChatMessage {
     match msg {
-        Message::User { content } => {
+        ChatMessage::User { content } => {
             let new_content = content.iter().map(strip_media_from_user_content).collect();
-            Message::User { content: new_content }
+            ChatMessage::User { content: new_content }
         }
         other => other.clone(),
     }
@@ -164,13 +163,13 @@ impl LlmCompactor {
         run_agent_extraction(model, prompt).await.ok()
     }
 
-    pub async fn summarize(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
+    pub async fn summarize(&self, messages: &[ChatMessage], options: SummarizeOptions<'_>) -> String {
         self.summarize_with_usage(messages, options).await.0
     }
 
     pub async fn summarize_with_usage(
         &self,
-        messages: &[Message],
+        messages: &[ChatMessage],
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
         if messages.is_empty() {
@@ -213,7 +212,7 @@ impl LlmCompactor {
 
     async fn summarize_full_with_usage(
         &self,
-        messages: &[Message],
+        messages: &[ChatMessage],
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
         const MAX_OVERFLOW_RETRIES: usize = 3;
@@ -248,7 +247,7 @@ impl LlmCompactor {
 
     async fn summarize_prefix_with_usage(
         &self,
-        prefix: &[Message],
+        prefix: &[ChatMessage],
         instructions: Option<&str>,
     ) -> (String, Option<StructuralUsage>) {
         const MAX_OVERFLOW_RETRIES: usize = 3;
@@ -279,7 +278,7 @@ impl LlmCompactor {
 
     async fn summarize_head_turn_with_usage(
         &self,
-        messages: &[Message],
+        messages: &[ChatMessage],
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
         let (prefix_summary, usage) = self
@@ -294,7 +293,7 @@ impl LlmCompactor {
 
     async fn summarize_split_turn_with_usage(
         &self,
-        messages: &[Message],
+        messages: &[ChatMessage],
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
         let split = messages.iter().rposition(is_user_turn_start).unwrap_or(0);

@@ -1,14 +1,14 @@
 use super::{SessionManager, temp_dir};
+use crate::model::ChatMessage;
 use crate::session::compaction::{CompactionDetails, CompactionMetadata, compaction_summary_message};
 use crate::session::tree::{TreeNodeData, TreeNodeKind};
 use chrono::Utc;
-use rig::message::Message;
 
 async fn append_turn(session: &SessionManager, sid: &str, n: usize) -> Option<String> {
     let prompt = format!("turn {n} prompt");
     let reply = format!("turn {n} reply");
     session
-        .append_messages(sid, vec![Message::user(prompt), Message::assistant(reply)])
+        .append_messages(sid, vec![ChatMessage::user(prompt), ChatMessage::assistant(reply)])
         .await
         .unwrap();
     session.load_tree().await.unwrap().active_leaf_id
@@ -52,13 +52,13 @@ async fn single_compaction_projects_summary_and_kept_nodes() {
     let intermediate = session.load_tree().await.unwrap().active_messages();
     assert_eq!(intermediate.len(), 5);
     assert_eq!(intermediate[0], compaction_summary_message("Summary of turns 0 and 1"));
-    assert_eq!(intermediate[1], Message::user("turn 2 prompt"));
+    assert_eq!(intermediate[1], ChatMessage::user("turn 2 prompt"));
 
     append_turn(&session, &sid, 4).await;
     let active = session.load_tree().await.unwrap().active_messages();
     assert_eq!(active.len(), 7);
     assert_eq!(active[0], compaction_summary_message("Summary of turns 0 and 1"));
-    assert_eq!(active[5], Message::user("turn 4 prompt"));
+    assert_eq!(active[5], ChatMessage::user("turn 4 prompt"));
 
     let reopened = SessionManager::new(&dir, Some(&sid)).unwrap();
     assert_eq!(reopened.load_tree().await.unwrap().active_messages(), active);
@@ -99,8 +99,8 @@ async fn chained_compactions_project_latest_summary_and_kept_nodes() {
     let active = session.load_tree().await.unwrap().active_messages();
     assert_eq!(active.len(), 7);
     assert_eq!(active[0], compaction_summary_message("Compaction 2"));
-    assert_eq!(active[1], Message::user("turn 3 prompt"));
-    assert_eq!(active[5], Message::user("turn 5 prompt"));
+    assert_eq!(active[1], ChatMessage::user("turn 3 prompt"));
+    assert_eq!(active[5], ChatMessage::user("turn 5 prompt"));
 
     let reopened = SessionManager::new(&dir, Some(&sid)).unwrap();
     assert_eq!(reopened.state.lock().await.messages, active);
@@ -247,10 +247,10 @@ async fn split_turn_compaction_omits_prefix_messages() {
         .append_messages(
             &sid,
             vec![
-                Message::user("turn 0 prompt"),
-                Message::assistant("turn 0 prefix work"),
-                Message::user("turn 0 tool result"),
-                Message::assistant("turn 0 suffix answer"),
+                ChatMessage::user("turn 0 prompt"),
+                ChatMessage::assistant("turn 0 prefix work"),
+                ChatMessage::user("turn 0 tool result"),
+                ChatMessage::assistant("turn 0 suffix answer"),
             ],
         )
         .await
@@ -265,6 +265,6 @@ async fn split_turn_compaction_omits_prefix_messages() {
     let active = session.load_tree().await.unwrap().active_messages();
     assert_eq!(active.len(), 3);
     assert_eq!(active[0], compaction_summary_message("Split turn summary"));
-    assert_eq!(active[1], Message::user("turn 0 tool result"));
-    assert_eq!(active[2], Message::assistant("turn 0 suffix answer"));
+    assert_eq!(active[1], ChatMessage::user("turn 0 tool result"));
+    assert_eq!(active[2], ChatMessage::assistant("turn 0 suffix answer"));
 }

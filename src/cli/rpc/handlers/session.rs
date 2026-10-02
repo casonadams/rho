@@ -1,5 +1,6 @@
 use super::super::types::RpcDaemonContext;
 use crate::error::Result;
+use rho_harness_core::model::{AssistantContent, ChatMessage, UserContent};
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcResponse};
 
 pub(crate) async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -141,20 +142,20 @@ fn build_engine_session_payload(
 }
 
 pub(crate) fn extract_user_chat_messages(
-    content: &[rig::message::UserContent],
+    content: &[UserContent],
     pending_tools: &mut std::collections::HashMap<String, serde_json::Value>,
     out: &mut Vec<serde_json::Value>,
 ) {
     let mut text = String::new();
     for part in content {
         match part {
-            rig::message::UserContent::Text(t) => {
+            UserContent::Text(t) => {
                 if !text.is_empty() {
                     text.push('\n');
                 }
                 text.push_str(&t.text);
             }
-            rig::message::UserContent::ToolResult(res) => {
+            UserContent::ToolResult(res) => {
                 let res_text = res
                     .content
                     .iter()
@@ -190,20 +191,20 @@ pub(crate) fn extract_user_chat_messages(
 }
 
 pub(crate) fn extract_assistant_chat_messages(
-    content: &[rig::message::AssistantContent],
+    content: &[AssistantContent],
     pending_tools: &mut std::collections::HashMap<String, serde_json::Value>,
     out: &mut Vec<serde_json::Value>,
 ) {
     let mut text = String::new();
     for part in content {
         match part {
-            rig::message::AssistantContent::Text(t) => {
+            AssistantContent::Text(t) => {
                 if !text.is_empty() {
                     text.push('\n');
                 }
                 text.push_str(&t.text);
             }
-            rig::message::AssistantContent::ToolCall(call) => {
+            AssistantContent::ToolCall(call) => {
                 if !text.is_empty() {
                     out.push(serde_json::json!({
                         "role": "assistant",
@@ -229,16 +230,16 @@ pub(crate) fn extract_assistant_chat_messages(
     }
 }
 
-pub(crate) fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::Value> {
+pub(crate) fn extract_chat_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     let mut pending_tools = std::collections::HashMap::new();
 
     for msg in messages {
         match msg {
-            rig::message::Message::User { content } => {
+            ChatMessage::User { content } => {
                 extract_user_chat_messages(content, &mut pending_tools, &mut out);
             }
-            rig::message::Message::Assistant { content, .. } => {
+            ChatMessage::Assistant { content, .. } => {
                 extract_assistant_chat_messages(content, &mut pending_tools, &mut out);
             }
             _ => {}

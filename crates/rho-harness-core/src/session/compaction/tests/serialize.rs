@@ -1,16 +1,14 @@
 use super::super::serialize::{MAX_TOOL_RESULT_CHARS, serialize_conversation};
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
-};
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
 
 #[test]
 fn test_serialize_conversation_basic() {
     let messages = vec![
-        Message::System {
+        ChatMessage::System {
             content: "You are an assistant.".to_string(),
         },
-        Message::user("Please review this code."),
-        Message::assistant("Looks good to me."),
+        ChatMessage::user("Please review this code."),
+        ChatMessage::assistant("Looks good to me."),
     ];
 
     let transcript = serialize_conversation(&messages);
@@ -19,14 +17,9 @@ fn test_serialize_conversation_basic() {
     assert!(transcript.contains("[Assistant]: Looks good to me."));
 }
 
-fn tool_result_msg(id: &str, text: &str) -> Message {
-    Message::User {
-        content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint(id),
-            provider: None,
-            name: "read".to_string(),
-            content: vec![ToolResultContent::Text(rig::message::Text::new(text))],
-        })],
+fn tool_result_msg(id: &str, text: &str) -> ChatMessage {
+    ChatMessage::User {
+        content: vec![UserContent::ToolResult(ToolResult::new(id, "read", text))],
     }
 }
 
@@ -61,14 +54,14 @@ fn test_serialize_tool_oversized_and_unicode() {
 
 #[test]
 fn test_serialize_conversation_assistant_tool_call() {
-    let msg = Message::Assistant {
+    let msg = ChatMessage::Assistant {
         id: None,
         content: vec![
             AssistantContent::text("Let me inspect the file."),
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("call-5"),
+                "call-5",
                 ToolFunction::new(
-                    "read".to_string(),
+                    "read",
                     serde_json::json!({
                         "path": "src/main.rs"
                     }),
@@ -82,14 +75,9 @@ fn test_serialize_conversation_assistant_tool_call() {
     assert!(transcript.contains("[Assistant tool call]: read({\"path\":\"src/main.rs\"})"));
 }
 
-fn named_tool_result_msg(id: &str, tool_name: &str, text: &str) -> Message {
-    Message::User {
-        content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint(id),
-            provider: None,
-            name: tool_name.to_string(),
-            content: vec![ToolResultContent::Text(rig::message::Text::new(text))],
-        })],
+fn named_tool_result_msg(id: &str, tool_name: &str, text: &str) -> ChatMessage {
+    ChatMessage::User {
+        content: vec![UserContent::ToolResult(ToolResult::new(id, tool_name, text))],
     }
 }
 
@@ -147,12 +135,12 @@ fn test_serialize_conversation_large_write_truncated() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let msg = Message::Assistant {
+    let msg = ChatMessage::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new_or_mint("call-write"),
+            "call-write",
             ToolFunction::new(
-                "write".to_string(),
+                "write",
                 serde_json::json!({
                     "path": "src/large.rs",
                     "content": thousand_lines,
@@ -173,12 +161,12 @@ fn test_serialize_conversation_large_edit_truncated() {
     let large_old = "old line to replace\n".repeat(30);
     let large_new = "new replacement line\n".repeat(30);
 
-    let msg = Message::Assistant {
+    let msg = ChatMessage::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new_or_mint("call-edit"),
+            "call-edit",
             ToolFunction::new(
-                "edit".to_string(),
+                "edit",
                 serde_json::json!({
                     "path": "src/app.rs",
                     "edits": [{
@@ -199,13 +187,13 @@ fn test_serialize_conversation_large_edit_truncated() {
 
 #[test]
 fn test_serialize_conversation_small_write_and_edit_preserved() {
-    let msg = Message::Assistant {
+    let msg = ChatMessage::Assistant {
         id: None,
         content: vec![
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("call-w"),
+                "call-w",
                 ToolFunction::new(
-                    "write".to_string(),
+                    "write",
                     serde_json::json!({
                         "path": "hello.txt",
                         "content": "short text",
@@ -213,9 +201,9 @@ fn test_serialize_conversation_small_write_and_edit_preserved() {
                 ),
             )),
             AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("call-e"),
+                "call-e",
                 ToolFunction::new(
-                    "edit".to_string(),
+                    "edit",
                     serde_json::json!({
                         "path": "hello.txt",
                         "edits": [{
@@ -238,12 +226,12 @@ fn test_serialize_conversation_small_write_and_edit_preserved() {
 #[test]
 fn test_serialize_conversation_large_bash_command_truncated() {
     let large_script = "echo 'line of script'\n".repeat(40);
-    let msg = Message::Assistant {
+    let msg = ChatMessage::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new_or_mint("call-bash"),
+            "call-bash",
             ToolFunction::new(
-                "bash".to_string(),
+                "bash",
                 serde_json::json!({
                     "command": large_script,
                 }),
@@ -260,12 +248,12 @@ fn test_serialize_conversation_large_bash_command_truncated() {
 #[test]
 fn test_serialize_conversation_file_aliases_sanitized() {
     let large_text = "content line\n".repeat(30);
-    let msg = Message::Assistant {
+    let msg = ChatMessage::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new_or_mint("call-write-file"),
+            "call-write-file",
             ToolFunction::new(
-                "write_file".to_string(),
+                "write_file",
                 serde_json::json!({
                     "path": "test.txt",
                     "content": large_text,

@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, ImageContent, ToolCall, ToolResult, ToolResultContent, UserContent,
+};
 use rho_harness_core::tokens::cut_point::is_user_turn_start;
-use rig::completion::message::MimeType;
-use rig::message::{AssistantContent, Message, ToolCall, ToolResultContent, UserContent};
 
 pub const DEFAULT_PRUNE_LINE_THRESHOLD: usize = 15;
 pub const DEFAULT_PROTECT_RECENT_TOKENS: usize = 30_000;
@@ -67,9 +68,9 @@ impl PrunePolicy {
     }
 }
 
-fn is_assistant_final_response(message: &Message) -> bool {
+fn is_assistant_final_response(message: &ChatMessage) -> bool {
     match message {
-        Message::Assistant { content, .. } => {
+        ChatMessage::Assistant { content, .. } => {
             let has_tool_calls = content.iter().any(|c| matches!(c, AssistantContent::ToolCall(_)));
             let has_text = content
                 .iter()
@@ -80,11 +81,11 @@ fn is_assistant_final_response(message: &Message) -> bool {
     }
 }
 
-pub fn is_turn_boundary(message: &Message) -> bool {
+pub fn is_turn_boundary(message: &ChatMessage) -> bool {
     is_user_turn_start(message) || is_assistant_final_response(message)
 }
 
-pub fn find_turn_boundary_cutoff(messages: &[Message], volatile_turns: usize) -> usize {
+pub fn find_turn_boundary_cutoff(messages: &[ChatMessage], volatile_turns: usize) -> usize {
     if volatile_turns == 0 || messages.is_empty() {
         return messages.len();
     }
@@ -242,10 +243,10 @@ fn extract_tool_call_target(name: &str, args: &serde_json::Value) -> String {
     }
 }
 
-fn collect_tool_calls(messages: &[Message]) -> HashMap<String, ToolCallMeta> {
+fn collect_tool_calls(messages: &[ChatMessage]) -> HashMap<String, ToolCallMeta> {
     let mut map = HashMap::new();
     for msg in messages {
-        if let Message::Assistant { content, .. } = msg {
+        if let ChatMessage::Assistant { content, .. } = msg {
             for item in content {
                 if let AssistantContent::ToolCall(call) = item {
                     let name = call.function.name.to_ascii_lowercase();
@@ -309,14 +310,9 @@ fn extract_mime_from_read_text(text: &str) -> Option<&str> {
     if mime.is_empty() { None } else { Some(mime) }
 }
 
-fn prune_image_tool_result(
-    tool_name: &str,
-    text: &str,
-    meta: Option<&ToolCallMeta>,
-    image: &rig::completion::message::Image,
-) -> String {
+fn prune_image_tool_result(tool_name: &str, text: &str, meta: Option<&ToolCallMeta>, image: &ImageContent) -> String {
     let target = meta.map(|m| m.target.as_str()).unwrap_or("");
-    let media_type = image.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+    let media_type = image.media_type.as_deref().unwrap_or("unknown");
     let mime = if media_type != "unknown" {
         Some(media_type)
     } else {
@@ -473,11 +469,11 @@ fn process_tool_call_path<'a>(call: &'a ToolCall, seen_paths: &mut HashSet<&'a s
     }
 }
 
-pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String> {
+pub fn collect_superseded_tool_call_ids(messages: &[ChatMessage]) -> HashSet<String> {
     let mut seen_paths: HashSet<&str> = HashSet::new();
     let mut superseded = HashSet::new();
     for msg in messages.iter().rev() {
-        let Message::Assistant { content, .. } = msg else {
+        let ChatMessage::Assistant { content, .. } = msg else {
             continue;
         };
         for item in content.iter().rev() {
@@ -489,7 +485,7 @@ pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String>
     superseded
 }
 
-pub fn find_recent_tokens_cutoff(messages: &[Message], protect_tokens: usize, model: &str) -> usize {
+pub fn find_recent_tokens_cutoff(messages: &[ChatMessage], protect_tokens: usize, model: &str) -> usize {
     if protect_tokens == 0 || messages.is_empty() {
         return messages.len();
     }
@@ -542,7 +538,7 @@ fn resolve_tool_prune_stub(
     tool_name: &str,
     text: &str,
     meta: Option<&ToolCallMeta>,
-    image_block: Option<&rig::completion::message::Image>,
+    image_block: Option<&ImageContent>,
     is_superseded: bool,
     line_threshold: usize,
 ) -> Option<String> {
@@ -592,7 +588,7 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
 
     let stub = resolve_tool_prune_stub(&tool_name, &text, meta, image_block, is_superseded, ctx.line_threshold)?;
 
-    Some(UserContent::ToolResult(rig::message::ToolResult {
+    Some(UserContent::ToolResult(ToolResult {
         call: res.call.clone(),
         provider: res.provider.clone(),
         name: res.name.clone(),
@@ -616,7 +612,7 @@ fn prune_user_message_content(content: &[UserContent], ctx: &PruneContext<'_>) -
     if modified { Some(new_content) } else { None }
 }
 
-pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &PrunePolicy) -> Vec<Message> {
+pub fn prune_historical_tool_outputs_with_policy(messages: &[ChatMessage], policy: &PrunePolicy) -> Vec<ChatMessage> {
     if messages.is_empty() {
         return Vec::new();
     }
@@ -640,7 +636,7 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &
     };
 
     let mut total_savings = 0usize;
-    let pruned_messages: Vec<Message> = messages
+    let pruned_messages: Vec<ChatMessage> = messages
         .iter()
         .enumerate()
         .map(|(idx, msg)| {
@@ -648,10 +644,10 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &
                 return msg.clone();
             }
             match msg {
-                Message::User { content } => match prune_user_message_content(content, &ctx) {
+                ChatMessage::User { content } => match prune_user_message_content(content, &ctx) {
                     Some(new_content) => {
                         let original_tokens = rho_harness_core::tokens::estimate_message_tokens(msg, model);
-                        let new_msg = Message::User { content: new_content };
+                        let new_msg = ChatMessage::User { content: new_content };
                         let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, model);
                         total_savings = total_savings.saturating_add(original_tokens.saturating_sub(new_tokens));
                         new_msg
@@ -671,57 +667,57 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &
 }
 
 pub fn prune_historical_tool_outputs(
-    messages: &[Message],
+    messages: &[ChatMessage],
     volatile_turns: usize,
     line_threshold: usize,
-) -> Vec<Message> {
+) -> Vec<ChatMessage> {
     prune_historical_tool_outputs_with_policy(messages, &PrunePolicy::unconstrained(volatile_turns, line_threshold))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::message::{AssistantContent, Text, ToolCall, ToolCallId, ToolFunction};
+    use rho_harness_core::model::*;
 
-    fn make_tool_turn(cid: &str, tool: &str, cmd: &str, tool_output: &str) -> (Message, Message) {
+    fn make_tool_turn(cid: &str, tool: &str, cmd: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new(tool.to_string(), serde_json::json!({ "command": cmd })),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: tool.to_string(),
-            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+            content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
     }
 
-    fn make_read_turn(cid: &str, path: &str, tool_output: &str) -> (Message, Message) {
+    fn make_read_turn(cid: &str, path: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new("read".to_string(), serde_json::json!({ "path": path })),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: "read".to_string(),
-            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+            content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
@@ -731,147 +727,144 @@ mod tests {
         cid: &str,
         path: &str,
         tool_output: &str,
-        media_type: Option<rig::completion::message::ImageMediaType>,
-    ) -> (Message, Message) {
+        media_type: Option<&str>,
+    ) -> (ChatMessage, ChatMessage) {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new("read".to_string(), serde_json::json!({ "path": path })),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(Text::new(tool_output)),
-                ToolResultContent::image_base64("iVBORw0KGgoAAAANSUhEUgA=", media_type, None),
+                ToolResultContent::Text(TextContent::new(tool_output)),
+                ToolResultContent::image("iVBORw0KGgoAAAANSUhEUgA=", media_type.map(str::to_string)),
             ],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
     }
 
-    fn make_search_turn(cid: &str, tool: &str, pattern: &str, tool_output: &str) -> (Message, Message) {
+    fn make_search_turn(cid: &str, tool: &str, pattern: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new(tool.to_string(), serde_json::json!({ "pattern": pattern })),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: tool.to_string(),
-            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+            content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
     }
 
-    fn make_write_turn(cid: &str, path: &str, content: &str, result_msg: &str) -> (Message, Message) {
+    fn make_write_turn(cid: &str, path: &str, content: &str, result_msg: &str) -> (ChatMessage, ChatMessage) {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new(
                 "write".to_string(),
                 serde_json::json!({ "path": path, "content": content }),
             ),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: "write".to_string(),
-            content: vec![ToolResultContent::Text(Text::new(result_msg))],
+            content: vec![ToolResultContent::Text(TextContent::new(result_msg))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
     }
 
-    fn make_edit_turn(cid: &str, path: &str, edits: Vec<(&str, &str)>, result_msg: &str) -> (Message, Message) {
+    fn make_edit_turn(cid: &str, path: &str, edits: Vec<(&str, &str)>, result_msg: &str) -> (ChatMessage, ChatMessage) {
         let edits_json: Vec<_> = edits
             .into_iter()
             .map(|(old, new)| serde_json::json!({ "oldText": old, "newText": new }))
             .collect();
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new(
                 "edit".to_string(),
                 serde_json::json!({ "path": path, "edits": edits_json }),
             ),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: "edit".to_string(),
-            content: vec![ToolResultContent::Text(Text::new(result_msg))],
+            content: vec![ToolResultContent::Text(TextContent::new(result_msg))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
     }
 
-    fn make_fetch_turn(cid: &str, url: &str, tool_output: &str) -> (Message, Message) {
+    fn make_fetch_turn(cid: &str, url: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
+            cid,
             ToolFunction::new("web_fetch".to_string(), serde_json::json!({ "url": url })),
         );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: "web_fetch".to_string(),
-            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+            content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
     }
 
-    fn make_mcp_turn(cid: &str, tool_name: &str, tool_output: &str) -> (Message, Message) {
-        let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
-            ToolFunction::new(tool_name.to_string(), serde_json::json!({})),
-        );
-        let res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint(cid),
+    fn make_mcp_turn(cid: &str, tool_name: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
+        let call = ToolCall::new(cid, ToolFunction::new(tool_name.to_string(), serde_json::json!({})));
+        let res = ToolResult {
+            call: cid.to_string(),
             provider: None,
             name: tool_name.to_string(),
-            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+            content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
         };
         (
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::User {
+            ChatMessage::User {
                 content: vec![UserContent::ToolResult(res)],
             },
         )
@@ -885,12 +878,12 @@ mod tests {
         );
         let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &output_with_footer);
 
-        let history = vec![Message::user("Please test"), call_msg, res_msg];
+        let history = vec![ChatMessage::user("Please test"), call_msg, res_msg];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
         assert_eq!(pruned.len(), 3);
 
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -913,17 +906,17 @@ mod tests {
         let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &output_with_footer);
 
         let history = vec![
-            Message::user("Please test"),
+            ChatMessage::user("Please test"),
             call_msg,
             res_msg,
-            Message::assistant("Tests passed successfully!"),
-            Message::user("Now run clippy"),
+            ChatMessage::assistant("Tests passed successfully!"),
+            ChatMessage::user("Now run clippy"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
         assert_eq!(pruned.len(), 5);
 
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -946,15 +939,15 @@ mod tests {
         let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &output_with_err);
 
         let history = vec![
-            Message::user("Please test"),
+            ChatMessage::user("Please test"),
             call_msg,
             res_msg,
-            Message::assistant("Tests failed with exit code 1"),
-            Message::user("Fix the tests"),
+            ChatMessage::assistant("Tests failed with exit code 1"),
+            ChatMessage::user("Fix the tests"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -974,16 +967,16 @@ mod tests {
         let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &output_with_err);
 
         let history = vec![
-            Message::user("Please test"),
+            ChatMessage::user("Please test"),
             call_msg,
             res_msg,
-            Message::assistant("Tests failed with exit code 1"),
-            Message::user("Fix the tests"),
+            ChatMessage::assistant("Tests failed with exit code 1"),
+            ChatMessage::user("Fix the tests"),
         ];
 
         let policy = PrunePolicy::cache_preserving();
         let pruned = prune_historical_tool_outputs_with_policy(&history, &policy);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1010,13 +1003,13 @@ mod tests {
 
         let large_padding = "word ".repeat(50_000);
         let history = vec![
-            Message::user("Build the project"),
+            ChatMessage::user("Build the project"),
             call_msg,
             res_msg,
-            Message::assistant("Build failed with exit code 1"),
-            Message::user(large_padding),
-            Message::assistant("Acknowledge large output"),
-            Message::user("Continue work"),
+            ChatMessage::assistant("Build failed with exit code 1"),
+            ChatMessage::user(large_padding),
+            ChatMessage::assistant("Acknowledge large output"),
+            ChatMessage::user("Continue work"),
         ];
 
         let policy = PrunePolicy {
@@ -1024,7 +1017,7 @@ mod tests {
             ..PrunePolicy::cache_preserving()
         };
         let pruned = prune_historical_tool_outputs_with_policy(&history, &policy);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1044,15 +1037,15 @@ mod tests {
         let (call_msg, res_msg) = make_tool_turn("c1", "bash", "git status", output);
 
         let history = vec![
-            Message::user("Status"),
+            ChatMessage::user("Status"),
             call_msg,
             res_msg,
-            Message::assistant("Clean working tree"),
-            Message::user("Continue"),
+            ChatMessage::assistant("Clean working tree"),
+            ChatMessage::user("Continue"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1074,15 +1067,15 @@ mod tests {
         let (call_msg, res_msg) = make_read_turn("c1", "src/lib.rs", &output);
 
         let history = vec![
-            Message::user("Read file"),
+            ChatMessage::user("Read file"),
             call_msg,
             res_msg,
-            Message::assistant("Read file done"),
-            Message::user("Next"),
+            ChatMessage::assistant("Read file done"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1102,15 +1095,15 @@ mod tests {
         let (call_msg, res_msg) = make_read_turn("c1", "src/lib.rs", output);
 
         let history = vec![
-            Message::user("Read file"),
+            ChatMessage::user("Read file"),
             call_msg,
             res_msg,
-            Message::assistant("Read file done"),
-            Message::user("Next"),
+            ChatMessage::assistant("Read file done"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1129,15 +1122,15 @@ mod tests {
         let (call_msg, res_msg) = make_read_turn("c1", "src/missing.rs", output);
 
         let history = vec![
-            Message::user("Read file"),
+            ChatMessage::user("Read file"),
             call_msg,
             res_msg,
-            Message::assistant("File is missing"),
-            Message::user("Create it"),
+            ChatMessage::assistant("File is missing"),
+            ChatMessage::user("Create it"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1159,15 +1152,15 @@ mod tests {
         let (call_msg, res_msg) = make_search_turn("c1", "rg", "match_", &output);
 
         let history = vec![
-            Message::user("Search matches"),
+            ChatMessage::user("Search matches"),
             call_msg,
             res_msg,
-            Message::assistant("Found 30 matches"),
-            Message::user("Continue"),
+            ChatMessage::assistant("Found 30 matches"),
+            ChatMessage::user("Continue"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1187,15 +1180,15 @@ mod tests {
         let (call_msg, res_msg) = make_search_turn("c1", "rg", "slow_pattern", output);
 
         let history = vec![
-            Message::user("Search"),
+            ChatMessage::user("Search"),
             call_msg,
             res_msg,
-            Message::assistant("Search timed out"),
-            Message::user("Retry"),
+            ChatMessage::assistant("Search timed out"),
+            ChatMessage::user("Retry"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1222,15 +1215,15 @@ mod tests {
         );
 
         let history = vec![
-            Message::user("Write generated code"),
+            ChatMessage::user("Write generated code"),
             call_msg,
             res_msg,
-            Message::assistant("File written"),
-            Message::user("Now test it"),
+            ChatMessage::assistant("File written"),
+            ChatMessage::user("Now test it"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::Assistant { content, .. } = &pruned[1] else {
+        let ChatMessage::Assistant { content, .. } = &pruned[1] else {
             panic!()
         };
         let AssistantContent::ToolCall(call) = &content[0] else {
@@ -1255,15 +1248,15 @@ mod tests {
         );
 
         let history = vec![
-            Message::user("Set version"),
+            ChatMessage::user("Set version"),
             call_msg,
             res_msg,
-            Message::assistant("Version set"),
-            Message::user("Next"),
+            ChatMessage::assistant("Version set"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::Assistant { content, .. } = &pruned[1] else {
+        let ChatMessage::Assistant { content, .. } = &pruned[1] else {
             panic!()
         };
         let AssistantContent::ToolCall(call) = &content[0] else {
@@ -1286,7 +1279,7 @@ mod tests {
         );
 
         let history = vec![
-            Message::user("Active turn work"),
+            ChatMessage::user("Active turn work"),
             read_call,
             read_res,
             write_call,
@@ -1296,7 +1289,7 @@ mod tests {
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
         assert_eq!(pruned.len(), 5);
 
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1308,7 +1301,7 @@ mod tests {
         };
         assert_eq!(text, &read_body);
 
-        let Message::Assistant { content: a_content, .. } = &pruned[3] else {
+        let ChatMessage::Assistant { content: a_content, .. } = &pruned[3] else {
             panic!()
         };
         let AssistantContent::ToolCall(call) = &a_content[0] else {
@@ -1318,8 +1311,10 @@ mod tests {
         assert_eq!(content_val, &write_body);
     }
 
-    fn extract_tool_result_first_text(message: &Message) -> &str {
-        let Message::User { content } = message else { panic!() };
+    fn extract_tool_result_first_text(message: &ChatMessage) -> &str {
+        let ChatMessage::User { content } = message else {
+            panic!()
+        };
         let UserContent::ToolResult(res) = &content[0] else {
             panic!()
         };
@@ -1343,18 +1338,18 @@ mod tests {
         let (call2, res2) = make_tool_turn("c2", "bash", "cargo check", out_fail);
         let (call3, res3) = make_tool_turn("c3", "bash", "cargo build", &out_verbose_footer);
 
-        let t1_history = vec![Message::user("Run test"), call1.clone(), res1.clone()];
+        let t1_history = vec![ChatMessage::user("Run test"), call1.clone(), res1.clone()];
         assert_eq!(
             prune_historical_tool_outputs(&t1_history, 1, DEFAULT_PRUNE_LINE_THRESHOLD),
             t1_history
         );
 
         let t2_history = vec![
-            Message::user("Run test"),
+            ChatMessage::user("Run test"),
             call1,
             res1,
-            Message::assistant("Tests passed"),
-            Message::user("Now check"),
+            ChatMessage::assistant("Tests passed"),
+            ChatMessage::user("Now check"),
             call2.clone(),
             res2.clone(),
         ];
@@ -1370,8 +1365,8 @@ mod tests {
             t2_pruned[4].clone(),
             call2,
             res2,
-            Message::assistant("Check failed with error E0425"),
-            Message::user("Now build"),
+            ChatMessage::assistant("Check failed with error E0425"),
+            ChatMessage::user("Now build"),
             call3,
             res3,
         ];
@@ -1405,19 +1400,19 @@ mod tests {
         let (bash_call, bash_res) = make_tool_turn("c4", "bash", "cargo test", &bash_footer);
 
         let history = vec![
-            Message::user("Inspect codebase"),
+            ChatMessage::user("Inspect codebase"),
             read_call,
             read_res,
             search_call,
             search_res,
-            Message::assistant("Finished inspecting"),
-            Message::user("Implement types and test"),
+            ChatMessage::assistant("Finished inspecting"),
+            ChatMessage::user("Implement types and test"),
             write_call,
             write_res,
             bash_call,
             bash_res,
-            Message::assistant("Implementation and tests complete"),
-            Message::user("Now what?"),
+            ChatMessage::assistant("Implementation and tests complete"),
+            ChatMessage::user("Now what?"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
@@ -1428,7 +1423,7 @@ mod tests {
         let search_text = extract_tool_result_first_text(&pruned[4]);
         assert!(search_text.contains("[Tool 'fd' with pattern '*.rs' completed with 20 lines"));
 
-        let Message::Assistant {
+        let ChatMessage::Assistant {
             content: write_content, ..
         } = &pruned[7]
         else {
@@ -1453,11 +1448,11 @@ mod tests {
         let (call_msg, res_msg) = make_fetch_turn("c1", "https://example.com/docs", &output);
 
         let history = vec![
-            Message::user("Fetch docs"),
+            ChatMessage::user("Fetch docs"),
             call_msg,
             res_msg,
-            Message::assistant("Docs fetched"),
-            Message::user("Next"),
+            ChatMessage::assistant("Docs fetched"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
@@ -1472,11 +1467,11 @@ mod tests {
         let (call_msg, res_msg) = make_fetch_turn("c1", "https://example.com", output);
 
         let history = vec![
-            Message::user("Fetch"),
+            ChatMessage::user("Fetch"),
             call_msg,
             res_msg,
-            Message::assistant("Failed to fetch"),
-            Message::user("Retry"),
+            ChatMessage::assistant("Failed to fetch"),
+            ChatMessage::user("Retry"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
@@ -1493,11 +1488,11 @@ mod tests {
         let (call_msg, res_msg) = make_search_turn("c1", "web_search", "rust tokio", &output);
 
         let history = vec![
-            Message::user("Search rust"),
+            ChatMessage::user("Search rust"),
             call_msg,
             res_msg,
-            Message::assistant("Search results found"),
-            Message::user("Next"),
+            ChatMessage::assistant("Search results found"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
@@ -1514,11 +1509,11 @@ mod tests {
         let (call_msg, res_msg) = make_mcp_turn("c1", "mcp__github__list_issues", &output);
 
         let history = vec![
-            Message::user("List issues"),
+            ChatMessage::user("List issues"),
             call_msg,
             res_msg,
-            Message::assistant("Issues listed"),
-            Message::user("Next"),
+            ChatMessage::assistant("Issues listed"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
@@ -1538,15 +1533,15 @@ mod tests {
         );
 
         let history = vec![
-            Message::user("Edit file"),
+            ChatMessage::user("Edit file"),
             call_msg,
             res_msg,
-            Message::assistant("Edit applied"),
-            Message::user("Next"),
+            ChatMessage::assistant("Edit applied"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::Assistant { content, .. } = &pruned[1] else {
+        let ChatMessage::Assistant { content, .. } = &pruned[1] else {
             panic!()
         };
         let AssistantContent::ToolCall(call) = &content[0] else {
@@ -1569,15 +1564,15 @@ mod tests {
         );
 
         let history = vec![
-            Message::user("Edit file"),
+            ChatMessage::user("Edit file"),
             call_msg,
             res_msg,
-            Message::assistant("Edit applied"),
-            Message::user("Next"),
+            ChatMessage::assistant("Edit applied"),
+            ChatMessage::user("Next"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::Assistant { content, .. } = &pruned[1] else {
+        let ChatMessage::Assistant { content, .. } = &pruned[1] else {
             panic!()
         };
         let AssistantContent::ToolCall(call) = &content[0] else {
@@ -1594,19 +1589,19 @@ mod tests {
             "c1",
             "screenshot.png",
             "Read image file [image/png]\n[Image: 800x600]",
-            Some(rig::completion::message::ImageMediaType::PNG),
+            Some("image/png"),
         );
 
         let history = vec![
-            Message::user("Inspect screenshot"),
+            ChatMessage::user("Inspect screenshot"),
             read_call,
             read_res,
-            Message::assistant("The screenshot shows a login form."),
-            Message::user("Now fix the login form"),
+            ChatMessage::assistant("The screenshot shows a login form."),
+            ChatMessage::user("Now fix the login form"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1629,13 +1624,13 @@ mod tests {
             "c1",
             "screenshot.png",
             "Read image file [image/png]\n[Image: 800x600]",
-            Some(rig::completion::message::ImageMediaType::PNG),
+            Some("image/png"),
         );
 
-        let history = vec![Message::user("Inspect screenshot"), read_call, read_res];
+        let history = vec![ChatMessage::user("Inspect screenshot"), read_call, read_res];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(res) = &content[0] else {
@@ -1653,51 +1648,47 @@ mod tests {
             "c1",
             "assets/logo.png",
             "Read image file [image/png]",
-            Some(rig::completion::message::ImageMediaType::PNG),
+            Some("image/png"),
         );
         let (call2, res2) = make_image_read_turn("c2", "assets/photo.jpg", "Read image file [image/jpeg]", None);
 
         let custom_call = ToolCall::new(
-            ToolCallId::new_or_mint("c3"),
+            "c3",
             ToolFunction::new("screenshot".to_string(), serde_json::json!({ "target": "window" })),
         );
-        let custom_res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint("c3"),
+        let custom_res = ToolResult {
+            call: "c3".to_string(),
             provider: None,
             name: "screenshot".to_string(),
             content: vec![
-                ToolResultContent::Text(Text::new("Captured screenshot")),
-                ToolResultContent::image_base64(
-                    "iVBORw0KGgoAAAANSUhEUgA=",
-                    Some(rig::completion::message::ImageMediaType::PNG),
-                    None,
-                ),
+                ToolResultContent::Text(TextContent::new("Captured screenshot")),
+                ToolResultContent::image("iVBORw0KGgoAAAANSUhEUgA=", Some("image/png".to_string())),
             ],
         };
-        let custom_call_msg = Message::Assistant {
+        let custom_call_msg = ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(custom_call)],
         };
-        let custom_res_msg = Message::User {
+        let custom_res_msg = ChatMessage::User {
             content: vec![UserContent::ToolResult(custom_res)],
         };
 
         let history = vec![
-            Message::user("Inspect images"),
+            ChatMessage::user("Inspect images"),
             call1,
             res1,
             call2,
             res2,
             custom_call_msg,
             custom_res_msg,
-            Message::assistant("All images inspected"),
-            Message::user("Next step"),
+            ChatMessage::assistant("All images inspected"),
+            ChatMessage::user("Next step"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
 
         let extract_text = |idx: usize| -> String {
-            let Message::User { content } = &pruned[idx] else {
+            let ChatMessage::User { content } = &pruned[idx] else {
                 panic!()
             };
             let UserContent::ToolResult(res) = &content[0] else {
@@ -1727,11 +1718,11 @@ mod tests {
     fn test_protect_recent_tokens_prevents_pruning() {
         let (call, res) = make_tool_turn("c1", "bash", "cargo test", &"verbose test output\n".repeat(30));
         let history = vec![
-            Message::user("Run test"),
+            ChatMessage::user("Run test"),
             call,
             res,
-            Message::assistant("Done test"),
-            Message::user("Next step"),
+            ChatMessage::assistant("Done test"),
+            ChatMessage::user("Next step"),
         ];
 
         let policy_protected = PrunePolicy {
@@ -1755,7 +1746,7 @@ mod tests {
         };
         let pruned_unprotected = prune_historical_tool_outputs_with_policy(&history, &policy_unprotected);
         assert_ne!(pruned_unprotected, history);
-        let Message::User { content } = &pruned_unprotected[2] else {
+        let ChatMessage::User { content } = &pruned_unprotected[2] else {
             panic!()
         };
         let UserContent::ToolResult(r) = &content[0] else {
@@ -1771,11 +1762,11 @@ mod tests {
     fn test_prune_minimum_tokens_savings_floor() {
         let (call, res) = make_tool_turn("c1", "bash", "cargo test", &"verbose test output\n".repeat(30));
         let history = vec![
-            Message::user("Run test"),
+            ChatMessage::user("Run test"),
             call,
             res,
-            Message::assistant("Done test"),
-            Message::user("Next step"),
+            ChatMessage::assistant("Done test"),
+            ChatMessage::user("Next step"),
         ];
 
         let high_savings_floor = PrunePolicy {
@@ -1806,11 +1797,11 @@ mod tests {
         let short_lines = "x\n".repeat(25);
         let (call, res) = make_tool_turn("c1", "bash", "echo", &short_lines);
         let history = vec![
-            Message::user("Run echo"),
+            ChatMessage::user("Run echo"),
             call,
             res,
-            Message::assistant("Done echo"),
-            Message::user("Next step"),
+            ChatMessage::assistant("Done echo"),
+            ChatMessage::user("Next step"),
         ];
 
         let policy_skip_small = PrunePolicy {
@@ -1849,11 +1840,11 @@ mod tests {
         let body = "verbose compiler warning line output\n".repeat(1_600);
         let (call, res) = make_tool_turn("c1", "bash", "cargo build", &body);
         let history = vec![
-            Message::user("Build"),
+            ChatMessage::user("Build"),
             call,
             res,
-            Message::assistant("Done build"),
-            Message::user("Next command"),
+            ChatMessage::assistant("Done build"),
+            ChatMessage::user("Next command"),
         ];
 
         let mut static_policy = PrunePolicy::cache_preserving();
@@ -1878,11 +1869,11 @@ mod tests {
         let skill_output = "Skill instructions line\n".repeat(50);
         let (call, res) = make_tool_turn("c1", "skill", "coding-standard", &skill_output);
         let history = vec![
-            Message::user("Load skill"),
+            ChatMessage::user("Load skill"),
             call,
             res,
-            Message::assistant("Skill loaded"),
-            Message::user("Next step"),
+            ChatMessage::assistant("Skill loaded"),
+            ChatMessage::user("Next step"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
@@ -1893,40 +1884,40 @@ mod tests {
     fn test_superseded_file_reads_detected_and_elided() {
         let (read_call1, read_res1) = make_read_turn("c1", "src/lib.rs", &"pub fn foo() {}\n".repeat(20));
         let edit_call = ToolCall::new(
-            ToolCallId::new_or_mint("c2"),
+            "c2",
             ToolFunction::new(
                 "edit".to_string(),
                 serde_json::json!({ "path": "src/lib.rs", "content": "edited" }),
             ),
         );
-        let edit_res = rig::message::ToolResult {
-            call: ToolCallId::new_or_mint("c2"),
+        let edit_res = ToolResult {
+            call: "c2".to_string(),
             provider: None,
             name: "edit".to_string(),
-            content: vec![ToolResultContent::Text(Text::new("Successfully replaced"))],
+            content: vec![ToolResultContent::Text(TextContent::new("Successfully replaced"))],
         };
-        let edit_call_msg = Message::Assistant {
+        let edit_call_msg = ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(edit_call)],
         };
-        let edit_res_msg = Message::User {
+        let edit_res_msg = ChatMessage::User {
             content: vec![UserContent::ToolResult(edit_res)],
         };
 
         let history = vec![
-            Message::user("Read file"),
+            ChatMessage::user("Read file"),
             read_call1,
             read_res1,
-            Message::assistant("I read lib.rs"),
-            Message::user("Now edit it"),
+            ChatMessage::assistant("I read lib.rs"),
+            ChatMessage::user("Now edit it"),
             edit_call_msg,
             edit_res_msg,
-            Message::assistant("File edited"),
-            Message::user("Next step"),
+            ChatMessage::assistant("File edited"),
+            ChatMessage::user("Next step"),
         ];
 
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let Message::User { content } = &pruned[2] else {
+        let ChatMessage::User { content } = &pruned[2] else {
             panic!()
         };
         let UserContent::ToolResult(r) = &content[0] else {

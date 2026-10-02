@@ -2,11 +2,10 @@ use super::format::{SessionRecord, append_durable_record};
 use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use super::{SessionManager, session_error};
 use crate::error::{AppError, Result};
+use crate::model::ChatMessage;
 use chrono::Utc;
-use rig::memory::{ConversationMemory, MemoryError};
-use rig::message::Message;
 
-fn create_user_turn_node(parent_id: Option<String>, messages: Vec<Message>) -> TreeNodeData {
+fn create_user_turn_node(parent_id: Option<String>, messages: Vec<ChatMessage>) -> TreeNodeData {
     TreeNodeData {
         id: uuid::Uuid::new_v4().to_string(),
         parent_id,
@@ -19,7 +18,7 @@ fn create_user_turn_node(parent_id: Option<String>, messages: Vec<Message>) -> T
 }
 
 impl SessionManager {
-    pub(crate) async fn append_messages(&self, conversation_id: &str, messages: Vec<Message>) -> Result<()> {
+    pub async fn append_messages(&self, conversation_id: &str, messages: Vec<ChatMessage>) -> Result<()> {
         self.ensure_conversation(conversation_id)?;
         if messages.is_empty() {
             return Err(session_error("canonical message batches cannot be empty"));
@@ -45,7 +44,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub(crate) async fn clear_messages(&self, conversation_id: &str) -> Result<()> {
+    pub async fn clear_messages(&self, conversation_id: &str) -> Result<()> {
         self.ensure_conversation(conversation_id)?;
         let mut state = self.state.lock().await;
         let record = SessionRecord::CanonicalReset {
@@ -62,7 +61,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub(crate) fn ensure_conversation(&self, conversation_id: &str) -> Result<()> {
+    pub fn ensure_conversation(&self, conversation_id: &str) -> Result<()> {
         if conversation_id != self.session_id {
             return Err(session_error(format!(
                 "conversation identity mismatch: expected {}, got {conversation_id}",
@@ -72,53 +71,13 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn active_messages(&self) -> Result<Vec<Message>> {
+    pub async fn active_messages(&self) -> Result<Vec<ChatMessage>> {
         Ok(self.state.lock().await.messages.clone())
     }
 
-    pub(crate) fn remember_memory_error(&self, error: &AppError) {
+    pub fn remember_memory_error(&self, error: &AppError) {
         if let Ok(mut current) = self.memory_error.lock() {
             *current = Some(error.to_string());
         }
-    }
-}
-
-impl ConversationMemory for SessionManager {
-    fn load<'a>(
-        &'a self,
-        conversation_id: &'a str,
-    ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<Vec<Message>, MemoryError>> {
-        Box::pin(async move {
-            if let Err(error) = self.ensure_conversation(conversation_id) {
-                self.remember_memory_error(&error);
-                return Err(MemoryError::backend(error));
-            }
-            Ok(self.state.lock().await.messages.clone())
-        })
-    }
-
-    fn append<'a>(
-        &'a self,
-        conversation_id: &'a str,
-        messages: Vec<Message>,
-    ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<(), MemoryError>> {
-        Box::pin(async move {
-            self.append_messages(conversation_id, messages).await.map_err(|error| {
-                self.remember_memory_error(&error);
-                MemoryError::backend(error)
-            })
-        })
-    }
-
-    fn clear<'a>(
-        &'a self,
-        conversation_id: &'a str,
-    ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<(), MemoryError>> {
-        Box::pin(async move {
-            self.clear_messages(conversation_id).await.map_err(|error| {
-                self.remember_memory_error(&error);
-                MemoryError::backend(error)
-            })
-        })
     }
 }

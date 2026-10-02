@@ -3,10 +3,10 @@ use super::format::{SessionRecord, append_durable_record};
 use super::fs::session_error;
 use super::tree::{TreeNodeData, TreeNodeKind};
 use crate::error::Result;
+use crate::model::ChatMessage;
 use chrono::Utc;
-use rig::message::Message;
 
-fn create_turn_node(parent_id: Option<String>, messages: Vec<Message>) -> TreeNodeData {
+fn create_turn_node(parent_id: Option<String>, messages: Vec<ChatMessage>) -> TreeNodeData {
     TreeNodeData {
         id: uuid::Uuid::new_v4().to_string(),
         parent_id,
@@ -19,11 +19,11 @@ fn create_turn_node(parent_id: Option<String>, messages: Vec<Message>) -> TreeNo
 }
 
 impl SessionManager {
-    pub async fn load_checkpoint(&self) -> Result<Option<Vec<Message>>> {
+    pub async fn load_checkpoint(&self) -> Result<Option<Vec<ChatMessage>>> {
         Ok(self.state.lock().await.checkpoint.clone())
     }
 
-    pub async fn save_checkpoint(&self, messages: Vec<Message>) -> Result<()> {
+    pub async fn save_checkpoint(&self, messages: Vec<ChatMessage>) -> Result<()> {
         if messages.is_empty() {
             return Err(session_error("run checkpoints cannot be empty"));
         }
@@ -42,7 +42,7 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn promote_checkpoint(&self, messages: Vec<Message>) -> Result<()> {
+    pub async fn promote_checkpoint(&self, messages: Vec<ChatMessage>) -> Result<()> {
         self.reject_secrets(&messages)?;
         let mut state = self.state.lock().await;
         let mut promoted = state

@@ -1,3 +1,4 @@
+use rho_harness_core::model::{AssistantContent, ChatMessage, UserContent};
 use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use std::fmt::Write as _;
 
@@ -71,8 +72,8 @@ fn user_preview(node: &TreeNodeData) -> String {
         .messages
         .iter()
         .find_map(|m| match m {
-            rig::message::Message::User { content } => content.first().map(|c| match c {
-                rig::message::UserContent::Text(t) => t.text.clone(),
+            ChatMessage::User { content } => content.first().map(|c| match c {
+                UserContent::Text(t) => t.text.clone(),
                 _ => format!("{:?}", c),
             }),
             _ => None,
@@ -86,8 +87,8 @@ fn assistant_preview(node: &TreeNodeData) -> String {
         .messages
         .iter()
         .find_map(|m| match m {
-            rig::message::Message::Assistant { content, .. } => content.first().map(|c| match c {
-                rig::message::AssistantContent::Text(t) => t.text.clone(),
+            ChatMessage::Assistant { content, .. } => content.first().map(|c| match c {
+                AssistantContent::Text(t) => t.text.clone(),
                 _ => format!("{:?}", c),
             }),
             _ => None,
@@ -101,10 +102,10 @@ fn summary_preview(node: &TreeNodeData) -> String {
         .messages
         .first()
         .map(|m| match m {
-            rig::message::Message::Assistant { content, .. } => content
+            ChatMessage::Assistant { content, .. } => content
                 .first()
                 .map(|c| match c {
-                    rig::message::AssistantContent::Text(t) => t.text.clone(),
+                    AssistantContent::Text(t) => t.text.clone(),
                     _ => format!("{:?}", c),
                 })
                 .unwrap_or_default(),
@@ -166,7 +167,6 @@ fn truncate_preview(text: &str, limit: usize) -> String {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use rig::message::Message;
 
     fn sample_two_node_tree() -> SessionTree {
         let mut tree = SessionTree::new();
@@ -175,7 +175,7 @@ mod tests {
             parent_id: None,
             timestamp: Utc::now(),
             kind: TreeNodeKind::UserTurn,
-            messages: vec![Message::user("Root prompt")],
+            messages: vec![ChatMessage::user("Root prompt")],
             label: Some("root".to_string()),
             metadata: None,
         });
@@ -184,7 +184,7 @@ mod tests {
             parent_id: Some("root-1".to_string()),
             timestamp: Utc::now(),
             kind: TreeNodeKind::AssistantTurn,
-            messages: vec![Message::assistant("Child answer")],
+            messages: vec![ChatMessage::assistant("Child answer")],
             label: None,
             metadata: None,
         });

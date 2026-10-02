@@ -6,12 +6,11 @@ use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::engine::runtime::build_runner;
 use crate::repeat::RepeatedCallHook;
 use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::session::SessionEventKind;
 use rig::agent::AgentRunner;
-use rig::memory::ConversationMemory;
-use rig::message::Message;
 use rig::tool::ToolContext;
 
 use super::tool_hook::TurnToolExecutionHook;
@@ -29,8 +28,8 @@ pub(super) struct PreparedTurn {
 }
 
 pub(super) struct TurnLoopState {
-    pub visible_history: Vec<Message>,
-    pub checkpoint: Option<Vec<Message>>,
+    pub visible_history: Vec<ChatMessage>,
+    pub checkpoint: Option<Vec<ChatMessage>>,
     pub current_prompt: String,
     pub current_budget: usize,
     pub overflow_recovered: bool,
@@ -39,7 +38,7 @@ pub(super) struct TurnLoopState {
 }
 
 impl AgentEngine {
-    fn start_turn_metrics(&self, additional_tokens: usize, history: &[Message]) {
+    fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage]) {
         self.run_tracker.start();
         let anchor = if !history.is_empty() {
             self.usage
@@ -70,8 +69,10 @@ impl AgentEngine {
         )
     }
 
-    async fn load_initial_history(&self) -> Result<Vec<Message>> {
-        let raw = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
+    async fn load_initial_history(&self) -> Result<Vec<ChatMessage>> {
+        let raw = self
+            .session_manager
+            .active_messages()
             .await
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
         let window = self
@@ -85,7 +86,7 @@ impl AgentEngine {
     async fn check_turn_proactive_compaction(
         &self,
         (preamble, prompt): (&str, &str),
-        (presenter, history): (&dyn Presenter, &mut Vec<Message>),
+        (presenter, history): (&dyn Presenter, &mut Vec<ChatMessage>),
     ) -> Result<Option<TurnOutput>> {
         let add_tokens = rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
             rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
@@ -103,7 +104,7 @@ impl AgentEngine {
     async fn build_ready_turn(
         &self,
         ((user_prompt, effective_prompt), preamble): ((&str, &str), String),
-        (history, presenter): (Vec<Message>, &Arc<dyn Presenter>),
+        (history, presenter): (Vec<ChatMessage>, &Arc<dyn Presenter>),
     ) -> Result<PreparedTurn> {
         self.session_manager
             .append_event(
@@ -209,8 +210,8 @@ impl AgentEngine {
         &self,
         (prompt, preamble, budget): (&'a str, &'a str, usize),
         (checkpoint, history, hooks, stream_port): (
-            Option<&[Message]>,
-            &[Message],
+            Option<&[ChatMessage]>,
+            &[ChatMessage],
             rig::agent::hook::HookStack,
             ToolStreamPort,
         ),
@@ -226,7 +227,15 @@ impl AgentEngine {
             .add_hook(hooks);
         drop(agent_guard);
         match checkpoint {
-            Some(pending) => runner.history(continuation_history(history, pending)),
+            Some(pending) => {
+                let combined = continuation_history(history, pending);
+                runner.history(
+                    combined
+                        .into_iter()
+                        .map(crate::adapter::rig::into_rig_message)
+                        .collect::<Vec<_>>(),
+                )
+            }
             None => runner,
         }
     }

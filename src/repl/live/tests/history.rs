@@ -82,8 +82,8 @@ fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
         timestamp: chrono::Utc::now(),
         kind: TreeNodeKind::UserTurn,
         messages: vec![
-            rig::message::Message::user("What is life?"),
-            rig::message::Message::assistant("42"),
+            rho_harness_core::model::ChatMessage::user("What is life?"),
+            rho_harness_core::model::ChatMessage::assistant("42"),
         ],
         label: None,
         metadata: None,

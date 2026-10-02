@@ -1,20 +1,20 @@
 use super::{SessionManager, temp_dir};
-use rig::message::Message;
+use crate::model::ChatMessage;
 
 #[tokio::test]
 async fn test_session_turns_and_rewind() {
     let dir = temp_dir();
     let session = SessionManager::new(&dir, None).unwrap();
 
-    let m1 = Message::user("first prompt");
-    let m2 = Message::assistant("first answer");
+    let m1 = ChatMessage::user("first prompt");
+    let m2 = ChatMessage::assistant("first answer");
     session
         .append_messages(&session.session_id, vec![m1, m2])
         .await
         .unwrap();
 
-    let m3 = Message::user("second prompt");
-    let m4 = Message::assistant("second answer");
+    let m3 = ChatMessage::user("second prompt");
+    let m4 = ChatMessage::assistant("second answer");
     session
         .append_messages(&session.session_id, vec![m3, m4])
         .await
@@ -37,11 +37,14 @@ async fn test_session_turns_and_rewind() {
 }
 
 async fn setup_root_and_branch_a(session: &SessionManager) -> (String, String) {
-    let root = vec![Message::user("Root prompt"), Message::assistant("Root answer")];
+    let root = vec![ChatMessage::user("Root prompt"), ChatMessage::assistant("Root answer")];
     session.append_messages(&session.session_id, root).await.unwrap();
     let root_leaf = session.load_tree().await.unwrap().active_leaf_id.unwrap();
 
-    let branch_a = vec![Message::user("Branch A prompt"), Message::assistant("Branch A answer")];
+    let branch_a = vec![
+        ChatMessage::user("Branch A prompt"),
+        ChatMessage::assistant("Branch A answer"),
+    ];
     session.append_messages(&session.session_id, branch_a).await.unwrap();
     let branch_a_leaf = session.load_tree().await.unwrap().active_leaf_id.unwrap();
     (root_leaf, branch_a_leaf)
@@ -49,8 +52,11 @@ async fn setup_root_and_branch_a(session: &SessionManager) -> (String, String) {
 
 async fn setup_branch_b(session: &SessionManager, root_leaf: &str) -> String {
     let switched = session.switch_branch(Some(root_leaf.to_string())).await.unwrap();
-    assert_eq!(switched[0], Message::user("Root prompt"));
-    let branch_b = vec![Message::user("Branch B prompt"), Message::assistant("Branch B answer")];
+    assert_eq!(switched[0], ChatMessage::user("Root prompt"));
+    let branch_b = vec![
+        ChatMessage::user("Branch B prompt"),
+        ChatMessage::assistant("Branch B answer"),
+    ];
     session.append_messages(&session.session_id, branch_b).await.unwrap();
     session.load_tree().await.unwrap().active_leaf_id.unwrap()
 }
@@ -64,7 +70,7 @@ async fn assert_resumed_tree(resumed: &SessionManager, branch_b_leaf: &str) {
 async fn assert_resumed_msgs(resumed: &SessionManager) {
     let resumed_msgs = resumed.load_messages().await.unwrap();
     assert_eq!(resumed_msgs.len(), 4);
-    assert_eq!(resumed_msgs[2], Message::user("Branch B prompt"));
+    assert_eq!(resumed_msgs[2], ChatMessage::user("Branch B prompt"));
 }
 
 #[tokio::test]
@@ -98,7 +104,7 @@ async fn test_session_tree_node_label_and_naming() {
     session
         .append_messages(
             &session.session_id,
-            vec![Message::user("prompt"), Message::assistant("reply")],
+            vec![ChatMessage::user("prompt"), ChatMessage::assistant("reply")],
         )
         .await
         .unwrap();

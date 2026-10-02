@@ -1,4 +1,5 @@
 use rho_harness_core::error::AppError;
+use rho_harness_core::model::ChatMessage;
 use rig::streaming::StreamedAssistantContent;
 use std::collections::HashSet;
 
@@ -53,20 +54,17 @@ pub fn budget_history(error: &rig::agent::StreamingError) -> Option<(usize, Vec<
 }
 
 pub fn checkpoint_messages(
-    visible_history: &[rig::message::Message],
-    full_history: &[rig::message::Message],
-) -> Result<Vec<rig::message::Message>, AppError> {
+    visible_history: &[ChatMessage],
+    full_history: &[ChatMessage],
+) -> Result<Vec<ChatMessage>, AppError> {
     full_history
         .strip_prefix(visible_history)
         .filter(|messages| !messages.is_empty())
-        .map(<[rig::message::Message]>::to_vec)
+        .map(<[ChatMessage]>::to_vec)
         .ok_or_else(|| AppError::Session("Budget checkpoint did not match the model-visible history".to_string()))
 }
 
-pub fn continuation_history(
-    visible_history: &[rig::message::Message],
-    checkpoint: &[rig::message::Message],
-) -> Vec<rig::message::Message> {
+pub fn continuation_history(visible_history: &[ChatMessage], checkpoint: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut history = Vec::with_capacity(visible_history.len() + checkpoint.len());
     history.extend_from_slice(visible_history);
     history.extend_from_slice(checkpoint);

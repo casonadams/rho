@@ -1,9 +1,7 @@
 use super::*;
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
 use crate::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use chrono::Utc;
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
-};
 
 fn sample_tool_node() -> TreeNodeData {
     TreeNodeData {
@@ -12,20 +10,19 @@ fn sample_tool_node() -> TreeNodeData {
         timestamp: Utc::now(),
         kind: TreeNodeKind::AssistantTurn,
         messages: vec![
-            Message::Assistant {
+            ChatMessage::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(ToolCall::new(
-                    ToolCallId::new("call-1").unwrap(),
-                    ToolFunction::new("bash".to_string(), serde_json::json!({"command": "ls"})),
+                    "call-1",
+                    ToolFunction::new("bash", serde_json::json!({"command": "ls"})),
                 ))],
             },
-            Message::User {
-                content: vec![UserContent::ToolResult(ToolResult {
-                    call: ToolCallId::new("call-1").unwrap(),
-                    provider: None,
-                    name: "bash".to_string(),
-                    content: vec![ToolResultContent::text("file-a\nfile-b")],
-                })],
+            ChatMessage::User {
+                content: vec![UserContent::ToolResult(ToolResult::new(
+                    "call-1",
+                    "bash",
+                    "file-a\nfile-b",
+                ))],
             },
         ],
         label: None,
@@ -43,8 +40,8 @@ fn tree_with_conversation() -> SessionTree {
         timestamp: Utc::now(),
         kind: TreeNodeKind::UserTurn,
         messages: vec![
-            Message::user("what is <html> & \"quotes\"?"),
-            Message::assistant("it is escaped"),
+            ChatMessage::user("what is <html> & \"quotes\"?"),
+            ChatMessage::assistant("it is escaped"),
         ],
         label: None,
         metadata: None,
@@ -109,7 +106,7 @@ fn falls_back_to_session_id_when_unnamed() {
         parent_id: None,
         timestamp: Utc::now(),
         kind: TreeNodeKind::UserTurn,
-        messages: vec![Message::user("hello")],
+        messages: vec![ChatMessage::user("hello")],
         label: None,
         metadata: None,
     });

@@ -1,5 +1,11 @@
 //! Anti-Corruption Layer: translates between Rho domain types and Rig framework types.
 
+pub mod context;
+pub mod memory;
+pub mod model;
+pub use memory::RigSessionMemory;
+pub use model::RigModelAdapter;
+
 use rho_harness_core::model::{
     AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, TextContent, ToolCall, ToolFunction,
     ToolResult, ToolResultContent, UserContent,

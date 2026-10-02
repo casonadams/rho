@@ -1,8 +1,8 @@
 use rho::tokens::{
     calculate_context_tokens, context_window_size, estimate_text_tokens, find_token_cut_point, should_compact,
 };
-use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, TextContent, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
 
 #[test]
@@ -54,22 +54,20 @@ fn test_preflight_check_compaction() {
 #[test]
 fn test_hybrid_context_tokens_with_provider_anchor() {
     let messages = vec![
-        Message::user("Read some files"),
-        Message::Assistant {
+        ChatMessage::user("Read some files"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/main.rs"})),
+                "c1",
+                ToolFunction::new("read", serde_json::json!({"path": "src/main.rs"})),
             ))],
         },
-        Message::User {
+        ChatMessage::User {
             content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("c1"),
+                call: "c1".to_string(),
                 provider: None,
                 name: "read".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new(
-                    "large file content here...",
-                ))],
+                content: vec![ToolResultContent::Text(TextContent::new("large file content here..."))],
             })],
         },
     ];
@@ -83,23 +81,23 @@ fn test_hybrid_context_tokens_with_provider_anchor() {
 #[test]
 fn test_cut_point_preserves_tool_pairs() {
     let messages = vec![
-        Message::user("User prompt 1"),
-        Message::Assistant {
+        ChatMessage::user("User prompt 1"),
+        ChatMessage::Assistant {
             id: None,
             content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/main.rs"})),
+                "c1",
+                ToolFunction::new("read", serde_json::json!({"path": "src/main.rs"})),
             ))],
         },
-        Message::User {
+        ChatMessage::User {
             content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("c1"),
+                call: "c1".to_string(),
                 provider: None,
                 name: "read".to_string(),
-                content: vec![ToolResultContent::Text(rig::message::Text::new("file content here"))],
+                content: vec![ToolResultContent::Text(TextContent::new("file content here"))],
             })],
         },
-        Message::assistant("Assistant summary"),
+        ChatMessage::assistant("Assistant summary"),
     ];
 
     let cut = find_token_cut_point(&messages, 10, "gpt-4");
@@ -110,14 +108,14 @@ fn test_cut_point_preserves_tool_pairs() {
 fn test_tool_result_image_token_estimation() {
     use rho::tokens::{ESTIMATED_IMAGE_TOKENS, estimate_message_tokens};
 
-    let msg = Message::User {
+    let msg = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("c1"),
+            call: "c1".to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(rig::message::Text::new("Read image file")),
-                ToolResultContent::image_base64("data", None, None),
+                ToolResultContent::Text(TextContent::new("Read image file")),
+                ToolResultContent::image("data", None),
             ],
         })],
     };
@@ -130,37 +128,31 @@ fn test_multi_turn_image_tool_result_pruning_token_reduction() {
     use rho::engine::runner::{DEFAULT_PRUNE_LINE_THRESHOLD, prune_historical_tool_outputs};
     use rho::tokens::{ESTIMATED_IMAGE_TOKENS, estimate_message_tokens};
 
-    let turn1_user = Message::user("Inspect this mock screenshot");
-    let turn1_call = Message::Assistant {
+    let turn1_user = ChatMessage::user("Inspect this mock screenshot");
+    let turn1_call = ChatMessage::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new_or_mint("c1"),
+            "c1".to_string(),
             ToolFunction::new(
                 "read".to_string(),
                 serde_json::json!({ "path": "docs/architecture.png" }),
             ),
         ))],
     };
-    let turn1_result = Message::User {
+    let turn1_result = ChatMessage::User {
         content: vec![UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new_or_mint("c1"),
+            call: "c1".to_string(),
             provider: None,
             name: "read".to_string(),
             content: vec![
-                ToolResultContent::Text(rig::message::Text::new(
-                    "Read image file [image/png]\n[Image: 1200x800]",
-                )),
-                ToolResultContent::image_base64(
-                    "iVBORw0KGgoAAAANSUhEUg==",
-                    Some(rig::completion::message::ImageMediaType::PNG),
-                    None,
-                ),
+                ToolResultContent::Text(TextContent::new("Read image file [image/png]\n[Image: 1200x800]")),
+                ToolResultContent::image("iVBORw0KGgoAAAANSUhEUg==", Some("image/png".to_string())),
             ],
         })],
     };
     let turn1_assistant =
-        Message::assistant("The diagram shows three main architectural layers: core, engine, and shell.");
-    let turn2_user = Message::user("Now explain the responsibilities of the shell layer");
+        ChatMessage::assistant("The diagram shows three main architectural layers: core, engine, and shell.");
+    let turn2_user = ChatMessage::user("Now explain the responsibilities of the shell layer");
 
     let history = vec![turn1_user, turn1_call, turn1_result, turn1_assistant, turn2_user];
 
@@ -173,7 +165,7 @@ fn test_multi_turn_image_tool_result_pruning_token_reduction() {
     let pruned_history = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
     assert_eq!(pruned_history.len(), history.len());
 
-    let Message::User {
+    let ChatMessage::User {
         content: pruned_content,
     } = &pruned_history[2]
     else {

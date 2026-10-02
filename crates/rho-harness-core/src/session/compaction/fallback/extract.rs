@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
+use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolResult, ToolResultContent, UserContent};
 use serde_json::Value;
 
 use super::SummaryState;
@@ -15,7 +15,7 @@ fn process_user_text_facts(text_str: &str, state: &mut SummaryState) {
     scan_text_lines(text_str, state);
 }
 
-fn process_tool_result_facts(result: &rig::message::ToolResult, state: &mut SummaryState) {
+fn process_tool_result_facts(result: &ToolResult, state: &mut SummaryState) {
     for item in &result.content {
         if let ToolResultContent::Text(text) = item
             && is_error_text(&text.text)
@@ -43,7 +43,7 @@ fn record_tool_done_item(item: String, seen_done: &mut HashSet<String>, state: &
     }
 }
 
-fn process_tool_call_facts(call: &rig::message::ToolCall, seen_done: &mut HashSet<String>, state: &mut SummaryState) {
+fn process_tool_call_facts(call: &ToolCall, seen_done: &mut HashSet<String>, state: &mut SummaryState) {
     let name = call.function.name.as_str();
     if is_file_mod_tool(name) {
         if let Some(path) = extract_path(&call.function.arguments) {
@@ -64,21 +64,21 @@ fn process_assistant_content_facts(item: &AssistantContent, seen_done: &mut Hash
     }
 }
 
-pub fn extract_message_facts(messages: &[Message], state: &mut SummaryState) {
+pub fn extract_message_facts(messages: &[ChatMessage], state: &mut SummaryState) {
     let mut seen_done = HashSet::new();
     for msg in messages {
         match msg {
-            Message::User { content } => {
+            ChatMessage::User { content } => {
                 for part in content {
                     process_user_content_facts(part, state);
                 }
             }
-            Message::Assistant { content, .. } => {
+            ChatMessage::Assistant { content, .. } => {
                 for item in content {
                     process_assistant_content_facts(item, &mut seen_done, state);
                 }
             }
-            Message::System { content } => scan_text_lines(content, state),
+            ChatMessage::System { content } => scan_text_lines(content, state),
         }
     }
 }

@@ -1,10 +1,10 @@
-use rig::message::Message;
+use rho_harness_core::model::ChatMessage;
 
 use super::llm::{LlmCompactor, SummarizeOptions};
 use crate::engine::AgentEngine;
 
 impl AgentEngine {
-    pub async fn summarize_branch(&self, messages: &[Message]) -> String {
+    pub async fn summarize_branch(&self, messages: &[ChatMessage]) -> String {
         if messages.is_empty() {
             return String::new();
         }

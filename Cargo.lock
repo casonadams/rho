@@ -3898,8 +3898,6 @@ dependencies = [
  "dotenvy",
  "futures",
  "iroh",
- "rig",
- "rig-memory",
  "ring",
  "schemars",
  "serde",

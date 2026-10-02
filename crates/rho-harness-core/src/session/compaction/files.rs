@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use rig::message::{AssistantContent, Message};
+use crate::model::{AssistantContent, ChatMessage, ToolCall};
 use serde_json::Value;
 
 use super::types::CompactionDetails;
@@ -58,11 +58,7 @@ fn populate_prior_files(
     }
 }
 
-fn process_tool_call_file_op(
-    call: &rig::message::ToolCall,
-    read_set: &mut BTreeSet<String>,
-    modified_set: &mut BTreeSet<String>,
-) {
+fn process_tool_call_file_op(call: &ToolCall, read_set: &mut BTreeSet<String>, modified_set: &mut BTreeSet<String>) {
     let name = call.function.name.as_str();
     let Some(raw_path) = extract_path(&call.function.arguments) else {
         return;
@@ -78,8 +74,8 @@ fn process_tool_call_file_op(
     }
 }
 
-fn process_message_file_ops(msg: &Message, read_set: &mut BTreeSet<String>, modified_set: &mut BTreeSet<String>) {
-    let Message::Assistant { content, .. } = msg else {
+fn process_message_file_ops(msg: &ChatMessage, read_set: &mut BTreeSet<String>, modified_set: &mut BTreeSet<String>) {
+    let ChatMessage::Assistant { content, .. } = msg else {
         return;
     };
     for item in content {
@@ -89,7 +85,7 @@ fn process_message_file_ops(msg: &Message, read_set: &mut BTreeSet<String>, modi
     }
 }
 
-pub fn extract_file_ops(messages: &[Message], prior: Option<&CompactionDetails>) -> CompactionDetails {
+pub fn extract_file_ops(messages: &[ChatMessage], prior: Option<&CompactionDetails>) -> CompactionDetails {
     let mut read_set = BTreeSet::new();
     let mut modified_set = BTreeSet::new();
 

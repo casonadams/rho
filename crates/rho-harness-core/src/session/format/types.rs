@@ -1,5 +1,5 @@
+use crate::model::ChatMessage;
 use chrono::{DateTime, Utc};
-use rig::message::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -30,7 +30,7 @@ pub enum SessionRecord {
         sequence: u64,
         session_id: String,
         timestamp: DateTime<Utc>,
-        messages: Vec<Message>,
+        messages: Vec<ChatMessage>,
     },
     CanonicalReset {
         sequence: u64,
@@ -41,13 +41,13 @@ pub enum SessionRecord {
         sequence: u64,
         session_id: String,
         timestamp: DateTime<Utc>,
-        messages: Vec<Message>,
+        messages: Vec<ChatMessage>,
     },
     CheckpointPromoted {
         sequence: u64,
         session_id: String,
         timestamp: DateTime<Utc>,
-        messages: Vec<Message>,
+        messages: Vec<ChatMessage>,
     },
     AuditEvent {
         sequence: u64,
@@ -107,8 +107,8 @@ pub enum SessionEventKind {
 #[derive(Debug)]
 pub struct StoreState {
     pub next_sequence: u64,
-    pub messages: Vec<Message>,
-    pub checkpoint: Option<Vec<Message>>,
+    pub messages: Vec<ChatMessage>,
+    pub checkpoint: Option<Vec<ChatMessage>>,
     pub events: Vec<SessionEvent>,
     pub tree: SessionTree,
     pub(crate) integrity: CanonicalHistory,

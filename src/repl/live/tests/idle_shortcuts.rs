@@ -109,7 +109,7 @@ fn single_node_tree(id: &str) -> rho_harness_core::session::tree::SessionTree {
         parent_id: None,
         timestamp: chrono::Utc::now(),
         kind: rho_harness_core::session::tree::TreeNodeKind::UserTurn,
-        messages: vec![rig::message::Message::user("test")],
+        messages: vec![rho_harness_core::model::ChatMessage::user("test")],
         label: None,
         metadata: None,
     });

@@ -1,5 +1,5 @@
+use crate::model::ChatMessage;
 use chrono::{DateTime, Utc};
-use rig::message::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -23,7 +23,7 @@ pub struct TreeNodeData {
     pub parent_id: Option<String>,
     pub timestamp: DateTime<Utc>,
     pub kind: TreeNodeKind,
-    pub messages: Vec<Message>,
+    pub messages: Vec<ChatMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,12 +49,12 @@ pub struct SessionTree {
     pub session_name: Option<String>,
 }
 
-fn extract_compaction_summary(node: &TreeNodeData, meta: Option<&CompactionMetadata>) -> Vec<Message> {
+fn extract_compaction_summary(node: &TreeNodeData, meta: Option<&CompactionMetadata>) -> Vec<ChatMessage> {
     if !node.messages.is_empty() {
         return node.messages.clone();
     }
     if let Some(meta) = meta {
-        return vec![Message::System {
+        return vec![ChatMessage::System {
             content: meta.summary.clone(),
         }];
     }
@@ -63,7 +63,7 @@ fn extract_compaction_summary(node: &TreeNodeData, meta: Option<&CompactionMetad
         .as_ref()
         .and_then(|v| v.get("summary").and_then(|s| s.as_str()))
     {
-        return vec![Message::System {
+        return vec![ChatMessage::System {
             content: summary.to_string(),
         }];
     }
@@ -100,9 +100,9 @@ fn find_kept_message_offset(compaction_node: &TreeNodeData, meta: Option<&Compac
 
 fn collect_post_compaction_messages(
     nodes: &[&TreeNodeData],
-    mut messages: Vec<Message>,
+    mut messages: Vec<ChatMessage>,
     first_node_msg_offset: usize,
-) -> Vec<Message> {
+) -> Vec<ChatMessage> {
     let mut is_first = true;
     for node in nodes {
         if node.kind != TreeNodeKind::Compaction {
@@ -184,7 +184,7 @@ impl SessionTree {
         path
     }
 
-    pub fn ancestor_messages(&self, leaf_id: &str) -> Vec<Message> {
+    pub fn ancestor_messages(&self, leaf_id: &str) -> Vec<ChatMessage> {
         let nodes = self.ancestor_nodes(leaf_id);
         let Some(comp_idx) = nodes.iter().rposition(|n| n.kind == TreeNodeKind::Compaction) else {
             return nodes.into_iter().flat_map(|node| node.messages.clone()).collect();
@@ -198,7 +198,7 @@ impl SessionTree {
         collect_post_compaction_messages(&nodes[start_idx..], summary_message, msg_offset)
     }
 
-    pub fn active_messages(&self) -> Vec<Message> {
+    pub fn active_messages(&self) -> Vec<ChatMessage> {
         match &self.active_leaf_id {
             Some(leaf_id) => self.ancestor_messages(leaf_id),
             None => Vec::new(),

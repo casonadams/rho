@@ -11,8 +11,6 @@
 //!   produces the summary body.
 //! - [`hashing`] — FNV-1a message hashing for deduplication.
 
-use super::SessionManager;
-
 mod artifact;
 mod compactor;
 mod hashing;

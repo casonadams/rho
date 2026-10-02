@@ -1,4 +1,6 @@
 use super::*;
+use crate::adapter::rig::RigSessionMemory;
+use rho_harness_core::session::SessionManager;
 use rig::memory::Compactor;
 use rig::message::{
     AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
@@ -112,20 +114,21 @@ async fn durable_history_remains_full_while_model_history_is_compacted_and_bound
     for index in 0..8 {
         history.extend(simple_turn(index));
     }
-    ConversationMemory::append(&durable, &id, history.clone())
+    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &id, history.clone())
         .await
         .unwrap();
     let memory = context_memory(durable.clone(), 4, 2048);
     let visible = memory.load(&id).await.unwrap();
 
-    assert_eq!(durable.load_messages().await.unwrap(), history);
+    let domain_history: Vec<_> = history.iter().map(crate::adapter::rig::from_rig_message).collect();
+    assert_eq!(durable.load_messages().await.unwrap(), domain_history);
     assert_eq!(visible.len(), 5);
     assert!(matches!(visible.first(), Some(Message::System { .. })));
     assert_eq!(&visible[1..], &history[history.len() - 4..]);
     assert!(model_visible_bytes(&visible) < model_visible_bytes(&history));
     drop(durable);
     let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
-    assert_eq!(resumed.load_messages().await.unwrap(), history);
+    assert_eq!(resumed.load_messages().await.unwrap(), domain_history);
 }
 
 fn assert_required_artifact_fragments(artifact: &str) {
@@ -171,7 +174,10 @@ async fn assert_resumed_context(resumed: &SessionManager, first: &[Message]) {
     let resumed_memory = context_memory(resumed.clone(), 4, 4096);
     assert_eq!(resumed_memory.load(&resumed.session_id).await.unwrap(), first);
     let msgs = resumed.load_messages().await.unwrap();
-    assert!(msgs.iter().all(|m| !matches!(m, Message::System { .. })));
+    assert!(
+        msgs.iter()
+            .all(|m| !matches!(m, rho_harness_core::model::ChatMessage::System { .. }))
+    );
 }
 
 #[tokio::test]
@@ -182,7 +188,7 @@ async fn recent_rounds_restart_deduplication_and_concurrent_loads_are_stable() {
     let mut history = coding_turn(None);
     history.extend(simple_turn(1));
     history.extend(simple_turn(2));
-    ConversationMemory::append(&durable, &id, history.clone())
+    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &id, history.clone())
         .await
         .unwrap();
 
@@ -221,16 +227,21 @@ async fn compaction_failure_surfaces_without_changing_valid_canonical_history() 
     let id = durable.session_id.clone();
     let mut history = simple_turn(0);
     history.extend(simple_turn(1));
-    ConversationMemory::append(&durable, &id, history.clone())
+    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &id, history.clone())
         .await
         .unwrap();
-    let memory = CompactingMemory::new(durable.clone(), SlidingWindowMemory::last_messages(2), FailingCompactor);
+    let memory = CompactingMemory::new(
+        RigSessionMemory::new(durable.clone()),
+        SlidingWindowMemory::last_messages(2),
+        FailingCompactor,
+    );
 
     let error = memory.load(&id).await.unwrap_err().to_string();
     assert!(error.contains("compaction unavailable"));
-    assert_eq!(durable.load_messages().await.unwrap(), history);
+    let domain_history: Vec<_> = history.iter().map(crate::adapter::rig::from_rig_message).collect();
+    assert_eq!(durable.load_messages().await.unwrap(), domain_history);
     let reopened = SessionManager::new(&dir, Some(&id)).unwrap();
-    assert_eq!(reopened.load_messages().await.unwrap(), history);
+    assert_eq!(reopened.load_messages().await.unwrap(), domain_history);
 }
 
 #[tokio::test]
