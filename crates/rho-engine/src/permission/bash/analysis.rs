@@ -148,12 +148,12 @@ fn is_path_token(token: &str) -> bool {
         return false;
     }
     token == "~"
-        || token.starts_with('/')
-        || token.starts_with("~/")
-        || token.starts_with('.')
+        || STARTS_WITH_MARKERS.iter().any(|needle| token.starts_with(needle))
         || token.contains('/')
         || token.contains("..")
 }
+
+const STARTS_WITH_MARKERS: &[&str] = &["/", "~/", "."];
 
 fn reject_non_path(token: &str) -> bool {
     token.is_empty()

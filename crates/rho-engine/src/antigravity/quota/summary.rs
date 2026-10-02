@@ -90,11 +90,8 @@ fn bucket_matches_target(bucket: &Value, target: &str) -> bool {
     let text = bucket_structural_text(bucket);
     let target = canonical_target(target).to_ascii_lowercase();
 
-    let has_family_tag = text.contains("gemini")
-        || text.contains("claude")
-        || text.contains("gpt")
-        || text.contains("3p")
-        || text.contains("third");
+    let family: &[&str] = &["gemini", "claude", "gpt", "3p", "third"];
+    let has_family_tag = family.iter().any(|needle| text.contains(needle));
 
     if !has_family_tag {
         return true;
@@ -168,7 +165,8 @@ fn select_group_buckets<'a>(groups: &'a [Value], target_model: &str) -> Option<&
 
 fn is_weekly_bucket(bucket: &Value, reset_time: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
     let text = bucket_structural_text(bucket);
-    if text.contains("week") || text.contains("7d") || text.contains("wk") || text.contains("168h") {
+    const WEEKLY: &[&str] = &["week", "7d", "wk", "168h"];
+    if WEEKLY.iter().any(|needle| text.contains(needle)) {
         return true;
     }
     reset_time.is_some_and(|reset| reset.signed_duration_since(now).num_hours() > 36)
@@ -176,13 +174,8 @@ fn is_weekly_bucket(bucket: &Value, reset_time: Option<DateTime<Utc>>, now: Date
 
 fn is_5h_bucket(bucket: &Value, reset_time: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
     let text = bucket_structural_text(bucket);
-    if text.contains("5h")
-        || text.contains("5 hour")
-        || text.contains("5hour")
-        || text.contains("five")
-        || text.contains("session")
-        || text.contains("300m")
-    {
+    const FIVE_HOUR: &[&str] = &["5h", "5 hour", "5hour", "five", "session", "300m"];
+    if FIVE_HOUR.iter().any(|needle| text.contains(needle)) {
         return true;
     }
     reset_time.is_some_and(|reset| {
