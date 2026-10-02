@@ -22,6 +22,7 @@ pub mod auth;
 pub mod collab;
 pub mod config;
 pub mod error;
+pub mod model;
 pub mod net;
 pub mod presentation;
 pub mod prompts;
