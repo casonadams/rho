@@ -1,4 +1,4 @@
-use super::super::{Config, FileConfig, PermissionConfig};
+use super::super::{Config, FileConfig, McpConfig, PermissionConfig};
 
 #[test]
 fn parses_providers_config() {
@@ -210,4 +210,12 @@ deferThreshold = 25
     super::super::merge::merge_file(&mut config, file);
     assert!(!config.mcp.enabled);
     assert_eq!(config.mcp.defer_threshold, 25);
+}
+
+#[test]
+fn test_mcp_config_defaults() {
+    let config = McpConfig::default();
+    assert!(config.enabled);
+    assert_eq!(config.defer_threshold, 4);
+    assert!(config.servers.is_empty());
 }

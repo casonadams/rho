@@ -76,7 +76,7 @@ impl StreamWordWrapper {
             }
             if self.pending_word_width > 0 && self.pending_word_width + cw > self.max_width {
                 out.push_str(&self.pending_word);
-                self.apply_pending_ansi();
+                crate::ui::block::apply_pending_ansi(&mut self.pending_ansi, &mut self.active_ansi);
                 self.flush_line(out);
                 self.pending_word.clear();
                 self.pending_word_width = 0;
@@ -150,28 +150,7 @@ impl StreamWordWrapper {
         self.col += self.pending_word_width;
         self.pending_word.clear();
         self.pending_word_width = 0;
-        self.apply_pending_ansi();
-    }
-
-    fn apply_pending_ansi(&mut self) {
-        if self.pending_ansi.is_empty() {
-            return;
-        }
-        let mut rem = self.pending_ansi.as_str();
-        while let Some(start) = rem.find('\x1b') {
-            if let Some(end) = rem[start..].find('m') {
-                let seq = &rem[start..=start + end];
-                if seq == "\x1b[0m" || seq == "\x1b[m" {
-                    self.active_ansi.clear();
-                } else {
-                    self.active_ansi.push_str(seq);
-                }
-                rem = &rem[start + end + 1..];
-            } else {
-                break;
-            }
-        }
-        self.pending_ansi.clear();
+        crate::ui::block::apply_pending_ansi(&mut self.pending_ansi, &mut self.active_ansi);
     }
 
     pub fn flush(&mut self) -> String {

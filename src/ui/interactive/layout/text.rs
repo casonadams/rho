@@ -78,27 +78,6 @@ impl<'a> LineWrapper<'a> {
         false
     }
 
-    fn apply_pending_ansi(&mut self) {
-        if self.pending_ansi.is_empty() {
-            return;
-        }
-        let mut rem = self.pending_ansi.as_str();
-        while let Some(start) = rem.find('\x1b') {
-            if let Some(end) = rem[start..].find('m') {
-                let seq = &rem[start..=start + end];
-                if seq == "\x1b[0m" || seq == "\x1b[m" {
-                    self.active_ansi.clear();
-                } else {
-                    self.active_ansi.push_str(seq);
-                }
-                rem = &rem[start + end + 1..];
-            } else {
-                break;
-            }
-        }
-        self.pending_ansi.clear();
-    }
-
     fn flush_current_line(&mut self, output: &mut Vec<String>) {
         if !self.active_ansi.is_empty() {
             self.current_line.push_str("\x1b[0m");
@@ -131,7 +110,7 @@ impl<'a> LineWrapper<'a> {
         self.current_width += self.pending_word_width;
         self.pending_word.clear();
         self.pending_word_width = 0;
-        self.apply_pending_ansi();
+        crate::ui::block::apply_pending_ansi(&mut self.pending_ansi, &mut self.active_ansi);
     }
 
     fn handle_space(&mut self, c: char, output: &mut Vec<String>) {
@@ -150,7 +129,7 @@ impl<'a> LineWrapper<'a> {
             }
             if self.pending_word_width + cw > self.max_width && self.pending_word_width > 0 {
                 self.current_line.push_str(&self.pending_word);
-                self.apply_pending_ansi();
+                crate::ui::block::apply_pending_ansi(&mut self.pending_ansi, &mut self.active_ansi);
                 self.flush_current_line(output);
                 self.pending_word.clear();
                 self.pending_word_width = 0;

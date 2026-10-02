@@ -35,30 +35,32 @@ impl DeferredMcpTool {
         }
     }
 
+    pub async fn execute_call(&self, args: serde_json::Value) -> String {
+        match self.client.call_tool(&self.name, args).await {
+            Ok(result) => {
+                let text = result.as_text_truncated(self.max_bytes);
+                if result.is_error.unwrap_or(false) {
+                    format!("[Error] {text}")
+                } else {
+                    text
+                }
+            }
+            Err(e) => format!("[MCP Error] {e}"),
+        }
+    }
+
     pub fn into_dynamic_tool(&self) -> DynamicTool {
         let tool_name = self.wire_name.clone();
         let description = self.description.clone();
         let mut schema = self.input_schema.clone();
         crate::tools::normalize_schema(&mut schema);
-        let client = Arc::clone(&self.client);
-        let original_name = self.name.clone();
-        let max_bytes = self.max_bytes;
+        let tool = self.clone();
 
         DynamicTool::new(tool_name, description, schema, move |_ctx, args| {
-            let client = Arc::clone(&client);
-            let original_name = original_name.clone();
+            let tool = tool.clone();
             Box::pin(async move {
-                match client.call_tool(&original_name, args).await {
-                    Ok(result) => {
-                        let text = result.as_text_truncated(max_bytes);
-                        if result.is_error.unwrap_or(false) {
-                            Ok(ToolOutput::text(format!("[Error] {text}")))
-                        } else {
-                            Ok(ToolOutput::text(text))
-                        }
-                    }
-                    Err(e) => Ok(ToolOutput::text(format!("[MCP Error] {e}"))),
-                }
+                let output = tool.execute_call(args).await;
+                Ok(ToolOutput::text(output))
             })
         })
     }
@@ -307,11 +309,70 @@ pub fn extract_invoked_tool_names(messages: &[rig::message::Message]) -> HashSet
     names
 }
 
+fn resolve_executable_tool<'a>(
+    matches: &'a [DeferredMcpTool],
+    target_tool: Option<&str>,
+    query: &str,
+) -> Result<&'a DeferredMcpTool, String> {
+    if matches.is_empty() {
+        return Err("No tools matched the query to execute.".to_string());
+    }
+
+    if let Some(target) = target_tool {
+        let trimmed = target.trim();
+        if !trimmed.is_empty() {
+            return matches
+                .iter()
+                .find(|m| m.wire_name == trimmed || m.name == trimmed)
+                .ok_or_else(|| {
+                    let available: Vec<&str> = matches.iter().map(|m| m.wire_name.as_str()).collect();
+                    format!(
+                        "Target tool '{trimmed}' not found among search matches: [{}].",
+                        available.join(", ")
+                    )
+                });
+        }
+    }
+
+    if matches.len() == 1 {
+        return Ok(&matches[0]);
+    }
+
+    let q_trimmed = query.trim();
+    if let Some(exact) = matches.iter().find(|m| m.name == q_trimmed || m.wire_name == q_trimmed) {
+        return Ok(exact);
+    }
+
+    let available: Vec<&str> = matches.iter().map(|m| m.wire_name.as_str()).collect();
+    Err(format!(
+        "Multiple tools matched; specify 'tool' in 'execute'. Candidates: [{}].",
+        available.join(", ")
+    ))
+}
+
+async fn maybe_execute_tool(
+    matches: &[DeferredMcpTool],
+    exec_val: Option<&serde_json::Map<String, serde_json::Value>>,
+    query: &str,
+) -> Option<String> {
+    let exec = exec_val?;
+    let target_tool = exec.get("tool").and_then(|t| t.as_str());
+    let call_args = exec.get("arguments").cloned().unwrap_or(serde_json::json!({}));
+    match resolve_executable_tool(matches, target_tool, query) {
+        Ok(tool) => {
+            let res = tool.execute_call(call_args).await;
+            Some(format!("\n\nExecuted `{}`:\n{res}", tool.wire_name))
+        }
+        Err(err) => Some(format!("\n\n[Execution Error] {err}")),
+    }
+}
+
 pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicToolActivator) -> DynamicTool {
     let summary = catalog.catalog_summary();
     let description = format!(
         "Search and dynamically load deferred MCP tools into the active tools registry for subsequent turns. \
          Keywords match tool names, descriptions, and parameter names; exact tool name matches win. \
+         To search and execute a tool immediately in one turn, provide the optional 'execute' object. \
          Deferred tools: {summary}"
     );
 
@@ -325,6 +386,20 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
             "limit": {
                 "type": "integer",
                 "description": "Maximum number of matching tools to load (default: 5)"
+            },
+            "execute": {
+                "type": "object",
+                "properties": {
+                    "tool": {
+                        "type": "string",
+                        "description": "Tool name or wire name to execute immediately (optional if only one tool matches or query is exact)"
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": "Arguments to pass to the tool call"
+                    }
+                },
+                "description": "Optional: immediately execute a matching tool in the same turn"
             }
         },
         "required": ["query"]
@@ -342,7 +417,12 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
                 .unwrap_or(5);
             let matches = catalog.search(query, limit);
             activator.activate_tools(&matches).await;
-            let output = catalog.format_search_results(query, &matches);
+            let mut output = catalog.format_search_results(query, &matches);
+            if let Some(exec_result) =
+                maybe_execute_tool(&matches, args.get("execute").and_then(|e| e.as_object()), query).await
+            {
+                output.push_str(&exec_result);
+            }
             Ok(ToolOutput::text(output))
         })
     })
@@ -505,5 +585,15 @@ mod tests {
         let text = result.output().as_text().unwrap_or_default();
         assert!(text.contains("weather_get_forecast"));
         assert!(activator.is_activated("weather_get_forecast"));
+
+        let err_result = handle
+            .execute(
+                "tool_search",
+                r#"{"query": "forecast", "execute": {"tool": "nonexistent"}}"#,
+                &mut context,
+            )
+            .await;
+        let err_text = err_result.output().as_text().unwrap_or_default();
+        assert!(err_text.contains("[Execution Error] Target tool 'nonexistent' not found"));
     }
 }

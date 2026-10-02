@@ -852,7 +852,7 @@ rho mcp add db "https://mcp.db.example.com/mcp"
       </div>
 
       <p>
-        When configured MCP servers expose more tools than the deferral threshold (<code>defer_threshold</code>, default 10), <code>rho</code> automatically defers tool schemas behind <code>tool_search</code> to minimize prompt token overhead. The model searches on-demand and dynamically activates matching tools with full schemas for subsequent turns.
+        When configured MCP servers expose more tools than the deferral threshold (<code>defer_threshold</code>, default 4), <code>rho</code> automatically defers tool schemas behind <code>tool_search</code> to minimize prompt token overhead. The model searches on-demand and dynamically activates matching tools with full schemas for subsequent turns, or can optionally specify <code>execute</code> to run matching tools in the same turn without extra latency.
       </p>
 
       <!-- Sequential Documentation Pagination -->

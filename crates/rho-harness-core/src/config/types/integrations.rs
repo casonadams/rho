@@ -36,7 +36,7 @@ pub enum McpExposureMode {
 }
 
 pub fn default_defer_threshold() -> usize {
-    10
+    4
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,7 +53,7 @@ impl Default for McpConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            defer_threshold: 10,
+            defer_threshold: 4,
             servers: BTreeMap::new(),
         }
     }

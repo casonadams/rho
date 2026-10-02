@@ -454,15 +454,15 @@ fn is_write_or_edit_tool(name: &str) -> bool {
     matches!(name, "write" | "write_file" | "edit" | "edit_file")
 }
 
-fn extract_file_path_arg(args: &serde_json::Value) -> Option<String> {
+fn extract_file_path_arg(args: &serde_json::Value) -> Option<&str> {
     args.get("path")
         .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim())
         .filter(|s| !s.is_empty())
 }
 
 pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String> {
-    let mut seen_paths = HashSet::new();
+    let mut seen_paths: HashSet<&str> = HashSet::new();
     let mut superseded = HashSet::new();
     for msg in messages.iter().rev() {
         let Message::Assistant { content, .. } = msg else {
@@ -472,17 +472,16 @@ pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String>
             let AssistantContent::ToolCall(call) = item else {
                 continue;
             };
-            let name = call.function.name.to_ascii_lowercase();
             let Some(p) = extract_file_path_arg(&call.function.arguments) else {
                 continue;
             };
-            if is_read_tool(&name) {
-                if seen_paths.contains(&p) {
+            if is_read_tool(&call.function.name) {
+                if seen_paths.contains(p) {
                     superseded.insert(call.id.to_string());
                 } else {
                     seen_paths.insert(p);
                 }
-            } else if is_write_or_edit_tool(&name) {
+            } else if is_write_or_edit_tool(&call.function.name) {
                 seen_paths.insert(p);
             }
         }

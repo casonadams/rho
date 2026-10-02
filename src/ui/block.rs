@@ -15,6 +15,27 @@ pub fn visible_width(content: &str) -> usize {
     UnicodeWidthStr::width(clean.replace('\r', "").as_str())
 }
 
+pub fn apply_pending_ansi(pending_ansi: &mut String, active_ansi: &mut String) {
+    if pending_ansi.is_empty() {
+        return;
+    }
+    let mut rem = pending_ansi.as_str();
+    while let Some(start) = rem.find('\x1b') {
+        if let Some(end) = rem[start..].find('m') {
+            let seq = &rem[start..=start + end];
+            if seq == "\x1b[0m" || seq == "\x1b[m" {
+                active_ansi.clear();
+            } else {
+                active_ansi.push_str(seq);
+            }
+            rem = &rem[start + end + 1..];
+        } else {
+            break;
+        }
+    }
+    pending_ansi.clear();
+}
+
 fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>) {
     match params.peek().copied() {
         Some("5") => {
@@ -543,5 +564,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_apply_pending_ansi() {
+        let mut pending = "\x1b[31m".to_string();
+        let mut active = String::new();
+        apply_pending_ansi(&mut pending, &mut active);
+        assert_eq!(active, "\x1b[31m");
+        assert!(pending.is_empty());
+
+        pending = "\x1b[0m".to_string();
+        apply_pending_ansi(&mut pending, &mut active);
+        assert_eq!(active, "");
+        assert!(pending.is_empty());
+
+        pending = "\x1b[1m\x1b[32m".to_string();
+        apply_pending_ansi(&mut pending, &mut active);
+        assert_eq!(active, "\x1b[1m\x1b[32m");
+        assert!(pending.is_empty());
+
+        pending = "no ansi here".to_string();
+        apply_pending_ansi(&mut pending, &mut active);
+        assert_eq!(active, "\x1b[1m\x1b[32m");
+        assert!(pending.is_empty());
     }
 }
