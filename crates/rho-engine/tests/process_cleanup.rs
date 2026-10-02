@@ -4,7 +4,7 @@ use tokio::process::Command;
 
 #[cfg(unix)]
 async fn wait_group_dead(pid: u32) {
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_millis(2500);
     while Instant::now() < deadline {
         if unsafe { libc::kill(-(pid as libc::pid_t), 0) } == -1 {
             return;

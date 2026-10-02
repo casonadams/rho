@@ -96,7 +96,7 @@ pub fn is_pid_tracked(pid: u32) -> bool {
 
 #[cfg(all(test, unix))]
 pub async fn wait_group_dead(pid: u32) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2500);
     while std::time::Instant::now() < deadline {
         if unsafe { libc::kill(-(pid as libc::pid_t), 0) } == -1 {
             return;

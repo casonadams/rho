@@ -58,7 +58,7 @@ fn sample_multiline_prompt() -> InteractionPrompt {
         .map(|i| format!("echo line_{i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    build_permission_prompt("bash", &json!({ "command": cmd }), &[], None)
+    build_permission_prompt("bash", &json!({ "command": cmd }), &[], None, None)
 }
 
 #[test]
@@ -197,6 +197,7 @@ fn test_permission_prompt_compound_seams_prefills_and_renders_formatted() {
         "bash",
         &json!({ "command": "git status && cargo test ; ls" }),
         &[],
+        None,
         None,
     );
     let mut driver = PermDriver::new(prompt);
