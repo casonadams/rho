@@ -6,6 +6,7 @@
 use crate::ui::theme::Theme;
 use chrono::{DateTime, Utc};
 use rho_harness_core::presentation::SessionStatus;
+use std::fmt::Write;
 
 pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
     let edits = args.get("edits")?.as_array()?;
@@ -60,7 +61,7 @@ fn format_preview_lines(lines: &[&str], lang: Option<&str>, gutter_width: usize,
         let no_tabs = line.replace('\t', "   ");
         let highlighted = highlighter.highlight_line(&no_tabs, theme);
         let gutter = super::diff::format_gutter_prefix(line_num, gutter_width, d);
-        out.push_str(&format!("{gutter}{highlighted}\n"));
+        let _ = writeln!(out, "{gutter}{highlighted}");
     }
     out
 }
@@ -137,9 +138,9 @@ fn render_parsed_read_lines(
             let no_tabs = item.content.replace('\t', "   ");
             let highlighted = highlighter.highlight_line(&no_tabs, theme);
             let gutter = super::diff::format_gutter_prefix(num, gutter_width, d);
-            out.push_str(&format!("{gutter}{highlighted}\n"));
+            let _ = writeln!(out, "{gutter}{highlighted}");
         } else if item.is_notice {
-            out.push_str(&format!("{d}{}{d:#}\n", item.content));
+            let _ = writeln!(out, "{d}{}{d:#}", item.content);
         } else {
             out.push_str(item.content);
             out.push('\n');
@@ -222,11 +223,11 @@ pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: u
     };
     for line in thinking_text.trim().lines() {
         if line.trim().is_empty() {
-            out.push_str(&format!("{d} {line}{d:#}\n"));
+            let _ = writeln!(out, "{d} {line}{d:#}");
             continue;
         }
         for wrapped in crate::ui::interactive::wrap_to_width(line, wrap_width) {
-            out.push_str(&format!("{d} {wrapped}{d:#}\n"));
+            let _ = writeln!(out, "{d} {wrapped}{d:#}");
         }
     }
     out
