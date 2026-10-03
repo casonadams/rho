@@ -157,11 +157,16 @@ fn extract_image_parts(content: &[rig::message::ToolResultContent]) -> Vec<Funct
 }
 
 fn push_observation_parts(
-    (_result_name, _args, response_text): (&str, &str, &str),
+    (result_name, args, response_text): (&str, &str, &str),
     image_parts: Vec<FunctionResponsePart>,
     parts: &mut Vec<Part>,
 ) {
-    parts.push(part_text(response_text.to_string()));
+    let label = if args == "{}" {
+        format!("`{result_name}`")
+    } else {
+        format!("`{result_name}` ({args})")
+    };
+    parts.push(part_text(format!("[Observation from {label}:\n{response_text}]")));
     for p in image_parts {
         if let Some(inline_data) = p.inline_data {
             parts.push(Part {

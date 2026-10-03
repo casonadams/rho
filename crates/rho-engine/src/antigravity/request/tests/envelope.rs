@@ -79,7 +79,7 @@ fn unsigned_tool_calls_flatten_to_observations_on_gemini_3() {
 
     assert!(!body.to_string().contains("functionCall"));
     let obs = contents[0]["parts"][1]["text"].as_str().unwrap();
-    assert_eq!(obs, "file body");
+    assert!(obs.contains("[Observation from `read_file`") && obs.contains("file body"));
 
     let body_claude = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
     let contents_claude = body_claude["request"]["contents"].as_array().unwrap();
