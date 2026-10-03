@@ -14,10 +14,14 @@ mod hook_integration;
 mod live_antigravity;
 #[path = "live_claude.rs"]
 mod live_claude;
+#[path = "mcp_direct_tools.rs"]
+mod mcp_direct_tools;
 #[path = "mcp_eager_loading.rs"]
 mod mcp_eager_loading;
 #[path = "mcp_integration.rs"]
 mod mcp_integration;
+#[path = "mcp_lazy_lifecycle.rs"]
+mod mcp_lazy_lifecycle;
 #[path = "permission_integration.rs"]
 mod permission_integration;
 #[path = "repeat_call.rs"]

@@ -15,7 +15,7 @@
 
 MCP servers are configured in standard JSON files:
 
-- **Global**: `~/.agents/mcp.json` (fallback: `~/.config/rho/mcp.json`)
+- **Global**: `~/.config/mcp/mcp.json` (canonical, fallback: `~/.agents/mcp.json` or `~/.config/rho/mcp.json`)
 - **Local / Workspace**: `.agents/mcp.json` (fallback: `.mcp.json`)
 
 Local server definitions extend and override global servers on name collisions.
@@ -27,13 +27,19 @@ Local server definitions extend and override global servers on name collisions.
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+      "lifecycle": "lazy",
+      "idleTimeout": 600,
+      "directTools": ["read_file", "list_directory"]
     },
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
       "env": {
         "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "searchKeywords": {
+        "search_code": ["grep", "find_code"]
       }
     },
     "remote_jira": {
@@ -46,6 +52,24 @@ Local server definitions extend and override global servers on name collisions.
   }
 }
 ```
+
+### Server Lifecycles & Lazy Connections
+
+MCP servers default to lazy on-demand lifecycle (`lifecycle: "lazy"`):
+- No child processes are spawned on engine startup if metadata is cached in `~/.config/rho/mcp-cache.json`.
+- When an MCP tool is invoked, the server process spawns transparently.
+- Idle stdio server processes are automatically reaped after `idleTimeout` seconds of inactivity (default: 600s / 10m).
+- Supported lifecycles: `"lazy"` (reaped when idle), `"eager"` (connected at startup), `"keep-alive"` (persistent, never reaped), and `"lazy-keep-alive"` (connected on first call, never reaped).
+
+### Fine-Grained Tool Exposure & Discovery
+
+- `directTools`: Controls whether tools appear directly in the model's active tool schema or are deferred behind `tool_search`. Can be `true` (all direct), `false` (all deferred), a list of tool names `["read_file"]`, or `"search"`.
+- `includeTools` / `excludeTools`: Glob patterns to include or exclude specific tools from the server.
+- `searchKeywords`: Per-tool keyword aliases (e.g. `{"search_code": ["grep"]}`) boosting relevancy during `tool_search`.
+
+### Project Server Trust
+
+To guard against malicious repositories, project-scoped MCP servers (`.mcp.json`) require authorization based on the SHA-256 hash of their execution command, arguments, and environment variables. Approved hashes are stored in `~/.config/rho/mcp_approved_servers.json`.
 
 ### Managing MCP Servers via CLI
 

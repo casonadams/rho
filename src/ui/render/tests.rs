@@ -607,12 +607,12 @@ fn print_block_emits_transcript_notice() {
 
     renderer.print_block(&BlockDisplay {
         title: "Important Notice".to_string(),
-        content: "Detailed content goes here.".to_string(),
+        content: "Notice content goes here.".to_string(),
         style: "info".to_string(),
     });
     renderer.print_block(&BlockDisplay {
         title: "".to_string(),
-        content: "Warning without title.".to_string(),
+        content: "Warning notice.".to_string(),
         style: "warning".to_string(),
     });
 
@@ -625,8 +625,8 @@ fn print_block_emits_transcript_notice() {
 
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("Important Notice"));
-    assert!(items[0].contains("Detailed content goes here."));
-    assert!(items[1].contains("Warning without title."));
+    assert!(items[0].contains("Notice content"));
+    assert!(items[1].contains("Warning notice."));
 }
 
 #[test]

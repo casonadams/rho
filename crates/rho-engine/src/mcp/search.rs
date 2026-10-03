@@ -1,7 +1,14 @@
-use super::client::McpClient;
+use super::client::{McpClient, McpToolDefinition};
+use super::pool::McpServerPool;
 use rig::tool::{DynamicTool, ToolOutput};
 use std::collections::{BTreeMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+pub type McpCallFuture = Pin<Box<dyn Future<Output = String> + Send>>;
+pub type McpCallFn = Arc<dyn Fn(String, serde_json::Value) -> McpCallFuture + Send + Sync>;
 
 #[derive(Clone)]
 pub struct DeferredMcpTool {
@@ -10,8 +17,8 @@ pub struct DeferredMcpTool {
     pub wire_name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
-    pub client: Arc<McpClient>,
-    pub max_bytes: usize,
+    call_fn: McpCallFn,
+    pub keywords: Vec<String>,
 }
 
 impl DeferredMcpTool {
@@ -24,29 +31,80 @@ impl DeferredMcpTool {
         max_bytes: usize,
     ) -> Self {
         let wire_name = format!("{server_name}_{name}");
+        let call_fn = Arc::new(move |tool_name: String, args: serde_json::Value| {
+            let client = Arc::clone(&client);
+            Box::pin(async move {
+                match client.call_tool(&tool_name, args).await {
+                    Ok(result) => {
+                        let text = result.as_text_truncated(max_bytes);
+                        if result.is_error.unwrap_or(false) {
+                            format!("[Error] {text}")
+                        } else {
+                            text
+                        }
+                    }
+                    Err(e) => format!("[MCP Error] {e}"),
+                }
+            }) as McpCallFuture
+        });
         Self {
             server_name,
             name,
             wire_name,
             description,
             input_schema,
-            client,
-            max_bytes,
+            call_fn,
+            keywords: Vec::new(),
+        }
+    }
+
+    pub fn from_definition(
+        server_name: String,
+        tool: McpToolDefinition,
+        pool: McpServerPool,
+        max_bytes: usize,
+        keywords: Vec<String>,
+    ) -> Self {
+        let wire_name = format!("{server_name}_{}", tool.name);
+        let s_name = server_name.clone();
+        let call_fn = Arc::new(move |tool_name: String, args: serde_json::Value| {
+            let pool = pool.clone();
+            let server_name = s_name.clone();
+            Box::pin(async move {
+                match pool.get_or_connect(&server_name).await {
+                    Ok((client, in_flight)) => {
+                        let res = client.call_tool(&tool_name, args).await;
+                        in_flight.fetch_sub(1, Ordering::SeqCst);
+                        pool.touch_activity(&server_name).await;
+                        match res {
+                            Ok(result) => {
+                                let text = result.as_text_truncated(max_bytes);
+                                if result.is_error.unwrap_or(false) {
+                                    format!("[Error] {text}")
+                                } else {
+                                    text
+                                }
+                            }
+                            Err(e) => format!("[MCP Error] {e}"),
+                        }
+                    }
+                    Err(e) => format!("[MCP Error] Failed to connect to server '{server_name}': {e}"),
+                }
+            }) as McpCallFuture
+        });
+        Self {
+            server_name,
+            name: tool.name,
+            wire_name,
+            description: tool.description.unwrap_or_default(),
+            input_schema: tool.input_schema,
+            call_fn,
+            keywords,
         }
     }
 
     pub async fn execute_call(&self, args: serde_json::Value) -> String {
-        match self.client.call_tool(&self.name, args).await {
-            Ok(result) => {
-                let text = result.as_text_truncated(self.max_bytes);
-                if result.is_error.unwrap_or(false) {
-                    format!("[Error] {text}")
-                } else {
-                    text
-                }
-            }
-            Err(e) => format!("[MCP Error] {e}"),
-        }
+        (self.call_fn)(self.name.clone(), args).await
     }
 
     pub fn into_dynamic_tool(&self) -> DynamicTool {
@@ -187,6 +245,7 @@ struct ToolMatchTarget<'a> {
     name: String,
     server: String,
     desc: String,
+    keywords: &'a [String],
     props: Option<&'a serde_json::Map<String, serde_json::Value>>,
 }
 
@@ -202,7 +261,20 @@ fn score_property_tokens(props: Option<&serde_json::Map<String, serde_json::Valu
     score
 }
 
-fn score_token(token: &str, target: &ToolMatchTarget) -> usize {
+fn score_keyword_tokens(keywords: &[String], token: &str, stem: &str) -> usize {
+    let mut score = 0;
+    for kw in keywords {
+        let kw_lower = kw.to_lowercase();
+        if kw_lower == token {
+            score += 600;
+        } else if kw_lower.contains(token) || (!stem.is_empty() && kw_lower.contains(stem)) {
+            score += 150;
+        }
+    }
+    score
+}
+
+fn score_token(token: &str, target: &ToolMatchTarget<'_>) -> usize {
     let stem = token.strip_suffix('s').unwrap_or(token);
     let mut score = 0;
     if target.wire == token || target.name == token {
@@ -212,6 +284,8 @@ fn score_token(token: &str, target: &ToolMatchTarget) -> usize {
     } else if !stem.is_empty() && (target.wire.contains(stem) || target.name.contains(stem)) {
         score += 80;
     }
+
+    score += score_keyword_tokens(target.keywords, token, stem);
 
     if target.server.contains(token) || target.server.contains(stem) {
         score += 50;
@@ -230,6 +304,7 @@ fn score_tool_match(tool: &DeferredMcpTool, query: &str, tokens: &[&str]) -> usi
         name: tool.name.to_lowercase(),
         server: tool.server_name.to_lowercase(),
         desc: tool.description.to_lowercase(),
+        keywords: &tool.keywords,
         props: tool.input_schema.get("properties").and_then(|p| p.as_object()),
     };
 
@@ -517,6 +592,17 @@ mod tests {
 
         let gh_results = catalog.search("issues", 5);
         assert_eq!(gh_results.len(), 2);
+    }
+
+    #[test]
+    fn test_tool_search_configured_keywords_match() {
+        let mut tools = sample_tools();
+        tools[0].keywords = vec!["ticket".to_string(), "bug".to_string()];
+        let catalog = ToolSearchCatalog::new(tools);
+
+        let results = catalog.search("ticket", 5);
+        assert!(!results.is_empty());
+        assert_eq!(results[0].wire_name, "github_create_issue");
     }
 
     #[test]

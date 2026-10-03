@@ -1,4 +1,7 @@
-use super::types::{McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, dirs_fallback};
+use super::types::{
+    McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig, McpTransportKind,
+    default_idle_timeout_seconds, dirs_fallback,
+};
 use crate::error::{AppError, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -69,6 +72,45 @@ fn parse_transport_kind(val: Option<&Value>) -> Option<McpTransportKind> {
     }
 }
 
+fn parse_lifecycle_mode(val: Option<&Value>) -> Option<McpLifecycleMode> {
+    match val.and_then(|v| v.as_str()) {
+        Some("lazy") => Some(McpLifecycleMode::Lazy),
+        Some("eager") => Some(McpLifecycleMode::Eager),
+        Some("keep-alive" | "keep_alive") => Some(McpLifecycleMode::KeepAlive),
+        Some("lazy-keep-alive" | "lazy_keep_alive") => Some(McpLifecycleMode::LazyKeepAlive),
+        _ => None,
+    }
+}
+
+fn parse_direct_tools(val: Option<&Value>) -> Option<McpDirectTools> {
+    match val {
+        Some(Value::Bool(b)) => Some(McpDirectTools::All(*b)),
+        Some(Value::String(s)) if s == "search" => Some(McpDirectTools::Search(s.clone())),
+        Some(Value::Array(arr)) => {
+            let tools: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            Some(McpDirectTools::List(tools))
+        }
+        _ => None,
+    }
+}
+
+fn parse_search_keywords(val: Option<&Value>) -> BTreeMap<String, Vec<String>> {
+    val.and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| {
+                    let keywords = parse_string_vec(Some(v));
+                    if keywords.is_empty() {
+                        None
+                    } else {
+                        Some((k.clone(), keywords))
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerConfig {
     let command = obj.get("command").and_then(|v| v.as_str()).map(expand_env_vars);
     let args = parse_string_vec(obj.get("args"));
@@ -92,6 +134,14 @@ fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerCo
         .get("timeout")
         .or_else(|| obj.get("timeout_seconds"))
         .and_then(|v| v.as_u64());
+    let lifecycle = parse_lifecycle_mode(obj.get("lifecycle"));
+    let direct_tools = parse_direct_tools(obj.get("directTools").or_else(|| obj.get("direct_tools")));
+    let idle_timeout_seconds = obj
+        .get("idleTimeout")
+        .or_else(|| obj.get("idle_timeout"))
+        .or_else(|| obj.get("idle_timeout_seconds"))
+        .and_then(|v| v.as_u64());
+    let search_keywords = parse_search_keywords(obj.get("searchKeywords").or_else(|| obj.get("search_keywords")));
 
     McpServerConfig {
         command,
@@ -105,6 +155,10 @@ fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerCo
         include_tools,
         exclude_tools,
         timeout_seconds,
+        lifecycle,
+        direct_tools,
+        idle_timeout_seconds,
+        search_keywords,
     }
 }
 
@@ -136,14 +190,26 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
         .map(|v| v as usize)
         .unwrap_or(10);
 
+    let idle_timeout_seconds = root
+        .get("idle_timeout_seconds")
+        .or_else(|| root.get("idleTimeout"))
+        .or_else(|| root.get("idle_timeout"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or_else(default_idle_timeout_seconds);
+
     Ok(McpConfig {
         enabled: true,
         defer_threshold,
+        idle_timeout_seconds,
         servers,
     })
 }
 
 pub fn global_mcp_path(config_dir: &Path) -> PathBuf {
+    let standard_candidate = dirs_fallback().join(".config").join("mcp").join("mcp.json");
+    if standard_candidate.is_file() {
+        return standard_candidate;
+    }
     let agents_candidate = dirs_fallback().join(".agents").join("mcp.json");
     if agents_candidate.is_file() {
         return agents_candidate;
@@ -152,7 +218,7 @@ pub fn global_mcp_path(config_dir: &Path) -> PathBuf {
     if config_candidate.is_file() {
         return config_candidate;
     }
-    agents_candidate
+    standard_candidate
 }
 
 pub fn local_mcp_path(workspace_dir: &Path) -> PathBuf {
@@ -168,6 +234,12 @@ pub fn local_mcp_path(workspace_dir: &Path) -> PathBuf {
 }
 
 pub fn load_global_mcp_config(config_dir: &Path) -> Result<Option<McpConfig>> {
+    let standard_candidate = dirs_fallback().join(".config").join("mcp").join("mcp.json");
+    if standard_candidate.is_file() {
+        let content = std::fs::read_to_string(&standard_candidate)
+            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", standard_candidate.display())))?;
+        return parse_mcp_json_str(&content).map(Some);
+    }
     let agents_candidate = dirs_fallback().join(".agents").join("mcp.json");
     if agents_candidate.is_file() {
         let content = std::fs::read_to_string(&agents_candidate)
@@ -433,6 +505,62 @@ mod tests {
         assert!(config.is_none());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_modernized_mcp_fields() {
+        let json = r#"{
+            "idleTimeout": 300,
+            "mcpServers": {
+                "db": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "lifecycle": "keep-alive",
+                    "idleTimeout": 120,
+                    "directTools": ["query", "schema"],
+                    "searchKeywords": {
+                        "query": ["sql", "select"],
+                        "*": ["database"]
+                    }
+                },
+                "searcher": {
+                    "command": "python",
+                    "args": ["search.py"],
+                    "directTools": "search",
+                    "lifecycle": "lazy-keep-alive"
+                },
+                "all_direct": {
+                    "command": "echo",
+                    "directTools": true
+                }
+            }
+        }"#;
+
+        let parsed = parse_mcp_json_str(json).unwrap();
+        assert_eq!(parsed.idle_timeout_seconds, 300);
+
+        let db = &parsed.servers["db"];
+        assert_eq!(db.lifecycle, Some(McpLifecycleMode::KeepAlive));
+        assert_eq!(db.idle_timeout_seconds, Some(120));
+        assert_eq!(
+            db.direct_tools,
+            Some(McpDirectTools::List(vec!["query".to_string(), "schema".to_string()]))
+        );
+        assert_eq!(
+            db.search_keywords.get("query").unwrap(),
+            &vec!["sql".to_string(), "select".to_string()]
+        );
+        assert_eq!(db.search_keywords.get("*").unwrap(), &vec!["database".to_string()]);
+
+        let searcher = &parsed.servers["searcher"];
+        assert_eq!(searcher.lifecycle, Some(McpLifecycleMode::LazyKeepAlive));
+        assert_eq!(
+            searcher.direct_tools,
+            Some(McpDirectTools::Search("search".to_string()))
+        );
+
+        let all_direct = &parsed.servers["all_direct"];
+        assert_eq!(all_direct.direct_tools, Some(McpDirectTools::All(true)));
     }
 
     #[test]

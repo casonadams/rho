@@ -786,6 +786,7 @@ fn setup_mcp_controller() -> TerminalController<HistoryTerminal> {
         mcp: McpConfig {
             enabled: true,
             defer_threshold: 10,
+            idle_timeout_seconds: 600,
             servers,
         },
         ..Default::default()

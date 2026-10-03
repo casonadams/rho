@@ -802,7 +802,7 @@ fi</code></pre>
 
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
       <p>
-        MCP servers are tool providers configured via standard JSON in <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
+        MCP servers are tool providers configured via standard JSON in <code>~/.config/mcp/mcp.json</code> or <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes (with lazy on-demand startup and automatic 10-minute idle process reaping) and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
       </p>
 
       <div class="code-block-wrapper">

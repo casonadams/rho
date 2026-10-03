@@ -31,6 +31,7 @@ fn mcp_fs_config(script: &std::path::Path) -> Config {
         mcp: McpConfig {
             enabled: true,
             defer_threshold: 10,
+            idle_timeout_seconds: 600,
             servers,
         },
         ..Config::default()

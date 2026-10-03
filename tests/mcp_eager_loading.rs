@@ -34,6 +34,7 @@ fn build_mcp_test_config(workspace: &std::path::Path, server_name: &str, cmd: &s
         mcp: McpConfig {
             enabled: true,
             defer_threshold: 10,
+            idle_timeout_seconds: 600,
             servers,
         },
         config_dir: workspace.to_path_buf(),

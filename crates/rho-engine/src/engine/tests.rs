@@ -57,10 +57,13 @@ done
 
 fn with_mock_mcp(mut config: Config, command: String) -> Config {
     let mut servers = BTreeMap::new();
-    servers.insert("mock".to_string(), McpServerConfig::stdio(command, Vec::new()));
+    let mut server = McpServerConfig::stdio(command, Vec::new());
+    server.lifecycle = Some(rho_harness_core::config::McpLifecycleMode::Eager);
+    servers.insert("mock".to_string(), server);
     config.mcp = McpConfig {
         enabled: true,
         defer_threshold: 10,
+        idle_timeout_seconds: 600,
         servers,
     };
     config

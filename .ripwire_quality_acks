@@ -1,0 +1,74 @@
+# ripwire quality acks v1 — written by --quality-ack; a finding stays suppressed until it worsens past its acked magnitude
+# format: ack <kind> <16-hex-key> <ackNow> [cid=<16-hex-content-id>] [by=<scope that acked it>] [now=<uint> was=<uint>] [prov=recon] [facet=<token>] [p=<path>:<line>] <reason to end of line> — one per line, kept SORTED by (kind,key) on every write (merge-friendly)
+# PROVENANCE: now=/was=/facet=/p= exist only on rows a provenance-aware binary WROTE OR REFRESHED (2026-09-22+); a legacy row heals FORWARD on its next --quality-ack. prov=recon marks a row a backfill RECONSTRUCTED from the CURRENT tree rather than measured when it was accepted: it answers 'would this be gating now', NOT 'was it gating then'. A recon row is a CACHE, not a dated record — every --quality-ack re-derives the ones whose clone group it can still find, so a checkable value is never older than the last ack; one whose group this run did NOT find is left untouched and counted as unverified on stderr, because not finding a group is a floor (scoped scan, capped file, different tree), never proof it is gone. Absent prov= means measured live, and a measurement is never overwritten by a reconstruction. Only the two clone kinds can be reconstructed (their key is a member-set hash, so today's idiom verdict is recomputable); a numeric row's was= still needs the commit that accepted it, which no field here records.
+ack complexity bfa3b77bfbcff5ab 12 cid=23df79b8efd43418 now=12 was=1 p=crates/rho-engine/src/mcp/manager.rs:224 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 0948ff1e0b82fb1d 0 cid=3645687159758259 now=0 was=0 p=tests/mcp_lazy_lifecycle.rs:41 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 0fb68e3e7cc3b0f6 0 cid=768232ef6a15f426 now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:147 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 10290e64f680c279 0 cid=a508c5380e7118a1 now=0 was=0 p=tests/mcp_direct_tools.rs:39 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 1d1191dfea56df7e 0 cid=81bb26c2f528a63e now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:255 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 22d0c7322a57f2bf 0 cid=d8ddcacfc50ff360 now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:143 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 3453c30b079c365b 0 cid=75a2063617eee6cf now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 3f57ff5c1ebf6faf 0 cid=fb6533e37d2dd606 now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:160 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 442e519dd69b36c1 0 cid=755aacb4054bcb9a now=0 was=0 p=tests/mcp_lazy_lifecycle.rs:53 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 5d5786f533062be6 0 cid=0b39b4a1f3f52da0 now=0 was=0 p=crates/rho-harness-core/src/config/mcp.rs:511 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 7a1a68274dd86151 0 cid=47558974f4596769 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:216 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 9ca722a348b84cb2 0 cid=3b66d170be9ef758 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol a4f74bdc30783319 0 cid=d751e26070443822 now=0 was=0 p=crates/rho-engine/src/mcp/trust.rs:171 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol b3765ed613db1fd6 0 cid=5cf3348cf8e31910 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:55 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol b8bf8e69ade39f89 0 cid=8dfe1893cae60aa5 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:213 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol ce33cec47d4fe36d 0 cid=d7a84993f006dc1c now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:137 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol f5d5dceb92fd23b3 0 cid=e63f34d0f06b0e38 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:226 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol f8d2e1fb2645a08d 0 cid=1f5e619ad9d38341 now=0 was=0 p=crates/rho-engine/src/mcp/search.rs:598 feat(mcp): modernize MCP adapter subsystem
+ack duplication 01b7c5a04ff72819 85 now=85 was=0 p=crates/rho-engine/src/mcp/trust.rs:110 feat(mcp): modernize MCP adapter subsystem
+ack duplication 037fefd1426d8220 81 now=81 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
+ack duplication 1a96b3a0e30b20e2 70 now=70 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
+ack duplication 1aa96ceeb196d3e7 83 now=83 was=0 p=crates/rho-harness-core/src/config/mcp.rs:75 feat(mcp): modernize MCP adapter subsystem
+ack duplication 1b7e962415bdd8f2 72 now=72 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
+ack duplication 2043ae147ecd9b50 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
+ack duplication 3806bf748dfa9b4d 51 now=51 was=0 p=tests/mcp_lazy_lifecycle.rs:14 feat(mcp): modernize MCP adapter subsystem
+ack duplication 3fb2cbe46eb5dcbf 38 now=38 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
+ack duplication 4d6dafab4f59ee70 38 now=38 was=0 p=crates/rho-engine/src/mcp/trust.rs:143 feat(mcp): modernize MCP adapter subsystem
+ack duplication 539cc7e0ea550ba8 51 now=51 was=0 p=crates/rho-harness-core/src/session/summary.rs:187 feat(mcp): modernize MCP adapter subsystem
+ack duplication 562ecf8a74fb890e 153 now=153 was=0 p=crates/rho-engine/src/mcp/cache.rs:88 feat(mcp): modernize MCP adapter subsystem
+ack duplication 6f16c6c5376a25ae 72 now=72 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
+ack duplication 71a0c262f8a2b54a 104 now=104 was=0 p=crates/rho-engine/src/mcp/trust.rs:93 feat(mcp): modernize MCP adapter subsystem
+ack duplication 765543dd71ff01fe 47 now=47 was=0 p=crates/rho-engine/src/mcp/pool.rs:115 feat(mcp): modernize MCP adapter subsystem
+ack duplication 7f20f6d43f11af14 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
+ack duplication 834cbe4220bcc6e8 83 now=83 was=0 p=crates/rho-harness-core/src/config/mcp.rs:57 feat(mcp): modernize MCP adapter subsystem
+ack duplication 9dc82d1a37741525 53 now=53 was=0 p=crates/rho-engine/src/mcp/pool.rs:115 feat(mcp): modernize MCP adapter subsystem
+ack duplication b0d94ce48df253f8 38 now=38 was=0 p=crates/rho-engine/src/engine/runner/sink/approval.rs:119 feat(mcp): modernize MCP adapter subsystem
+ack duplication b8daeb50ae8d4ffb 38 now=38 was=0 p=crates/rho-engine/src/mcp/trust.rs:143 feat(mcp): modernize MCP adapter subsystem
+ack duplication bce4137bfa189487 32 now=32 was=0 p=crates/rho-harness-core/src/config/types/integrations.rs:77 feat(mcp): modernize MCP adapter subsystem
+ack duplication d7b7723ff3df4495 40 now=40 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
+ack duplication d7ebfc6617d5e1b1 71 now=71 was=0 p=tests/mcp_lazy_lifecycle.rs:41 feat(mcp): modernize MCP adapter subsystem
+ack duplication d9f26bd7caacdf82 53 now=53 was=0 p=crates/rho-engine/src/mcp/pool.rs:35 feat(mcp): modernize MCP adapter subsystem
+ack duplication dc80797805f06aa2 85 now=85 was=0 p=crates/rho-harness-core/src/config/mcp.rs:97 feat(mcp): modernize MCP adapter subsystem
+ack duplication eed2dfd466fa710b 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
+ack duplication eef8dcc634ded99d 178 now=178 was=0 p=crates/rho-engine/src/mcp/trust.rs:171 feat(mcp): modernize MCP adapter subsystem
+ack duplication fed7a6855422a063 519 now=519 was=0 p=tests/mcp_lazy_lifecycle.rs:53 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper 1a96b3a0e30b20e2 3 now=3 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper 539cc7e0ea550ba8 20 now=20 was=0 p=crates/rho-harness-core/src/session/summary.rs:187 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper 765543dd71ff01fe 3 now=3 was=0 p=crates/rho-engine/src/mcp/pool.rs:115 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper bce4137bfa189487 3 now=3 was=0 p=crates/rho-harness-core/src/config/types/integrations.rs:77 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper d9f26bd7caacdf82 11 now=11 was=0 p=crates/rho-engine/src/mcp/pool.rs:35 feat(mcp): modernize MCP adapter subsystem
+ack params 4e3cc1d0852e0b24 6 cid=c4d1b082ea2a0fed now=6 was=0 p=crates/rho-engine/src/mcp/manager.rs:99 feat(mcp): modernize MCP adapter subsystem
+ack params 9bdd47fb71a81eb2 6 cid=73f0699dd9a32651 now=6 was=0 p=crates/rho-engine/src/mcp/manager.rs:145 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 0947128aa09d7fc3 5 cid=396a5f7e4e7f378b now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:507 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 0db3172c61e19bfa 3 cid=6e02503159aff0fb now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/types/integrations.rs:77 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 1fba64e890d0c6c2 5 cid=7ce5daf6aa12f520 now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:277 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 265e89bb56fb8435 3 cid=8fa52f7be4adc913 now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/types/integrations.rs:65 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 323438548ec29cf8 5 cid=977c0ab4b6df4043 now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:243 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 33b15419eb8dd4b7 5 cid=89b89e1418f9e4ea now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:25 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 447605776112338f 10 cid=6567c9a58a28830e now=10 was=0 facet=ambient p=src/repl/live/tests/modals.rs:772 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 845185f3d8cbd8a5 3 cid=780a9035843d58bb now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 97d74064cfa21c9f 5 cid=c1e9ed7e4ec75faf now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:106 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn adeba5ec267004c6 3 cid=6e3161dc306c8de6 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:165 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn b12af160981dfe2a 3 cid=cef4584610860fc0 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:219 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn bfa3b77bfbcff5ab 3 cid=23df79b8efd43418 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:224 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn c0489ae167d1f049 5 cid=254ac92af7f340fe now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:301 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn cc1f7bccfced9dcf 3 cid=e53649f3abc2961f now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:165 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn ceac66754ca301d9 5 cid=8b0fba9e93a247cc now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:14 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn e341bb4c28b11537 5 cid=466b077bd366ab3c now=5 was=0 facet=ambient p=crates/rho-engine/src/engine/tests.rs:58 feat(mcp): modernize MCP adapter subsystem
+ack verbosity 0947128aa09d7fc3 162 cid=396a5f7e4e7f378b now=162 was=153 p=crates/rho-engine/src/mcp/search.rs:507 feat(mcp): modernize MCP adapter subsystem
+ack verbosity 10290e64f680c279 62 cid=a508c5380e7118a1 now=62 was=0 p=tests/mcp_direct_tools.rs:39 feat(mcp): modernize MCP adapter subsystem
+ack verbosity 845185f3d8cbd8a5 190 cid=780a9035843d58bb now=190 was=139 p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem

@@ -26,6 +26,28 @@ pub enum McpTransportKind {
     Sse,
 }
 
+pub fn default_idle_timeout_seconds() -> u64 {
+    600
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum McpLifecycleMode {
+    #[default]
+    Lazy,
+    Eager,
+    KeepAlive,
+    LazyKeepAlive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum McpDirectTools {
+    All(bool),
+    Search(String),
+    List(Vec<String>),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum McpExposureMode {
@@ -45,6 +67,8 @@ pub struct McpConfig {
     pub enabled: bool,
     #[serde(default = "default_defer_threshold", alias = "deferThreshold")]
     pub defer_threshold: usize,
+    #[serde(default = "default_idle_timeout_seconds", alias = "idleTimeout")]
+    pub idle_timeout_seconds: u64,
     #[serde(default)]
     pub servers: BTreeMap<String, McpServerConfig>,
 }
@@ -54,6 +78,7 @@ impl Default for McpConfig {
         Self {
             enabled: true,
             defer_threshold: 4,
+            idle_timeout_seconds: default_idle_timeout_seconds(),
             servers: BTreeMap::new(),
         }
     }
@@ -83,6 +108,14 @@ pub struct McpServerConfig {
     pub exclude_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<McpLifecycleMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_tools: Option<McpDirectTools>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub search_keywords: BTreeMap<String, Vec<String>>,
 }
 
 impl McpServerConfig {
