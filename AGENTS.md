@@ -24,9 +24,8 @@
 
 ## Testing and performance
 
-- Use `make test` for fast test feedback during local development (uses
-  `cargo nextest` when available; a bare `cargo test` only covers the root `rho`
-  package, not the other crates).
+- Use `make crap` to run tests and gate on test code coverage / CRAP threshold
+  (executes workspace tests under coverage and fails if any function exceeds CRAP 30).
 - Test duration limits: Individual unit tests must complete in milliseconds.
   No test may exceed 2.5 seconds (target < 500ms; hard ceiling 2.5 seconds for
   full engine initialization or subprocess lifecycle tests). The entire workspace

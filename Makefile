@@ -10,7 +10,7 @@ help: ## Display this help screen
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: all
-all: fmt-check clippy test ## Run all checks (format check, clippy, tests)
+all: fmt-check clippy complexity crap ## Run all checks (format check, clippy, complexity, CRAP/tests)
 
 .PHONY: build
 build: ## Build the project in debug mode
@@ -40,28 +40,6 @@ clippy: ## Run Clippy with warnings treated as errors
 clippy-fix: ## Automatically fix Clippy suggestions where possible
 	$(CARGO) clippy --workspace --all-targets --fix --allow-dirty --allow-staged
 
-.PHONY: test
-test: ## Run tests across the workspace (uses nextest when available)
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; \
-	if $(CARGO) nextest --version >/dev/null 2>&1; then \
-		$(CARGO) nextest run --workspace --all-targets; \
-	else \
-		$(CARGO) test --workspace --all-targets --quiet; \
-	fi
-
-.PHONY: test-cargo
-test-cargo: ## Run standard cargo tests across all targets
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --all-targets
-
-.PHONY: test-all
-test-all: ## Run all tests including unit, integration, and doc tests
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --all-targets
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --doc
-
-.PHONY: run
-run: ## Run the rho CLI
-	$(CARGO) run --
-
 .PHONY: clean
 clean: ## Clean cargo build artifacts
 	$(CARGO) clean
@@ -76,11 +54,11 @@ coverage: ## Generate LCOV test coverage trace (uses nextest when available)
 	fi
 
 .PHONY: crap
-crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30
-	$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --min 30 --fail-above --format json
+crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30 (runs tests via coverage)
+	@$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --format json 2>/dev/null | jq -e '([.entries[] | select(.crap > 30) | {file, line, function, crap: (.crap * 10 | round / 10), cc: .cyclomatic, cov: (.coverage * 10 | round / 10)}]) as $$v | if ($$v | length) > 0 then ($$v | halt_error(1)) else $$v end'
 
 .PHONY: complexity
-complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc
+complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc and gate on cognitive <= 15
 	@command -v cccc >/dev/null 2>&1 || { echo "Error: cccc not found. Install with: cargo install cccc-cli"; exit 1; }
-	cccc --table --top-cognitive 10 .
+	@cccc --max-cognitive 15 . | jq -e '([.files[]? | .path as $$path | .functions[]? | select(.cognitive > 15) | {file: $$path, line: .line, function: .name, cognitive: .cognitive, cyclomatic: .cyclomatic}]) as $$v | if ($$v | length) > 0 then ($$v | halt_error(1)) else $$v end'
 
