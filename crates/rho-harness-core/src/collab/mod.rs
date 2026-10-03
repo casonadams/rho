@@ -1,9 +1,11 @@
+pub mod client;
 pub mod crypto;
 pub mod protocol;
 pub mod server;
 pub mod session;
 pub mod ticket;
 
+pub use client::{CollabGuestEndpoint, CollabReadStream, CollabWriteStream};
 pub use crypto::{CapabilityLevel, CollabSecret};
 pub use protocol::{
     COLLAB_ALPN, CollabSnapshot, HandshakeAck, HandshakeChallenge, HandshakeMessage, HandshakeResponse, get_host_name,

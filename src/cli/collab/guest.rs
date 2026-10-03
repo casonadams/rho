@@ -1,10 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use iroh::Endpoint;
-use iroh::endpoint::presets::N0;
-use rho_harness_core::collab::protocol::COLLAB_ALPN;
-use rho_harness_core::collab::session::{CollabReader, CollabSessionStream, CollabWriter};
-use rho_harness_core::collab::{CapabilityLevel, CollabSnapshot, CollabTicket};
-use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::collab::session::{CollabReader, CollabWriter};
+use rho_harness_core::collab::{CapabilityLevel, CollabGuestEndpoint, CollabSnapshot, CollabTicket};
+use rho_harness_core::error::Result;
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent};
 use std::io::IsTerminal;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -56,19 +53,23 @@ pub(crate) fn print_connection_banner(
     }
 }
 
-pub async fn run_guest_client(ticket_str: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+pub async fn run_guest_client_with_bind(
+    ticket_str: &str,
+    bind_addr: Option<std::net::SocketAddr>,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let clean_ticket = ticket_str.trim().trim_start_matches("rho join ").trim();
     let ticket = CollabTicket::parse(clean_ticket)?;
 
-    let endpoint = Endpoint::builder(N0)
-        .bind()
-        .await
-        .map_err(|e| AppError::Network(format!("Failed to bind client endpoint: {e}")))?;
-
-    let (writer, reader, snapshot) = connect_and_handshake(&endpoint, &ticket).await?;
+    let endpoint = CollabGuestEndpoint::bind(bind_addr).await?;
+    let (writer, reader, snapshot) = endpoint.connect(&ticket).await?;
 
     dispatch_guest_session(writer, reader, snapshot).await?;
+    endpoint.close().await;
     Ok(())
+}
+
+pub async fn run_guest_client(ticket_str: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    run_guest_client_with_bind(ticket_str, None).await
 }
 
 fn is_interactive_terminal() -> bool {
@@ -622,26 +623,6 @@ async fn submit_copilot_prompt<B: TerminalBackend, W: AsyncWrite + Unpin>(
         controller.redraw()?;
     }
     Ok(())
-}
-
-pub async fn connect_and_handshake(
-    endpoint: &Endpoint,
-    ticket: &CollabTicket,
-) -> Result<(
-    CollabWriter<iroh::endpoint::SendStream>,
-    CollabReader<iroh::endpoint::RecvStream>,
-    Option<CollabSnapshot>,
-)> {
-    let addr = ticket.to_endpoint_addr();
-    let conn = endpoint
-        .connect(addr, COLLAB_ALPN)
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
-    let (send, recv) = conn.accept_bi().await.map_err(|e| AppError::Network(e.to_string()))?;
-    let mut stream = CollabSessionStream::connect_guest_with_ticket(send, recv, ticket).await?;
-    let snapshot = stream.recv_snapshot().await?;
-    let (writer, reader) = stream.into_split();
-    Ok((writer, reader, snapshot))
 }
 
 pub(crate) async fn run_guest_session<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(

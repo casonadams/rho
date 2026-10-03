@@ -91,7 +91,6 @@ path = "tests/integration.rs"
 [dependencies]
 rho-harness-core.workspace = true
 rho-engine.workspace = true
-iroh.workspace = true
 
 # Async Runtime & Core
 tokio = { workspace = true, features = ["full"] }
@@ -143,6 +142,7 @@ libc = "0.2"
 winres = "0.1"
 
 [dev-dependencies]
+iroh.workspace = true
 rig.workspace = true
 reqwest.workspace = true
 tempfile = "3.17"
