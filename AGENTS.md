@@ -57,7 +57,7 @@
 - The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining cyclomatic complexity with test code coverage. Functions with a CRAP score > 30 are considered fragile and defect-prone.
 - When modifying, extending, or fixing bugs in any function, ensure its cognitive complexity remains <= 15 and its CRAP score remains <= 30.
 - Never introduce new functions with cognitive complexity > 15 or a CRAP score > 30.
-- All changes must pass complexity evaluation `make complexity` and CRAP threshold evaluation (`make crap`).
+- All changes must pass `make all` (which executes format check, clippy, cognitive complexity <= 15 via cccc, quality regression delta via ripwire, and tests under test code coverage with CRAP <= 30 gating).
 
 ## UX and modal guidelines
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
@@ -79,8 +79,9 @@
 
 ## Completion
 
-- Run the following checks in order before finishing:
-  1. `make complexity`
-  2. `make crap` (runs all workspace tests and gates on coverage/CRAP threshold)
-  3. `make clippy`
-  4. `make fmt`
+- Run `make all` and ensure all checks pass before finishing:
+  1. `fmt-check` (code formatting)
+  2. `clippy` (lints treated as errors)
+  3. `complexity` (cognitive complexity <= 15 via `cccc`)
+  4. `quality` (quality delta regressions vs git HEAD via `ripwire`)
+  5. `crap` (workspace tests under coverage and CRAP <= 30 threshold gating)

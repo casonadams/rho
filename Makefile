@@ -10,7 +10,7 @@ help: ## Display this help screen
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: all
-all: fmt-check clippy complexity crap ## Run all checks (format check, clippy, complexity, CRAP/tests)
+all: fmt-check clippy complexity quality crap ## Run all checks (format check, clippy, complexity, quality regressions, CRAP/tests)
 
 .PHONY: build
 build: ## Build the project in debug mode
@@ -61,4 +61,9 @@ crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshol
 complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc and gate on cognitive <= 15
 	@command -v cccc >/dev/null 2>&1 || { echo "Error: cccc not found. Install with: cargo install cccc-cli"; exit 1; }
 	@cccc --max-cognitive 15 . | jq -e '([.files[]? | .path as $$path | .functions[]? | select(.cognitive > 15) | {file: $$path, line: .line, function: .name, cognitive: .cognitive, cyclomatic: .cyclomatic}]) as $$v | if ($$v | length) > 0 then ($$v | halt_error(1)) else $$v end'
+
+.PHONY: quality
+quality: ## Measure quality regressions against git HEAD with ripwire
+	@command -v ripwire >/dev/null 2>&1 || { echo "Error: ripwire not found"; exit 1; }
+	@ripwire . --quality-delta
 
