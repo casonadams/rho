@@ -152,6 +152,7 @@ fn parse_optional_model(value: &str) -> Option<String> {
 fn apply_named_role_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> bool {
     let opt = parse_optional_model(value);
     match key {
+        ConfigKey::JudgeModel => file_config.models.judge = opt,
         ConfigKey::GuardModel => file_config.models.guard = opt,
         ConfigKey::SmolModel => file_config.models.smol = opt,
         ConfigKey::SlowModel => file_config.models.slow = opt,

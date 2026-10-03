@@ -7,7 +7,10 @@ fn slash_commands_complete_from_a_prefix() {
     let sources = crate::repl::interactive::CompletionSources::new().with_templates(vec!["review".to_string()]);
     let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/mod", 4);
-    assert!(suggestions.suggestions().iter().any(|s| s.value == "/model"));
+    assert_eq!(suggestions.suggestions().len(), 2);
+    let values: Vec<&str> = suggestions.suggestions().iter().map(|s| s.value.as_str()).collect();
+    assert!(values.contains(&"/model"));
+    assert!(values.contains(&"/models"));
 
     let tmpl_suggestions = completer.complete("/rev", 4);
     assert_eq!(tmpl_suggestions.suggestions().len(), 1);

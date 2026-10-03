@@ -117,6 +117,10 @@ pub fn open_role_model_selector<B: TerminalBackend>(
     controller.state_mut().push_modal(modal);
 }
 
+pub fn open_judge_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    open_role_model_selector(session, controller, "Judge", session.config.judge_model());
+}
+
 pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
     open_role_model_selector(session, controller, "Guard", session.config.guard_model());
 }
@@ -129,6 +133,21 @@ pub fn open_smol_model_selector<B: TerminalBackend>(session: &ReplSession, contr
 pub fn open_slow_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
     let slow_model = session.config.models.get("slow").map(String::as_str);
     open_role_model_selector(session, controller, "Slow", slow_model);
+}
+
+pub fn open_plan_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    let plan_model = session.config.models.get("plan").map(String::as_str);
+    open_role_model_selector(session, controller, "Plan", plan_model);
+}
+
+pub fn open_commit_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    let commit_model = session.config.models.get("commit").map(String::as_str);
+    open_role_model_selector(session, controller, "Commit", commit_model);
+}
+
+pub fn open_advisor_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    let advisor_model = session.config.models.get("advisor").map(String::as_str);
+    open_role_model_selector(session, controller, "Advisor", advisor_model);
 }
 
 fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<(String, String)> {

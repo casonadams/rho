@@ -69,6 +69,7 @@ pub struct SlashCommandContext<'a> {
 pub const SLASH_COMMANDS: &[&str] = &[
     "/help",
     "/settings",
+    "/models",
     "/model",
     "/resume",
     "/skill",

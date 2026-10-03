@@ -10,6 +10,10 @@ fn build_help_options() -> Vec<ModalOption> {
             format!("{:<15}", "/settings"),
             Some("Interactive runtime interface settings"),
         ),
+        ModalOption::new(
+            format!("{:<15}", "/models"),
+            Some("Configure role models (default, smol, slow, judge, guard)"),
+        ),
         ModalOption::new(format!("{:<15}", "/model"), Some("Inspect or switch the active model")),
         ModalOption::new(format!("{:<15}", "/resume"), Some("Resume a prior session")),
         ModalOption::new(

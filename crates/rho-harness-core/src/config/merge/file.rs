@@ -25,6 +25,9 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref guard) = file.models.guard {
         config.models.insert("guard".to_string(), guard.clone());
     }
+    if let Some(ref judge) = file.models.judge {
+        config.models.insert("judge".to_string(), judge.clone());
+    }
     if let Some(ref smol) = file.models.smol {
         config.models.insert("smol".to_string(), smol.clone());
     }

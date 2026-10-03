@@ -177,6 +177,28 @@ impl Config {
         self.models.insert(provider.to_string(), model.to_string());
     }
 
+    pub fn judge_model(&self) -> Option<&str> {
+        self.models
+            .get("judge")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+    }
+
+    pub fn set_judge_model(&mut self, judge: Option<&str>) {
+        match judge
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+        {
+            Some(j) => {
+                self.models.insert("judge".to_string(), j.to_string());
+            }
+            None => {
+                self.models.remove("judge");
+            }
+        }
+    }
+
     pub fn guard_model(&self) -> Option<&str> {
         self.models
             .get("guard")

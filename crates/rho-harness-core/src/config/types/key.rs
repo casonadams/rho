@@ -35,6 +35,7 @@ pub(crate) enum ConfigKey {
     WebFetchMultimodal,
     McpEnabled,
     PermissionEnabled,
+    JudgeModel,
     GuardModel,
     SmolModel,
     SlowModel,
@@ -106,6 +107,7 @@ fn parse_feature_key(value: &str) -> Option<ConfigKey> {
         "tools.web.fetch.multimodal" | "web_fetch_multimodal" => Some(ConfigKey::WebFetchMultimodal),
         "mcp.enabled" | "mcp" => Some(ConfigKey::McpEnabled),
         "permission.enabled" | "permission" => Some(ConfigKey::PermissionEnabled),
+        "models.judge" | "judge_model" | "judge" => Some(ConfigKey::JudgeModel),
         "models.guard" | "guard_model" | "guard" => Some(ConfigKey::GuardModel),
         "models.smol" | "smol_model" | "smol" => Some(ConfigKey::SmolModel),
         "models.slow" | "slow_model" | "slow" => Some(ConfigKey::SlowModel),
@@ -166,6 +168,7 @@ impl ConfigKey {
             Self::WebFetchMultimodal => "tools.web.fetch.multimodal",
             Self::McpEnabled => "mcp.enabled",
             Self::PermissionEnabled => "permission.enabled",
+            Self::JudgeModel => "models.judge",
             Self::GuardModel => "models.guard",
             Self::SmolModel => "models.smol",
             Self::SlowModel => "models.slow",
@@ -181,7 +184,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 39] = [
+    const ALL_KEYS: [ConfigKey; 40] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -215,6 +218,7 @@ mod tests {
         ConfigKey::WebFetchMultimodal,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
+        ConfigKey::JudgeModel,
         ConfigKey::GuardModel,
         ConfigKey::SmolModel,
         ConfigKey::SlowModel,

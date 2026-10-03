@@ -11,9 +11,11 @@ use crossterm::event::KeyEvent;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
-    open_collab_selector, open_guard_model_selector, open_help_selector, open_login_selector, open_mcp_selector,
-    open_model_selector, open_model_selector_with_default, open_search_engine_selector, open_session_selector,
-    open_slow_model_selector, open_smol_model_selector, open_tools_selector, update_tools_search_engine,
+    open_advisor_model_selector, open_collab_selector, open_commit_model_selector, open_guard_model_selector,
+    open_help_selector, open_judge_model_selector, open_login_selector, open_mcp_selector, open_model_selector,
+    open_model_selector_with_default, open_models_selector, open_plan_model_selector, open_search_engine_selector,
+    open_session_selector, open_slow_model_selector, open_smol_model_selector, open_tools_selector,
+    update_tools_search_engine,
 };
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -56,9 +58,14 @@ pub enum ModalKeyResult {
     OpenModelSelector {
         save_as_default: bool,
     },
+    OpenModelsMenu,
     OpenGuardModelSelector,
     OpenSmolModelSelector,
     OpenSlowModelSelector,
+    OpenJudgeModelSelector,
+    OpenPlanModelSelector,
+    OpenCommitModelSelector,
+    OpenAdvisorModelSelector,
     GuardModelSelected {
         model: String,
         provider: String,
@@ -68,6 +75,22 @@ pub enum ModalKeyResult {
         provider: String,
     },
     SlowModelSelected {
+        model: String,
+        provider: String,
+    },
+    JudgeModelSelected {
+        model: String,
+        provider: String,
+    },
+    PlanModelSelected {
+        model: String,
+        provider: String,
+    },
+    CommitModelSelected {
+        model: String,
+        provider: String,
+    },
+    AdvisorModelSelected {
         model: String,
         provider: String,
     },
@@ -352,6 +375,21 @@ pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalControlle
     true
 }
 
+fn map_role_guard_selection(role: &str, res: ModalKeyResult) -> ModalKeyResult {
+    match res {
+        ModalKeyResult::GuardModelSelected { model, provider } => match role {
+            "Judge" => ModalKeyResult::JudgeModelSelected { model, provider },
+            "Smol" => ModalKeyResult::SmolModelSelected { model, provider },
+            "Slow" => ModalKeyResult::SlowModelSelected { model, provider },
+            "Plan" => ModalKeyResult::PlanModelSelected { model, provider },
+            "Commit" => ModalKeyResult::CommitModelSelected { model, provider },
+            "Advisor" => ModalKeyResult::AdvisorModelSelected { model, provider },
+            _ => ModalKeyResult::GuardModelSelected { model, provider },
+        },
+        other => other,
+    }
+}
+
 pub fn handle_modal_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -365,30 +403,25 @@ pub fn handle_modal_key<B: TerminalBackend>(
         return Ok(ModalKeyResult::Handled);
     }
 
-    match active.title.as_str() {
+    let title = active.title.clone();
+    if title == "Select Model" {
+        return selectors::handle_model_key(controller, key);
+    }
+    if let Some(role) = title.strip_prefix("Select ").and_then(|s| s.strip_suffix(" Model")) {
+        return selectors::handle_guard_model_key(controller, key).map(|res| map_role_guard_selection(role, res));
+    }
+
+    match title.as_str() {
         "Help" => selectors::handle_help_key(controller, key),
         "Settings" => settings::handle_settings_key(controller, key),
         "Resume Session" => selectors::handle_session_key(controller, key),
         "Conversation Tree" => tree::handle_tree_key(controller, key),
-        "Select Model" => selectors::handle_model_key(controller, key),
-        "Select Guard Model" => selectors::handle_guard_model_key(controller, key),
-        "Select Smol Model" => selectors::handle_guard_model_key(controller, key).map(|res| match res {
-            ModalKeyResult::GuardModelSelected { model, provider } => {
-                ModalKeyResult::SmolModelSelected { model, provider }
-            }
-            other => other,
-        }),
-        "Select Slow Model" => selectors::handle_guard_model_key(controller, key).map(|res| match res {
-            ModalKeyResult::GuardModelSelected { model, provider } => {
-                ModalKeyResult::SlowModelSelected { model, provider }
-            }
-            other => other,
-        }),
         "Select Search Engine" => selectors::handle_search_engine_key(controller, key),
         "Tools & Permissions" => selectors::handle_tools_key(controller, key),
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
         "Login Provider" => selectors::handle_login_key(controller, key),
         "Active Collaborators" => selectors::handle_collab_key(controller, key),
+        "Models" => selectors::handle_models_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }
