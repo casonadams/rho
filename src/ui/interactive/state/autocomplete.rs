@@ -1,9 +1,12 @@
+use std::ops::Range;
+
 use crate::repl::interactive::Completion;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutocompleteItem {
     pub value: String,
     pub description: Option<String>,
+    pub replacement: Range<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -24,6 +27,7 @@ impl AutocompleteState {
             .map(|c| AutocompleteItem {
                 value: c.value,
                 description: c.description,
+                replacement: c.replacement,
             })
             .collect();
         self.selected = self.selected.min(self.items.len().saturating_sub(1));

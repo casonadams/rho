@@ -49,8 +49,14 @@ impl EditorState {
     }
 
     pub fn set_text(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        let len = text.len();
+        self.set_text_with_cursor(text, len);
+    }
+
+    pub fn set_text_with_cursor(&mut self, text: impl Into<String>, cursor: usize) {
         self.text = text.into();
-        self.cursor = self.text.len();
+        self.cursor = cursor.min(self.text.len());
         self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
     }
