@@ -13,7 +13,7 @@ pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
     open_collab_selector, open_guard_model_selector, open_help_selector, open_login_selector, open_mcp_selector,
     open_model_selector, open_model_selector_with_default, open_search_engine_selector, open_session_selector,
-    open_tools_selector, update_tools_search_engine,
+    open_slow_model_selector, open_smol_model_selector, open_tools_selector, update_tools_search_engine,
 };
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -57,7 +57,17 @@ pub enum ModalKeyResult {
         save_as_default: bool,
     },
     OpenGuardModelSelector,
+    OpenSmolModelSelector,
+    OpenSlowModelSelector,
     GuardModelSelected {
+        model: String,
+        provider: String,
+    },
+    SmolModelSelected {
+        model: String,
+        provider: String,
+    },
+    SlowModelSelected {
         model: String,
         provider: String,
     },
@@ -362,6 +372,18 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Conversation Tree" => tree::handle_tree_key(controller, key),
         "Select Model" => selectors::handle_model_key(controller, key),
         "Select Guard Model" => selectors::handle_guard_model_key(controller, key),
+        "Select Smol Model" => selectors::handle_guard_model_key(controller, key).map(|res| match res {
+            ModalKeyResult::GuardModelSelected { model, provider } => {
+                ModalKeyResult::SmolModelSelected { model, provider }
+            }
+            other => other,
+        }),
+        "Select Slow Model" => selectors::handle_guard_model_key(controller, key).map(|res| match res {
+            ModalKeyResult::GuardModelSelected { model, provider } => {
+                ModalKeyResult::SlowModelSelected { model, provider }
+            }
+            other => other,
+        }),
         "Select Search Engine" => selectors::handle_search_engine_key(controller, key),
         "Tools & Permissions" => selectors::handle_tools_key(controller, key),
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),

@@ -25,6 +25,8 @@ pub fn build_tools_options(session: &ReplSession) -> Vec<ModalOption> {
         ModalOption::new("Web Search        ", Some(web_search.to_string())),
         ModalOption::new("Web Fetch         ", Some(web_fetch.to_string())),
         ModalOption::new("MCP               ", Some(mcp.to_string())),
+        ModalOption::new("LSP Diagnostics   ", Some("On".to_string())),
+        ModalOption::new("Edit Mode         ", Some("Hashline".to_string())),
         ModalOption::new("Permissions       ", Some(permission.to_string())),
     ]
 }
@@ -55,52 +57,78 @@ pub fn update_tools_search_engine<B: TerminalBackend>(controller: &mut TerminalC
     }
 }
 
+fn toggle_tool_state_description<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    index: usize,
+    default_on: bool,
+) {
+    let current = controller
+        .state()
+        .active_modal()
+        .and_then(|m| m.options.get(index))
+        .and_then(|o| o.description.as_deref())
+        .unwrap_or(if default_on { "On" } else { "Off" });
+    let next = if current == "On" { "Off" } else { "On" };
+    update_tools_option_description(controller, (next, index));
+}
+
 fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<B>, selected: usize) -> ModalKeyResult {
     match selected {
         0 => ModalKeyResult::OpenSearchEngineSelector,
         1 => {
-            let current = controller
+            toggle_tool_state_description(controller, 1, false);
+            let enabled = controller
                 .state()
                 .active_modal()
                 .and_then(|m| m.options.get(1))
                 .and_then(|o| o.description.as_deref())
-                .unwrap_or("Off");
-            let next = current != "On";
-            update_tools_option_description(controller, (if next { "On" } else { "Off" }, 1));
-            ModalKeyResult::WebSearchToggled { enabled: next }
+                == Some("On");
+            ModalKeyResult::WebSearchToggled { enabled }
         }
         2 => {
-            let current = controller
+            toggle_tool_state_description(controller, 2, false);
+            let enabled = controller
                 .state()
                 .active_modal()
                 .and_then(|m| m.options.get(2))
                 .and_then(|o| o.description.as_deref())
-                .unwrap_or("Off");
-            let next = current != "On";
-            update_tools_option_description(controller, (if next { "On" } else { "Off" }, 2));
-            ModalKeyResult::WebFetchToggled { enabled: next }
+                == Some("On");
+            ModalKeyResult::WebFetchToggled { enabled }
         }
         3 => {
-            let current = controller
+            toggle_tool_state_description(controller, 3, false);
+            let enabled = controller
                 .state()
                 .active_modal()
                 .and_then(|m| m.options.get(3))
                 .and_then(|o| o.description.as_deref())
-                .unwrap_or("Off");
-            let next = current != "On";
-            update_tools_option_description(controller, (if next { "On" } else { "Off" }, 3));
-            ModalKeyResult::McpToggled { enabled: next }
+                == Some("On");
+            ModalKeyResult::McpToggled { enabled }
         }
         4 => {
+            toggle_tool_state_description(controller, 4, true);
+            ModalKeyResult::Handled
+        }
+        5 => {
             let current = controller
                 .state()
                 .active_modal()
-                .and_then(|m| m.options.get(4))
+                .and_then(|m| m.options.get(5))
                 .and_then(|o| o.description.as_deref())
-                .unwrap_or("Off");
-            let next = current != "On";
-            update_tools_option_description(controller, (if next { "On" } else { "Off" }, 4));
-            ModalKeyResult::PermissionToggled { enabled: next }
+                .unwrap_or("Hashline");
+            let next = if current == "Hashline" { "Exact" } else { "Hashline" };
+            update_tools_option_description(controller, (next, 5));
+            ModalKeyResult::Handled
+        }
+        6 => {
+            toggle_tool_state_description(controller, 6, false);
+            let enabled = controller
+                .state()
+                .active_modal()
+                .and_then(|m| m.options.get(6))
+                .and_then(|o| o.description.as_deref())
+                == Some("On");
+            ModalKeyResult::PermissionToggled { enabled }
         }
         _ => ModalKeyResult::Handled,
     }
@@ -182,7 +210,7 @@ mod tests {
     fn build_tools_options_has_all_entries() {
         let session = create_test_session();
         let options = build_tools_options(&session);
-        assert_eq!(options.len(), 5);
+        assert_eq!(options.len(), 7);
         assert_eq!(options[0].label, "Search Engine     ");
         assert_eq!(options[0].description.as_deref(), Some("brave"));
         assert_eq!(options[1].label, "Web Search        ");
@@ -191,8 +219,12 @@ mod tests {
         assert_eq!(options[2].description.as_deref(), Some("On"));
         assert_eq!(options[3].label, "MCP               ");
         assert_eq!(options[3].description.as_deref(), Some("On"));
-        assert_eq!(options[4].label, "Permissions       ");
+        assert_eq!(options[4].label, "LSP Diagnostics   ");
         assert_eq!(options[4].description.as_deref(), Some("On"));
+        assert_eq!(options[5].label, "Edit Mode         ");
+        assert_eq!(options[5].description.as_deref(), Some("Hashline"));
+        assert_eq!(options[6].label, "Permissions       ");
+        assert_eq!(options[6].description.as_deref(), Some("On"));
     }
 
     #[test]
@@ -229,7 +261,21 @@ mod tests {
         let res = handle_tools_key(&mut controller, space).unwrap();
         assert_eq!(res, ModalKeyResult::McpToggled { enabled: false });
 
-        // Move to 4: Permissions -> PermissionToggled
+        // Move to 4: LSP Diagnostics (toggle Handled)
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        let _ = handle_tools_key(&mut controller, down).unwrap();
+        let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        let res = handle_tools_key(&mut controller, space).unwrap();
+        assert_eq!(res, ModalKeyResult::Handled);
+
+        // Move to 5: Edit Mode (toggle Handled)
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        let _ = handle_tools_key(&mut controller, down).unwrap();
+        let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        let res = handle_tools_key(&mut controller, space).unwrap();
+        assert_eq!(res, ModalKeyResult::Handled);
+
+        // Move to 6: Permissions -> PermissionToggled
         let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
         let _ = handle_tools_key(&mut controller, down).unwrap();
         let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);

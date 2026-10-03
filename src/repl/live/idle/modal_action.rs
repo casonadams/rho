@@ -404,6 +404,12 @@ fn handle_modal_menu_open(
         ModalKeyResult::OpenGuardModelSelector => {
             super::super::modal::open_guard_model_selector(ctx.session, ctx.controller);
         }
+        ModalKeyResult::OpenSmolModelSelector => {
+            super::super::modal::open_smol_model_selector(ctx.session, ctx.controller);
+        }
+        ModalKeyResult::OpenSlowModelSelector => {
+            super::super::modal::open_slow_model_selector(ctx.session, ctx.controller);
+        }
         ModalKeyResult::OpenToolsMenu => {
             super::super::modal::open_tools_selector(ctx.session, ctx.controller);
         }
@@ -475,6 +481,26 @@ async fn handle_session_modal_action(
     }
 }
 
+fn handle_role_model_selection(
+    models: &mut std::collections::BTreeMap<String, String>,
+    role: &str,
+    model: String,
+    provider: String,
+) {
+    let spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
+        None
+    } else if model.contains('/') {
+        Some(model)
+    } else {
+        Some(format!("{provider}/{model}"))
+    };
+    if let Some(s) = spec {
+        models.insert(role.to_string(), s);
+    } else {
+        models.remove(role);
+    }
+}
+
 async fn handle_selection_action(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     res: ModalKeyResult,
@@ -488,6 +514,16 @@ async fn handle_selection_action(
         } => handle_model_selected(ctx, model, provider, save_as_default, batch).await,
         ModalKeyResult::GuardModelSelected { model, provider } => {
             handle_guard_model_selected(ctx, model, provider).await
+        }
+        ModalKeyResult::SmolModelSelected { model, provider } => {
+            handle_role_model_selection(&mut ctx.session.config.models, "smol", model, provider);
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
+        ModalKeyResult::SlowModelSelected { model, provider } => {
+            handle_role_model_selection(&mut ctx.session.config.models, "slow", model, provider);
+            ctx.controller.redraw()?;
+            Ok(true)
         }
         ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
             handle_thinking_selected(ctx, level, save_as_default).await

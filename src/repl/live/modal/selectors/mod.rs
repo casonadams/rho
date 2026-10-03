@@ -13,7 +13,7 @@ pub use help::{handle_help_key, open_help_selector};
 pub use mcp::{handle_mcp_key, open_mcp_selector};
 pub use model::{
     handle_guard_model_key, handle_model_key, open_guard_model_selector, open_model_selector,
-    open_model_selector_with_default,
+    open_model_selector_with_default, open_slow_model_selector, open_smol_model_selector,
 };
 pub use search_engine::{handle_search_engine_key, open_search_engine_selector};
 pub use session::{handle_session_key, open_session_selector};

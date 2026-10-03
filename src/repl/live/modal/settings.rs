@@ -45,6 +45,18 @@ pub fn open_settings_selector<B: TerminalBackend>(
 
     let model_name = model.unwrap_or("default");
     let guard_name = guard_model.unwrap_or("None");
+    let smol_name = controller
+        .state()
+        .active_modal()
+        .and_then(|m| m.options.get(10))
+        .and_then(|o| o.description.as_deref())
+        .unwrap_or("None");
+    let slow_name = controller
+        .state()
+        .active_modal()
+        .and_then(|m| m.options.get(11))
+        .and_then(|o| o.description.as_deref())
+        .unwrap_or("None");
     let thinking_effort = thinking_level.unwrap_or("off");
     let thinking_status = if hide_thinking { "Hidden" } else { "Shown" };
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
@@ -62,6 +74,8 @@ pub fn open_settings_selector<B: TerminalBackend>(
         ModalOption::new("Version Banner    ", Some(label_status.to_string())),
         ModalOption::new("Cursor Style      ", Some(cursor_mode.to_string())),
         ModalOption::new("Tools & Permissions", None::<&str>),
+        ModalOption::new("Smol Model (Fast) ", Some(smol_name.to_string())),
+        ModalOption::new("Slow Model (Deep) ", Some(slow_name.to_string())),
     ];
 
     let modal = ModalState::new("Settings", "", options);
@@ -167,6 +181,16 @@ fn toggle_modal_setting<B: TerminalBackend>(
             Some(ModalKeyResult::OpenGuardModelSelector)
         }
         9 => Some(ModalKeyResult::OpenToolsMenu),
+        10 => {
+            controller.state_mut().pop_modal();
+            let _ = controller.redraw();
+            Some(ModalKeyResult::OpenSmolModelSelector)
+        }
+        11 => {
+            controller.state_mut().pop_modal();
+            let _ = controller.redraw();
+            Some(ModalKeyResult::OpenSlowModelSelector)
+        }
         _ => None,
     }
 }

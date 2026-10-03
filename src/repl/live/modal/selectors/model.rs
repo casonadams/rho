@@ -73,25 +73,29 @@ pub fn open_model_selector_with_default<B: TerminalBackend>(
     controller.state_mut().push_modal(modal);
 }
 
-pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+pub fn open_role_model_selector<B: TerminalBackend>(
+    session: &ReplSession,
+    controller: &mut TerminalController<B>,
+    role_name: &str,
+    current_model: Option<&str>,
+) {
     let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
     let mut options = Vec::new();
-    let current_guard = session.config.guard_model();
 
-    let none_mark = if current_guard.is_none() { "✓" } else { "" };
+    let none_mark = if current_model.is_none() { "✓" } else { "" };
     options.push(ModalOption::new(
         "None",
         Some(format!(
-            "none\t{none_mark}\t\tDisable guard model (standard permission prompts)"
+            "none\t{none_mark}\t\tDisable {role_name} model (fallback to default)"
         )),
     ));
 
     let mut initial_selection = 0;
     for (i, item) in discovered.iter().enumerate() {
         let canonical = canonical_model_id(item);
-        let active_mark = if let Some(g) = current_guard {
-            let matches_full = g == canonical;
-            let matches_id = g == item.id;
+        let active_mark = if let Some(m) = current_model {
+            let matches_full = m == canonical;
+            let matches_id = m == item.id;
             if matches_full || matches_id {
                 initial_selection = i + 1;
                 "✓"
@@ -107,9 +111,24 @@ pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, cont
         ));
     }
 
-    let mut modal = ModalState::new("Select Guard Model", "", options).with_search(true);
+    let title = format!("Select {role_name} Model");
+    let mut modal = ModalState::new(title, "", options).with_search(true);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
+}
+
+pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    open_role_model_selector(session, controller, "Guard", session.config.guard_model());
+}
+
+pub fn open_smol_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    let smol_model = session.config.models.get("smol").map(String::as_str);
+    open_role_model_selector(session, controller, "Smol", smol_model);
+}
+
+pub fn open_slow_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    let slow_model = session.config.models.get("slow").map(String::as_str);
+    open_role_model_selector(session, controller, "Slow", slow_model);
 }
 
 fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<(String, String)> {
