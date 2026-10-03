@@ -10,9 +10,9 @@ use rig::error::{ErrorKind, ErrorReport};
 use serde_json::Value;
 
 use super::eval::{ask_drafts, decide_tool_call};
-use super::guard::GuardEvaluator;
+use super::guard::{GuardEvaluator, JudgeEvaluator};
 use super::policy::{Policy, load_policy, save_allow_rule, target_config_path};
-use super::prompt::{build_permission_prompt, rewrite_tool_args};
+use super::prompt::{build_permission_prompt_with_evaluator, rewrite_tool_args};
 use super::suggest::{canonical_tool, match_input, suggested_rule};
 use super::types::{Decision, EvalRequest, RuleDraft};
 
@@ -21,6 +21,7 @@ pub struct PermissionHook {
     presenter: Arc<dyn Presenter>,
     policy: Arc<RwLock<Policy>>,
     guard_evaluator: Option<GuardEvaluator>,
+    judge_evaluator: Option<JudgeEvaluator>,
 }
 
 impl PermissionHook {
@@ -31,6 +32,7 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
+            judge_evaluator: None,
         }
     }
 
@@ -40,11 +42,17 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
+            judge_evaluator: None,
         }
     }
 
     pub fn with_guard(mut self, guard: GuardEvaluator) -> Self {
         self.guard_evaluator = Some(guard);
+        self
+    }
+
+    pub fn with_judge(mut self, judge: JudgeEvaluator) -> Self {
+        self.judge_evaluator = Some(judge);
         self
     }
 
@@ -85,6 +93,17 @@ impl PermissionHook {
         notice: Option<&str>,
         risk: Option<&str>,
     ) -> DispatchAction {
+        self.handle_ask_with_evaluator(req, drafts, notice, risk, None).await
+    }
+
+    async fn handle_ask_with_evaluator(
+        &self,
+        req: EvalRequest<'_>,
+        drafts: &[RuleDraft],
+        notice: Option<&str>,
+        risk: Option<&str>,
+        evaluator: Option<&str>,
+    ) -> DispatchAction {
         if !self.presenter.has_interactive_ui() {
             let detail = notice.or(risk).map(|r| format!(": {r}")).unwrap_or_default();
             return DispatchAction::Deny(ErrorReport::new(
@@ -96,25 +115,47 @@ impl PermissionHook {
             ));
         }
 
-        let prompt = build_permission_prompt(req.tool, req.args, drafts, notice, risk);
+        let prompt = build_permission_prompt_with_evaluator(req.tool, req.args, drafts, notice, risk, evaluator);
         let response = self.presenter.request_interaction(prompt).await;
         self.map_interaction_action(response, req, drafts).await
     }
 
     async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> DispatchAction {
-        if req.tool == "bash"
-            && let Some(guard) = &self.guard_evaluator
-        {
+        if req.tool == "bash" {
             let cmd = match_input(req.args);
-            let verdict = guard.evaluate(&cmd).await;
-            if verdict.safe {
-                return DispatchAction::Proceed;
+            if let Some(judge) = &self.judge_evaluator {
+                match judge.evaluate_bash_safety(&cmd).await {
+                    Ok(true) => return DispatchAction::Proceed,
+                    Ok(false) => {
+                        return self
+                            .handle_ask_with_evaluator(
+                                req,
+                                drafts,
+                                Some("Flagged by Judge decision model"),
+                                None,
+                                Some("Judge"),
+                            )
+                            .await;
+                    }
+                    Err(_) => {
+                        // Fall back to generative guard model if judge times out or is unreachable
+                    }
+                }
             }
-            let (notice, risk) = match &verdict.action {
-                Some(action) => (Some(action.as_str()), Some(verdict.reason.as_str())),
-                None => (Some(verdict.reason.as_str()), None),
-            };
-            return self.handle_ask(req, drafts, notice, risk).await;
+
+            if let Some(guard) = &self.guard_evaluator {
+                let verdict = guard.evaluate(&cmd).await;
+                if verdict.safe {
+                    return DispatchAction::Proceed;
+                }
+                let (notice, risk) = match &verdict.action {
+                    Some(action) => (Some(action.as_str()), Some(verdict.reason.as_str())),
+                    None => (Some(verdict.reason.as_str()), None),
+                };
+                return self
+                    .handle_ask_with_evaluator(req, drafts, notice, risk, Some("Guard"))
+                    .await;
+            }
         }
         self.handle_ask(req, drafts, None, None).await
     }

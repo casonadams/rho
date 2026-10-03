@@ -63,6 +63,17 @@ pub fn build_permission_prompt(
     notice: Option<&str>,
     risk: Option<&str>,
 ) -> InteractionPrompt {
+    build_permission_prompt_with_evaluator(tool, args, drafts, notice, risk, None)
+}
+
+pub fn build_permission_prompt_with_evaluator(
+    tool: &str,
+    args: &Value,
+    drafts: &[RuleDraft],
+    notice: Option<&str>,
+    risk: Option<&str>,
+    evaluator: Option<&str>,
+) -> InteractionPrompt {
     let input_display = match_input(args);
     let formatted_input = if tool == "bash" {
         super::bash::format_command_lines(&input_display)
@@ -82,8 +93,12 @@ pub fn build_permission_prompt(
         formatted: formatted_input,
         drafts,
     };
+    let title = match evaluator {
+        Some(e) => format!("Permission Required [{e}]"),
+        None => "Permission Required".to_string(),
+    };
     InteractionPrompt {
-        title: "Permission Required".to_string(),
+        title,
         body,
         options: build_permission_options(params, &input_display),
         initial_selection: 0,

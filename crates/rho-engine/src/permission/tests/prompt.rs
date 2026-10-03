@@ -30,6 +30,21 @@ fn test_build_permission_prompt_with_notice_order() {
 }
 
 #[test]
+fn test_build_permission_prompt_with_evaluator() {
+    let args = json!({"command": "rm -rf /tmp/danger"});
+    let prompt = crate::permission::prompt::build_permission_prompt_with_evaluator(
+        "bash",
+        &args,
+        &[],
+        Some("Flagged by Judge decision model"),
+        None,
+        Some("Judge"),
+    );
+    assert_eq!(prompt.title, "Permission Required [Judge]");
+    assert!(prompt.body.contains("Notice: Flagged by Judge decision model"));
+}
+
+#[test]
 fn test_build_permission_prompt_with_notice_and_risk() {
     let args = json!({"command": "git push origin main"});
     let prompt = build_permission_prompt(
