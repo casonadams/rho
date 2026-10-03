@@ -5,6 +5,7 @@ pub mod discovery;
 mod extras;
 pub mod sse;
 pub mod store;
+pub mod systemone;
 
 pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 

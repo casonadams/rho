@@ -28,6 +28,7 @@ pub mod claude;
 pub mod engine;
 pub mod gemini;
 pub mod hook;
+pub mod lsp;
 pub mod mcp;
 pub mod ollama;
 pub mod permission;

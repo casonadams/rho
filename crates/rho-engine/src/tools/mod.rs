@@ -9,6 +9,7 @@ pub mod builtin_tools;
 pub mod edit;
 pub mod engine_tool;
 pub mod fd;
+pub mod lsp;
 pub mod read;
 pub mod registry;
 pub mod rg;
