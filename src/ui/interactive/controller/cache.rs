@@ -101,10 +101,6 @@ impl TranscriptRenderCache {
         self.items.clear();
     }
 
-    pub fn entries(&self) -> &[CachedItemRender] {
-        &self.items
-    }
-
     pub fn entry(&self, index: usize) -> Option<&CachedItemRender> {
         self.items.get(index)
     }

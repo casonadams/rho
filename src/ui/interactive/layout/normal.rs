@@ -75,8 +75,13 @@ fn render_editor_area(input: &LayoutInput<'_>, plan: EditorLayoutPlan<'_>) -> (V
     let unused_ac = plan.ac_budget.saturating_sub(ac_lines.len());
     let ed_max = plan.ed_budget + unused_ac.min(plan.wrapped_lines.len().saturating_sub(plan.ed_budget));
     let (ed_lines, ed_cursor) = window_editor(plan.wrapped_lines, plan.cursor, ed_max);
+    let ghost = if input.autocomplete.is_none() {
+        input.editor.ghost_text()
+    } else {
+        None
+    };
     let mut ed_lines = if input.focused && plan.theme.cursor_mode == crate::ui::theme::CursorMode::Software {
-        render_editor_lines(ed_lines, ed_cursor)
+        render_editor_lines(ed_lines, ed_cursor, ghost)
     } else {
         ed_lines
     };

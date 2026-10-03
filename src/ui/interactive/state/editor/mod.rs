@@ -25,6 +25,7 @@ pub struct EditorState {
     kill_ring: Vec<String>,
     undo_stack: Vec<EditorSnapshot>,
     pastes: PasteStore,
+    ghost_text: Option<String>,
 }
 
 impl EditorState {
@@ -59,6 +60,34 @@ impl EditorState {
         self.cursor = cursor.min(self.text.len());
         self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
+        self.ghost_text = None;
+    }
+
+    pub fn ghost_text(&self) -> Option<&str> {
+        self.ghost_text.as_deref()
+    }
+
+    pub fn set_ghost_text(&mut self, ghost: Option<String>) {
+        self.ghost_text = ghost;
+    }
+
+    pub fn clear_ghost_text(&mut self) {
+        self.ghost_text = None;
+    }
+
+    pub fn accept_ghost_text(&mut self) -> bool {
+        if self.cursor != self.text.len() {
+            return false;
+        }
+        let Some(ghost) = self.ghost_text.take() else {
+            return false;
+        };
+        if ghost.is_empty() {
+            return false;
+        }
+        self.insert_str(&ghost);
+        self.clear_ghost_text();
+        true
     }
 
     pub fn take_submission(&mut self, kind: QueueKind) -> Option<QueuedMessage> {
@@ -75,11 +104,9 @@ impl EditorState {
     }
 
     pub fn yank(&mut self) {
-        if let Some(last) = self.kill_ring.last().cloned() {
-            self.record_undo();
-            self.text.insert_str(self.cursor, &last);
-            self.cursor += last.len();
-            self.preferred_column = None;
+        let last = self.kill_ring.last().cloned();
+        if let Some(clean) = last {
+            self.insert_str(&clean);
         }
     }
 
@@ -137,9 +164,18 @@ impl EditorState {
     }
 
     pub fn insert(&mut self, value: char) {
+        let mut buf = [0u8; 4];
+        let s = value.encode_utf8(&mut buf);
+        self.insert_str(s);
+    }
+
+    pub fn insert_str(&mut self, s: &str) {
+        if s.is_empty() {
+            return;
+        }
         self.record_undo();
-        self.text.insert(self.cursor, value);
-        self.cursor += value.len_utf8();
+        self.text.insert_str(self.cursor, s);
+        self.cursor += s.len();
         self.preferred_column = None;
     }
 

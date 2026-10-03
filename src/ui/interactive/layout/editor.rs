@@ -104,7 +104,7 @@ pub(crate) fn window_editor(
     (windowed, new_cursor)
 }
 
-pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize) {
+pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize, ghost_text: Option<&str>) {
     let mut current_col = 0;
     let mut byte_offset = None;
     let mut char_len = 0;
@@ -126,13 +126,18 @@ pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize) {
         *line = format!("{before}\x1b[7m{ch_str}\x1b[27m{after}");
     } else {
         line.push_str("\x1b[7m \x1b[27m");
+        if let Some(ghost) = ghost_text {
+            line.push_str("\x1b[2m");
+            line.push_str(ghost);
+            line.push_str("\x1b[22m");
+        }
     }
 }
 
-pub(crate) fn render_editor_lines(lines: Vec<String>, cursor: CursorPosition) -> Vec<String> {
+pub(crate) fn render_editor_lines(lines: Vec<String>, cursor: CursorPosition, ghost_text: Option<&str>) -> Vec<String> {
     let mut lines = lines;
     if cursor.row < lines.len() {
-        apply_software_cursor(&mut lines[cursor.row], cursor.column);
+        apply_software_cursor(&mut lines[cursor.row], cursor.column, ghost_text);
     }
     lines
 }

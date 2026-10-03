@@ -310,28 +310,33 @@ fn software_cursor_rendering_cases() {
 
     // Case 1: Empty line
     let mut line = String::new();
-    apply_software_cursor(&mut line, 0);
+    apply_software_cursor(&mut line, 0, None);
     assert_eq!(line, "\x1b[7m \x1b[27m");
 
     // Case 2: End of line
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 5);
+    apply_software_cursor(&mut line, 5, None);
     assert_eq!(line, "hello\x1b[7m \x1b[27m");
 
     // Case 3: Start of line
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 0);
+    apply_software_cursor(&mut line, 0, None);
     assert_eq!(line, "\x1b[7mh\x1b[27mello");
 
     // Case 4: Mid-line character
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 2);
+    apply_software_cursor(&mut line, 2, None);
     assert_eq!(line, "he\x1b[7ml\x1b[27mlo");
 
     // Case 5: Wide Unicode character
     let mut line = "a界b".to_string();
-    apply_software_cursor(&mut line, 1);
+    apply_software_cursor(&mut line, 1, None);
     assert_eq!(line, "a\x1b[7m界\x1b[27mb");
+
+    // Case 6: Ghost text at end of line
+    let mut line = "hello".to_string();
+    apply_software_cursor(&mut line, 5, Some(" world"));
+    assert_eq!(line, "hello\x1b[7m \x1b[27m\x1b[2m world\x1b[22m");
 }
 
 #[test]
