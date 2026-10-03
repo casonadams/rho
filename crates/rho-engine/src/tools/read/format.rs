@@ -62,7 +62,8 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs, artifact
         return check_first_line_oversized(first_line, start_line, clean_path);
     }
     let (text, spilled_notice) = split_artifact_notice(&truncation.content);
-    let mut output = number_lines(text, start_line);
+    let mut output = format!("[{clean_path}#{}]\n", crate::tools::edit::compute_content_tag(content));
+    output.push_str(&number_lines(text, start_line));
     if let Some(by) = truncation.truncated_by {
         let end_line = start_line + truncation.output_lines - 1;
         output.push_str(&build_truncation_notice(by, start_line, end_line, total_lines));

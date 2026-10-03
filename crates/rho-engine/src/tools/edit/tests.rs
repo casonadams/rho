@@ -17,6 +17,7 @@ async fn test_edit_unique_replacement() {
                 old_text: "println!(\"world\");".to_string(),
                 new_text: "println!(\"rust\");".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();
@@ -25,6 +26,31 @@ async fn test_edit_unique_replacement() {
     assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [2] })));
     let updated = tokio::fs::read_to_string(&file_path).await.unwrap();
     assert_eq!(updated, "fn hello() {\n    println!(\"rust\");\n}\n");
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}
+
+#[tokio::test]
+async fn test_edit_hashline_patch() {
+    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+    let file_path = temp_dir.join("sample.txt");
+    tokio::fs::write(&file_path, "line 1\nline 2\nline 3\n").await.unwrap();
+
+    let tool = EditTool::new(&temp_dir);
+    let patch = "PUT 2:\n+line 2 replaced\n";
+    let res = tool
+        .execute(EditArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            edits: vec![],
+            patch: Some(patch.to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    let updated = tokio::fs::read_to_string(&file_path).await.unwrap();
+    assert_eq!(updated, "line 1\nline 2 replaced\nline 3\n");
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
@@ -47,6 +73,7 @@ async fn test_edit_crlf_file_with_lf_old_text() {
                 old_text: "line 2\n".to_string(),
                 new_text: "line 2 modified\n".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();
@@ -75,6 +102,7 @@ async fn test_edit_duplicate_match_fails_atomically() {
                 old_text: "foo".to_string(),
                 new_text: "qux".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();
@@ -104,6 +132,7 @@ async fn test_edit_missing_match_shows_whitespace_hint() {
                 old_text: "  fn calculate() {\n    let x = 1;\n  }".to_string(),
                 new_text: "  fn calculate() {\n    let x = 2;\n  }".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();
@@ -133,6 +162,7 @@ async fn test_edit_missing_match_fails_atomically() {
                 old_text: "not_present".to_string(),
                 new_text: "replacement".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();
@@ -160,6 +190,7 @@ async fn test_edit_rejects_directory() {
                 old_text: "a".to_string(),
                 new_text: "b".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();
@@ -190,6 +221,7 @@ async fn test_edit_external_file_successfully() {
                 old_text: "initial external line".to_string(),
                 new_text: "modified external line".to_string(),
             }],
+            patch: None,
         })
         .await
         .unwrap();

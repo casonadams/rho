@@ -1,6 +1,9 @@
+pub mod hashline;
 pub mod normalize;
 #[cfg(test)]
 mod tests;
+
+pub use hashline::{HashlineOp, HashlinePatch, apply_hashline_patch, compute_content_tag, parse_hashline_patch};
 
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::EngineTool;
@@ -155,6 +158,17 @@ impl EditTool {
             Ok(c) => c,
             Err(e) => return Ok(e),
         };
+        if let Some(ref patch_text) = args.patch {
+            let patch = match parse_hashline_patch(patch_text) {
+                Ok(p) => p,
+                Err(e) => return Ok(ToolResult::error(format!("Malformed hashline patch: {e}"))),
+            };
+            let (updated, lines) = match apply_hashline_patch(&content, &patch) {
+                Ok(v) => v,
+                Err(e) => return Ok(ToolResult::error(format!("Failed to apply hashline patch: {e}"))),
+            };
+            return write_edit_result(&path, clean_path, updated, lines, patch.ops.len()).await;
+        }
         if args.edits.is_empty() {
             return Ok(ToolResult::error("No edits provided in edit tool call"));
         }
