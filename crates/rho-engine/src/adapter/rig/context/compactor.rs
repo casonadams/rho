@@ -70,7 +70,8 @@ impl CodingCompactor {
             });
         }
         template_input.extend(params.new_messages.iter().cloned());
-        let template = self.template.compact("rho", &template_input, None).await?;
+        let conversation_id = rig::id::ConversationId::from("rho");
+        let template = self.template.compact(&conversation_id, &template_input, None).await?;
         let artifact = build_artifact(ArtifactParams {
             carry: params.carry.as_deref(),
             messages: params.new_messages,
@@ -109,7 +110,7 @@ impl Compactor for CodingCompactor {
 
     fn compact<'a>(
         &'a self,
-        _conversation_id: &'a str,
+        _conversation_id: &'a rig::id::ConversationId,
         evicted: &'a [Message],
         carry_over: Option<&'a Self::Artifact>,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {

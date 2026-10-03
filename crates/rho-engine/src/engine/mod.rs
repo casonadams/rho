@@ -48,7 +48,7 @@ pub struct AgentEngine {
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
-    pub(crate) model: Option<rig::agent::ModelHandle>,
+    pub(crate) model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
 }
 

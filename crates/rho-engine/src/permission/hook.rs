@@ -4,7 +4,9 @@ use tokio::sync::RwLock;
 
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::types::InteractionResponse;
-use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction};
+use rig::agent::hook::{AgentHook, DispatchAction, DispatchEvent, HookContext};
+use rig::effect::EffectKind;
+use rig::error::{ErrorKind, ErrorReport};
 use serde_json::Value;
 
 use super::eval::{ask_drafts, decide_tool_call};
@@ -51,23 +53,28 @@ impl PermissionHook {
         response: Option<InteractionResponse>,
         req: EvalRequest<'_>,
         drafts: &[RuleDraft],
-    ) -> ToolCallAction {
+    ) -> DispatchAction {
         match response {
-            Some(InteractionResponse::Selected(0 | 1)) => ToolCallAction::run(),
+            Some(InteractionResponse::Selected(0 | 1)) => DispatchAction::Proceed,
             Some(InteractionResponse::SelectedWithInput { index: 1, text }) => {
-                ToolCallAction::rewrite(rewrite_tool_args(req.args, &text))
+                let patched_value = rewrite_tool_args(req.args, &text);
+                let args_str = serde_json::to_string(&patched_value).unwrap_or_default();
+                DispatchAction::Patch(EffectKind::ToolCall {
+                    name: req.tool.to_string(),
+                    args: args_str,
+                })
             }
             Some(InteractionResponse::Selected(2)) => {
                 self.apply_always_allow(req, drafts, None).await;
-                ToolCallAction::run()
+                DispatchAction::Proceed
             }
             Some(InteractionResponse::SelectedWithInput { index: 2, text }) => {
                 self.apply_always_allow(req, drafts, Some(&text)).await;
-                ToolCallAction::run()
+                DispatchAction::Proceed
             }
             Some(InteractionResponse::SelectedWithInput { index: 3, text })
             | Some(InteractionResponse::Custom(text)) => skip_with_feedback(&text),
-            _ => ToolCallAction::skip("Operation denied by user."),
+            _ => DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, "Operation denied by user.")),
         }
     }
 
@@ -77,12 +84,15 @@ impl PermissionHook {
         drafts: &[RuleDraft],
         notice: Option<&str>,
         risk: Option<&str>,
-    ) -> ToolCallAction {
+    ) -> DispatchAction {
         if !self.presenter.has_interactive_ui() {
             let detail = notice.or(risk).map(|r| format!(": {r}")).unwrap_or_default();
-            return ToolCallAction::skip(format!(
-                "Permission required for tool '{}'{detail} but cannot prompt in headless mode",
-                req.tool
+            return DispatchAction::Deny(ErrorReport::new(
+                ErrorKind::Other,
+                format!(
+                    "Permission required for tool '{}'{detail} but cannot prompt in headless mode",
+                    req.tool
+                ),
             ));
         }
 
@@ -91,14 +101,14 @@ impl PermissionHook {
         self.map_interaction_action(response, req, drafts).await
     }
 
-    async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> ToolCallAction {
+    async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> DispatchAction {
         if req.tool == "bash"
             && let Some(guard) = &self.guard_evaluator
         {
             let cmd = match_input(req.args);
             let verdict = guard.evaluate(&cmd).await;
             if verdict.safe {
-                return ToolCallAction::run();
+                return DispatchAction::Proceed;
             }
             let (notice, risk) = match &verdict.action {
                 Some(action) => (Some(action.as_str()), Some(verdict.reason.as_str())),
@@ -142,28 +152,33 @@ fn save_drafts_or_fallback(target: &std::path::Path, tool: &str, args: &Value, d
     }
 }
 
-fn skip_with_feedback(text: &str) -> ToolCallAction {
+fn skip_with_feedback(text: &str) -> DispatchAction {
     let trimmed = text.trim();
-    if trimmed.is_empty() {
-        ToolCallAction::skip("Operation denied by user.")
+    let msg = if trimmed.is_empty() {
+        "Operation denied by user.".to_string()
     } else {
-        ToolCallAction::skip(format!("Operation denied by user: {trimmed}"))
-    }
+        format!("Operation denied by user: {trimmed}")
+    };
+    DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, msg))
 }
 
 impl AgentHook for PermissionHook {
-    async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
-        let arguments = serde_json::from_str(event.args).unwrap_or(Value::Null);
+    async fn on_dispatch(&self, _ctx: &HookContext, event: DispatchEvent<'_>) -> DispatchAction {
+        let (tool_name, args_str) = match event.kind {
+            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
+            _ => return DispatchAction::Proceed,
+        };
+        let arguments = serde_json::from_str(args_str).unwrap_or(Value::Null);
         let policy = self.policy.read().await.clone();
         let req = EvalRequest {
-            tool: event.tool_name,
+            tool: tool_name,
             args: &arguments,
             working_dir: self.working_dir.as_deref(),
         };
 
         match decide_tool_call(&policy, req) {
-            Decision::Allow => ToolCallAction::run(),
-            Decision::Deny(reason) => ToolCallAction::skip(reason),
+            Decision::Allow => DispatchAction::Proceed,
+            Decision::Deny(reason) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, reason)),
             Decision::Ask => {
                 let drafts = ask_drafts(&policy, req);
                 self.evaluate_guard_or_ask(req, &drafts).await

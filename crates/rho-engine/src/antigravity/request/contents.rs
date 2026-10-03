@@ -184,7 +184,7 @@ fn build_function_response_part(
 ) -> Part {
     Part {
         function_response: Some(FunctionResponse {
-            name: result.name.clone(),
+            name: result.name.to_string(),
             response: json!({ "output": response_text }),
             id: ctx.call_ids.then_some(sanitized_id),
             parts: (!image_parts.is_empty()).then_some(image_parts),
@@ -265,7 +265,7 @@ fn convert_tool_call_part(call: &rig::message::ToolCall, ctx: &mut ConversionCon
     }
     parts.push(Part {
         function_call: Some(FunctionCall {
-            name: call.function.name.clone(),
+            name: call.function.name.to_string(),
             args: call.function.arguments.clone(),
             id: ctx.call_ids.then(|| sanitize_tool_call_id(&raw_id)),
         }),
@@ -279,7 +279,11 @@ fn convert_assistant_content(content: &[AssistantContent], ctx: &mut ConversionC
     for block in content {
         match block {
             AssistantContent::Text(text) if !text.text.trim().is_empty() => parts.push(part_text(text.text.clone())),
-            AssistantContent::Reasoning(reasoning) => convert_reasoning_part(reasoning, &mut parts),
+            AssistantContent::Reasoning(reasoning) => {
+                if let Some(r) = reasoning.open(reasoning.issuer()) {
+                    convert_reasoning_part(r, &mut parts);
+                }
+            }
             AssistantContent::ToolCall(call) => convert_tool_call_part(call, ctx, &mut parts),
             _ => {}
         }

@@ -4,10 +4,12 @@ use crate::engine::runner::sink::{TerminalApprovalSink, ToolFinishDetails};
 use crate::engine::runner::turn::types::{SharedModelSwitch, SteeringQueueProvider};
 use crate::provider::supports_tool_result_images;
 use rig::agent::hook::{
-    AgentHook, CompletionCall, CompletionCallAction, HookContext, InvalidToolCallAction, InvalidToolCallContext,
-    ModelSelection, ModelSelectionAction, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent,
+    AgentHook, CompletionCallAction, CompletionCallEvent, DispatchAction, DispatchEvent, HookContext,
+    InvalidToolCallAction, InvalidToolCallContext, ModelSelection, ModelSelectionAction, OutcomeAction, OutcomeEvent,
 };
-use rig::completion::message::{Image, MimeType, ToolResultContent};
+use rig::completion::message::{Image, ImageMediaType, ToolResultContent};
+use rig::effect::EffectKind;
+use rig::error::{ErrorKind, ErrorReport};
 use rig::tool::ToolOutput;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -71,41 +73,34 @@ impl TurnToolExecutionHook {
     }
 }
 
-fn resolve_tool_output<'a>(output: &'a str, raw: &rig::tool::ToolResult, storage: &'a mut String) -> &'a str {
-    if output.is_empty()
-        && let Some(err) = raw.error().or_else(|| raw.refusal())
-    {
-        *storage = err.to_string();
-        storage.as_str()
-    } else {
-        output
-    }
-}
-
 impl AgentHook for TurnToolExecutionHook {
     fn on_model_select(&self, _ctx: &HookContext, _event: ModelSelection<'_>) -> ModelSelectionAction {
         if let Some(switcher) = &self.model_switch
-            && let Some(handle) = switcher.get_handle()
+            && let Some(model) = switcher.current_model()
         {
-            return ModelSelectionAction::select(handle);
+            return ModelSelectionAction::select(model);
         }
         ModelSelectionAction::Continue
     }
 
-    async fn on_completion_call(&self, ctx: &HookContext, _event: CompletionCall<'_>) -> CompletionCallAction {
+    async fn on_completion_call(&self, ctx: &HookContext, _event: CompletionCallEvent<'_>) -> CompletionCallAction {
         ctx.scratchpad().insert(SteeringFlag(false));
         self.set_steered(false);
         CompletionCallAction::continue_run()
     }
 
-    async fn on_tool_call(&self, ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
+    async fn on_dispatch(&self, ctx: &HookContext, event: DispatchEvent<'_>) -> DispatchAction {
+        let (tool_name, args_str) = match event.kind {
+            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
+            _ => return DispatchAction::Proceed,
+        };
         let is_steered = ctx
             .scratchpad()
             .get::<SteeringFlag>()
             .map(|s| s.0)
             .unwrap_or_else(|| self.is_steered());
         if is_steered {
-            return ToolCallAction::skip(STEERING_SKIP_REASON);
+            return DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, STEERING_SKIP_REASON));
         }
         if let Some(steering) = &self.steering {
             let messages = steering.poll_steering().await;
@@ -113,13 +108,16 @@ impl AgentHook for TurnToolExecutionHook {
                 ctx.scratchpad().insert(SteeringFlag(true));
                 self.set_steered(true);
                 let text = format_steering_messages(&messages);
-                return ToolCallAction::skip(format!("{STEERING_SKIP_REASON}\n\n{text}"));
+                return DispatchAction::Deny(ErrorReport::new(
+                    ErrorKind::Other,
+                    format!("{STEERING_SKIP_REASON}\n\n{text}"),
+                ));
             }
         }
-        let (arguments, should_rewrite) = match serde_json::from_str::<serde_json::Value>(event.args) {
+        let (arguments, should_rewrite) = match serde_json::from_str::<serde_json::Value>(args_str) {
             Ok(v) => (v, false),
             Err(_) => {
-                if let Some(repaired) = try_repair_json(event.args)
+                if let Some(repaired) = try_repair_json(args_str)
                     && let Ok(v) = serde_json::from_str::<serde_json::Value>(&repaired)
                 {
                     (v, true)
@@ -128,37 +126,68 @@ impl AgentHook for TurnToolExecutionHook {
                 }
             }
         };
-        self.sink.tool_start(event.tool_name, &arguments);
+        self.sink.tool_start(tool_name, &arguments);
         self.activate_path_from_arguments(&arguments).await;
         if should_rewrite {
-            ToolCallAction::Rewrite(arguments)
+            DispatchAction::Patch(EffectKind::ToolCall {
+                name: tool_name.to_string(),
+                args: serde_json::to_string(&arguments).unwrap_or_default(),
+            })
         } else {
-            ToolCallAction::run()
+            DispatchAction::Proceed
         }
     }
 
-    async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
-        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
+    async fn on_outcome(&self, _ctx: &HookContext, event: OutcomeEvent<'_>) -> OutcomeAction {
+        let (tool_name, args_str) = match event.kind {
+            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
+            _ => return OutcomeAction::Proceed,
+        };
+        let arguments = serde_json::from_str(args_str).unwrap_or(serde_json::Value::Null);
         self.activate_path_from_arguments(&arguments).await;
         let provider = self
             .model_switch
             .as_ref()
             .and_then(|s| s.current_provider())
             .unwrap_or_else(|| self.provider.clone());
-        let (action, output) = gated_result(event.presentation, &provider);
-        let mut err_storage = String::new();
-        let final_output = resolve_tool_output(&output, event.raw_result, &mut err_storage);
+
+        let mut replacement_action = None;
+        let (output_text, is_err) = match event.outcome {
+            Ok(rig::effect::Outcome::ToolResult { result }) => {
+                let (action, text) = gated_result(result.output(), &provider);
+                if !matches!(action, OutcomeAction::Proceed) {
+                    replacement_action = Some(action);
+                }
+                (text, !result.is_success())
+            }
+            Err(e) => (e.to_string(), true),
+            _ => (String::new(), false),
+        };
+
         self.sink.tool_finished(ToolFinishDetails {
-            name: event.tool_name,
+            name: tool_name,
             arguments: &arguments,
-            output: final_output,
-            is_error: !event.raw_result.is_success(),
+            output: &output_text,
+            is_error: is_err,
         });
 
-        if let Some(steer_action) = self.check_steering_rewrite(final_output).await {
-            return steer_action;
+        if let Some(action) = replacement_action {
+            return action;
         }
-        action
+
+        if let Some(steering) = &self.steering {
+            let messages = steering.poll_steering().await;
+            if !messages.is_empty() {
+                self.set_steered(true);
+                let steering_text = format_steering_messages(&messages);
+                let augmented = attach_steering_to_output(&output_text, &steering_text);
+                return OutcomeAction::replace(Ok(rig::effect::Outcome::ToolResult {
+                    result: rig::tool::ToolResult::success(rig::tool::ToolOutput::text(augmented)),
+                }));
+            }
+        }
+
+        OutcomeAction::Proceed
     }
 
     async fn on_invalid_tool_call(
@@ -211,17 +240,6 @@ fn try_repair_tool_name(called: &str, available: &[String]) -> Option<String> {
 }
 
 impl TurnToolExecutionHook {
-    async fn check_steering_rewrite(&self, output: &str) -> Option<ToolResultAction> {
-        let steering = self.steering.as_ref()?;
-        let messages = steering.poll_steering().await;
-        if messages.is_empty() {
-            return None;
-        }
-        self.set_steered(true);
-        let steering_text = format_steering_messages(&messages);
-        let augmented = attach_steering_to_output(output, &steering_text);
-        Some(ToolResultAction::rewrite(augmented))
-    }
     async fn activate_path_from_arguments(&self, arguments: &serde_json::Value) {
         if let Some(path_str) = extract_path_argument(arguments)
             && let Some(ctx_cache) = &self.project_context
@@ -276,25 +294,21 @@ pub fn extract_path_argument(arguments: &serde_json::Value) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
-/// The model-visible action and transcript text for a tool result.
-///
-/// Results without image blocks pass through untouched. Image-bearing results
-/// render text-only (base64 never leaks into the display); for providers that
-/// cannot serialize them, the rewrite strips every image block and appends an
-/// omission note.
-fn gated_result(presentation: &ToolOutput, provider: &str) -> (ToolResultAction, String) {
+pub(crate) fn gated_result(presentation: &ToolOutput, provider: &str) -> (OutcomeAction, String) {
     let (text, has_images) = text_render(presentation);
     if !has_images || supports_tool_result_images(provider) {
-        return (ToolResultAction::keep(), text);
+        return (OutcomeAction::proceed(), text);
     }
     let gated = with_omission_note(&text, provider);
-    (ToolResultAction::rewrite(gated.clone()), gated)
+    (
+        OutcomeAction::replace(Ok(rig::effect::Outcome::ToolResult {
+            result: rig::tool::ToolResult::success(rig::tool::ToolOutput::text(&gated)),
+        })),
+        gated,
+    )
 }
 
-/// Text-only rendering of a tool output: identical to `ToolOutput::render`
-/// unless image blocks are present, in which case text parts are joined with
-/// newlines and each image contributes a compact placeholder.
-fn text_render(presentation: &ToolOutput) -> (String, bool) {
+pub(crate) fn text_render(presentation: &ToolOutput) -> (String, bool) {
     let blocks = presentation.as_content();
     let has_images = blocks.iter().any(|block| matches!(block, ToolResultContent::Image(_)));
     if !has_images {
@@ -312,11 +326,19 @@ fn text_render(presentation: &ToolOutput) -> (String, bool) {
 }
 
 fn image_placeholder(image: &Image) -> String {
-    let media_type = image.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+    let media_type = image.media_type.as_ref().map_or("unknown", |m| match m {
+        ImageMediaType::JPEG => "image/jpeg",
+        ImageMediaType::PNG => "image/png",
+        ImageMediaType::GIF => "image/gif",
+        ImageMediaType::WEBP => "image/webp",
+        ImageMediaType::SVG => "image/svg+xml",
+        ImageMediaType::HEIC => "image/heic",
+        ImageMediaType::HEIF => "image/heif",
+    });
     format!("[image: {media_type}]")
 }
 
-fn with_omission_note(text: &str, provider: &str) -> String {
+pub(crate) fn with_omission_note(text: &str, provider: &str) -> String {
     let note = format!("[Image in tool result omitted: {provider} does not support images in tool results.]");
     if text.is_empty() {
         return note;

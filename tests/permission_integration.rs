@@ -44,11 +44,11 @@ fn make_perm_model(cmd: &str, final_text: &'static str) -> MockCompletionModel {
     MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call("call_1", "bash", json!({"command": cmd})),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
         vec![
             MockStreamEvent::text(final_text),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
     ])
 }

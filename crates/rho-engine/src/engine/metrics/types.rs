@@ -102,13 +102,13 @@ impl StructuralUsage {
 impl From<Usage> for StructuralUsage {
     fn from(usage: Usage) -> Self {
         Self {
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            total_tokens: usage.total_tokens,
-            cached_input_tokens: nonzero(usage.cached_input_tokens),
-            cache_creation_input_tokens: nonzero(usage.cache_creation_input_tokens),
-            tool_use_prompt_tokens: nonzero(usage.tool_use_prompt_tokens),
-            reasoning_tokens: nonzero(usage.reasoning_tokens),
+            input_tokens: usage.input_tokens.unwrap_or(0),
+            output_tokens: usage.output_tokens.unwrap_or(0),
+            total_tokens: usage.total_tokens.unwrap_or(0),
+            cached_input_tokens: nonzero(usage.cached_input_tokens.unwrap_or(0)),
+            cache_creation_input_tokens: nonzero(usage.cache_creation_input_tokens.unwrap_or(0)),
+            tool_use_prompt_tokens: nonzero(usage.tool_use_prompt_tokens.unwrap_or(0)),
+            reasoning_tokens: nonzero(usage.reasoning_tokens.unwrap_or(0)),
         }
     }
 }
@@ -127,8 +127,8 @@ impl From<&CompletionCall> for ModelCallMetrics {
     fn from(call: &CompletionCall) -> Self {
         Self {
             call_index: call.call_index,
-            usage_available: call.usage.has_values(),
-            usage: call.usage.has_values().then(|| call.usage.into()),
+            usage_available: call.usage.is_reported(),
+            usage: call.usage.is_reported().then(|| call.usage.into()),
             finish_status: call.finish_reason.as_ref().map(finish_status),
         }
     }

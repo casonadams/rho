@@ -117,7 +117,7 @@ impl ArtifactDemotionHook {
 impl rig::memory::DemotionHook for ArtifactDemotionHook {
     fn on_demote<'a>(
         &'a self,
-        _conversation_id: &'a str,
+        _conversation_id: &'a rig::id::ConversationId,
         messages: Vec<rig::message::Message>,
     ) -> Pin<Box<dyn Future<Output = Result<(), rig::memory::MemoryError>> + Send + 'a>> {
         Box::pin(async move {
@@ -182,7 +182,8 @@ mod tests {
         let hook = ArtifactDemotionHook::new(dir.path());
 
         let messages = vec![rig::message::Message::user("Hello from evicted context")];
-        let _ = hook.on_demote("conv-1", messages).await;
+        let cid = rig::id::ConversationId::from("conv-1");
+        let _ = hook.on_demote(&cid, messages).await;
 
         let files = collect_artifact_files(dir.path()).unwrap();
         assert_eq!(files.len(), 1);

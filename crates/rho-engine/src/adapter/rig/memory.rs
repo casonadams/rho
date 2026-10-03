@@ -1,5 +1,6 @@
 use crate::adapter::rig::{from_rig_message, into_rig_message};
 use rho_harness_core::session::SessionManager;
+use rig::id::ConversationId;
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::message::Message;
 
@@ -30,10 +31,10 @@ impl std::ops::Deref for RigSessionMemory {
 impl ConversationMemory for RigSessionMemory {
     fn load<'a>(
         &'a self,
-        conversation_id: &'a str,
+        conversation_id: &'a ConversationId,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<Vec<Message>, MemoryError>> {
         Box::pin(async move {
-            if let Err(error) = self.session.ensure_conversation(conversation_id) {
+            if let Err(error) = self.session.ensure_conversation(conversation_id.as_str()) {
                 self.session.remember_memory_error(&error);
                 return Err(MemoryError::backend(error));
             }
@@ -47,13 +48,13 @@ impl ConversationMemory for RigSessionMemory {
 
     fn append<'a>(
         &'a self,
-        conversation_id: &'a str,
+        conversation_id: &'a ConversationId,
         messages: Vec<Message>,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<(), MemoryError>> {
         Box::pin(async move {
             let rho_messages = messages.iter().map(from_rig_message).collect();
             self.session
-                .append_messages(conversation_id, rho_messages)
+                .append_messages(conversation_id.as_str(), rho_messages)
                 .await
                 .map_err(|error| {
                     self.session.remember_memory_error(&error);
@@ -64,13 +65,16 @@ impl ConversationMemory for RigSessionMemory {
 
     fn clear<'a>(
         &'a self,
-        conversation_id: &'a str,
+        conversation_id: &'a ConversationId,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<(), MemoryError>> {
         Box::pin(async move {
-            self.session.clear_messages(conversation_id).await.map_err(|error| {
-                self.session.remember_memory_error(&error);
-                MemoryError::backend(error)
-            })
+            self.session
+                .clear_messages(conversation_id.as_str())
+                .await
+                .map_err(|error| {
+                    self.session.remember_memory_error(&error);
+                    MemoryError::backend(error)
+                })
         })
     }
 }

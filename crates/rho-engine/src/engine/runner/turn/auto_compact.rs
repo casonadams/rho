@@ -11,7 +11,7 @@ use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::session::compaction::compaction_summary_message;
 use rho_harness_core::tokens::{context_window_size_for_provider, find_token_cut_point, should_compact};
-use rig::agent::hook::{AgentHook, CompletionCall, CompletionCallAction, HookContext, RequestPatch};
+use rig::agent::hook::{AgentHook, CompletionCallAction, CompletionCallEvent, HookContext, RequestPatch};
 use rig::message::Message;
 
 /// Provider-anchored context size: input, output, and cache reads/writes of the
@@ -271,7 +271,7 @@ impl Drop for InFlightGuard {
 }
 
 impl AgentHook for AutoCompactHook {
-    async fn on_completion_call(&self, ctx: &HookContext, event: CompletionCall<'_>) -> CompletionCallAction {
+    async fn on_completion_call(&self, ctx: &HookContext, event: CompletionCallEvent<'_>) -> CompletionCallAction {
         self.handle(Some(ctx), event.history, event.prompt).await
     }
 }

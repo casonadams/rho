@@ -1,6 +1,6 @@
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
-use rig::streaming::StreamedAssistantContent;
+use rig::streaming::{Item, Part, StreamEvent};
 use std::collections::HashSet;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -10,31 +10,36 @@ pub enum DisplayEvent {
     ToolCall { name: String, arguments: serde_json::Value },
 }
 
-pub fn display_events(item: StreamedAssistantContent, reasoning_parts: &mut HashSet<String>) -> Vec<DisplayEvent> {
-    match item {
-        StreamedAssistantContent::Text(text) => vec![DisplayEvent::Text(text.text)],
-        StreamedAssistantContent::ReasoningDelta { id, reasoning, .. } => {
-            reasoning_parts.insert(id);
-            vec![DisplayEvent::Reasoning(reasoning)]
+pub fn display_events(item: Item<StreamEvent>, reasoning_parts: &mut HashSet<Part>) -> Vec<DisplayEvent> {
+    let Item::Event(event) = item else {
+        return Vec::new();
+    };
+    match event {
+        StreamEvent::Text { text, .. } => vec![DisplayEvent::Text(text)],
+        StreamEvent::Reasoning { part, text } => {
+            reasoning_parts.insert(part);
+            vec![DisplayEvent::Reasoning(text)]
         }
-        StreamedAssistantContent::Reasoning { reasoning, id } if !reasoning_parts.contains(&id) => reasoning
-            .content
-            .into_iter()
-            .filter_map(|content| match content {
-                rig::message::ReasoningContent::Text { text, .. } | rig::message::ReasoningContent::Summary(text) => {
-                    Some(DisplayEvent::Reasoning(text))
+        StreamEvent::End { part, content } => match content {
+            rig::message::AssistantContent::ToolCall(tool_call) => vec![DisplayEvent::ToolCall {
+                name: tool_call.function.name.to_string(),
+                arguments: tool_call.function.arguments,
+            }],
+            rig::message::AssistantContent::Reasoning(sealed) if !reasoning_parts.contains(&part) => {
+                if let Some(reasoning) = sealed.open(sealed.issuer()) {
+                    let text = reasoning.display_text();
+                    if !text.is_empty() {
+                        vec![DisplayEvent::Reasoning(text)]
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
                 }
-                rig::message::ReasoningContent::Encrypted(_) | rig::message::ReasoningContent::Redacted { .. } => None,
-            })
-            .collect(),
-        StreamedAssistantContent::ToolCall { tool_call, .. } => vec![DisplayEvent::ToolCall {
-            name: tool_call.function.name,
-            arguments: tool_call.function.arguments,
-        }],
-        StreamedAssistantContent::ToolCallDelta { .. }
-        | StreamedAssistantContent::Reasoning { .. }
-        | StreamedAssistantContent::Final(_)
-        | StreamedAssistantContent::Unknown(_) => Vec::new(),
+            }
+            _ => Vec::new(),
+        },
+        StreamEvent::Start { .. } | StreamEvent::Arguments { .. } => Vec::new(),
     }
 }
 
@@ -46,11 +51,11 @@ pub fn budget_history(error: &rig::agent::StreamingError) -> Option<(usize, Vec<
         max_turns,
         chat_history,
         ..
-    } = error.as_ref()
+    } = error
     else {
         return None;
     };
-    Some((*max_turns, chat_history.as_ref().clone()))
+    Some((*max_turns, chat_history.clone()))
 }
 
 pub fn checkpoint_messages(
@@ -89,6 +94,7 @@ pub fn streaming_error_provider_headers(error: &rig::agent::StreamingError) -> O
     match error {
         rig::agent::StreamingError::Completion(err) => err.provider_response_headers(),
         rig::agent::StreamingError::Prompt(err) => err.provider_response_headers(),
+        rig::agent::StreamingError::Report(err) => err.provider_response_headers(),
     }
 }
 
@@ -96,6 +102,7 @@ pub fn streaming_error_provider_status(error: &rig::agent::StreamingError) -> Op
     match error {
         rig::agent::StreamingError::Completion(err) => err.provider_response_status(),
         rig::agent::StreamingError::Prompt(err) => err.provider_response_status(),
+        rig::agent::StreamingError::Report(err) => err.provider_response_status(),
     }
 }
 
@@ -103,6 +110,7 @@ pub fn streaming_error_provider_request_id(error: &rig::agent::StreamingError) -
     match error {
         rig::agent::StreamingError::Completion(err) => err.provider_request_id(),
         rig::agent::StreamingError::Prompt(err) => err.provider_request_id(),
+        rig::agent::StreamingError::Report(err) => err.provider_request_id(),
     }
 }
 
@@ -136,6 +144,7 @@ pub fn is_transient_network_error(error: &rig::agent::StreamingError) -> bool {
     let msg = match error {
         rig::agent::StreamingError::Completion(err) => err.to_string(),
         rig::agent::StreamingError::Prompt(err) => err.to_string(),
+        rig::agent::StreamingError::Report(err) => err.to_string(),
     };
     let lower = msg.to_ascii_lowercase();
     if lower.contains("individual quota reached")
@@ -167,9 +176,14 @@ pub fn is_transient_network_error(error: &rig::agent::StreamingError) -> bool {
 
 pub fn map_streaming_error(error: rig::agent::StreamingError) -> AppError {
     match error {
-        rig::agent::StreamingError::Completion(error) => map_completion_error(error),
-        rig::agent::StreamingError::Prompt(error) => map_prompt_error(*error),
+        rig::agent::StreamingError::Completion(error) => map_provider_error(error),
+        rig::agent::StreamingError::Prompt(error) => map_prompt_error(error),
+        rig::agent::StreamingError::Report(error) => map_error_report(error),
     }
+}
+
+pub fn map_completion_error(error: rig::error::ProviderError) -> AppError {
+    map_provider_error(error)
 }
 
 pub fn map_prompt_error(error: rig::completion::PromptError) -> AppError {
@@ -178,16 +192,42 @@ pub fn map_prompt_error(error: rig::completion::PromptError) -> AppError {
         rig::completion::PromptError::PromptCancelled { reason, .. } => {
             AppError::Cancelled(super::helpers::redact_text(&reason))
         }
-        rig::completion::PromptError::UnknownToolCall { tool_name, .. } => AppError::InvalidToolCall(tool_name),
-        rig::completion::PromptError::CompletionError(error) => map_completion_error(error),
+        rig::completion::PromptError::UnknownToolCall { tool_name, .. } => {
+            AppError::InvalidToolCall(tool_name.to_string())
+        }
+        rig::completion::PromptError::CompletionError(error) => map_provider_error(error),
         rig::completion::PromptError::MemoryError(_) => AppError::Session("Conversation memory failed".to_string()),
+        rig::completion::PromptError::Report(r) => map_error_report(r),
     }
 }
 
-pub fn map_completion_error(error: rig::completion::CompletionError) -> AppError {
+fn map_error_report(report: rig::error::ErrorReport) -> AppError {
+    let req_suffix = report
+        .provider_request_id()
+        .map(sanitize_request_id)
+        .filter(|id| !id.is_empty())
+        .map(|id| format!(" (Request ID: {id})"))
+        .unwrap_or_default();
+    let status = report.provider_response_status().map(|s| s.as_u16());
+    let err_msg = super::helpers::redact_text(&report.to_string());
+    match status {
+        Some(code @ (401 | 403)) => AppError::Auth(format!(
+            "Model provider authentication failed (HTTP {code}){req_suffix}"
+        )),
+        Some(408 | 429 | 500..=599) => {
+            AppError::Network(format!("Model provider request could not be completed{req_suffix}"))
+        }
+        Some(status) => AppError::Provider(format!(
+            "Model provider request failed (HTTP {status}): {err_msg}{req_suffix}"
+        )),
+        None => AppError::Network(format!("Model provider request failed: {err_msg}{req_suffix}")),
+    }
+}
+
+pub fn map_provider_error(error: rig::error::ProviderError) -> AppError {
     if matches!(
         &error,
-        rig::completion::CompletionError::ResponseError(message) if message.contains("ContentFilter")
+        rig::error::ProviderError::Response(message) if message.contains("ContentFilter")
     ) {
         return AppError::ContentFiltered;
     }
@@ -218,7 +258,7 @@ mod tests {
     use super::*;
     use reqwest::StatusCode;
     use rig::ProviderResponseError;
-    use rig::completion::CompletionError;
+    use rig::error::ProviderError;
 
     #[test]
     fn test_sanitize_request_id() {
@@ -236,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_map_completion_error_includes_request_id() {
-        let err = CompletionError::ProviderResponse(
+        let err = ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::INTERNAL_SERVER_ERROR, "upstream fault")
                 .with_provider_request_id(Some("req-xyz-99".to_string())),
         );
@@ -247,7 +287,7 @@ mod tests {
             "expected request id in: {msg}"
         );
 
-        let err_400 = CompletionError::ProviderResponse(
+        let err_400 = ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::BAD_REQUEST, "invalid prompt")
                 .with_provider_request_id(Some("anthropic-req-123".to_string())),
         );
@@ -267,19 +307,18 @@ mod tests {
             reqwest::header::HeaderValue::from_static("3"),
         );
 
-        let err_429 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
-            ProviderResponseError::new(StatusCode::TOO_MANY_REQUESTS, "slow down")
-                .with_headers(Some(Box::new(headers))),
+        let err_429 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
+            ProviderResponseError::new(StatusCode::TOO_MANY_REQUESTS, "slow down").with_headers(Some(headers)),
         ));
         let duration = extract_retry_after(&err_429);
         assert_eq!(duration, Some(std::time::Duration::from_secs(3)));
 
-        let err_503 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let err_503 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::SERVICE_UNAVAILABLE, "busy"),
         ));
         assert_eq!(extract_retry_after(&err_503), Some(std::time::Duration::from_secs(1)));
 
-        let err_400 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let err_400 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::BAD_REQUEST, "bad input"),
         ));
         assert_eq!(extract_retry_after(&err_400), None);
@@ -287,47 +326,47 @@ mod tests {
 
     #[test]
     fn test_is_transient_network_error() {
-        let status_502 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let status_502 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::BAD_GATEWAY, "bad gateway"),
         ));
         assert!(is_transient_network_error(&status_502));
 
-        let status_503 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let status_503 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::SERVICE_UNAVAILABLE, "busy"),
         ));
         assert!(is_transient_network_error(&status_503));
 
-        let status_504 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let status_504 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::GATEWAY_TIMEOUT, "gateway timeout"),
         ));
         assert!(is_transient_network_error(&status_504));
 
-        let status_400 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let status_400 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::BAD_REQUEST, "invalid input"),
         ));
         assert!(!is_transient_network_error(&status_400));
 
-        let status_401 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+        let status_401 = rig::agent::StreamingError::Completion(rig::error::ProviderError::ProviderResponse(
             ProviderResponseError::new(StatusCode::UNAUTHORIZED, "unauthorized"),
         ));
         assert!(!is_transient_network_error(&status_401));
 
-        let transport_err = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+        let transport_err = rig::agent::StreamingError::Completion(rig::error::ProviderError::Provider(
             "error sending request for url (https://api.anthropic.com/v1/messages)".to_string(),
         ));
         assert!(is_transient_network_error(&transport_err));
 
-        let conn_reset = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+        let conn_reset = rig::agent::StreamingError::Completion(rig::error::ProviderError::Provider(
             "connection reset by peer".to_string(),
         ));
         assert!(is_transient_network_error(&conn_reset));
 
-        let stream_err = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+        let stream_err = rig::agent::StreamingError::Completion(rig::error::ProviderError::Provider(
             "Claude stream failed: broken pipe".to_string(),
         ));
         assert!(is_transient_network_error(&stream_err));
 
-        let quota_err = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+        let quota_err = rig::agent::StreamingError::Completion(rig::error::ProviderError::Provider(
             "Antigravity request failed: Individual quota reached for gemini-2.5-pro".to_string(),
         ));
         assert!(!is_transient_network_error(&quota_err));

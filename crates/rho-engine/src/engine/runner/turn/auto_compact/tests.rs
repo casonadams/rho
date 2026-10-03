@@ -67,7 +67,7 @@ fn echo_tool() -> DynamicTool {
         "echo_tool",
         "Echoes a fixed string",
         serde_json::json!({"type": "object", "properties": {}}),
-        |_ctx, _args| Box::pin(async { Ok(ToolOutput::text("echoed")) }),
+        |_args| Box::pin(async { Ok(ToolOutput::text("echoed")) }),
     )
 }
 
@@ -113,9 +113,9 @@ async fn assert_compaction_node_present(engine: &crate::engine::AgentEngine) {
 async fn test_mid_run_auto_compaction_continues_run_on_compacted_context() {
     let dir = std::env::temp_dir().join(format!("midrun_compact_{}", uuid::Uuid::new_v4()));
     let turn_usage = Usage {
-        input_tokens: 120_000,
-        output_tokens: 10,
-        total_tokens: 120_010,
+        input_tokens: Some(120_000),
+        output_tokens: Some(10),
+        total_tokens: Some(120_010),
         ..Default::default()
     };
     let model = MockCompletionModel::from_stream_turns([
@@ -189,7 +189,7 @@ async fn test_mid_run_auto_compaction_falls_back_to_ephemeral_summary_with_pendi
         .await
         .unwrap();
     let usage = Usage {
-        input_tokens: 120_000,
+        input_tokens: Some(120_000),
         ..Default::default()
     }
     .into();
@@ -262,13 +262,15 @@ async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
     );
 
     let call = rig::message::ToolCall::new(
-        rig::message::ToolCallId::new_or_mint("c1"),
-        rig::message::ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo build" })),
+        rig::message::CallId::from_wire("c1"),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("bash").unwrap(),
+            serde_json::json!({ "command": "cargo build" }),
+        ),
     );
     let res = rig::message::ToolResult {
-        call: rig::message::ToolCallId::new_or_mint("c1"),
-        provider: None,
-        name: "bash".to_string(),
+        call: rig::message::CallId::from_wire("c1"),
+        name: rig::message::ToolName::new("bash").unwrap(),
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(
             output_with_footer,
         ))],
@@ -319,13 +321,15 @@ async fn test_auto_compact_hook_preserves_recent_tool_outputs_under_default_cach
         .collect::<Vec<_>>()
         .join("\n");
     let call = rig::message::ToolCall::new(
-        rig::message::ToolCallId::new_or_mint("c1"),
-        rig::message::ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo build" })),
+        rig::message::CallId::from_wire("c1"),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("bash").unwrap(),
+            serde_json::json!({ "command": "cargo build" }),
+        ),
     );
     let res = rig::message::ToolResult {
-        call: rig::message::ToolCallId::new_or_mint("c1"),
-        provider: None,
-        name: "bash".to_string(),
+        call: rig::message::CallId::from_wire("c1"),
+        name: rig::message::ToolName::new("bash").unwrap(),
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(output))],
     };
 
@@ -359,7 +363,7 @@ struct CapturingDemotionHook {
 impl rig::memory::DemotionHook for CapturingDemotionHook {
     fn on_demote<'a>(
         &'a self,
-        conversation_id: &'a str,
+        conversation_id: &'a rig::id::ConversationId,
         messages: Vec<Message>,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
         Box::pin(async move {
@@ -393,7 +397,7 @@ async fn test_auto_compact_hook_forwards_evicted_messages_to_demotion_hook() {
         .await
         .unwrap();
     let usage = Usage {
-        input_tokens: 120_000,
+        input_tokens: Some(120_000),
         ..Default::default()
     }
     .into();
@@ -442,7 +446,7 @@ async fn test_auto_compact_hook_failing_demotion_hook_does_not_abort_turn() {
         .await
         .unwrap();
     let usage = Usage {
-        input_tokens: 120_000,
+        input_tokens: Some(120_000),
         ..Default::default()
     }
     .into();
@@ -489,7 +493,7 @@ async fn test_auto_compact_hook_panicking_demotion_hook_does_not_abort_turn() {
         .await
         .unwrap();
     let usage = Usage {
-        input_tokens: 120_000,
+        input_tokens: Some(120_000),
         ..Default::default()
     }
     .into();
@@ -674,7 +678,7 @@ async fn test_speculative_compaction_plan_adopted_immediately() {
     .with_speculative_plan(precomputed_plan);
 
     let usage = Usage {
-        input_tokens: 199_990,
+        input_tokens: Some(199_990),
         ..Default::default()
     }
     .into();
@@ -716,7 +720,7 @@ async fn test_speculative_plan_generated_in_lead_band() {
     );
 
     let usage = Usage {
-        input_tokens: 105_000,
+        input_tokens: Some(105_000),
         ..Default::default()
     }
     .into();
@@ -757,7 +761,7 @@ struct BlockingDemotionHook {
 impl rig::memory::DemotionHook for BlockingDemotionHook {
     fn on_demote<'a>(
         &'a self,
-        _conversation_id: &'a str,
+        _conversation_id: &'a rig::id::ConversationId,
         _messages: Vec<Message>,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
         let started = Arc::clone(&self.started);
@@ -807,7 +811,7 @@ async fn test_speculative_compaction_non_blocking_and_adopted() {
     .with_demotion_hook(blocking_hook);
 
     let usage = Usage {
-        input_tokens: 105_000,
+        input_tokens: Some(105_000),
         ..Default::default()
     }
     .into();
@@ -848,7 +852,7 @@ async fn test_speculative_compaction_non_blocking_and_adopted() {
 
     // AC-002: Hard compaction threshold adopts cached speculative plan immediately
     let hard_usage = Usage {
-        input_tokens: 199_990,
+        input_tokens: Some(199_990),
         ..Default::default()
     }
     .into();
@@ -892,7 +896,7 @@ async fn test_speculative_compaction_fallback_when_task_in_flight() {
     .with_demotion_hook(blocking_hook);
 
     let usage = Usage {
-        input_tokens: 105_000,
+        input_tokens: Some(105_000),
         ..Default::default()
     }
     .into();
@@ -915,7 +919,7 @@ async fn test_speculative_compaction_fallback_when_task_in_flight() {
     assert!(hook.speculative_plan.lock().unwrap().is_none());
 
     let hard_usage = Usage {
-        input_tokens: 199_990,
+        input_tokens: Some(199_990),
         ..Default::default()
     }
     .into();
@@ -960,7 +964,7 @@ async fn test_speculative_plan_discarded_if_history_reset() {
     .with_speculative_plan(precomputed_plan);
 
     let usage = Usage {
-        input_tokens: 199_990,
+        input_tokens: Some(199_990),
         ..Default::default()
     }
     .into();
@@ -1004,7 +1008,7 @@ async fn test_speculative_plan_discarded_if_cut_exceeds_base_len() {
     .with_speculative_plan(invalid_plan);
 
     let usage = Usage {
-        input_tokens: 199_990,
+        input_tokens: Some(199_990),
         ..Default::default()
     }
     .into();

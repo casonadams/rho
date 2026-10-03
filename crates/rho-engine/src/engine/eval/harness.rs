@@ -141,8 +141,8 @@ pub fn normalize_user_part(part: &UserContent, ids: &mut HashMap<String, String>
     match part {
         UserContent::Text(_) => NormalizedPart::Text,
         UserContent::ToolResult(result) => NormalizedPart::ToolResult {
-            id: normalize_id(result.call.as_str(), ids),
-            name: result.name.clone(),
+            id: normalize_id(result.call.wire().as_ref(), ids),
+            name: result.name.to_string(),
         },
         UserContent::Image(_) => NormalizedPart::Image,
         UserContent::Audio(_) => NormalizedPart::Audio,
@@ -155,8 +155,8 @@ pub fn normalize_assistant_part(part: &AssistantContent, ids: &mut HashMap<Strin
     match part {
         AssistantContent::Text(_) => NormalizedPart::Text,
         AssistantContent::ToolCall(call) => NormalizedPart::ToolCall {
-            id: normalize_id(call.id.as_str(), ids),
-            name: call.function.name.clone(),
+            id: normalize_id(call.id.wire().as_ref(), ids),
+            name: call.function.name.to_string(),
         },
         AssistantContent::Reasoning(_) => NormalizedPart::Reasoning,
         AssistantContent::Image(_) => NormalizedPart::Image,

@@ -1,4 +1,6 @@
-use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction};
+use rig::agent::hook::{AgentHook, DispatchAction, DispatchEvent, HookContext};
+use rig::effect::EffectKind;
+use rig::error::{ErrorKind, ErrorReport};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -24,10 +26,14 @@ impl RepeatedCallHook {
 }
 
 impl AgentHook for RepeatedCallHook {
-    async fn on_tool_call(&self, ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
+    async fn on_dispatch(&self, ctx: &HookContext, event: DispatchEvent<'_>) -> DispatchAction {
+        let (tool_name, args_str) = match event.kind {
+            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
+            _ => return DispatchAction::Proceed,
+        };
         let arguments =
-            serde_json::from_str::<Value>(event.args).unwrap_or_else(|_| Value::String(event.args.trim().into()));
-        let key = normalized_call_key(event.tool_name, &arguments, &self.working_dir);
+            serde_json::from_str::<Value>(args_str).unwrap_or_else(|_| Value::String(args_str.trim().into()));
+        let key = normalized_call_key(tool_name, &arguments, &self.working_dir);
         let consecutive = ctx.scratchpad().update::<RepeatedCallState, _>(|state| {
             if state.key.as_ref() == Some(&key) {
                 state.consecutive += 1;
@@ -38,9 +44,9 @@ impl AgentHook for RepeatedCallHook {
             state.consecutive
         });
         if consecutive < 3 {
-            return ToolCallAction::run();
+            return DispatchAction::Proceed;
         }
-        ToolCallAction::skip(REPEATED_CALL_MESSAGE)
+        DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, REPEATED_CALL_MESSAGE))
     }
 }
 

@@ -38,7 +38,7 @@ async fn agent_eval_harness_reports_success() {
     let passing = EvalScenario {
         name: "final-synthesis",
         prompt: "summarize",
-        turns: vec![vec![MockStreamEvent::text("summary"), final_event(Usage::new())]],
+        turns: vec![vec![MockStreamEvent::text("summary"), final_event(Usage::default())]],
         expected_final: "summary",
         expected_tools: vec![],
         max_turns: 2,
@@ -57,7 +57,7 @@ async fn agent_eval_harness_reports_behavior_mismatch() {
     let mismatch = EvalScenario {
         name: "mismatch",
         prompt: "summarize",
-        turns: vec![vec![MockStreamEvent::text("actual"), final_event(Usage::new())]],
+        turns: vec![vec![MockStreamEvent::text("actual"), final_event(Usage::default())]],
         expected_final: "different",
         expected_tools: vec![],
         max_turns: 2,
@@ -87,14 +87,13 @@ async fn agent_eval_harness_rejects_malformed_scripted_events_without_leaking_th
 fn sample_sensitive_request() -> CompletionRequest {
     CompletionRequest {
         model: None,
-        preamble: None,
         chat_history: vec![
             Message::user("credential-sentinel"),
             Message::Assistant {
                 id: Some("provider-secret".to_string()),
                 content: vec![AssistantContent::tool_call(
                     "random-id",
-                    "read",
+                    rig::completion::message::ToolName::new("read").unwrap(),
                     json!({"path":"secret"}),
                 )],
             },
@@ -143,7 +142,7 @@ fn coding_turns(file: &Path, cmd: &str) -> Vec<Vec<MockStreamEvent>> {
     vec![
         vec![
             MockStreamEvent::tool_call("read-random", "read", json!({"path": file})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
         vec![
             MockStreamEvent::tool_call(
@@ -151,15 +150,15 @@ fn coding_turns(file: &Path, cmd: &str) -> Vec<Vec<MockStreamEvent>> {
                 "edit",
                 json!({"path": file, "edits":[{"oldText":"{ 1 }", "newText":"{ 2 }"}]}),
             ),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
         vec![
             MockStreamEvent::tool_call("test-random", "bash", json!({"command": cmd})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
         vec![
             MockStreamEvent::text("Changed the value and verification passed."),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
     ]
 }
@@ -205,9 +204,9 @@ async fn agent_eval_core_multi_tool_order_and_correlation_are_exact() {
             vec![
                 MockStreamEvent::tool_call("wire-b", "read", json!({"path": first})),
                 MockStreamEvent::tool_call("wire-a", "read", json!({"path": second})),
-                final_event(Usage::new()),
+                final_event(Usage::default()),
             ],
-            vec![MockStreamEvent::text("both inspected"), final_event(Usage::new())],
+            vec![MockStreamEvent::text("both inspected"), final_event(Usage::default())],
         ],
         expected_final: "both inspected",
         expected_tools: vec!["read", "read"],
@@ -236,12 +235,16 @@ fn parts(request: &NormalizedRequest, calls: bool) -> Vec<(&str, &str)> {
 struct DenyHook;
 
 impl AgentHook for DenyHook {
-    async fn on_tool_call(
+    async fn on_dispatch(
         &self,
         _ctx: &rig::agent::hook::HookContext,
-        _event: rig::agent::hook::ToolCall<'_>,
-    ) -> rig::agent::hook::ToolCallAction {
-        rig::agent::hook::ToolCallAction::skip("Operation denied by user; no changes were made.")
+        event: rig::agent::hook::DispatchEvent<'_>,
+    ) -> rig::agent::hook::DispatchAction {
+        if matches!(event.kind, rig::effect::EffectKind::ToolCall { .. }) {
+            rig::agent::hook::DispatchAction::skip("Operation denied by user; no changes were made.")
+        } else {
+            rig::agent::hook::DispatchAction::Proceed
+        }
     }
 }
 
@@ -250,7 +253,7 @@ async fn agent_eval_core_denied_mutation_has_no_side_effect() {
     let dir = temp_dir("denied");
     std::fs::create_dir_all(&dir).unwrap();
     let marker = dir.join("must-not-exist");
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         rig::test_utils::MockTurn::tool_call("denied-call", "write", json!({"path": marker, "content":"no"})),
         rig::test_utils::MockTurn::text("recovered from denial"),
     ]);
@@ -259,7 +262,7 @@ async fn agent_eval_core_denied_mutation_has_no_side_effect() {
         .add_hook(DenyHook)
         .record_content_telemetry(false)
         .build();
-    let response = agent.runner("write").max_turns(3).run().await.unwrap();
+    let response = agent.prompt("write").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "recovered from denial");
     assert!(!marker.exists());
     let history = format!("{:?}", model.requests()[1].chat_history);
@@ -288,11 +291,11 @@ async fn agent_eval_core_tool_failure() {
         turns: vec![
             vec![
                 MockStreamEvent::tool_call("missing", "read", json!({"path": dir.join("missing")})),
-                final_event(Usage::new()),
+                final_event(Usage::default()),
             ],
             vec![
                 MockStreamEvent::text("reported missing file"),
-                final_event(Usage::new()),
+                final_event(Usage::default()),
             ],
         ],
         expected_final: "reported missing file",
@@ -306,13 +309,13 @@ async fn agent_eval_core_tool_failure() {
 
 #[tokio::test]
 async fn agent_eval_core_invalid_tool_recovery() {
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         rig::test_utils::MockTurn::tool_call("bad", "not_registered", json!({})),
         rig::test_utils::MockTurn::text("recovered"),
     ]);
     let agent = AgentBuilder::new(model.clone()).add_hook(RetryInvalid).build();
     let response = agent
-        .runner("recover")
+        .prompt("recover")
         .max_invalid_tool_call_retries(1)
         .max_turns(2)
         .run()
@@ -326,12 +329,12 @@ fn build_repeat_turns(file: &Path) -> Vec<Vec<MockStreamEvent>> {
     for id in ["repeat-a", "repeat-b", "repeat-c"] {
         turns.push(vec![
             MockStreamEvent::tool_call(id, "read", json!({"path": file})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ]);
     }
     turns.push(vec![
         MockStreamEvent::text("baseline complete"),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]);
     turns
 }
@@ -358,13 +361,13 @@ async fn agent_eval_core_repeated_calls_are_steered_on_third_attempt() {
 
 fn sample_eval_usage() -> Usage {
     Usage {
-        input_tokens: 8,
-        output_tokens: 3,
-        total_tokens: 11,
-        cached_input_tokens: 2,
-        cache_creation_input_tokens: 1,
-        tool_use_prompt_tokens: 0,
-        reasoning_tokens: 4,
+        input_tokens: Some(8),
+        output_tokens: Some(3),
+        total_tokens: Some(11),
+        cached_input_tokens: Some(2),
+        cache_creation_input_tokens: Some(1),
+        reasoning_tokens: Some(4),
+        ..Default::default()
     }
 }
 
@@ -372,8 +375,11 @@ fn sample_eval_usage() -> Usage {
 async fn agent_eval_core_finish_metadata_usage() {
     let dir = temp_dir("metadata_usage");
     std::fs::create_dir_all(&dir).unwrap();
-    let final_record =
-        rig::streaming::StreamFinal::new("mock", sample_eval_usage()).with_finish_reason(FinishReason::Length);
+    let final_record = rig::operation::Finish {
+        usage: sample_eval_usage(),
+        reason: Some(FinishReason::Length),
+        ..Default::default()
+    };
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::text("partial"),
         MockStreamEvent::FinalResponse(final_record),
@@ -401,7 +407,7 @@ async fn agent_eval_core_budget_exhaustion() {
     std::fs::create_dir_all(&dir).unwrap();
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("call", "read", json!({"path": dir.join("none")})),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let engine = eval_engine(&dir, 1, model.clone());
 
@@ -431,7 +437,7 @@ async fn run_follow_up_turns(engine: &rho::engine::AgentEngine) {
 async fn run_resumed_session(dir: &Path, sid: &str) -> usize {
     let resumed_store = SessionManager::new(&dir.join("sessions"), Some(sid)).unwrap();
     let resumed_model =
-        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("resumed"), final_event(Usage::new())]]);
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("resumed"), final_event(Usage::default())]]);
     let resumed = mock_engine_with_session(
         resumed_model.clone(),
         MockEngineConfig {
@@ -459,8 +465,8 @@ async fn agent_eval_session_follow_up_and_resume() {
     let dir = temp_dir("session_resume");
     std::fs::create_dir_all(&dir).unwrap();
     let first_model = MockCompletionModel::from_stream_turns([
-        [MockStreamEvent::text("first"), final_event(Usage::new())],
-        [MockStreamEvent::text("follow-up"), final_event(Usage::new())],
+        [MockStreamEvent::text("first"), final_event(Usage::default())],
+        [MockStreamEvent::text("follow-up"), final_event(Usage::default())],
     ]);
     let first = eval_engine(&dir, 3, first_model.clone());
     run_follow_up_turns(&first).await;
@@ -480,7 +486,7 @@ async fn agent_eval_session_clear_starts_fresh() {
     let dir = temp_dir("session_clear");
     std::fs::create_dir_all(&dir).unwrap();
     let cleared_model =
-        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("fresh"), final_event(Usage::new())]]);
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("fresh"), final_event(Usage::default())]]);
     let cleared = mock_engine(
         cleared_model.clone(),
         MockEngineConfig {
@@ -554,7 +560,7 @@ async fn agent_eval_session_bash_cancellation_kills_process() {
     let cmd = format!("sleep 2; touch {}", marker.display());
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("bash-call", "bash", json!({"command": cmd})),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let engine = eval_engine(&dir, 2, model);
     let timed = tokio::time::timeout(
@@ -583,7 +589,10 @@ async fn agent_eval_reports_are_stable_and_secret_free() {
                 EvalScenario {
                     name: "stable",
                     prompt: "stable prompt",
-                    turns: vec![vec![MockStreamEvent::text("stable answer"), final_event(Usage::new())]],
+                    turns: vec![vec![
+                        MockStreamEvent::text("stable answer"),
+                        final_event(Usage::default()),
+                    ]],
                     expected_final: "stable answer",
                     expected_tools: vec![],
                     max_turns: 2,
@@ -615,7 +624,7 @@ fn evaluation_errors_do_not_include_expected_or_observed_content() {
 async fn agent_eval_context_reduces_visible_history_without_success_regression() {
     let dir = temp_dir("context-comparison");
     std::fs::create_dir_all(&dir).unwrap();
-    let report = context_comparison(&dir, Usage::new(), Usage::new()).await;
+    let report = context_comparison(&dir, Usage::default(), Usage::default()).await;
 
     assert!(report.before.success && report.after.success);
     assert_eq!(report.before.terminal_status, report.after.terminal_status);
@@ -649,16 +658,16 @@ fn assert_context_usage_reports(reports: &[ContextComparisonReport]) {
 #[tokio::test]
 async fn agent_eval_context_reports_usage_only_when_available_and_is_deterministic() {
     let before_usage = Usage {
-        input_tokens: 120,
-        output_tokens: 3,
-        total_tokens: 123,
-        ..Usage::new()
+        input_tokens: Some(120),
+        output_tokens: Some(3),
+        total_tokens: Some(123),
+        ..Default::default()
     };
     let after_usage = Usage {
-        input_tokens: 42,
-        output_tokens: 3,
-        total_tokens: 45,
-        ..Usage::new()
+        input_tokens: Some(42),
+        output_tokens: Some(3),
+        total_tokens: Some(45),
+        ..Default::default()
     };
     let mut reports = Vec::new();
     for label in ["context-stable-a", "context-stable-b"] {
@@ -696,11 +705,11 @@ fn steering_model(first: &Path, second: &Path) -> MockCompletionModel {
                 "write",
                 json!({"path": second, "content": "should be skipped"}),
             ),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
         vec![
             MockStreamEvent::text("handled steering gracefully"),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
     ])
 }
@@ -747,7 +756,8 @@ async fn agent_eval_context_cli_flags_override_and_suppress() {
     std::fs::write(dir.join("AGENTS.md"), "# Suppressed Rules\n").unwrap();
     std::fs::write(dir.join("SYSTEM.md"), "Ignored file system prompt\n").unwrap();
 
-    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(Usage::new())]]);
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(Usage::default())]]);
     let engine = mock_engine(
         model,
         MockEngineConfig {

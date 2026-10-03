@@ -174,12 +174,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
-name = "as-any"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f477b951e452a0b6b4a10b53ccd569042d1d01729b519e02074a9c0958a063"
-
-[[package]]
 name = "async-lock"
 version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1218,17 +1212,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
- "pin-project-lite",
-]
-
-[[package]]
-name = "eventsource-stream"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab"
-dependencies = [
- "futures-core",
- "nom 7.1.3",
  "pin-project-lite",
 ]
 
@@ -2473,7 +2456,7 @@ dependencies = [
  "itoa",
  "log",
  "md-5",
- "nom 8.0.0",
+ "nom",
  "rand",
  "rangemap",
  "sha2 0.10.9",
@@ -2624,12 +2607,6 @@ dependencies = [
  "mime",
  "unicase",
 ]
-
-[[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
@@ -2961,16 +2938,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
-]
-
-[[package]]
-name = "nom"
-version = "7.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
-dependencies = [
- "memchr",
- "minimal-lexical",
 ]
 
 [[package]]
@@ -3913,26 +3880,29 @@ dependencies = [
 
 [[package]]
 name = "rig"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b989f4060e5f3c1ea4b8b6999f6759949d820704286cc6976b7a688cc0133029"
+checksum = "959c8db2d18e7e641684a38ab3c79413cebcba4d0f2045784f7dcea29ec40516"
 dependencies = [
  "rig-agent",
+ "rig-cassette",
  "rig-core",
  "rig-derive",
+ "rig-reqwest",
+ "rig-typesafeai",
 ]
 
 [[package]]
 name = "rig-agent"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b66477c0d0a786358d078e7e3541a73089dd9009100d6e2b3fe3b0d730e8550f"
+checksum = "eb11364e7ec4cb4cc20b7dda77a1963652baab01070f0ef2ac275aea3a6081f8"
 dependencies = [
  "async-stream",
- "fastrand",
  "futures",
  "http",
  "indexmap",
+ "loom",
  "rig-core",
  "rig-derive",
  "schemars",
@@ -3945,44 +3915,52 @@ dependencies = [
 ]
 
 [[package]]
-name = "rig-core"
-version = "0.42.0"
+name = "rig-cassette"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "432d83e0facf16749f91fe729cbffca84437e8062d2f4e92f4f12e903693922d"
+checksum = "e882a511528a27a30b216ec9bad584728cc91815523d49742186107f420c338c"
 dependencies = [
- "as-any",
+ "futures",
+ "rig-agent",
+ "rig-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rig-core"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82919b6bebd878efc3dae97093e313584ebc7c46518514b0e26bde2e838271fd"
+dependencies = [
  "async-stream",
  "base64 0.22.1",
  "bytes",
- "eventsource-stream",
  "fastrand",
  "futures",
- "futures-timer",
  "glob",
  "http",
- "indexmap",
  "mime",
  "mime_guess",
  "ordered-float",
- "pin-project-lite",
- "reqwest",
  "rig-derive",
+ "rig-http",
+ "rig-reqwest",
  "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.20",
- "tokio",
  "tracing",
- "tracing-futures",
  "url",
+ "uuid",
 ]
 
 [[package]]
 name = "rig-derive"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0a33f1bac45f16e50146c248bcbbfaa44518c7252d274e972c7f4ad71aaba7"
+checksum = "94e6df879180e5cd0edf71bdb5d7aa85ee9cc3fc3b15c98ed9a8c9963b261257"
 dependencies = [
  "convert_case 0.11.0",
  "proc-macro-crate",
@@ -3992,13 +3970,57 @@ dependencies = [
 ]
 
 [[package]]
-name = "rig-memory"
-version = "0.42.0"
+name = "rig-http"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed56015accac541e4a28eccc4fa63f878d5ce0d235b47aff3971d5dd1072e539"
+checksum = "8359e3dbb4ba32c5d9ea08d59fa74819deb71915c86ebfc93ad9b30abebeaa27"
+dependencies = [
+ "bytes",
+ "futures",
+ "futures-timer",
+ "http",
+ "mime",
+ "thiserror 2.0.20",
+ "url",
+]
+
+[[package]]
+name = "rig-memory"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9b7e4b48e4f589b9ba55f460e23691faa89b4de24549822f7445c0d126c91cf"
 dependencies = [
  "rig-core",
  "tracing",
+]
+
+[[package]]
+name = "rig-reqwest"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80774c44c501b8283d1a385a0a72b7ffbeedd68106f81fcbb24a6db9cf6c1be6"
+dependencies = [
+ "bytes",
+ "futures",
+ "http",
+ "reqwest",
+ "rig-http",
+ "thiserror 2.0.20",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "rig-typesafeai"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a09f5aa650a26f4aa7893ef4e9fa5afa5a875b67f391fae7277521bb8f028774"
+dependencies = [
+ "http",
+ "rig-core",
+ "rig-reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

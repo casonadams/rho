@@ -27,10 +27,10 @@ async fn provider_stream_failures_do_not_expose_upstream_details() {
 
 #[test]
 fn provider_error_mapping_redacts_sensitive_bodies() {
-    let error = rig::completion::CompletionError::from_http_response(
+    let error = rig::error::ProviderError::ProviderResponse(rig::ProviderResponseError::new(
         reqwest::StatusCode::UNAUTHORIZED,
         "authorization: Bearer credential-sentinel",
-    );
+    ));
     let mapped = map_completion_error(error).to_string();
     assert!(mapped.contains("401"));
     assert!(!mapped.contains("credential-sentinel"));

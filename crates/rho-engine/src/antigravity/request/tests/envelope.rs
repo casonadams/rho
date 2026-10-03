@@ -51,12 +51,11 @@ fn tool_history_messages(
 }
 
 fn sample_tool_history(sig: Option<String>) -> Vec<Message> {
-    let call_id = rig::message::ToolCallId::new("call-1").unwrap();
+    let call_id = rig::message::CallId::from_wire("call-1");
     let tool_call = rig::message::ToolCall {
         id: call_id.clone(),
-        provider: None,
         function: rig::message::ToolFunction {
-            name: "read_file".to_string(),
+            name: rig::message::ToolName::new("read_file").unwrap(),
             arguments: serde_json::json!({"path": "a.rs"}),
         },
         signature: sig,
@@ -64,8 +63,7 @@ fn sample_tool_history(sig: Option<String>) -> Vec<Message> {
     };
     let tool_result = rig::message::ToolResult {
         call: call_id,
-        provider: None,
-        name: "read_file".to_string(),
+        name: rig::message::ToolName::new("read_file").unwrap(),
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(
             "file body",
         ))],
@@ -141,12 +139,11 @@ fn tools_use_legacy_parameters_for_claude() {
 }
 
 fn sample_image_tool_history() -> Vec<Message> {
-    let call_id = rig::message::ToolCallId::new("call-1").unwrap();
+    let call_id = rig::message::CallId::from_wire("call-1");
     let tool_call = rig::message::ToolCall {
         id: call_id.clone(),
-        provider: None,
         function: rig::message::ToolFunction {
-            name: "read".to_string(),
+            name: rig::message::ToolName::new("read").unwrap(),
             arguments: serde_json::json!({"path": "image.png"}),
         },
         signature: None,
@@ -154,8 +151,7 @@ fn sample_image_tool_history() -> Vec<Message> {
     };
     let tool_result = rig::message::ToolResult {
         call: call_id,
-        provider: None,
-        name: "read".to_string(),
+        name: rig::message::ToolName::new("read").unwrap(),
         content: vec![
             rig::message::ToolResultContent::Text(rig::message::Text::new("Read image file")),
             rig::message::ToolResultContent::image_base64(
@@ -305,19 +301,22 @@ fn assistant_content_reasoning_converts_to_thought_parts() {
         Message::Assistant {
             id: None,
             content: vec![
-                rig::message::AssistantContent::Reasoning(rig::message::Reasoning {
-                    id: None,
-                    content: vec![
-                        rig::message::ReasoningContent::Text {
-                            text: "evaluating options".to_string(),
-                            signature: Some("sig-xyz".to_string()),
-                        },
-                        rig::message::ReasoningContent::Text {
-                            text: "   ".to_string(),
-                            signature: None,
-                        },
-                    ],
-                }),
+                rig::message::AssistantContent::Reasoning(rig::message::Sealed::new(
+                    rig::message::Issuer::from_static("antigravity"),
+                    rig::message::Reasoning {
+                        id: None,
+                        content: vec![
+                            rig::message::ReasoningContent::Text {
+                                text: "evaluating options".to_string(),
+                                signature: Some("sig-xyz".to_string()),
+                            },
+                            rig::message::ReasoningContent::Text {
+                                text: "   ".to_string(),
+                                signature: None,
+                            },
+                        ],
+                    },
+                )),
                 rig::message::AssistantContent::text("final answer"),
             ],
         },

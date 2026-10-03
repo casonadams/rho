@@ -3,14 +3,11 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::http::{DEFAULT_ENDPOINT, MESSAGES_PATH, PROVIDER_NAME, claude_headers, friendly_error, http_client};
+use super::http::{DEFAULT_ENDPOINT, MESSAGES_PATH, claude_headers, http_client};
 use super::request::build_request_body;
-use super::stream::SseParser;
 use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
-use futures::StreamExt;
-use rig::agent::ModelHandle;
-use rig::completion::{CompletionError, CompletionRequest};
+use rig::completion::CompletionRequest;
 
 #[cfg(test)]
 mod tests;
@@ -117,27 +114,6 @@ impl ClaudeClient {
             res
         }
     }
-
-    pub(crate) async fn feed_stream(
-        &self,
-        request: &CompletionRequest,
-        mut on_events: impl FnMut(super::stream::SseEvents) -> Result<(), CompletionError>,
-    ) -> Result<(), CompletionError> {
-        let response = self
-            .open_stream(request)
-            .await
-            .map_err(|(status, body)| CompletionError::ProviderError(friendly_error(status, &body)))?;
-
-        let mut parser = SseParser::new();
-        let mut byte_stream = response.bytes_stream();
-        while let Some(chunk) = byte_stream.next().await {
-            let bytes = chunk.map_err(|e| CompletionError::ProviderError(format!("Claude stream failed: {e}")))?;
-            on_events(parser.feed(&bytes))?;
-        }
-        Ok(())
-    }
 }
 
-pub fn into_handle(client: ClaudeClient) -> ModelHandle {
-    ModelHandle::named(PROVIDER_NAME, client)
-}
+pub use super::completion::into_handle;

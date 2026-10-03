@@ -1,13 +1,8 @@
 //! Antigravity streaming client: endpoint/model fallback routing and the SSE
 //! feed consumed by the rig [`CompletionModel`] adapter in `completion`.
 
-use self::http::{PROVIDER_NAME, friendly_error};
 use super::request::{self, Effort, RequestTarget};
-use super::stream::SseParser;
-use futures::StreamExt;
-use rig::agent::ModelHandle;
-use rig::completion::{CompletionError, CompletionRequest};
-use rig::streaming::{RawStreamingChoice, StreamFinal};
+use rig::completion::CompletionRequest;
 
 pub mod completion;
 pub mod discovery;
@@ -229,29 +224,6 @@ impl AntigravityClient {
         self.try_candidates((candidates, &endpoint_refs), (&mut token, &mut refreshed, request))
             .await
     }
-
-    async fn feed_stream(
-        &self,
-        request: &CompletionRequest,
-        mut on_events: impl FnMut(
-            Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>>,
-        ) -> Result<(), CompletionError>,
-    ) -> Result<(), CompletionError> {
-        let response = self
-            .open_stream(request)
-            .await
-            .map_err(|(status, body)| CompletionError::ProviderError(friendly_error(status, &body)))?;
-        let mut parser = SseParser::new();
-        let mut byte_stream = response.bytes_stream();
-        while let Some(chunk) = byte_stream.next().await {
-            let bytes = chunk.map_err(|e| CompletionError::ProviderError(format!("Antigravity stream failed: {e}")))?;
-            on_events(parser.feed(&bytes))?;
-        }
-        Ok(())
-    }
 }
 
-/// Wrap into a rig model handle for the engine.
-pub fn into_handle(client: AntigravityClient) -> ModelHandle {
-    ModelHandle::named(PROVIDER_NAME, client)
-}
+pub use completion::into_handle;

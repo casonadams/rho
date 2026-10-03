@@ -216,8 +216,7 @@ impl AgentEngine {
             ToolStreamPort,
         ),
     ) -> AgentRunner {
-        let mut tool_context = ToolContext::new();
-        tool_context.insert(stream_port);
+        let tool_context = ToolContext::new().with_scope(Arc::new(stream_port));
         let agent_guard = self.agent.read().await;
         let runner = build_runner(&agent_guard, prompt)
             .conversation(self.session_manager.session_id.clone())
@@ -307,7 +306,6 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use rig::agent::AgentBuilder;
-    use rig::agent::ModelHandle;
     use rig::test_utils::MockCompletionModel;
 
     #[test]
@@ -330,7 +328,7 @@ mod tests {
             "prompt_cache_key": "sess-1",
             "reasoning": { "effort": "medium", "summary": "auto" }
         });
-        let agent = AgentBuilder::from_model_handle(ModelHandle::new(model.clone()))
+        let agent = AgentBuilder::new(model.clone().erase())
             .additional_params(initial_extras)
             .build();
 

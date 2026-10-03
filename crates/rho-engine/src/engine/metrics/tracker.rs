@@ -83,7 +83,7 @@ impl RunTracker {
         let usage = outcome
             .response
             .usage
-            .has_values()
+            .is_reported()
             .then(|| outcome.response.usage.into());
         let calls = outcome
             .response
@@ -118,8 +118,8 @@ impl RunTracker {
             let usage = state
                 .completion_calls
                 .iter()
-                .fold(Usage::new(), |total, call| total + call.usage);
-            usage.has_values().then(|| usage.into())
+                .fold(Usage::default(), |total, call| total + call.usage);
+            usage.is_reported().then(|| usage.into())
         });
         let calls: Vec<ModelCallMetrics> = observation
             .as_ref()

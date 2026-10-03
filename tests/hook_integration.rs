@@ -37,11 +37,11 @@ async fn test_hook_stops_agent_mid_cycle() {
     let model = MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call("call_1", "read", json!({"path": "foo.txt"})),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
         vec![
             MockStreamEvent::text("should not reach here"),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
     ]);
 
@@ -86,11 +86,11 @@ async fn test_hook_rewrites_tool_args() {
     let model = MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call("call_1", "read", json!({"path": "original.txt"})),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
         vec![
             MockStreamEvent::text("done reading"),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
     ]);
 
@@ -128,11 +128,11 @@ async fn test_hook_skips_tool() {
     let model = MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call("call_1", "read", json!({"path": "file.txt"})),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
         vec![
             MockStreamEvent::text("handled skip"),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
     ]);
 
@@ -172,11 +172,11 @@ async fn test_legacy_rho_hook_ignored_by_engine() {
     let model = MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call("call_1", "read", json!({"path": "foo.txt"})),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
         vec![
             MockStreamEvent::text("finished normally"),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
     ]);
 

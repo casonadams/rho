@@ -9,8 +9,8 @@ use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 #[tokio::test]
 async fn two_prompts_receive_prior_canonical_history_exactly_once() {
     let model = MockCompletionModel::from_stream_turns([
-        [MockStreamEvent::text("first answer"), final_event(Usage::new())],
-        [MockStreamEvent::text("second answer"), final_event(Usage::new())],
+        [MockStreamEvent::text("first answer"), final_event(Usage::default())],
+        [MockStreamEvent::text("second answer"), final_event(Usage::default())],
     ]);
     let engine = test_engine(model.clone(), Config::default());
     engine
@@ -34,7 +34,7 @@ async fn two_prompts_receive_prior_canonical_history_exactly_once() {
 async fn process_style_reopen_resumes_canonical_history_once() {
     let first_model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::text("persisted answer"),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let first = test_engine(first_model, Config::default());
     first
@@ -46,8 +46,10 @@ async fn process_style_reopen_resumes_canonical_history_once() {
     drop(first);
 
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
-    let resumed_model =
-        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("resumed answer"), final_event(Usage::new())]]);
+    let resumed_model = MockCompletionModel::from_stream_turns([[
+        MockStreamEvent::text("resumed answer"),
+        final_event(Usage::default()),
+    ]]);
     let resumed = test_engine_with_session(resumed_model.clone(), Config::default(), Some(resumed_store));
     resumed
         .run_turn(request("resume prompt"), presenter(&TerminalRenderer::default()))
@@ -62,8 +64,10 @@ async fn process_style_reopen_resumes_canonical_history_once() {
 }
 
 async fn seed_rebuild_engine(config: Config) -> (crate::engine::AgentEngine, String) {
-    let model =
-        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("stored answer"), final_event(Usage::new())]]);
+    let model = MockCompletionModel::from_stream_turns([[
+        MockStreamEvent::text("stored answer"),
+        final_event(Usage::default()),
+    ]]);
     let engine = test_engine(model, config);
     engine
         .run_turn(request("stored prompt"), presenter(&TerminalRenderer::default()))

@@ -94,11 +94,15 @@ impl std::fmt::Debug for SharedModelSwitch {
 pub struct ActiveModelSwitch {
     pub model: String,
     pub provider: String,
-    pub handle: rig::agent::ModelHandle,
+    pub handle: crate::engine::compactor::llm::ModelHandle,
 }
 
 impl ActiveModelSwitch {
-    pub fn new(model: impl Into<String>, provider: impl Into<String>, handle: rig::agent::ModelHandle) -> Self {
+    pub fn new(
+        model: impl Into<String>,
+        provider: impl Into<String>,
+        handle: crate::engine::compactor::llm::ModelHandle,
+    ) -> Self {
         Self {
             model: model.into(),
             provider: provider.into(),
@@ -118,7 +122,7 @@ impl SharedModelSwitch {
         }
     }
 
-    pub fn get_handle(&self) -> Option<rig::agent::ModelHandle> {
+    pub fn get_handle(&self) -> Option<crate::engine::compactor::llm::ModelHandle> {
         self.inner
             .read()
             .ok()

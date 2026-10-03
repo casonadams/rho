@@ -10,13 +10,13 @@ use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 #[tokio::test]
 async fn normalized_usage_is_exposed_when_available() {
     let usage = Usage {
-        input_tokens: 10,
-        output_tokens: 4,
-        total_tokens: 14,
-        cached_input_tokens: 3,
-        cache_creation_input_tokens: 2,
-        tool_use_prompt_tokens: 1,
-        reasoning_tokens: 2,
+        input_tokens: Some(10),
+        output_tokens: Some(4),
+        total_tokens: Some(14),
+        cached_input_tokens: Some(3),
+        cache_creation_input_tokens: Some(2),
+        reasoning_tokens: Some(2),
+        ..Default::default()
     };
     let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(usage)]]);
     let engine = test_engine(model, Config::default());
@@ -34,8 +34,10 @@ async fn normalized_usage_is_exposed_when_available() {
 
 #[tokio::test]
 async fn content_filter_finish_is_distinct() {
-    let final_record =
-        rig::streaming::StreamFinal::new("mock", Usage::new()).with_finish_reason(FinishReason::ContentFilter);
+    let final_record = rig::operation::Finish {
+        reason: Some(FinishReason::ContentFilter),
+        ..Default::default()
+    };
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::text("filtered partial"),
         MockStreamEvent::FinalResponse(final_record),
@@ -58,7 +60,7 @@ async fn explicit_output_limit_and_max_turn_budget_reach_rig() {
     };
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let engine = test_engine(model.clone(), config);
     let error = engine

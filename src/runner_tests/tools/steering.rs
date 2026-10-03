@@ -34,10 +34,13 @@ async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
     let model = MockCompletionModel::from_stream_turns([
         [
             MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
-        [MockStreamEvent::text("active run complete"), final_event(Usage::new())],
-        [MockStreamEvent::text("queued response"), final_event(Usage::new())],
+        [
+            MockStreamEvent::text("active run complete"),
+            final_event(Usage::default()),
+        ],
+        [MockStreamEvent::text("queued response"), final_event(Usage::default())],
     ]);
     let engine = test_engine(model.clone(), Config::default());
 
@@ -89,9 +92,9 @@ async fn one_tool_round_preserves_canonical_call_and_one_result() {
     let model = MockCompletionModel::from_stream_turns([
         [
             MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
-        [MockStreamEvent::text("done"), final_event(Usage::new())],
+        [MockStreamEvent::text("done"), final_event(Usage::default())],
     ]);
     let engine = test_engine(model.clone(), Config::default());
     let output = engine
@@ -109,9 +112,9 @@ async fn multiple_tool_calls_have_one_correlated_result_each() {
         vec![
             MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing-a"})),
             MockStreamEvent::tool_call("call-2", "read", serde_json::json!({"path": "missing-b"})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
-        vec![MockStreamEvent::text("done"), final_event(Usage::new())],
+        vec![MockStreamEvent::text("done"), final_event(Usage::default())],
     ]);
     let engine = test_engine(model.clone(), Config::default());
     let output = engine

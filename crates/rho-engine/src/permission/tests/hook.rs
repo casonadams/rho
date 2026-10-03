@@ -1,5 +1,5 @@
 use rho_harness_core::presentation::types::InteractionResponse;
-use rig::agent::{AgentBuilder, ModelHandle};
+use rig::agent::AgentBuilder;
 use rig::test_utils::{MockCompletionModel, MockTurn};
 use serde_json::json;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ async fn test_allowed_call_runs_silently() {
     let policy = build_policy(Some(scope), None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "git status"})),
         MockTurn::text("success"),
     ]);
@@ -29,7 +29,7 @@ async fn test_allowed_call_runs_silently() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("status").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("status").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "success");
     assert!(presenter.last_prompt.lock().unwrap().is_none());
 }
@@ -48,7 +48,7 @@ async fn test_denied_call_skipped_with_reason() {
     let presenter = Arc::new(MockHookPresenter::new(true, None));
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "rm -rf /tmp/test"})),
         MockTurn::text("stopped"),
     ]);
@@ -58,7 +58,7 @@ async fn test_denied_call_skipped_with_reason() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("delete").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("delete").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "stopped");
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("denied by permission rule 'bash|rm -rf *'"));
@@ -71,7 +71,7 @@ async fn test_ask_in_headless_mode_fails_closed() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "touch test.txt"})),
         MockTurn::text("headless denied"),
     ]);
@@ -81,7 +81,7 @@ async fn test_ask_in_headless_mode_fails_closed() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("run").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("run").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "headless denied");
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("cannot prompt in headless mode"));
@@ -94,7 +94,7 @@ async fn test_ask_interactive_allow_action() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "touch test.txt"})),
         MockTurn::text("allowed"),
     ]);
@@ -104,7 +104,7 @@ async fn test_ask_interactive_allow_action() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("touch").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("touch").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "allowed");
     assert!(presenter.last_prompt.lock().unwrap().is_some());
 }
@@ -122,7 +122,7 @@ async fn test_ask_interactive_edit_action() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "touch original.txt"})),
         MockTurn::text("done"),
     ]);
@@ -132,7 +132,7 @@ async fn test_ask_interactive_edit_action() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("run").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("run").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "done");
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("edited"));
@@ -145,13 +145,13 @@ fn assert_permission_persisted(path: &std::path::Path, content: &str) {
 }
 
 async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, cmd: &str, turns: usize) -> String {
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": cmd})),
         MockTurn::tool_call("2", "bash", json!({"command": cmd})),
         MockTurn::text("completed"),
     ]);
     let agent = AgentBuilder::new(model).tool(BashTool::new(dir)).add_hook(hook).build();
-    agent.runner("persist").max_turns(turns).run().await.unwrap().output
+    agent.prompt("persist").max_turns(turns).run().await.unwrap().output
 }
 
 #[tokio::test]
@@ -212,7 +212,7 @@ async fn test_ask_interactive_deny_with_reason() {
     ));
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "touch denied.txt"})),
         MockTurn::text("stopped"),
     ]);
@@ -220,7 +220,7 @@ async fn test_ask_interactive_deny_with_reason() {
         .tool(BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-    let _ = agent.runner("touch").max_turns(2).run().await.unwrap();
+    let _ = agent.prompt("touch").max_turns(2).run().await.unwrap();
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("Operation denied by user: not safe"));
 }
@@ -231,7 +231,7 @@ async fn test_ask_interactive_cancel() {
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "touch cancel.txt"})),
         MockTurn::text("stopped"),
     ]);
@@ -239,7 +239,7 @@ async fn test_ask_interactive_cancel() {
         .tool(BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-    let _ = agent.runner("touch").max_turns(2).run().await.unwrap();
+    let _ = agent.prompt("touch").max_turns(2).run().await.unwrap();
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("Operation denied by user."));
 }
@@ -250,13 +250,13 @@ async fn test_guard_evaluator_auto_allows_safe_command() {
     let presenter = Arc::new(MockHookPresenter::new(true, None));
     let policy = build_policy(None, None);
 
-    let guard_mock = MockCompletionModel::new([MockTurn::text(
+    let guard_mock = MockCompletionModel::from_turns([MockTurn::text(
         r#"{"safe": true, "reason": "Local directory creation"}"#,
     )]);
-    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let guard = GuardEvaluator::new(guard_mock.erase());
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "mkdir -p src/foo"})),
         MockTurn::text("success"),
     ]);
@@ -265,7 +265,7 @@ async fn test_guard_evaluator_auto_allows_safe_command() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("mkdir").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("mkdir").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "success");
     // Verify no interactive prompt was surfaced
     assert!(presenter.last_prompt.lock().unwrap().is_none());
@@ -277,13 +277,13 @@ async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
     let policy = build_policy(None, None);
 
-    let guard_mock = MockCompletionModel::new([MockTurn::text(
+    let guard_mock = MockCompletionModel::from_turns([MockTurn::text(
         r#"{"safe": false, "action": "Pushes local commits to remote main", "reason": "Git push modifies remote repository"}"#,
     )]);
-    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let guard = GuardEvaluator::new(guard_mock.erase());
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "git push origin main"})),
         MockTurn::text("done"),
     ]);
@@ -292,7 +292,7 @@ async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
         .add_hook(hook)
         .build();
 
-    let _ = agent.runner("push").max_turns(2).run().await.unwrap();
+    let _ = agent.prompt("push").max_turns(2).run().await.unwrap();
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.body.contains("Notice: Pushes local commits to remote main"));
     assert!(prompt.body.contains("Risk: Git push modifies remote repository"));
@@ -306,11 +306,11 @@ async fn test_guard_evaluator_critical_danger_intercepts_without_model() {
     let policy = build_policy(None, None);
 
     // MockCompletionModel with zero turns would fail if invoked
-    let guard_mock = MockCompletionModel::new([]);
-    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let guard_mock = MockCompletionModel::from_turns([]);
+    let guard = GuardEvaluator::new(guard_mock.erase());
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "git reset --hard HEAD~1"})),
         MockTurn::text("cancelled"),
     ]);
@@ -319,7 +319,7 @@ async fn test_guard_evaluator_critical_danger_intercepts_without_model() {
         .add_hook(hook)
         .build();
 
-    let _ = agent.runner("reset").max_turns(2).run().await.unwrap();
+    let _ = agent.prompt("reset").max_turns(2).run().await.unwrap();
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(
         prompt
@@ -341,11 +341,11 @@ async fn test_guard_evaluator_error_falls_back_to_prompt() {
     let policy = build_policy(None, None);
 
     // Guard mock with empty turns triggers an error in the evaluator, falling back to ask
-    let guard_mock = MockCompletionModel::new([]);
-    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let guard_mock = MockCompletionModel::from_turns([]);
+    let guard = GuardEvaluator::new(guard_mock.erase());
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "npm publish"})),
         MockTurn::text("cancelled"),
     ]);
@@ -354,7 +354,7 @@ async fn test_guard_evaluator_error_falls_back_to_prompt() {
         .add_hook(hook)
         .build();
 
-    let _ = agent.runner("publish").max_turns(2).run().await.unwrap();
+    let _ = agent.prompt("publish").max_turns(2).run().await.unwrap();
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.body.contains("Notice: Guard model evaluation error"));
     assert!(prompt.body.contains("\n\n\x1b[2mnpm publish\x1b[0m\n"));
@@ -366,13 +366,13 @@ async fn test_guard_evaluator_headless_denies_unsafe_command() {
     let presenter = Arc::new(MockHookPresenter::new(false, None));
     let policy = build_policy(None, None);
 
-    let guard_mock = MockCompletionModel::new([MockTurn::text(
+    let guard_mock = MockCompletionModel::from_turns([MockTurn::text(
         r#"{"safe": false, "reason": "Cluster deletion is unsafe"}"#,
     )]);
-    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let guard = GuardEvaluator::new(guard_mock.erase());
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call("1", "bash", json!({"command": "kubectl delete pod foo"})),
         MockTurn::text("stopped"),
     ]);
@@ -381,7 +381,7 @@ async fn test_guard_evaluator_headless_denies_unsafe_command() {
         .add_hook(hook)
         .build();
 
-    let _ = agent.runner("delete").max_turns(2).run().await.unwrap();
+    let _ = agent.prompt("delete").max_turns(2).run().await.unwrap();
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("Cluster deletion is unsafe"));
     assert!(history.contains("cannot prompt in headless mode"));
@@ -397,7 +397,7 @@ async fn test_external_write_prompts_and_completes_on_allow() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call(
             "1",
             "write",
@@ -414,7 +414,7 @@ async fn test_external_write_prompts_and_completes_on_allow() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("write external").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("write external").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "done");
     assert!(presenter.last_prompt.lock().unwrap().is_some());
     assert_eq!(
@@ -434,7 +434,7 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::new([
+    let model = MockCompletionModel::from_turns([
         MockTurn::tool_call(
             "1",
             "edit",
@@ -454,7 +454,7 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
         .add_hook(hook)
         .build();
 
-    let response = agent.runner("edit external").max_turns(2).run().await.unwrap();
+    let response = agent.prompt("edit external").max_turns(2).run().await.unwrap();
     assert_eq!(response.output, "done");
     assert!(presenter.last_prompt.lock().unwrap().is_some());
     assert_eq!(std::fs::read_to_string(&ext_file).unwrap(), "after edit\n");

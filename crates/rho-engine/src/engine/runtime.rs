@@ -1,12 +1,13 @@
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 
+use crate::engine::compactor::llm::ModelHandle;
 use rho_harness_core::session::SessionManager;
-use rig::agent::{Agent, AgentBuilder, AgentRunner, ModelHandle};
+use rig::agent::{Agent, AgentBuilder, AgentRunner};
 use std::path::Path;
 
 pub fn build_agent(model: ModelHandle, config: &Config, preamble: &str) -> Agent {
-    let builder = AgentBuilder::from_model_handle(model)
+    let builder = AgentBuilder::new(model)
         .preamble(preamble)
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false);
@@ -41,7 +42,7 @@ pub fn build_coding_agent(
     tools.sort_by(|a, b| a.name().cmp(b.name()));
     let tool_server = rig::tool::server::ToolServer::new().dynamic_tools(tools);
     let tool_handle = tool_server.run();
-    let builder = AgentBuilder::from_model_handle(model)
+    let builder = AgentBuilder::new(model)
         .memory(crate::adapter::rig::RigSessionMemory::new(memory))
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
@@ -59,7 +60,7 @@ pub fn build_coding_agent(
 }
 
 pub fn build_runner(agent: &Agent, prompt: impl Into<rig::message::Message>) -> AgentRunner {
-    agent.runner(prompt).tool_concurrency(1).record_content_telemetry(false)
+    agent.prompt(prompt).tool_concurrency(1).record_content_telemetry(false)
 }
 
 #[cfg(test)]
@@ -71,7 +72,7 @@ mod tests {
     #[tokio::test]
     async fn rig_runtime_contract_omits_default_output_cap() {
         let model = MockCompletionModel::text("done");
-        let agent = build_agent(ModelHandle::new(model.clone()), &Config::default(), "system");
+        let agent = build_agent(model.clone().erase(), &Config::default(), "system");
         build_runner(&agent, "prompt").run().await.unwrap();
 
         let requests = model.requests();
@@ -86,7 +87,7 @@ mod tests {
             max_output_tokens: Some(8192),
             ..Config::default()
         };
-        let agent = build_agent(ModelHandle::new(model.clone()), &config, "system");
+        let agent = build_agent(model.clone().erase(), &config, "system");
         build_runner(&agent, "prompt").run().await.unwrap();
 
         assert_eq!(model.requests()[0].max_tokens, Some(8192));
@@ -95,7 +96,7 @@ mod tests {
     #[tokio::test]
     async fn rig_runtime_contract_reports_budget_exhaustion() {
         let model = MockCompletionModel::text("must not run");
-        let agent = build_agent(ModelHandle::new(model.clone()), &Config::default(), "system");
+        let agent = build_agent(model.clone().erase(), &Config::default(), "system");
         let error = build_runner(&agent, "prompt").max_turns(0).run().await.unwrap_err();
 
         assert!(matches!(error, PromptError::MaxTurnsError { max_turns: 0, .. }));
@@ -170,7 +171,7 @@ mod tests {
 
     fn coding_agent_with_model(model: MockCompletionModel, config: &Config, dir: &std::path::Path) -> Agent {
         build_coding_agent(
-            ModelHandle::new(model),
+            model.erase(),
             config,
             CodingRuntime {
                 base_dir: dir,

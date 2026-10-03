@@ -18,7 +18,7 @@ pub(crate) fn resolve_context_limit(config: &Config) -> Option<usize> {
 }
 
 impl AgentEngine {
-    pub async fn build_model_handle(&self, config: &Config) -> Result<rig::agent::ModelHandle> {
+    pub async fn build_model_handle(&self, config: &Config) -> Result<crate::engine::compactor::llm::ModelHandle> {
         let auth_store = self.auth_store.lock().await;
         builder::create_engine_model(config, &auth_store, Some(self.auth_store.clone()))
     }
@@ -38,7 +38,7 @@ impl AgentEngine {
         self.model = Some(model_handle.clone());
         self.context = ContextTracker::new(resolve_context_limit(&self.config));
 
-        self.agent.write().await.set_model_handle(model_handle);
+        self.agent.write().await.set_model(model_handle);
         self.force_refresh_quota();
         Ok(())
     }

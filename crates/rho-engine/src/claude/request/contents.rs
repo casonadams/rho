@@ -7,10 +7,13 @@ use serde_json::{Value, json};
 
 pub fn convert_messages(request: &CompletionRequest) -> Vec<Value> {
     let mut messages: Vec<(String, Vec<Value>)> = Vec::new();
+    let mut first_system_seen = false;
     for message in &request.chat_history {
         match message {
             Message::System { content } => {
-                if request.preamble.is_some() {
+                if !first_system_seen {
+                    first_system_seen = true;
+                } else {
                     append_turn(
                         &mut messages,
                         "user",
@@ -111,7 +114,8 @@ fn convert_assistant_content(item: &AssistantContent) -> Option<Value> {
             Some(json!({ "type": "text", "text": text.text }))
         }
         AssistantContent::Reasoning(reasoning) => {
-            let block = reasoning.content.first()?;
+            let r = reasoning.open(reasoning.issuer())?;
+            let block = r.content.first()?;
             if let rig::message::ReasoningContent::Text { text, signature } = block
                 && let Some(sig) = signature
             {

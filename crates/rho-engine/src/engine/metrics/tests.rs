@@ -4,13 +4,13 @@ use rig::completion::{FinishReason, Usage};
 
 fn usage() -> Usage {
     Usage {
-        input_tokens: 10,
-        output_tokens: 4,
-        total_tokens: 14,
-        cached_input_tokens: 3,
-        cache_creation_input_tokens: 2,
-        tool_use_prompt_tokens: 1,
-        reasoning_tokens: 5,
+        input_tokens: Some(10),
+        output_tokens: Some(4),
+        total_tokens: Some(14),
+        cached_input_tokens: Some(3),
+        cache_creation_input_tokens: Some(2),
+        reasoning_tokens: Some(5),
+        ..Default::default()
     }
 }
 
@@ -21,10 +21,10 @@ fn usage_records_optional_cache_and_reasoning_only_when_reported() {
     assert_eq!(available.reasoning_tokens, Some(5));
 
     let absent = StructuralUsage::from(Usage {
-        input_tokens: 2,
-        output_tokens: 1,
-        total_tokens: 3,
-        ..Usage::new()
+        input_tokens: Some(2),
+        output_tokens: Some(1),
+        total_tokens: Some(3),
+        ..Default::default()
     });
     let encoded = serde_json::to_string(&absent).unwrap();
     assert!(!encoded.contains("cached_input_tokens"));
@@ -63,7 +63,7 @@ fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
 #[test]
 fn normalized_metrics_are_stable_across_runs() {
     let response = PromptResponse::new("not recorded", usage()).with_completion_calls(vec![
-        CompletionCall::new(0, usage()).with_finish_reason(Some(FinishReason::Stop)),
+        CompletionCall::new(0, usage(), serde_json::Value::Null).with_finish_reason(Some(FinishReason::Stop)),
     ]);
     let first = track_sample_run("random-a", &response);
     let second = track_sample_run("random-b", &response);
@@ -77,7 +77,7 @@ fn normalized_metrics_are_stable_across_runs() {
 fn structural_metrics_contain_no_response_or_identity_content() {
     let sentinel = "credential-sentinel";
     let response = PromptResponse::new(sentinel, usage()).with_completion_calls(vec![
-        CompletionCall::new(0, usage())
+        CompletionCall::new(0, usage(), serde_json::Value::Null)
             .with_identity(rig::completion::ResponseIdentity {
                 message_id: Some(sentinel.to_string()),
                 response_id: Some(sentinel.to_string()),

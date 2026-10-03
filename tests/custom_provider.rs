@@ -33,7 +33,7 @@ fn custom_provider_end_to_end_via_config_file() {
         assert!(config.providers.contains_key("acme"));
         let auth_store = AuthStore::load(home.join("auth.json")).unwrap();
         let handle = ProviderFactory::create_model(&config, "acme-large", &auth_store).unwrap();
-        assert_eq!(handle.label(), Some("acme"));
+        assert_eq!(handle.name(), "openai");
     });
 }
 

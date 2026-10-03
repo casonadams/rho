@@ -14,15 +14,14 @@ pub use extras::provider_request_extras;
 pub use store::ModelStore;
 
 use crate::auth::AuthStore;
+pub use crate::engine::compactor::llm::ModelHandle;
 use builders::{
-    SHARED_HTTP_CLIENT, build_antigravity_model, build_chatgpt_model, build_claude_code_model, build_gemini_model,
+    build_antigravity_model, build_chatgpt_model, build_claude_code_model, build_gemini_model,
     build_local_ollama_model, build_standard_client_model, resolve_provider_key, validate_custom_provider_url,
 };
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
-use rig::agent::ModelHandle;
-use rig::client::CompletionClient;
 use std::str::FromStr;
 
 #[cfg(test)]
@@ -134,13 +133,11 @@ impl ProviderFactory {
             ))
         })?;
 
-        let client = rig::providers::openai::Client::builder()
-            .http_client(SHARED_HTTP_CLIENT.clone())
-            .api_key(key)
-            .base_url(&spec.base_url)
-            .build()
-            .map_err(|e| AppError::Provider(format!("Failed to initialize provider '{name}': {e}")))?;
-        Ok(ModelHandle::named(name, client.completion_model(model)))
+        crate::install_crypto_provider();
+        let mut config = rig::providers::openai::wire::OpenAIConfig::new(key);
+        config.base_url = spec.base_url.clone();
+        let client = config.client();
+        Ok(client.completion(model).erase())
     }
 
     fn custom_key(

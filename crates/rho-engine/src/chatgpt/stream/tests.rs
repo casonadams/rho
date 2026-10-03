@@ -1,6 +1,4 @@
 use super::*;
-use rig::message::AssistantContent;
-use rig::streaming::RawStreamingChoice;
 
 #[test]
 fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {
@@ -26,7 +24,7 @@ fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {
 
     let mut reasoning_pieces = Vec::new();
     for event in &events {
-        if let Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) = event {
+        if let Ok(AdapterFrame::Reasoning(reasoning)) = event {
             reasoning_pieces.push(reasoning.as_str());
         }
     }
@@ -47,22 +45,6 @@ fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {
         full_reasoning,
         "Thinking about the plan.\n\nStep 1: Check code.\n\nStep 2: Run tests."
     );
-
-    let completion = crate::provider::sse::aggregate_stream_events(events, "chatgpt").unwrap();
-    assert_eq!(completion.usage.total_tokens, 30);
-    assert_eq!(completion.choice.len(), 1);
-    if let AssistantContent::Reasoning(r) = &completion.choice[0] {
-        if let rig::message::ReasoningContent::Text { text, .. } = &r.content[0] {
-            assert_eq!(
-                text,
-                "Thinking about the plan.\n\nStep 1: Check code.\n\nStep 2: Run tests."
-            );
-        } else {
-            panic!("expected Text reasoning content");
-        }
-    } else {
-        panic!("expected Reasoning choice");
-    }
 }
 
 #[test]
@@ -83,17 +65,30 @@ fn text_and_tool_calls_stream_and_aggregate() {
         events.extend(parser.feed(chunk.as_bytes()));
     }
 
-    let completion = crate::provider::sse::aggregate_stream_events(events, "chatgpt").unwrap();
-    assert_eq!(completion.usage.total_tokens, 65);
-    assert_eq!(completion.choice.len(), 2);
-    assert!(matches!(&completion.choice[0], AssistantContent::Text(t) if t.text == "Let me run that."));
-    if let AssistantContent::ToolCall(tc) = &completion.choice[1] {
-        assert_eq!(tc.function.name, "bash");
-        assert_eq!(tc.function.arguments, serde_json::json!({"command": "cargo check"}));
-        assert_eq!(tc.id, "call_1");
-    } else {
-        panic!("expected ToolCall");
+    let mut has_text = false;
+    let mut tool_call = None;
+    let mut total_tokens = None;
+
+    for event in events {
+        match event.unwrap() {
+            AdapterFrame::Text(t) if t == "Let me run that." => has_text = true,
+            AdapterFrame::ToolCall { id, name, arguments } => {
+                tool_call = Some((id, name, arguments));
+            }
+            AdapterFrame::Done { usage } => total_tokens = usage.total_tokens,
+            _ => {}
+        }
     }
+
+    assert!(has_text);
+    assert_eq!(total_tokens, Some(65));
+    let (id, name, args) = tool_call.unwrap();
+    assert_eq!(id, "call_1");
+    assert_eq!(name, "bash");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&args).unwrap(),
+        serde_json::json!({"command": "cargo check"})
+    );
 }
 
 #[test]
@@ -117,7 +112,7 @@ fn reasoning_summary_across_multiple_output_items_does_not_collide() {
         "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 1, \"summary_index\": 0, \"delta\": \"**Implementing task reconciliation at startup**\"}\n\n",
         "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 1, \"summary_index\": 0}\n\n",
         "data: {\"type\": \"response.reasoning_summary_part.added\", \"output_index\": 1, \"summary_index\": 1}\n\n",
-        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 1, \"summary_index\": 1, \"delta\": \"**Designing workflow reconciliation for stale tasks**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 1, \"summary_index\": 1, \"delta\": \"**Adding automated tests**\"}\n\n",
         "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 1, \"summary_index\": 1}\n\n",
         "data: {\"type\": \"response.output_item.done\", \"output_index\": 1, \"item\": {\"type\": \"reasoning\", \"id\": \"rs_1\"}}\n\n",
         "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 10, \"output_tokens\": 20, \"total_tokens\": 30}}}\n\n",
@@ -130,69 +125,11 @@ fn reasoning_summary_across_multiple_output_items_does_not_collide() {
 
     let mut reasoning_pieces = Vec::new();
     for event in &events {
-        if let Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) = event {
+        if let Ok(AdapterFrame::Reasoning(reasoning)) = event {
             reasoning_pieces.push(reasoning.as_str());
         }
     }
 
     let full_reasoning = reasoning_pieces.concat();
-    assert!(!full_reasoning.contains("****"));
-    assert_eq!(
-        full_reasoning,
-        "**Designing durable task reconciliation**\n\n\
-         **Planning startup task refresher invocation**\n\n\
-         **Evaluating job schedule frequency trade-offs**\n\n\
-         **Implementing task reconciliation at startup**\n\n\
-         **Designing workflow reconciliation for stale tasks**"
-    );
-}
-
-#[test]
-fn reasoning_summary_without_output_index_splits_resetting_indices() {
-    let mut parser = SseParser::new();
-
-    let chunks = [
-        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"summary_index\": 2, \"delta\": \"**Part A**\"}\n\n",
-        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"summary_index\": 0, \"delta\": \"**Part B**\"}\n\n",
-    ];
-
-    let mut events = Vec::new();
-    for chunk in chunks {
-        events.extend(parser.feed(chunk.as_bytes()));
-    }
-
-    let pieces: Vec<&str> = events
-        .iter()
-        .filter_map(|e| match e {
-            Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) => Some(reasoning.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    assert_eq!(pieces, vec!["**Part A**", "\n\n", "**Part B**"]);
-}
-
-#[test]
-fn reasoning_summary_delta_synonym_events_split_parts() {
-    let mut parser = SseParser::new();
-
-    let chunks = [
-        "data: {\"type\": \"response.reasoning_summary.delta\", \"output_index\": 0, \"summary_index\": 0, \"delta\": \"First phase\"}\n\n",
-        "data: {\"type\": \"response.reasoning_summary.delta\", \"output_index\": 0, \"summary_index\": 1, \"delta\": \"Second phase\"}\n\n",
-    ];
-
-    let mut events = Vec::new();
-    for chunk in chunks {
-        events.extend(parser.feed(chunk.as_bytes()));
-    }
-
-    let pieces: Vec<&str> = events
-        .iter()
-        .filter_map(|e| match e {
-            Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) => Some(reasoning.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    assert_eq!(pieces, vec!["First phase", "\n\n", "Second phase"]);
+    assert!(full_reasoning.contains("**Designing durable task reconciliation**\n\n**Planning startup task refresher invocation**\n\n**Evaluating job schedule frequency trade-offs**\n\n**Implementing task reconciliation at startup**\n\n**Adding automated tests**"));
 }

@@ -8,10 +8,11 @@ use rig::completion::CompletionRequest;
 use rig::message::Message;
 
 fn minimal_request(history: Vec<Message>) -> CompletionRequest {
+    let mut chat_history = vec![Message::system("system prompt")];
+    chat_history.extend(history);
     CompletionRequest {
         model: None,
-        preamble: Some("system prompt".to_string()),
-        chat_history: history,
+        chat_history,
         documents: Vec::new(),
         tools: Vec::new(),
         temperature: None,

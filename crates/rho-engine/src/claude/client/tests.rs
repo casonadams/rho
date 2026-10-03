@@ -3,7 +3,7 @@ use crate::claude::http::{claude_headers, friendly_error};
 use crate::claude::request::{build_request_body, normalize_model_alias, resolve_thinking_budget};
 use rig::completion::ToolDefinition;
 use rig::message::{
-    AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+    AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,8 +13,7 @@ use tokio::net::TcpListener;
 fn sample_request() -> CompletionRequest {
     CompletionRequest {
         model: None,
-        preamble: Some("system instructions".to_string()),
-        chat_history: vec![Message::user("hello world")],
+        chat_history: vec![Message::system("system instructions"), Message::user("hello world")],
         documents: Vec::new(),
         tools: Vec::new(),
         temperature: Some(0.7),
@@ -113,6 +112,7 @@ fn test_build_request_body_without_thinking_includes_temperature() {
 
 fn sample_tool_history_chat(call: ToolCall, res: ToolResult) -> Vec<Message> {
     vec![
+        Message::system("system instructions"),
         Message::user("run tool"),
         Message::Assistant {
             id: None,
@@ -132,13 +132,15 @@ fn request_with_tool_and_history() -> CompletionRequest {
         parameters: serde_json::json!({ "type": "object", "properties": { "arg": { "type": "string" } } }),
     });
     let call = ToolCall::new(
-        ToolCallId::new("tool_call_1").unwrap(),
-        ToolFunction::new("test_tool".into(), serde_json::json!({ "arg": "val" })),
+        CallId::from_wire("tool_call_1"),
+        ToolFunction::new(
+            rig::message::ToolName::new("test_tool").unwrap(),
+            serde_json::json!({ "arg": "val" }),
+        ),
     );
     let res = ToolResult {
-        call: ToolCallId::new("tool_call_1").unwrap(),
-        provider: None,
-        name: "test_tool".into(),
+        call: CallId::from_wire("tool_call_1"),
+        name: rig::message::ToolName::new("test_tool").unwrap(),
         content: vec![ToolResultContent::Text(Text::new("tool output"))],
     };
     req.chat_history = sample_tool_history_chat(call, res);
@@ -329,19 +331,19 @@ async fn spawn_sse_server(sse_body: &str) -> std::net::SocketAddr {
 
 #[tokio::test]
 async fn test_completion_model_aggregates_unary_response() {
-    use rig::completion::CompletionModel;
     let sse_body = "data: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_1\", \"usage\": {\"input_tokens\": 12}}}\n\ndata: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\"}}\n\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"Full response text\"}}\n\ndata: {\"type\": \"content_block_stop\", \"index\": 0}\n\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\"}, \"usage\": {\"output_tokens\": 8}}\n\ndata: {\"type\": \"message_stop\"}\n\n";
     let addr = spawn_sse_server(sse_body).await;
 
     let client = ClaudeClient::new("test-token", "claude-sonnet-4-5").with_endpoint(format!("http://{addr}"));
-    let resp = client.completion(sample_request()).await.unwrap();
+    let handle = crate::claude::into_handle(client);
+    let resp = handle.call(sample_request()).await.unwrap();
     assert_eq!(
         (
             resp.usage.input_tokens,
             resp.usage.output_tokens,
             resp.usage.total_tokens
         ),
-        (12, 8, 20)
+        (Some(12), Some(8), Some(20))
     );
     assert!(
         resp.choice
@@ -359,13 +361,13 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
     ctx.git_status = Some("## main...origin/main".to_string());
     let preamble_turn1 = ctx.build_system_prompt();
     let mut req1 = sample_request();
-    req1.preamble = Some(preamble_turn1.clone());
+    req1.chat_history.insert(0, Message::system(preamble_turn1.clone()));
     let body1 = build_request_body("claude-sonnet-4-5", None, &req1).unwrap();
 
     ctx.git_status = Some("## main...origin/main [ahead 1] | M src/lib.rs | ?? new_file.rs".to_string());
     let preamble_turn2 = ctx.build_system_prompt();
     let mut req2 = sample_request();
-    req2.preamble = Some(preamble_turn2.clone());
+    req2.chat_history.insert(0, Message::system(preamble_turn2.clone()));
     let body2 = build_request_body("claude-sonnet-4-5", None, &req2).unwrap();
 
     assert_eq!(preamble_turn1, preamble_turn2);

@@ -165,8 +165,10 @@ fn antigravity_headers_sets_expected_keys() {
 fn test_completion_request() -> CompletionRequest {
     CompletionRequest {
         model: None,
-        preamble: Some("system prompt".to_string()),
-        chat_history: vec![rig::message::Message::user("hello")],
+        chat_history: vec![
+            rig::message::Message::system("system prompt"),
+            rig::message::Message::user("hello"),
+        ],
         documents: Vec::new(),
         tools: Vec::new(),
         temperature: None,
@@ -375,7 +377,6 @@ async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() 
 
 #[tokio::test]
 async fn antigravity_completion_aggregates_sse_response() {
-    use rig::completion::CompletionModel;
     use rig::message::AssistantContent;
 
     let sse_chunk = concat!(
@@ -397,9 +398,10 @@ async fn antigravity_completion_aggregates_sse_response() {
 
     let client =
         AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
-    let resp = client.completion(test_completion_request()).await.unwrap();
+    let handle = super::completion::into_handle(client);
+    let resp = handle.call(test_completion_request()).await.unwrap();
 
-    assert_eq!((resp.usage.input_tokens, resp.usage.output_tokens), (12, 6));
+    assert_eq!((resp.usage.input_tokens, resp.usage.output_tokens), (Some(12), Some(6)));
     assert!(
         resp.choice
             .iter()
@@ -410,7 +412,6 @@ async fn antigravity_completion_aggregates_sse_response() {
 #[tokio::test]
 async fn antigravity_stream_returns_sse_stream() {
     use futures::StreamExt;
-    use rig::completion::CompletionModel;
 
     let sse_chunk = concat!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
@@ -431,7 +432,8 @@ async fn antigravity_stream_returns_sse_stream() {
 
     let client =
         AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
-    let mut stream = client.stream(test_completion_request()).await.unwrap();
+    let handle = super::completion::into_handle(client);
+    let mut stream = handle.stream(test_completion_request()).unwrap();
     let first = stream.next().await;
     assert!(first.is_some());
 }

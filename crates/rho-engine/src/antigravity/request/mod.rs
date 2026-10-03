@@ -17,7 +17,8 @@ pub use contents::*;
 pub use model::*;
 pub use schema::*;
 
-use rig::completion::{CompletionError, CompletionRequest};
+use rig::completion::CompletionRequest;
+use rig::error::ProviderError;
 use rig::message::Message;
 use serde_json::{Value, json};
 
@@ -111,7 +112,7 @@ pub fn build_request_body(
     target: RequestTarget<'_>,
     request: &CompletionRequest,
     envelope: &Envelope,
-) -> Result<Value, CompletionError> {
+) -> Result<Value, Box<ProviderError>> {
     let runtime_model = target.runtime_model;
     let is_claude = runtime_model.starts_with("claude-");
     let legacy_parameters = is_claude || runtime_model.starts_with("gpt-oss-");
@@ -147,8 +148,5 @@ fn system_prompt(request: &CompletionRequest) -> String {
             return content.clone();
         }
     }
-    request
-        .preamble
-        .clone()
-        .unwrap_or_else(|| DEFAULT_INSTRUCTION.to_string())
+    DEFAULT_INSTRUCTION.to_string()
 }

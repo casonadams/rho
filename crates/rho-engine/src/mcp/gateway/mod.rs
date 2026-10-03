@@ -237,7 +237,7 @@ fn build_mcp_gateway_tool(gateway: Arc<McpGateway>) -> DynamicTool {
         "mcp",
         "MCP gateway — server status, tool search/describe, and single MCP tool calls. Use this to discover and invoke tools dynamically.",
         mcp_gateway_schema(),
-        move |_ctx, args| {
+        move |args| {
             let gw = Arc::clone(&gateway);
             Box::pin(async move {
                 let parsed = serde_json::from_value::<McpGatewayArgs>(args).unwrap_or_default();
@@ -269,7 +269,7 @@ fn build_mcp_script_tool(gateway: Arc<McpGateway>) -> DynamicTool {
         "mcpScript",
         "Run multiple MCP tool calls in one request — batch execution across any connected MCP server.",
         mcp_script_schema(),
-        move |_ctx, args| {
+        move |args| {
             let gw = Arc::clone(&gateway);
             Box::pin(async move {
                 let parsed = serde_json::from_value::<McpBatchArgs>(args).unwrap_or(McpBatchArgs { calls: Vec::new() });

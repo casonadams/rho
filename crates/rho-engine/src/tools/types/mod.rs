@@ -28,7 +28,7 @@ pub struct ToolResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<ToolImage>,
+    pub image: Option<Box<ToolImage>>,
 }
 
 impl ToolResult {
@@ -48,7 +48,7 @@ impl ToolResult {
             content: content.into(),
             is_error: false,
             metadata: None,
-            image: Some(image),
+            image: Some(Box::new(image)),
         }
     }
 

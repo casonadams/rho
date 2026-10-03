@@ -96,7 +96,7 @@ impl AgentEngine {
         generation_elapsed_ms: u64,
     ) -> Result<Option<UsageDetails>> {
         let usage = response.usage;
-        let usage_details = usage.has_values().then(|| usage.into());
+        let usage_details = usage.is_reported().then(|| usage.into());
         let latest_context_usage = response.completion_calls.last().map(|call| call.usage).unwrap_or(usage);
         let turn_usage = crate::engine::tracking::TurnUsage::new(usage.into(), latest_context_usage.into());
         self.usage.record_turn(turn_usage, generation_elapsed_ms);

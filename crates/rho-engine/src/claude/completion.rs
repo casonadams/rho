@@ -1,30 +1,38 @@
-//! Rig `CompletionModel` adapter for `ClaudeClient`.
+//! Rig `Transport` driver for `ClaudeClient`.
 
 use super::ClaudeClient;
 use super::http::{PROVIDER_NAME, friendly_error};
-use super::stream::SseParser;
-use crate::provider::sse::{aggregate_stream_events, unfold_sse_stream};
-use rig::completion::{CompletionError, CompletionModel, CompletionRequest, CompletionResponse};
-use rig::streaming::{RawStreamingChoice, StreamFinal, StreamingCompletionResponse};
+use super::stream::unfold_claude_stream;
+use crate::adapter::rig::model::{AdapterFrame, AdapterWire};
+use crate::engine::compactor::llm::ModelHandle;
+use rig::completion::CompletionRequest;
+use rig::driver::{Exchange, Model, Opened, Opening, Transport};
+use rig::error::ProviderError;
 
-impl CompletionModel for ClaudeClient {
-    async fn completion(&self, request: CompletionRequest) -> Result<CompletionResponse, CompletionError> {
-        let mut events: Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>> = Vec::new();
-        self.feed_stream(&request, |batch| {
-            events.extend(batch);
-            Ok(())
+#[derive(Clone)]
+pub struct ClaudeTransport {
+    pub(crate) client: ClaudeClient,
+}
+
+impl Transport<AdapterWire> for ClaudeTransport {
+    fn send(&self, payload: CompletionRequest, _exchange: Exchange) -> Opening<AdapterFrame> {
+        let client = self.client.clone();
+        Opening::new(async move {
+            let response = client
+                .open_stream(&payload)
+                .await
+                .map_err(|(status, body)| ProviderError::Provider(friendly_error(status, &body)))?;
+
+            let stream = unfold_claude_stream(response);
+            Ok(Opened::new(stream))
         })
-        .await?;
-        aggregate_stream_events(events, PROVIDER_NAME)
     }
+}
 
-    async fn stream(&self, request: CompletionRequest) -> Result<StreamingCompletionResponse, CompletionError> {
-        let response = self
-            .open_stream(&request)
-            .await
-            .map_err(|(status, body)| CompletionError::ProviderError(friendly_error(status, &body)))?;
-
-        let stream = unfold_sse_stream(response, SseParser::new());
-        Ok(StreamingCompletionResponse::stream(PROVIDER_NAME, stream))
-    }
+pub fn into_handle(client: ClaudeClient) -> ModelHandle {
+    let wire = AdapterWire {
+        name: PROVIDER_NAME.to_string(),
+    };
+    let transport = ClaudeTransport { client };
+    Model::new(wire, transport).erase()
 }

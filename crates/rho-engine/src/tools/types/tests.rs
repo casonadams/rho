@@ -79,7 +79,7 @@ fn rig_schemas_are_generated_from_typed_arguments() {
 
     for (name, required) in expected {
         let definition = tools
-            .get_tool_definitions()
+            .tool_definitions()
             .into_iter()
             .find(|definition| definition.name == name)
             .unwrap();

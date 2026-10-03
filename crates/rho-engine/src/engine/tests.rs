@@ -229,7 +229,7 @@ async fn builder_attaches_dynamic_tools() {
             "properties": { "prompt": { "type": "string" } },
             "required": ["prompt"]
         }),
-        |_ctx, _args| Box::pin(async { Ok(rig::tool::ToolOutput::text("image.png")) }),
+        |_args| Box::pin(async { Ok(rig::tool::ToolOutput::text("image.png")) }),
     );
 
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
@@ -587,7 +587,7 @@ async fn rate_limit_429_with_retry_after_retries_and_succeeds() {
 
     let err_429 = MockError::ProviderResponse(
         ProviderResponseError::new(StatusCode::TOO_MANY_REQUESTS, "rate limited")
-            .with_headers(Some(Box::new(headers)))
+            .with_headers(Some(headers))
             .with_provider_request_id(Some("req-rate-limit-test".to_string())),
     );
 

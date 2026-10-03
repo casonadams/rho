@@ -8,12 +8,14 @@ mod tests;
 pub use wire::map_finish_reason;
 use wire::{ContentBlockStartPayload, ContentDeltaPayload, SseMessage};
 
-use crate::provider::sse::{SseLineDecoder, SseStreamParser};
-use rig::completion::{CompletionError, FinishReason, Usage};
-use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
+use crate::adapter::rig::model::AdapterFrame;
+use crate::provider::sse::SseLineDecoder;
+use futures::StreamExt;
+use rig::completion::Usage;
+use rig::error::ProviderError;
 use std::collections::HashMap;
 
-pub type SseEvents = Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>>;
+pub type SseEvents = Vec<Result<AdapterFrame, ProviderError>>;
 
 #[derive(Default)]
 pub struct SseParser {
@@ -23,7 +25,6 @@ pub struct SseParser {
     cache_creation_input_tokens: u64,
     cache_read_input_tokens: u64,
     reasoning_tokens: u64,
-    finish_reason: Option<FinishReason>,
     thinking_open: bool,
     thinking_text: String,
     thinking_signature: Option<String>,
@@ -42,7 +43,12 @@ impl SseParser {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        SseStreamParser::feed(self, bytes)
+        let lines = self.decoder.decode_lines(bytes);
+        let mut events = Vec::new();
+        for line in lines {
+            self.interpret_line(&line, &mut events);
+        }
+        events
     }
 
     fn interpret_line(&mut self, data: &str, events: &mut SseEvents) {
@@ -56,17 +62,13 @@ impl SseParser {
         &mut self,
         index: usize,
         content_block: ContentBlockStartPayload,
-        events: &mut SseEvents,
+        _events: &mut SseEvents,
     ) {
         match content_block {
             ContentBlockStartPayload::Thinking { signature } => {
                 self.thinking_open = true;
                 self.thinking_text.clear();
                 self.thinking_signature = signature;
-                events.push(Ok(RawStreamingChoice::ReasoningStart {
-                    id: StreamPartId::minted(MintKind::Reasoning, index as u64),
-                    provider_id: None,
-                }));
             }
             ContentBlockStartPayload::ToolUse { id, name } => {
                 self.tool_uses.insert(
@@ -85,15 +87,11 @@ impl SseParser {
     fn handle_content_block_delta(&mut self, index: usize, delta: ContentDeltaPayload, events: &mut SseEvents) {
         match delta {
             ContentDeltaPayload::TextDelta { text } => {
-                events.push(Ok(RawStreamingChoice::Message(text)));
+                events.push(Ok(AdapterFrame::Text(text)));
             }
             ContentDeltaPayload::ThinkingDelta { thinking } => {
                 self.thinking_text.push_str(&thinking);
-                events.push(Ok(RawStreamingChoice::ReasoningDelta {
-                    id: StreamPartId::minted(MintKind::Reasoning, index as u64),
-                    provider_id: None,
-                    reasoning: thinking,
-                }));
+                events.push(Ok(AdapterFrame::Reasoning(thinking)));
             }
             ContentDeltaPayload::SignatureDelta { signature } => {
                 self.thinking_signature
@@ -110,23 +108,24 @@ impl SseParser {
     }
 
     fn handle_message_stop(&mut self, events: &mut SseEvents) {
-        let mut usage = Usage::new();
-        usage.input_tokens = self.input_tokens;
-        usage.output_tokens = self.output_tokens;
-        usage.cached_input_tokens = self.cache_read_input_tokens;
-        usage.cache_creation_input_tokens = self.cache_creation_input_tokens;
-        usage.reasoning_tokens = self.reasoning_tokens;
-        usage.total_tokens =
-            self.input_tokens + self.cache_read_input_tokens + self.cache_creation_input_tokens + self.output_tokens;
-        let finish = self.finish_reason.take().unwrap_or(FinishReason::Stop);
-        let final_resp = StreamFinal::new("claude", usage).with_finish_reason(finish);
-        events.push(Ok(RawStreamingChoice::FinalResponse(final_resp)));
+        let usage = Usage {
+            input_tokens: Some(self.input_tokens),
+            output_tokens: Some(self.output_tokens),
+            cached_input_tokens: Some(self.cache_read_input_tokens),
+            cache_creation_input_tokens: Some(self.cache_creation_input_tokens),
+            reasoning_tokens: Some(self.reasoning_tokens),
+            total_tokens: Some(
+                self.input_tokens
+                    + self.cache_read_input_tokens
+                    + self.cache_creation_input_tokens
+                    + self.output_tokens,
+            ),
+            ..Default::default()
+        };
+        events.push(Ok(AdapterFrame::Done { usage }));
     }
 
-    fn handle_message_delta(&mut self, delta: wire::MessageDeltaPayload, usage: Option<wire::MessageDeltaUsage>) {
-        if let Some(reason) = delta.stop_reason {
-            self.finish_reason = Some(map_finish_reason(&reason));
-        }
+    fn handle_message_delta(&mut self, _delta: wire::MessageDeltaPayload, usage: Option<wire::MessageDeltaUsage>) {
         if let Some(usage) = usage {
             self.output_tokens = usage.output_tokens;
             if let Some(inp) = usage.input_tokens {
@@ -171,46 +170,30 @@ impl SseParser {
             SseMessage::MessageStop => self.handle_message_stop(events),
             SseMessage::Error { error } => {
                 let msg = error.message.unwrap_or_else(|| "Anthropic streaming error".to_string());
-                events.push(Err(CompletionError::ProviderError(msg)));
+                events.push(Err(ProviderError::Provider(msg)));
             }
             SseMessage::Ignored => {}
         }
     }
 
-    fn close_thinking_block(&mut self, index: usize, events: &mut SseEvents) {
+    fn close_thinking_block(&mut self, _index: usize, _events: &mut SseEvents) {
         self.thinking_open = false;
-        let text = std::mem::take(&mut self.thinking_text);
-        let signature = self.thinking_signature.take();
-        let reasoning = rig::message::Reasoning {
-            id: None,
-            content: vec![rig::message::ReasoningContent::Text {
-                text,
-                signature: signature.clone(),
-            }],
-        };
-        events.push(Ok(RawStreamingChoice::ReasoningEnd {
-            id: StreamPartId::minted(MintKind::Reasoning, index as u64),
-            reasoning: Some(reasoning),
-            signature,
-            wire_sent: true,
-        }));
     }
 
     fn close_tool_use_block(&mut self, index: usize, events: &mut SseEvents) {
         let Some(tool) = self.tool_uses.remove(&index) else {
             return;
         };
-        let args = if tool.input_json.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&tool.input_json).unwrap_or_else(|_| serde_json::json!({}))
-        };
         let canonical_name = crate::claude::request::from_claude_tool_name(&tool.name).to_string();
-        events.push(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-            StreamPartId::wire(tool.id),
-            canonical_name,
-            args,
-        ))));
+        events.push(Ok(AdapterFrame::ToolCall {
+            id: tool.id,
+            name: canonical_name,
+            arguments: if tool.input_json.trim().is_empty() {
+                "{}".to_string()
+            } else {
+                tool.input_json
+            },
+        }));
     }
 
     fn handle_block_stop(&mut self, index: usize, events: &mut SseEvents) {
@@ -222,12 +205,42 @@ impl SseParser {
     }
 }
 
-impl SseStreamParser for SseParser {
-    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        let mut events = Vec::new();
-        for line in self.decoder.decode_lines(bytes) {
-            self.interpret_line(&line, &mut events);
-        }
-        events
+pub fn unfold_claude_stream(
+    response: reqwest::Response,
+) -> impl futures::Stream<Item = Result<AdapterFrame, ProviderError>> + Send + 'static {
+    futures::stream::unfold((response.bytes_stream(), SseParser::new(), false), next_stream_batch)
+        .map(futures::stream::iter)
+        .flatten()
+}
+
+type StreamState<S> = (S, SseParser, bool);
+
+async fn next_stream_batch<B, S>(
+    (mut byte_stream, mut parser, finished): StreamState<S>,
+) -> Option<(Vec<Result<AdapterFrame, ProviderError>>, StreamState<S>)>
+where
+    B: AsRef<[u8]>,
+    S: futures::Stream<Item = reqwest::Result<B>> + Unpin,
+{
+    if finished {
+        return None;
     }
+    while let Some(chunk) = byte_stream.next().await {
+        match chunk {
+            Ok(bytes) => {
+                let events = parser.feed(bytes.as_ref());
+                if !events.is_empty() {
+                    let has_term = events
+                        .iter()
+                        .any(|e| matches!(e, Ok(AdapterFrame::Done { .. }) | Err(_)));
+                    return Some((events, (byte_stream, parser, has_term)));
+                }
+            }
+            Err(e) => {
+                let err = ProviderError::Provider(format!("Claude stream transport failed: {e}"));
+                return Some((vec![Err(err)], (byte_stream, parser, true)));
+            }
+        }
+    }
+    None
 }

@@ -19,11 +19,11 @@ fn setup_headless_model(path: &str) -> MockCompletionModel {
     MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call("call_1", "read", json!({"path": path})),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
         vec![
             MockStreamEvent::text("The file contains: headless content"),
-            final_event(rig::completion::Usage::new()),
+            final_event(rig::completion::Usage::default()),
         ],
     ])
 }
@@ -92,7 +92,7 @@ fn headless_interactive_mode_diagnostic_message_is_actionable() {
 fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engine::AgentEngine {
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::text("should not run"),
-        final_event(rig::completion::Usage::new()),
+        final_event(rig::completion::Usage::default()),
     ]]);
     let config = Config {
         reserve_tokens: 127_980,

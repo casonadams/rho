@@ -8,9 +8,8 @@ use super::presets::{
 };
 use crate::provider::builders::SHARED_HTTP_CLIENT;
 use rho_harness_core::error::Result;
-use rig::client::ModelListingClient;
 
-fn map_rig_models(models: Vec<rig::model::Model>, provider_name: &str) -> Vec<DiscoveredModel> {
+fn map_rig_models(models: Vec<rig::model::listing::ModelInfo>, provider_name: &str) -> Vec<DiscoveredModel> {
     let out: Vec<DiscoveredModel> = models
         .into_iter()
         .filter_map(|item| {
@@ -47,14 +46,12 @@ pub(crate) async fn discover_openai_compatible(
     base_url: &str,
     api_key: &str,
 ) -> Result<Vec<DiscoveredModel>> {
+    crate::install_crypto_provider();
     let key = if api_key.trim().is_empty() { "" } else { api_key.trim() };
-    if let Ok(client) = rig::providers::openai::Client::builder()
-        .http_client(SHARED_HTTP_CLIENT.clone())
-        .base_url(base_url)
-        .api_key(key)
-        .build()
-        && let Ok(list) = client.list_models().await
-    {
+    let mut config = rig::providers::openai::wire::OpenAIConfig::new(key);
+    config.base_url = base_url.to_string();
+    let client = config.client();
+    if let Ok(list) = client.list_models().await {
         let models = map_rig_models(list.data, provider_name);
         if !models.is_empty() {
             return Ok(models);
@@ -65,15 +62,13 @@ pub(crate) async fn discover_openai_compatible(
 }
 
 pub(crate) async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
+    crate::install_crypto_provider();
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
-    let builder = rig::providers::ollama::Client::builder()
-        .http_client(SHARED_HTTP_CLIENT.clone())
-        .base_url(&host)
-        .api_key("");
+    let mut config = rig::providers::openai::wire::OpenAIConfig::new("");
+    config.base_url = format!("{host}/v1");
+    let client = config.client();
 
-    if let Ok(client) = builder.build()
-        && let Ok(list) = client.list_models().await
-    {
+    if let Ok(list) = client.list_models().await {
         let mut models = map_rig_models(list.data, "local");
         if !models.is_empty() {
             enrich_ollama_models(&host, &mut models).await;
@@ -152,13 +147,10 @@ fn is_dummy_key(key: &str) -> bool {
 }
 
 pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
+    crate::install_crypto_provider();
     if !is_dummy_key(api_key) {
-        let builder = rig::providers::anthropic::Client::builder()
-            .http_client(SHARED_HTTP_CLIENT.clone())
-            .api_key(api_key.trim());
-        if let Ok(client) = builder.build()
-            && let Ok(list) = client.list_models().await
-        {
+        let client = rig::providers::anthropic::Anthropic::new(api_key.trim());
+        if let Ok(list) = client.list_models().await {
             let models = map_rig_models(list.data, "anthropic");
             if !models.is_empty() {
                 return Ok(models);
@@ -170,13 +162,10 @@ pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<Disco
 }
 
 pub(crate) async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
+    crate::install_crypto_provider();
     if !is_dummy_key(api_key) {
-        let builder = rig::providers::gemini::Client::builder()
-            .http_client(SHARED_HTTP_CLIENT.clone())
-            .api_key(api_key.trim());
-        if let Ok(client) = builder.build()
-            && let Ok(list) = client.list_models().await
-        {
+        let client = rig::providers::gemini::Gemini::new(api_key.trim());
+        if let Ok(list) = client.list_models().await {
             let models = map_rig_models(list.data, "gemini");
             if !models.is_empty() {
                 return Ok(models);

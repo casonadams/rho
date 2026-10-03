@@ -1,37 +1,156 @@
 use futures::StreamExt;
-use rig::completion::{CompletionError, CompletionModel, CompletionRequest, CompletionResponse, Usage};
-use rig::message::{AssistantContent, ToolCall as RigToolCall, ToolCallId, ToolFunction as RigToolFunction};
-use rig::streaming::{
-    MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId, StreamingCompletionResponse,
-};
+use rig::completion::{CompletionRequest, Usage};
+use rig::driver::{DynModel, Exchange, Model, Opened, Opening, Transport};
+use rig::error::{EncodeError, ProviderError};
+use rig::message::{CallId, ToolName};
+use rig::operation::{CallPart, Completion, Finish, TextPart};
+use rig::wire::{Decoder, Descriptor, Flow, Mode, Out, Wire, WireEvent};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::adapter::rig::from_rig_message;
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelStreamEvent, ModelToolDefinition};
 
-#[derive(Clone)]
-pub struct RigModelAdapter<M: ModelAdapter> {
-    adapter: Arc<M>,
+#[derive(Debug, Clone)]
+pub enum AdapterFrame {
+    Text(String),
+    Reasoning(String),
+    ToolCall {
+        id: String,
+        name: String,
+        arguments: String,
+    },
+    Done {
+        usage: Usage,
+    },
 }
 
-impl<M: ModelAdapter> RigModelAdapter<M> {
-    pub fn new(adapter: M) -> Self {
-        Self {
-            adapter: Arc::new(adapter),
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdapterWire {
+    pub name: String,
+}
+
+#[derive(Default)]
+pub struct AdapterDecoder<'id> {
+    text: Option<TextPart<'id>>,
+    calls: BTreeMap<String, CallPart<'id>>,
+}
+
+impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
+    type Event = AdapterFrame;
+
+    fn classify(&self, frame: AdapterFrame) -> WireEvent<AdapterFrame> {
+        WireEvent::Known(frame)
+    }
+
+    fn decode(&mut self, frame: AdapterFrame, mut out: Out<'id, Completion>) -> Result<Flow, ProviderError> {
+        match frame {
+            AdapterFrame::Text(text) => {
+                let part = self.text.get_or_insert_with(|| out.text());
+                out.push_text(part, &text);
+            }
+            AdapterFrame::Reasoning(reasoning) => {
+                let part = out.reasoning();
+                out.push_reasoning(&part, &reasoning);
+                out.close_reasoning(part, Default::default());
+            }
+            AdapterFrame::ToolCall { id, name, arguments } => {
+                let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
+                let part = out.call(CallId::from_wire(id), tool_name)?;
+                out.push_arguments(&part, &arguments);
+                out.close_call(part)?;
+            }
+            AdapterFrame::Done { usage } => {
+                if let Some(part) = self.text.take() {
+                    out.close_text(part);
+                }
+                for (_, part) in std::mem::take(&mut self.calls) {
+                    out.close_call(part)?;
+                }
+                return Ok(out.end(Finish {
+                    usage,
+                    ..Finish::default()
+                }));
+            }
         }
+        Ok(Flow::More)
+    }
+}
+
+impl Wire for AdapterWire {
+    type Op = Completion;
+    type Payload = CompletionRequest;
+    type Frame = AdapterFrame;
+    type Decoder<'id> = AdapterDecoder<'id>;
+
+    fn describe(&self) -> Descriptor<'_> {
+        Descriptor::new(&self.name)
     }
 
-    pub fn from_arc(adapter: Arc<M>) -> Self {
-        Self { adapter }
+    fn encode(&self, request: CompletionRequest, _mode: Mode) -> Result<CompletionRequest, EncodeError> {
+        Ok(request)
     }
 
-    pub fn inner(&self) -> &M {
-        &self.adapter
+    fn decoder<'id>(&self) -> AdapterDecoder<'id> {
+        AdapterDecoder::default()
+    }
+}
+
+#[derive(Clone)]
+pub struct AdapterTransport {
+    adapter: Arc<dyn ModelAdapter>,
+}
+
+impl Transport<AdapterWire> for AdapterTransport {
+    fn send(&self, payload: CompletionRequest, _exchange: Exchange) -> Opening<AdapterFrame> {
+        let adapter = self.adapter.clone();
+        Opening::new(async move {
+            let rho_req = to_rho_request(&payload);
+            let stream = adapter
+                .stream(rho_req)
+                .await
+                .map_err(|e| ProviderError::Provider(e.to_string()))?;
+
+            let mapped = futures::stream::unfold(stream, |mut s| async move {
+                let item = s.next().await?;
+                let frame = match item {
+                    Ok(ModelStreamEvent::Text(t)) => Ok(AdapterFrame::Text(t)),
+                    Ok(ModelStreamEvent::Reasoning(r)) => Ok(AdapterFrame::Reasoning(r)),
+                    Ok(ModelStreamEvent::ToolCall(call)) => Ok(AdapterFrame::ToolCall {
+                        id: call.id,
+                        name: call.function.name,
+                        arguments: call.function.arguments.to_string(),
+                    }),
+                    Ok(ModelStreamEvent::Usage(u)) => Ok(AdapterFrame::Done {
+                        usage: make_rig_usage(&u),
+                    }),
+                    Err(e) => Err(ProviderError::Provider(e.to_string())),
+                };
+                Some((frame, s))
+            });
+
+            Ok(Opened::new(mapped))
+        })
     }
 }
 
 fn to_rho_request(request: &CompletionRequest) -> ModelCompletionRequest {
     let messages = request.chat_history.iter().map(from_rig_message).collect();
+    let prompt = request
+        .chat_history
+        .last()
+        .map(|m| match m {
+            rig::message::Message::User { content } => content
+                .iter()
+                .filter_map(|c| match c {
+                    rig::message::UserContent::Text(t) => Some(t.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        })
+        .unwrap_or_default();
     let tools = request
         .tools
         .iter()
@@ -42,7 +161,7 @@ fn to_rho_request(request: &CompletionRequest) -> ModelCompletionRequest {
         })
         .collect();
     ModelCompletionRequest {
-        prompt: request.preamble.as_deref().unwrap_or("").to_string(),
+        prompt,
         messages,
         tools,
         max_tokens: request.max_tokens,
@@ -52,76 +171,30 @@ fn to_rho_request(request: &CompletionRequest) -> ModelCompletionRequest {
 
 fn make_rig_usage(u: &crate::engine::metrics::StructuralUsage) -> Usage {
     Usage {
-        input_tokens: u.input_tokens,
-        output_tokens: u.output_tokens,
-        total_tokens: u.total_tokens,
+        input_tokens: Some(u.input_tokens),
+        output_tokens: Some(u.output_tokens),
+        total_tokens: Some(u.total_tokens),
+        cached_input_tokens: u.cached_input_tokens,
+        cache_creation_input_tokens: u.cache_creation_input_tokens,
+        reasoning_tokens: u.reasoning_tokens,
         ..Default::default()
     }
 }
 
-impl<M: ModelAdapter + 'static> CompletionModel for RigModelAdapter<M> {
-    async fn completion(&self, request: CompletionRequest) -> Result<CompletionResponse, CompletionError> {
-        let provider_name = self.adapter.provider_name().to_string();
-        let rho_req = to_rho_request(&request);
-        let resp = self
-            .adapter
-            .complete(rho_req)
-            .await
-            .map_err(|e| CompletionError::ProviderError(e.to_string()))?;
+pub fn into_dyn_model<M: ModelAdapter + 'static>(adapter: M) -> DynModel<Completion> {
+    let name = adapter.provider_name().to_string();
+    let wire = AdapterWire { name };
+    let transport = AdapterTransport {
+        adapter: Arc::new(adapter),
+    };
+    Model::new(wire, transport).erase()
+}
 
-        let mut choice = Vec::new();
-        if !resp.content.is_empty() {
-            choice.push(AssistantContent::text(resp.content));
-        }
-        for call in resp.tool_calls {
-            choice.push(AssistantContent::ToolCall(RigToolCall::new(
-                ToolCallId::new_or_mint(&call.id),
-                RigToolFunction::new(call.function.name, call.function.arguments),
-            )));
-        }
-
-        let usage = make_rig_usage(&resp.usage);
-        Ok(CompletionResponse::new(
-            choice,
-            usage,
-            Box::leak(provider_name.into_boxed_str()),
-        ))
-    }
-
-    async fn stream(&self, request: CompletionRequest) -> Result<StreamingCompletionResponse, CompletionError> {
-        let provider_name = self.adapter.provider_name().to_string();
-        let static_provider: &'static str = Box::leak(provider_name.into_boxed_str());
-        let rho_req = to_rho_request(&request);
-        let stream = self
-            .adapter
-            .stream(rho_req)
-            .await
-            .map_err(|e| CompletionError::ProviderError(e.to_string()))?;
-
-        let mapped = stream.map(move |event_res| match event_res {
-            Ok(ModelStreamEvent::Text(t)) => Ok(RawStreamingChoice::Message(t)),
-            Ok(ModelStreamEvent::Reasoning(r)) => Ok(RawStreamingChoice::ReasoningDelta {
-                id: StreamPartId::minted(MintKind::Reasoning, 0),
-                provider_id: None,
-                reasoning: r,
-            }),
-            Ok(ModelStreamEvent::ToolCall(call)) => Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                StreamPartId::wire(call.id),
-                call.function.name,
-                call.function.arguments,
-            ))),
-            Ok(ModelStreamEvent::Usage(u)) => {
-                let usage = make_rig_usage(&u);
-                Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                    static_provider,
-                    usage,
-                )))
-            }
-            Err(e) => Err(CompletionError::ProviderError(e.to_string())),
-        });
-
-        Ok(StreamingCompletionResponse::stream(static_provider, Box::pin(mapped)))
-    }
+pub fn into_dyn_model_arc(adapter: Arc<dyn ModelAdapter>) -> DynModel<Completion> {
+    let name = adapter.provider_name().to_string();
+    let wire = AdapterWire { name };
+    let transport = AdapterTransport { adapter };
+    Model::new(wire, transport).erase()
 }
 
 #[cfg(test)]
@@ -131,8 +204,7 @@ mod tests {
     use crate::provider::adapter::ModelCompletionResponse;
     use futures::Stream;
     use rho_harness_core::error::AppError;
-    use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
-    use rig::streaming::StreamedAssistantContent;
+    use rho_harness_core::model::{ToolCall, ToolFunction};
     use std::pin::Pin;
 
     struct TestAdapter;
@@ -179,51 +251,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_rig_model_adapter_completion() {
-        let adapter = RigModelAdapter::new(TestAdapter);
-        let req = CompletionRequest {
-            preamble: Some("hello".to_string()),
-            chat_history: vec![crate::adapter::rig::to_rig_message(&ChatMessage::user("hello"))],
-            documents: vec![],
-            tools: vec![],
-            temperature: None,
-            max_tokens: None,
-            additional_params: None,
-            model: None,
-            output_schema: None,
-            record_telemetry_content: false,
-            tool_choice: None,
-        };
-
-        let resp = adapter.completion(req).await.unwrap();
-        assert_eq!(resp.choice.len(), 2);
-        assert!(matches!(&resp.choice[0], AssistantContent::Text(t) if t.text == "response to: hello"));
-        assert!(matches!(&resp.choice[1], AssistantContent::ToolCall(_)));
-        assert_eq!(resp.usage.input_tokens, 50);
-        assert_eq!(resp.usage.output_tokens, 25);
-    }
-
-    #[tokio::test]
-    async fn test_rig_model_adapter_stream() {
-        let adapter = RigModelAdapter::new(TestAdapter);
-        let req = CompletionRequest {
-            preamble: Some("stream me".to_string()),
-            chat_history: vec![],
-            documents: vec![],
-            tools: vec![],
-            temperature: None,
-            max_tokens: None,
-            additional_params: None,
-            model: None,
-            output_schema: None,
-            record_telemetry_content: false,
-            tool_choice: None,
-        };
-
-        let mut stream_resp = adapter.stream(req).await.unwrap();
-        let first = stream_resp.next().await.unwrap().unwrap();
-        assert!(matches!(first, StreamedAssistantContent::Text(t) if t.text == "streamed text"));
-        let second = stream_resp.next().await.unwrap().unwrap();
-        assert!(matches!(second, StreamedAssistantContent::Final(_)));
+    async fn test_rig_model_adapter_dyn_model() {
+        let dyn_model = into_dyn_model(TestAdapter);
+        let req = CompletionRequest::new(rig::message::Message::user("hello"));
+        let resp = dyn_model.call(req).await.unwrap();
+        assert_eq!(resp.choice.len(), 1);
+        assert_eq!(resp.usage.input_tokens, Some(50));
+        assert_eq!(resp.usage.output_tokens, Some(25));
     }
 }

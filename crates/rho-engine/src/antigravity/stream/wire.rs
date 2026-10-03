@@ -85,15 +85,16 @@ pub(crate) struct StreamError {
 
 pub(crate) fn usage_from_metadata(metadata: &UsageMetadata) -> Usage {
     Usage {
-        input_tokens: metadata
-            .prompt_token_count
-            .saturating_sub(metadata.cached_content_token_count),
-        output_tokens: metadata.candidates_token_count + metadata.thoughts_token_count,
-        total_tokens: metadata.total_token_count,
-        cached_input_tokens: metadata.cached_content_token_count,
-        cache_creation_input_tokens: 0,
-        tool_use_prompt_tokens: 0,
-        reasoning_tokens: metadata.thoughts_token_count,
+        input_tokens: Some(
+            metadata
+                .prompt_token_count
+                .saturating_sub(metadata.cached_content_token_count),
+        ),
+        output_tokens: Some(metadata.candidates_token_count + metadata.thoughts_token_count),
+        total_tokens: Some(metadata.total_token_count),
+        cached_input_tokens: Some(metadata.cached_content_token_count),
+        reasoning_tokens: Some(metadata.thoughts_token_count),
+        ..Default::default()
     }
 }
 

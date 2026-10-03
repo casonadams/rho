@@ -134,6 +134,7 @@ fn dispatch_provider_discovery<'a>(provider: ProviderId, auth_store: &'a AuthSto
 }
 
 pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+    crate::install_crypto_provider();
     dispatch_provider_discovery(provider, auth_store).await
 }
 
@@ -142,6 +143,7 @@ pub async fn discover_custom_provider_models(
     base_url: &str,
     api_key: Option<&str>,
 ) -> Result<Vec<DiscoveredModel>> {
+    crate::install_crypto_provider();
     let key = api_key.unwrap_or_default();
     fetch::discover_openai_compatible(name, base_url, key).await
 }

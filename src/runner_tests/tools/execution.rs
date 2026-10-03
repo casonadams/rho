@@ -25,9 +25,9 @@ fn sequential_mutation_model(marker: &std::path::Path) -> MockCompletionModel {
                 "bash",
                 serde_json::json!({"command": format!("printf 2 >> {}", marker.display())}),
             ),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
-        vec![MockStreamEvent::text("done"), final_event(Usage::new())],
+        vec![MockStreamEvent::text("done"), final_event(Usage::default())],
     ])
 }
 
@@ -83,7 +83,7 @@ async fn cancelled_tool_run_persists_no_incomplete_result() {
     let cmd = format!("sleep 2; touch {}", marker.display());
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("call-1", "bash", serde_json::json!({"command": cmd})),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let config = Config {
         permission: crate::config::PermissionConfig { enabled: false },

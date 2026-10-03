@@ -1,7 +1,8 @@
 use super::*;
 use rig::completion::ToolDefinition;
 use rig::message::{
-    AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+    AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
+    UserContent,
 };
 use serde_json::json;
 
@@ -16,8 +17,7 @@ fn dummy_tool(name: &str) -> ToolDefinition {
 fn sample_request_with_tools(tools: Vec<ToolDefinition>) -> CompletionRequest {
     CompletionRequest {
         model: None,
-        preamble: Some("system preamble".to_string()),
-        chat_history: vec![Message::user("hello")],
+        chat_history: vec![Message::system("system preamble"), Message::user("hello")],
         documents: Vec::new(),
         tools,
         temperature: None,
@@ -85,6 +85,7 @@ fn multi_turn_conversation_with_three_turns_assigns_exactly_four_breakpoints() {
     let tools = vec![dummy_tool("bash")];
     let mut req = sample_request_with_tools(tools);
     req.chat_history = vec![
+        Message::system("system preamble"),
         Message::user("Turn 1 prompt"),
         Message::assistant("Turn 1 response"),
         Message::user("Turn 2 prompt"),
@@ -115,16 +116,16 @@ fn multi_turn_with_in_flight_tool_results_maintains_prior_turn_checkpoint() {
     let tools = vec![dummy_tool("bash")];
     let mut req = sample_request_with_tools(tools);
     let call = ToolCall::new(
-        ToolCallId::new("call_1").unwrap(),
-        ToolFunction::new("bash".into(), json!({ "command": "pwd" })),
+        CallId::from_wire("call_1"),
+        ToolFunction::new(ToolName::new("bash").unwrap(), json!({ "command": "pwd" })),
     );
     let res = ToolResult {
-        call: ToolCallId::new("call_1").unwrap(),
-        provider: None,
-        name: "bash".into(),
+        call: CallId::from_wire("call_1"),
+        name: ToolName::new("bash").unwrap(),
         content: vec![ToolResultContent::Text(Text::new("/tmp"))],
     };
     req.chat_history = vec![
+        Message::system("system preamble"),
         Message::user("Turn 1 prompt"),
         Message::assistant("Turn 1 response"),
         Message::user("Turn 2 prompt"),
@@ -152,6 +153,7 @@ fn multi_turn_with_in_flight_tool_results_maintains_prior_turn_checkpoint() {
 fn empty_tools_assigns_three_breakpoints_in_multi_turn() {
     let mut req = sample_request_with_tools(Vec::new());
     req.chat_history = vec![
+        Message::system("system preamble"),
         Message::user("Turn 1 prompt"),
         Message::assistant("Turn 1 response"),
         Message::user("Turn 2 prompt"),
@@ -237,7 +239,6 @@ fn convert_messages_converts_user_and_assistant_images() {
 
     let req = CompletionRequest {
         model: None,
-        preamble: None,
         chat_history: vec![user_msg],
         documents: Vec::new(),
         tools: Vec::new(),
@@ -266,27 +267,32 @@ fn convert_messages_converts_user_and_assistant_images() {
 fn convert_messages_handles_reasoning_and_assistant_first() {
     let req = CompletionRequest {
         model: None,
-        preamble: None,
         chat_history: vec![
             Message::System {
                 content: "ignore me".to_string(),
             },
             Message::Assistant {
                 content: vec![
-                    AssistantContent::Reasoning(rig::message::Reasoning {
-                        id: None,
-                        content: vec![rig::message::ReasoningContent::Text {
-                            text: "let me think".to_string(),
-                            signature: Some("sig_123".to_string()),
-                        }],
-                    }),
-                    AssistantContent::Reasoning(rig::message::Reasoning {
-                        id: None,
-                        content: vec![rig::message::ReasoningContent::Text {
-                            text: "unsigned thought".to_string(),
-                            signature: None,
-                        }],
-                    }),
+                    AssistantContent::Reasoning(rig::message::Sealed::new(
+                        rig::message::Issuer::from_static("claude"),
+                        rig::message::Reasoning {
+                            id: None,
+                            content: vec![rig::message::ReasoningContent::Text {
+                                text: "let me think".to_string(),
+                                signature: Some("sig_123".to_string()),
+                            }],
+                        },
+                    )),
+                    AssistantContent::Reasoning(rig::message::Sealed::new(
+                        rig::message::Issuer::from_static("claude"),
+                        rig::message::Reasoning {
+                            id: None,
+                            content: vec![rig::message::ReasoningContent::Text {
+                                text: "unsigned thought".to_string(),
+                                signature: None,
+                            }],
+                        },
+                    )),
                     AssistantContent::Text(Text::new("done")),
                 ],
                 id: None,
@@ -318,12 +324,10 @@ fn convert_messages_handles_reasoning_and_assistant_first() {
 fn convert_messages_handles_tool_results() {
     let req = CompletionRequest {
         model: None,
-        preamble: None,
         chat_history: vec![Message::User {
             content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new("call_json").unwrap(),
-                provider: None,
-                name: "bash".into(),
+                call: CallId::from_wire("call_json"),
+                name: rig::message::ToolName::new("bash").unwrap(),
                 content: vec![
                     ToolResultContent::Json {
                         value: json!("result text"),
@@ -426,8 +430,8 @@ fn convert_tool_choice_variants() {
 #[test]
 fn test_system_prompt_remains_invariant_when_compaction_summary_present() {
     let mut req = sample_request_with_tools(vec![dummy_tool("bash")]);
-    req.preamble = Some("Project base instructions and guidelines".to_string());
     req.chat_history = vec![
+        Message::system("Project base instructions and guidelines"),
         Message::System {
             content: "[Context Summary: Prior turns summarized here]".to_string(),
         },

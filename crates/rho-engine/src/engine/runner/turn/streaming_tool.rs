@@ -1,9 +1,15 @@
 use crate::engine::runner::sink::TerminalApprovalSink;
-use rig::streaming::ToolCallDeltaContent;
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolCallDelta {
+    Name(String),
+    Delta(String),
+}
 
 #[derive(Default)]
 pub struct StreamingToolTracker {
@@ -14,18 +20,23 @@ pub struct StreamingToolTracker {
 }
 
 impl StreamingToolTracker {
-    pub fn handle_delta(&mut self, content: ToolCallDeltaContent, sink: &Arc<TerminalApprovalSink>) {
+    pub fn handle_name(&mut self, name: impl Into<String>) {
+        self.name = Some(name.into());
+    }
+
+    pub fn handle_delta(&mut self, chunk: &str, sink: &Arc<TerminalApprovalSink>) {
+        self.arguments_buf.push_str(chunk);
+        if self.name.as_deref() == Some("write") {
+            self.maybe_start_path(sink);
+            self.maybe_stream_content(sink);
+        }
+    }
+
+    #[cfg(test)]
+    pub fn handle_tool_call_delta(&mut self, content: ToolCallDelta, sink: &Arc<TerminalApprovalSink>) {
         match content {
-            ToolCallDeltaContent::Name(name) => {
-                self.name = Some(name);
-            }
-            ToolCallDeltaContent::Delta(chunk) => {
-                self.arguments_buf.push_str(&chunk);
-                if self.name.as_deref() == Some("write") {
-                    self.maybe_start_path(sink);
-                    self.maybe_stream_content(sink);
-                }
-            }
+            ToolCallDelta::Name(name) => self.handle_name(name),
+            ToolCallDelta::Delta(chunk) => self.handle_delta(&chunk, sink),
         }
     }
 

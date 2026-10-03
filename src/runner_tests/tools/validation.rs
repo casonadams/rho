@@ -10,9 +10,9 @@ async fn malformed_tool_arguments_are_model_visible_tool_failures() {
     let model = MockCompletionModel::from_stream_turns([
         [
             MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"unexpected": true})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
-        [MockStreamEvent::text("recovered"), final_event(Usage::new())],
+        [MockStreamEvent::text("recovered"), final_event(Usage::default())],
     ]);
     let engine = test_engine(model.clone(), Config::default());
     let output = engine
@@ -28,7 +28,7 @@ async fn malformed_tool_arguments_are_model_visible_tool_failures() {
 async fn unknown_tool_calls_fail_without_fallback() {
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("call-1", "unknown", serde_json::json!({})),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let engine = test_engine(model, Config::default());
     let error = engine

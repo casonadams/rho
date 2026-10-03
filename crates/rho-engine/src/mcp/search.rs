@@ -56,7 +56,7 @@ impl DeferredMcpTool {
         crate::tools::normalize_schema(&mut schema);
         let tool = self.clone();
 
-        DynamicTool::new(tool_name, description, schema, move |_ctx, args| {
+        DynamicTool::new(tool_name, description, schema, move |args| {
             let tool = tool.clone();
             Box::pin(async move {
                 let output = tool.execute_call(args).await;
@@ -286,7 +286,7 @@ impl DynamicToolActivator {
 
         for tool in to_activate {
             if let Some(handle) = handle_opt.as_ref() {
-                handle.add_dynamic_tool(tool.into_dynamic_tool()).await;
+                handle.add_dynamic_tool(tool.into_dynamic_tool());
             }
             if let Some(names_ref) = tool_names_opt.as_ref() {
                 names_ref.write().unwrap().push(tool.wire_name.clone());
@@ -405,7 +405,7 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
         "required": ["query"]
     });
 
-    DynamicTool::new("tool_search", description, schema, move |_ctx, args| {
+    DynamicTool::new("tool_search", description, schema, move |args| {
         let catalog = catalog.clone();
         let activator = activator.clone();
         Box::pin(async move {
@@ -577,7 +577,7 @@ mod tests {
 
         let catalog = ToolSearchCatalog::new(sample_tools());
         let tool = build_tool_search_tool(catalog, activator.clone());
-        handle.add_dynamic_tool(tool).await;
+        handle.add_dynamic_tool(tool);
 
         let mut context = rig::tool::ToolContext::default();
         let result = handle

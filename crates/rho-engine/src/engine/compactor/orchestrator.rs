@@ -1,3 +1,4 @@
+use crate::engine::compactor::llm::ModelHandle;
 use rho_harness_core::error::Result;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::compaction::{
@@ -6,7 +7,6 @@ use rho_harness_core::session::compaction::{
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 use rho_harness_core::tokens::{find_token_cut_point, is_tool_result_message};
-use rig::agent::ModelHandle;
 use rig::memory::DemotionHook;
 use std::sync::Arc;
 
@@ -366,7 +366,7 @@ pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, sessio
             return;
         }
         let hook = Arc::clone(hook);
-        let sid = session_id.to_string();
+        let sid = rig::id::ConversationId::from(session_id);
         let msgs = messages.iter().map(crate::adapter::rig::to_rig_message).collect();
         let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(&sid, msgs).await });
         match futures::FutureExt::catch_unwind(fut).await {

@@ -90,7 +90,8 @@ fn sanitize_system_prompt(text: &str) -> String {
     .replace("rho packages", "cli packages")
 }
 
-use rig::completion::{CompletionError, CompletionRequest};
+use rig::completion::CompletionRequest;
+use rig::error::ProviderError;
 use rig::message::{Message, ToolChoice};
 use serde_json::{Value, json};
 
@@ -257,7 +258,7 @@ pub fn build_request_body(
     model: &str,
     thinking_level: Option<&str>,
     request: &CompletionRequest,
-) -> Result<Value, CompletionError> {
+) -> Result<Value, Box<ProviderError>> {
     let normalized_model = normalize_model_alias(model);
     let thinking_budget = resolve_thinking_budget(thinking_level);
     let adaptive = is_adaptive_model(normalized_model);
@@ -399,9 +400,6 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
 }
 
 fn system_prompt(request: &CompletionRequest) -> Option<String> {
-    if let Some(ref preamble) = request.preamble {
-        return Some(preamble.clone());
-    }
     for message in &request.chat_history {
         if let Message::System { content } = message {
             return Some(content.clone());

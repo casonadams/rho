@@ -8,7 +8,7 @@ use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
 use rig::agent::{AgentRunner, CompletionCall, MultiTurnStreamItem, PromptResponse, StreamingError};
 use rig::message::Message;
-use rig::streaming::StreamedAssistantContent;
+use rig::streaming::{Item, Part, StreamEvent};
 
 use super::streaming_tool::StreamingToolTracker;
 use super::types::TurnOutput;
@@ -24,7 +24,7 @@ pub(super) struct TurnStreamState {
     pub(super) model_call_start: Option<Instant>,
     pub(super) total_generation_elapsed_ms: u64,
     pub(super) final_response: Option<PromptResponse>,
-    pub(super) reasoning_parts: HashSet<String>,
+    pub(super) reasoning_parts: HashSet<Part>,
     pub(super) streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
     pub(super) content_emitted: bool,
@@ -132,6 +132,9 @@ fn handle_completion_stream_item(
                 (&mut state.model_call_start, &mut state.total_generation_elapsed_ms),
             );
         }
+        MultiTurnStreamItem::ToolCall { tool_call } => {
+            state.streaming_tool.handle_name(tool_call.function.name.to_string());
+        }
         MultiTurnStreamItem::ModelTurnRetried { .. } => {
             state.model_call_start = Some(Instant::now());
             sink.resume_model_spinner();
@@ -155,14 +158,14 @@ fn print_overflow_compaction_notices(presenter: &dyn Presenter, stats: &crate::e
 impl AgentEngine {
     fn process_assistant_stream_item(
         &self,
-        content: StreamedAssistantContent,
+        content: Item<StreamEvent>,
         (sink, state, active_model): (&Arc<TerminalApprovalSink>, &mut TurnStreamState, &str),
     ) {
         state.content_emitted = true;
-        if let StreamedAssistantContent::ToolCallDelta { content, .. } = content {
+        if let Item::Event(StreamEvent::Arguments { ref json, .. }) = content {
             sink.flush_reasoning();
             sink.resume_model_spinner();
-            state.streaming_tool.handle_delta(content, sink);
+            state.streaming_tool.handle_delta(json, sink);
         } else {
             let events = display_events(content, &mut state.reasoning_parts);
             handle_display_events(
@@ -342,7 +345,7 @@ impl AgentEngine {
         ),
     ) -> Result<StreamRunResult> {
         let mut state = TurnStreamState::new();
-        let mut stream = runner.stream().await;
+        let mut stream = runner.stream();
         while let Some(item) = stream.next().await {
             match item {
                 Ok(item) => self.process_stream_item(item, (sink, &mut state, active_model)),
@@ -443,7 +446,7 @@ mod tests {
     use super::*;
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use async_trait::async_trait;
-    use rig::completion::CompletionError;
+    use rig::error::ProviderError;
     use rig::test_utils::MockCompletionModel;
     use std::sync::Mutex;
 
@@ -504,7 +507,7 @@ mod tests {
         let mut rate_limit_retries = 0;
         let mut network_retries = 0;
 
-        let transient_err = StreamingError::Completion(CompletionError::ProviderError(
+        let transient_err = StreamingError::Completion(ProviderError::Provider(
             "error sending request for url (https://cloudcode-pa.googleapis.com)".to_string(),
         ));
 
@@ -525,8 +528,7 @@ mod tests {
         assert!(matches!(action, StreamErrorAction::NetworkRetry));
         assert_eq!(network_retries, 1);
 
-        let transient_err =
-            StreamingError::Completion(CompletionError::ProviderError("connection reset by peer".to_string()));
+        let transient_err = StreamingError::Completion(ProviderError::Provider("connection reset by peer".to_string()));
         let action = engine
             .handle_stream_error(
                 (transient_err, presenter.as_ref(), &sink),
@@ -544,8 +546,7 @@ mod tests {
         assert!(matches!(action, StreamErrorAction::NetworkRetry));
         assert_eq!(network_retries, 2);
 
-        let transient_err =
-            StreamingError::Completion(CompletionError::ProviderError("connection reset by peer".to_string()));
+        let transient_err = StreamingError::Completion(ProviderError::Provider("connection reset by peer".to_string()));
         let result = engine
             .handle_stream_error(
                 (transient_err, presenter.as_ref(), &sink),
@@ -583,9 +584,8 @@ mod tests {
         let mut rate_limit_retries = 0;
         let mut network_retries = 0;
 
-        let transient_err = StreamingError::Completion(CompletionError::ProviderError(
-            "Claude stream failed: broken pipe".to_string(),
-        ));
+        let transient_err =
+            StreamingError::Completion(ProviderError::Provider("Claude stream failed: broken pipe".to_string()));
 
         let result = engine
             .handle_stream_error(

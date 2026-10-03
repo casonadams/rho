@@ -1,8 +1,7 @@
 use super::danger::check_critical_danger;
 use super::parser::{GuardVerdict, parse_guard_output};
 use super::prompt::GUARD_SYSTEM_PROMPT;
-use rig::agent::ModelHandle;
-use rig::completion::Prompt;
+use crate::engine::compactor::llm::ModelHandle;
 use std::time::Duration;
 
 #[derive(Clone)]
@@ -29,7 +28,7 @@ impl GuardEvaluator {
             return verdict;
         }
 
-        let agent = rig::agent::AgentBuilder::from_model_handle(self.model.clone())
+        let agent = rig::agent::AgentBuilder::new(self.model.clone())
             .preamble(GUARD_SYSTEM_PROMPT)
             .default_max_turns(1)
             .max_tokens(256)
@@ -45,8 +44,8 @@ impl GuardEvaluator {
                 reason: "Guard model evaluation timed out after 0s. Approval required.".to_string(),
             };
         }
-        match tokio::time::timeout(self.timeout, agent.prompt(&eval_prompt)).await {
-            Ok(Ok(response)) => parse_guard_output(&response),
+        match tokio::time::timeout(self.timeout, agent.prompt(&eval_prompt).run()).await {
+            Ok(Ok(response)) => parse_guard_output(&response.output),
             Ok(Err(err)) => GuardVerdict {
                 safe: false,
                 action: None,
@@ -69,8 +68,8 @@ mod tests {
     #[tokio::test]
     async fn evaluate_critical_danger_intercepts_without_calling_model() {
         // Model with zero turns would fail if called
-        let mock = MockCompletionModel::new([]);
-        let evaluator = GuardEvaluator::new(ModelHandle::new(mock));
+        let mock = MockCompletionModel::from_turns([]).erase();
+        let evaluator = GuardEvaluator::new(mock);
         let verdict = evaluator.evaluate("rm -rf /").await;
         assert!(!verdict.safe);
         assert!(verdict.reason.contains("filesystem wipe"));
@@ -79,10 +78,11 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_safe_verdict() {
-        let mock = MockCompletionModel::new([MockTurn::text(
+        let mock = MockCompletionModel::from_turns([MockTurn::text(
             r#"{"safe": true, "reason": "Local directory creation"}"#,
-        )]);
-        let evaluator = GuardEvaluator::new(ModelHandle::new(mock));
+        )])
+        .erase();
+        let evaluator = GuardEvaluator::new(mock);
         let verdict = evaluator.evaluate("mkdir -p src/foo").await;
         assert!(verdict.safe);
         assert_eq!(verdict.reason, "Local directory creation");
@@ -90,10 +90,11 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_unsafe_verdict() {
-        let mock = MockCompletionModel::new([MockTurn::text(
+        let mock = MockCompletionModel::from_turns([MockTurn::text(
             r#"{"safe": false, "reason": "Git push modifies remote state"}"#,
-        )]);
-        let evaluator = GuardEvaluator::new(ModelHandle::new(mock));
+        )])
+        .erase();
+        let evaluator = GuardEvaluator::new(mock);
         let verdict = evaluator.evaluate("git push origin main").await;
         assert!(!verdict.safe);
         assert_eq!(verdict.reason, "Git push modifies remote state");
@@ -101,10 +102,11 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_handles_model_timeout_fail_closed() {
-        let mock = MockCompletionModel::new([MockTurn::text(
+        let mock = MockCompletionModel::from_turns([MockTurn::text(
             r#"{"safe": true, "reason": "Should not arrive before timeout"}"#,
-        )]);
-        let evaluator = GuardEvaluator::new(ModelHandle::new(mock)).with_timeout(Duration::from_millis(0));
+        )])
+        .erase();
+        let evaluator = GuardEvaluator::new(mock).with_timeout(Duration::from_millis(0));
         let verdict = evaluator.evaluate("cargo build").await;
         assert!(!verdict.safe);
         assert!(verdict.reason.contains("timed out"));

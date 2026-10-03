@@ -66,7 +66,7 @@ mod activation {
         let hook = TurnToolExecutionHook::new(mock_sink(&repo_root), "anthropic", None)
             .with_project_context(shared_ctx.clone());
 
-        let model = MockCompletionModel::new([
+        let model = MockCompletionModel::from_turns([
             MockTurn::tool_call("1", "read", json!({"path": "crates/rho-subcrate/src/lib.rs"})),
             MockTurn::text("file inspected"),
         ]);
@@ -76,7 +76,7 @@ mod activation {
             .add_hook(hook)
             .record_content_telemetry(false)
             .build();
-        let response = agent.runner("Inspect subcrate").max_turns(3).run().await.unwrap();
+        let response = agent.prompt("Inspect subcrate").max_turns(3).run().await.unwrap();
         assert_eq!(response.output, "file inspected");
 
         let guard = shared_ctx.lock().await;
@@ -88,7 +88,7 @@ mod activation {
 
 mod gating {
     use super::super::{gated_result, text_render, with_omission_note};
-    use rig::agent::hook::ToolResultAction;
+    use rig::agent::hook::OutcomeAction;
     use rig::completion::message::{DocumentSourceKind, Image, ImageMediaType, ToolResultContent};
     use rig::tool::ToolOutput;
 
@@ -148,7 +148,7 @@ mod gating {
                 &image_output(Some(rig::completion::message::ImageMediaType::PNG)),
                 provider,
             );
-            assert_eq!(action, ToolResultAction::keep());
+            assert!(matches!(action, OutcomeAction::Proceed));
             assert_eq!(display, "Read image file\n[image: image/png]");
         }
     }
@@ -160,21 +160,21 @@ mod gating {
             "openai",
         );
         let expected = "Read image file\n[image: image/jpeg]\n[Image in tool result omitted: openai does not support images in tool results.]";
-        assert_eq!(action, ToolResultAction::rewrite(expected));
+        assert!(matches!(action, OutcomeAction::Replace(_)));
         assert_eq!(display, expected);
     }
 
     #[test]
     fn unknown_providers_get_image_results_rewritten() {
         let (action, _) = gated_result(&image_output(None), "my-custom-provider");
-        assert_ne!(action, ToolResultAction::keep());
+        assert!(!matches!(action, OutcomeAction::Proceed));
     }
 
     #[test]
     fn text_results_pass_through_for_every_provider() {
         for provider in ["anthropic", "openai", "unknown"] {
             let (action, display) = gated_result(&text_output("plain text"), provider);
-            assert_eq!(action, ToolResultAction::keep());
+            assert!(matches!(action, OutcomeAction::Proceed));
             assert_eq!(display, "plain text");
         }
     }
@@ -191,12 +191,13 @@ mod gating {
 mod model_switch {
     use std::sync::Arc;
 
+    use rig::agent::AgentBuilder;
     use rig::agent::hook::{AgentHook, HookContext};
-    use rig::agent::{AgentBuilder, ModelHandle};
     use rig::test_utils::{MockCompletionModel, MockTurn};
     use serde_json::json;
 
     use super::super::TurnToolExecutionHook;
+    use crate::engine::compactor::llm::ModelHandle;
     use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
     use crate::engine::runner::turn::types::{ActiveModelSwitch, SharedModelSwitch};
     use rho_harness_core::session::SessionManager;
@@ -223,7 +224,7 @@ mod model_switch {
         assert!(switcher.take_switched().is_none());
 
         let mock = MockCompletionModel::text("test");
-        let handle = ModelHandle::new(mock);
+        let handle = mock.erase();
         switcher.switch_to(ActiveModelSwitch::new("gemini-2.5-pro", "gemini", handle));
 
         assert_eq!(switcher.current_model().as_deref(), Some("gemini-2.5-pro"));
@@ -241,14 +242,14 @@ mod model_switch {
     }
 
     impl AgentHook for SwitchHook {
-        async fn on_tool_result(
+        async fn on_outcome(
             &self,
             _ctx: &HookContext,
-            _event: rig::agent::hook::ToolResultEvent<'_>,
-        ) -> rig::agent::hook::ToolResultAction {
+            _event: rig::agent::hook::OutcomeEvent<'_>,
+        ) -> rig::agent::hook::OutcomeAction {
             self.switcher
                 .switch_to(ActiveModelSwitch::new("model-2", "mock", self.next_model.clone()));
-            rig::agent::hook::ToolResultAction::keep()
+            rig::agent::hook::OutcomeAction::proceed()
         }
     }
 
@@ -259,26 +260,27 @@ mod model_switch {
         let switcher = Arc::new(SharedModelSwitch::new());
         let hook = TurnToolExecutionHook::new(mock_sink(), "anthropic", None).with_model_switch(Some(switcher.clone()));
 
-        let model_1 = MockCompletionModel::new([MockTurn::tool_call(
+        let model_1 = MockCompletionModel::from_turns([MockTurn::tool_call(
             "1",
             "write",
             json!({"path": file, "content": "first model wrote"}),
         )]);
-        let model_2 = MockCompletionModel::new([MockTurn::text("second model finished")]);
-        let handle_2 = ModelHandle::new(model_2.clone());
+        let model_2 = MockCompletionModel::from_turns([MockTurn::text("second model finished")]);
+        let handle_2 = model_2.clone().erase();
 
         let switch_hook = SwitchHook {
             switcher,
             next_model: handle_2,
         };
         let agent = AgentBuilder::new(model_1.clone())
+            .model_route("model-2", model_2.clone().erase())
             .tool(crate::tools::WriteTool::new(dir.path()))
             .add_hook(hook)
             .add_hook(switch_hook)
             .record_content_telemetry(false)
             .build();
 
-        let response = agent.runner("execute task").max_turns(3).run().await.unwrap();
+        let response = agent.prompt("execute task").max_turns(3).run().await.unwrap();
         assert_eq!(response.output, "second model finished");
         assert_eq!((model_1.requests().len(), model_2.requests().len()), (1, 1));
     }
@@ -339,7 +341,10 @@ mod steering {
 
     fn batched_tool_calls(calls: Vec<(&str, &str, serde_json::Value)>) -> MockTurn {
         let contents = calls.into_iter().map(|(id, name, args)| {
-            AssistantContent::ToolCall(ToolCall::from_wire(id, ToolFunction::new(name.to_string(), args)))
+            AssistantContent::ToolCall(ToolCall::from_wire(
+                id,
+                ToolFunction::new(rig::completion::message::ToolName::new(name).unwrap(), args),
+            ))
         });
         MockTurn::from_contents(contents)
     }
@@ -387,7 +392,7 @@ mod steering {
         let hook = TurnToolExecutionHook::new(mock_sink(), "anthropic", Some(steering.clone()));
         steering.enqueue("pivot to another task");
 
-        let model = MockCompletionModel::new([
+        let model = MockCompletionModel::from_turns([
             batched_tool_calls(vec![
                 ("1", "read", json!({"path": file_a})),
                 ("2", "write", json!({"path": file_b, "content": "hello"})),
@@ -402,7 +407,7 @@ mod steering {
             .record_content_telemetry(false)
             .build();
 
-        let response = agent.runner("start").max_turns(5).run().await.unwrap();
+        let response = agent.prompt("start").max_turns(5).run().await.unwrap();
         assert_eq!(response.output, "acknowledged steering");
         assert_steering_applied(&model, &file_b);
     }
@@ -415,7 +420,7 @@ mod steering {
         let steering = Arc::new(MockSteeringQueue::new(&["abort initial tool"]));
         let hook = TurnToolExecutionHook::new(mock_sink(), "anthropic", Some(steering));
 
-        let model = MockCompletionModel::new([
+        let model = MockCompletionModel::from_turns([
             MockTurn::tool_call("1", "write", json!({"path": file_b, "content": "hello"})),
             MockTurn::text("tool skipped"),
         ]);
@@ -426,7 +431,7 @@ mod steering {
             .record_content_telemetry(false)
             .build();
 
-        let response = agent.runner("start").max_turns(3).run().await.unwrap();
+        let response = agent.prompt("start").max_turns(3).run().await.unwrap();
         assert_eq!(response.output, "tool skipped");
         assert!(!file_b.exists());
 
@@ -446,7 +451,7 @@ mod steering {
         let steering = Arc::new(MockSteeringQueue::default());
         let hook = TurnToolExecutionHook::new(mock_sink(), "anthropic", Some(steering));
 
-        let model = MockCompletionModel::new([
+        let model = MockCompletionModel::from_turns([
             batched_tool_calls(vec![
                 ("1", "read", json!({"path": file_a})),
                 ("2", "write", json!({"path": file_b, "content": "created"})),
@@ -461,7 +466,7 @@ mod steering {
             .record_content_telemetry(false)
             .build();
 
-        let response = agent.runner("start").max_turns(5).run().await.unwrap();
+        let response = agent.prompt("start").max_turns(5).run().await.unwrap();
         assert_eq!(response.output, "all tools done");
         assert!(file_b.exists());
         let content = tokio::fs::read_to_string(&file_b).await.unwrap();
@@ -508,7 +513,7 @@ mod tool_search_activation {
     use crate::mcp::{
         DeferredMcpTool, DynamicToolActivator, ToolSearchCatalog, build_tool_search_tool, extract_invoked_tool_names,
     };
-    use rig::agent::{AgentBuilder, ModelHandle};
+    use rig::agent::AgentBuilder;
     use rig::test_utils::{MockCompletionModel, MockTurn};
     use std::sync::Arc;
 
@@ -541,14 +546,14 @@ mod tool_search_activation {
 
         let catalog = ToolSearchCatalog::new(vec![deferred_tool]);
         let search_tool = build_tool_search_tool(catalog, activator.clone());
-        handle.add_dynamic_tool(search_tool).await;
+        handle.add_dynamic_tool(search_tool);
 
-        let model = MockCompletionModel::new([
+        let model = MockCompletionModel::from_turns([
             MockTurn::tool_call("call-1", "tool_search", serde_json::json!({ "query": "weather" })),
             MockTurn::text("Weather tool found and loaded"),
         ]);
 
-        let agent = AgentBuilder::from_model_handle(ModelHandle::new(model.clone()))
+        let agent = AgentBuilder::new(model.clone().erase())
             .tool_server_handle(handle)
             .record_content_telemetry(false)
             .build();

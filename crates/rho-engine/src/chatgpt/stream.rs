@@ -8,15 +8,15 @@
 #[cfg(test)]
 mod tests;
 
-use crate::provider::sse::{SseLineDecoder, SseStreamParser};
-use rig::completion::{CompletionError, FinishReason, Usage};
-use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
+use crate::adapter::rig::model::AdapterFrame;
+use crate::provider::sse::SseLineDecoder;
+use futures::StreamExt;
+use rig::completion::Usage;
+use rig::error::ProviderError;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-const REASONING_ID: StreamPartId = StreamPartId::minted(MintKind::Reasoning, 0);
-
-pub type SseEvents = Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>>;
+pub type SseEvents = Vec<Result<AdapterFrame, ProviderError>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SummaryPartCoord {
@@ -48,25 +48,19 @@ enum ResponsesWireEvent {
     OutputTextDelta { delta: String },
     #[serde(rename = "response.reasoning_summary_part.added")]
     ReasoningSummaryPartAdded {
-        #[serde(default)]
         summary_index: u64,
-        #[serde(default)]
         output_index: Option<u64>,
     },
     #[serde(rename = "response.reasoning_summary_text.delta")]
     ReasoningSummaryTextDelta {
         delta: String,
-        #[serde(default)]
         summary_index: u64,
-        #[serde(default)]
         output_index: Option<u64>,
     },
     #[serde(rename = "response.reasoning_summary.delta")]
     ReasoningSummaryDelta {
         delta: String,
-        #[serde(default)]
         summary_index: u64,
-        #[serde(default)]
         output_index: Option<u64>,
     },
     #[serde(rename = "response.reasoning_summary_part.done")]
@@ -78,44 +72,24 @@ enum ResponsesWireEvent {
     #[serde(rename = "response.reasoning_text.delta")]
     ReasoningTextDelta { delta: String },
     #[serde(rename = "response.output_item.added")]
-    OutputItemAdded {
-        item: OutputItemPayload,
-        #[serde(default)]
-        output_index: u64,
-    },
+    OutputItemAdded { item: OutputItemPayload, output_index: u64 },
     #[serde(rename = "response.function_call_arguments.delta")]
     FunctionCallArgsDelta {
         delta: String,
-        #[serde(default)]
         item_id: Option<String>,
-        #[serde(default)]
         output_index: Option<u64>,
     },
     #[serde(rename = "response.output_item.done")]
-    OutputItemDone {
-        item: OutputItemPayload,
-        #[serde(default)]
-        output_index: u64,
-    },
+    OutputItemDone { item: OutputItemPayload, output_index: u64 },
     #[serde(rename = "response.completed")]
-    Completed { response: CompletedResponsePayload },
-    #[serde(rename = "response.failed")]
-    Failed { response: FailedResponsePayload },
+    ResponseCompleted { response: Option<ResponseCompletedPayload> },
     #[serde(rename = "error")]
-    Error { error: ErrorDetailsPayload },
+    Error {
+        error: Option<ErrorDetailsPayload>,
+        message: Option<String>,
+    },
     #[serde(other)]
     Unknown,
-}
-
-#[derive(Deserialize)]
-struct FunctionCallPayload {
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    call_id: String,
-    name: String,
-    #[serde(default)]
-    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -128,15 +102,21 @@ enum OutputItemPayload {
 }
 
 #[derive(Deserialize)]
-struct CompletedResponsePayload {
+struct FunctionCallPayload {
     #[serde(default)]
-    usage: Option<ResponsesUsagePayload>,
+    id: String,
+    #[serde(default)]
+    call_id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    arguments: String,
 }
 
 #[derive(Deserialize)]
-struct FailedResponsePayload {
+struct ResponseCompletedPayload {
     #[serde(default)]
-    error: Option<ErrorDetailsPayload>,
+    usage: Option<ResponsesUsagePayload>,
 }
 
 #[derive(Deserialize)]
@@ -221,17 +201,18 @@ impl SseParser {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        SseStreamParser::feed(self, bytes)
+        let lines = self.decoder.decode_lines(bytes);
+        let mut events = Vec::new();
+        for line in lines {
+            self.interpret_line(&line, &mut events);
+        }
+        events
     }
 
     fn start_reasoning_part(&mut self, coord: SummaryPartCoord, events: &mut SseEvents) {
         if self.active_summary_part != Some(coord) {
             if self.has_reasoning_content && !self.reasoning_trailing_newline {
-                events.push(Ok(RawStreamingChoice::ReasoningDelta {
-                    id: REASONING_ID,
-                    provider_id: None,
-                    reasoning: "\n\n".to_string(),
-                }));
+                events.push(Ok(AdapterFrame::Reasoning("\n\n".to_string())));
                 self.reasoning_trailing_newline = true;
             }
             self.active_summary_part = Some(coord);
@@ -261,11 +242,7 @@ impl SseParser {
         }
         self.has_reasoning_content = true;
         self.reasoning_trailing_newline = delta.ends_with('\n');
-        events.push(Ok(RawStreamingChoice::ReasoningDelta {
-            id: REASONING_ID,
-            provider_id: None,
-            reasoning: delta,
-        }));
+        events.push(Ok(AdapterFrame::Reasoning(delta)));
     }
 
     fn handle_function_call_added(&mut self, call: FunctionCallPayload, index: u64) {
@@ -311,27 +288,26 @@ impl SseParser {
             format!("call-{index}")
         };
 
-        let mut tc = RawStreamingToolCall::new(StreamPartId::wire(effective_id), reconciled.name, parsed_args);
-        if !reconciled.call_id.is_empty() {
-            tc.call_id = Some(reconciled.call_id);
-        }
-        events.push(Ok(RawStreamingChoice::ToolCall(tc)));
+        events.push(Ok(AdapterFrame::ToolCall {
+            id: effective_id,
+            name: reconciled.name,
+            arguments: parsed_args.to_string(),
+        }));
     }
 
     fn handle_completed(&mut self, usage_payload: Option<ResponsesUsagePayload>, events: &mut SseEvents) {
         let usage = usage_payload
             .map(|u| Usage {
-                input_tokens: u.input_tokens.unwrap_or(0),
-                output_tokens: u.output_tokens.unwrap_or(0),
-                total_tokens: u.total_tokens.unwrap_or(0),
-                cached_input_tokens: u.input_tokens_details.and_then(|d| d.cached_tokens).unwrap_or(0),
-                reasoning_tokens: u.output_tokens_details.and_then(|d| d.reasoning_tokens).unwrap_or(0),
-                ..Usage::new()
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                total_tokens: u.total_tokens,
+                cached_input_tokens: u.input_tokens_details.and_then(|d| d.cached_tokens),
+                reasoning_tokens: u.output_tokens_details.and_then(|d| d.reasoning_tokens),
+                ..Default::default()
             })
             .unwrap_or_default();
 
-        let final_response = StreamFinal::new("chatgpt", usage).with_finish_reason(FinishReason::Stop);
-        events.push(Ok(RawStreamingChoice::FinalResponse(final_response)));
+        events.push(Ok(AdapterFrame::Done { usage }));
     }
 
     fn interpret_line(&mut self, data: &str, events: &mut SseEvents) {
@@ -340,7 +316,7 @@ impl SseParser {
         };
         match event {
             ResponsesWireEvent::OutputTextDelta { delta } => {
-                events.push(Ok(RawStreamingChoice::Message(delta)));
+                events.push(Ok(AdapterFrame::Text(delta)));
             }
             ResponsesWireEvent::ReasoningSummaryPartAdded {
                 summary_index,
@@ -389,30 +365,57 @@ impl SseParser {
                     self.active_summary_part = None;
                 }
             }
-            ResponsesWireEvent::Completed { response } => {
-                self.handle_completed(response.usage, events);
+            ResponsesWireEvent::ResponseCompleted { response } => {
+                self.handle_completed(response.and_then(|r| r.usage), events);
             }
-            ResponsesWireEvent::Failed { response } => {
-                let msg = response
-                    .error
+            ResponsesWireEvent::Error { error, message } => {
+                let msg = error
                     .map(|e| e.message)
-                    .unwrap_or_else(|| "ChatGPT generation failed".to_string());
-                events.push(Err(CompletionError::ProviderError(msg)));
-            }
-            ResponsesWireEvent::Error { error } => {
-                events.push(Err(CompletionError::ProviderError(error.message)));
+                    .or(message)
+                    .unwrap_or_else(|| "ChatGPT API error".to_string());
+                events.push(Err(ProviderError::Provider(msg)));
             }
             ResponsesWireEvent::Unknown => {}
         }
     }
 }
 
-impl SseStreamParser for SseParser {
-    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        let mut events = Vec::new();
-        for line in self.decoder.decode_lines(bytes) {
-            self.interpret_line(&line, &mut events);
-        }
-        events
+pub fn unfold_chatgpt_stream(
+    response: reqwest::Response,
+) -> impl futures::Stream<Item = Result<AdapterFrame, ProviderError>> + Send + 'static {
+    futures::stream::unfold((response.bytes_stream(), SseParser::new(), false), next_stream_batch)
+        .map(futures::stream::iter)
+        .flatten()
+}
+
+type StreamState<S> = (S, SseParser, bool);
+
+async fn next_stream_batch<B, S>(
+    (mut byte_stream, mut parser, finished): StreamState<S>,
+) -> Option<(Vec<Result<AdapterFrame, ProviderError>>, StreamState<S>)>
+where
+    B: AsRef<[u8]>,
+    S: futures::Stream<Item = reqwest::Result<B>> + Unpin,
+{
+    if finished {
+        return None;
     }
+    while let Some(chunk) = byte_stream.next().await {
+        match chunk {
+            Ok(bytes) => {
+                let events = parser.feed(bytes.as_ref());
+                if !events.is_empty() {
+                    let has_term = events
+                        .iter()
+                        .any(|e| matches!(e, Ok(AdapterFrame::Done { .. }) | Err(_)));
+                    return Some((events, (byte_stream, parser, has_term)));
+                }
+            }
+            Err(e) => {
+                let err = ProviderError::Provider(format!("ChatGPT stream transport failed: {e}"));
+                return Some((vec![Err(err)], (byte_stream, parser, true)));
+            }
+        }
+    }
+    None
 }

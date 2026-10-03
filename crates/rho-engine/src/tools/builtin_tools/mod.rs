@@ -36,7 +36,7 @@ where
         + Send
         + 'static,
 {
-    DynamicTool::new(name, description, generated_schema::<A>(), move |ctx, args| {
+    DynamicTool::new_with_context(name, description, generated_schema::<A>(), move |ctx, args| {
         let fut = match parse_args::<A>(args) {
             Ok(a) => Ok(execute(ctx, a)),
             Err(err) => Err(err),
@@ -89,7 +89,7 @@ fn make_bash_tool(bash: Arc<BashTool>) -> DynamicTool {
         "Execute a shell command in the current working directory with a timeout. Do not prefix commands with cd.",
         move |ctx, args: BashArgs| {
             let b = Arc::clone(&bash);
-            let stream = ctx.get::<rho_harness_core::presentation::ToolStreamPort>().cloned();
+            let stream = ctx.scope::<rho_harness_core::presentation::ToolStreamPort>();
             async move {
                 if let Some(stream_port) = stream {
                     b.execute_streaming(args, move |chunk| stream_port.stream_chunk(chunk))

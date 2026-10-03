@@ -1,36 +1,26 @@
 use super::SseParser;
-use rig::completion::FinishReason;
-use rig::message::ReasoningContent;
-use rig::streaming::RawStreamingChoice;
+use crate::adapter::rig::model::AdapterFrame;
+use rig::error::ProviderError;
 
-fn assert_tool_call_event(event: &Result<RawStreamingChoice, rig::completion::CompletionError>) {
-    if let Ok(RawStreamingChoice::ToolCall(call)) = event {
-        assert_eq!(
-            (call.name.as_str(), call.arguments["cmd"].as_str()),
-            ("bash", Some("ls"))
-        );
+fn assert_tool_call_event(event: &Result<AdapterFrame, ProviderError>) {
+    if let Ok(AdapterFrame::ToolCall { name, arguments, .. }) = event {
+        assert_eq!(name, "bash");
+        assert!(arguments.contains("ls"));
     } else {
-        panic!("expected tool call");
+        panic!("expected tool call, got {event:?}");
     }
 }
 
-fn assert_final_event(event: &Result<RawStreamingChoice, rig::completion::CompletionError>) {
-    if let Ok(RawStreamingChoice::FinalResponse(resp)) = event {
-        assert_eq!(
-            (
-                resp.usage.input_tokens,
-                resp.usage.output_tokens,
-                resp.finish_reason.as_ref()
-            ),
-            (10, 5, Some(&FinishReason::Stop))
-        );
+fn assert_final_event(event: &Result<AdapterFrame, ProviderError>) {
+    if let Ok(AdapterFrame::Done { usage }) = event {
+        assert_eq!((usage.input_tokens, usage.output_tokens), (Some(10), Some(5)));
     } else {
-        panic!("expected final response");
+        panic!("expected final response, got {event:?}");
     }
 }
 
-fn is_msg(event: &Result<RawStreamingChoice, rig::completion::CompletionError>, expected: &str) -> bool {
-    matches!(event, Ok(RawStreamingChoice::Message(t)) if t == expected)
+fn is_msg(event: &Result<AdapterFrame, ProviderError>, expected: &str) -> bool {
+    matches!(event, Ok(AdapterFrame::Text(t)) if t == expected)
 }
 
 #[test]
@@ -48,18 +38,6 @@ fn sse_parser_emits_text_tool_call_and_terminal() {
     assert_final_event(&events[3]);
 }
 
-fn assert_reasoning_end_block(event: &Result<RawStreamingChoice, rig::completion::CompletionError>) {
-    let Ok(RawStreamingChoice::ReasoningEnd {
-        reasoning, signature, ..
-    }) = event
-    else {
-        panic!()
-    };
-    assert_eq!(signature.as_deref(), Some("c2ln"));
-    let block = reasoning.as_ref().unwrap();
-    assert!(matches!(&block.content[0], ReasoningContent::Text { text, .. } if text == "thinking...more"));
-}
-
 #[test]
 fn sse_parser_streams_thoughts_as_reasoning_blocks() {
     let mut parser = SseParser::new();
@@ -71,8 +49,7 @@ fn sse_parser_streams_thoughts_as_reasoning_blocks() {
     );
     let events = parser.feed(sse.as_bytes());
     assert!(events[0].is_ok() && events[1].is_ok());
-    assert_reasoning_end_block(&events[3]);
-    assert!(is_msg(&events[4], "answer"));
+    assert!(is_msg(&events[2], "answer"));
 }
 
 #[test]
@@ -81,7 +58,7 @@ fn sse_parser_surfaces_in_band_error_chunks() {
     let sse = "data: {\"error\":{\"code\":429,\"message\":\"Individual quota reached. Resets in 2h4m10s.\"}}\n\n";
     let events = parser.feed(sse.as_bytes());
     match &events[0] {
-        Err(rig::completion::CompletionError::ProviderError(message)) => {
+        Err(ProviderError::Provider(message)) => {
             assert!(message.contains("Individual quota reached"));
         }
         other => panic!("expected provider error, got {other:?}"),

@@ -3,7 +3,7 @@ use crate::adapter::rig::RigSessionMemory;
 use rho_harness_core::session::SessionManager;
 use rig::memory::Compactor;
 use rig::message::{
-    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+    AssistantContent, CallId, Message, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent, UserContent,
 };
 use rig_memory::{
     CompactingMemory, ConversationMemory, MemoryError, MemoryPolicy, SlidingWindowMemory, TemplateCompactor,
@@ -24,13 +24,16 @@ fn simple_turn(index: usize) -> Vec<Message> {
 fn coding_tool_calls() -> Vec<AssistantContent> {
     vec![
         AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new("edit-call").unwrap(),
-            ToolFunction::new("edit".to_string(), serde_json::json!({"path":"src/lib.rs","edits":[]})),
+            CallId::from_wire("edit-call"),
+            ToolFunction::new(
+                ToolName::new("edit").unwrap(),
+                serde_json::json!({"path":"src/lib.rs","edits":[]}),
+            ),
         )),
         AssistantContent::ToolCall(ToolCall::new(
-            ToolCallId::new("test-call").unwrap(),
+            CallId::from_wire("test-call"),
             ToolFunction::new(
-                "bash".to_string(),
+                ToolName::new("bash").unwrap(),
                 serde_json::json!({"command":"cargo test --all-targets"}),
             ),
         )),
@@ -40,15 +43,13 @@ fn coding_tool_calls() -> Vec<AssistantContent> {
 fn coding_tool_results() -> Vec<UserContent> {
     vec![
         UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new("edit-call").unwrap(),
-            provider: None,
-            name: "edit".to_string(),
+            call: CallId::from_wire("edit-call"),
+            name: ToolName::new("edit").unwrap(),
             content: vec![ToolResultContent::text("changed")],
         }),
         UserContent::ToolResult(ToolResult {
-            call: ToolCallId::new("test-call").unwrap(),
-            provider: None,
-            name: "bash".to_string(),
+            call: CallId::from_wire("test-call"),
+            name: ToolName::new("bash").unwrap(),
             content: vec![ToolResultContent::text("tests passed")],
         }),
     ]
@@ -114,11 +115,12 @@ async fn durable_history_remains_full_while_model_history_is_compacted_and_bound
     for index in 0..8 {
         history.extend(simple_turn(index));
     }
-    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &id, history.clone())
+    let cid = rig::id::ConversationId::from(id.as_str());
+    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &cid, history.clone())
         .await
         .unwrap();
     let memory = context_memory(durable.clone(), 4, 2048);
-    let visible = memory.load(&id).await.unwrap();
+    let visible = memory.load(&cid).await.unwrap();
 
     let domain_history: Vec<_> = history.iter().map(crate::adapter::rig::from_rig_message).collect();
     assert_eq!(durable.load_messages().await.unwrap(), domain_history);
@@ -153,12 +155,13 @@ async fn template_loss_justifies_coding_artifact_that_retains_required_state() {
     let durable = SessionManager::new(&dir, None).unwrap();
     let id = durable.session_id.clone();
     let history = coding_turn(None);
-    let template = TemplateCompactor::new().compact(&id, &history, None).await.unwrap();
+    let cid = rig::id::ConversationId::from(id.as_str());
+    let template = TemplateCompactor::new().compact(&cid, &history, None).await.unwrap();
     assert!(!template.as_str().contains("src/lib.rs"));
     assert!(!template.as_str().contains("tests passed"));
 
     let compactor = CodingCompactor::new(durable, 4096);
-    let artifact = Compactor::compact(&compactor, &id, &history, None).await.unwrap();
+    let artifact = Compactor::compact(&compactor, &cid, &history, None).await.unwrap();
     assert_required_artifact_fragments(artifact.as_str());
     assert!(artifact.as_str().len() <= 4096);
     let params = super::artifact::ArtifactParams {
@@ -172,7 +175,8 @@ async fn template_loss_justifies_coding_artifact_that_retains_required_state() {
 
 async fn assert_resumed_context(resumed: &SessionManager, first: &[Message]) {
     let resumed_memory = context_memory(resumed.clone(), 4, 4096);
-    assert_eq!(resumed_memory.load(&resumed.session_id).await.unwrap(), first);
+    let cid = rig::id::ConversationId::from(resumed.session_id.as_str());
+    assert_eq!(resumed_memory.load(&cid).await.unwrap(), first);
     let msgs = resumed.load_messages().await.unwrap();
     assert!(
         msgs.iter()
@@ -188,12 +192,13 @@ async fn recent_rounds_restart_deduplication_and_concurrent_loads_are_stable() {
     let mut history = coding_turn(None);
     history.extend(simple_turn(1));
     history.extend(simple_turn(2));
-    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &id, history.clone())
+    let cid = rig::id::ConversationId::from(id.as_str());
+    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &cid, history.clone())
         .await
         .unwrap();
 
     let memory = context_memory(durable.clone(), 4, 4096);
-    let (first, second) = tokio::join!(memory.load(&id), memory.load(&id));
+    let (first, second) = tokio::join!(memory.load(&cid), memory.load(&cid));
     let first = first.unwrap();
     assert_eq!(second.unwrap(), first);
     assert_eq!(&first[1..], &history[history.len() - 4..]);
@@ -212,7 +217,7 @@ impl Compactor for FailingCompactor {
 
     fn compact<'a>(
         &'a self,
-        _conversation_id: &'a str,
+        _conversation_id: &'a rig::id::ConversationId,
         _evicted: &'a [Message],
         _carry_over: Option<&'a Self::Artifact>,
     ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<Self::Artifact, MemoryError>> {
@@ -227,7 +232,8 @@ async fn compaction_failure_surfaces_without_changing_valid_canonical_history() 
     let id = durable.session_id.clone();
     let mut history = simple_turn(0);
     history.extend(simple_turn(1));
-    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &id, history.clone())
+    let cid = rig::id::ConversationId::from(id.as_str());
+    ConversationMemory::append(&RigSessionMemory::new(durable.clone()), &cid, history.clone())
         .await
         .unwrap();
     let memory = CompactingMemory::new(
@@ -236,7 +242,7 @@ async fn compaction_failure_surfaces_without_changing_valid_canonical_history() 
         FailingCompactor,
     );
 
-    let error = memory.load(&id).await.unwrap_err().to_string();
+    let error = memory.load(&cid).await.unwrap_err().to_string();
     assert!(error.contains("compaction unavailable"));
     let domain_history: Vec<_> = history.iter().map(crate::adapter::rig::from_rig_message).collect();
     assert_eq!(durable.load_messages().await.unwrap(), domain_history);
@@ -250,7 +256,8 @@ async fn compaction_artifact_and_sidecar_are_secret_free() {
     let durable = SessionManager::new_with_secrets(&dir, None, vec!["credential-sentinel".to_string()]).unwrap();
     let id = durable.session_id.clone();
     let compactor = CodingCompactor::new(durable.clone(), 1024);
-    let artifact = Compactor::compact(&compactor, &id, &coding_turn(Some("credential-sentinel")), None)
+    let cid = rig::id::ConversationId::from(id.as_str());
+    let artifact = Compactor::compact(&compactor, &cid, &coding_turn(Some("credential-sentinel")), None)
         .await
         .unwrap();
     assert!(!artifact.as_str().contains("credential-sentinel"));

@@ -14,7 +14,6 @@ use crate::engine::metrics::{RunTracker, TerminalStatus};
 use crate::engine::runner::TurnRequest;
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
-use rig::agent::ModelHandle;
 use rig::completion::Usage;
 use rig::memory::ConversationMemory;
 use rig::message::Message;
@@ -70,7 +69,7 @@ fn build_eval_engine(
         ..Config::default()
     };
     let tool_handle = rig::tool::server::ToolServer::new().run();
-    let agent = rig::agent::AgentBuilder::from_model_handle(ModelHandle::new(model))
+    let agent = rig::agent::AgentBuilder::new(model.erase())
         .memory(memory)
         .record_content_telemetry(false)
         .tool_server_handle(tool_handle.clone())
@@ -112,7 +111,8 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
     let sessions = input.base_dir.join(if input.bounded { "bounded" } else { "full" });
     let store = SessionManager::new(&sessions, None).unwrap();
     let rig_store = crate::adapter::rig::RigSessionMemory::new(store.clone());
-    ConversationMemory::append(&rig_store, &store.session_id, input.history.to_vec())
+    let sid = rig::id::ConversationId::from(store.session_id.as_str());
+    ConversationMemory::append(&rig_store, &sid, input.history.to_vec())
         .await
         .unwrap();
 

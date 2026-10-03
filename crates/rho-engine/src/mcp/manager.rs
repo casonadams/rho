@@ -44,7 +44,7 @@ fn build_single_mcp_tool(
     crate::tools::normalize_schema(&mut schema);
     let original_name = tool.name;
 
-    DynamicTool::new(tool_name, description, schema, move |_ctx, args| {
+    DynamicTool::new(tool_name, description, schema, move |args| {
         let client = Arc::clone(&client);
         let original_name = original_name.clone();
         Box::pin(async move {

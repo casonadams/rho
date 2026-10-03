@@ -10,11 +10,11 @@ fn budget_exhausted_model() -> MockCompletionModel {
     MockCompletionModel::from_stream_turns([
         [
             MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path":"missing-a"})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
         [
             MockStreamEvent::tool_call("call-2", "read", serde_json::json!({"path":"missing-b"})),
-            final_event(Usage::new()),
+            final_event(Usage::default()),
         ],
     ])
 }
@@ -70,7 +70,7 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
     let resumed_model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::text("repository summary"),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let resumed = test_engine_with_session(
         resumed_model.clone(),
@@ -93,7 +93,7 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
 async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rho_harness_core::model::ChatMessage>, String, PathBuf) {
     let model = MockCompletionModel::from_stream_turns([[
         MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": probe})),
-        final_event(Usage::new()),
+        final_event(Usage::default()),
     ]]);
     let first = test_engine(
         model,
@@ -139,7 +139,7 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
     let resumed_model = MockCompletionModel::from_stream_turns([
         vec![MockStreamEvent::error("offline provider failure")],
-        vec![MockStreamEvent::text("done"), final_event(Usage::new())],
+        vec![MockStreamEvent::text("done"), final_event(Usage::default())],
     ]);
     let resumed = test_engine_with_session(
         resumed_model.clone(),

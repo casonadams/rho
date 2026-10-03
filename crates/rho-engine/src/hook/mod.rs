@@ -10,9 +10,11 @@ pub use types::{HookAction, HookEvent};
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::types::{InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout};
 use rig::agent::hook::{
-    AgentHook, CompletionCall, CompletionCallAction, HookContext, InvalidToolCallAction, InvalidToolCallContext,
-    ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent,
+    AgentHook, CompletionCallAction, CompletionCallEvent, DispatchAction, DispatchEvent, HookContext,
+    InvalidToolCallAction, InvalidToolCallContext, OutcomeAction, OutcomeEvent,
 };
+use rig::effect::EffectKind;
+use rig::error::{ErrorKind, ErrorReport};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -100,58 +102,83 @@ impl LifecycleHook {
 }
 
 impl AgentHook for LifecycleHook {
-    async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
+    async fn on_dispatch(&self, _ctx: &HookContext, event: DispatchEvent<'_>) -> DispatchAction {
+        let (tool_name, args_str) = match event.kind {
+            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
+            _ => return DispatchAction::Proceed,
+        };
         let Some(hook) = self.find_hook("tool_call") else {
-            return ToolCallAction::run();
+            return DispatchAction::Proceed;
         };
 
-        let parsed_args = serde_json::from_str(event.args).unwrap_or(serde_json::json!(event.args));
+        let parsed_args = serde_json::from_str(args_str).unwrap_or(serde_json::json!(args_str));
         let hook_event = HookEvent::ToolCall {
-            tool_name: event.tool_name.to_string(),
+            tool_name: tool_name.to_string(),
             args: parsed_args,
             turn: self.turn.load(Ordering::SeqCst),
             session_id: self.session_id.clone(),
         };
 
         match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
-            Ok(HookAction::Continue) => ToolCallAction::run(),
-            Ok(HookAction::Stop { reason }) => ToolCallAction::stop(reason),
-            Ok(HookAction::Skip { reason }) => ToolCallAction::skip(reason),
-            Ok(HookAction::RewriteArgs { args }) => ToolCallAction::rewrite(args),
+            Ok(HookAction::Continue) => DispatchAction::Proceed,
+            Ok(HookAction::Stop { reason }) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Cancelled, reason)),
+            Ok(HookAction::Skip { reason }) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, reason)),
+            Ok(HookAction::RewriteArgs { args }) => DispatchAction::Patch(EffectKind::ToolCall {
+                name: tool_name.to_string(),
+                args: serde_json::to_string(&args).unwrap_or_default(),
+            }),
             Ok(HookAction::Ask { message }) => {
-                let approved = self.prompt_user_confirmation(&message, event.tool_name).await;
+                let approved = self.prompt_user_confirmation(&message, tool_name).await;
                 if approved {
-                    ToolCallAction::run()
+                    DispatchAction::Proceed
                 } else {
-                    ToolCallAction::skip(format!("Operation denied by user: {message}"))
+                    DispatchAction::Deny(ErrorReport::new(
+                        ErrorKind::Other,
+                        format!("Operation denied by user: {message}"),
+                    ))
                 }
             }
-            Ok(_) => ToolCallAction::run(),
-            Err(err) => ToolCallAction::skip(format!("Hook error: {err}")),
+            Ok(_) => DispatchAction::Proceed,
+            Err(err) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, format!("Hook error: {err}"))),
         }
     }
 
-    async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
+    async fn on_outcome(&self, _ctx: &HookContext, event: OutcomeEvent<'_>) -> OutcomeAction {
+        let (tool_name, args_str) = match event.kind {
+            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
+            _ => return OutcomeAction::Proceed,
+        };
         let Some(hook) = self.find_hook("tool_result") else {
-            return ToolResultAction::keep();
+            return OutcomeAction::Proceed;
         };
 
-        let parsed_args = serde_json::from_str(event.args).unwrap_or(serde_json::json!(event.args));
+        let (output, is_error) = match event.outcome {
+            Ok(rig::effect::Outcome::ToolResult { result }) => (
+                result.output().as_text().unwrap_or_default().to_string(),
+                result.is_error(),
+            ),
+            Err(e) => (e.to_string(), true),
+            _ => (String::new(), false),
+        };
+
+        let parsed_args = serde_json::from_str(args_str).unwrap_or(serde_json::json!(args_str));
         let hook_event = HookEvent::ToolResult {
-            tool_name: event.tool_name.to_string(),
+            tool_name: tool_name.to_string(),
             args: parsed_args,
-            output: event.presentation.render(),
-            is_error: !event.raw_result.is_success(),
+            output,
+            is_error,
         };
 
         match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
-            Ok(HookAction::Stop { reason }) => ToolResultAction::stop(reason),
-            Ok(HookAction::RewriteResult { result }) => ToolResultAction::rewrite(result),
-            _ => ToolResultAction::keep(),
+            Ok(HookAction::Stop { reason }) => OutcomeAction::stop(reason),
+            Ok(HookAction::RewriteResult { result }) => {
+                OutcomeAction::rewrite_tool_output(&event, rig::tool::ToolOutput::text(result))
+            }
+            _ => OutcomeAction::Proceed,
         }
     }
 
-    async fn on_completion_call(&self, _ctx: &HookContext, event: CompletionCall<'_>) -> CompletionCallAction {
+    async fn on_completion_call(&self, _ctx: &HookContext, event: CompletionCallEvent<'_>) -> CompletionCallAction {
         let Some(hook) = self.find_hook("completion_call") else {
             return CompletionCallAction::continue_run();
         };

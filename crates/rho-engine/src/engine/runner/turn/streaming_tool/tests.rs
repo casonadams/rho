@@ -83,20 +83,20 @@ fn streaming_tool_tracker_write_lifecycle() {
     let sink = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_delta(ToolCallDeltaContent::Name("write".to_string()), &sink);
-    tracker.handle_delta(
-        ToolCallDeltaContent::Delta(r#"{"path": "foo.txt", "content": "hello "#.to_string()),
+    tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
+    tracker.handle_tool_call_delta(
+        ToolCallDelta::Delta(r#"{"path": "foo.txt", "content": "hello "#.to_string()),
         &sink,
     );
     assert!(tracker.path_started);
     assert_eq!(tracker.streamed_content_len, 6);
 
     // Second chunk with additional content
-    tracker.handle_delta(ToolCallDeltaContent::Delta(r#"world"}"#.to_string()), &sink);
+    tracker.handle_tool_call_delta(ToolCallDelta::Delta(r#"world"}"#.to_string()), &sink);
     assert_eq!(tracker.streamed_content_len, 11);
 
     // Third chunk with no new content length
-    tracker.handle_delta(ToolCallDeltaContent::Delta("".to_string()), &sink);
+    tracker.handle_tool_call_delta(ToolCallDelta::Delta("".to_string()), &sink);
     assert_eq!(tracker.streamed_content_len, 11);
 
     // Reset clears state
@@ -111,9 +111,9 @@ fn streaming_tool_tracker_file_path_fallback() {
     let sink = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_delta(ToolCallDeltaContent::Name("write".to_string()), &sink);
-    tracker.handle_delta(
-        ToolCallDeltaContent::Delta(r#"{"file_path": "bar.txt", "content": "data"}"#.to_string()),
+    tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
+    tracker.handle_tool_call_delta(
+        ToolCallDelta::Delta(r#"{"file_path": "bar.txt", "content": "data"}"#.to_string()),
         &sink,
     );
     assert!(tracker.path_started);
@@ -125,11 +125,8 @@ fn streaming_tool_tracker_non_write_tool_ignored() {
     let sink = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_delta(ToolCallDeltaContent::Name("bash".to_string()), &sink);
-    tracker.handle_delta(
-        ToolCallDeltaContent::Delta(r#"{"command": "echo hi"}"#.to_string()),
-        &sink,
-    );
+    tracker.handle_tool_call_delta(ToolCallDelta::Name("bash".to_string()), &sink);
+    tracker.handle_tool_call_delta(ToolCallDelta::Delta(r#"{"command": "echo hi"}"#.to_string()), &sink);
     assert!(!tracker.path_started);
     assert_eq!(tracker.streamed_content_len, 0);
 }
@@ -139,10 +136,7 @@ fn streaming_tool_tracker_partial_without_path() {
     let sink = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_delta(ToolCallDeltaContent::Name("write".to_string()), &sink);
-    tracker.handle_delta(
-        ToolCallDeltaContent::Delta(r#"{"no_path_key": 123}"#.to_string()),
-        &sink,
-    );
+    tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
+    tracker.handle_tool_call_delta(ToolCallDelta::Delta(r#"{"no_path_key": 123}"#.to_string()), &sink);
     assert!(!tracker.path_started);
 }

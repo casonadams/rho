@@ -1,5 +1,8 @@
 use rho_harness_core::model::{ChatMessage, ToolResult, ToolResultContent, UserContent};
-use rig::agent::ModelHandle;
+use rig::driver::DynModel;
+use rig::operation::Completion;
+
+pub type ModelHandle = DynModel<Completion>;
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
@@ -29,7 +32,7 @@ enum LlmCallError {
 }
 
 async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(String, StructuralUsage), LlmCallError> {
-    let agent = rig::agent::AgentBuilder::from_model_handle(model)
+    let agent = rig::agent::AgentBuilder::new(model)
         .preamble(SUMMARIZATION_SYSTEM_PROMPT)
         .default_max_turns(1)
         .record_content_telemetry(false)
@@ -65,7 +68,7 @@ where
 {
     let extractor = rig::extractor::ExtractorBuilder::<T>::new(model).build();
     match tokio::time::timeout(Duration::from_secs(60), extractor.extract(prompt)).await {
-        Ok(Ok(val)) => Ok(val),
+        Ok(Ok(val)) => Ok(val.output),
         Ok(Err(e)) => {
             let msg = e.to_string();
             if crate::engine::compactor::is_context_overflow_message(&msg) {

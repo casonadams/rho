@@ -6,11 +6,11 @@
 //! module is gated `#[cfg(test)]`.
 
 use crate::engine::AgentEngine;
+use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::RunTracker;
 use crate::engine::runtime::{CodingRuntime, build_coding_agent};
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
-use rig::agent::ModelHandle;
 use rig::completion::Usage;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use rig::tool::DynamicTool;
@@ -77,7 +77,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         ..config.app_config.clone()
     };
     let session_manager = resolve_mock_session_manager(&config);
-    let model_handle = ModelHandle::new(model);
+    let model_handle = model.erase();
     let (agent, tool_handle) = build_coding_agent(
         model_handle.clone(),
         &app_config,

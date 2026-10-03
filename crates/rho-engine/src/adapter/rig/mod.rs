@@ -4,16 +4,15 @@ pub mod context;
 pub mod memory;
 pub mod model;
 pub use memory::RigSessionMemory;
-pub use model::RigModelAdapter;
 
 use rho_harness_core::model::{
     AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, TextContent, ToolCall, ToolFunction,
     ToolResult, ToolResultContent, UserContent,
 };
 use rig::message::{
-    AssistantContent as RigAssistantContent, Image as RigImage, ImageMediaType as RigMediaType, Message as RigMessage,
-    Reasoning as RigReasoning, ReasoningContent as RigReasoningContent, Text as RigText, ToolCall as RigToolCall,
-    ToolCallId as RigToolCallId, ToolFunction as RigToolFunction, ToolResult as RigToolResult,
+    AssistantContent as RigAssistantContent, CallId as RigCallId, Image as RigImage, ImageMediaType as RigMediaType,
+    Message as RigMessage, Reasoning as RigReasoning, ReasoningContent as RigReasoningContent, Text as RigText,
+    ToolCall as RigToolCall, ToolFunction as RigToolFunction, ToolResult as RigToolResult,
     ToolResultContent as RigToolResultContent, UserContent as RigUserContent,
 };
 
@@ -73,7 +72,7 @@ fn from_rig_user_content(item: &RigUserContent) -> UserContent {
         RigUserContent::ToolResult(res) => UserContent::ToolResult(ToolResult {
             call: res.call.to_string(),
             provider: None,
-            name: res.name.clone(),
+            name: res.name.to_string(),
             content: res.content.iter().map(from_rig_tool_result_content).collect(),
         }),
         RigUserContent::Image(img) => UserContent::Image(from_rig_image(img)),
@@ -85,7 +84,10 @@ fn to_rig_assistant_content(item: &AssistantContent) -> RigAssistantContent {
     match item {
         AssistantContent::Text(t) => RigAssistantContent::Text(RigText::new(&t.text)),
         AssistantContent::ToolCall(call) => RigAssistantContent::ToolCall(to_rig_tool_call(call)),
-        AssistantContent::Reasoning(r) => RigAssistantContent::Reasoning(to_rig_reasoning(r)),
+        AssistantContent::Reasoning(r) => RigAssistantContent::Reasoning(rig::message::Sealed::new(
+            rig::message::Issuer::from_static("rho"),
+            to_rig_reasoning(r),
+        )),
         AssistantContent::Image(img) => RigAssistantContent::Image(to_rig_image(img)),
     }
 }
@@ -94,18 +96,25 @@ fn from_rig_assistant_content(item: &RigAssistantContent) -> AssistantContent {
     match item {
         RigAssistantContent::Text(t) => AssistantContent::Text(TextContent::new(&t.text)),
         RigAssistantContent::ToolCall(call) => AssistantContent::ToolCall(from_rig_tool_call(call)),
-        RigAssistantContent::Reasoning(r) => AssistantContent::Reasoning(Reasoning {
-            id: r.id.clone(),
-            content: r.content.iter().map(from_rig_reasoning_content).collect(),
-        }),
+        RigAssistantContent::Reasoning(r) => {
+            let reasoning = r.open(r.issuer());
+            AssistantContent::Reasoning(Reasoning {
+                id: reasoning.and_then(|r| r.id.clone()),
+                content: reasoning
+                    .map(|r| r.content.iter().map(from_rig_reasoning_content).collect())
+                    .unwrap_or_default(),
+            })
+        }
         RigAssistantContent::Image(img) => AssistantContent::Image(from_rig_image(img)),
     }
 }
 
 fn to_rig_tool_call(call: &ToolCall) -> RigToolCall {
+    let tool_name = rig::message::ToolName::new(&call.function.name)
+        .unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
     let mut tc = RigToolCall::new(
-        RigToolCallId::new_or_mint(&call.id),
-        RigToolFunction::new(call.function.name.clone(), call.function.arguments.clone()),
+        RigCallId::from_wire(&call.id),
+        RigToolFunction::new(tool_name, call.function.arguments.clone()),
     );
     tc.signature = call.signature.clone();
     tc
@@ -113,7 +122,7 @@ fn to_rig_tool_call(call: &ToolCall) -> RigToolCall {
 
 fn from_rig_tool_call(call: &RigToolCall) -> ToolCall {
     let mut tc = ToolCall::new(
-        call.id.as_str(),
+        call.id.wire().as_ref(),
         ToolFunction::new(call.function.name.as_str(), call.function.arguments.clone()),
     );
     tc.signature = call.signature.clone();
@@ -121,10 +130,11 @@ fn from_rig_tool_call(call: &RigToolCall) -> ToolCall {
 }
 
 fn to_rig_tool_result(res: &ToolResult) -> RigToolResult {
+    let tool_name =
+        rig::message::ToolName::new(&res.name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
     RigToolResult {
-        call: RigToolCallId::new_or_mint(&res.call),
-        provider: None,
-        name: res.name.clone(),
+        call: RigCallId::from_wire(&res.call),
+        name: tool_name,
         content: res.content.iter().map(to_rig_tool_result_content).collect(),
     }
 }

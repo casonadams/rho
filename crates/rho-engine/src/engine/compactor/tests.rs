@@ -4,7 +4,7 @@
 mod branch {
     use rho_harness_core::config::Config;
     use rho_harness_core::model::ChatMessage;
-    use rig::agent::ModelHandle;
+
     use rig::test_utils::MockCompletionModel;
 
     use crate::auth::AuthStore;
@@ -23,7 +23,7 @@ mod branch {
             .base_dir(dir)
             .tools(Vec::new());
         if let Some(m) = model {
-            builder = builder.model(ModelHandle::new(m));
+            builder = builder.model(m.erase());
         }
         builder.build().await.unwrap()
     }
@@ -85,7 +85,7 @@ mod branch {
 
 mod compactor {
     use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
-    use rig::agent::ModelHandle;
+
     use rig::test_utils::{MockCompletionModel, MockTurn};
 
     use crate::engine::compactor::llm::{LlmCompactor, SummarizeOptions};
@@ -153,7 +153,7 @@ mod compactor {
     #[tokio::test]
     async fn test_llm_compactor_successful_llm_call() {
         let mock = MockCompletionModel::text("## Goal\nImplement feature Y\n\n## Progress\n### Done\n- [x] Done");
-        let handle = ModelHandle::new(mock.clone());
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -185,7 +185,7 @@ mod compactor {
             files: Vec<String>,
         }
 
-        let mock = MockCompletionModel::new([MockTurn::tool_call(
+        let mock = MockCompletionModel::from_turns([MockTurn::tool_call(
             "1",
             "submit",
             serde_json::json!({
@@ -193,7 +193,7 @@ mod compactor {
                 "files": ["src/main.rs"],
             }),
         )]);
-        let handle = ModelHandle::new(mock.clone());
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let res: Option<TestMetadata> = compactor.extract("extract summary").await;
@@ -208,7 +208,7 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_structured_extract_and_render() {
-        let mock = MockCompletionModel::new([MockTurn::tool_call(
+        let mock = MockCompletionModel::from_turns([MockTurn::tool_call(
             "1",
             "submit",
             serde_json::json!({
@@ -219,7 +219,7 @@ mod compactor {
                 "open_questions": ["Add tests"],
             }),
         )]);
-        let handle = ModelHandle::new(mock);
+        let handle = mock.erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -246,7 +246,7 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_invalid_extraction_falls_back_to_completion() {
-        let mock = MockCompletionModel::new([
+        let mock = MockCompletionModel::from_turns([
             MockTurn::tool_call(
                 "1",
                 "submit",
@@ -256,7 +256,7 @@ mod compactor {
             ),
             MockTurn::text("## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item"),
         ]);
-        let handle = ModelHandle::new(mock);
+        let handle = mock.erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -282,11 +282,11 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_completion_failure_falls_back_to_deterministic_summary() {
-        let mock = MockCompletionModel::new([
+        let mock = MockCompletionModel::from_turns([
             MockTurn::text("non-json text causing extraction failure"),
             MockTurn::text(""),
         ]);
-        let handle = ModelHandle::new(mock);
+        let handle = mock.erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -311,7 +311,7 @@ mod compactor {
     #[tokio::test]
     async fn test_llm_compactor_update_with_prior_summary() {
         let mock = MockCompletionModel::text("## Goal\nUpdated goal");
-        let handle = ModelHandle::new(mock.clone());
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -343,7 +343,7 @@ mod compactor {
     #[tokio::test]
     async fn test_llm_compactor_split_turn_summarization() {
         let mock = MockCompletionModel::text("## Early Progress\nPrefix work completed");
-        let handle = ModelHandle::new(mock.clone());
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -371,11 +371,11 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_overflow_retries_and_recovers() {
-        let mock = MockCompletionModel::new([
+        let mock = MockCompletionModel::from_turns([
             MockTurn::error("context_length_exceeded: maximum context length is 128000 tokens"),
             MockTurn::text("## Goal\nRecovered after oldest round pruned\n\n## Progress\n### Done\n- [x] Succeeded"),
         ]);
-        let handle = ModelHandle::new(mock.clone());
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -402,13 +402,13 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_overflow_falls_back_when_all_retries_exhausted() {
-        let mock = MockCompletionModel::new([
+        let mock = MockCompletionModel::from_turns([
             MockTurn::error("context_length_exceeded"),
             MockTurn::error("context_length_exceeded"),
             MockTurn::error("context_length_exceeded"),
             MockTurn::error("context_length_exceeded"),
         ]);
-        let handle = ModelHandle::new(mock.clone());
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -432,8 +432,8 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_overflow_single_turn_falls_back_without_retrying() {
-        let mock = MockCompletionModel::new([MockTurn::error("context_length_exceeded")]);
-        let handle = ModelHandle::new(mock.clone());
+        let mock = MockCompletionModel::from_turns([MockTurn::error("context_length_exceeded")]);
+        let handle = mock.clone().erase();
         let compactor = LlmCompactor::new(Some(handle));
 
         let messages = vec![
@@ -462,8 +462,9 @@ mod common {
         msgs: Vec<rig::message::Message>,
     ) {
         let memory = crate::adapter::rig::RigSessionMemory::new(sm.clone());
+        let conv_id = rig::id::ConversationId::from(sid);
         use rig::memory::ConversationMemory;
-        ConversationMemory::append(&memory, sid, msgs).await.unwrap();
+        ConversationMemory::append(&memory, &conv_id, msgs).await.unwrap();
     }
 
     #[derive(Default)]
@@ -509,9 +510,10 @@ mod orchestrator {
     use super::common;
     use rho_harness_core::config::Config;
     use rho_harness_core::session::tree::TreeNodeKind;
-    use rig::agent::ModelHandle;
+
     use rig::message::{
-        AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+        AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
+        UserContent,
     };
     use rig::test_utils::MockCompletionModel;
 
@@ -531,20 +533,19 @@ mod orchestrator {
             .base_dir(dir)
             .tools(Vec::new());
         if let Some(m) = model {
-            builder = builder.model(ModelHandle::new(m));
+            builder = builder.model(m.erase());
         }
         builder.build().await.unwrap()
     }
 
     fn tool_turn(cid: &str, tool: &str, path: &str, user: &str, done: &str) -> Vec<Message> {
         let call = ToolCall::new(
-            ToolCallId::new_or_mint(cid),
-            ToolFunction::new(tool.to_string(), serde_json::json!({"path": path})),
+            CallId::from_wire(cid),
+            ToolFunction::new(ToolName::new(tool).unwrap(), serde_json::json!({"path": path})),
         );
         let res = ToolResult {
-            call: ToolCallId::new_or_mint(cid),
-            provider: None,
-            name: tool.to_string(),
+            call: CallId::from_wire(cid),
+            name: ToolName::new(tool).unwrap(),
             content: vec![ToolResultContent::Text(Text::new("data"))],
         };
         vec![
@@ -691,7 +692,7 @@ mod orchestrator {
     impl rig::memory::DemotionHook for CapturingDemotionHook {
         fn on_demote<'a>(
             &'a self,
-            conversation_id: &'a str,
+            conversation_id: &'a rig::id::ConversationId,
             messages: Vec<Message>,
         ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
             Box::pin(async move {
@@ -855,7 +856,8 @@ mod orchestrator {
 
 mod overflow {
     use rig::agent::StreamingError;
-    use rig::completion::{CompletionError, PromptError};
+    use rig::completion::PromptError;
+    use rig::error::ProviderError;
 
     use crate::engine::compactor::{is_context_overflow_error, is_context_overflow_message};
 
@@ -885,19 +887,17 @@ mod overflow {
 
     #[test]
     fn test_is_context_overflow_streaming_error() {
-        let completion_err = StreamingError::Completion(CompletionError::ResponseError(
-            "prompt is too long: 210000 tokens".to_string(),
-        ));
+        let completion_err =
+            StreamingError::Completion(ProviderError::Response("prompt is too long: 210000 tokens".to_string()));
         assert!(is_context_overflow_error(&completion_err));
 
-        let prompt_err = StreamingError::Prompt(Box::new(PromptError::CompletionError(
-            CompletionError::ResponseError("context_length_exceeded".to_string()),
+        let prompt_err = StreamingError::Prompt(PromptError::CompletionError(ProviderError::Response(
+            "context_length_exceeded".to_string(),
         )));
         assert!(is_context_overflow_error(&prompt_err));
 
-        let unrelated = StreamingError::Completion(CompletionError::ResponseError(
-            "Model overloaded, try again later".to_string(),
-        ));
+        let unrelated =
+            StreamingError::Completion(ProviderError::Response("Model overloaded, try again later".to_string()));
         assert!(!is_context_overflow_error(&unrelated));
     }
 }
@@ -958,9 +958,9 @@ mod recovery {
 
     fn sample_overflow_usage() -> Usage {
         Usage {
-            input_tokens: 10,
-            output_tokens: 5,
-            total_tokens: 15,
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+            total_tokens: Some(15),
             ..Default::default()
         }
     }
@@ -1025,9 +1025,10 @@ mod sequential {
     use super::common;
     use rho_harness_core::config::Config;
     use rho_harness_core::session::tree::TreeNodeKind;
-    use rig::agent::ModelHandle;
+
     use rig::message::{
-        AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+        AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
+        UserContent,
     };
     use rig::test_utils::{MockCompletionModel, MockTurn};
 
@@ -1048,7 +1049,7 @@ mod sequential {
             .base_dir(dir)
             .tools(Vec::new());
         if let Some(m) = model {
-            builder = builder.model(ModelHandle::new(m));
+            builder = builder.model(m.erase());
         }
         builder.build().await.unwrap()
     }
@@ -1059,15 +1060,14 @@ mod sequential {
             Message::Assistant {
                 id: None,
                 content: vec![AssistantContent::ToolCall(ToolCall::new(
-                    ToolCallId::new_or_mint(call_id),
-                    ToolFunction::new(tool.to_string(), serde_json::json!({"path": path})),
+                    CallId::from_wire(call_id),
+                    ToolFunction::new(ToolName::new(tool).unwrap(), serde_json::json!({"path": path})),
                 ))],
             },
             Message::User {
                 content: vec![UserContent::ToolResult(ToolResult {
-                    call: ToolCallId::new_or_mint(call_id),
-                    provider: None,
-                    name: tool.to_string(),
+                    call: CallId::from_wire(call_id),
+                    name: ToolName::new(tool).unwrap(),
                     content: vec![ToolResultContent::Text(Text::new("done"))],
                 })],
             },
@@ -1111,7 +1111,7 @@ mod sequential {
     }
 
     fn sequential_mock() -> MockCompletionModel {
-        MockCompletionModel::new([
+        MockCompletionModel::from_turns([
             MockTurn::text("## Goal\nFirst compaction"),
             MockTurn::text("## Goal\nPrefix 1"),
             MockTurn::text("## Goal\nSecond compaction"),
@@ -1193,9 +1193,9 @@ mod auto_compact {
             ..Config::default()
         };
         let usage = Usage {
-            input_tokens: 10,
-            output_tokens: 5,
-            total_tokens: 15,
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+            total_tokens: Some(15),
             ..Default::default()
         };
         let model =
@@ -1243,7 +1243,7 @@ mod auto_compact {
 
     fn record_test_turn_usage(engine: &crate::engine::AgentEngine, tokens: u64) {
         let u = Usage {
-            input_tokens: tokens,
+            input_tokens: Some(tokens),
             ..Default::default()
         }
         .into();

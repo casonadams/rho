@@ -1,34 +1,38 @@
-//! Rig `CompletionModel` adapter for [`AntigravityClient`]: the streaming-only
-//! Cloud Code Assist surface aggregated into unary responses, plus the raw
-//! event stream passthrough.
+//! Rig `Transport` driver for `AntigravityClient`.
 
 use super::AntigravityClient;
 use super::http::{PROVIDER_NAME, friendly_error};
-use crate::antigravity::stream::SseParser;
-use crate::provider::sse::{aggregate_stream_events, unfold_sse_stream};
-use rig::completion::{CompletionError, CompletionModel, CompletionRequest, CompletionResponse};
-use rig::streaming::{RawStreamingChoice, StreamFinal, StreamingCompletionResponse};
+use crate::adapter::rig::model::{AdapterFrame, AdapterWire};
+use crate::antigravity::stream::unfold_antigravity_stream;
+use crate::engine::compactor::llm::ModelHandle;
+use rig::completion::CompletionRequest;
+use rig::driver::{Exchange, Model, Opened, Opening, Transport};
+use rig::error::ProviderError;
 
-impl CompletionModel for AntigravityClient {
-    async fn completion(&self, request: CompletionRequest) -> Result<CompletionResponse, CompletionError> {
-        // The Cloud Code Assist surface is streaming-only; aggregate the SSE
-        // stream into a single response (pi parity: no unary endpoint).
-        let mut events: Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>> = Vec::new();
-        self.feed_stream(&request, |batch| {
-            events.extend(batch);
-            Ok(())
+#[derive(Clone)]
+pub struct AntigravityTransport {
+    pub(crate) client: AntigravityClient,
+}
+
+impl Transport<AdapterWire> for AntigravityTransport {
+    fn send(&self, payload: CompletionRequest, _exchange: Exchange) -> Opening<AdapterFrame> {
+        let client = self.client.clone();
+        Opening::new(async move {
+            let response = client
+                .open_stream(&payload)
+                .await
+                .map_err(|(status, body)| ProviderError::Provider(friendly_error(status, &body)))?;
+
+            let stream = unfold_antigravity_stream(response);
+            Ok(Opened::new(stream))
         })
-        .await?;
-        aggregate_stream_events(events, PROVIDER_NAME)
     }
+}
 
-    async fn stream(&self, request: CompletionRequest) -> Result<StreamingCompletionResponse, CompletionError> {
-        let response = self
-            .open_stream(&request)
-            .await
-            .map_err(|(status, body)| CompletionError::ProviderError(friendly_error(status, &body)))?;
-
-        let stream = unfold_sse_stream(response, SseParser::new());
-        Ok(StreamingCompletionResponse::stream(PROVIDER_NAME, stream))
-    }
+pub fn into_handle(client: AntigravityClient) -> ModelHandle {
+    let wire = AdapterWire {
+        name: PROVIDER_NAME.to_string(),
+    };
+    let transport = AntigravityTransport { client };
+    Model::new(wire, transport).erase()
 }
