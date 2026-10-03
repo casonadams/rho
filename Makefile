@@ -65,5 +65,5 @@ complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc and gate o
 .PHONY: quality
 quality: ## Measure quality regressions against git HEAD with ripwire
 	@command -v ripwire >/dev/null 2>&1 || { echo "Error: ripwire not found"; exit 1; }
-	@ripwire . --quality-delta
+	@ripwire . --quality-delta >/dev/null
 
