@@ -75,4 +75,8 @@ impl InteractiveHistory {
         self.position = None;
         self.saved_draft = None;
     }
+
+    pub fn entries(&self) -> &[String] {
+        &self.entries
+    }
 }

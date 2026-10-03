@@ -73,6 +73,19 @@ async fn test_paste_clipboard_async_callable() {
     super::super::navigation::paste_clipboard_async(&renderer, &mut controller).await;
 }
 
+#[test]
+fn test_ghost_text_acceptance_on_move_right() {
+    let mut editor = crate::ui::interactive::EditorState::default();
+    editor.set_text("git stat");
+    editor.set_ghost_text(Some("us".to_string()));
+
+    assert_eq!(editor.ghost_text(), Some("us"));
+    assert!(editor.accept_ghost_text());
+    assert_eq!(editor.text(), "git status");
+    assert_eq!(editor.cursor(), 10);
+    assert_eq!(editor.ghost_text(), None);
+}
+
 fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
     use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
     let mut tree = SessionTree::new();

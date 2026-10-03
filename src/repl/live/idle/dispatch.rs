@@ -66,10 +66,31 @@ fn handle_edit_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     batch: &mut LiveBatch,
     action: UiAction,
-    completions: &CompletionSet,
+    resources: &EditorResources<'_>,
 ) -> Result<Option<QueuedMessage>> {
-    let effect = controller.state_mut().apply(action);
-    update_autocomplete_state(controller, completions);
+    let handled_ghost = if action == UiAction::MoveRight {
+        let ed = controller.state().editor();
+        ed.cursor() == ed.text().len() && ed.ghost_text().is_some()
+    } else {
+        false
+    };
+
+    let effect = if handled_ghost {
+        controller.state_mut().editor_mut().accept_ghost_text();
+        UiEffect::None
+    } else {
+        controller.state_mut().apply(action)
+    };
+
+    update_autocomplete_state(controller, resources.completions);
+    let pred = crate::repl::interactive::predict_inline_completion(
+        controller.state().editor().text(),
+        controller.state().editor().cursor(),
+        resources.history,
+        resources.completions,
+    );
+    controller.state_mut().editor_mut().set_ghost_text(pred);
+
     if let UiEffect::Queued(message) = effect {
         controller.state_mut().pop_queued();
         batch.flush(controller, true)?;
@@ -179,7 +200,7 @@ async fn handle_plain_action<B: TerminalBackend>(
 ) -> Result<PlainActionResult> {
     match action {
         InputAction::Edit(edit) => {
-            let res = handle_edit_action(controller, batch, edit.clone(), resources.completions)?;
+            let res = handle_edit_action(controller, batch, edit.clone(), resources)?;
             Ok(res.map_or(PlainActionResult::Handled, PlainActionResult::Message))
         }
         InputAction::HistoryPrevious | InputAction::HistoryNext => {

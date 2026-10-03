@@ -20,6 +20,7 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
         "settings",
         "Configure runtime interface settings (thinking effort, display toggles)",
     ),
+    ("models", "Configure role models (default, smol, slow, judge, guard)"),
     ("model", "Select model (opens selector UI) <provider/model>"),
     ("resume", "Resume a previous session (opens session selector)"),
     ("skill", "List, inspect, or invoke declarative skills"),
@@ -164,6 +165,11 @@ impl CompletionSet {
 
     pub fn with_files(mut self, files: Vec<String>) -> Self {
         self.files = files;
+        self
+    }
+
+    pub fn with_commands(mut self, commands: Vec<CommandItem>) -> Self {
+        self.commands = commands;
         self
     }
 
