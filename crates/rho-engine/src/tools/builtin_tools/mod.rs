@@ -182,6 +182,64 @@ fn build_web_dynamic_tools(config: &Config) -> Result<Vec<DynamicTool>> {
     Ok(tools)
 }
 
+fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dyn crate::tools::EngineTool>> {
+    let write = Arc::new(WriteTool::new(base_dir));
+    let edit = Arc::new(EditTool::new(base_dir));
+    let artifact_dir = base_dir.join(".rho/artifacts");
+    let read = Arc::new(ReadTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
+    let bash = Arc::new(BashTool::new(base_dir));
+    let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
+    let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
+
+    vec![
+        read as Arc<dyn crate::tools::EngineTool>,
+        write as Arc<dyn crate::tools::EngineTool>,
+        edit as Arc<dyn crate::tools::EngineTool>,
+        bash as Arc<dyn crate::tools::EngineTool>,
+        fd as Arc<dyn crate::tools::EngineTool>,
+        rg as Arc<dyn crate::tools::EngineTool>,
+    ]
+}
+
+pub fn build_native_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Arc<dyn crate::tools::EngineTool>>> {
+    let mut tools = build_workspace_native_tools(base_dir, config);
+    if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
+        let http = HttpClient::new(config.allow_private_network)?;
+        if config.tools.web.search.enabled {
+            let engines = crate::tools::web::search::resolve_engine_chain(
+                &config.tools.web.search.default,
+                &config.tools.web.search.fallback,
+            )?;
+            let search = WebSearchTool::new(
+                http.clone(),
+                SearchRateLimiter::new(config.search_min_interval_ms),
+                WebSearchConfig {
+                    region: config.region.clone(),
+                    timeout_sec: config.search_timeout_sec,
+                    engines,
+                },
+            );
+            tools.push(Arc::new(search));
+        }
+        if config.tools.web.fetch.enabled {
+            let fetch = WebFetchTool::new(
+                http,
+                FetchCache::new(60, 64),
+                WebFetchConfig {
+                    timeout_sec: config.fetch_timeout_sec,
+                    max_bytes: config.fetch_max_bytes,
+                    pdf_max_bytes: 30 * 1024 * 1024,
+                    default_limit: config.fetch_limit,
+                    multimodal: config.tools.web.fetch.multimodal,
+                    auth_file: Some(config.auth_file.clone()),
+                },
+            );
+            tools.push(Arc::new(fetch));
+        }
+    }
+    Ok(tools)
+}
+
 fn build_workspace_tools(base_dir: &Path, _config: &Config) -> Vec<DynamicTool> {
     let write = Arc::new(WriteTool::new(base_dir));
     let edit = Arc::new(EditTool::new(base_dir));

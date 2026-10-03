@@ -134,8 +134,13 @@ tool call ─▶ PermissionHook (engine/permission/)
   reloads the in-memory policy.
 - Headless/non-interactive runs (e.g. `--prompt` or `--mode json`) fail closed: any required prompt denies the call.
 
-## Providers and MCP
+## Providers, Tools, and the Anti-Corruption Layer
 
+- Provider & LLM anti-corruption layer:
+  - Framework engine abstractions (such as Rig) are isolated behind `rho_engine::adapter::rig`.
+  - Built-in tools implement the engine-native `EngineTool` trait, with argument parsing and execution decoupled from external framework traits.
+  - Custom providers (`claude`, `chatgpt`, `antigravity`) produce provider-native stream and request envelopes, adapted to engine-native `ModelAdapter`.
+  - The root `rho` CLI crate has zero production dependencies on external LLM framework crates (`rig`, `rig-memory`).
 - Each provider speaks its own wire protocol; `provider/builders.rs` selects
   the right client (OAuth token refresh, header quirks, streaming dialects).
   Model catalogs merge discovered models with curated presets; quota parsers

@@ -4,25 +4,26 @@ pub mod clipboard;
 pub mod suspend;
 
 use rho_engine::auth::AuthStore;
-use rho_engine::engine::{AgentEngine, builder::AgentEngineBuilder};
-use rho_engine::mcp::load_mcp_tools;
-use rho_engine::tools::build_builtin_tools;
+use rho_engine::engine::AgentEngine;
+use rho_engine::engine::builder::AgentEngineBuilder;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use std::path::{Path, PathBuf};
 
 pub struct ToolAssembly {
-    pub rig_tools: Vec<rig::tool::DynamicTool>,
+    pub tools: Vec<std::sync::Arc<dyn rho_engine::tools::EngineTool>>,
 }
 
 pub async fn active_tools(config: &Config, base_dir: &Path) -> Result<ToolAssembly> {
-    let mut tools = build_builtin_tools(base_dir, config)?;
-    let mcp_tools = load_mcp_tools(config, base_dir).await;
-    tools.extend(mcp_tools);
-    Ok(ToolAssembly { rig_tools: tools })
+    let tools = rho_engine::tools::builtin_tools::build_native_builtin_tools(base_dir, config)?;
+    Ok(ToolAssembly { tools })
 }
 
-pub async fn active_tools_with_auth(config: &Config, base_dir: &Path, _auth_store: &AuthStore) -> Result<ToolAssembly> {
+pub async fn active_tools_with_auth(
+    config: &Config,
+    base_dir: &Path,
+    _auth_store: &rho_engine::auth::AuthStore,
+) -> Result<ToolAssembly> {
     active_tools(config, base_dir).await
 }
 

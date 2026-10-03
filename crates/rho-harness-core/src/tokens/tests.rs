@@ -280,6 +280,43 @@ fn test_estimate_assistant_tool_call_compact_json() {
     let tokens_pretty = estimate_assistant_content_tokens(&pretty_call, "gpt-4");
     let tokens_compact = estimate_assistant_content_tokens(&compact_call, "gpt-4");
     assert_eq!(tokens_pretty, tokens_compact);
+
+    let invalid_json_call = AssistantContent::ToolCall(ToolCall::new(
+        "call-2",
+        ToolFunction::new(
+            "write",
+            serde_json::Value::String("not valid json\nwith newlines".to_string()),
+        ),
+    ));
+    assert!(estimate_assistant_content_tokens(&invalid_json_call, "gpt-4") > 0);
+
+    let text_assistant = AssistantContent::text("hello world");
+    assert!(estimate_assistant_content_tokens(&text_assistant, "gpt-4") > 0);
+
+    let image_assistant = AssistantContent::Image(ImageContent {
+        data: "dummy".to_string(),
+        media_type: None,
+    });
+    assert_eq!(
+        estimate_assistant_content_tokens(&image_assistant, "gpt-4"),
+        ESTIMATED_IMAGE_TOKENS
+    );
+
+    let reasoning_assistant = AssistantContent::Reasoning(crate::model::Reasoning {
+        id: None,
+        content: vec![
+            crate::model::ReasoningContent::Text {
+                text: "thinking...".to_string(),
+                signature: None,
+            },
+            crate::model::ReasoningContent::Summary("summary".to_string()),
+            crate::model::ReasoningContent::Redacted {
+                data: "redacted".to_string(),
+            },
+            crate::model::ReasoningContent::Encrypted("encrypted".to_string()),
+        ],
+    });
+    assert!(estimate_assistant_content_tokens(&reasoning_assistant, "gpt-4") > 0);
 }
 
 #[test]

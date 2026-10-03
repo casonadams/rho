@@ -115,3 +115,17 @@ pub(super) struct OutputTokensDetails {
 pub(super) struct ErrorPayload {
     pub message: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_map_finish_reason() {
+        assert!(matches!(map_finish_reason("end_turn"), FinishReason::Stop));
+        assert!(matches!(map_finish_reason("max_tokens"), FinishReason::Length));
+        assert!(matches!(map_finish_reason("stop_sequence"), FinishReason::Stop));
+        assert!(matches!(map_finish_reason("tool_use"), FinishReason::ToolCalls));
+        assert!(matches!(map_finish_reason("other"), FinishReason::Other(_)));
+    }
+}

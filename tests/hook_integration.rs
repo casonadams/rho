@@ -202,3 +202,85 @@ async fn test_legacy_rho_hook_ignored_by_engine() {
     assert_eq!(output.final_text, "finished normally");
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[tokio::test]
+async fn test_hook_rewrites_tool_result() {
+    let workspace = temp_workspace();
+
+    write_hook_script(
+        &workspace,
+        "on_tool_result",
+        r#"echo '{"action":"rewrite_result","result":"rewritten tool output"}'"#,
+    );
+
+    let model = MockCompletionModel::from_stream_turns([
+        vec![
+            MockStreamEvent::tool_call("call_1", "read", json!({"path": "file.txt"})),
+            final_event(rig::completion::Usage::default()),
+        ],
+        vec![
+            MockStreamEvent::text("all done"),
+            final_event(rig::completion::Usage::default()),
+        ],
+    ]);
+
+    let config = Config::default();
+    let built_in_tools = rho_engine::tools::build_builtin_tools(&workspace, &config).ok();
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &workspace,
+            app_config: config,
+            session_manager: None,
+            built_in_tools,
+        },
+    );
+
+    let recording = RecordingSink::default();
+    let presenter = Arc::new(StructuredPresenter::new(Arc::new(recording)));
+    let output = engine.run_turn(TurnRequest::new("read file"), presenter).await.unwrap();
+
+    assert_eq!(output.tool_calls_count, 1);
+    assert_eq!(output.final_text, "all done");
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[tokio::test]
+async fn test_hook_stops_on_tool_result() {
+    let workspace = temp_workspace();
+
+    write_hook_script(
+        &workspace,
+        "on_tool_result",
+        r#"echo '{"action":"stop","reason":"stop after result"}'"#,
+    );
+
+    let model = MockCompletionModel::from_stream_turns([vec![
+        MockStreamEvent::tool_call("call_1", "read", json!({"path": "file.txt"})),
+        final_event(rig::completion::Usage::default()),
+    ]]);
+
+    let config = Config::default();
+    let built_in_tools = rho_engine::tools::build_builtin_tools(&workspace, &config).ok();
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &workspace,
+            app_config: config,
+            session_manager: None,
+            built_in_tools,
+        },
+    );
+
+    let recording = RecordingSink::default();
+    let presenter = Arc::new(StructuredPresenter::new(Arc::new(recording)));
+    let result = engine.run_turn(TurnRequest::new("read file"), presenter).await;
+
+    match result {
+        Err(rho_harness_core::error::AppError::Cancelled(reason)) => {
+            assert!(reason.contains("stop after result"));
+        }
+        other => panic!("expected Cancelled error, got {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&workspace);
+}

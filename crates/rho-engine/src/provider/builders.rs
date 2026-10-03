@@ -147,3 +147,21 @@ pub(super) fn build_standard_client_model(provider: ProviderId, model: &str, key
         _ => build_rig_named_client(provider, model, key),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_rig_named_client_variants() {
+        crate::install_crypto_provider();
+        assert!(build_rig_named_client(ProviderId::Anthropic, "claude-3", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::DeepSeek, "deepseek-chat", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::Groq, "llama-3", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::OpenRouter, "model", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::XAi, "grok-1", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::Mistral, "mistral-large", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::Cohere, "command-r", "key".into()).is_ok());
+        assert!(build_rig_named_client(ProviderId::Local, "m", "key".into()).is_err());
+    }
+}

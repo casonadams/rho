@@ -99,12 +99,10 @@ futures.workspace = true
 async-trait.workspace = true
 
 # AI & LLM Engine
-rig.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 flate2.workspace = true
 tar.workspace = true
-rig-memory.workspace = true
 schemars = "1.0"
 serde.workspace = true
 serde_json.workspace = true

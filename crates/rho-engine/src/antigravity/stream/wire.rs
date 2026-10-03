@@ -106,3 +106,21 @@ pub fn map_finish_reason(reason: &str) -> FinishReason {
         other => FinishReason::Other(other.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_map_finish_reason() {
+        assert!(matches!(map_finish_reason("STOP"), FinishReason::Stop));
+        assert!(matches!(map_finish_reason("MAX_TOKENS"), FinishReason::Length));
+        assert!(matches!(map_finish_reason("SAFETY"), FinishReason::ContentFilter));
+        assert!(matches!(
+            map_finish_reason("PROHIBITED_CONTENT"),
+            FinishReason::ContentFilter
+        ));
+        assert!(matches!(map_finish_reason("BLOCKLIST"), FinishReason::ContentFilter));
+        assert!(matches!(map_finish_reason("UNKNOWN"), FinishReason::Other(_)));
+    }
+}
