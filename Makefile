@@ -77,7 +77,7 @@ coverage: ## Generate LCOV test coverage trace (uses nextest when available)
 
 .PHONY: crap
 crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30
-	$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --fail-above
+	$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --min 30 --fail-above --format json
 
 .PHONY: complexity
 complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc
