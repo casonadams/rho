@@ -14,11 +14,19 @@ pub fn into_dynamic_result(
         Ok(result) if result.is_error => {
             if result.content.starts_with("failed to parse tool arguments:") {
                 Err(ToolExecutionError::invalid_args(result.content))
+            } else if result.content.contains("permission denied") || result.content.contains("access denied") {
+                Err(ToolExecutionError::permission_denied(result.content))
+            } else if result.content.contains("not found") {
+                Err(ToolExecutionError::not_found(result.content))
+            } else if result.content.contains("timed out") || result.content.contains("timeout") {
+                Err(ToolExecutionError::timeout(result.content))
             } else {
                 Err(ToolExecutionError::other(result.content))
             }
         }
         Ok(result) => Ok(tool_output(result)),
+        Err(AppError::Policy(msg)) => Err(ToolExecutionError::permission_denied(msg)),
+        Err(AppError::Cancelled(msg)) => Err(ToolExecutionError::cancelled(msg)),
         Err(error) => Err(ToolExecutionError::from_error(error)),
     }
 }

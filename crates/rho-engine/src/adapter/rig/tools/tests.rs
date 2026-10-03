@@ -92,6 +92,18 @@ async fn rig_dispatch_rejects_unknown_tools() {
 }
 
 #[test]
+fn dynamic_result_maps_typed_error_kinds() {
+    let perm_err = into_dynamic_result(Ok(ToolResult::error("access denied: operation restricted")));
+    assert_eq!(perm_err.unwrap_err().kind(), ToolErrorKind::PermissionDenied);
+
+    let not_found_err = into_dynamic_result(Ok(ToolResult::error("file not found: foo.txt")));
+    assert_eq!(not_found_err.unwrap_err().kind(), ToolErrorKind::NotFound);
+
+    let timeout_err = into_dynamic_result(Ok(ToolResult::error("operation timed out after 30s")));
+    assert_eq!(timeout_err.unwrap_err().kind(), ToolErrorKind::Timeout);
+}
+
+#[test]
 fn dynamic_result_without_image_is_one_text_block() {
     let output = into_dynamic_result(Ok(ToolResult::success("plain"))).unwrap();
     assert_eq!(output.as_text(), Some("plain"));
