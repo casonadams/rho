@@ -1,12 +1,6 @@
-use rho_harness_core::error::AppError;
-use rig::completion::message::{ImageMediaType, MimeType, ToolResultContent};
-use rig::tool::ToolExecutionError;
 use serde::{Deserialize, Serialize};
 
 mod schema;
-
-#[cfg(test)]
-mod tests;
 
 pub use schema::{generated_schema, normalize_schema};
 
@@ -60,34 +54,4 @@ impl ToolResult {
             image: None,
         }
     }
-}
-
-pub fn into_rig_result(result: Result<ToolResult, AppError>) -> Result<String, ToolExecutionError> {
-    match result {
-        Ok(result) if result.is_error => Err(ToolExecutionError::other(result.content)),
-        Ok(result) => Ok(result.content),
-        Err(error) => Err(ToolExecutionError::from_error(error)),
-    }
-}
-
-pub fn into_dynamic_result(result: Result<ToolResult, AppError>) -> Result<rig::tool::ToolOutput, ToolExecutionError> {
-    match result {
-        Ok(result) if result.is_error => Err(ToolExecutionError::other(result.content)),
-        Ok(result) => Ok(tool_output(result)),
-        Err(error) => Err(ToolExecutionError::from_error(error)),
-    }
-}
-
-/// Text results stay a single text block; image-bearing results become
-/// `[text, image]` so vision-capable providers receive the inline image.
-fn tool_output(result: ToolResult) -> rig::tool::ToolOutput {
-    let Some(image) = result.image else {
-        return rig::tool::ToolOutput::text(result.content);
-    };
-    let media_type = ImageMediaType::from_mime_type(&image.mime);
-    rig::tool::ToolOutput::content(vec![
-        ToolResultContent::text(result.content),
-        ToolResultContent::image_base64(image.data, media_type, None),
-    ])
-    .expect("a text block plus an image block is never empty")
 }

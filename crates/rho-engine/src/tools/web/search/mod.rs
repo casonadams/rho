@@ -12,7 +12,8 @@ pub mod yahoo;
 #[cfg(test)]
 mod tests;
 
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::engine_tool::EngineTool;
+use crate::tools::types::{ToolResult, generated_schema};
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 pub use engine::{
@@ -27,7 +28,6 @@ pub use query::{
 pub use result::{SearchResult, deduplicate_results};
 pub use rho_harness_core::args::{WebSearchArgs, WebSearchRecency};
 use rho_harness_core::error::AppError;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 
 pub struct SearchQueryParams<'a> {
     pub query: &'a str,
@@ -161,21 +161,25 @@ impl WebSearchTool {
     }
 }
 
-impl Tool for WebSearchTool {
-    const NAME: &'static str = "web_search";
-    type Args = WebSearchArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for WebSearchTool {
+    fn name(&self) -> &str {
+        "web_search"
+    }
 
-    fn description(&self) -> String {
-        "Search the web and return structured search results with titles, summaries, and URLs.".to_string()
+    fn description(&self) -> &str {
+        "Search the web and return structured search results with titles, summaries, and URLs."
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<WebSearchArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: WebSearchArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

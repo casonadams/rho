@@ -72,7 +72,9 @@ mod activation {
         ]);
 
         let agent = AgentBuilder::new(model)
-            .tool(crate::tools::ReadTool::new(&repo_root))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::ReadTool::new(&repo_root),
+            ))
             .add_hook(hook)
             .record_content_telemetry(false)
             .build();
@@ -274,7 +276,9 @@ mod model_switch {
         };
         let agent = AgentBuilder::new(model_1.clone())
             .model_route("model-2", model_2.clone().erase())
-            .tool(crate::tools::WriteTool::new(dir.path()))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::WriteTool::new(dir.path()),
+            ))
             .add_hook(hook)
             .add_hook(switch_hook)
             .record_content_telemetry(false)
@@ -401,8 +405,12 @@ mod steering {
         ]);
 
         let agent = AgentBuilder::new(model.clone())
-            .tool(crate::tools::ReadTool::new(dir.path()))
-            .tool(crate::tools::WriteTool::new(dir.path()))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::ReadTool::new(dir.path()),
+            ))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::WriteTool::new(dir.path()),
+            ))
             .add_hook(hook)
             .record_content_telemetry(false)
             .build();
@@ -426,7 +434,9 @@ mod steering {
         ]);
 
         let agent = AgentBuilder::new(model.clone())
-            .tool(crate::tools::WriteTool::new(dir.path()))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::WriteTool::new(dir.path()),
+            ))
             .add_hook(hook)
             .record_content_telemetry(false)
             .build();
@@ -460,8 +470,12 @@ mod steering {
         ]);
 
         let agent = AgentBuilder::new(model.clone())
-            .tool(crate::tools::ReadTool::new(dir.path()))
-            .tool(crate::tools::WriteTool::new(dir.path()))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::ReadTool::new(dir.path()),
+            ))
+            .dynamic_tool(crate::adapter::rig::tools::into_dynamic_tool(
+                crate::tools::WriteTool::new(dir.path()),
+            ))
             .add_hook(hook)
             .record_content_telemetry(false)
             .build();

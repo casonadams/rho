@@ -12,10 +12,12 @@
 //! - [`hashing`] — FNV-1a message hashing for deduplication.
 
 mod artifact;
+pub mod artifact_spill;
 mod compactor;
 mod hashing;
 mod state;
 
+pub use artifact_spill::ArtifactDemotionHook;
 pub use compactor::{CodingArtifact, CodingCompactor, context_memory, model_visible_bytes};
 
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;

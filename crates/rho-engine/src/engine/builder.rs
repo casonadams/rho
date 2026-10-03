@@ -200,7 +200,7 @@ impl AgentEngineBuilder {
         let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
         let context_limit = super::model::resolve_context_limit(&self.config);
         let demotion_hook = self.demotion_hook.or_else(|| {
-            Some(Arc::new(crate::tools::artifact::ArtifactDemotionHook::new(
+            Some(Arc::new(crate::adapter::rig::context::ArtifactDemotionHook::new(
                 base_dir.join(".rho/artifacts"),
             )))
         });

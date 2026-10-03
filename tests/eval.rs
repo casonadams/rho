@@ -258,7 +258,9 @@ async fn agent_eval_core_denied_mutation_has_no_side_effect() {
         rig::test_utils::MockTurn::text("recovered from denial"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(rho::tools::WriteTool::new(&dir))
+        .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(
+            rho::tools::WriteTool::new(&dir),
+        ))
         .add_hook(DenyHook)
         .record_content_telemetry(false)
         .build();

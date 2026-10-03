@@ -6,10 +6,10 @@ mod tests;
 pub use format::{format_content, is_binary, number_lines};
 pub use rho_harness_core::args::ReadArgs;
 
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::engine_tool::EngineTool;
+use crate::tools::types::{ToolResult, generated_schema};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 
 pub struct ReadTool {
@@ -97,21 +97,25 @@ impl ReadTool {
     }
 }
 
-impl Tool for ReadTool {
-    const NAME: &'static str = "read";
-    type Args = ReadArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for ReadTool {
+    fn name(&self) -> &str {
+        "read"
+    }
 
-    fn description(&self) -> String {
-        "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result.".to_string()
+    fn description(&self) -> &str {
+        "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result."
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<ReadArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: ReadArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

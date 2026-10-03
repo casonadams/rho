@@ -1,20 +1,21 @@
-use super::*;
+use crate::adapter::rig::tools::{into_dynamic_result, into_dynamic_tool};
+use crate::tools::types::{ToolImage, ToolResult};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::{BashTool, EditTool, FdTool, ReadTool, WriteTool};
-use rig::tool::{ToolContext, ToolErrorKind, ToolSet};
+use rig::tool::{DynamicTool, ToolContext, ToolErrorKind, ToolSet};
 
-fn add_core_tools(tools: &mut ToolSet, base: &std::path::Path) {
-    tools.add_tool(ReadTool::new(base));
-    tools.add_tool(WriteTool::new(base));
-    tools.add_tool(EditTool::new(base));
-    tools.add_tool(BashTool::new(base));
-    tools.add_tool(FdTool::new(base));
+fn add_core_tools(tools: &mut Vec<DynamicTool>, base: &std::path::Path) {
+    tools.push(into_dynamic_tool(ReadTool::new(base)));
+    tools.push(into_dynamic_tool(WriteTool::new(base)));
+    tools.push(into_dynamic_tool(EditTool::new(base)));
+    tools.push(into_dynamic_tool(BashTool::new(base)));
+    tools.push(into_dynamic_tool(FdTool::new(base)));
 }
 
-fn add_web_tools(tools: &mut ToolSet, http: HttpClient) {
-    tools.add_tool(WebSearchTool::new(
+fn add_web_tools(tools: &mut Vec<DynamicTool>, http: HttpClient) {
+    tools.push(into_dynamic_tool(WebSearchTool::new(
         http.clone(),
         SearchRateLimiter::new(0),
         WebSearchConfig {
@@ -22,47 +23,28 @@ fn add_web_tools(tools: &mut ToolSet, http: HttpClient) {
             timeout_sec: 1,
             engines: Vec::new(),
         },
-    ));
-    tools.add_tool(WebFetchTool::new(
+    )));
+    tools.push(into_dynamic_tool(WebFetchTool::new(
         http,
         FetchCache::new(60, 4),
         WebFetchConfig {
             timeout_sec: 1,
             max_bytes: 1024,
-            pdf_max_bytes: 30 * 1024 * 1024,
-            default_limit: 20,
-            multimodal: true,
+            pdf_max_bytes: 1024,
+            default_limit: 10,
+            multimodal: false,
             auth_file: None,
         },
-    ));
+    )));
 }
 
 fn tool_set() -> ToolSet {
-    let base = std::env::temp_dir();
+    let temp = tempfile::tempdir().unwrap();
     let http = HttpClient::new(false).unwrap();
-    let mut tools = ToolSet::default();
-    add_core_tools(&mut tools, &base);
+    let mut tools = Vec::new();
+    add_core_tools(&mut tools, temp.path());
     add_web_tools(&mut tools, http);
-    tools
-}
-
-#[test]
-fn normalize_schema_replaces_boolean_subschemas() {
-    let mut schema = serde_json::json!({
-        "$defs": { "Item": { "type": "string" } },
-        "type": "object",
-        "properties": { "options": { "type": ["array", "null"], "items": true }, "item": { "$ref": "#/$defs/Item" }, "extra": true },
-        "prefixItems": [true],
-        "anyOf": [true, {"type": "string"}]
-    });
-    normalize_schema(&mut schema);
-    let expected = serde_json::json!({
-        "type": "object",
-        "properties": { "options": { "type": "array", "items": {} }, "item": { "type": "string" }, "extra": {} },
-        "prefixItems": [{}],
-        "anyOf": [{}, {"type": "string"}]
-    });
-    assert_eq!(schema, expected);
+    ToolSet::from_dynamic_tools(tools)
 }
 
 #[test]
@@ -127,8 +109,11 @@ fn dynamic_result_with_image_is_text_then_image_block() {
     let output = into_dynamic_result(Ok(result)).unwrap();
     let blocks = output.as_content();
     assert_eq!(blocks.len(), 2);
-    assert_eq!(blocks[0], ToolResultContent::text("Read image file [image/png]"));
-    let ToolResultContent::Image(image) = &blocks[1] else {
+    assert_eq!(
+        blocks[0],
+        rig::completion::message::ToolResultContent::text("Read image file [image/png]")
+    );
+    let rig::completion::message::ToolResultContent::Image(image) = &blocks[1] else {
         panic!("second block must be an image, got {blocks:?}");
     };
     assert_eq!(image.media_type, Some(rig::completion::message::ImageMediaType::PNG));
@@ -148,7 +133,7 @@ fn dynamic_result_maps_known_and_unknown_image_mimes() {
         },
     )))
     .unwrap();
-    let ToolResultContent::Image(image) = &output.as_content()[1] else {
+    let rig::completion::message::ToolResultContent::Image(image) = &output.as_content()[1] else {
         panic!("expected image block");
     };
     assert_eq!(image.media_type, Some(rig::completion::message::ImageMediaType::WEBP));
@@ -157,47 +142,25 @@ fn dynamic_result_maps_known_and_unknown_image_mimes() {
         "x",
         ToolImage {
             data: String::new(),
-            mime: "image/x-unknown".to_string(),
+            mime: "image/custom".to_string(),
         },
     )))
     .unwrap();
-    let ToolResultContent::Image(image) = &output.as_content()[1] else {
+    let rig::completion::message::ToolResultContent::Image(image) = &output.as_content()[1] else {
         panic!("expected image block");
     };
     assert_eq!(image.media_type, None);
 }
 
 #[test]
-fn dynamic_error_results_never_carry_images() {
-    let result = ToolResult::success_with_image(
-        "too late",
-        ToolImage {
-            data: "aGk=".to_string(),
-            mime: "image/png".to_string(),
-        },
-    );
+fn dynamic_result_propagates_is_error_flag_as_tool_execution_error() {
     let error = into_dynamic_result(Ok(ToolResult {
+        content: "something broke".to_string(),
         is_error: true,
-        ..result
+        metadata: None,
+        image: None,
     }))
     .unwrap_err();
-    assert!(error.to_string().contains("too late"));
-}
 
-#[test]
-fn tool_result_deserializes_without_image_field() {
-    let result: ToolResult = serde_json::from_str(r#"{"content":"legacy","is_error":false}"#).unwrap();
-    assert_eq!(result.content, "legacy");
-    assert!(result.image.is_none());
-
-    let with_image = ToolResult::success_with_image(
-        "note",
-        ToolImage {
-            data: "aGk=".to_string(),
-            mime: "image/gif".to_string(),
-        },
-    );
-    let json = serde_json::to_string(&with_image).unwrap();
-    let round_tripped: ToolResult = serde_json::from_str(&json).unwrap();
-    assert_eq!(round_tripped.image.as_ref().unwrap().mime, "image/gif");
+    assert!(error.to_string().contains("something broke"));
 }

@@ -7,12 +7,12 @@ pub use entry::{LineMatch, RG_COLLECTION_CEILING, format_results, render};
 pub use query::{MAX_RG_FILE_BYTES, RgQuery};
 pub use rho_harness_core::args::RgArgs;
 
+use crate::tools::engine_tool::EngineTool;
 use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::types::{ToolResult, generated_schema};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -123,22 +123,25 @@ fn compile_matcher(pattern: &str) -> Result<RegexMatcher, String> {
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
 }
 
-impl Tool for RgTool {
-    const NAME: &'static str = "rg";
-    type Args = RgArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for RgTool {
+    fn name(&self) -> &str {
+        "rg"
+    }
 
-    fn description(&self) -> String {
+    fn description(&self) -> &str {
         "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded."
-            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<RgArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: RgArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

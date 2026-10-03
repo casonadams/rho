@@ -9,14 +9,14 @@ use query::FdQuery;
 pub use rho_harness_core::args::{FdArgs, FdSort};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+use crate::tools::engine_tool::EngineTool;
 use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::types::{ToolResult, generated_schema};
 use regex::Regex;
 
 pub const DEFAULT_FD_LIMIT: usize = 100;
@@ -143,22 +143,25 @@ fn compile_pattern(pattern: &str) -> Result<Regex, String> {
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
 }
 
-impl Tool for FdTool {
-    const NAME: &'static str = "fd";
-    type Args = FdArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for FdTool {
+    fn name(&self) -> &str {
+        "fd"
+    }
 
-    fn description(&self) -> String {
+    fn description(&self) -> &str {
         "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded."
-            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<FdArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: FdArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

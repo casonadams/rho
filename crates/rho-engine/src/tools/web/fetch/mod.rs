@@ -7,13 +7,13 @@ pub mod pagination;
 #[cfg(test)]
 mod tests;
 
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::engine_tool::EngineTool;
+use crate::tools::types::{ToolResult, generated_schema};
 use crate::tools::web::http::{HttpClient, HttpRequest};
 use cache::{CachedResource, FetchCache};
 use pagination::{FormatPageParams, format_page};
 pub use rho_harness_core::args::WebFetchArgs;
 use rho_harness_core::error::AppError;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::sync::Arc;
 
 pub struct WebFetchConfig {
@@ -231,21 +231,25 @@ impl WebFetchTool {
     }
 }
 
-impl Tool for WebFetchTool {
-    const NAME: &'static str = "web_fetch";
-    type Args = WebFetchArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for WebFetchTool {
+    fn name(&self) -> &str {
+        "web_fetch"
+    }
 
-    fn description(&self) -> String {
-        "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).".to_string()
+    fn description(&self) -> &str {
+        "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF)."
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<WebFetchArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: WebFetchArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

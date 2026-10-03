@@ -1,9 +1,9 @@
 use crate::tools::atomic::atomic_write;
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::engine_tool::EngineTool;
+use crate::tools::types::{ToolResult, generated_schema};
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -91,21 +91,25 @@ impl WriteTool {
     }
 }
 
-impl Tool for WriteTool {
-    const NAME: &'static str = "write";
-    type Args = WriteArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for WriteTool {
+    fn name(&self) -> &str {
+        "write"
+    }
 
-    fn description(&self) -> String {
-        "Write full content to a file, automatically creating parent directories.".to_string()
+    fn description(&self) -> &str {
+        "Write full content to a file, automatically creating parent directories."
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<WriteArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: WriteArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 
 use super::mock::MockHookPresenter;
+use crate::adapter::rig::tools::into_dynamic_tool;
 use crate::permission::guard::GuardEvaluator;
 use crate::permission::hook::PermissionHook;
 use crate::permission::policy::{build_policy, parse_scope_from_str};
@@ -25,7 +26,7 @@ async fn test_allowed_call_runs_silently() {
     ]);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -54,7 +55,7 @@ async fn test_denied_call_skipped_with_reason() {
     ]);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -77,7 +78,7 @@ async fn test_ask_in_headless_mode_fails_closed() {
     ]);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -100,7 +101,7 @@ async fn test_ask_interactive_allow_action() {
     ]);
 
     let agent = AgentBuilder::new(model)
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -128,7 +129,7 @@ async fn test_ask_interactive_edit_action() {
     ]);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -150,7 +151,10 @@ async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, cmd: &
         MockTurn::tool_call("2", "bash", json!({"command": cmd})),
         MockTurn::text("completed"),
     ]);
-    let agent = AgentBuilder::new(model).tool(BashTool::new(dir)).add_hook(hook).build();
+    let agent = AgentBuilder::new(model)
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir)))
+        .add_hook(hook)
+        .build();
     agent.prompt("persist").max_turns(turns).run().await.unwrap().output
 }
 
@@ -217,7 +221,7 @@ async fn test_ask_interactive_deny_with_reason() {
         MockTurn::text("stopped"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
     let _ = agent.prompt("touch").max_turns(2).run().await.unwrap();
@@ -236,7 +240,7 @@ async fn test_ask_interactive_cancel() {
         MockTurn::text("stopped"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
     let _ = agent.prompt("touch").max_turns(2).run().await.unwrap();
@@ -261,7 +265,7 @@ async fn test_guard_evaluator_auto_allows_safe_command() {
         MockTurn::text("success"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -288,7 +292,7 @@ async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
         MockTurn::text("done"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -315,7 +319,7 @@ async fn test_guard_evaluator_critical_danger_intercepts_without_model() {
         MockTurn::text("cancelled"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -350,7 +354,7 @@ async fn test_guard_evaluator_error_falls_back_to_prompt() {
         MockTurn::text("cancelled"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -377,7 +381,7 @@ async fn test_guard_evaluator_headless_denies_unsafe_command() {
         MockTurn::text("stopped"),
     ]);
     let agent = AgentBuilder::new(model.clone())
-        .tool(BashTool::new(dir.path()))
+        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
         .add_hook(hook)
         .build();
 
@@ -410,7 +414,7 @@ async fn test_external_write_prompts_and_completes_on_allow() {
     ]);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(WriteTool::new(ws_dir.path()))
+        .dynamic_tool(into_dynamic_tool(WriteTool::new(ws_dir.path())))
         .add_hook(hook)
         .build();
 
@@ -450,7 +454,7 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
     ]);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(EditTool::new(ws_dir.path()))
+        .dynamic_tool(into_dynamic_tool(EditTool::new(ws_dir.path())))
         .add_hook(hook)
         .build();
 

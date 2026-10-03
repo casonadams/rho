@@ -3,6 +3,7 @@
 pub mod context;
 pub mod memory;
 pub mod model;
+pub mod tools;
 pub use memory::RigSessionMemory;
 
 use rho_harness_core::model::{
@@ -212,7 +213,7 @@ fn from_rig_image(img: &RigImage) -> ImageContent {
     ImageContent { data, media_type }
 }
 
-fn parse_media_type(s: &str) -> Option<RigMediaType> {
+pub fn parse_media_type(s: &str) -> Option<RigMediaType> {
     let clean = s.strip_prefix("image/").unwrap_or(s).to_ascii_lowercase();
     serde_json::from_str(&format!("\"{clean}\"")).ok()
 }

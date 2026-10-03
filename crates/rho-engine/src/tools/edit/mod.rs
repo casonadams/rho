@@ -3,13 +3,13 @@ pub mod normalize;
 mod tests;
 
 use crate::tools::atomic::atomic_write;
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::engine_tool::EngineTool;
+use crate::tools::types::{ToolResult, generated_schema};
 pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
 pub use rho_harness_core::args::EditArgs;
 pub use rho_harness_core::args::EditReplacement;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
-use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 
 pub struct EditTool {
@@ -166,21 +166,25 @@ impl EditTool {
     }
 }
 
-impl Tool for EditTool {
-    const NAME: &'static str = "edit";
-    type Args = EditArgs;
-    type Output = String;
-    type Error = ToolExecutionError;
+#[async_trait::async_trait]
+impl EngineTool for EditTool {
+    fn name(&self) -> &str {
+        "edit"
+    }
 
-    fn description(&self) -> String {
-        "Edit a file by applying exact string replacements. Every oldText must match exactly once.".to_string()
+    fn description(&self) -> &str {
+        "Edit a file by applying exact string replacements. Every oldText must match exactly once."
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<EditArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        into_rig_result(self.execute(args).await)
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        let args: EditArgs = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+        };
+        self.execute(args).await
     }
 }

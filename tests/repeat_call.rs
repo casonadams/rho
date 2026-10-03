@@ -27,7 +27,7 @@ mod tests {
             MockTurn::text("changed approach"),
         ]);
         let agent = AgentBuilder::new(model.clone())
-            .tool(BashTool::new(&dir))
+            .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(BashTool::new(&dir)))
             .add_hook(RepeatedCallHook::new(&dir))
             .build();
         let response = agent.prompt("repeat").max_turns(5).run().await.unwrap();
@@ -51,7 +51,9 @@ mod tests {
             MockTurn::text("done"),
         ]);
         let agent = AgentBuilder::new(model.clone())
-            .tool(rho::tools::WriteTool::new(&dir))
+            .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(
+                rho::tools::WriteTool::new(&dir),
+            ))
             .add_hook(RepeatedCallHook::new(&dir))
             .build();
         agent.prompt("repeat").max_turns(5).run().await.unwrap();
@@ -74,7 +76,9 @@ mod tests {
             MockTurn::text("done"),
         ]);
         let agent = AgentBuilder::new(model.clone())
-            .tool(rho::tools::ReadTool::new(&dir))
+            .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(
+                rho::tools::ReadTool::new(&dir),
+            ))
             .add_hook(RepeatedCallHook::new(&dir))
             .build();
         agent.prompt("read").max_turns(6).run().await.unwrap();

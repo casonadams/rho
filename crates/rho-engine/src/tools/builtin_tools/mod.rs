@@ -7,12 +7,13 @@ pub use catalog::{
     PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
+use crate::adapter::rig::tools::into_dynamic_result;
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::fd::FdTool;
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::rg::RgTool;
-use crate::tools::types::{ToolResult, generated_schema, into_dynamic_result};
+use crate::tools::types::{ToolResult, generated_schema};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
