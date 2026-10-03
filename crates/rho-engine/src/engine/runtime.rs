@@ -60,7 +60,11 @@ pub fn build_coding_agent(
 }
 
 pub fn build_runner(agent: &Agent, prompt: impl Into<rig::message::Message>) -> AgentRunner {
-    agent.prompt(prompt).tool_concurrency(1).record_content_telemetry(false)
+    agent
+        .prompt(prompt)
+        .tool_concurrency(1)
+        .record_content_telemetry(false)
+        .max_invalid_tool_call_retries(3)
 }
 
 #[cfg(test)]

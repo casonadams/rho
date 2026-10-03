@@ -25,12 +25,14 @@ async fn malformed_tool_arguments_are_model_visible_tool_failures() {
 }
 
 #[tokio::test]
-async fn unknown_tool_calls_fail_without_fallback() {
-    let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::tool_call("call-1", "unknown", serde_json::json!({})),
-        final_event(Usage::default()),
-    ]]);
-    let engine = test_engine(model, Config::default());
+async fn unknown_tool_calls_fail_after_retries_exhausted() {
+    let turns = [(); 4].map(|_| {
+        [
+            MockStreamEvent::tool_call("call-x", "unknown", serde_json::json!({})),
+            final_event(Usage::default()),
+        ]
+    });
+    let engine = test_engine(MockCompletionModel::from_stream_turns(turns), Config::default());
     let error = engine
         .run_turn(request("unknown"), presenter(&TerminalRenderer::default()))
         .await
