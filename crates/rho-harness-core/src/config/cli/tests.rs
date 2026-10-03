@@ -71,6 +71,17 @@ fn test_cli_flags() {
 }
 
 #[test]
+fn test_cli_flags_smol_and_slow() {
+    let cli = Cli::try_parse_from(["rho", "--smol"]).unwrap();
+    assert!(cli.smol);
+    assert!(!cli.slow);
+
+    let cli_slow = Cli::try_parse_from(["rho", "--slow"]).unwrap();
+    assert!(!cli_slow.smol);
+    assert!(cli_slow.slow);
+}
+
+#[test]
 fn test_cli_flag_aliases() {
     let cli = Cli::try_parse_from(["rho", "--nc"]).unwrap();
     assert_eq!((cli.no_context_files, cli.no_permission), (true, false));

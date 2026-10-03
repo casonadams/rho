@@ -74,6 +74,8 @@ fn sample_cli_override(model: &str, turns: usize) -> cli::Cli {
     cli::Cli {
         prompt: None,
         model: Some(model.to_string()),
+        smol: false,
+        slow: false,
         provider: None,
         max_output_tokens: None,
         max_turns: Some(turns),
@@ -272,7 +274,10 @@ fn test_merge_models() {
         [models]
         default = "anthropic/claude-3-7-sonnet"
         guard = "local/qwen2.5-coder:7b"
+        smol = "google/gemini-2.5-flash"
+        slow = "openai/o3-mini"
         plan = "openai/o3-mini"
+        commit = "local/qwen2.5-coder:7b"
         advisor = "google/gemini-2.5-flash"
     "#;
     let file1: FileConfig = toml::from_str(toml1).unwrap();
@@ -281,6 +286,15 @@ fn test_merge_models() {
     assert_eq!(config1.provider, "anthropic");
     assert_eq!(config1.model, "claude-3-7-sonnet");
     assert_eq!(config1.guard_model(), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(
+        config1.models.get("smol").map(String::as_str),
+        Some("google/gemini-2.5-flash")
+    );
+    assert_eq!(config1.models.get("slow").map(String::as_str), Some("openai/o3-mini"));
+    assert_eq!(
+        config1.models.get("commit").map(String::as_str),
+        Some("local/qwen2.5-coder:7b")
+    );
     assert_eq!(config1.models.get("plan").map(String::as_str), Some("openai/o3-mini"));
     assert_eq!(
         config1.models.get("advisor").map(String::as_str),

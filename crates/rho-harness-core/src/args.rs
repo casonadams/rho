@@ -29,6 +29,9 @@ pub struct EditArgs {
     pub path: String,
     /// List of exact replacements to apply
     pub edits: Vec<EditReplacement>,
+    /// Optional hashline patch payload (e.g. `[path#TAG] PUT 12.=15:\n+replacement`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]

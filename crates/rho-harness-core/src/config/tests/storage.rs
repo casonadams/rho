@@ -6,6 +6,8 @@ fn sample_cli_model(model: &str) -> crate::config::cli::Cli {
     crate::config::cli::Cli {
         prompt: None,
         model: Some(model.to_string()),
+        smol: false,
+        slow: false,
         provider: None,
         max_output_tokens: None,
         max_turns: None,

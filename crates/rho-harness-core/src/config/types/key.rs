@@ -36,6 +36,11 @@ pub(crate) enum ConfigKey {
     McpEnabled,
     PermissionEnabled,
     GuardModel,
+    SmolModel,
+    SlowModel,
+    PlanModel,
+    CommitModel,
+    AdvisorModel,
 }
 
 impl FromStr for ConfigKey {
@@ -102,6 +107,11 @@ fn parse_feature_key(value: &str) -> Option<ConfigKey> {
         "mcp.enabled" | "mcp" => Some(ConfigKey::McpEnabled),
         "permission.enabled" | "permission" => Some(ConfigKey::PermissionEnabled),
         "models.guard" | "guard_model" | "guard" => Some(ConfigKey::GuardModel),
+        "models.smol" | "smol_model" | "smol" => Some(ConfigKey::SmolModel),
+        "models.slow" | "slow_model" | "slow" => Some(ConfigKey::SlowModel),
+        "models.plan" | "plan_model" | "plan" => Some(ConfigKey::PlanModel),
+        "models.commit" | "commit_model" | "commit" => Some(ConfigKey::CommitModel),
+        "models.advisor" | "advisor_model" | "advisor" => Some(ConfigKey::AdvisorModel),
         _ => None,
     }
 }
@@ -157,6 +167,11 @@ impl ConfigKey {
             Self::McpEnabled => "mcp.enabled",
             Self::PermissionEnabled => "permission.enabled",
             Self::GuardModel => "models.guard",
+            Self::SmolModel => "models.smol",
+            Self::SlowModel => "models.slow",
+            Self::PlanModel => "models.plan",
+            Self::CommitModel => "models.commit",
+            Self::AdvisorModel => "models.advisor",
             _ => "",
         }
     }
@@ -166,7 +181,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 34] = [
+    const ALL_KEYS: [ConfigKey; 39] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -201,6 +216,11 @@ mod tests {
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
         ConfigKey::GuardModel,
+        ConfigKey::SmolModel,
+        ConfigKey::SlowModel,
+        ConfigKey::PlanModel,
+        ConfigKey::CommitModel,
+        ConfigKey::AdvisorModel,
     ];
 
     #[test]

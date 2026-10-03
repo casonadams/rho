@@ -25,6 +25,15 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref guard) = file.models.guard {
         config.models.insert("guard".to_string(), guard.clone());
     }
+    if let Some(ref smol) = file.models.smol {
+        config.models.insert("smol".to_string(), smol.clone());
+    }
+    if let Some(ref slow) = file.models.slow {
+        config.models.insert("slow".to_string(), slow.clone());
+    }
+    if let Some(ref commit) = file.models.commit {
+        config.models.insert("commit".to_string(), commit.clone());
+    }
     if let Some(ref plan) = file.models.plan {
         config.models.insert("plan".to_string(), plan.clone());
     }

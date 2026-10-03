@@ -141,7 +141,32 @@ impl super::Config {
     }
 }
 
+fn parse_optional_model(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    match trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+        true => None,
+        false => Some(trimmed.to_string()),
+    }
+}
+
+fn apply_named_role_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> bool {
+    let opt = parse_optional_model(value);
+    match key {
+        ConfigKey::GuardModel => file_config.models.guard = opt,
+        ConfigKey::SmolModel => file_config.models.smol = opt,
+        ConfigKey::SlowModel => file_config.models.slow = opt,
+        ConfigKey::PlanModel => file_config.models.plan = opt,
+        ConfigKey::CommitModel => file_config.models.commit = opt,
+        ConfigKey::AdvisorModel => file_config.models.advisor = opt,
+        _ => return false,
+    }
+    true
+}
+
 fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
+    if apply_named_role_model_key(file_config, key, value) {
+        return Ok(true);
+    }
     match key {
         ConfigKey::Model => {
             file_config.models.default = Some(value.to_string());
@@ -158,14 +183,6 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         }
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
-        }
-        ConfigKey::GuardModel => {
-            let trimmed = value.trim();
-            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
-                file_config.models.guard = None;
-            } else {
-                file_config.models.guard = Some(trimmed.to_string());
-            }
         }
         _ => return Ok(false),
     }

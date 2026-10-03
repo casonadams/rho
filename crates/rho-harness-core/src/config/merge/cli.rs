@@ -39,6 +39,14 @@ fn apply_provider_flag_only(config: &mut Config, provider: &str) {
 fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
     if let Some(ref m) = c.model {
         resolve_model_with_provider(config, m.trim(), c.provider.as_deref());
+    } else if c.smol {
+        if let Some(smol_model) = config.models.get("smol").cloned() {
+            resolve_model_with_provider(config, smol_model.trim(), c.provider.as_deref());
+        }
+    } else if c.slow {
+        if let Some(slow_model) = config.models.get("slow").cloned() {
+            resolve_model_with_provider(config, slow_model.trim(), c.provider.as_deref());
+        }
     } else if let Some(ref p) = c.provider {
         apply_provider_flag_only(config, p);
     }

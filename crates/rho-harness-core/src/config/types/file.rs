@@ -7,16 +7,28 @@ pub struct ModelsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub advisor: Option<String>,
 }
 
 impl ModelsConfig {
     pub fn is_empty(&self) -> bool {
-        self.default.is_none() && self.guard.is_none() && self.plan.is_none() && self.advisor.is_none()
+        self.default.is_none()
+            && self.smol.is_none()
+            && self.slow.is_none()
+            && self.guard.is_none()
+            && self.plan.is_none()
+            && self.commit.is_none()
+            && self.advisor.is_none()
     }
 }
 

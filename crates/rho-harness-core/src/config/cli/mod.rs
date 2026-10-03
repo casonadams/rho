@@ -26,6 +26,14 @@ pub struct Cli {
     #[arg(short = 'm', long = "model")]
     pub model: Option<String>,
 
+    /// Use the configured fast/smol model
+    #[arg(long = "smol", default_value_t = false)]
+    pub smol: bool,
+
+    /// Use the configured deep reasoning/slow model
+    #[arg(long = "slow", default_value_t = false)]
+    pub slow: bool,
+
     /// AI provider: API-key, local, or subscription identity (optional/legacy when model includes provider)
     #[arg(long = "provider")]
     pub provider: Option<String>,
