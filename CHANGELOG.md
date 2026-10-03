@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.12.0](https://github.com/casonadams/rho/compare/v0.11.0...v0.12.0) (2026-10-03)
+
+
+### Features
+
+* **adapter:** add bidirectional Rig anti-corruption layer message bridge ([877a1d6](https://github.com/casonadams/rho/commit/877a1d6f69d1bfe51dd102505fe10e59197141ff))
+* **adapter:** decouple sessions, pruning, and providers via Rig anti-corruption layer ([8156d10](https://github.com/casonadams/rho/commit/8156d10234fe1826ab10e528e08a2fa4e3877ef0))
+* **adapter:** map tool execution failures to typed Rig ToolErrorKind variants ([90d2488](https://github.com/casonadams/rho/commit/90d248878ae0662a3b9e2d84a26857fd8fe627c5))
+* **engine:** migrate to rig 0.43.0 driver and lifecycle architecture ([d1e869a](https://github.com/casonadams/rho/commit/d1e869ab66e92bf7686c413730c3847bd6e3b8bd))
+* **mcp:** modernize adapter with lazy lifecycle, idle reaper, disk cache, and definition trust ([0b53059](https://github.com/casonadams/rho/commit/0b530592b29811d3d78a8bfdf515ab1e1e05a5e2))
+* **mcp:** support immediate deferred execution and deduplicate ui ansi parsing ([962c7a4](https://github.com/casonadams/rho/commit/962c7a4748dbd54c63a2297d0f93f4f4238f142d))
+* **model:** add framework-independent chat message and tool domain types ([b673722](https://github.com/casonadams/rho/commit/b673722c042508855ab582f4a50926722ae27477))
+* **permission:** add critical danger pre-flight intercept to guard evaluator ([202886c](https://github.com/casonadams/rho/commit/202886cae88bee035105a6e80254f4b28aec4785))
+
+
+### Bug Fixes
+
+* **antigravity:** format observation text with tool call signature ([fc98210](https://github.com/casonadams/rho/commit/fc98210578217dc2cf7ad5b23f8ddd3a133941c2))
+* **antigravity:** pass clean response text for unsigned tool observations ([7f30cc7](https://github.com/casonadams/rho/commit/7f30cc7302ecb8e1b5dd8d4836d5f49e12f63482))
+* **engine:** configure invalid tool call retry budget on agent runner ([cb5a2c6](https://github.com/casonadams/rho/commit/cb5a2c6c57b2fcded8b2fe0486f102fedf8adf7d))
+* **engine:** strip canonical model prefix on wire calls and isolate provider extras ([d169a16](https://github.com/casonadams/rho/commit/d169a16d4ee945c03965c9cdefe1ad49b6eaa543))
+
+
+### Performance Improvements
+
+* **core:** optimize turn pruning and summary string sanitization ([bec9949](https://github.com/casonadams/rho/commit/bec994930c5e09d2c5607df7307b0e127d54e339))
+* **presentation:** optimize kv string sanitization and early-break object formatting ([369b1ee](https://github.com/casonadams/rho/commit/369b1eee5cbe2e01c7b7e64434e5df75934dfa77))
+* **tokens:** avoid parsing and cloning single-line json arguments in tool call estimation ([adc8ef0](https://github.com/casonadams/rho/commit/adc8ef076350d3dfbbb198de752f999b31285850))
+* **ui:** avoid temporary string formatting allocations in render formatters ([f5861d2](https://github.com/casonadams/rho/commit/f5861d2c90917016f6329c3e104fe3b1dc0c4ff1))
+
 ## [0.11.0](https://github.com/casonadams/rho/compare/v0.10.1...v0.11.0) (2026-09-28)
 
 
