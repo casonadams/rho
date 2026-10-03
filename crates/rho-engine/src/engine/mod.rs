@@ -18,6 +18,7 @@ mod model;
 mod quota;
 pub mod runner;
 pub mod runtime;
+pub mod stream_rules;
 pub mod tracking;
 
 pub use compactor::CompactionStats;

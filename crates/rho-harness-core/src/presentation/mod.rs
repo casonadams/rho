@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod presenter;
+pub mod recording;
 pub mod stream;
 pub mod structured;
 pub mod summary;
