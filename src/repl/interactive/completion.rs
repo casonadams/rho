@@ -172,6 +172,9 @@ impl CompletionSet {
             return Vec::new();
         };
 
+        if let Some(results) = complete_midprompt_skills(&self.skills, prefix, cursor) {
+            return results;
+        }
         if let Some(results) = complete_slash_args(self, prefix, cursor) {
             return results;
         }
@@ -180,6 +183,40 @@ impl CompletionSet {
         }
         complete_slash_commands(&self.commands, prefix, cursor)
     }
+}
+
+fn complete_midprompt_skills(skills: &[SkillItem], prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
+    let skill_idx = prefix.rfind("/skill:")?;
+    let is_word_start = skill_idx == 0 || prefix[..skill_idx].ends_with(char::is_whitespace);
+    if !is_word_start {
+        return None;
+    }
+    let query = &prefix[skill_idx + "/skill:".len()..];
+    if query.contains(char::is_whitespace) {
+        return None;
+    }
+    let mut scored: Vec<(i32, &SkillItem)> = skills
+        .iter()
+        .filter_map(|s| {
+            if query.is_empty() {
+                Some((0, s))
+            } else {
+                fuzzy_match(query, &s.name).map(|score| (score, s))
+            }
+        })
+        .collect();
+    scored.sort_by_key(|(score, s)| (*score, s.name.clone()));
+
+    Some(
+        scored
+            .into_iter()
+            .map(|(_, s)| Completion {
+                value: format!("/skill:{}", s.name),
+                description: Some(format!("{} [{}]", s.description, s.origin)),
+                replacement: skill_idx..cursor,
+            })
+            .collect(),
+    )
 }
 
 fn complete_files(files: &[String], prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
@@ -196,7 +233,7 @@ fn complete_files(files: &[String], prefix: &str, cursor: usize) -> Option<Vec<C
             .filter(|f| f.to_lowercase().contains(&lower_prefix))
             .take(25)
             .map(|f| Completion {
-                value: f.clone(),
+                value: format!("@{f}"),
                 description: None,
                 replacement: at_idx..cursor,
             })

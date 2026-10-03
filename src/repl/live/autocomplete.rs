@@ -8,40 +8,52 @@ pub enum AutocompleteKeyResult {
     NotHandled,
 }
 
-fn apply_selected_completion<B: TerminalBackend>(controller: &mut TerminalController<B>, val: &str) {
+fn apply_selected_completion<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    val: &str,
+    replacement: &std::ops::Range<usize>,
+) {
     let state = controller.state_mut();
     let editor = state.editor_mut();
     let text = editor.text();
-    let cursor = editor.cursor();
-    if val.starts_with('/') {
-        let mut new_text = val.to_string();
-        if !new_text.ends_with(' ') {
-            new_text.push(' ');
-        }
-        new_text.push_str(&text[cursor..]);
-        editor.set_text(&new_text);
-    } else {
-        let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
-        let new_text = format!("{val} {}", &text[end..]);
-        editor.set_text(&new_text);
+    let start = replacement.start.min(text.len());
+    let end = replacement.end.min(text.len()).max(start);
+
+    let mut new_text = String::new();
+    new_text.push_str(&text[..start]);
+    new_text.push_str(val);
+    let is_dir = val.ends_with('/') || val.ends_with('\\');
+    if !val.ends_with(' ') && !is_dir {
+        new_text.push(' ');
     }
+    let new_cursor = new_text.len();
+    new_text.push_str(&text[end..]);
+    editor.set_text_with_cursor(new_text, new_cursor);
 }
 
 fn handle_accept_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     completions: &CompletionSet,
 ) -> AutocompleteKeyResult {
-    let selected_val = controller
+    let selected = controller
         .state_mut()
         .autocomplete
         .selected_item()
-        .map(|item| item.value.clone());
-    if let Some(val) = selected_val {
-        apply_selected_completion(controller, &val);
+        .map(|item| (item.value.clone(), item.replacement.clone()));
+    let should_chain = if let Some((val, replacement)) = selected {
+        let is_dir = val.ends_with('/') || val.ends_with('\\');
+        apply_selected_completion(controller, &val, &replacement);
+        is_dir
     } else {
         apply_completion_generic(controller, completions);
+        false
+    };
+
+    if should_chain {
+        update_autocomplete_state_generic(controller, completions);
+    } else {
+        controller.state_mut().autocomplete.close();
     }
-    controller.state_mut().autocomplete.close();
     AutocompleteKeyResult::Handled
 }
 
@@ -124,8 +136,8 @@ pub fn update_autocomplete_state_generic<B: TerminalBackend>(
     let text = editor.text();
     let cursor = editor.cursor();
 
-    // Trigger autocomplete when typing a command or file mention
-    if (text.starts_with('/') || text.contains('@')) && cursor <= text.len() {
+    // Trigger autocomplete when typing a command, midprompt skill, or file mention
+    if (text.starts_with('/') || text.contains("/skill:") || text.contains('@')) && cursor <= text.len() {
         let matches = completions.complete(text, cursor);
         if !matches.is_empty() {
             controller.state_mut().autocomplete.open(matches);
@@ -332,5 +344,46 @@ mod tests {
         let res = handle_autocomplete_key_generic(&mut controller, &completions, down_release);
         assert!(matches!(res, AutocompleteKeyResult::Handled));
         assert_eq!(controller.state().autocomplete.selected, 0);
+    }
+
+    #[test]
+    fn test_autocomplete_midprompt_skill_and_range_replacement() {
+        let completions = sample_skill_completions(&[("plan", "Plan"), ("spec", "Spec")]);
+        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        controller
+            .state_mut()
+            .editor_mut()
+            .set_text_with_cursor("please run /skill:pl for me", 20);
+        update_autocomplete_state_generic(&mut controller, &completions);
+        assert!(controller.state().autocomplete.visible);
+        assert_eq!(
+            controller.state().autocomplete.selected_item().unwrap().value,
+            "/skill:plan"
+        );
+
+        let res = press_key(&mut controller, &completions, KeyCode::Tab);
+        assert!(matches!(res, AutocompleteKeyResult::Handled));
+        assert_eq!(controller.state().editor().text(), "please run /skill:plan  for me");
+        assert!(!controller.state().autocomplete.visible);
+    }
+
+    #[test]
+    fn test_autocomplete_chains_directory_completion() {
+        let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new())
+            .with_files(vec!["src/repl/".to_string(), "src/main.rs".to_string()]);
+        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        controller.state_mut().editor_mut().set_text_with_cursor("@src", 4);
+        update_autocomplete_state_generic(&mut controller, &completions);
+        assert!(controller.state().autocomplete.visible);
+        assert_eq!(
+            controller.state().autocomplete.selected_item().unwrap().value,
+            "@src/repl/"
+        );
+
+        let res = press_key(&mut controller, &completions, KeyCode::Tab);
+        assert!(matches!(res, AutocompleteKeyResult::Handled));
+        assert_eq!(controller.state().editor().text(), "@src/repl/");
+        // Because it ended in '/', autocomplete should chain and re-trigger
+        assert!(controller.state().autocomplete.visible);
     }
 }
