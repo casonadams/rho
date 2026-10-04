@@ -69,35 +69,21 @@ impl RgTool {
         let cancellation = Arc::new(AtomicBool::new(false));
         let cancel_guard = CancelOnDrop(cancellation.clone());
         let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
-        let query = build_rg_query(
-            (&self.base_dir, args),
-            (matcher, types, search_root),
-            (timeout, cancellation),
-            self.artifact_dir.clone(),
-        );
+        let query = RgQuery {
+            workspace_root: self.base_dir.clone(),
+            search_root,
+            search_path_display: args.path,
+            matcher,
+            types,
+            include_hidden: args.hidden.unwrap_or(false),
+            timeout: Some(timeout),
+            cancellation: Some(cancellation),
+            artifact_dir: self.artifact_dir.clone(),
+        };
         let handle = tokio::task::spawn_blocking(move || query.run(limit));
         let res = await_rg_task(handle, timeout).await;
         drop(cancel_guard);
         res
-    }
-}
-
-fn build_rg_query(
-    (base_dir, args): (&Path, RgArgs),
-    (matcher, types, search_root): (RegexMatcher, Option<ignore::types::Types>, PathBuf),
-    (timeout, cancellation): (Duration, Arc<AtomicBool>),
-    artifact_dir: Option<PathBuf>,
-) -> RgQuery {
-    RgQuery {
-        workspace_root: base_dir.to_path_buf(),
-        search_root,
-        search_path_display: args.path,
-        matcher,
-        types,
-        include_hidden: args.hidden.unwrap_or(false),
-        timeout: Some(timeout),
-        cancellation: Some(cancellation),
-        artifact_dir,
     }
 }
 

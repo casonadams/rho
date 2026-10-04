@@ -157,7 +157,9 @@ fn extract_image_parts(content: &[rig::message::ToolResultContent]) -> Vec<Funct
 }
 
 fn push_observation_parts(
-    (result_name, args, response_text): (&str, &str, &str),
+    result_name: &str,
+    args: &str,
+    response_text: &str,
     image_parts: Vec<FunctionResponsePart>,
     parts: &mut Vec<Part>,
 ) {
@@ -179,7 +181,9 @@ fn push_observation_parts(
 
 fn build_function_response_part(
     result: &rig::message::ToolResult,
-    (sanitized_id, response_text, image_parts): (String, String, Vec<FunctionResponsePart>),
+    sanitized_id: String,
+    response_text: String,
+    image_parts: Vec<FunctionResponsePart>,
     ctx: &ConversionContext<'_>,
 ) -> Part {
     Part {
@@ -209,9 +213,9 @@ fn convert_tool_result_part(result: &rig::message::ToolResult, ctx: &ConversionC
         })
         .flatten();
     if let Some(args) = dropped_args {
-        push_observation_parts((&result.name, &args, &response_text), image_parts, parts);
+        push_observation_parts(&result.name, &args, &response_text, image_parts, parts);
     } else {
-        let part = build_function_response_part(result, (sanitized_id, response_text, image_parts), ctx);
+        let part = build_function_response_part(result, sanitized_id, response_text, image_parts, ctx);
         parts.push(part);
     }
 }

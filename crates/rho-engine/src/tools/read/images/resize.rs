@@ -68,7 +68,8 @@ pub(crate) fn resize_to_limits(bytes: &[u8], mime: &'static str) -> Option<Resiz
 }
 
 fn as_passthrough_image(
-    (bytes, mime): (&[u8], &'static str),
+    bytes: &[u8],
+    mime: &'static str,
     (orig_w, orig_h): (u32, u32),
     limits: &ResizeLimits,
 ) -> Option<ResizedImage> {
@@ -133,7 +134,7 @@ pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: Resiz
     let format = image_format(mime)?;
     let image = decode_with_orientation(bytes, format)?;
     let orig = (image.width(), image.height());
-    if let Some(pass) = as_passthrough_image((bytes, mime), orig, &limits) {
+    if let Some(pass) = as_passthrough_image(bytes, mime, orig, &limits) {
         return Some(pass);
     }
     resize_loop(&image.to_rgba8(), orig, &limits)

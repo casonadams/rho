@@ -70,7 +70,8 @@ async fn write_stdin_line(stdin: &tokio::sync::Mutex<ChildStdin>, json: String) 
 
 pub(crate) async fn await_mcp_response(
     rx: oneshot::Receiver<std::result::Result<Value, JsonRpcError>>,
-    (pending, id): (&Mutex<BTreeMap<i64, ResponseTx>>, i64),
+    pending: &Mutex<BTreeMap<i64, ResponseTx>>,
+    id: i64,
     method: &str,
     timeout: Duration,
 ) -> Result<Value> {
@@ -116,7 +117,7 @@ impl StdioTransport {
             serde_json::to_string(&req).map_err(|e| AppError::Mcp(e.to_string()))?
         );
         write_stdin_line(&self.stdin, json).await?;
-        await_mcp_response(rx, (&self.pending, id), method, self.timeout).await
+        await_mcp_response(rx, &self.pending, id, method, self.timeout).await
     }
 
     pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {

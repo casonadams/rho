@@ -87,7 +87,8 @@ fn resolve_prior_compaction<'a>(
 fn calculate_effective_cut(
     all_msgs: &[ChatMessage],
     positions: &[(String, usize)],
-    (keep_tokens, model): (usize, &str),
+    keep_tokens: usize,
+    model: &str,
 ) -> CompactionCut {
     let mut cut = find_token_cut_point(all_msgs, keep_tokens, model);
     if cut.cut_index == 0 && all_msgs.len() > 1 {
@@ -152,22 +153,29 @@ pub struct SessionCompactor {
     demotion_hook: Option<Arc<dyn DemotionHook>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct SessionCompactorConfig {
+    pub model_name: String,
+    pub keep_recent_tokens: usize,
+    pub max_bytes: usize,
+}
+
 impl SessionCompactor {
     pub fn new(
         session_manager: SessionManager,
         usage: UsageTracker,
         context: ContextTracker,
         model: Option<ModelHandle>,
-        (model_name, keep_recent_tokens, max_bytes): (&str, usize, usize),
+        config: SessionCompactorConfig,
     ) -> Self {
         Self {
             session_manager,
             usage,
             context,
             model,
-            model_name: model_name.to_string(),
-            keep_recent_tokens,
-            max_bytes,
+            model_name: config.model_name,
+            keep_recent_tokens: config.keep_recent_tokens,
+            max_bytes: config.max_bytes,
             demotion_hook: None,
         }
     }
@@ -210,12 +218,13 @@ impl SessionCompactor {
         if ancestor_nodes.is_empty() {
             return Ok(CompactionStats::empty());
         }
-        self.execute_compaction((&tree, &ancestor_nodes), instructions).await
+        self.execute_compaction(&tree, &ancestor_nodes, instructions).await
     }
 
     async fn execute_compaction(
         &self,
-        (tree, ancestor_nodes): (&rho_harness_core::session::SessionTree, &[&TreeNodeData]),
+        tree: &rho_harness_core::session::SessionTree,
+        ancestor_nodes: &[&TreeNodeData],
         instructions: Option<&str>,
     ) -> Result<CompactionStats> {
         let (prior_sum, prior_det, prior_msg_idx, active_nodes) = resolve_prior_compaction(ancestor_nodes);
@@ -224,7 +233,7 @@ impl SessionCompactor {
             .context
             .calculate_context_tokens(&tree.active_messages(), None, &self.model_name)
             .total_tokens;
-        let cut = calculate_effective_cut(&all_msgs, &positions, (self.keep_recent_tokens, &self.model_name));
+        let cut = calculate_effective_cut(&all_msgs, &positions, self.keep_recent_tokens, &self.model_name);
         if cut.cut_index == 0 || all_msgs.is_empty() {
             return Ok(noop_stats(tokens_before));
         }
@@ -343,11 +352,11 @@ impl AgentEngine {
             self.usage.clone(),
             self.context.clone(),
             self.model.clone(),
-            (
-                &self.config.model,
-                self.config.keep_recent_tokens,
-                self.config.compaction_max_bytes,
-            ),
+            SessionCompactorConfig {
+                model_name: self.config.model.clone(),
+                keep_recent_tokens: self.config.keep_recent_tokens,
+                max_bytes: self.config.compaction_max_bytes,
+            },
         );
         if let Some(hook) = &self.demotion_hook {
             compactor = compactor.with_demotion_hook(Arc::clone(hook));

@@ -67,8 +67,10 @@ fn resolve_candidate_models(model: &str, effort: Effort) -> Vec<String> {
 
 async fn try_post_stream_refresh(
     client: &AntigravityClient,
-    (endpoint, request): (Endpoint<'_>, &CompletionRequest),
-    (token, refreshed): (&mut String, &mut bool),
+    endpoint: Endpoint<'_>,
+    request: &CompletionRequest,
+    token: &mut String,
+    refreshed: &mut bool,
 ) -> Result<reqwest::Response, (Option<u16>, String)> {
     let mut res = client.post_stream(endpoint.with_token(token), request).await;
     if let Err((Some(401), ref body)) = res
@@ -190,8 +192,11 @@ impl AntigravityClient {
 
     pub(super) async fn try_candidates(
         &self,
-        (candidates, endpoints): (Vec<String>, &[&str]),
-        (token, refreshed, request): (&mut String, &mut bool, &CompletionRequest),
+        candidates: Vec<String>,
+        endpoints: &[&str],
+        token: &mut String,
+        refreshed: &mut bool,
+        request: &CompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let mut last = None;
         for candidate in candidates {
@@ -202,7 +207,7 @@ impl AntigravityClient {
                     runtime_model: &candidate,
                     effort: self.effort,
                 };
-                let res = try_post_stream_refresh(self, (ep, request), (token, refreshed)).await;
+                let res = try_post_stream_refresh(self, ep, request, token, refreshed).await;
                 if let Some(final_res) = classify_stream_error(res, &mut last) {
                     return final_res;
                 }
@@ -221,7 +226,7 @@ impl AntigravityClient {
         let endpoints = resolve_endpoints(self.endpoint.as_deref());
         let endpoint_refs: Vec<&str> = endpoints.iter().map(|s| s.as_str()).collect();
         let mut refreshed = false;
-        self.try_candidates((candidates, &endpoint_refs), (&mut token, &mut refreshed, request))
+        self.try_candidates(candidates, &endpoint_refs, &mut token, &mut refreshed, request)
             .await
     }
 }

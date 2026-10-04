@@ -32,7 +32,8 @@ pub struct DiscoveredModel {
 }
 
 async fn discover_keyed_openai_compatible(
-    (name, url): (&str, &str),
+    name: &str,
+    url: &str,
     auth_store: &AuthStore,
 ) -> Result<Vec<DiscoveredModel>> {
     if let Some(key) = auth_store.get_key_sync(name)? {
@@ -83,11 +84,8 @@ async fn discover_ollama_cloud(auth_store: &AuthStore) -> Result<Vec<DiscoveredM
 type DiscoveryFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<DiscoveredModel>>> + Send + 'a>>;
 
-fn keyed_discovery<'a>(
-    (name, base_url): (&'static str, &'static str),
-    auth_store: &'a AuthStore,
-) -> DiscoveryFuture<'a> {
-    Box::pin(discover_keyed_openai_compatible((name, base_url), auth_store))
+fn keyed_discovery<'a>(name: &'static str, base_url: &'static str, auth_store: &'a AuthStore) -> DiscoveryFuture<'a> {
+    Box::pin(discover_keyed_openai_compatible(name, base_url, auth_store))
 }
 
 fn openai_compatible_endpoint(provider: ProviderId) -> Option<(&'static str, &'static str)> {
@@ -122,7 +120,7 @@ fn dedicated_provider_discovery<'a>(provider: ProviderId, auth_store: &'a AuthSt
 
 fn dispatch_provider_discovery<'a>(provider: ProviderId, auth_store: &'a AuthStore) -> DiscoveryFuture<'a> {
     if let Some(endpoint) = openai_compatible_endpoint(provider) {
-        return keyed_discovery(endpoint, auth_store);
+        return keyed_discovery(endpoint.0, endpoint.1, auth_store);
     }
     if let Some(models) = preset_provider_models(provider) {
         return Box::pin(async move { Ok(models) });

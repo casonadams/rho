@@ -80,10 +80,7 @@ async fn wait_and_exchange_code(
     exchange_code(&code, verifier).await
 }
 
-async fn prompt_user_auth(
-    callbacks: &dyn OAuthLoginCallbacks,
-    (challenge, state): (&str, &str),
-) -> Result<LoopbackServer> {
+async fn prompt_user_auth(callbacks: &dyn OAuthLoginCallbacks, challenge: &str, state: &str) -> Result<LoopbackServer> {
     let server = LoopbackServer::bind_port(REDIRECT_PORT).await.map_err(|e| {
         AppError::Auth(format!(
             "Failed to bind OAuth callback listener on port {REDIRECT_PORT}: {e}"
@@ -102,7 +99,7 @@ async fn prompt_user_auth(
 pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
     let pkce = PkceChallenge::generate();
     let state = generate_state();
-    let server = prompt_user_auth(callbacks, (&pkce.challenge, &state)).await?;
+    let server = prompt_user_auth(callbacks, &pkce.challenge, &state).await?;
     let token = wait_and_exchange_code((server, &state, &pkce.verifier), callbacks).await?;
     Ok(build_antigravity_credential(token).await)
 }

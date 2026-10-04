@@ -43,7 +43,8 @@ fn canonicalize_best_effort(mut path: &Path) -> Option<PathBuf> {
 
 fn determine_walk_root<'a>(
     canonical_target: &Path,
-    (canonical_current, canonical_repo): (&'a Path, Option<&'a Path>),
+    canonical_current: &'a Path,
+    canonical_repo: Option<&'a Path>,
 ) -> Option<&'a Path> {
     if let Some(root) = canonical_repo
         && canonical_target.starts_with(root)
@@ -86,8 +87,7 @@ pub fn activate_path_instructions(ctx: &mut ProjectContext, path: &Path) {
         .unwrap_or_else(|_| ctx.current_dir.clone());
     let repo_root = find_repo_root(&ctx.current_dir);
     let canonical_repo = repo_root.as_ref().and_then(|r| r.canonicalize().ok());
-    let Some(walk_root) = determine_walk_root(&canonical_target, (&canonical_current, canonical_repo.as_deref()))
-    else {
+    let Some(walk_root) = determine_walk_root(&canonical_target, &canonical_current, canonical_repo.as_deref()) else {
         return;
     };
     walk_path_instructions(ctx, walk_root, &canonical_target);

@@ -112,7 +112,9 @@ fn try_configured_providers(
 }
 
 fn resolve_model_or_fallback(
-    (config, auth_store, shared_auth): (&mut Config, &AuthStore, Arc<tokio::sync::Mutex<AuthStore>>),
+    config: &mut Config,
+    auth_store: &AuthStore,
+    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
 ) -> Result<ModelHandle> {
     if let Ok(m) = create_engine_model(config, auth_store, Some(shared_auth.clone())) {
         return Ok(m);
@@ -134,7 +136,8 @@ fn resolve_model_or_fallback(
 }
 
 async fn build_engine_tools(
-    (base_dir, config): (&Path, &Config),
+    base_dir: &Path,
+    config: &Config,
     rig_tools: Option<Vec<DynamicTool>>,
     extra_tools: Vec<DynamicTool>,
     history_tools: &std::collections::HashSet<String>,
@@ -183,7 +186,7 @@ impl AgentEngineBuilder {
         if let Some(m) = self.model.take() {
             return Ok(m);
         }
-        resolve_model_or_fallback((&mut self.config, &self.auth_store, shared_auth))
+        resolve_model_or_fallback(&mut self.config, &self.auth_store, shared_auth)
     }
 
     fn into_engine(
@@ -232,7 +235,8 @@ impl AgentEngineBuilder {
         let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
 
         let (tools, activator) = build_engine_tools(
-            (&base_dir, &self.config),
+            &base_dir,
+            &self.config,
             self.rig_tools.take(),
             std::mem::take(&mut self.extra_tools),
             &history_tools,

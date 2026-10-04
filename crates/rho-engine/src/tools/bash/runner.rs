@@ -22,7 +22,9 @@ fn setup_command_child(
 
 async fn handle_timeout_cleanup<F: FnMut(&str)>(
     mut cmd: StreamingCommand,
-    (rx, on_chunk, accumulator): (&mut UnboundedReceiver<String>, &mut F, &mut OutputAccumulator),
+    rx: &mut UnboundedReceiver<String>,
+    on_chunk: &mut F,
+    accumulator: &mut OutputAccumulator,
     timeout_sec: u64,
 ) -> ToolResult {
     cmd.cancel().await;
@@ -105,7 +107,9 @@ async fn consume_stream_chunks<F: FnMut(&str)>(
 }
 
 async fn execute_process_loop<F: FnMut(&str)>(
-    (rx, on_chunk, acc): (&mut UnboundedReceiver<String>, &mut F, &mut OutputAccumulator),
+    rx: &mut UnboundedReceiver<String>,
+    on_chunk: &mut F,
+    acc: &mut OutputAccumulator,
     cmd: &mut StreamingCommand,
 ) -> std::io::Result<std::process::ExitStatus> {
     consume_stream_chunks(rx, on_chunk, acc).await;
@@ -115,7 +119,9 @@ async fn execute_process_loop<F: FnMut(&str)>(
 }
 
 async fn run_with_timeout<F>(
-    (base_dir, args, mut on_chunk): (&Path, &BashArgs, F),
+    base_dir: &Path,
+    args: &BashArgs,
+    mut on_chunk: F,
     timeout_sec: u64,
 ) -> Result<ToolResult, AppError>
 where
@@ -126,14 +132,14 @@ where
         Err(e) => return Ok(e),
     };
     let mut acc = OutputAccumulator::new();
-    let exec = execute_process_loop((&mut rx, &mut on_chunk, &mut acc), &mut cmd);
+    let exec = execute_process_loop(&mut rx, &mut on_chunk, &mut acc, &mut cmd);
     match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
         Ok(Ok(status)) => Ok(format_exit_result(status, &acc)),
         Ok(Err(e)) => Ok(ToolResult::error(format!(
             "Failed waiting for command '{}': {e}",
             args.command
         ))),
-        Err(_) => Ok(handle_timeout_cleanup(cmd, (&mut rx, &mut on_chunk, &mut acc), timeout_sec).await),
+        Err(_) => Ok(handle_timeout_cleanup(cmd, &mut rx, &mut on_chunk, &mut acc, timeout_sec).await),
     }
 }
 
@@ -142,5 +148,5 @@ where
     F: FnMut(&str) + Send + 'static,
 {
     let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
-    run_with_timeout((base_dir, args, on_chunk), timeout_sec).await
+    run_with_timeout(base_dir, args, on_chunk, timeout_sec).await
 }

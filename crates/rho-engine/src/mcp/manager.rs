@@ -31,7 +31,8 @@ fn is_tool_allowed(name: &str, include: Option<&[String]>, exclude: Option<&[Str
 fn build_pooled_mcp_tool(
     tool: McpToolDefinition,
     pool: McpServerPool,
-    (server_name, max_bytes): (&str, usize),
+    server_name: &str,
+    max_bytes: usize,
 ) -> DynamicTool {
     let tool_name = format!("{}_{}", server_name, tool.name);
     let description = format!("[MCP: {}] {}", server_name, tool.description.unwrap_or_default());
@@ -196,7 +197,7 @@ fn route_discovered_server(
 
         if direct {
             ctx.activator.mark_activated(&wire_name);
-            initial_tools.push(build_pooled_mcp_tool(tool, ctx.pool.clone(), (&server_name, max_bytes)));
+            initial_tools.push(build_pooled_mcp_tool(tool, ctx.pool.clone(), &server_name, max_bytes));
         } else {
             let mut keywords = Vec::new();
             if let Some(list) = config.search_keywords.get("*") {

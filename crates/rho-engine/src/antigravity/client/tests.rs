@@ -341,8 +341,11 @@ async fn try_candidates_falls_back_on_transport_error() {
 
     let res = client
         .try_candidates(
-            (vec!["gemini-2.5-pro".to_string()], &endpoints),
-            (&mut token, &mut refreshed, &req),
+            vec!["gemini-2.5-pro".to_string()],
+            &endpoints,
+            &mut token,
+            &mut refreshed,
+            &req,
         )
         .await;
     assert!(res.is_ok(), "Candidate loop should survive unreachable first endpoint");
@@ -364,8 +367,11 @@ async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() 
 
     let res = client
         .try_candidates(
-            (vec!["gemini-2.5-pro".to_string()], &endpoints),
-            (&mut token, &mut refreshed, &req),
+            vec!["gemini-2.5-pro".to_string()],
+            &endpoints,
+            &mut token,
+            &mut refreshed,
+            &req,
         )
         .await;
     let err = res.unwrap_err();

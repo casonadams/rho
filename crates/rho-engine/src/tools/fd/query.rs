@@ -41,7 +41,9 @@ fn check_stats_lines(path: &Path, min: Option<usize>, max: Option<usize>) -> Opt
 }
 
 fn push_entry_under_ceiling(
-    (collected, count, hit_ceiling): (&Mutex<Vec<FdEntry>>, &AtomicUsize, &AtomicBool),
+    collected: &Mutex<Vec<FdEntry>>,
+    count: &AtomicUsize,
+    hit_ceiling: &AtomicBool,
     entry: FdEntry,
 ) -> WalkState {
     if count.load(Ordering::Relaxed) >= FD_COLLECTION_CEILING {
@@ -62,7 +64,8 @@ fn push_entry_under_ceiling(
 }
 
 fn setup_walker_builder(
-    (search_root, depth): (&Path, Option<usize>),
+    search_root: &Path,
+    depth: Option<usize>,
     types: Option<&Types>,
     include_hidden: bool,
 ) -> ignore::WalkBuilder {
@@ -74,30 +77,31 @@ fn setup_walker_builder(
     builder
 }
 
-type FdWalkFilters<'a> = (
-    Option<&'a Regex>,
-    Option<&'a Types>,
-    Option<&'a str>,
-    Option<usize>,
-    Option<usize>,
-    bool,
-);
+struct FdWalkFilters<'a> {
+    regex: Option<&'a Regex>,
+    types: Option<&'a Types>,
+    display: Option<&'a str>,
+    min_lines: Option<usize>,
+    max_lines: Option<usize>,
+    stats_needed: bool,
+}
 
 fn process_walk_entry(
     entry: ignore::DirEntry,
-    (w_root, s_root): (&Path, &Path),
-    (reg, ty, display, min_lines, max_lines, stats_needed): FdWalkFilters<'_>,
+    w_root: &Path,
+    s_root: &Path,
+    filters: &FdWalkFilters<'_>,
 ) -> Option<FdEntry> {
     let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
-    if is_dir && (ty.is_some() || min_lines.is_some() || max_lines.is_some()) {
+    if is_dir && (filters.types.is_some() || filters.min_lines.is_some() || filters.max_lines.is_some()) {
         return None;
     }
-    let relative = crate::tools::traversal::resolve_relative_path(entry.path(), w_root, s_root, display);
-    if relative.is_empty() || reg.is_some_and(|r| !r.is_match(&relative)) {
+    let relative = crate::tools::traversal::resolve_relative_path(entry.path(), w_root, s_root, filters.display);
+    if relative.is_empty() || filters.regex.is_some_and(|r| !r.is_match(&relative)) {
         return None;
     }
-    let stats = if stats_needed && !is_dir {
-        check_stats_lines(entry.path(), min_lines, max_lines)?
+    let stats = if filters.stats_needed && !is_dir {
+        check_stats_lines(entry.path(), filters.min_lines, filters.max_lines)?
     } else {
         None
     };
@@ -112,7 +116,10 @@ impl FdQuery {
     fn run_traversal(
         &self,
         builder: ignore::WalkBuilder,
-        (collected, count, hit_ceiling, timed_out): (&Mutex<Vec<FdEntry>>, &AtomicUsize, &AtomicBool, &AtomicBool),
+        collected: &Mutex<Vec<FdEntry>>,
+        count: &AtomicUsize,
+        hit_ceiling: &AtomicBool,
+        timed_out: &AtomicBool,
     ) {
         let (s_root, w_root) = (self.search_root.as_path(), self.workspace_root.as_path());
         let (reg, ty) = (self.regex.as_ref(), self.types.as_ref());
@@ -125,32 +132,35 @@ impl FdQuery {
 
         builder.build_parallel().run(|| {
             Box::new(|entry| {
-                if should_quit_traversal(cancellation, timed_out, (start, timeout)) {
+                if should_quit_traversal(cancellation, timed_out, start, timeout) {
                     return WalkState::Quit;
                 }
                 let Ok(entry) = entry else { return WalkState::Continue };
-                let filters = (reg, ty, display, self.min_lines, self.max_lines, self.stats_needed);
-                let Some(fd_entry) = process_walk_entry(entry, (w_root, s_root), filters) else {
+                let filters = FdWalkFilters {
+                    regex: reg,
+                    types: ty,
+                    display,
+                    min_lines: self.min_lines,
+                    max_lines: self.max_lines,
+                    stats_needed: self.stats_needed,
+                };
+                let Some(fd_entry) = process_walk_entry(entry, w_root, s_root, &filters) else {
                     return WalkState::Continue;
                 };
-                push_entry_under_ceiling((collected, count, hit_ceiling), fd_entry)
+                push_entry_under_ceiling(collected, count, hit_ceiling, fd_entry)
             })
         });
     }
 
     pub fn run(self, limit: usize) -> ToolResult {
-        let builder = setup_walker_builder(
-            (&self.search_root, self.depth),
-            self.types.as_ref(),
-            self.include_hidden,
-        );
+        let builder = setup_walker_builder(&self.search_root, self.depth, self.types.as_ref(), self.include_hidden);
         let (collected, count, hit_ceiling, timed_out) = (
             Mutex::new(Vec::new()),
             AtomicUsize::new(0),
             AtomicBool::new(false),
             AtomicBool::new(false),
         );
-        self.run_traversal(builder, (&collected, &count, &hit_ceiling, &timed_out));
+        self.run_traversal(builder, &collected, &count, &hit_ceiling, &timed_out);
 
         if timed_out.load(Ordering::Relaxed) {
             let secs = self

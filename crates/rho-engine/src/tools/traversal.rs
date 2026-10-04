@@ -21,7 +21,8 @@ impl Drop for CancelOnDrop {
 pub fn should_quit_traversal(
     cancellation: Option<&AtomicBool>,
     timed_out: &AtomicBool,
-    (start, timeout): (Instant, Duration),
+    start: Instant,
+    timeout: Duration,
 ) -> bool {
     if let Some(c) = cancellation
         && c.load(Ordering::Relaxed)

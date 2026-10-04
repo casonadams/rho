@@ -37,11 +37,7 @@ fn should_search_entry(entry: &ignore::DirEntry) -> bool {
     entry.metadata().map(|m| m.len() <= MAX_RG_FILE_BYTES).unwrap_or(false)
 }
 
-fn search_file(
-    (searcher, matcher): (&mut grep_searcher::Searcher, &RegexMatcher),
-    path: &Path,
-    ctx: &RgWalkContext<'_>,
-) {
+fn search_file(searcher: &mut grep_searcher::Searcher, matcher: &RegexMatcher, path: &Path, ctx: &RgWalkContext<'_>) {
     let mut file_matches = Vec::new();
     let mut sink = UTF8(|line_number, line| {
         let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
@@ -77,7 +73,8 @@ struct RgWalkContext<'a> {
 
 fn process_rg_walk_entry(
     entry: Result<ignore::DirEntry, ignore::Error>,
-    (searcher, matcher): (&mut grep_searcher::Searcher, &RegexMatcher),
+    searcher: &mut grep_searcher::Searcher,
+    matcher: &RegexMatcher,
     ctx: &RgWalkContext<'_>,
 ) -> WalkState {
     let Ok(entry) = entry else { return WalkState::Continue };
@@ -87,7 +84,7 @@ fn process_rg_walk_entry(
     if ctx.match_count.load(Ordering::Relaxed) >= RG_COLLECTION_CEILING {
         return WalkState::Quit;
     }
-    search_file((searcher, matcher), entry.path(), ctx);
+    search_file(searcher, matcher, entry.path(), ctx);
     if ctx.match_count.load(Ordering::Relaxed) >= RG_COLLECTION_CEILING {
         WalkState::Quit
     } else {
@@ -99,7 +96,9 @@ impl RgQuery {
     fn run_traversal(
         &self,
         builder: ignore::WalkBuilder,
-        (matches, match_count, timed_out): (&Mutex<Vec<LineMatch>>, &AtomicUsize, &AtomicBool),
+        matches: &Mutex<Vec<LineMatch>>,
+        match_count: &AtomicUsize,
+        timed_out: &AtomicBool,
     ) {
         let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
         let (matcher, display) = (&self.matcher, self.search_path_display.as_deref());
@@ -121,10 +120,10 @@ impl RgQuery {
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
             Box::new(move |entry| {
-                if should_quit_traversal(cancellation, timed_out, (start, timeout)) {
+                if should_quit_traversal(cancellation, timed_out, start, timeout) {
                     return WalkState::Quit;
                 }
-                process_rg_walk_entry(entry, (&mut searcher, matcher), &ctx)
+                process_rg_walk_entry(entry, &mut searcher, matcher, &ctx)
             })
         });
     }
@@ -138,7 +137,7 @@ impl RgQuery {
         let timed_out = AtomicBool::new(false);
         let matches = Mutex::new(Vec::new());
         let match_count = AtomicUsize::new(0);
-        self.run_traversal(builder, (&matches, &match_count, &timed_out));
+        self.run_traversal(builder, &matches, &match_count, &timed_out);
         if timed_out.load(Ordering::Relaxed) {
             let secs = self
                 .timeout

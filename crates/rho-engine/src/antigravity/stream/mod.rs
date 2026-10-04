@@ -62,7 +62,7 @@ impl SseParser {
         events
     }
 
-    fn handle_candidate(&mut self, (candidate, usage): (&mut StreamCandidate, Usage), events: &mut SseEvents) {
+    fn handle_candidate(&mut self, candidate: &mut StreamCandidate, usage: Usage, events: &mut SseEvents) {
         if let Some(content) = candidate.content.take() {
             for part in content.parts {
                 self.interpret_part(part, events);
@@ -89,7 +89,7 @@ impl SseParser {
             .map(usage_from_metadata)
             .unwrap_or_default();
         for candidate in &mut body.candidates {
-            self.handle_candidate((candidate, usage), events);
+            self.handle_candidate(candidate, usage, events);
         }
     }
 

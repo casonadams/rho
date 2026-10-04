@@ -106,11 +106,7 @@ impl WebSearchTool {
         .await
     }
 
-    async fn handle_empty_search(
-        &self,
-        (query, today): (&str, &str),
-        (limit, no_filters): (usize, bool),
-    ) -> ToolResult {
+    async fn handle_empty_search(&self, query: &str, today: &str, limit: usize, no_filters: bool) -> ToolResult {
         if no_filters && let Some(res) = self.try_relaxed_search(query, limit, today).await {
             return res;
         }
@@ -133,7 +129,7 @@ impl WebSearchTool {
 
         if results.is_empty() {
             let no_filters = args.domains.is_none() && args.recency.is_none();
-            let res = self.handle_empty_search((query, &today), (limit, no_filters)).await;
+            let res = self.handle_empty_search(query, &today, limit, no_filters).await;
             return Ok(res);
         }
 
