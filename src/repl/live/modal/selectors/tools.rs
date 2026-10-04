@@ -41,20 +41,15 @@ fn update_tools_option_description<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     (status, index): (&str, usize),
 ) {
-    if let Some(modal) = controller.state_mut().active_modal_mut()
-        && let Some(opt) = modal.options.get_mut(index)
-    {
-        opt.description = Some(status.to_string());
-    }
+    controller
+        .state_mut()
+        .update_modal_option_desc("Tools & Permissions", index, status);
 }
 
 pub fn update_tools_search_engine<B: TerminalBackend>(controller: &mut TerminalController<B>, engine: &str) {
-    if let Some(modal) = controller.state_mut().active_modal_mut()
-        && modal.title == "Tools & Permissions"
-        && let Some(opt) = modal.options.first_mut()
-    {
-        opt.description = Some(engine.to_string());
-    }
+    controller
+        .state_mut()
+        .update_modal_option_desc("Tools & Permissions", 0, engine);
 }
 
 fn toggle_tool_state_description<B: TerminalBackend>(

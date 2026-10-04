@@ -126,9 +126,13 @@ fn settings_selector_modal_toggles_cursor_mode() {
 fn settings_selector_modal_opens_models_menu() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), None, Some("medium"), &mut controller);
-    let key8 = KeyEvent::new(KeyCode::Char('8'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key8, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 7);
+    controller.state_mut().active_modal_mut().unwrap().selected = 7;
+    assert_eq!(
+        controller.state().active_modal().unwrap().options[7]
+            .description
+            .as_deref(),
+        Some("claude-3-7-sonnet  ›")
+    );
     assert_eq!(
         send_modal_key(&mut controller, KeyCode::Enter),
         super::super::modal::ModalKeyResult::OpenModelsMenu

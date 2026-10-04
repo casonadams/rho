@@ -145,6 +145,28 @@ impl InteractiveState {
         self.modals.last().map(|frame| &frame.saved_editor)
     }
 
+    pub fn modal_depth(&self) -> usize {
+        self.modals.len()
+    }
+
+    pub fn find_modal_mut(&mut self, title: &str) -> Option<&mut ModalState> {
+        self.modals
+            .iter_mut()
+            .map(|frame| &mut frame.modal)
+            .find(|m| m.title == title)
+    }
+
+    pub fn update_modal_option_desc(&mut self, title: &str, index: usize, desc: &str) {
+        for frame in &mut self.modals {
+            if frame.modal.title == title {
+                if let Some(opt) = frame.modal.options.get_mut(index) {
+                    opt.description = Some(desc.to_string());
+                }
+                break;
+            }
+        }
+    }
+
     pub fn select_previous_modal_option(&mut self) {
         if let Some(modal) = self.modals.last_mut().map(|frame| &mut frame.modal) {
             modal.select_previous();

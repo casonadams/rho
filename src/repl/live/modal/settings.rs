@@ -25,7 +25,7 @@ fn prev_thinking_level(current: &str) -> &'static str {
 }
 
 pub fn open_settings_selector<B: TerminalBackend>(
-    _model: Option<&str>,
+    model: Option<&str>,
     _guard_model: Option<&str>,
     thinking_level: Option<&str>,
     controller: &mut TerminalController<B>,
@@ -48,32 +48,36 @@ pub fn open_settings_selector<B: TerminalBackend>(
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
     let agent_status = if boxed { "On" } else { "Off" };
     let label_status = if show_label { "Shown" } else { "Hidden" };
+    let model_desc = model.map_or("›".to_string(), |m| format!("{m}  ›"));
 
     let options = vec![
-        ModalOption::new("Block Style       ", Some(block_style.to_string())),
-        ModalOption::new("Box Responses     ", Some(agent_status.to_string())),
-        ModalOption::new("Thinking Effort   ", Some(thinking_effort.to_string())),
-        ModalOption::new("Thinking Output   ", Some(thinking_status.to_string())),
-        ModalOption::new("Tool Output       ", Some(tools_status.to_string())),
-        ModalOption::new("Version Banner    ", Some(label_status.to_string())),
-        ModalOption::new("Cursor Style      ", Some(cursor_mode.to_string())),
-        ModalOption::new("Models            ", None::<&str>),
-        ModalOption::new("Tools & Permissions", None::<&str>),
+        ModalOption::new("Block Style          ", Some(block_style.to_string())),
+        ModalOption::new("Box Responses        ", Some(agent_status.to_string())),
+        ModalOption::new("Thinking Effort      ", Some(thinking_effort.to_string())),
+        ModalOption::new("Thinking Output      ", Some(thinking_status.to_string())),
+        ModalOption::new("Tool Output          ", Some(tools_status.to_string())),
+        ModalOption::new("Version Banner       ", Some(label_status.to_string())),
+        ModalOption::new("Cursor Style         ", Some(cursor_mode.to_string())),
+        ModalOption::new("Models               ", Some(model_desc)),
+        ModalOption::new("Tools & Permissions  ", Some("Configure  ›".to_string())),
     ];
 
     let modal = ModalState::new("Settings", "", options);
     controller.state_mut().push_modal(modal);
 }
 
+pub fn update_settings_model_description<B: TerminalBackend>(controller: &mut TerminalController<B>, model_name: &str) {
+    let desc = format!("{model_name}  ›");
+    controller.state_mut().update_modal_option_desc("Settings", 7, &desc);
+}
+
 fn update_setting_description<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     (status, index): (&str, usize),
 ) {
-    if let Some(modal) = controller.state_mut().active_modal_mut()
-        && let Some(opt) = modal.options.get_mut(index)
-    {
-        opt.description = Some(status.to_string());
-    }
+    controller
+        .state_mut()
+        .update_modal_option_desc("Settings", index, status);
 }
 
 fn current_thinking_from_modal<B: TerminalBackend>(controller: &TerminalController<B>) -> &str {

@@ -246,6 +246,24 @@ cursor = "software"
 
 ---
 
+## Runtime Settings Modal (`/settings`)
+
+The interactive `/settings` modal allows reviewing and tweaking runtime preferences without exiting or restarting the session:
+
+- **Block Style**: Switch between `Border` (outline) and `Solid` (fill) container styling.
+- **Box Responses**: Toggle boxed frames for agent transcript responses (`On` / `Off`).
+- **Thinking Effort**: Cycle through reasoning effort tiers (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+- **Thinking Output**: Toggle thinking trace visibility in the transcript (`Shown` / `Hidden`).
+- **Tool Output**: Toggle default tool card expansion (`Expanded` / `Collapsed`).
+- **Version Banner**: Toggle version banner visibility at the start of transcripts (`Shown` / `Hidden`).
+- **Cursor Style**: Switch between `Hardware` and `Software` prompt cursors.
+- **Models**: Displays the active model with a drill-down indicator (e.g. `claude-3-7-sonnet  ›`). Pressing `Enter` opens the **Models** submenu to configure primary and specialized role models (`Default`, `Smol`, `Slow`, `Judge`, `Guard`, `Plan`, `Commit`, `Advisor`). Selecting a model updates the setting in-place across all menu levels while keeping you inside the menu.
+- **Tools & Permissions**: Interactive submenu (`Configure  ›`) to manage tool availability and search providers.
+
+Submenus and child pickers maintain a true modal stack: selecting an option updates the setting dynamically in-place, while `Esc` navigates back one level (`Select Model` → `Models` → `Settings` → REPL prompt).
+
+---
+
 ## Tools & Permissions Modal
 
 Inside `/settings`, selecting **Tools & Permissions** opens an interactive submenu to manage tool availability and search providers:

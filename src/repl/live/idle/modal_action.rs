@@ -51,14 +51,19 @@ async fn handle_model_selected(
         )
         .await;
     }
-    print_model_status(ctx, &model, &provider, save_as_default);
+    if ctx.controller.state().active_modal().is_none() {
+        print_model_status(ctx, &model, &provider, save_as_default);
+    }
     if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
         ctx.session
             .renderer
             .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
     }
+    super::super::modal::update_models_role_description(ctx.controller, "default", &model);
+    super::super::modal::update_settings_model_description(ctx.controller, &model);
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     batch.flush(ctx.controller, true)?;
+    ctx.controller.redraw()?;
     Ok(true)
 }
 
@@ -402,39 +407,30 @@ fn handle_modal_menu_open(
             super::super::modal::open_model_selector_with_default(ctx.session, ctx.controller, *save_as_default);
         }
         ModalKeyResult::OpenModelsMenu => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_models_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenGuardModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_guard_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenJudgeModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_judge_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenSmolModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_smol_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenSlowModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_slow_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenPlanModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_plan_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenCommitModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_commit_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenAdvisorModelSelector => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_advisor_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenToolsMenu => {
-            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_tools_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenSearchEngineSelector => {
@@ -493,10 +489,13 @@ async fn handle_role_model_selected(
             .await;
 
     let display = spec.as_deref().unwrap_or("None");
-    let title = format!("{}{}", role[..1].to_uppercase(), &role[1..]);
-    ctx.session
-        .renderer
-        .print_status(&format!("{title} model set to {display}"));
+    super::super::modal::update_models_role_description(ctx.controller, role, display);
+    if ctx.controller.state().active_modal().is_none() {
+        let title = format!("{}{}", role[..1].to_uppercase(), &role[1..]);
+        ctx.session
+            .renderer
+            .print_status(&format!("{title} model set to {display}"));
+    }
     ctx.controller.redraw()?;
     Ok(true)
 }

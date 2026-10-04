@@ -59,7 +59,9 @@ const TITLE_HINTS: &[(&str, &str)] = &[
         "Conversation Tree",
         "↑/↓ select • Enter navigate • Shift+L label • Esc cancel",
     ),
-    ("Settings", "↑/↓ select • Enter toggle • Esc close"),
+    ("Settings", "↑/↓ select • Enter toggle/open • Esc close"),
+    ("Models", "↑/↓ select • Enter choose • Esc back"),
+    ("Tools & Permissions", "↑/↓ select • Enter toggle/choose • Esc back"),
     (
         "Resume Session",
         "↑/↓ select • Enter resume • Ctrl+D delete • Esc cancel",

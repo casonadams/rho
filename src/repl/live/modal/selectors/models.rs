@@ -33,23 +33,43 @@ pub fn open_models_selector<B: TerminalBackend>(session: &ReplSession, controlle
     controller.state_mut().push_modal(modal);
 }
 
-fn open_role_from_selection<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    selected: usize,
-) -> Option<ModalKeyResult> {
-    controller.state_mut().pop_modal();
-    let _ = controller.redraw();
+fn open_role_from_selection(selected: usize) -> Option<ModalKeyResult> {
+    let selectors = [
+        ModalKeyResult::OpenModelSelector { save_as_default: true },
+        ModalKeyResult::OpenSmolModelSelector,
+        ModalKeyResult::OpenSlowModelSelector,
+        ModalKeyResult::OpenJudgeModelSelector,
+        ModalKeyResult::OpenGuardModelSelector,
+        ModalKeyResult::OpenPlanModelSelector,
+        ModalKeyResult::OpenCommitModelSelector,
+        ModalKeyResult::OpenAdvisorModelSelector,
+    ];
+    selectors.into_iter().nth(selected)
+}
 
-    match selected {
-        0 => Some(ModalKeyResult::OpenModelSelector { save_as_default: true }),
-        1 => Some(ModalKeyResult::OpenSmolModelSelector),
-        2 => Some(ModalKeyResult::OpenSlowModelSelector),
-        3 => Some(ModalKeyResult::OpenJudgeModelSelector),
-        4 => Some(ModalKeyResult::OpenGuardModelSelector),
-        5 => Some(ModalKeyResult::OpenPlanModelSelector),
-        6 => Some(ModalKeyResult::OpenCommitModelSelector),
-        7 => Some(ModalKeyResult::OpenAdvisorModelSelector),
+fn role_to_index(role: &str) -> Option<usize> {
+    match role {
+        "default" => Some(0),
+        "smol" => Some(1),
+        "slow" => Some(2),
+        "judge" => Some(3),
+        "guard" => Some(4),
+        "plan" => Some(5),
+        "commit" => Some(6),
+        "advisor" => Some(7),
         _ => None,
+    }
+}
+
+pub fn update_models_role_description<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    role: &str,
+    model_name: &str,
+) {
+    if let Some(idx) = role_to_index(role) {
+        controller
+            .state_mut()
+            .update_modal_option_desc("Models", idx, model_name);
     }
 }
 
@@ -60,7 +80,7 @@ pub fn handle_models_key<B: TerminalBackend>(
     match key.code {
         KeyCode::Enter => {
             let selected = controller.state().active_modal().map_or(0, |m| m.selected);
-            if let Some(res) = open_role_from_selection(controller, selected) {
+            if let Some(res) = open_role_from_selection(selected) {
                 return Ok(res);
             }
             Ok(ModalKeyResult::Handled)
@@ -148,5 +168,14 @@ mod tests {
         let enter = KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
         let res = handle_models_key(&mut controller, enter).unwrap();
         assert_eq!(res, ModalKeyResult::OpenModelSelector { save_as_default: true });
+        assert!(controller.state().active_modal().is_some());
+    }
+
+    #[test]
+    fn test_open_role_from_selection_all_roles() {
+        for idx in 0..8 {
+            assert!(open_role_from_selection(idx).is_some());
+        }
+        assert!(open_role_from_selection(8).is_none());
     }
 }

@@ -15,9 +15,9 @@ pub use selectors::{
     open_help_selector, open_judge_model_selector, open_login_selector, open_mcp_selector, open_model_selector,
     open_model_selector_with_default, open_models_selector, open_plan_model_selector, open_search_engine_selector,
     open_session_selector, open_slow_model_selector, open_smol_model_selector, open_tools_selector,
-    update_tools_search_engine,
+    update_models_role_description, update_tools_search_engine,
 };
-pub use settings::open_settings_selector;
+pub use settings::{open_settings_selector, update_settings_model_description};
 pub use tree::open_tree_selector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

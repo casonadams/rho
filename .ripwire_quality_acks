@@ -19,6 +19,9 @@ ack dead-code:new-symbol b8bf8e69ade39f89 0 cid=8dfe1893cae60aa5 now=0 was=0 p=c
 ack dead-code:new-symbol ce33cec47d4fe36d 0 cid=d7a84993f006dc1c now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:137 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol f5d5dceb92fd23b3 0 cid=e63f34d0f06b0e38 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:226 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol f8d2e1fb2645a08d 0 cid=1f5e619ad9d38341 now=0 was=0 p=crates/rho-engine/src/mcp/search.rs:598 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:preexisting 515cbaf314fd217c 0 cid=bbef482a9d2cd996 now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:81 fix(settings): preserve modal stack and refresh model descriptions
+ack dead-code:preexisting 658dfa752c39d24e 0 cid=926151db5b8328bd now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:92 fix(settings): preserve modal stack and refresh model descriptions
+ack dead-code:preexisting f2bc705397ef94ee 0 cid=bd25cfbf1a40c450 now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:45 fix(settings): preserve modal stack and refresh model descriptions
 ack duplication 01b7c5a04ff72819 85 now=85 was=0 p=crates/rho-engine/src/mcp/trust.rs:110 feat(mcp): modernize MCP adapter subsystem
 ack duplication 037fefd1426d8220 81 now=81 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
 ack duplication 1a96b3a0e30b20e2 70 now=70 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
@@ -59,7 +62,10 @@ ack short-horizon-churn 1fba64e890d0c6c2 5 cid=7ce5daf6aa12f520 now=5 was=0 face
 ack short-horizon-churn 265e89bb56fb8435 3 cid=8fa52f7be4adc913 now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/types/integrations.rs:65 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn 323438548ec29cf8 5 cid=977c0ab4b6df4043 now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:243 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn 33b15419eb8dd4b7 5 cid=89b89e1418f9e4ea now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:25 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 423270b4fb197850 9 cid=998640a641792861 now=9 was=0 facet=self p=src/repl/live/idle/modal_action.rs:463 fix(settings): preserve modal stack and refresh model descriptions
 ack short-horizon-churn 447605776112338f 10 cid=6567c9a58a28830e now=10 was=0 facet=ambient p=src/repl/live/tests/modals.rs:772 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 4d7f41bf27f409ed 6 cid=9b22f00d8a6bf8ce now=6 was=0 facet=self p=src/repl/live/modal/settings.rs:27 fix(settings): preserve modal stack and refresh model descriptions
+ack short-horizon-churn 6df237ecdc3e544e 10 cid=c78bcf9f007f333c now=10 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/prepare.rs:157 fix(settings): preserve modal stack and refresh model descriptions
 ack short-horizon-churn 845185f3d8cbd8a5 3 cid=780a9035843d58bb now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn 97d74064cfa21c9f 5 cid=c1e9ed7e4ec75faf now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:106 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn adeba5ec267004c6 3 cid=6e3161dc306c8de6 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:165 feat(mcp): modernize MCP adapter subsystem
@@ -69,6 +75,7 @@ ack short-horizon-churn c0489ae167d1f049 5 cid=254ac92af7f340fe now=5 was=0 face
 ack short-horizon-churn cc1f7bccfced9dcf 3 cid=e53649f3abc2961f now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:165 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn ceac66754ca301d9 5 cid=8b0fba9e93a247cc now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:14 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn e341bb4c28b11537 5 cid=466b077bd366ab3c now=5 was=0 facet=ambient p=crates/rho-engine/src/engine/tests.rs:58 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn f7519bff4d5c575d 8 cid=51d0819d716b6092 now=8 was=0 facet=self p=crates/rho-engine/src/permission/hook.rs:115 fix(settings): preserve modal stack and refresh model descriptions
 ack verbosity 0947128aa09d7fc3 162 cid=396a5f7e4e7f378b now=162 was=153 p=crates/rho-engine/src/mcp/search.rs:507 feat(mcp): modernize MCP adapter subsystem
 ack verbosity 10290e64f680c279 62 cid=a508c5380e7118a1 now=62 was=0 p=tests/mcp_direct_tools.rs:39 feat(mcp): modernize MCP adapter subsystem
 ack verbosity 845185f3d8cbd8a5 190 cid=780a9035843d58bb now=190 was=139 p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem

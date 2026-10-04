@@ -453,3 +453,206 @@ async fn test_modal_action_selection_operations() {
     );
     assert_eq!(session.config.thinking_level, None);
 }
+
+struct ModalTestCtx<'a> {
+    controller: &'a mut TerminalController<HistoryTerminal>,
+    history: &'a mut InteractiveHistory,
+    session: &'a mut crate::repl::ReplSession,
+    engine: &'a mut crate::engine::AgentEngine,
+    input: &'a mut crate::repl::input_reader::TerminalInputReader,
+    batch: &'a mut LiveBatch,
+}
+
+impl<'a> ModalTestCtx<'a> {
+    async fn dispatch(&mut self, res: ModalKeyResult) -> bool {
+        let ctx = ModalActionContext {
+            controller: self.controller,
+            history: self.history,
+            session: self.session,
+            engine: self.engine,
+            input: self.input,
+        };
+        apply_modal_key_result(res, ctx, self.batch).await.unwrap()
+    }
+}
+
+#[tokio::test]
+async fn test_settings_and_models_modal_stack_preservation_and_updates() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+
+    crate::repl::live::modal::open_settings_selector(Some("initial-model"), None, Some("off"), &mut controller);
+    assert_eq!(controller.state().modal_depth(), 1);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Settings");
+    assert_eq!(
+        controller.state().active_modal().unwrap().options[7]
+            .description
+            .as_deref(),
+        Some("initial-model  ›")
+    );
+
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+
+    assert!(tctx.dispatch(ModalKeyResult::OpenModelsMenu).await);
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+    assert_eq!(tctx.controller.state().active_modal().unwrap().title, "Models");
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::OpenModelSelector { save_as_default: true })
+            .await
+    );
+    assert_eq!(tctx.controller.state().modal_depth(), 3);
+    assert_eq!(tctx.controller.state().active_modal().unwrap().title, "Select Model");
+
+    // Child modal pops upon selection, then selection applies
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::ModelSelected {
+            model: "claude-3-7-sonnet".to_string(),
+            provider: "anthropic".to_string(),
+            save_as_default: true,
+        })
+        .await
+    );
+
+    // Active modal is still Models with updated description
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+    assert_eq!(tctx.controller.state().active_modal().unwrap().title, "Models");
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().options[0]
+            .description
+            .as_deref(),
+        Some("claude-3-7-sonnet")
+    );
+
+    // Esc from Models returns to Settings with updated description
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 1);
+    assert_eq!(tctx.controller.state().active_modal().unwrap().title, "Settings");
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().options[7]
+            .description
+            .as_deref(),
+        Some("claude-3-7-sonnet  ›")
+    );
+
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 0);
+}
+
+#[tokio::test]
+async fn test_role_model_selection_updates_models_menu_in_place() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+
+    crate::repl::live::modal::open_models_selector(&session, &mut controller);
+    assert_eq!(controller.state().modal_depth(), 1);
+
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+
+    assert!(tctx.dispatch(ModalKeyResult::OpenGuardModelSelector).await);
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().title,
+        "Select Guard Model"
+    );
+
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 1);
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::GuardModelSelected {
+            model: "qwen2.5-coder:7b".to_string(),
+            provider: "ollama".to_string(),
+        })
+        .await
+    );
+
+    assert_eq!(tctx.controller.state().modal_depth(), 1);
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().options[4]
+            .description
+            .as_deref(),
+        Some("ollama/qwen2.5-coder:7b")
+    );
+}
+
+#[tokio::test]
+async fn test_tools_and_permissions_modal_stack_preservation_and_updates() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+
+    crate::repl::live::modal::open_settings_selector(Some("default-model"), None, Some("off"), &mut controller);
+    assert_eq!(controller.state().modal_depth(), 1);
+
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+
+    assert!(tctx.dispatch(ModalKeyResult::OpenToolsMenu).await);
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().title,
+        "Tools & Permissions"
+    );
+
+    assert!(tctx.dispatch(ModalKeyResult::OpenSearchEngineSelector).await);
+    assert_eq!(tctx.controller.state().modal_depth(), 3);
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().title,
+        "Select Search Engine"
+    );
+
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::SearchEngineSelected {
+            engine: "duckduckgo".to_string(),
+        })
+        .await
+    );
+
+    assert_eq!(tctx.controller.state().modal_depth(), 2);
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().title,
+        "Tools & Permissions"
+    );
+    assert_eq!(
+        tctx.controller.state().active_modal().unwrap().options[0]
+            .description
+            .as_deref(),
+        Some("duckduckgo")
+    );
+
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 1);
+    assert_eq!(tctx.controller.state().active_modal().unwrap().title, "Settings");
+
+    tctx.controller.state_mut().pop_modal();
+    assert_eq!(tctx.controller.state().modal_depth(), 0);
+}

@@ -17,7 +17,7 @@ pub use model::{
     open_guard_model_selector, open_judge_model_selector, open_model_selector, open_model_selector_with_default,
     open_plan_model_selector, open_slow_model_selector, open_smol_model_selector,
 };
-pub use models::{handle_models_key, open_models_selector};
+pub use models::{handle_models_key, open_models_selector, update_models_role_description};
 pub use search_engine::{handle_search_engine_key, open_search_engine_selector};
 pub use session::{handle_session_key, open_session_selector};
 pub use tools::{handle_tools_key, open_tools_selector, update_tools_search_engine};
