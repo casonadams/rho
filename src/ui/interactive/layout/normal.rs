@@ -74,7 +74,7 @@ fn render_editor_area(input: &LayoutInput<'_>, plan: EditorLayoutPlan<'_>) -> (V
     });
     let unused_ac = plan.ac_budget.saturating_sub(ac_lines.len());
     let ed_max = plan.ed_budget + unused_ac.min(plan.wrapped_lines.len().saturating_sub(plan.ed_budget));
-    let (ed_lines, ed_cursor) = window_editor(plan.wrapped_lines, plan.cursor, ed_max);
+    let (mut ed_lines, ed_cursor) = window_editor(plan.wrapped_lines, plan.cursor, ed_max);
     let ghost = if input.autocomplete.is_none() {
         input.editor.ghost_text()
     } else {
@@ -83,6 +83,12 @@ fn render_editor_area(input: &LayoutInput<'_>, plan: EditorLayoutPlan<'_>) -> (V
     let mut ed_lines = if input.focused && plan.theme.cursor_mode == crate::ui::theme::CursorMode::Software {
         render_editor_lines(ed_lines, ed_cursor, ghost)
     } else {
+        let is_last_row = ed_cursor.row == ed_lines.len().saturating_sub(1);
+        if let (true, Some(ghost_str), Some(last_line)) = (is_last_row, ghost, ed_lines.last_mut()) {
+            last_line.push_str("\x1b[2m");
+            last_line.push_str(ghost_str);
+            last_line.push_str("\x1b[22m");
+        }
         ed_lines
     };
     if !ac_lines.is_empty() {

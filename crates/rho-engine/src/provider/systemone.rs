@@ -8,7 +8,7 @@ use std::time::Duration;
 pub enum SystemOneQuestion {
     Choice {
         instructions: String,
-        options: BTreeMap<String, String>,
+        criteria: BTreeMap<String, String>,
     },
     Noul {
         instructions: String,
@@ -17,34 +17,54 @@ pub enum SystemOneQuestion {
     },
     Score {
         instructions: String,
-        levels: Vec<String>,
+        criteria: Vec<String>,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemOneRequest {
+    pub model: String,
     pub state: String,
     pub questions: BTreeMap<String, SystemOneQuestion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChoiceAnswer {
-    pub answer: String,
+    pub choice: String,
+    #[serde(default)]
+    pub probabilities: BTreeMap<String, f64>,
     pub confidence: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoulAnswer {
-    pub answer: bool,
-    pub probability: f64,
+    pub noul: f64,
+}
+
+impl NoulAnswer {
+    pub fn is_safe(&self, threshold: f64) -> bool {
+        self.noul >= threshold
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+pub struct ScoreAnswer {
+    pub score: f64,
+    #[serde(default)]
+    pub legend: BTreeMap<String, String>,
+    #[serde(default)]
+    pub probabilities: BTreeMap<String, f64>,
+    pub confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SystemOneAnswer {
     Choice(ChoiceAnswer),
     Noul(NoulAnswer),
-    Other(serde_json::Value),
+    Score(ScoreAnswer),
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,24 +121,39 @@ mod tests {
     #[test]
     fn test_systemone_request_serialization() {
         let mut questions = BTreeMap::new();
-        let mut options = BTreeMap::new();
-        options.insert("smol".to_string(), "Quick typo or minor single-line edit".to_string());
-        options.insert("slow".to_string(), "Complex architecture refactoring".to_string());
+        let mut criteria = BTreeMap::new();
+        criteria.insert("smol".to_string(), "Quick typo or minor single-line edit".to_string());
+        criteria.insert("slow".to_string(), "Complex architecture refactoring".to_string());
         questions.insert(
             "route".to_string(),
             SystemOneQuestion::Choice {
                 instructions: "Select the most appropriate model tier".to_string(),
-                options,
+                criteria,
             },
         );
 
         let req = SystemOneRequest {
+            model: "clef-flash".to_string(),
             state: "Fix typo in README".to_string(),
             questions,
         };
 
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"type\":\"choice\""));
+        assert!(json.contains("\"model\":\"clef-flash\""));
         assert!(json.contains("Fix typo in README"));
+    }
+
+    #[test]
+    fn test_systemone_response_deserialization() {
+        let noul_raw = r#"{"model":"clef-flash","answers":{"is_safe":{"type":"noul","noul":0.957}},"usage":{"input_tokens":153,"output_tokens":0}}"#;
+        let res: SystemOneResponse = serde_json::from_str(noul_raw).unwrap();
+        match res.answers.get("is_safe").unwrap() {
+            SystemOneAnswer::Noul(n) => {
+                assert!(n.noul > 0.9);
+                assert!(n.is_safe(0.9));
+            }
+            _ => panic!("expected noul answer"),
+        }
     }
 }

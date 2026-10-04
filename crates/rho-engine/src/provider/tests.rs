@@ -308,6 +308,30 @@ fn resolve_guard_model_tests() {
 }
 
 #[test]
+fn verify_resolve_judge_model_cases() {
+    let mut c = Config::default();
+    assert!(resolve_judge_model(&c).is_none());
+
+    c.set_judge_model(Some("none"));
+    assert!(resolve_judge_model(&c).is_none());
+
+    c.set_judge_model(Some("clef-flash"));
+    let (url1, name1) = resolve_judge_model(&c).unwrap();
+    assert_eq!(name1, "clef-flash");
+    assert!(url1.contains("11434"));
+
+    c.set_judge_model(Some("ollama/clef-flash"));
+    let (url2, name2) = resolve_judge_model(&c).unwrap();
+    assert_eq!(name2, "clef-flash");
+    assert!(url2.contains("11434"));
+
+    c.set_judge_model(Some("http://192.168.1.50:11434"));
+    let (url3, name3) = resolve_judge_model(&c).unwrap();
+    assert_eq!(name3, "clef-flash");
+    assert_eq!(url3, "http://192.168.1.50:11434");
+}
+
+#[test]
 fn test_guard_model_thinking_is_none() {
     let mut config = Config {
         thinking_level: Some("high".to_string()),

@@ -40,16 +40,6 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
-    pub async fn save_guard_model_async(config_dir: &Path, guard: Option<&str>) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        file_config.models.guard = guard
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
-            .map(str::to_string);
-        write_file_config_async(&path, &file_config).await
-    }
-
     pub async fn save_ui_block_style_async(config_dir: &Path, style: &str) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;

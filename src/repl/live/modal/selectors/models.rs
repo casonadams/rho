@@ -17,10 +17,10 @@ pub fn build_models_options(session: &ReplSession) -> Vec<ModalOption> {
 
     vec![
         ModalOption::new("Default Model       ", Some(default_m.to_string())),
-        ModalOption::new("Smol Model (Fast)   ", Some(smol_m.to_string())),
-        ModalOption::new("Slow Model (Deep)   ", Some(slow_m.to_string())),
-        ModalOption::new("Judge Model (Clef)  ", Some(judge_m.to_string())),
-        ModalOption::new("Guard Model (LLM)   ", Some(guard_m.to_string())),
+        ModalOption::new("Smol Model          ", Some(smol_m.to_string())),
+        ModalOption::new("Slow Model          ", Some(slow_m.to_string())),
+        ModalOption::new("Judge Model         ", Some(judge_m.to_string())),
+        ModalOption::new("Guard Model         ", Some(guard_m.to_string())),
         ModalOption::new("Plan Model          ", Some(plan_m.to_string())),
         ModalOption::new("Commit Model        ", Some(commit_m.to_string())),
         ModalOption::new("Advisor Model       ", Some(advisor_m.to_string())),
@@ -130,8 +130,10 @@ mod tests {
         let options = build_models_options(&session);
         assert_eq!(options.len(), 8);
         assert_eq!(options[0].label, "Default Model       ");
-        assert_eq!(options[3].label, "Judge Model (Clef)  ");
-        assert_eq!(options[4].label, "Guard Model (LLM)   ");
+        assert_eq!(options[1].label, "Smol Model          ");
+        assert_eq!(options[2].label, "Slow Model          ");
+        assert_eq!(options[3].label, "Judge Model         ");
+        assert_eq!(options[4].label, "Guard Model         ");
     }
 
     #[test]

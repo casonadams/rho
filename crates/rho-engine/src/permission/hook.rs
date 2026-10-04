@@ -129,7 +129,6 @@ impl PermissionHook {
                     Ok(true) => return DispatchAction::Proceed,
                     Ok(false) => {
                         return self
-<<<<<<< HEAD
                             .handle_ask_with_evaluator(
                                 req,
                                 drafts,
@@ -141,13 +140,6 @@ impl PermissionHook {
                     }
                     Err(_) => {
                         // Fall back to generative guard model if judge times out or is unreachable
-=======
-                            .handle_ask(req, drafts, Some("Judge flagged shell command for review"), None)
-                            .await;
-                    }
-                    Err(_) => {
-                        // Fall back to generative guard model if judge is unreachable/times out
->>>>>>> 83acf8f0 (feat(models): add dedicated models menu with judge precedence over guard)
                     }
                 }
             }
@@ -161,13 +153,9 @@ impl PermissionHook {
                     Some(action) => (Some(action.as_str()), Some(verdict.reason.as_str())),
                     None => (Some(verdict.reason.as_str()), None),
                 };
-<<<<<<< HEAD
                 return self
                     .handle_ask_with_evaluator(req, drafts, notice, risk, Some("Guard"))
                     .await;
-=======
-                return self.handle_ask(req, drafts, notice, risk).await;
->>>>>>> 83acf8f0 (feat(models): add dedicated models menu with judge precedence over guard)
             }
         }
         self.handle_ask(req, drafts, None, None).await

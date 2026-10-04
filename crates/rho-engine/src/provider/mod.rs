@@ -60,6 +60,32 @@ pub fn resolve_guard_model(config: &Config) -> Option<(ProviderId, String)> {
     Some((provider_id, model))
 }
 
+pub fn resolve_judge_model(config: &Config) -> Option<(String, String)> {
+    let spec = config.judge_model()?.trim();
+    if spec.is_empty() || spec.eq_ignore_ascii_case("none") {
+        return None;
+    }
+
+    if spec.starts_with("http://") || spec.starts_with("https://") {
+        return Some((spec.to_string(), "clef-flash".to_string()));
+    }
+
+    let (provider, model) = rho_harness_core::provider::parse_model_spec(spec);
+    let model_name = if model.is_empty() {
+        "clef-flash".to_string()
+    } else {
+        model
+    };
+
+    let base_url = if let Some(provider_spec) = config.providers.get(&provider.to_ascii_lowercase()) {
+        provider_spec.base_url.clone()
+    } else {
+        std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string())
+    };
+
+    Some((base_url, model_name))
+}
+
 impl ProviderFactory {
     pub fn guard_model_request<'a>(provider: ProviderId, model: &'a str) -> ModelRequest<'a> {
         // Guard models never think to guarantee fast and deterministic evaluation.

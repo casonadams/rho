@@ -169,13 +169,8 @@ impl AgentEngine {
         hook_stack.push(lifecycle_hook);
         if self.config.permission.enabled {
             let mut perm_hook = crate::permission::PermissionHook::new(Some(cwd), presenter.clone());
-            if let Some(judge_spec) = self.config.judge_model() {
-                let base_url = if judge_spec.contains("http") {
-                    judge_spec.to_string()
-                } else {
-                    "http://127.0.0.1:11434".to_string()
-                };
-                perm_hook = perm_hook.with_judge(crate::permission::guard::JudgeEvaluator::new(&base_url));
+            if let Some((base_url, model)) = crate::provider::resolve_judge_model(&self.config) {
+                perm_hook = perm_hook.with_judge(crate::permission::guard::JudgeEvaluator::new(&base_url, &model));
             }
             let auth_store = self.auth_store.lock().await;
             if let Ok(Some(guard_model)) =

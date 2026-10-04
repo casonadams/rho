@@ -340,6 +340,30 @@ fn software_cursor_rendering_cases() {
 }
 
 #[test]
+fn hardware_cursor_renders_ghost_text() {
+    let mut editor = EditorState::default();
+    editor.set_text("hello");
+    editor.set_ghost_text(Some(" world".to_string()));
+
+    let layout = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None, // default Hardware cursor mode
+        focused: true,
+    });
+
+    assert_eq!(layout.editor_lines, ["hello\x1b[2m world\x1b[22m"]);
+}
+
+#[test]
 fn unfocused_editor_suppresses_software_cursor() {
     let mut editor = EditorState::default();
     editor.set_text("hello");

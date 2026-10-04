@@ -4,13 +4,15 @@ use std::time::Duration;
 
 pub struct JudgeEvaluator {
     client: SystemOneClient,
+    model: String,
     timeout: Duration,
 }
 
 impl JudgeEvaluator {
-    pub fn new(endpoint_or_base: &str) -> Self {
+    pub fn new(endpoint_or_base: &str, model: &str) -> Self {
         Self {
             client: SystemOneClient::new(endpoint_or_base),
+            model: model.to_string(),
             timeout: Duration::from_secs(5),
         }
     }
@@ -20,7 +22,7 @@ impl JudgeEvaluator {
         self
     }
 
-    pub fn build_safety_request(command: &str) -> SystemOneRequest {
+    pub fn build_safety_request(model: &str, command: &str) -> SystemOneRequest {
         let mut questions = BTreeMap::new();
         questions.insert(
             "is_safe".to_string(),
@@ -32,6 +34,7 @@ impl JudgeEvaluator {
         );
 
         SystemOneRequest {
+            model: model.to_string(),
             state: format!("Shell command to evaluate:\n{command}"),
             questions,
         }
@@ -39,14 +42,14 @@ impl JudgeEvaluator {
 
     pub fn evaluate_response(response: &crate::provider::systemone::SystemOneResponse) -> Result<bool, String> {
         if let Some(SystemOneAnswer::Noul(noul)) = response.answers.get("is_safe") {
-            Ok(noul.answer && noul.probability >= 0.90)
+            Ok(noul.is_safe(0.85))
         } else {
             Err("Judge did not return a valid noul answer for 'is_safe'".to_string())
         }
     }
 
     pub async fn evaluate_bash_safety(&self, command: &str) -> Result<bool, String> {
-        let req = Self::build_safety_request(command);
+        let req = Self::build_safety_request(&self.model, command);
         let response = match tokio::time::timeout(self.timeout, self.client.decide(&req)).await {
             Ok(Ok(res)) => res,
             Ok(Err(e)) => return Err(format!("Judge evaluation failed: {e}")),
@@ -62,35 +65,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_safety_request() {
-        let req = JudgeEvaluator::build_safety_request("cargo test");
-        assert!(req.state.contains("cargo test"));
-        assert!(req.questions.contains_key("is_safe"));
+    fn verify_judge_safety_request_structure() {
+        let safety_req = JudgeEvaluator::build_safety_request("clef-flash", "cargo test");
+        assert_eq!(safety_req.model, "clef-flash");
+        assert!(safety_req.state.contains("cargo test"));
+        assert!(safety_req.questions.contains_key("is_safe"));
     }
 
     #[test]
     fn test_evaluate_response_safe_and_unsafe() {
         use crate::provider::systemone::NoulAnswer;
         let mut answers = BTreeMap::new();
-        answers.insert(
-            "is_safe".to_string(),
-            SystemOneAnswer::Noul(NoulAnswer {
-                answer: true,
-                probability: 0.98,
-            }),
-        );
+        answers.insert("is_safe".to_string(), SystemOneAnswer::Noul(NoulAnswer { noul: 0.98 }));
         let resp = crate::provider::systemone::SystemOneResponse { answers };
         assert_eq!(JudgeEvaluator::evaluate_response(&resp), Ok(true));
 
         let mut low_prob = BTreeMap::new();
-        low_prob.insert(
-            "is_safe".to_string(),
-            SystemOneAnswer::Noul(NoulAnswer {
-                answer: true,
-                probability: 0.60,
-            }),
-        );
+        low_prob.insert("is_safe".to_string(), SystemOneAnswer::Noul(NoulAnswer { noul: 0.60 }));
         let resp_low = crate::provider::systemone::SystemOneResponse { answers: low_prob };
         assert_eq!(JudgeEvaluator::evaluate_response(&resp_low), Ok(false));
+
+        let invalid = crate::provider::systemone::SystemOneResponse {
+            answers: BTreeMap::new(),
+        };
+        assert!(JudgeEvaluator::evaluate_response(&invalid).is_err());
     }
 }

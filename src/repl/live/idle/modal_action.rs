@@ -401,16 +401,40 @@ fn handle_modal_menu_open(
         ModalKeyResult::OpenModelSelector { save_as_default } => {
             super::super::modal::open_model_selector_with_default(ctx.session, ctx.controller, *save_as_default);
         }
+        ModalKeyResult::OpenModelsMenu => {
+            ctx.controller.state_mut().pop_modal();
+            super::super::modal::open_models_selector(ctx.session, ctx.controller);
+        }
         ModalKeyResult::OpenGuardModelSelector => {
+            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_guard_model_selector(ctx.session, ctx.controller);
         }
+        ModalKeyResult::OpenJudgeModelSelector => {
+            ctx.controller.state_mut().pop_modal();
+            super::super::modal::open_judge_model_selector(ctx.session, ctx.controller);
+        }
         ModalKeyResult::OpenSmolModelSelector => {
+            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_smol_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenSlowModelSelector => {
+            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_slow_model_selector(ctx.session, ctx.controller);
         }
+        ModalKeyResult::OpenPlanModelSelector => {
+            ctx.controller.state_mut().pop_modal();
+            super::super::modal::open_plan_model_selector(ctx.session, ctx.controller);
+        }
+        ModalKeyResult::OpenCommitModelSelector => {
+            ctx.controller.state_mut().pop_modal();
+            super::super::modal::open_commit_model_selector(ctx.session, ctx.controller);
+        }
+        ModalKeyResult::OpenAdvisorModelSelector => {
+            ctx.controller.state_mut().pop_modal();
+            super::super::modal::open_advisor_model_selector(ctx.session, ctx.controller);
+        }
         ModalKeyResult::OpenToolsMenu => {
+            ctx.controller.state_mut().pop_modal();
             super::super::modal::open_tools_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenSearchEngineSelector => {
@@ -440,30 +464,39 @@ async fn handle_search_engine_selected(
     Ok(true)
 }
 
-async fn handle_guard_model_selected(
+async fn handle_role_model_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
+    role: &str,
     model: String,
     provider: String,
 ) -> Result<bool> {
-    let guard_spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
+    let spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
         None
     } else if model.contains('/') {
-        Some(model.clone())
+        Some(model)
     } else {
         Some(format!("{provider}/{model}"))
     };
 
-    ctx.session.config.set_guard_model(guard_spec.as_deref());
-    ctx.engine.config.set_guard_model(guard_spec.as_deref());
+    if let Some(ref s) = spec {
+        ctx.session.config.models.insert(role.to_string(), s.clone());
+        ctx.engine.config.models.insert(role.to_string(), s.clone());
+    } else {
+        ctx.session.config.models.remove(role);
+        ctx.engine.config.models.remove(role);
+    }
 
+    let config_key = format!("models.{role}");
+    let save_val = spec.as_deref().unwrap_or("none");
     let _ =
-        rho_harness_core::config::Config::save_guard_model_async(&ctx.session.config.config_dir, guard_spec.as_deref())
+        rho_harness_core::config::Config::set_file_value_async(&ctx.session.config.config_dir, &config_key, save_val)
             .await;
 
-    let display = guard_spec.as_deref().unwrap_or("None");
+    let display = spec.as_deref().unwrap_or("None");
+    let title = format!("{}{}", role[..1].to_uppercase(), &role[1..]);
     ctx.session
         .renderer
-        .print_status(&format!("Guard model set to {display}"));
+        .print_status(&format!("{title} model set to {display}"));
     ctx.controller.redraw()?;
     Ok(true)
 }
@@ -481,26 +514,6 @@ async fn handle_session_modal_action(
     }
 }
 
-fn handle_role_model_selection(
-    models: &mut std::collections::BTreeMap<String, String>,
-    role: &str,
-    model: String,
-    provider: String,
-) {
-    let spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
-        None
-    } else if model.contains('/') {
-        Some(model)
-    } else {
-        Some(format!("{provider}/{model}"))
-    };
-    if let Some(s) = spec {
-        models.insert(role.to_string(), s);
-    } else {
-        models.remove(role);
-    }
-}
-
 async fn handle_selection_action(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     res: ModalKeyResult,
@@ -513,17 +526,25 @@ async fn handle_selection_action(
             save_as_default,
         } => handle_model_selected(ctx, model, provider, save_as_default, batch).await,
         ModalKeyResult::GuardModelSelected { model, provider } => {
-            handle_guard_model_selected(ctx, model, provider).await
+            handle_role_model_selected(ctx, "guard", model, provider).await
+        }
+        ModalKeyResult::JudgeModelSelected { model, provider } => {
+            handle_role_model_selected(ctx, "judge", model, provider).await
         }
         ModalKeyResult::SmolModelSelected { model, provider } => {
-            handle_role_model_selection(&mut ctx.session.config.models, "smol", model, provider);
-            ctx.controller.redraw()?;
-            Ok(true)
+            handle_role_model_selected(ctx, "smol", model, provider).await
         }
         ModalKeyResult::SlowModelSelected { model, provider } => {
-            handle_role_model_selection(&mut ctx.session.config.models, "slow", model, provider);
-            ctx.controller.redraw()?;
-            Ok(true)
+            handle_role_model_selected(ctx, "slow", model, provider).await
+        }
+        ModalKeyResult::PlanModelSelected { model, provider } => {
+            handle_role_model_selected(ctx, "plan", model, provider).await
+        }
+        ModalKeyResult::CommitModelSelected { model, provider } => {
+            handle_role_model_selected(ctx, "commit", model, provider).await
+        }
+        ModalKeyResult::AdvisorModelSelected { model, provider } => {
+            handle_role_model_selected(ctx, "advisor", model, provider).await
         }
         ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
             handle_thinking_selected(ctx, level, save_as_default).await
