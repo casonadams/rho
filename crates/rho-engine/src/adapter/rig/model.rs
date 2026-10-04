@@ -19,6 +19,7 @@ pub enum AdapterFrame {
         id: String,
         name: String,
         arguments: String,
+        signature: Option<String>,
     },
     Done {
         usage: Usage,
@@ -54,9 +55,17 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
                 out.push_reasoning(&part, &reasoning);
                 out.close_reasoning(part, Default::default());
             }
-            AdapterFrame::ToolCall { id, name, arguments } => {
+            AdapterFrame::ToolCall {
+                id,
+                name,
+                arguments,
+                signature,
+            } => {
                 let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
                 let part = out.call(CallId::from_wire(id), tool_name)?;
+                if signature.is_some() {
+                    out.decorate_call(&part, signature, None);
+                }
                 out.push_arguments(&part, &arguments);
                 out.close_call(part)?;
             }
@@ -120,6 +129,7 @@ impl Transport<AdapterWire> for AdapterTransport {
                         id: call.id,
                         name: call.function.name,
                         arguments: call.function.arguments.to_string(),
+                        signature: call.signature,
                     }),
                     Ok(ModelStreamEvent::Usage(u)) => Ok(AdapterFrame::Done {
                         usage: make_rig_usage(&u),

@@ -193,6 +193,7 @@ impl SseParser {
             } else {
                 tool.input_json
             },
+            signature: None,
         }));
     }
 

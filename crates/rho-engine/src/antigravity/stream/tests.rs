@@ -53,6 +53,23 @@ fn sse_parser_streams_thoughts_as_reasoning_blocks() {
 }
 
 #[test]
+fn sse_parser_attaches_thought_signature_to_tool_call() {
+    let mut parser = SseParser::new();
+    let sse = concat!(
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"plan\",\"thought\":true,\"thoughtSignature\":\"sig-123\"}]}}]}}\n\n",
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"bash\",\"args\":{\"command\":\"ls\"},\"id\":\"call-0\"}}]},\"finishReason\":\"STOP\"}]}}\n\n"
+    );
+    let events = parser.feed(sse.as_bytes());
+    assert_eq!(events.len(), 3);
+    if let Ok(AdapterFrame::ToolCall { signature, .. }) = &events[1] {
+        assert_eq!(signature.as_deref(), Some("sig-123"));
+    } else {
+        panic!("expected tool call with signature, got {:?}", events[1]);
+    }
+    assert!(matches!(&events[2], Ok(AdapterFrame::Done { .. })));
+}
+
+#[test]
 fn sse_parser_surfaces_in_band_error_chunks() {
     let mut parser = SseParser::new();
     let sse = "data: {\"error\":{\"code\":429,\"message\":\"Individual quota reached. Resets in 2h4m10s.\"}}\n\n";

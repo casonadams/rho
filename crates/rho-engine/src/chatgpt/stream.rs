@@ -292,6 +292,7 @@ impl SseParser {
             id: effective_id,
             name: reconciled.name,
             arguments: parsed_args.to_string(),
+            signature: None,
         }));
     }
 

@@ -72,7 +72,9 @@ fn text_and_tool_calls_stream_and_aggregate() {
     for event in events {
         match event.unwrap() {
             AdapterFrame::Text(t) if t == "Let me run that." => has_text = true,
-            AdapterFrame::ToolCall { id, name, arguments } => {
+            AdapterFrame::ToolCall {
+                id, name, arguments, ..
+            } => {
                 tool_call = Some((id, name, arguments));
             }
             AdapterFrame::Done { usage } => total_tokens = usage.total_tokens,
