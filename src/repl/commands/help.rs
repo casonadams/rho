@@ -11,6 +11,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /help                       Show this reference\n\
   /settings                   Interactive runtime interface settings\n\
   /model [<model>]            Inspect or switch the model (<provider>/<model>)\n\
+  /route [on|off]             Toggle or inspect automatic model routing\n\
   /resume [id]                Resume a prior session\n\
   /skill [name]               List or inspect skills\n\
   /mcp                        List configured MCP servers\n\

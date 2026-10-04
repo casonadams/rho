@@ -10,7 +10,7 @@ use rig::error::{ErrorKind, ErrorReport};
 use serde_json::Value;
 
 use super::eval::{ask_drafts, decide_tool_call};
-use super::guard::{GuardEvaluator, JudgeEvaluator};
+use super::guard::GuardEvaluator;
 use super::policy::{Policy, load_policy, save_allow_rule, target_config_path};
 use super::prompt::{build_permission_prompt_with_evaluator, rewrite_tool_args};
 use super::suggest::{canonical_tool, match_input, suggested_rule};
@@ -21,7 +21,6 @@ pub struct PermissionHook {
     presenter: Arc<dyn Presenter>,
     policy: Arc<RwLock<Policy>>,
     guard_evaluator: Option<GuardEvaluator>,
-    judge_evaluator: Option<JudgeEvaluator>,
 }
 
 impl PermissionHook {
@@ -32,7 +31,6 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
-            judge_evaluator: None,
         }
     }
 
@@ -42,17 +40,11 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
-            judge_evaluator: None,
         }
     }
 
     pub fn with_guard(mut self, guard: GuardEvaluator) -> Self {
         self.guard_evaluator = Some(guard);
-        self
-    }
-
-    pub fn with_judge(mut self, judge: JudgeEvaluator) -> Self {
-        self.judge_evaluator = Some(judge);
         self
     }
 
@@ -123,27 +115,6 @@ impl PermissionHook {
     async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> DispatchAction {
         if req.tool == "bash" {
             let cmd = match_input(req.args);
-            // Judge model takes precedence: sub-50ms non-autoregressive decision
-            if let Some(judge) = &self.judge_evaluator {
-                match judge.evaluate_bash_safety(&cmd).await {
-                    Ok(true) => return DispatchAction::Proceed,
-                    Ok(false) => {
-                        return self
-                            .handle_ask_with_evaluator(
-                                req,
-                                drafts,
-                                Some("Flagged by Judge decision model"),
-                                None,
-                                Some("Judge"),
-                            )
-                            .await;
-                    }
-                    Err(_) => {
-                        // Fall back to generative guard model if judge times out or is unreachable
-                    }
-                }
-            }
-
             if let Some(guard) = &self.guard_evaluator {
                 let verdict = guard.evaluate(&cmd).await;
                 if verdict.safe {

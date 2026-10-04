@@ -37,6 +37,38 @@ pub struct AdapterDecoder<'id> {
     calls: BTreeMap<String, CallPart<'id>>,
 }
 
+impl<'id> AdapterDecoder<'id> {
+    fn finish(&mut self, mut out: Out<'id, Completion>, usage: Usage) -> Result<Flow, ProviderError> {
+        if let Some(part) = self.text.take() {
+            out.close_text(part);
+        }
+        for (_, part) in std::mem::take(&mut self.calls) {
+            out.close_call(part)?;
+        }
+        Ok(out.end(Finish {
+            usage,
+            ..Finish::default()
+        }))
+    }
+}
+
+fn decode_tool_call(
+    out: &mut Out<'_, Completion>,
+    id: String,
+    name: String,
+    arguments: String,
+    signature: Option<String>,
+) -> Result<(), ProviderError> {
+    let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
+    let part = out.call(CallId::from_wire(id), tool_name)?;
+    if signature.is_some() {
+        out.decorate_call(&part, signature, None);
+    }
+    out.push_arguments(&part, &arguments);
+    out.close_call(part)?;
+    Ok(())
+}
+
 impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
     type Event = AdapterFrame;
 
@@ -61,25 +93,10 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
                 arguments,
                 signature,
             } => {
-                let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
-                let part = out.call(CallId::from_wire(id), tool_name)?;
-                if signature.is_some() {
-                    out.decorate_call(&part, signature, None);
-                }
-                out.push_arguments(&part, &arguments);
-                out.close_call(part)?;
+                decode_tool_call(&mut out, id, name, arguments, signature)?;
             }
             AdapterFrame::Done { usage } => {
-                if let Some(part) = self.text.take() {
-                    out.close_text(part);
-                }
-                for (_, part) in std::mem::take(&mut self.calls) {
-                    out.close_call(part)?;
-                }
-                return Ok(out.end(Finish {
-                    usage,
-                    ..Finish::default()
-                }));
+                return self.finish(out, usage);
             }
         }
         Ok(Flow::More)
@@ -260,6 +277,46 @@ mod tests {
         }
     }
 
+    struct StreamTestAdapter;
+
+    #[async_trait::async_trait]
+    impl ModelAdapter for StreamTestAdapter {
+        fn model_name(&self) -> &str {
+            "stream-test-model"
+        }
+
+        fn provider_name(&self) -> &str {
+            "stream-test-provider"
+        }
+
+        async fn complete(&self, _request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
+            unimplemented!()
+        }
+
+        async fn stream(
+            &self,
+            _request: ModelCompletionRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+            let mut tc = ToolCall::new("tc-1", ToolFunction::new("bash", serde_json::json!({"cmd": "ls"})));
+            tc.signature = Some("sig-123".to_string());
+            let events = vec![
+                Ok(ModelStreamEvent::Text("streamed text".to_string())),
+                Ok(ModelStreamEvent::Reasoning("thinking".to_string())),
+                Ok(ModelStreamEvent::ToolCall(tc)),
+                Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+                    "tc-2",
+                    ToolFunction::new("read", serde_json::json!({"path": "foo"})),
+                ))),
+                Ok(ModelStreamEvent::Usage(StructuralUsage {
+                    input_tokens: 50,
+                    output_tokens: 25,
+                    ..Default::default()
+                })),
+            ];
+            Ok(Box::pin(futures::stream::iter(events)))
+        }
+    }
+
     #[tokio::test]
     async fn test_rig_model_adapter_dyn_model() {
         let dyn_model = into_dyn_model(TestAdapter);
@@ -268,5 +325,19 @@ mod tests {
         assert_eq!(resp.choice.len(), 1);
         assert_eq!(resp.usage.input_tokens, Some(50));
         assert_eq!(resp.usage.output_tokens, Some(25));
+    }
+
+    #[tokio::test]
+    async fn test_rig_model_adapter_dyn_model_stream() {
+        use futures::StreamExt;
+        let dyn_model = into_dyn_model(StreamTestAdapter);
+        let req = CompletionRequest::new(rig::message::Message::user("hello"));
+        let mut stream = dyn_model.stream(req).unwrap();
+        let mut count = 0;
+        while let Some(item) = stream.next().await {
+            assert!(item.is_ok());
+            count += 1;
+        }
+        assert!(count > 0);
     }
 }

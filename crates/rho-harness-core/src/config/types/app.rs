@@ -44,6 +44,8 @@ pub struct Config {
     pub models: BTreeMap<String, String>,
     #[serde(default)]
     pub session_retention_days: Option<u32>,
+    #[serde(default)]
+    pub routing: bool,
     #[serde(skip)]
     pub migration_warnings: Vec<String>,
     pub providers: BTreeMap<String, ProviderConfig>,
@@ -88,6 +90,7 @@ macro_rules! default_config_literal {
             default_model: None,
             default_provider: None,
             models: BTreeMap::new(),
+            routing: false,
             session_retention_days: Some(5),
             migration_warnings: Vec::new(),
             providers: BTreeMap::new(),
@@ -177,48 +180,50 @@ impl Config {
         self.models.insert(provider.to_string(), model.to_string());
     }
 
-    pub fn judge_model(&self) -> Option<&str> {
+    fn resolve_named_model(&self, name: &str) -> Option<&str> {
         self.models
-            .get("judge")
+            .get(name)
             .map(String::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+    }
+
+    fn set_named_model(&mut self, name: &str, model: Option<&str>) {
+        match model
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+        {
+            Some(m) => {
+                self.models.insert(name.to_string(), m.to_string());
+            }
+            None => {
+                self.models.remove(name);
+            }
+        }
+    }
+
+    pub fn judge_model(&self) -> Option<&str> {
+        self.resolve_named_model("judge")
     }
 
     pub fn set_judge_model(&mut self, judge: Option<&str>) {
-        match judge
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
-        {
-            Some(j) => {
-                self.models.insert("judge".to_string(), j.to_string());
-            }
-            None => {
-                self.models.remove("judge");
-            }
-        }
+        self.set_named_model("judge", judge);
+    }
+
+    pub fn smol_model(&self) -> Option<&str> {
+        self.resolve_named_model("smol")
+    }
+
+    pub fn slow_model(&self) -> Option<&str> {
+        self.resolve_named_model("slow")
     }
 
     pub fn guard_model(&self) -> Option<&str> {
-        self.models
-            .get("guard")
-            .map(String::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+        self.resolve_named_model("guard")
     }
 
     pub fn set_guard_model(&mut self, guard: Option<&str>) {
-        match guard
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
-        {
-            Some(g) => {
-                self.models.insert("guard".to_string(), g.to_string());
-            }
-            None => {
-                self.models.remove("guard");
-            }
-        }
+        self.set_named_model("guard", guard);
     }
 
     pub fn canonical_model_spec(&self) -> String {

@@ -29,6 +29,13 @@ fn completion_reports_replacement_spans_for_commands_and_arguments() {
     assert!(collab_args.iter().any(|c| c.value == "/collab link"));
     assert!(collab_args.iter().any(|c| c.value == "/collab peers"));
     assert!(collab_args.iter().any(|c| c.value == "/collab stop"));
+
+    let route_cmd = completions.complete("/rou", 4);
+    assert!(route_cmd.iter().any(|c| c.value == "/route"));
+
+    let route_args = completions.complete("/route ", 7);
+    assert!(route_args.iter().any(|c| c.value == "/route on"));
+    assert!(route_args.iter().any(|c| c.value == "/route off"));
 }
 
 #[test]

@@ -159,6 +159,9 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         return Ok(true);
     }
     match key {
+        ConfigKey::ModelsRouting => {
+            file_config.models.routing = Some(parse_bool(key.as_str(), value)?);
+        }
         ConfigKey::Model => {
             file_config.models.default = Some(value.to_string());
         }

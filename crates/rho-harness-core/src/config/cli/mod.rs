@@ -34,6 +34,10 @@ pub struct Cli {
     #[arg(long = "slow", default_value_t = false)]
     pub slow: bool,
 
+    /// Enable automatic model tier routing per prompt
+    #[arg(long = "route", alias = "auto-route", default_value_t = false)]
+    pub route: bool,
+
     /// AI provider: API-key, local, or subscription identity (optional/legacy when model includes provider)
     #[arg(long = "provider")]
     pub provider: Option<String>,

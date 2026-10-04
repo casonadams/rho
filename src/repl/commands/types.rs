@@ -71,6 +71,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/settings",
     "/models",
     "/model",
+    "/route",
     "/resume",
     "/skill",
     "/mcp",

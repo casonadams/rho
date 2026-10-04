@@ -169,9 +169,6 @@ impl AgentEngine {
         hook_stack.push(lifecycle_hook);
         if self.config.permission.enabled {
             let mut perm_hook = crate::permission::PermissionHook::new(Some(cwd), presenter.clone());
-            if let Some((base_url, model)) = crate::provider::resolve_judge_model(&self.config) {
-                perm_hook = perm_hook.with_judge(crate::permission::guard::JudgeEvaluator::new(&base_url, &model));
-            }
             let auth_store = self.auth_store.lock().await;
             if let Ok(Some(guard_model)) =
                 crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store)
@@ -201,11 +198,15 @@ impl AgentEngine {
             ceiling,
             2,
         ));
-        hook_stack.push(
-            TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
-                .with_model_switch(request.model_switch.clone())
-                .with_project_context(self.project_context.clone()),
-        );
+        let mut tool_hook = TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
+            .with_model_switch(request.model_switch.clone())
+            .with_project_context(self.project_context.clone());
+        if let Some(routed) = &request.routed_model {
+            let (_, m) = rho_harness_core::provider::parse_model_spec(routed);
+            let model_name = if m.is_empty() { routed } else { &m };
+            tool_hook = tool_hook.with_routed_model(Some(model_name.to_string()));
+        }
+        hook_stack.push(tool_hook);
         Ok(hook_stack)
     }
 
@@ -302,6 +303,31 @@ impl AgentEngine {
             &self.session_manager.session_id,
         );
         Ok((runner, active_model))
+    }
+
+    pub(crate) async fn apply_model_routing(&self, request: &mut TurnRequest<'_>, presenter: &dyn Presenter) {
+        if !self.config.routing {
+            return;
+        }
+        let Some(router) = crate::routing::ModelRouter::from_config(&self.config) else {
+            return;
+        };
+
+        let verdict = router.route_prompt(request.prompt).await;
+        if verdict.fallback {
+            return;
+        }
+
+        let confidence_str = verdict
+            .confidence
+            .map(|c| format!(" ({:.0}%)", c * 100.0))
+            .unwrap_or_default();
+        presenter.print_notice(&format!(
+            "Routed to {} tier: {}{}",
+            verdict.tier, verdict.model, confidence_str
+        ));
+
+        request.routed_model = Some(verdict.model);
     }
 }
 

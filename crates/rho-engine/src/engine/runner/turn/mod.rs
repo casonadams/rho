@@ -90,7 +90,8 @@ impl AgentEngine {
             .await
     }
 
-    pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
+    pub async fn run_turn(&self, mut request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
+        self.apply_model_routing(&mut request, presenter.as_ref()).await;
         let mut prep = match self.prepare_turn(request.prompt, &presenter).await? {
             prepare::PreparedTurnOutcome::Compacted(out) => return Ok(*out),
             prepare::PreparedTurnOutcome::Ready(prep) => prep,

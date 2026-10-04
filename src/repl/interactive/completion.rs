@@ -22,6 +22,7 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ),
     ("models", "Configure role models (default, smol, slow, judge, guard)"),
     ("model", "Select model (opens selector UI) <provider/model>"),
+    ("route", "Toggle or inspect automatic model routing (/route [on|off])"),
     ("resume", "Resume a previous session (opens session selector)"),
     ("skill", "List, inspect, or invoke declarative skills"),
     ("mcp", "Inspect and manage Model Context Protocol servers"),
@@ -312,6 +313,9 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
     if let Some(argument) = prefix.strip_prefix("/model ") {
         return Some(complete_models(&set.models, argument, cursor));
     }
+    if let Some(argument) = prefix.strip_prefix("/route ") {
+        return Some(complete_route(argument, cursor));
+    }
     if let Some(argument) = prefix.strip_prefix("/thinking ") {
         return Some(complete_thinking(argument, cursor));
     }
@@ -411,6 +415,22 @@ fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
         .map(|(_, (level, desc))| Completion {
             value: format!("/thinking {level}"),
             description: Some((*desc).to_string()),
+            replacement: 0..cursor,
+        })
+        .collect()
+}
+
+fn complete_route(argument: &str, cursor: usize) -> Vec<Completion> {
+    const ROUTE_OPTIONS: [(&str, &str); 2] = [
+        ("on", "Enable automatic model routing"),
+        ("off", "Disable automatic model routing"),
+    ];
+    ROUTE_OPTIONS
+        .into_iter()
+        .filter(|(val, _)| argument.is_empty() || val.starts_with(argument))
+        .map(|(val, desc)| Completion {
+            value: format!("/route {val}"),
+            description: Some(desc.to_string()),
             replacement: 0..cursor,
         })
         .collect()

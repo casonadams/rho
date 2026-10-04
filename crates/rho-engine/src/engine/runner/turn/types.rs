@@ -48,6 +48,7 @@ pub struct TurnRequest<'a> {
     pub cancellation: Option<&'a CancellationSignal>,
     pub steering: Option<std::sync::Arc<dyn SteeringQueueProvider>>,
     pub model_switch: Option<std::sync::Arc<SharedModelSwitch>>,
+    pub routed_model: Option<String>,
 }
 
 impl<'a> TurnRequest<'a> {
@@ -57,6 +58,7 @@ impl<'a> TurnRequest<'a> {
             cancellation: None,
             steering: None,
             model_switch: None,
+            routed_model: None,
         }
     }
 
@@ -72,6 +74,11 @@ impl<'a> TurnRequest<'a> {
 
     pub fn with_model_switch(mut self, model_switch: std::sync::Arc<SharedModelSwitch>) -> Self {
         self.model_switch = Some(model_switch);
+        self
+    }
+
+    pub fn with_routed_model(mut self, model: String) -> Self {
+        self.routed_model = Some(model);
         self
     }
 }

@@ -42,6 +42,7 @@ pub(crate) enum ConfigKey {
     PlanModel,
     CommitModel,
     AdvisorModel,
+    ModelsRouting,
 }
 
 impl FromStr for ConfigKey {
@@ -114,6 +115,7 @@ fn parse_feature_key(value: &str) -> Option<ConfigKey> {
         "models.plan" | "plan_model" | "plan" => Some(ConfigKey::PlanModel),
         "models.commit" | "commit_model" | "commit" => Some(ConfigKey::CommitModel),
         "models.advisor" | "advisor_model" | "advisor" => Some(ConfigKey::AdvisorModel),
+        "models.routing" | "models_routing" | "routing" => Some(ConfigKey::ModelsRouting),
         _ => None,
     }
 }
@@ -175,6 +177,7 @@ impl ConfigKey {
             Self::PlanModel => "models.plan",
             Self::CommitModel => "models.commit",
             Self::AdvisorModel => "models.advisor",
+            Self::ModelsRouting => "models.routing",
             _ => "",
         }
     }
@@ -184,7 +187,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 40] = [
+    const ALL_KEYS: [ConfigKey; 41] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -225,6 +228,7 @@ mod tests {
         ConfigKey::PlanModel,
         ConfigKey::CommitModel,
         ConfigKey::AdvisorModel,
+        ConfigKey::ModelsRouting,
     ];
 
     #[test]
@@ -265,6 +269,8 @@ mod tests {
             ("permission", ConfigKey::PermissionEnabled),
             ("guard", ConfigKey::GuardModel),
             ("guard_model", ConfigKey::GuardModel),
+            ("models_routing", ConfigKey::ModelsRouting),
+            ("routing", ConfigKey::ModelsRouting),
         ];
         for (alias, expected) in aliases {
             assert_eq!(ConfigKey::from_str(alias), Ok(expected));

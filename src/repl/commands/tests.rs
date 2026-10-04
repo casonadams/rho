@@ -791,3 +791,35 @@ async fn collab_peers_with_connected_peers() {
     assert!(out.contains("#1: Full"));
     assert!(out.contains("#2: ViewOnly"));
 }
+
+#[tokio::test]
+async fn test_route_command_status_and_toggles() {
+    let mut config = Config {
+        model: "default-chat-model".to_string(),
+        ..Default::default()
+    };
+    let mut auth = AuthStore::default();
+    let (renderer, mut events) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
+
+    // Initial status
+    let res = SlashCommandHandler::handle("/route", &mut context).await.unwrap();
+    assert_eq!(res, Some(CommandResult::Continue));
+    let out = collected_output(&mut events);
+    assert!(out.contains("Model Routing: disabled"));
+    assert!(out.contains("default-chat-model"));
+
+    // Enable
+    let res = SlashCommandHandler::handle("/route on", &mut context).await.unwrap();
+    assert_eq!(res, Some(CommandResult::Continue));
+    assert!(context.config.routing);
+    let out = collected_output(&mut events);
+    assert!(out.contains("Model routing enabled"));
+
+    // Disable
+    let res = SlashCommandHandler::handle("/route off", &mut context).await.unwrap();
+    assert_eq!(res, Some(CommandResult::Continue));
+    assert!(!context.config.routing);
+    let out = collected_output(&mut events);
+    assert!(out.contains("Model routing disabled"));
+}

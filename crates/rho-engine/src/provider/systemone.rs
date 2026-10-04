@@ -79,6 +79,7 @@ pub struct SystemOneClient {
 
 impl SystemOneClient {
     pub fn new(base_url: &str) -> Self {
+        crate::install_crypto_provider();
         let base = base_url.trim_end_matches('/');
         let endpoint = format!("{base}/v1/systemone");
         let client = reqwest::Client::builder()

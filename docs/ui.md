@@ -99,6 +99,7 @@ autocomplete):
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
 | `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                    |
 | `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly.                                 |
+| `/route [on\|off]`           | Toggle or inspect automatic model tier routing (`smol`, `standard`, `slow`).                              |
 | `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                 |

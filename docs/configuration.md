@@ -118,9 +118,11 @@ default = "anthropic/claude-3-7-sonnet"
 # Dedicated local guard model for automated shell security classification
 guard = "ollama/qwen2.5-coder:7b"
 
-# Forward-compatible with future specialized roles:
-# plan = "openai/o3-mini"
-# advisor = "google/gemini-2.5-flash"
+# Dynamic model routing across capability tiers:
+routing = true
+judge = "ollama/clef-flash"
+smol = "ollama/qwen2.5-coder:7b"
+slow = "openai/o3-mini"
 ```
 
 ### Dedicated Guard Model

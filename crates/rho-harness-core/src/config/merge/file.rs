@@ -43,6 +43,9 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref advisor) = file.models.advisor {
         config.models.insert("advisor".to_string(), advisor.clone());
     }
+    if let Some(routing) = file.models.routing {
+        config.routing = routing;
+    }
     if let Some(ref t) = file.thinking_level {
         config.thinking_level = (t != "off").then(|| t.clone());
     }

@@ -20,6 +20,8 @@ pub struct ModelsConfig {
     pub commit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub advisor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<bool>,
 }
 
 impl ModelsConfig {
@@ -32,6 +34,7 @@ impl ModelsConfig {
             && self.plan.is_none()
             && self.commit.is_none()
             && self.advisor.is_none()
+            && self.routing.is_none()
     }
 }
 

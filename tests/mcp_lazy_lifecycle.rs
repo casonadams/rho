@@ -12,7 +12,8 @@ fn temp_workspace() -> PathBuf {
 }
 
 fn write_mock_server_script(workspace: &Path) -> PathBuf {
-    let script_path = workspace.join("mock_mcp.sh");
+    let script_name = format!("mock_lazy_mcp_{}.sh", uuid::Uuid::new_v4());
+    let script_path = workspace.join(script_name);
     let script = r#"#!/bin/sh
 while IFS= read -r line; do
   id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)

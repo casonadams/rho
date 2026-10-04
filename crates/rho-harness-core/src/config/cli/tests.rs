@@ -79,6 +79,12 @@ fn test_cli_flags_smol_and_slow() {
     let cli_slow = Cli::try_parse_from(["rho", "--slow"]).unwrap();
     assert!(!cli_slow.smol);
     assert!(cli_slow.slow);
+
+    let cli_route = Cli::try_parse_from(["rho", "--route"]).unwrap();
+    assert!(cli_route.route);
+
+    let cli_auto_route = Cli::try_parse_from(["rho", "--auto-route"]).unwrap();
+    assert!(cli_auto_route.route);
 }
 
 #[test]

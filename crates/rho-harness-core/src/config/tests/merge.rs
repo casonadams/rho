@@ -76,6 +76,7 @@ fn sample_cli_override(model: &str, turns: usize) -> cli::Cli {
         model: Some(model.to_string()),
         smol: false,
         slow: false,
+        route: false,
         provider: None,
         max_output_tokens: None,
         max_turns: Some(turns),
@@ -316,11 +317,13 @@ fn test_merge_models() {
     let toml3 = r#"
         [models]
         guard = "local/qwen2.5-coder:7b"
+        routing = true
     "#;
     let file3: FileConfig = toml::from_str(toml3).unwrap();
     let mut config3 = Config::default();
     merge::merge_file(&mut config3, file3);
     assert_eq!(config3.provider, "local");
+    assert!(config3.routing);
     assert_eq!(config3.model, "qwen2.5-coder:7b");
     assert_eq!(config3.guard_model(), Some("local/qwen2.5-coder:7b"));
 }

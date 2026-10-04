@@ -35,6 +35,7 @@ pub struct TurnToolExecutionHook {
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     steered: AtomicBool,
     model_switch: Option<Arc<SharedModelSwitch>>,
+    routed_model: Option<String>,
     project_context: Option<ProjectContextCache>,
 }
 
@@ -50,8 +51,14 @@ impl TurnToolExecutionHook {
             steering,
             steered: AtomicBool::new(false),
             model_switch: None,
+            routed_model: None,
             project_context: None,
         }
+    }
+
+    pub fn with_routed_model(mut self, routed_model: Option<String>) -> Self {
+        self.routed_model = routed_model;
+        self
     }
 
     pub fn with_model_switch(mut self, model_switch: Option<Arc<SharedModelSwitch>>) -> Self {
@@ -75,6 +82,9 @@ impl TurnToolExecutionHook {
 
 impl AgentHook for TurnToolExecutionHook {
     fn on_model_select(&self, _ctx: &HookContext, _event: ModelSelection<'_>) -> ModelSelectionAction {
+        if let Some(model) = &self.routed_model {
+            return ModelSelectionAction::select(model.clone());
+        }
         if let Some(switcher) = &self.model_switch
             && let Some(model) = switcher.current_model()
         {

@@ -110,6 +110,7 @@ commands:
 | :---------- | :------------------------------- | :---------------------------------------------------------------------------- |
 | `/settings` | **Runtime Settings**             | Configure model, thinking levels, tool card expansion, border styles, and permissions. |
 | `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers.             |
+| `/route`    | **Model Routing**                | Toggle or inspect automatic model tier routing (`/route [on\|off]`).           |
 | `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). |
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |

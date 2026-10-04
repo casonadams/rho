@@ -36,12 +36,12 @@ fn test_build_permission_prompt_with_evaluator() {
         "bash",
         &args,
         &[],
-        Some("Flagged by Judge decision model"),
+        Some("Flagged by Guard decision model"),
         None,
-        Some("Judge"),
+        Some("Guard"),
     );
-    assert_eq!(prompt.title, "Permission Required [Judge]");
-    assert!(prompt.body.contains("Notice: Flagged by Judge decision model"));
+    assert_eq!(prompt.title, "Permission Required [Guard]");
+    assert!(prompt.body.contains("Notice: Flagged by Guard decision model"));
 }
 
 #[test]

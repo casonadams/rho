@@ -15,6 +15,10 @@ fn build_help_options() -> Vec<ModalOption> {
             Some("Configure role models (default, smol, slow, judge, guard)"),
         ),
         ModalOption::new(format!("{:<15}", "/model"), Some("Inspect or switch the active model")),
+        ModalOption::new(
+            format!("{:<15}", "/route"),
+            Some("Toggle or inspect automatic model routing"),
+        ),
         ModalOption::new(format!("{:<15}", "/resume"), Some("Resume a prior session")),
         ModalOption::new(
             format!("{:<15}", "/session"),

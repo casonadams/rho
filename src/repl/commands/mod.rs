@@ -3,6 +3,7 @@ pub mod collab;
 pub mod export;
 pub mod help;
 pub mod model;
+pub mod route;
 pub mod session;
 pub mod skills;
 #[cfg(test)]
@@ -37,6 +38,7 @@ async fn handle_async_slash_commands(
     match name {
         "thinking" | "think" => handle_thinking(ctx, parts),
         "model" => handle_model(ctx, parts),
+        "route" => route::handle_route(ctx, parts),
         "skill" | "skills" => handle_skill(ctx, parts).await,
         "mcp" => {
             if parts.get(1) == Some(&"login") {

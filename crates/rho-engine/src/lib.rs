@@ -35,6 +35,7 @@ pub mod permission;
 pub mod process;
 pub mod provider;
 pub mod repeat;
+pub mod routing;
 pub mod tools;
 
 pub fn install_crypto_provider() {
