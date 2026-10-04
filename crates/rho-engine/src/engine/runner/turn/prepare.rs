@@ -21,6 +21,16 @@ pub(super) enum PreparedTurnOutcome {
     Ready(PreparedTurn),
 }
 
+pub(super) struct TurnRunnerParams<'a> {
+    pub prompt: &'a str,
+    pub preamble: &'a str,
+    pub budget: usize,
+    pub checkpoint: Option<&'a [ChatMessage]>,
+    pub history: &'a [ChatMessage],
+    pub hooks: rig::agent::hook::HookStack,
+    pub stream_port: ToolStreamPort,
+}
+
 pub(super) struct PreparedTurn {
     pub preamble: String,
     pub sink: Arc<TerminalApprovalSink>,
@@ -85,14 +95,16 @@ impl AgentEngine {
 
     async fn check_turn_proactive_compaction(
         &self,
-        (preamble, prompt): (&str, &str),
-        (presenter, history): (&dyn Presenter, &mut Vec<ChatMessage>),
+        preamble: &str,
+        prompt: &str,
+        presenter: &dyn Presenter,
+        history: &mut Vec<ChatMessage>,
     ) -> Result<Option<TurnOutput>> {
         let add_tokens = rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
             rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
         );
         if self
-            .check_proactive_compaction(presenter, (history, add_tokens))
+            .check_proactive_compaction(presenter, history, add_tokens)
             .await?
             .is_some()
         {
@@ -103,8 +115,11 @@ impl AgentEngine {
 
     async fn build_ready_turn(
         &self,
-        ((user_prompt, effective_prompt), preamble): ((&str, &str), String),
-        (history, presenter): (Vec<ChatMessage>, &Arc<dyn Presenter>),
+        user_prompt: &str,
+        effective_prompt: &str,
+        preamble: String,
+        history: Vec<ChatMessage>,
+        presenter: &Arc<dyn Presenter>,
     ) -> Result<PreparedTurn> {
         self.session_manager
             .append_event(
@@ -144,20 +159,22 @@ impl AgentEngine {
         let effective_prompt = crate::engine::context::format_turn_prompt(prompt, context.git_status.as_deref());
         let mut history = self.load_initial_history().await?;
         if let Some(out) = self
-            .check_turn_proactive_compaction((&preamble, &effective_prompt), (presenter.as_ref(), &mut history))
+            .check_turn_proactive_compaction(&preamble, &effective_prompt, presenter.as_ref(), &mut history)
             .await?
         {
             return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
         }
-        self.build_ready_turn(((prompt, &effective_prompt), preamble), (history, presenter))
+        self.build_ready_turn(prompt, &effective_prompt, preamble, history, presenter)
             .await
             .map(PreparedTurnOutcome::Ready)
     }
 
     async fn build_turn_hooks(
         &self,
-        (sink, request): (&Arc<TerminalApprovalSink>, &TurnRequest<'_>),
-        (presenter, prompt): (&Arc<dyn Presenter>, &str),
+        sink: &Arc<TerminalApprovalSink>,
+        request: &TurnRequest<'_>,
+        presenter: &Arc<dyn Presenter>,
+        prompt: &str,
     ) -> Result<rig::agent::hook::HookStack> {
         let cwd = self.base_dir.clone();
         let lifecycle_hook =
@@ -210,28 +227,19 @@ impl AgentEngine {
         Ok(hook_stack)
     }
 
-    async fn build_turn_runner<'a>(
-        &self,
-        (prompt, preamble, budget): (&'a str, &'a str, usize),
-        (checkpoint, history, hooks, stream_port): (
-            Option<&[ChatMessage]>,
-            &[ChatMessage],
-            rig::agent::hook::HookStack,
-            ToolStreamPort,
-        ),
-    ) -> AgentRunner {
-        let tool_context = ToolContext::new().with_scope(Arc::new(stream_port));
+    async fn build_turn_runner<'a>(&self, params: TurnRunnerParams<'a>) -> AgentRunner {
+        let tool_context = ToolContext::new().with_scope(Arc::new(params.stream_port));
         let agent_guard = self.agent.read().await;
-        let runner = build_runner(&agent_guard, prompt)
+        let runner = build_runner(&agent_guard, params.prompt)
             .conversation(self.session_manager.session_id.clone())
-            .preamble(preamble)
-            .max_turns(budget)
+            .preamble(params.preamble)
+            .max_turns(params.budget)
             .tool_context(tool_context)
-            .add_hook(hooks);
+            .add_hook(params.hooks);
         drop(agent_guard);
-        match checkpoint {
+        match params.checkpoint {
             Some(pending) => {
-                let combined = continuation_history(history, pending);
+                let combined = continuation_history(params.history, pending);
                 runner.history(
                     combined
                         .into_iter()
@@ -268,12 +276,10 @@ impl AgentEngine {
 
     pub(super) async fn prepare_step_runner<'a>(
         &self,
-        (sink, preamble, request, presenter): (
-            &Arc<TerminalApprovalSink>,
-            &'a str,
-            &TurnRequest<'_>,
-            &Arc<dyn Presenter>,
-        ),
+        sink: &Arc<TerminalApprovalSink>,
+        preamble: &'a str,
+        request: &TurnRequest<'_>,
+        presenter: &Arc<dyn Presenter>,
         loop_state: &'a TurnLoopState,
     ) -> Result<(AgentRunner, String)> {
         let active_model = request
@@ -282,18 +288,18 @@ impl AgentEngine {
             .and_then(|s| s.current_model())
             .unwrap_or_else(|| self.config.model.clone());
         let hooks = self
-            .build_turn_hooks((sink, request), (presenter, &loop_state.current_prompt))
+            .build_turn_hooks(sink, request, presenter, &loop_state.current_prompt)
             .await?;
         let runner = self
-            .build_turn_runner(
-                (&loop_state.current_prompt, preamble, loop_state.current_budget),
-                (
-                    loop_state.checkpoint.as_deref(),
-                    &loop_state.visible_history,
-                    hooks,
-                    presenter.stream_port(),
-                ),
-            )
+            .build_turn_runner(TurnRunnerParams {
+                prompt: &loop_state.current_prompt,
+                preamble,
+                budget: loop_state.current_budget,
+                checkpoint: loop_state.checkpoint.as_deref(),
+                history: &loop_state.visible_history,
+                hooks,
+                stream_port: presenter.stream_port(),
+            })
             .await;
         let provider = Self::resolve_active_provider(request, &active_model, &self.config.provider);
         let runner = Self::apply_runner_provider_extras(

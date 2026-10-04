@@ -451,7 +451,8 @@ impl AgentEngine {
     pub(crate) async fn check_proactive_compaction(
         &self,
         presenter: &dyn Presenter,
-        (history, additional_tokens): (&mut Vec<ChatMessage>, usize),
+        history: &mut Vec<ChatMessage>,
+        additional_tokens: usize,
     ) -> Result<Option<crate::engine::CompactionStats>> {
         let window = context_window(&self.config.model, &self.config.provider, &self.context);
         let tokens = trigger_tokens(

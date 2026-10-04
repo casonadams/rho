@@ -1259,10 +1259,7 @@ mod auto_compact {
         tokens: u64,
     ) {
         record_test_turn_usage(engine, tokens);
-        engine
-            .check_proactive_compaction(presenter, (history, 0))
-            .await
-            .unwrap();
+        engine.check_proactive_compaction(presenter, history, 0).await.unwrap();
     }
 
     fn threshold_engine(dir: &std::path::Path) -> crate::engine::AgentEngine {

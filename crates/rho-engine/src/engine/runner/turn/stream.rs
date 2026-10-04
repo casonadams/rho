@@ -10,6 +10,7 @@ use rig::agent::{AgentRunner, CompletionCall, MultiTurnStreamItem, PromptRespons
 use rig::message::Message;
 use rig::streaming::{Item, Part, StreamEvent};
 
+use super::prepare::TurnLoopState;
 use super::streaming_tool::StreamingToolTracker;
 use super::types::TurnOutput;
 use crate::engine::AgentEngine;
@@ -96,8 +97,10 @@ fn handle_display_events(
 
 fn record_completion_call(
     call: &CompletionCall,
-    (usage, run_tracker): (&UsageTracker, &crate::engine::metrics::RunTracker),
-    (start, total_elapsed): (&mut Option<Instant>, &mut u64),
+    usage: &UsageTracker,
+    run_tracker: &crate::engine::metrics::RunTracker,
+    start: &mut Option<Instant>,
+    total_elapsed: &mut u64,
 ) {
     let elapsed_ms = if let Some(s) = start.take() {
         let ms = s.elapsed().as_millis().max(1) as u64;
@@ -112,11 +115,9 @@ fn record_completion_call(
 
 fn handle_completion_stream_item(
     item: MultiTurnStreamItem,
-    (usage, run_tracker, sink): (
-        &UsageTracker,
-        &crate::engine::metrics::RunTracker,
-        &Arc<TerminalApprovalSink>,
-    ),
+    usage: &UsageTracker,
+    run_tracker: &crate::engine::metrics::RunTracker,
+    sink: &Arc<TerminalApprovalSink>,
     state: &mut TurnStreamState,
 ) {
     match item {
@@ -128,8 +129,10 @@ fn handle_completion_stream_item(
             state.streaming_tool.reset();
             record_completion_call(
                 &call,
-                (usage, run_tracker),
-                (&mut state.model_call_start, &mut state.total_generation_elapsed_ms),
+                usage,
+                run_tracker,
+                &mut state.model_call_start,
+                &mut state.total_generation_elapsed_ms,
             );
         }
         MultiTurnStreamItem::ToolCall { tool_call } => {
@@ -159,7 +162,9 @@ impl AgentEngine {
     fn process_assistant_stream_item(
         &self,
         content: Item<StreamEvent>,
-        (sink, state, active_model): (&Arc<TerminalApprovalSink>, &mut TurnStreamState, &str),
+        sink: &Arc<TerminalApprovalSink>,
+        state: &mut TurnStreamState,
+        active_model: &str,
     ) {
         state.content_emitted = true;
         if let Item::Event(StreamEvent::Arguments { ref json, .. }) = content {
@@ -182,19 +187,22 @@ impl AgentEngine {
     fn process_stream_item(
         &self,
         item: MultiTurnStreamItem,
-        (sink, state, active_model): (&Arc<TerminalApprovalSink>, &mut TurnStreamState, &str),
+        sink: &Arc<TerminalApprovalSink>,
+        state: &mut TurnStreamState,
+        active_model: &str,
     ) {
         if let MultiTurnStreamItem::StreamAssistantItem(content) = item {
-            self.process_assistant_stream_item(content, (sink, state, active_model));
+            self.process_assistant_stream_item(content, sink, state, active_model);
         } else {
-            handle_completion_stream_item(item, (&self.usage, &self.run_tracker, sink), state);
+            handle_completion_stream_item(item, &self.usage, &self.run_tracker, sink, state);
         }
     }
 
     async fn try_recover_overflow(
         &self,
         presenter: &dyn Presenter,
-        (visible_history, checkpoint): (&mut Vec<ChatMessage>, &mut Option<Vec<ChatMessage>>),
+        visible_history: &mut Vec<ChatMessage>,
+        checkpoint: &mut Option<Vec<ChatMessage>>,
     ) -> Result<bool> {
         presenter.print_notice("[Context overflow detected: auto-compacting...]");
         let spinner = presenter.start_spinner("Compacting...");
@@ -224,7 +232,10 @@ impl AgentEngine {
     async fn handle_budget_continuation(
         &self,
         presenter: &dyn Presenter,
-        (turns, hist, vis_hist, chk): (usize, &[ChatMessage], &[ChatMessage], &mut Option<Vec<ChatMessage>>),
+        turns: usize,
+        hist: &[ChatMessage],
+        vis_hist: &[ChatMessage],
+        chk: &mut Option<Vec<ChatMessage>>,
     ) -> Result<bool> {
         let pending = checkpoint_messages(vis_hist, hist)?;
         self.session_manager.save_checkpoint(pending.clone()).await?;
@@ -234,31 +245,30 @@ impl AgentEngine {
 
     async fn try_context_overflow(
         &self,
-        (error, presenter): (&StreamingError, &dyn Presenter),
-        (visible_history, checkpoint, overflow_recovered): (
-            &mut Vec<ChatMessage>,
-            &mut Option<Vec<ChatMessage>>,
-            &mut bool,
-        ),
+        error: &StreamingError,
+        presenter: &dyn Presenter,
+        visible_history: &mut Vec<ChatMessage>,
+        checkpoint: &mut Option<Vec<ChatMessage>>,
+        overflow_recovered: &mut bool,
     ) -> Result<bool> {
         if !*overflow_recovered && crate::engine::compactor::is_context_overflow_error(error) {
             *overflow_recovered = true;
-            return self
-                .try_recover_overflow(presenter, (visible_history, checkpoint))
-                .await;
+            return self.try_recover_overflow(presenter, visible_history, checkpoint).await;
         }
         Ok(false)
     }
 
     async fn try_budget_continuation(
         &self,
-        (error, presenter): (&StreamingError, &dyn Presenter),
-        (visible_history, checkpoint): (&[ChatMessage], &mut Option<Vec<ChatMessage>>),
+        error: &StreamingError,
+        presenter: &dyn Presenter,
+        visible_history: &[ChatMessage],
+        checkpoint: &mut Option<Vec<ChatMessage>>,
     ) -> Result<bool> {
         if let Some((turns, hist)) = budget_history(error) {
             let rho_hist: Vec<ChatMessage> = hist.into_iter().map(crate::adapter::rig::into_rho_message).collect();
             return self
-                .handle_budget_continuation(presenter, (turns, &rho_hist, visible_history, checkpoint))
+                .handle_budget_continuation(presenter, turns, &rho_hist, visible_history, checkpoint)
                 .await;
         }
         Ok(false)
@@ -278,20 +288,22 @@ impl AgentEngine {
 
     async fn handle_stream_error(
         &self,
-        (error, presenter, sink): (StreamingError, &dyn Presenter, &Arc<TerminalApprovalSink>),
-        (visible_history, checkpoint, overflow_recovered, rate_limit_retries, network_retries, content_emitted): (
-            &mut Vec<ChatMessage>,
-            &mut Option<Vec<ChatMessage>>,
-            &mut bool,
-            &mut usize,
-            &mut usize,
-            bool,
-        ),
+        error: StreamingError,
+        presenter: &dyn Presenter,
+        sink: &Arc<TerminalApprovalSink>,
+        loop_state: &mut TurnLoopState,
+        content_emitted: bool,
     ) -> Result<StreamErrorAction> {
         sink.finish_spinner();
         sink.flush_display();
         if self
-            .try_context_overflow((&error, presenter), (visible_history, checkpoint, overflow_recovered))
+            .try_context_overflow(
+                &error,
+                presenter,
+                &mut loop_state.visible_history,
+                &mut loop_state.checkpoint,
+                &mut loop_state.overflow_recovered,
+            )
             .await?
         {
             return Ok(StreamErrorAction::Compacted);
@@ -302,28 +314,33 @@ impl AgentEngine {
             return Err(err);
         }
         if self
-            .try_budget_continuation((&error, presenter), (visible_history, checkpoint))
+            .try_budget_continuation(
+                &error,
+                presenter,
+                &loop_state.visible_history,
+                &mut loop_state.checkpoint,
+            )
             .await?
         {
             return Ok(StreamErrorAction::BudgetContinue);
         }
         if let Some(duration) = extract_retry_after(&error)
             && duration.as_secs() <= 30
-            && *rate_limit_retries < 2
+            && loop_state.rate_limit_retries < 2
         {
-            *rate_limit_retries += 1;
+            loop_state.rate_limit_retries += 1;
             let secs = duration.as_secs().max(1);
             presenter.print_notice(&format!("[Rate limit reached; retrying in {secs}s...]"));
             tokio::time::sleep(duration).await;
             sink.resume_model_spinner();
             return Ok(StreamErrorAction::RateLimitRetry);
         }
-        if is_transient_network_error(&error) && !content_emitted && *network_retries < 2 {
-            *network_retries += 1;
-            let secs = *network_retries as u64;
+        if is_transient_network_error(&error) && !content_emitted && loop_state.network_retries < 2 {
+            loop_state.network_retries += 1;
+            let secs = loop_state.network_retries as u64;
             presenter.print_notice(&format!(
                 "[Network connection failed; retrying in {secs}s ({}/2)...]",
-                *network_retries
+                loop_state.network_retries
             ));
             tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
             sink.resume_model_spinner();
@@ -334,34 +351,20 @@ impl AgentEngine {
 
     pub(super) async fn run_turn_stream(
         &self,
-        (runner, sink, presenter): (AgentRunner, &Arc<TerminalApprovalSink>, &dyn Presenter),
-        (active_model, visible_history, checkpoint, overflow_recovered, rate_limit_retries, network_retries): (
-            &str,
-            &mut Vec<ChatMessage>,
-            &mut Option<Vec<ChatMessage>>,
-            &mut bool,
-            &mut usize,
-            &mut usize,
-        ),
+        runner: AgentRunner,
+        sink: &Arc<TerminalApprovalSink>,
+        presenter: &dyn Presenter,
+        active_model: &str,
+        loop_state: &mut TurnLoopState,
     ) -> Result<StreamRunResult> {
         let mut state = TurnStreamState::new();
         let mut stream = runner.stream();
         while let Some(item) = stream.next().await {
             match item {
-                Ok(item) => self.process_stream_item(item, (sink, &mut state, active_model)),
+                Ok(item) => self.process_stream_item(item, sink, &mut state, active_model),
                 Err(err) => {
                     let action = self
-                        .handle_stream_error(
-                            (err, presenter, sink),
-                            (
-                                visible_history,
-                                checkpoint,
-                                overflow_recovered,
-                                rate_limit_retries,
-                                network_retries,
-                                state.content_emitted,
-                            ),
-                        )
+                        .handle_stream_error(err, presenter, sink, loop_state, state.content_emitted)
                         .await?;
                     match action {
                         StreamErrorAction::Compacted => return Ok(StreamRunResult::Compacted),
@@ -413,7 +416,8 @@ impl AgentEngine {
     pub(super) async fn finalize_turn_execution(
         &self,
         state: TurnStreamState,
-        (sink, checkpoint): (&Arc<TerminalApprovalSink>, Option<&[ChatMessage]>),
+        sink: &Arc<TerminalApprovalSink>,
+        checkpoint: Option<&[ChatMessage]>,
     ) -> Result<TurnOutput> {
         let elapsed = Self::elapsed_generation_ms(&state);
         sink.finish_spinner();
@@ -501,67 +505,41 @@ mod tests {
         );
         let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
         let sink = engine.create_approval_sink(&presenter);
-        let mut visible_history: Vec<ChatMessage> = Vec::new();
-        let mut checkpoint: Option<Vec<ChatMessage>> = None;
-        let mut overflow_recovered = false;
-        let mut rate_limit_retries = 0;
-        let mut network_retries = 0;
+        let mut loop_state = TurnLoopState {
+            visible_history: Vec::new(),
+            checkpoint: None,
+            current_prompt: String::new(),
+            current_budget: 10,
+            overflow_recovered: false,
+            rate_limit_retries: 0,
+            network_retries: 0,
+        };
 
         let transient_err = StreamingError::Completion(ProviderError::Provider(
             "error sending request for url (https://cloudcode-pa.googleapis.com)".to_string(),
         ));
 
         let action = engine
-            .handle_stream_error(
-                (transient_err, presenter.as_ref(), &sink),
-                (
-                    &mut visible_history,
-                    &mut checkpoint,
-                    &mut overflow_recovered,
-                    &mut rate_limit_retries,
-                    &mut network_retries,
-                    false,
-                ),
-            )
+            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
             .await
             .unwrap();
         assert!(matches!(action, StreamErrorAction::NetworkRetry));
-        assert_eq!(network_retries, 1);
+        assert_eq!(loop_state.network_retries, 1);
 
         let transient_err = StreamingError::Completion(ProviderError::Provider("connection reset by peer".to_string()));
         let action = engine
-            .handle_stream_error(
-                (transient_err, presenter.as_ref(), &sink),
-                (
-                    &mut visible_history,
-                    &mut checkpoint,
-                    &mut overflow_recovered,
-                    &mut rate_limit_retries,
-                    &mut network_retries,
-                    false,
-                ),
-            )
+            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
             .await
             .unwrap();
         assert!(matches!(action, StreamErrorAction::NetworkRetry));
-        assert_eq!(network_retries, 2);
+        assert_eq!(loop_state.network_retries, 2);
 
         let transient_err = StreamingError::Completion(ProviderError::Provider("connection reset by peer".to_string()));
         let result = engine
-            .handle_stream_error(
-                (transient_err, presenter.as_ref(), &sink),
-                (
-                    &mut visible_history,
-                    &mut checkpoint,
-                    &mut overflow_recovered,
-                    &mut rate_limit_retries,
-                    &mut network_retries,
-                    false,
-                ),
-            )
+            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
             .await;
         assert!(result.is_err());
-        assert_eq!(network_retries, 2);
+        assert_eq!(loop_state.network_retries, 2);
     }
 
     #[tokio::test]
@@ -578,29 +556,23 @@ mod tests {
         );
         let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
         let sink = engine.create_approval_sink(&presenter);
-        let mut visible_history: Vec<ChatMessage> = Vec::new();
-        let mut checkpoint: Option<Vec<ChatMessage>> = None;
-        let mut overflow_recovered = false;
-        let mut rate_limit_retries = 0;
-        let mut network_retries = 0;
+        let mut loop_state = TurnLoopState {
+            visible_history: Vec::new(),
+            checkpoint: None,
+            current_prompt: String::new(),
+            current_budget: 10,
+            overflow_recovered: false,
+            rate_limit_retries: 0,
+            network_retries: 0,
+        };
 
         let transient_err =
             StreamingError::Completion(ProviderError::Provider("Claude stream failed: broken pipe".to_string()));
 
         let result = engine
-            .handle_stream_error(
-                (transient_err, presenter.as_ref(), &sink),
-                (
-                    &mut visible_history,
-                    &mut checkpoint,
-                    &mut overflow_recovered,
-                    &mut rate_limit_retries,
-                    &mut network_retries,
-                    true,
-                ),
-            )
+            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, true)
             .await;
         assert!(result.is_err());
-        assert_eq!(network_retries, 0);
+        assert_eq!(loop_state.network_retries, 0);
     }
 }

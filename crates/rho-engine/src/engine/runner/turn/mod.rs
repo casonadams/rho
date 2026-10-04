@@ -27,7 +27,8 @@ use super::sink::TerminalApprovalSink;
 impl AgentEngine {
     async fn handle_budget_continue(
         &self,
-        (sink, presenter): (&Arc<TerminalApprovalSink>, &dyn Presenter),
+        sink: &Arc<TerminalApprovalSink>,
+        presenter: &dyn Presenter,
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         sink.resume_model_spinner();
@@ -36,7 +37,7 @@ impl AgentEngine {
         let additional_tokens =
             rho_harness_core::tokens::estimate_text_tokens(&loop_state.current_prompt, &self.config.model);
         if self
-            .check_proactive_compaction(presenter, (&mut loop_state.visible_history, additional_tokens))
+            .check_proactive_compaction(presenter, &mut loop_state.visible_history, additional_tokens)
             .await?
             .is_some()
         {
@@ -47,18 +48,20 @@ impl AgentEngine {
 
     async fn handle_stream_run_result(
         &self,
-        (res, sink, presenter): (StreamRunResult, &Arc<TerminalApprovalSink>, &dyn Presenter),
+        res: StreamRunResult,
+        sink: &Arc<TerminalApprovalSink>,
+        presenter: &dyn Presenter,
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
             StreamRunResult::RateLimitRetry | StreamRunResult::NetworkRetry => Ok(None),
             StreamRunResult::Compacted => self.compacted_turn_output().await.map(Some),
-            StreamRunResult::BudgetContinue => self.handle_budget_continue((sink, presenter), loop_state).await,
+            StreamRunResult::BudgetContinue => self.handle_budget_continue(sink, presenter, loop_state).await,
             StreamRunResult::Complete(state) => {
                 loop_state.rate_limit_retries = 0;
                 loop_state.network_retries = 0;
                 let out = self
-                    .finalize_turn_execution(*state, (sink, loop_state.checkpoint.as_deref()))
+                    .finalize_turn_execution(*state, sink, loop_state.checkpoint.as_deref())
                     .await?;
                 Ok(Some(out))
             }
@@ -67,26 +70,19 @@ impl AgentEngine {
 
     async fn execute_turn_step(
         &self,
-        (sink, preamble, request, presenter): (&Arc<TerminalApprovalSink>, &str, &TurnRequest<'_>, &Arc<dyn Presenter>),
+        sink: &Arc<TerminalApprovalSink>,
+        preamble: &str,
+        request: &TurnRequest<'_>,
+        presenter: &Arc<dyn Presenter>,
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         let (runner, active_model) = self
-            .prepare_step_runner((sink, preamble, request, presenter), loop_state)
+            .prepare_step_runner(sink, preamble, request, presenter, loop_state)
             .await?;
         let stream_res = self
-            .run_turn_stream(
-                (runner, sink, presenter.as_ref()),
-                (
-                    &active_model,
-                    &mut loop_state.visible_history,
-                    &mut loop_state.checkpoint,
-                    &mut loop_state.overflow_recovered,
-                    &mut loop_state.rate_limit_retries,
-                    &mut loop_state.network_retries,
-                ),
-            )
+            .run_turn_stream(runner, sink, presenter.as_ref(), &active_model, loop_state)
             .await?;
-        self.handle_stream_run_result((stream_res, sink, presenter.as_ref()), loop_state)
+        self.handle_stream_run_result(stream_res, sink, presenter.as_ref(), loop_state)
             .await
     }
 
@@ -99,7 +95,7 @@ impl AgentEngine {
         let _in_flight_guard = self.usage.in_flight_guard();
         loop {
             if let Some(out) = self
-                .execute_turn_step((&prep.sink, &prep.preamble, &request, &presenter), &mut prep.loop_state)
+                .execute_turn_step(&prep.sink, &prep.preamble, &request, &presenter, &mut prep.loop_state)
                 .await?
             {
                 return Ok(out);

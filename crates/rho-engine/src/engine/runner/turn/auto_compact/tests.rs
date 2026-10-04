@@ -577,7 +577,7 @@ async fn test_auto_compaction_check_with_20_messages_reuses_cached_counts() {
 
     // First check computes tokens for all 20 messages
     let _ = engine
-        .check_proactive_compaction(&presenter, (&mut history, 0))
+        .check_proactive_compaction(&presenter, &mut history, 0)
         .await
         .unwrap();
     let misses_after_first = engine.context.token_cache().lock().unwrap().misses();
@@ -587,7 +587,7 @@ async fn test_auto_compaction_check_with_20_messages_reuses_cached_counts() {
 
     // Second check with identical history reuses memoized counts
     let _ = engine
-        .check_proactive_compaction(&presenter, (&mut history, 0))
+        .check_proactive_compaction(&presenter, &mut history, 0)
         .await
         .unwrap();
     let misses_after_second = engine.context.token_cache().lock().unwrap().misses();
