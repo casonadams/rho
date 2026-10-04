@@ -278,3 +278,95 @@ fn test_install_interaction_forwards_option_layout() {
     assert_eq!(modal.option_layout, OptionLayout::Horizontal);
     assert_eq!(modal.body_scroll, 0);
 }
+
+#[test]
+fn test_settings_hierarchical_escape_back_navigation() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().editor_mut().set_text("draft to preserve");
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        config_dir: temp.path().to_path_buf(),
+        model: "claude-3-7-sonnet".to_string(),
+        ..Default::default()
+    };
+    let session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+
+    super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), None, None, driver.controller);
+    assert_eq!(driver.controller.state().modal_depth(), 1);
+    assert_eq!(driver.controller.state().active_modal().unwrap().title, "Settings");
+
+    super::super::modal::open_models_selector(&session, driver.controller);
+    assert_eq!(driver.controller.state().modal_depth(), 2);
+    assert_eq!(driver.controller.state().active_modal().unwrap().title, "Models");
+
+    super::super::modal::open_model_selector_with_default(&session, driver.controller, true);
+    assert_eq!(driver.controller.state().modal_depth(), 3);
+    assert_eq!(driver.controller.state().active_modal().unwrap().title, "Select Model");
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(driver.controller.state().modal_depth(), 2);
+    assert_eq!(driver.controller.state().active_modal().unwrap().title, "Models");
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(driver.controller.state().modal_depth(), 1);
+    assert_eq!(driver.controller.state().active_modal().unwrap().title, "Settings");
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(driver.controller.state().modal_depth(), 0);
+    assert!(driver.controller.state().active_modal().is_none());
+    assert_eq!(driver.controller.state().editor().text(), "draft to preserve");
+}
+
+#[test]
+fn test_tools_and_permissions_hierarchical_escape_back_navigation() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().editor_mut().set_text("unsent prompt");
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        config_dir: temp.path().to_path_buf(),
+        ..Default::default()
+    };
+    let session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+
+    super::super::modal::open_settings_selector(None, None, None, driver.controller);
+    assert_eq!(driver.controller.state().modal_depth(), 1);
+
+    super::super::modal::open_tools_selector(&session, driver.controller);
+    assert_eq!(driver.controller.state().modal_depth(), 2);
+    assert_eq!(
+        driver.controller.state().active_modal().unwrap().title,
+        "Tools & Permissions"
+    );
+
+    super::super::modal::open_search_engine_selector(&session, driver.controller);
+    assert_eq!(driver.controller.state().modal_depth(), 3);
+    assert_eq!(
+        driver.controller.state().active_modal().unwrap().title,
+        "Select Search Engine"
+    );
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(driver.controller.state().modal_depth(), 2);
+    assert_eq!(
+        driver.controller.state().active_modal().unwrap().title,
+        "Tools & Permissions"
+    );
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(driver.controller.state().modal_depth(), 1);
+    assert_eq!(driver.controller.state().active_modal().unwrap().title, "Settings");
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(driver.controller.state().modal_depth(), 0);
+    assert_eq!(driver.controller.state().editor().text(), "unsent prompt");
+}

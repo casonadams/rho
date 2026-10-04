@@ -97,7 +97,7 @@ permission approvals):
 | `Shift+Tab` / `BackTab`    | **Previous**      | Moves to the previous option in autocomplete or selection modals.                   |
 | `Up` / `Down` or `k` / `j` | **Select Item**   | Navigates up and down through modal items.                                          |
 | `Enter`                    | **Confirm**       | Confirms the selected modal option or runs the approval action.                     |
-| `Escape`                   | **Dismiss**       | Dismisses the modal or autocomplete dropdown without applying changes.              |
+| `Escape`                   | **Dismiss / Back**| Dismisses the modal or autocomplete dropdown, or navigates back one level in hierarchical submenus (`/settings`, `Models`, `Tools & Permissions`). |
 
 ---
 
@@ -108,7 +108,7 @@ commands:
 
 | Command     | Action                           | Details                                                                       |
 | :---------- | :------------------------------- | :---------------------------------------------------------------------------- |
-| `/settings` | **Runtime Settings**             | Configure model, thinking levels, tool card expansion, border styles, and permissions. |
+| `/settings` | **Runtime Settings**             | Interactive settings modal preserving stack hierarchy: switch role models (default, smol, slow, judge, guard), configure thinking, styling, and tools in-place. |
 | `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers.             |
 | `/route`    | **Model Routing**                | Toggle or inspect automatic model tier routing (`/route [on\|off]`).           |
 | `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). |
