@@ -71,7 +71,8 @@ fn extract_compaction_summary(node: &TreeNodeData, meta: Option<&CompactionMetad
 }
 
 fn find_kept_start_idx(
-    (nodes, compaction_node): (&[&TreeNodeData], &TreeNodeData),
+    nodes: &[&TreeNodeData],
+    compaction_node: &TreeNodeData,
     meta: Option<&CompactionMetadata>,
     default_idx: usize,
 ) -> usize {
@@ -193,7 +194,7 @@ impl SessionTree {
         let compaction_node = nodes[comp_idx];
         let metadata = compaction_node.compaction_metadata();
         let summary_message = extract_compaction_summary(compaction_node, metadata.as_ref());
-        let start_idx = find_kept_start_idx((&nodes, compaction_node), metadata.as_ref(), comp_idx + 1);
+        let start_idx = find_kept_start_idx(&nodes, compaction_node, metadata.as_ref(), comp_idx + 1);
         let msg_offset = find_kept_message_offset(compaction_node, metadata.as_ref());
         collect_post_compaction_messages(&nodes[start_idx..], summary_message, msg_offset)
     }

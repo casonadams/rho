@@ -26,7 +26,9 @@ fn validate_assistant_content(content: &[AssistantContent], pending: &mut Vec<(S
 
 fn check_trailing_state(
     pending: &[(String, String)],
-    (require_assistant_end, is_empty, last_was_assistant): (bool, bool, bool),
+    require_assistant_end: bool,
+    is_empty: bool,
+    last_was_assistant: bool,
 ) -> Result<()> {
     if !pending.is_empty() {
         return Err(session_error("canonical history contains a dangling tool call"));
@@ -59,7 +61,8 @@ impl CanonicalHistory {
     fn scan_history_message(
         &self,
         message: &ChatMessage,
-        (pending, last_was_assistant): (&mut Vec<(String, String)>, &mut bool),
+        pending: &mut Vec<(String, String)>,
+        last_was_assistant: &mut bool,
     ) -> Result<()> {
         match message {
             ChatMessage::System { .. } => Err(session_error("system messages are not canonical conversation memory")),
@@ -82,10 +85,11 @@ impl CanonicalHistory {
     fn scan_history_messages(
         &self,
         messages: &[ChatMessage],
-        mut state: (&mut Vec<(String, String)>, &mut bool),
+        pending: &mut Vec<(String, String)>,
+        last_was_assistant: &mut bool,
     ) -> Result<()> {
         for message in messages {
-            self.scan_history_message(message, (&mut state.0, &mut state.1))?;
+            self.scan_history_message(message, pending, last_was_assistant)?;
         }
         Ok(())
     }
@@ -94,11 +98,8 @@ impl CanonicalHistory {
         let mut pending: Vec<(String, String)> = Vec::new();
         let mut last_was_assistant = false;
 
-        self.scan_history_messages(messages, (&mut pending, &mut last_was_assistant))?;
-        check_trailing_state(
-            &pending,
-            (require_assistant_end, messages.is_empty(), last_was_assistant),
-        )
+        self.scan_history_messages(messages, &mut pending, &mut last_was_assistant)?;
+        check_trailing_state(&pending, require_assistant_end, messages.is_empty(), last_was_assistant)
     }
 }
 
