@@ -329,3 +329,58 @@ async fn test_read_oversized_file_spills_artifact() {
     let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
     assert_eq!(spilled_content, content);
 }
+
+#[tokio::test]
+async fn test_read_skill_full_content_on_first_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let skill_dir = dir.path().join(".agents/skills/custom");
+    tokio::fs::create_dir_all(&skill_dir).await.unwrap();
+    let file_path = skill_dir.join("SKILL.md");
+    let content = numbered_lines(150);
+    tokio::fs::write(&file_path, &content).await.unwrap();
+
+    let tool = ReadTool::new(dir.path());
+
+    // First read with explicit limit of 10 should read all 150 lines
+    let res = tool
+        .execute(ReadArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            offset: None,
+            limit: Some(10),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(res.content.contains("line 1"));
+    assert!(res.content.contains("line 150"));
+    assert!(!res.content.contains("more lines in file"));
+
+    // First read with offset 1 and limit 100 should also read all 150 lines
+    let res_offset_1 = tool
+        .execute(ReadArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            offset: Some(1),
+            limit: Some(100),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res_offset_1.is_error);
+    assert!(res_offset_1.content.contains("line 150"));
+
+    // Subsequent read with offset > 1 should respect limit
+    let res_page2 = tool
+        .execute(ReadArgs {
+            path: file_path.to_str().unwrap().to_string(),
+            offset: Some(11),
+            limit: Some(10),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res_page2.is_error);
+    assert!(res_page2.content.contains("line 11"));
+    assert!(res_page2.content.contains("line 20"));
+    assert!(!res_page2.content.contains("line 21"));
+}

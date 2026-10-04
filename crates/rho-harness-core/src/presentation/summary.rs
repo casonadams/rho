@@ -52,6 +52,13 @@ fn classify_skill(path: &Path, file_name: &str) -> Option<ReadClassification> {
             .unwrap_or(file_name)
             .to_string();
         Some(ReadClassification::Skill { name: skill_name })
+    } else if path.extension().is_some_and(|ext| ext == "md") && path.components().any(|c| c.as_os_str() == "skills") {
+        let skill_name = path
+            .file_stem()
+            .and_then(|f| f.to_str())
+            .unwrap_or(file_name)
+            .to_string();
+        Some(ReadClassification::Skill { name: skill_name })
     } else {
         None
     }

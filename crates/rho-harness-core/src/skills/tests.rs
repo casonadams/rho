@@ -246,3 +246,16 @@ fn disable_model_invocation_parsed_from_frontmatter() {
     let model_enabled = resolved.iter().find(|s| s.metadata.name == "model-enabled").unwrap();
     assert!(!model_enabled.metadata.disable_model_invocation);
 }
+
+#[test]
+fn test_is_skill_path() {
+    assert!(is_skill_path(Path::new("/home/user/.agents/skills/plan/SKILL.md")));
+    assert!(is_skill_path(Path::new("skills/review/SKILL.md")));
+    assert!(is_skill_path(Path::new("SKILL.md")));
+    assert!(is_skill_path(Path::new("skill.md")));
+    assert!(is_skill_path(Path::new(".agents/skills/deploy.md")));
+    assert!(is_skill_path(Path::new("skills/lint.md")));
+    assert!(!is_skill_path(Path::new("README.md")));
+    assert!(!is_skill_path(Path::new("src/skills/mod.rs")));
+    assert!(!is_skill_path(Path::new("docs/skills.txt")));
+}

@@ -70,6 +70,16 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
     resolved
 }
 
+pub fn is_skill_path(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if file_name.eq_ignore_ascii_case("SKILL.md") {
+        return true;
+    }
+    path.extension().is_some_and(|ext| ext == "md") && path.components().any(|c| c.as_os_str() == "skills")
+}
+
 fn skill_file_for_entry(path: &Path) -> Option<PathBuf> {
     if path.is_dir() {
         Some(path.join("SKILL.md"))

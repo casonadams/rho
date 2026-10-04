@@ -52,6 +52,14 @@ async fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<T
     None
 }
 
+fn is_skill_first_read(clean_path: &str, base_dir: &Path, offset: Option<usize>) -> bool {
+    if offset.unwrap_or(1) > 1 {
+        return false;
+    }
+    let path = Path::new(clean_path);
+    rho_harness_core::skills::is_skill_path(path) || rho_harness_core::skills::is_skill_path(&base_dir.join(path))
+}
+
 impl ReadTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         let base = base_dir.as_ref().to_path_buf();
@@ -71,10 +79,14 @@ impl ReadTool {
         self
     }
 
-    pub async fn execute(&self, args: ReadArgs) -> Result<ToolResult, AppError> {
+    pub async fn execute(&self, mut args: ReadArgs) -> Result<ToolResult, AppError> {
         let clean_path = args.path.trim().trim_matches('"').trim_matches('\'');
         if clean_path.is_empty() {
             return Ok(ToolResult::error("Empty file path provided for read tool"));
+        }
+
+        if is_skill_first_read(clean_path, &self.base_dir, args.offset) {
+            args.limit = None;
         }
 
         if let Some(vfs_uri) = parse_vfs_uri(clean_path) {

@@ -81,7 +81,7 @@ fn append_skills(prompt: &mut String, skills: &[rho_harness_core::skills::SkillM
     };
     prompt.push_str("The following skills provide specialized instructions for specific tasks.\n");
     prompt.push_str(&format!(
-        "Use {reader} to load a skill's file when the task matches its description.\n"
+        "Use {reader} to load a skill's file when the task matches its description; read the entire skill file on first read without a line limit.\n"
     ));
     prompt.push_str("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n");
     prompt.push_str("<available_skills>\n");

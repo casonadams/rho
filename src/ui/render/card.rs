@@ -95,7 +95,13 @@ pub fn format_read_header(tool: &ToolLine, theme: &Theme) -> String {
     match classify_read_path(&tool.arguments) {
         Some(ReadClassification::Skill { name }) => {
             let tag = theme.skill_tag;
-            format!("{tag}[skill]{tag:#} {name}{range_suffix}")
+            let offset = tool
+                .arguments
+                .get("offset")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(1);
+            let suffix = if offset <= 1 { "" } else { &range_suffix };
+            format!("{tag}[skill]{tag:#} {name}{suffix}")
         }
         Some(ReadClassification::Resource { path }) => {
             format!("{title}read resource{title:#} {accent}{path}{accent:#}{range_suffix}")
