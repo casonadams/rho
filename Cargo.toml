@@ -34,8 +34,8 @@ fuzzy-matcher = "0.3.7"
 rho-harness-core = { version = "0.12.0", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.12.0", path = "crates/rho-engine" }
 rig = { version = "0.43.0", default-features = false, features = ["agent", "derive", "test-utils", "reqwest"] }
-rmcp = { version = "3.4", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
-similar = "2.7"
+rmcp = { version = "3.5", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
+similar = "3.2"
 strip-ansi-escapes = "0.2"
 rpassword = "7.5"
 rig-memory = "0.43.0"
@@ -45,9 +45,9 @@ flate2 = "1.0"
 tar = "0.4"
 toml = "1.1"
 toml_edit = "0.25"
-base64 = "0.22"
+base64 = "0.23"
 ring = "0.17"
-iroh = { version = "1.2", default-features = false, features = ["tls-ring"] }
+iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
 
 [package]
 name = "rho"
@@ -110,13 +110,13 @@ serde_json.workspace = true
 base64.workspace = true
 futures-util = "0.3"
 clap = { version = "4.5", features = ["derive", "env"] }
-reedline = { version = "0.51", optional = true }
+reedline = { version = "0.52", optional = true }
 indicatif = { version = "0.18", optional = true }
 crossterm = { version = "0.29", optional = true }
 anstyle = { version = "1.0", optional = true }
 pulldown-cmark = { version = "0.13", optional = true }
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"], optional = true }
-merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["ascii"], optional = true }
+merman = { version = "0.8.0-alpha.7", default-features = false, features = ["ascii", "all-diagrams"], optional = true }
 terminal-colorsaurus = { version = "1.0", features = ["anstyle"], optional = true }
 
 # Utilities & Config

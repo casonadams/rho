@@ -140,27 +140,23 @@ pub fn parse_timedtext_xml(xml: &str) -> Vec<(u64, String)> {
         let event = reader.read_event_into(&mut buf);
         match &event {
             Ok(quick_xml::events::Event::Eof) => break,
-            Ok(quick_xml::events::Event::Start(e)) if e.name().as_ref() == b"text" => {
+            Ok(quick_xml::events::Event::Start(e)) if e.name().as_ref() == "text" => {
                 in_text = true;
                 current_start = extract_start_attr(e);
                 current_text.clear();
             }
-            Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == b"text" => {
+            Ok(quick_xml::events::Event::End(e)) if e.name().as_ref() == "text" => {
                 in_text = false;
                 finalize_cue(current_start, &current_text, &mut last_text, &mut cues);
                 current_text.clear();
             }
             Ok(quick_xml::events::Event::Text(t)) if in_text => {
-                if let Ok(raw) = std::str::from_utf8(t.as_ref()) {
-                    current_text.push_str(raw);
-                }
+                current_text.push_str(t.as_ref());
             }
             Ok(quick_xml::events::Event::GeneralRef(r)) if in_text => {
-                if let Ok(name) = std::str::from_utf8(r.as_ref()) {
-                    let entity = format!("&{name};");
-                    if let Ok(unesc) = quick_xml::escape::unescape(&entity) {
-                        current_text.push_str(&unesc);
-                    }
+                let entity = format!("&{};", r.as_ref());
+                if let Ok(unesc) = quick_xml::escape::unescape(&entity) {
+                    current_text.push_str(&unesc);
                 }
             }
             _ => {}
@@ -181,9 +177,8 @@ fn finalize_cue(start: u64, raw_text: &str, last_text: &mut String, cues: &mut V
 
 fn extract_start_attr(e: &quick_xml::events::BytesStart<'_>) -> u64 {
     for attr in e.attributes().flatten() {
-        if attr.key.as_ref() == b"start"
-            && let Ok(val_str) = std::str::from_utf8(&attr.value)
-            && let Ok(sec) = val_str.parse::<f64>()
+        if attr.key.as_ref() == "start"
+            && let Ok(sec) = attr.value.parse::<f64>()
         {
             return sec.max(0.0) as u64;
         }
