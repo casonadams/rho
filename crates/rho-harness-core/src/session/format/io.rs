@@ -106,10 +106,16 @@ pub async fn load_file_async(path: &Path, expected_id: &str) -> Result<StoreStat
 }
 
 fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> {
-    let committed = committed_lines(bytes)?;
-    let Some(first) = committed.first() else {
+    let Some(last_newline) = bytes.iter().rposition(|&b| b == b'\n') else {
         return Err(session_error("session is missing the mandatory version header"));
     };
+    let mut lines = bytes[..last_newline].split(|&b| b == b'\n');
+    let Some(first) = lines.next() else {
+        return Err(session_error("session is missing the mandatory version header"));
+    };
+    if first.is_empty() {
+        return Err(session_error("session contains an empty committed record"));
+    }
     let header = parse_header(first)?;
     validate_header(&header, expected_id)?;
     let mut state = StoreState {
@@ -120,24 +126,15 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
         tree: SessionTree::new(),
         integrity: CanonicalHistory::new(),
     };
-    for line in committed.iter().skip(1) {
+    for line in lines {
+        if line.is_empty() {
+            return Err(session_error("session contains an empty committed record"));
+        }
         let record: SessionRecord =
             serde_json::from_slice(line).map_err(|_| session_error("session contains a malformed committed record"))?;
         apply_record(&mut state, record, expected_id)?;
     }
     Ok(state)
-}
-
-fn committed_lines(bytes: &[u8]) -> Result<Vec<&[u8]>> {
-    if bytes.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut lines = bytes.split(|byte| *byte == b'\n').collect::<Vec<_>>();
-    lines.pop();
-    if lines.iter().any(|line| line.is_empty()) {
-        return Err(session_error("session contains an empty committed record"));
-    }
-    Ok(lines)
 }
 
 pub(crate) fn parse_header(line: &[u8]) -> Result<SessionHeader> {
