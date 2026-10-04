@@ -33,7 +33,8 @@ fn footer_contains_available_status_and_queue_count() {
 
 fn test_status_layout(
     footer: &FooterState,
-    (queued, widgets): (&[QueuedMessage], &[String]),
+    queued: &[QueuedMessage],
+    widgets: &[String],
     width: usize,
 ) -> crate::ui::interactive::layout::InteractiveLayout {
     layout(LayoutInput {
@@ -69,7 +70,7 @@ fn queued_messages_render_above_the_working_line() {
             kind: QueueKind::FollowUp,
         },
     ];
-    let layout = test_status_layout(&footer, (&queued, &[]), 80);
+    let layout = test_status_layout(&footer, &queued, &[], 80);
 
     assert_eq!(layout.queued_lines.len(), 3);
     assert!(
@@ -86,7 +87,7 @@ fn narrow_layout_never_exceeds_terminal_width() {
         model: "model".into(),
         ..FooterState::default()
     };
-    let layout = test_status_layout(&footer, (&[], &[]), 5);
+    let layout = test_status_layout(&footer, &[], &[], 5);
 
     assert!(layout.footer_lines[0].width() <= 5 && layout.footer_lines[1].width() <= 5);
     assert_eq!(
@@ -110,7 +111,7 @@ fn queued_messages_render_below_widget_lines_and_above_editor() {
         "│ running 1 test     │".to_string(),
         "└────────────────────┘".to_string(),
     ];
-    let layout = test_status_layout(&footer, (&queued, &widgets), 80);
+    let layout = test_status_layout(&footer, &queued, &widgets, 80);
 
     let widget_pos = layout.lines.iter().position(|l| l.contains("bash cargo test")).unwrap();
     let steering_pos = layout

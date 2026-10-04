@@ -148,7 +148,8 @@ async fn discover_custom(
 async fn refresh_single_custom_provider(
     store: &mut ModelStore,
     auth: &AuthStore,
-    (name, spec): (&str, &rho_harness_core::config::ProviderConfig),
+    name: &str,
+    spec: &rho_harness_core::config::ProviderConfig,
 ) {
     if let Some(discovered) = discover_custom(name, &spec.base_url, auth).await {
         let _ = store.set_models_async(name, discovered).await;
@@ -161,7 +162,7 @@ async fn refresh_custom_provider_models(
     custom: BTreeMap<String, rho_harness_core::config::ProviderConfig>,
 ) {
     for (name, spec) in &custom {
-        refresh_single_custom_provider(store, auth, (name, spec)).await;
+        refresh_single_custom_provider(store, auth, name, spec).await;
     }
 }
 

@@ -56,10 +56,7 @@ async fn assert_sm_checkpoint_empty(sm: &SessionManager) {
     assert_eq!(sm.load_messages().await.unwrap().len(), 7);
 }
 
-async fn assert_checkpoint_promoted_in_stores(
-    engine: &crate::engine::AgentEngine,
-    (dir, id): (&std::path::Path, &str),
-) {
+async fn assert_checkpoint_promoted_in_stores(engine: &crate::engine::AgentEngine, dir: &std::path::Path, id: &str) {
     assert_sm_checkpoint_empty(&engine.session_manager).await;
     assert_sm_checkpoint_empty(&SessionManager::new(dir, Some(id)).unwrap()).await;
 }
@@ -87,7 +84,7 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
         .unwrap();
 
     assert_resumed_history_promoted(&resumed_model.requests()[0].chat_history);
-    assert_checkpoint_promoted_in_stores(&resumed, (&dir, &id)).await;
+    assert_checkpoint_promoted_in_stores(&resumed, &dir, &id).await;
 }
 
 async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rho_harness_core::model::ChatMessage>, String, PathBuf) {

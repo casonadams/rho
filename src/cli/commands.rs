@@ -13,7 +13,8 @@ async fn handle_update_command(config: &Config) -> Result<(), Box<dyn std::error
 
 async fn handle_basic_commands(
     cmd: &Commands,
-    (config, auth_store): (&Config, &mut AuthStore),
+    config: &Config,
+    auth_store: &mut AuthStore,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     match cmd {
         Commands::Login { provider, key_stdin } => {
@@ -41,7 +42,7 @@ pub async fn handle_command(
     config: &Config,
     auth_store: &mut AuthStore,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if handle_basic_commands(&cmd, (config, auth_store)).await? {
+    if handle_basic_commands(&cmd, config, auth_store).await? {
         return Ok(());
     }
     match cmd {

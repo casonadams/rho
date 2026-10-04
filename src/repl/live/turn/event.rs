@@ -88,7 +88,7 @@ async fn dispatch_key_event<B: TerminalBackend>(
             provider,
             save_as_default,
         } => {
-            switch_modal_model(lp, (&model, &provider), save_as_default).await?;
+            switch_modal_model(lp, &model, &provider, save_as_default).await?;
             Ok(false)
         }
         _ => Ok(false),
@@ -97,7 +97,8 @@ async fn dispatch_key_event<B: TerminalBackend>(
 
 async fn switch_modal_model<B: TerminalBackend>(
     lp: &mut TurnLoop<'_, B>,
-    (model, provider): (&str, &str),
+    model: &str,
+    provider: &str,
     save_as_default: bool,
 ) -> Result<()> {
     apply_turn_model_switch(TurnModelSwitchInput {

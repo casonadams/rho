@@ -71,10 +71,7 @@ pub fn update_settings_model_description<B: TerminalBackend>(controller: &mut Te
     controller.state_mut().update_modal_option_desc("Settings", 7, &desc);
 }
 
-fn update_setting_description<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    (status, index): (&str, usize),
-) {
+fn update_setting_description<B: TerminalBackend>(controller: &mut TerminalController<B>, status: &str, index: usize) {
     controller
         .state_mut()
         .update_modal_option_desc("Settings", index, status);
@@ -96,7 +93,7 @@ fn step_thinking_effort<B: TerminalBackend>(controller: &mut TerminalController<
     } else {
         prev_thinking_level(current)
     };
-    update_setting_description(controller, (target, 2));
+    update_setting_description(controller, target, 2);
     ModalKeyResult::ThinkingLevelSelected {
         level: if target == "off" {
             None
@@ -120,19 +117,19 @@ fn toggle_ui_setting<B: TerminalBackend>(
                 crate::ui::theme::BlockStyle::Border => "Border",
                 crate::ui::theme::BlockStyle::Solid => "Solid",
             };
-            update_setting_description(controller, (label, 0));
+            update_setting_description(controller, label, 0);
             Some(ModalKeyResult::BlockStyleToggled {
                 style: label.to_lowercase(),
             })
         }
         1 => {
             let boxed = controller.toggle_block_agent_output().unwrap_or(false);
-            update_setting_description(controller, (if boxed { "On" } else { "Off" }, 1));
+            update_setting_description(controller, if boxed { "On" } else { "Off" }, 1);
             Some(ModalKeyResult::AgentBoxToggled { boxed })
         }
         5 => {
             let shown = controller.state_mut().toggle_show_label();
-            update_setting_description(controller, (if shown { "Shown" } else { "Hidden" }, 5));
+            update_setting_description(controller, if shown { "Shown" } else { "Hidden" }, 5);
             Some(ModalKeyResult::ShowLabelToggled { shown })
         }
         6 => {
@@ -143,7 +140,7 @@ fn toggle_ui_setting<B: TerminalBackend>(
                 crate::ui::theme::CursorMode::Software => "Software",
                 crate::ui::theme::CursorMode::Hardware => "Hardware",
             };
-            update_setting_description(controller, (label, 6));
+            update_setting_description(controller, label, 6);
             Some(ModalKeyResult::CursorToggled {
                 cursor: label.to_lowercase(),
             })
@@ -173,14 +170,14 @@ fn toggle_feature_setting<B: TerminalBackend>(
             let hide = controller
                 .toggle_thinking()
                 .unwrap_or_else(|_| controller.state_mut().toggle_thinking());
-            update_setting_description(controller, (if hide { "Hidden" } else { "Shown" }, 3));
+            update_setting_description(controller, if hide { "Hidden" } else { "Shown" }, 3);
             Some(ModalKeyResult::ThinkingOutputToggled { hidden: hide })
         }
         4 => {
             let expanded = controller
                 .toggle_tools_expanded()
                 .unwrap_or_else(|_| controller.state_mut().toggle_tools_expanded());
-            update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 4));
+            update_setting_description(controller, if expanded { "Expanded" } else { "Collapsed" }, 4);
             Some(ModalKeyResult::ToolOutputToggled { expanded })
         }
         _ => None,

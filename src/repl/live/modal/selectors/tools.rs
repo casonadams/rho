@@ -39,7 +39,8 @@ pub fn open_tools_selector<B: TerminalBackend>(session: &ReplSession, controller
 
 fn update_tools_option_description<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (status, index): (&str, usize),
+    status: &str,
+    index: usize,
 ) {
     controller
         .state_mut()
@@ -64,7 +65,7 @@ fn toggle_tool_state_description<B: TerminalBackend>(
         .and_then(|o| o.description.as_deref())
         .unwrap_or(if default_on { "On" } else { "Off" });
     let next = if current == "On" { "Off" } else { "On" };
-    update_tools_option_description(controller, (next, index));
+    update_tools_option_description(controller, next, index);
 }
 
 fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<B>, selected: usize) -> ModalKeyResult {
@@ -112,7 +113,7 @@ fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<
                 .and_then(|o| o.description.as_deref())
                 .unwrap_or("Hashline");
             let next = if current == "Hashline" { "Exact" } else { "Hashline" };
-            update_tools_option_description(controller, (next, 5));
+            update_tools_option_description(controller, next, 5);
             ModalKeyResult::Handled
         }
         6 => {

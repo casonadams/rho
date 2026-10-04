@@ -51,7 +51,9 @@ async fn run_interactive_session(
 
 async fn dispatch_prompt_runner(
     runner: runner::CliRunner,
-    (prompt, mode, name): (&str, &str, Option<&str>),
+    prompt: &str,
+    mode: &str,
+    name: Option<&str>,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     if mode == "json" {
         runner.run_json_turn(prompt).await
@@ -74,7 +76,7 @@ async fn dispatch_cli_run(
     }
     if let Some(prompt) = resolve_prompt_text(&cli) {
         let runner = runner::CliRunner::new(config, auth_store, resume_target);
-        return dispatch_prompt_runner(runner, (&prompt, &cli.mode, cli.name.as_deref())).await;
+        return dispatch_prompt_runner(runner, &prompt, &cli.mode, cli.name.as_deref()).await;
     }
     run_interactive_session((config, auth_store, resume_target), cli).await
 }

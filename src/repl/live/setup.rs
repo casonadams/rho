@@ -101,7 +101,8 @@ pub(super) async fn build_completions(
 pub(super) async fn maybe_hydrate_transcript<B: TerminalBackend>(
     resumed: bool,
     engine: &AgentEngine,
-    (controller, history): (&mut TerminalController<B>, &mut InteractiveHistory),
+    controller: &mut TerminalController<B>,
+    history: &mut InteractiveHistory,
 ) {
     if resumed && let Ok(tree) = engine.session_manager.load_tree().await {
         let _ = hydrate_session_transcript(controller, &tree, history);

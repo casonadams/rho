@@ -24,8 +24,7 @@ pub(crate) struct TurnModelSwitchInput<'a, 'b, B: TerminalBackend> {
     pub shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
 }
 
-async fn save_and_report_default(input: (&mut Config, &TerminalRenderer), (model, provider): (&str, &str)) {
-    let (config, renderer) = input;
+async fn save_and_report_default(config: &mut Config, renderer: &TerminalRenderer, model: &str, provider: &str) {
     config.set_default_model(model, provider);
     let _ = rho_harness_core::config::Config::save_default_model_async(&config.config_dir, model, provider).await;
     renderer.print_status(&format!("Default model: {model} ({provider})"));
@@ -33,12 +32,14 @@ async fn save_and_report_default(input: (&mut Config, &TerminalRenderer), (model
 
 async fn update_config_model(
     input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>,
-    (model, provider, save_as_default): (&str, &str, bool),
+    model: &str,
+    provider: &str,
+    save_as_default: bool,
 ) {
     input.config.model = model.to_string();
     input.config.provider = provider.to_string();
     if save_as_default {
-        save_and_report_default((input.config, input.renderer), (model, provider)).await;
+        save_and_report_default(input.config, input.renderer, model, provider).await;
     } else {
         input.renderer.print_status(&format!("Model: {model} ({provider})"));
     }
@@ -46,7 +47,8 @@ async fn update_config_model(
 
 async fn switch_engine_handle(
     input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>,
-    (model, provider): (&str, &str),
+    model: &str,
+    provider: &str,
 ) {
     match create_engine_model(input.config, input.auth_store, input.shared_auth.clone()) {
         Ok(handle) => {
@@ -73,8 +75,8 @@ pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(
         input.provider.to_string(),
         input.save_as_default,
     );
-    update_config_model(&mut input, (&model, &provider, save_as_default)).await;
-    switch_engine_handle(&mut input, (&model, &provider)).await;
+    update_config_model(&mut input, &model, &provider, save_as_default).await;
+    switch_engine_handle(&mut input, &model, &provider).await;
     input.controller.state_mut().footer_mut().provider = provider;
     input.controller.state_mut().footer_mut().model = model;
     input.batch.flush(input.controller, true)?;

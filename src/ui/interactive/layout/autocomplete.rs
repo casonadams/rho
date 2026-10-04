@@ -16,9 +16,12 @@ fn calculate_scroll_range(total: usize, selected: usize, max_visible: usize) -> 
 }
 
 fn build_item_content(
-    (item, theme): (&AutocompleteItem, &crate::ui::theme::Theme),
-    (val_styled, prefix): (&str, &str),
-    (val_width, inner_width): (usize, usize),
+    item: &AutocompleteItem,
+    theme: &crate::ui::theme::Theme,
+    val_styled: &str,
+    prefix: &str,
+    val_width: usize,
+    inner_width: usize,
 ) -> String {
     let desc = item.description.as_deref().unwrap_or("");
     if val_width + 3 < inner_width && !desc.is_empty() {
@@ -35,7 +38,8 @@ fn build_item_content(
 
 fn format_dropdown_item(
     item: &AutocompleteItem,
-    (is_selected, inner_width): (bool, usize),
+    is_selected: bool,
+    inner_width: usize,
     theme: &crate::ui::theme::Theme,
 ) -> String {
     let highlight = theme.highlight;
@@ -51,7 +55,7 @@ fn format_dropdown_item(
         format!("{}{}{:#}", theme.prompt, value, theme.prompt)
     };
     let val_width = UnicodeWidthStr::width(value.as_str()) + 2;
-    build_item_content((item, theme), (&val_styled, &prefix), (val_width, inner_width))
+    build_item_content(item, theme, &val_styled, &prefix, val_width, inner_width)
 }
 
 pub(crate) fn render_autocomplete_dropdown(
@@ -67,7 +71,7 @@ pub(crate) fn render_autocomplete_dropdown(
     let (start, visible_count) = calculate_scroll_range(state.items.len(), state.selected, max_lines);
     let inner_width = width.saturating_sub(4);
     (start..start + visible_count)
-        .map(|idx| format_dropdown_item(&state.items[idx], (idx == state.selected, inner_width), theme))
+        .map(|idx| format_dropdown_item(&state.items[idx], idx == state.selected, inner_width, theme))
         .collect()
 }
 

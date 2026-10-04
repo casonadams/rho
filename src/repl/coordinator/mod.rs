@@ -103,7 +103,8 @@ async fn poll_run_prompt<R: ActivePromptRunner, F: std::future::Future<Output = 
 }
 
 async fn wait_for_prompt_run<R: ActivePromptRunner>(
-    (runner, active): (&R, &QueuedMessage),
+    runner: &R,
+    active: &QueuedMessage,
     input: &mut mpsc::UnboundedReceiver<CoordinatorInput>,
     state: &mut QueueCoordinatorState,
 ) -> Option<Result<(), R::Error>> {
@@ -136,7 +137,7 @@ where
     let mut state = QueueCoordinatorState::new();
 
     loop {
-        let Some(run_result) = wait_for_prompt_run((runner, &active), input, &mut state).await else {
+        let Some(run_result) = wait_for_prompt_run(runner, &active, input, &mut state).await else {
             return state.handle_cancelled(runner.cancel_active().await.err(), input);
         };
 
