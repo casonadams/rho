@@ -202,6 +202,14 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
 }
 
 pub fn build_native_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Arc<dyn crate::tools::EngineTool>>> {
+    build_native_builtin_tools_with_model(base_dir, config, None)
+}
+
+pub fn build_native_builtin_tools_with_model(
+    base_dir: &Path,
+    config: &Config,
+    model: Option<crate::engine::compactor::llm::ModelHandle>,
+) -> Result<Vec<Arc<dyn crate::tools::EngineTool>>> {
     let mut tools = build_workspace_native_tools(base_dir, config);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
@@ -237,6 +245,12 @@ pub fn build_native_builtin_tools(base_dir: &Path, config: &Config) -> Result<Ve
             tools.push(Arc::new(fetch));
         }
     }
+    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(
+        model,
+        0,
+        Vec::new(),
+    ));
+    tools.push(subagent as Arc<dyn crate::tools::EngineTool>);
     Ok(tools)
 }
 
@@ -260,8 +274,22 @@ fn build_workspace_tools(base_dir: &Path, _config: &Config) -> Vec<DynamicTool> 
 }
 
 pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
+    build_builtin_tools_with_model(base_dir, config, None)
+}
+
+pub fn build_builtin_tools_with_model(
+    base_dir: &Path,
+    config: &Config,
+    model: Option<crate::engine::compactor::llm::ModelHandle>,
+) -> Result<Vec<DynamicTool>> {
     let mut tools = build_workspace_tools(base_dir, config);
     tools.extend(build_web_dynamic_tools(config)?);
+    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(
+        model,
+        0,
+        tools.clone(),
+    ));
+    tools.push(crate::tools::subagent::make_subagent_tool(subagent));
     Ok(tools)
 }
 

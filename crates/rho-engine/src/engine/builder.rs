@@ -138,6 +138,7 @@ fn resolve_model_or_fallback(
 async fn build_engine_tools(
     base_dir: &Path,
     config: &Config,
+    model: &ModelHandle,
     rig_tools: Option<Vec<DynamicTool>>,
     extra_tools: Vec<DynamicTool>,
     history_tools: &std::collections::HashSet<String>,
@@ -151,7 +152,11 @@ async fn build_engine_tools(
     let mut tools = match rig_tools {
         Some(t) => t,
         None => {
-            let mut t = crate::tools::builtin_tools::build_builtin_tools(base_dir, config)?;
+            let mut t = crate::tools::builtin_tools::build_builtin_tools_with_model(
+                base_dir,
+                config,
+                Some(model.clone()),
+            )?;
             t.extend(mcp_tools);
             t
         }
@@ -237,6 +242,7 @@ impl AgentEngineBuilder {
         let (tools, activator) = build_engine_tools(
             &base_dir,
             &self.config,
+            &model,
             self.rig_tools.take(),
             std::mem::take(&mut self.extra_tools),
             &history_tools,

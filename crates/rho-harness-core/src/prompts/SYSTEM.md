@@ -9,6 +9,7 @@ Available tools:
 - rg: Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)
 - web_search: Search the web and return structured summaries and URLs
 - web_fetch: Fetch and extract clean text or markdown from URLs
+- subagent: Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

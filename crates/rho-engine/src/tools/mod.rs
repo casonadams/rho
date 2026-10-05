@@ -13,6 +13,7 @@ pub mod lsp;
 pub mod read;
 pub mod registry;
 pub mod rg;
+pub mod subagent;
 pub(crate) mod traversal;
 pub mod truncate;
 pub mod types;
@@ -32,6 +33,7 @@ pub use registry::ToolRegistry;
 pub use rg::{RgArgs, RgTool};
 pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
+pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
 pub use types::{ToolResult, generated_schema, normalize_schema};
 pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
