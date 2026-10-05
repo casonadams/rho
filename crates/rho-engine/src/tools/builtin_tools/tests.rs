@@ -7,7 +7,17 @@ fn builtin_tools_build_successfully() {
     let tools = build_builtin_tools(&root, &config).unwrap();
     assert_eq!(tools.len(), 9);
     let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    for expected in ["read", "write", "edit", "bash", "fd", "rg", "web_search", "web_fetch", "subagent"] {
+    for expected in [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "fd",
+        "rg",
+        "web_search",
+        "web_fetch",
+        "subagent",
+    ] {
         assert!(names.contains(&expected));
     }
 }
@@ -56,7 +66,17 @@ fn native_builtin_tools_build_successfully() {
     let tools = build_native_builtin_tools(&root, &config).unwrap();
     assert_eq!(tools.len(), 9);
     let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    for expected in ["read", "write", "edit", "bash", "fd", "rg", "web_search", "web_fetch", "subagent"] {
+    for expected in [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "fd",
+        "rg",
+        "web_search",
+        "web_fetch",
+        "subagent",
+    ] {
         assert!(names.contains(&expected));
     }
 }

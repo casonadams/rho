@@ -149,12 +149,16 @@ pub enum SubagentRole {
 impl SubagentRole {
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Scout => "scout",
-            Self::Critic => "critic",
-            Self::Planner => "planner",
-            Self::General => "general",
-        }
+        const ROLES: [(SubagentRole, &str); 4] = [
+            (SubagentRole::Scout, "scout"),
+            (SubagentRole::Critic, "critic"),
+            (SubagentRole::Planner, "planner"),
+            (SubagentRole::General, "general"),
+        ];
+        ROLES
+            .iter()
+            .find_map(|(r, s)| if *r == *self { Some(*s) } else { None })
+            .unwrap_or("scout")
     }
 
     #[must_use]
@@ -175,10 +179,18 @@ impl SubagentRole {
     #[must_use]
     pub fn system_instructions(&self) -> &'static str {
         match self {
-            Self::Scout => "You are an exploratory scout. Your role is fast, read-only inspection of the repository. Use fd, rg, and read to find files, locate symbols, and understand code structure. Synthesize concise factual summaries. Do not speculate.",
-            Self::Critic => "You are an adversarial reviewer. Your role is strictly to find bugs, edge cases, race conditions, missing test assertions, security flaws, and violated invariants. Be rigorous and objective. Point out specific lines and failure modes.",
-            Self::Planner => "You are a software architect and planner. Your role is to decompose tasks into clean, sequential, testable vertical slices and identify risks, invariants, and reuse opportunities. Do not write full code solutions.",
-            Self::General => "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome.",
+            Self::Scout => {
+                "You are an exploratory scout. Your role is fast, read-only inspection of the repository. Use fd, rg, and read to find files, locate symbols, and understand code structure. Synthesize concise factual summaries. Do not speculate."
+            }
+            Self::Critic => {
+                "You are an adversarial reviewer. Your role is strictly to find bugs, edge cases, race conditions, missing test assertions, security flaws, and violated invariants. Be rigorous and objective. Point out specific lines and failure modes."
+            }
+            Self::Planner => {
+                "You are a software architect and planner. Your role is to decompose tasks into clean, sequential, testable vertical slices and identify risks, invariants, and reuse opportunities. Do not write full code solutions."
+            }
+            Self::General => {
+                "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome."
+            }
         }
     }
 }

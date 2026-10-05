@@ -152,11 +152,8 @@ async fn build_engine_tools(
     let mut tools = match rig_tools {
         Some(t) => t,
         None => {
-            let mut t = crate::tools::builtin_tools::build_builtin_tools_with_model(
-                base_dir,
-                config,
-                Some(model.clone()),
-            )?;
+            let mut t =
+                crate::tools::builtin_tools::build_builtin_tools_with_model(base_dir, config, Some(model.clone()))?;
             t.extend(mcp_tools);
             t
         }

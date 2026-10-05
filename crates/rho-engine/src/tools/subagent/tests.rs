@@ -1,8 +1,6 @@
 use super::*;
 use crate::adapter::rig::model::into_dyn_model;
-use crate::provider::adapter::{
-    ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent,
-};
+use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 use serde_json::json;
 
 struct TestModel {
@@ -30,18 +28,13 @@ impl ModelAdapter for TestModel {
     async fn stream(
         &self,
         _request: ModelCompletionRequest,
-    ) -> Result<
-        std::pin::Pin<
-            Box<
-                dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>>
-                    + Send,
-            >,
-        >,
-        AppError,
-    > {
+    ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>
+    {
         let events = vec![
             Ok(ModelStreamEvent::Text(self.answer.clone())),
-            Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage::default())),
+            Ok(ModelStreamEvent::Usage(
+                crate::engine::metrics::StructuralUsage::default(),
+            )),
         ];
         Ok(Box::pin(futures::stream::iter(events)))
     }
@@ -109,7 +102,9 @@ fn test_subagent_tool_metadata() {
 #[test]
 fn test_role_tool_filtering() {
     fn dummy_tool(name: &'static str) -> DynamicTool {
-        DynamicTool::new(name, "desc", json!({}), |_| Box::pin(async { Ok(rig::tool::ToolOutput::text("ok")) }))
+        DynamicTool::new(name, "desc", json!({}), |_| {
+            Box::pin(async { Ok(rig::tool::ToolOutput::text("ok")) })
+        })
     }
 
     let all_tools = vec![
@@ -123,9 +118,7 @@ fn test_role_tool_filtering() {
         dummy_tool("web_search"),
     ];
 
-    let model = into_dyn_model(TestModel {
-        answer: "ok".into(),
-    });
+    let model = into_dyn_model(TestModel { answer: "ok".into() });
 
     let scout = SubagentRunner::new(model.clone(), SubagentRole::Scout, &all_tools, 5);
     assert_eq!(scout.tool_names(), vec!["fd", "read", "rg", "web_fetch", "web_search"]);

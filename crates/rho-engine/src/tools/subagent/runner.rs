@@ -15,11 +15,7 @@ pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> Strin
 
 pub fn filter_tools_for_role(tools: &[DynamicTool], role: SubagentRole) -> Vec<DynamicTool> {
     let allowed = role.allowed_tools();
-    let mut filtered: Vec<DynamicTool> = tools
-        .iter()
-        .filter(|t| allowed.contains(&t.name()))
-        .cloned()
-        .collect();
+    let mut filtered: Vec<DynamicTool> = tools.iter().filter(|t| allowed.contains(&t.name())).cloned().collect();
     filtered.sort_by(|a, b| a.name().cmp(b.name()));
     filtered
 }
@@ -33,12 +29,7 @@ pub struct SubagentRunner {
 
 impl SubagentRunner {
     #[must_use]
-    pub fn new(
-        model: ModelHandle,
-        role: SubagentRole,
-        available_tools: &[DynamicTool],
-        max_turns: usize,
-    ) -> Self {
+    pub fn new(model: ModelHandle, role: SubagentRole, available_tools: &[DynamicTool], max_turns: usize) -> Self {
         let tools = filter_tools_for_role(available_tools, role);
         Self {
             model,
@@ -91,9 +82,7 @@ impl SubagentRunner {
 mod tests {
     use super::*;
     use crate::adapter::rig::model::into_dyn_model;
-    use crate::provider::adapter::{
-        ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent,
-    };
+    use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
     use rho_harness_core::error::AppError;
 
     struct EchoMockAdapter {
@@ -121,18 +110,13 @@ mod tests {
         async fn stream(
             &self,
             _request: ModelCompletionRequest,
-        ) -> Result<
-            std::pin::Pin<
-                Box<
-                    dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>>
-                        + Send,
-                >,
-            >,
-            AppError,
-        > {
+        ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>
+        {
             let events = vec![
                 Ok(ModelStreamEvent::Text(self.reply.clone())),
-                Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage::default())),
+                Ok(ModelStreamEvent::Usage(
+                    crate::engine::metrics::StructuralUsage::default(),
+                )),
             ];
             Ok(Box::pin(futures::stream::iter(events)))
         }
@@ -140,14 +124,8 @@ mod tests {
 
     #[test]
     fn test_prompt_formatting() {
-        assert_eq!(
-            build_subagent_prompt("do work", None),
-            "do work"
-        );
-        assert_eq!(
-            build_subagent_prompt("do work", Some("")),
-            "do work"
-        );
+        assert_eq!(build_subagent_prompt("do work", None), "do work");
+        assert_eq!(build_subagent_prompt("do work", Some("")), "do work");
         assert_eq!(
             build_subagent_prompt("do work", Some("important background")),
             "Context:\nimportant background\n\nTask:\ndo work"
@@ -156,9 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_subagent_runner_empty_prompt() {
-        let model = into_dyn_model(EchoMockAdapter {
-            reply: "done".into(),
-        });
+        let model = into_dyn_model(EchoMockAdapter { reply: "done".into() });
         let runner = SubagentRunner::new(model, SubagentRole::Scout, &[], 5);
         let res = runner.run("   ", None).await;
         assert!(res.is_error);

@@ -216,7 +216,9 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         capability: BuiltinToolKind::Composite,
         description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.",
         prompt: PROMPT_SUBAGENT,
-        prompt_snippet: Some("Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')"),
+        prompt_snippet: Some(
+            "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')",
+        ),
         prompt_guidelines: &[
             "Use subagent with role 'scout' for broad code search and discovery to keep parent context compact",
             "Use subagent with role 'critic' to review proposed diffs or complex logic before applying changes",

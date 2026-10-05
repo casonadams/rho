@@ -245,11 +245,7 @@ pub fn build_native_builtin_tools_with_model(
             tools.push(Arc::new(fetch));
         }
     }
-    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(
-        model,
-        0,
-        Vec::new(),
-    ));
+    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(model, 0, Vec::new()));
     tools.push(subagent as Arc<dyn crate::tools::EngineTool>);
     Ok(tools)
 }
@@ -284,11 +280,7 @@ pub fn build_builtin_tools_with_model(
 ) -> Result<Vec<DynamicTool>> {
     let mut tools = build_workspace_tools(base_dir, config);
     tools.extend(build_web_dynamic_tools(config)?);
-    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(
-        model,
-        0,
-        tools.clone(),
-    ));
+    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(model, 0, tools.clone()));
     tools.push(crate::tools::subagent::make_subagent_tool(subagent));
     Ok(tools)
 }
