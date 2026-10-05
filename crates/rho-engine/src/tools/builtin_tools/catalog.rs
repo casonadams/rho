@@ -7,6 +7,7 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
+use rho_harness_core::args::SubagentArgs;
 
 pub static PROMPT_READ: &str = "\
 Read file contents with offset and limit safeguards.
@@ -78,6 +79,16 @@ Usage:
 - Extracts clean markdown/text without navigation bloat or HTML tags.
 - Use mode: 'full' when navigation or sidebars are needed.
 - Respects byte limits, caching, and rate limiting safeguards.";
+
+pub static PROMPT_SUBAGENT: &str = "\
+Spawn a specialized subagent in an isolated context to perform focused research, code review, or planning.
+
+Usage:
+- Use role 'scout' for read-only codebase exploration, searching files, and locating symbols without polluting parent context.
+- Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
+- Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
+- Use role 'general' for self-contained multi-step tasks.
+- Subagents run up to max_turns (default 8) and return a concise summary to the parent.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {
@@ -200,4 +211,35 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt_guidelines: &[],
         schema: generated_schema::<WebFetchArgs>,
     },
+    BuiltinToolDeclaration {
+        name: "subagent",
+        capability: BuiltinToolKind::Composite,
+        description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.",
+        prompt: PROMPT_SUBAGENT,
+        prompt_snippet: Some("Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')"),
+        prompt_guidelines: &[
+            "Use subagent with role 'scout' for broad code search and discovery to keep parent context compact",
+            "Use subagent with role 'critic' to review proposed diffs or complex logic before applying changes",
+        ],
+        schema: generated_schema::<SubagentArgs>,
+    },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_subagent_declaration_valid() {
+        let decl = DECLARATIONS
+            .iter()
+            .find(|d| d.name == "subagent")
+            .expect("subagent declaration must exist");
+        assert_eq!(decl.capability, BuiltinToolKind::Composite);
+        let schema = decl.schema();
+        assert!(schema.is_object());
+        let props = schema.get("properties").expect("schema has properties");
+        assert!(props.get("prompt").is_some());
+        assert!(props.get("role").is_some());
+    }
+}

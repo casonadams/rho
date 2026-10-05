@@ -136,6 +136,65 @@ pub struct WriteArgs {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentRole {
+    #[default]
+    Scout,
+    Critic,
+    Planner,
+    General,
+}
+
+impl SubagentRole {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Scout => "scout",
+            Self::Critic => "critic",
+            Self::Planner => "planner",
+            Self::General => "general",
+        }
+    }
+
+    #[must_use]
+    pub fn allowed_tools(&self) -> &'static [&'static str] {
+        match self {
+            Self::Scout => &["read", "fd", "rg", "web_fetch", "web_search"],
+            Self::Critic => &["read", "fd", "rg"],
+            Self::Planner => &["read", "fd", "rg"],
+            Self::General => &["read", "write", "edit", "bash", "fd", "rg", "web_fetch", "web_search"],
+        }
+    }
+
+    #[must_use]
+    pub fn is_mutating(&self) -> bool {
+        matches!(self, Self::General)
+    }
+
+    #[must_use]
+    pub fn system_instructions(&self) -> &'static str {
+        match self {
+            Self::Scout => "You are an exploratory scout. Your role is fast, read-only inspection of the repository. Use fd, rg, and read to find files, locate symbols, and understand code structure. Synthesize concise factual summaries. Do not speculate.",
+            Self::Critic => "You are an adversarial reviewer. Your role is strictly to find bugs, edge cases, race conditions, missing test assertions, security flaws, and violated invariants. Be rigorous and objective. Point out specific lines and failure modes.",
+            Self::Planner => "You are a software architect and planner. Your role is to decompose tasks into clean, sequential, testable vertical slices and identify risks, invariants, and reuse opportunities. Do not write full code solutions.",
+            Self::General => "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome.",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SubagentArgs {
+    /// Role profile for the subagent ('scout', 'critic', 'planner', 'general')
+    pub role: Option<SubagentRole>,
+    /// Task prompt or instructions for the subagent to execute
+    pub prompt: String,
+    /// Optional context slice or snippet to prime the subagent
+    pub context_slice: Option<String>,
+    /// Maximum turn count for the subagent (default: 8, max: 15)
+    pub max_turns: Option<usize>,
+}
+
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};
@@ -160,4 +219,41 @@ pub mod web_search {
 }
 pub mod write {
     pub use super::WriteArgs;
+}
+pub mod subagent {
+    pub use super::{SubagentArgs, SubagentRole};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_subagent_role_properties() {
+        assert_eq!(SubagentRole::default(), SubagentRole::Scout);
+        assert_eq!(SubagentRole::Scout.as_str(), "scout");
+        assert!(!SubagentRole::Scout.is_mutating());
+        assert!(!SubagentRole::Critic.is_mutating());
+        assert!(!SubagentRole::Planner.is_mutating());
+        assert!(SubagentRole::General.is_mutating());
+
+        assert_eq!(
+            SubagentRole::Scout.allowed_tools(),
+            &["read", "fd", "rg", "web_fetch", "web_search"]
+        );
+        assert_eq!(SubagentRole::Critic.allowed_tools(), &["read", "fd", "rg"]);
+        assert_eq!(SubagentRole::Planner.allowed_tools(), &["read", "fd", "rg"]);
+    }
+
+    #[test]
+    fn test_subagent_args_serde() {
+        let json = r#"{"role":"scout","prompt":"find main.rs","max_turns":5}"#;
+        let parsed: SubagentArgs = serde_json::from_str(json).expect("valid json");
+        assert_eq!(parsed.role, Some(SubagentRole::Scout));
+        assert_eq!(parsed.prompt, "find main.rs");
+        assert_eq!(parsed.max_turns, Some(5));
+
+        let serialized = serde_json::to_string(&parsed).expect("can serialize");
+        assert!(serialized.contains(r#""role":"scout""#));
+    }
 }
