@@ -146,3 +146,20 @@ fn test_role_tool_filtering() {
         vec!["bash", "edit", "fd", "read", "rg", "web_fetch", "web_search", "write"]
     );
 }
+
+#[tokio::test]
+async fn test_subagent_as_dynamic_tool() {
+    let model = into_dyn_model(TestModel {
+        answer: "Scout report: zero defects found".into(),
+    });
+    let subagent = Arc::new(SubagentTool::new(Some(model), 0, Vec::new()));
+    let args = json!({
+        "role": "critic",
+        "prompt": "verify invariant AC-001",
+        "context_slice": "spec details"
+    });
+    let res = subagent.execute(args).await.unwrap();
+    assert!(!res.is_error);
+    let dyn_res = crate::adapter::rig::tools::into_dynamic_result(Ok(res)).unwrap();
+    assert_eq!(dyn_res.as_text(), Some("Scout report: zero defects found"));
+}
