@@ -71,7 +71,7 @@ async fn force_refresh_missing_refresh_token_fails() {
 fn loads_auth_file_with_utf8_bom() {
     let file = NamedTempFile::new().unwrap();
     let path = file.path();
-    let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"gemini\": \"key-gemini-456\"}";
+    let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"openrouter\": \"key-openrouter-456\"}";
     std::fs::write(path, bom_content).unwrap();
 
     let mut store = AuthStore::load(path).unwrap();
@@ -79,17 +79,20 @@ fn loads_auth_file_with_utf8_bom() {
         store.get_key_sync("claude").unwrap().as_deref(),
         Some("token-claude-123")
     );
-    assert_eq!(store.get_key_sync("gemini").unwrap().as_deref(), Some("key-gemini-456"));
+    assert_eq!(
+        store.get_key_sync("openrouter").unwrap().as_deref(),
+        Some("key-openrouter-456")
+    );
 
-    // Removing gemini should preserve claude, not truncate to empty
-    store.remove_key("gemini").unwrap();
+    // Removing openrouter should preserve claude, not truncate to empty
+    store.remove_key("openrouter").unwrap();
 
     let reloaded = AuthStore::load(path).unwrap();
     assert_eq!(
         reloaded.get_key_sync("claude").unwrap().as_deref(),
         Some("token-claude-123")
     );
-    assert_eq!(reloaded.get_key_sync("gemini").unwrap(), None);
+    assert_eq!(reloaded.get_key_sync("openrouter").unwrap(), None);
 }
 
 #[test]
@@ -106,7 +109,7 @@ fn unparseable_non_empty_auth_file_fails_closed() {
 async fn loads_auth_file_with_utf8_bom_async() {
     let file = NamedTempFile::new().unwrap();
     let path = file.path();
-    let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"gemini\": \"key-gemini-456\"}";
+    let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"openrouter\": \"key-openrouter-456\"}";
     std::fs::write(path, bom_content).unwrap();
 
     let mut store = AuthStore::load_async(path).await.unwrap();
@@ -115,18 +118,18 @@ async fn loads_auth_file_with_utf8_bom_async() {
         Some("token-claude-123")
     );
     assert_eq!(
-        store.get_key("gemini").await.unwrap().as_deref(),
-        Some("key-gemini-456")
+        store.get_key("openrouter").await.unwrap().as_deref(),
+        Some("key-openrouter-456")
     );
 
-    store.remove_key_async("gemini").await.unwrap();
+    store.remove_key_async("openrouter").await.unwrap();
 
     let mut reloaded = AuthStore::load_async(path).await.unwrap();
     assert_eq!(
         reloaded.get_key("claude").await.unwrap().as_deref(),
         Some("token-claude-123")
     );
-    assert_eq!(reloaded.get_key("gemini").await.unwrap(), None);
+    assert_eq!(reloaded.get_key("openrouter").await.unwrap(), None);
 }
 
 #[tokio::test]

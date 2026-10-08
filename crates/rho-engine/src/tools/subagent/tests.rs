@@ -102,7 +102,7 @@ fn test_subagent_tool_metadata() {
 #[test]
 fn test_role_tool_filtering() {
     fn dummy_tool(name: &'static str) -> DynamicTool {
-        DynamicTool::new(name, "desc", json!({}), |_| {
+        DynamicTool::new(rig::message::ToolName::new(name).unwrap(), "desc", json!({}), |_| {
             Box::pin(async { Ok(rig::tool::ToolOutput::text("ok")) })
         })
     }

@@ -40,10 +40,9 @@ fn tool_history_messages(
         Message::User {
             content: vec![UserContent::text(prompt)],
         },
-        Message::Assistant {
-            id: None,
-            content: vec![rig::message::AssistantContent::ToolCall(call)],
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(vec![
+            rig::message::AssistantContent::ToolCall(call),
+        ])),
         Message::User {
             content: vec![UserContent::ToolResult(result)],
         },
@@ -52,21 +51,25 @@ fn tool_history_messages(
 
 fn sample_tool_history(sig: Option<String>) -> Vec<Message> {
     let call_id = rig::message::CallId::from_wire("call-1");
-    let tool_call = rig::message::ToolCall {
-        id: call_id.clone(),
-        function: rig::message::ToolFunction {
-            name: rig::message::ToolName::new("read_file").unwrap(),
-            arguments: serde_json::json!({"path": "a.rs"}),
-        },
-        signature: sig,
-        additional_params: None,
-    };
+    let mut tool_call = rig::message::ToolCall::new(
+        call_id.clone(),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("read_file").unwrap(),
+            serde_json::json!({"path": "a.rs"}),
+        ),
+    );
+    if let Some(signature) = sig {
+        let item = serde_json::json!({ "signature": signature });
+        let fingerprint = rig::message::AssistantContent::ToolCall(tool_call.clone()).fingerprint();
+        tool_call.native = Some(rig::message::Native { item, fingerprint });
+    }
     let tool_result = rig::message::ToolResult {
         call: call_id,
         name: rig::message::ToolName::new("read_file").unwrap(),
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(
             "file body",
         ))],
+        is_error: false,
     };
     tool_history_messages("read it", tool_call, tool_result)
 }
@@ -98,16 +101,16 @@ fn signed_tool_calls_replay_function_calls_on_gemini_3() {
 }
 
 fn sample_bash_tool_def() -> ToolDefinition {
-    ToolDefinition {
-        name: "bash".to_string(),
-        description: "run shell".to_string(),
-        parameters: serde_json::json!({
+    ToolDefinition::new(
+        rig::message::ToolName::new("bash").unwrap(),
+        "run shell",
+        serde_json::json!({
             "type": "object",
             "properties": {"command": {"type": "string", "format": "shell"}},
             "required": ["command"],
             "$defs": {"x": {"type": "string"}}
         }),
-    }
+    )
 }
 
 #[test]
@@ -140,15 +143,13 @@ fn tools_use_legacy_parameters_for_claude() {
 
 fn sample_image_tool_history() -> Vec<Message> {
     let call_id = rig::message::CallId::from_wire("call-1");
-    let tool_call = rig::message::ToolCall {
-        id: call_id.clone(),
-        function: rig::message::ToolFunction {
-            name: rig::message::ToolName::new("read").unwrap(),
-            arguments: serde_json::json!({"path": "image.png"}),
-        },
-        signature: None,
-        additional_params: None,
-    };
+    let tool_call = rig::message::ToolCall::new(
+        call_id.clone(),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("read").unwrap(),
+            serde_json::json!({"path": "image.png"}),
+        ),
+    );
     let tool_result = rig::message::ToolResult {
         call: call_id,
         name: rig::message::ToolName::new("read").unwrap(),
@@ -160,6 +161,7 @@ fn sample_image_tool_history() -> Vec<Message> {
                 None,
             ),
         ],
+        is_error: false,
     };
     tool_history_messages("read image", tool_call, tool_result)
 }
@@ -203,21 +205,21 @@ fn antigravity_tools_are_sorted_by_name() {
         content: vec![UserContent::text("hi")],
     }]);
     request.tools = vec![
-        ToolDefinition {
-            name: "write".to_string(),
-            description: "write file".to_string(),
-            parameters: serde_json::json!({ "type": "object" }),
-        },
-        ToolDefinition {
-            name: "bash".to_string(),
-            description: "run shell".to_string(),
-            parameters: serde_json::json!({ "type": "object" }),
-        },
-        ToolDefinition {
-            name: "read".to_string(),
-            description: "read file".to_string(),
-            parameters: serde_json::json!({ "type": "object" }),
-        },
+        ToolDefinition::new(
+            rig::message::ToolName::new("write").unwrap(),
+            "write file",
+            serde_json::json!({ "type": "object" }),
+        ),
+        ToolDefinition::new(
+            rig::message::ToolName::new("bash").unwrap(),
+            "run shell",
+            serde_json::json!({ "type": "object" }),
+        ),
+        ToolDefinition::new(
+            rig::message::ToolName::new("read").unwrap(),
+            "read file",
+            serde_json::json!({ "type": "object" }),
+        ),
     ];
     let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
     let declarations = body["request"]["tools"][0]["functionDeclarations"].as_array().unwrap();
@@ -235,25 +237,25 @@ fn user_content_image_converts_to_inline_data() {
                 data: rig::message::DocumentSourceKind::String("data:image/jpeg;base64,/9j/4AAQSkZJRg==".to_string()),
                 media_type: None,
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(rig::message::Image {
                 data: rig::message::DocumentSourceKind::Raw(vec![1, 2, 3]),
                 media_type: Some(rig::message::ImageMediaType::PNG),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(rig::message::Image {
                 data: rig::message::DocumentSourceKind::String("data:invalid-uri".to_string()),
                 media_type: None,
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(rig::message::Image {
                 data: rig::message::DocumentSourceKind::String(String::new()),
                 media_type: None,
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
         ],
     }]);
@@ -283,7 +285,7 @@ fn image_mime_types_map_correctly() {
                 data: rig::message::DocumentSourceKind::Base64("AQID".to_string()),
                 media_type,
                 detail: None,
-                additional_params: None,
+                native: None,
             })],
         }]);
         let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
@@ -298,28 +300,16 @@ fn assistant_content_reasoning_converts_to_thought_parts() {
         Message::User {
             content: vec![UserContent::text("hello")],
         },
-        Message::Assistant {
-            id: None,
-            content: vec![
-                rig::message::AssistantContent::Reasoning(rig::message::Sealed::new(
-                    rig::message::Issuer::from_static("antigravity"),
-                    rig::message::Reasoning {
-                        id: None,
-                        content: vec![
-                            rig::message::ReasoningContent::Text {
-                                text: "evaluating options".to_string(),
-                                signature: Some("sig-xyz".to_string()),
-                            },
-                            rig::message::ReasoningContent::Text {
-                                text: "   ".to_string(),
-                                signature: None,
-                            },
-                        ],
-                    },
-                )),
-                rig::message::AssistantContent::text("final answer"),
-            ],
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(vec![
+            rig::message::AssistantContent::Reasoning({
+                let mut r = rig::message::Reasoning::new("evaluating options");
+                let item = serde_json::json!({ "signature": "sig-xyz" });
+                let fingerprint = rig::message::AssistantContent::Reasoning(r.clone()).fingerprint();
+                r.native = Some(rig::message::Native { item, fingerprint });
+                r
+            }),
+            rig::message::AssistantContent::text("final answer"),
+        ])),
     ]);
     let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
     let contents = body["request"]["contents"].as_array().unwrap();

@@ -31,7 +31,7 @@ async fn test_allowed_call_runs_silently() {
         .build();
 
     let response = agent.prompt("status").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "success");
+    assert_eq!(response.output(), "success");
     assert!(presenter.last_prompt.lock().unwrap().is_none());
 }
 
@@ -60,7 +60,7 @@ async fn test_denied_call_skipped_with_reason() {
         .build();
 
     let response = agent.prompt("delete").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "stopped");
+    assert_eq!(response.output(), "stopped");
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("denied by permission rule 'bash|rm -rf *'"));
 }
@@ -83,7 +83,7 @@ async fn test_ask_in_headless_mode_fails_closed() {
         .build();
 
     let response = agent.prompt("run").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "headless denied");
+    assert_eq!(response.output(), "headless denied");
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("cannot prompt in headless mode"));
 }
@@ -106,7 +106,7 @@ async fn test_ask_interactive_allow_action() {
         .build();
 
     let response = agent.prompt("touch").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "allowed");
+    assert_eq!(response.output(), "allowed");
     assert!(presenter.last_prompt.lock().unwrap().is_some());
 }
 
@@ -134,7 +134,7 @@ async fn test_ask_interactive_edit_action() {
         .build();
 
     let response = agent.prompt("run").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "done");
+    assert_eq!(response.output(), "done");
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("edited"));
 }
@@ -155,7 +155,7 @@ async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, cmd: &
         .dynamic_tool(into_dynamic_tool(BashTool::new(dir)))
         .add_hook(hook)
         .build();
-    agent.prompt("persist").max_turns(turns).run().await.unwrap().output
+    agent.prompt("persist").max_turns(turns).run().await.unwrap().output()
 }
 
 #[tokio::test]
@@ -270,7 +270,7 @@ async fn test_guard_evaluator_auto_allows_safe_command() {
         .build();
 
     let response = agent.prompt("mkdir").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "success");
+    assert_eq!(response.output(), "success");
     // Verify no interactive prompt was surfaced
     assert!(presenter.last_prompt.lock().unwrap().is_none());
 }
@@ -419,7 +419,7 @@ async fn test_external_write_prompts_and_completes_on_allow() {
         .build();
 
     let response = agent.prompt("write external").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "done");
+    assert_eq!(response.output(), "done");
     assert!(presenter.last_prompt.lock().unwrap().is_some());
     assert_eq!(
         std::fs::read_to_string(&ext_file).unwrap(),
@@ -459,7 +459,7 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
         .build();
 
     let response = agent.prompt("edit external").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output, "done");
+    assert_eq!(response.output(), "done");
     assert!(presenter.last_prompt.lock().unwrap().is_some());
     assert_eq!(std::fs::read_to_string(&ext_file).unwrap(), "after edit\n");
 }

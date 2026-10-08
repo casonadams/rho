@@ -298,13 +298,14 @@ impl SseParser {
 
     fn handle_completed(&mut self, usage_payload: Option<ResponsesUsagePayload>, events: &mut SseEvents) {
         let usage = usage_payload
-            .map(|u| Usage {
-                input_tokens: u.input_tokens,
-                output_tokens: u.output_tokens,
-                total_tokens: u.total_tokens,
-                cached_input_tokens: u.input_tokens_details.and_then(|d| d.cached_tokens),
-                reasoning_tokens: u.output_tokens_details.and_then(|d| d.reasoning_tokens),
-                ..Default::default()
+            .map(|u| {
+                let mut usage = Usage::new();
+                usage.input_tokens = u.input_tokens;
+                usage.output_tokens = u.output_tokens;
+                usage.total_tokens = u.total_tokens;
+                usage.cached_input_tokens = u.input_tokens_details.and_then(|d| d.cached_tokens);
+                usage.reasoning_tokens = u.output_tokens_details.and_then(|d| d.reasoning_tokens);
+                usage
             })
             .unwrap_or_default();
 

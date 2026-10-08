@@ -234,7 +234,7 @@ async fn execute_gateway_parsed_call(gw: &McpGateway, parsed: McpGatewayArgs) ->
 
 fn build_mcp_gateway_tool(gateway: Arc<McpGateway>) -> DynamicTool {
     DynamicTool::new(
-        "mcp",
+        rig::message::ToolName::new("mcp").unwrap(),
         "MCP gateway — server status, tool search/describe, and single MCP tool calls. Use this to discover and invoke tools dynamically.",
         mcp_gateway_schema(),
         move |args| {
@@ -266,7 +266,7 @@ async fn execute_mcp_batch(gw: &McpGateway, calls: Vec<McpSingleCall>) -> String
 
 fn build_mcp_script_tool(gateway: Arc<McpGateway>) -> DynamicTool {
     DynamicTool::new(
-        "mcpScript",
+        rig::message::ToolName::new("mcpScript").unwrap(),
         "Run multiple MCP tool calls in one request — batch execution across any connected MCP server.",
         mcp_script_schema(),
         move |args| {

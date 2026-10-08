@@ -195,11 +195,13 @@ mod tests {
     }
 
     fn create_test_session() -> ReplSession {
-        ReplSession::new(
-            rho_harness_core::config::Config::default(),
-            rho_engine::auth::AuthStore::default(),
-            None,
-        )
+        let temp = tempfile::tempdir().unwrap();
+        let config = rho_harness_core::config::Config {
+            config_dir: temp.path().to_path_buf(),
+            sessions_dir: temp.path().join("sessions"),
+            ..Default::default()
+        };
+        ReplSession::new(config, rho_engine::auth::AuthStore::default(), None)
     }
 
     #[test]

@@ -64,11 +64,25 @@ impl Presenter for CapturingPresenter {
 
 fn echo_tool() -> DynamicTool {
     DynamicTool::new(
-        "echo_tool",
+        rig::message::ToolName::new("echo_tool").unwrap(),
         "Echoes a fixed string",
         serde_json::json!({"type": "object", "properties": {}}),
         |_args| Box::pin(async { Ok(ToolOutput::text("echoed")) }),
     )
+}
+
+fn make_usage(input: u64, output: u64) -> Usage {
+    let mut u = Usage::new();
+    u.input_tokens = Some(input);
+    u.output_tokens = Some(output);
+    u.total_tokens = Some(input + output);
+    u
+}
+
+fn input_usage(input: u64) -> Usage {
+    let mut u = Usage::new();
+    u.input_tokens = Some(input);
+    u
 }
 
 fn engine_for(dir: &std::path::Path, model: MockCompletionModel) -> crate::engine::AgentEngine {
@@ -112,12 +126,7 @@ async fn assert_compaction_node_present(engine: &crate::engine::AgentEngine) {
 #[tokio::test]
 async fn test_mid_run_auto_compaction_continues_run_on_compacted_context() {
     let dir = std::env::temp_dir().join(format!("midrun_compact_{}", uuid::Uuid::new_v4()));
-    let turn_usage = Usage {
-        input_tokens: Some(120_000),
-        output_tokens: Some(10),
-        total_tokens: Some(120_010),
-        ..Default::default()
-    };
+    let turn_usage = make_usage(120_000, 10);
     let model = MockCompletionModel::from_stream_turns([
         [
             MockStreamEvent::tool_call("t1", "echo_tool", serde_json::json!({})),
@@ -188,11 +197,7 @@ async fn test_mid_run_auto_compaction_falls_back_to_ephemeral_summary_with_pendi
         )])
         .await
         .unwrap();
-    let usage = Usage {
-        input_tokens: Some(120_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(120_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -274,14 +279,14 @@ async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(
             output_with_footer,
         ))],
+        is_error: false,
     };
 
     let history = vec![
         Message::user("Please build"),
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
+            call,
+        )])),
         Message::User {
             content: vec![UserContent::ToolResult(res)],
         },
@@ -331,14 +336,14 @@ async fn test_auto_compact_hook_preserves_recent_tool_outputs_under_default_cach
         call: rig::message::CallId::from_wire("c1"),
         name: rig::message::ToolName::new("bash").unwrap(),
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(output))],
+        is_error: false,
     };
 
     let history = vec![
         Message::user("Please build"),
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
+            call,
+        )])),
         Message::User {
             content: vec![UserContent::ToolResult(res)],
         },
@@ -396,11 +401,7 @@ async fn test_auto_compact_hook_forwards_evicted_messages_to_demotion_hook() {
         )])
         .await
         .unwrap();
-    let usage = Usage {
-        input_tokens: Some(120_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(120_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -445,11 +446,7 @@ async fn test_auto_compact_hook_failing_demotion_hook_does_not_abort_turn() {
         )])
         .await
         .unwrap();
-    let usage = Usage {
-        input_tokens: Some(120_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(120_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -492,11 +489,7 @@ async fn test_auto_compact_hook_panicking_demotion_hook_does_not_abort_turn() {
         )])
         .await
         .unwrap();
-    let usage = Usage {
-        input_tokens: Some(120_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(120_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -543,7 +536,8 @@ fn as_text_of(message: &Message) -> String {
             })
             .collect::<Vec<_>>()
             .join(" "),
-        Message::Assistant { content, .. } => content
+        Message::Assistant(asst) => asst
+            .content
             .iter()
             .filter_map(|part| match part {
                 AssistantContent::Text(text) => Some(text.text.clone()),
@@ -677,11 +671,7 @@ async fn test_speculative_compaction_plan_adopted_immediately() {
     )
     .with_speculative_plan(precomputed_plan);
 
-    let usage = Usage {
-        input_tokens: Some(199_990),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(199_990).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -719,11 +709,7 @@ async fn test_speculative_plan_generated_in_lead_band() {
         10_000,
     );
 
-    let usage = Usage {
-        input_tokens: Some(105_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(105_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -810,11 +796,7 @@ async fn test_speculative_compaction_non_blocking_and_adopted() {
     )
     .with_demotion_hook(blocking_hook);
 
-    let usage = Usage {
-        input_tokens: Some(105_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(105_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -851,11 +833,7 @@ async fn test_speculative_compaction_non_blocking_and_adopted() {
     assert!(!hook.in_flight.load(std::sync::atomic::Ordering::SeqCst));
 
     // AC-002: Hard compaction threshold adopts cached speculative plan immediately
-    let hard_usage = Usage {
-        input_tokens: Some(199_990),
-        ..Default::default()
-    }
-    .into();
+    let hard_usage = input_usage(199_990).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(hard_usage, hard_usage), 100);
@@ -895,11 +873,7 @@ async fn test_speculative_compaction_fallback_when_task_in_flight() {
     )
     .with_demotion_hook(blocking_hook);
 
-    let usage = Usage {
-        input_tokens: Some(105_000),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(105_000).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -918,11 +892,7 @@ async fn test_speculative_compaction_fallback_when_task_in_flight() {
     assert!(hook.in_flight.load(std::sync::atomic::Ordering::SeqCst));
     assert!(hook.speculative_plan.lock().unwrap().is_none());
 
-    let hard_usage = Usage {
-        input_tokens: Some(199_990),
-        ..Default::default()
-    }
-    .into();
+    let hard_usage = input_usage(199_990).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(hard_usage, hard_usage), 100);
@@ -963,11 +933,7 @@ async fn test_speculative_plan_discarded_if_history_reset() {
     )
     .with_speculative_plan(precomputed_plan);
 
-    let usage = Usage {
-        input_tokens: Some(199_990),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(199_990).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
@@ -1007,11 +973,7 @@ async fn test_speculative_plan_discarded_if_cut_exceeds_base_len() {
     )
     .with_speculative_plan(invalid_plan);
 
-    let usage = Usage {
-        input_tokens: Some(199_990),
-        ..Default::default()
-    }
-    .into();
+    let usage = input_usage(199_990).into();
     engine
         .usage
         .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);

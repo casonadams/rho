@@ -32,6 +32,7 @@ fn setup_model_selector_session(config_dir: std::path::PathBuf) -> crate::repl::
         )
         .unwrap();
     let config = rho_harness_core::config::Config {
+        sessions_dir: config_dir.join("sessions"),
         config_dir,
         ..Default::default()
     };
@@ -352,6 +353,7 @@ async fn setup_model_switch_env(temp: &std::path::Path) -> (crate::repl::ReplSes
     let config = rho_harness_core::config::Config {
         model: "claude-3-5-sonnet-20241022".to_string(),
         provider: "anthropic".to_string(),
+        sessions_dir: temp.join("sessions"),
         config_dir: temp.to_path_buf(),
         ..Default::default()
     };
@@ -813,12 +815,12 @@ fn mcp_selector_cancels_on_esc() {
 // Session Modal Tests
 // =========================================================================
 
-#[test]
-fn session_selector_modal_selection() {
+#[tokio::test]
+async fn session_selector_modal_selection() {
     let temp_dir = std::env::temp_dir().join(format!("test_sessions_{}", uuid::Uuid::new_v4()));
     let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    manager.set_session_name("Test Session").await.unwrap();
     let session_id = manager.session_id.clone();
-
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     open_session_selector(&temp_dir, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
@@ -830,12 +832,12 @@ fn session_selector_modal_selection() {
     let _ = std::fs::remove_dir_all(temp_dir);
 }
 
-#[test]
-fn session_selector_modal_ctrl_d_deletes_session() {
+#[tokio::test]
+async fn session_selector_modal_ctrl_d_deletes_session() {
     let temp_dir = std::env::temp_dir().join(format!("test_sessions_del_{}", uuid::Uuid::new_v4()));
     let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    manager.set_session_name("Test Session").await.unwrap();
     let session_id = manager.session_id.clone();
-
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     open_session_selector(&temp_dir, &mut controller);
 
@@ -940,6 +942,7 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
     model_store.set_models("claude", claude_preset_models()).unwrap();
 
     let config = Config {
+        sessions_dir: config_dir.join("sessions"),
         config_dir,
         auth_file,
         model: "claude-sonnet-4-6".into(),

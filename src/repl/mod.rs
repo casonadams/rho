@@ -61,6 +61,9 @@ impl ReplSession {
     /// rebuild the engine, and preserve the session history.
     pub(crate) async fn reload_engine(&mut self, engine: &AgentEngine) -> Result<AgentEngine> {
         let mut config = Config::load(self.cli.as_ref())?;
+        config.sessions_dir = self.config.sessions_dir.clone();
+        config.config_dir = self.config.config_dir.clone();
+        config.auth_file = self.config.auth_file.clone();
         config.model = self.config.model.clone();
         config.provider = self.config.provider.clone();
         crate::repl::interactive::spawn_background_model_refresh(&config, &self.auth_store);

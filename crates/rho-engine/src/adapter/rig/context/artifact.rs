@@ -82,7 +82,7 @@ fn collect_assistant_facts(content: &[AssistantContent], facts: &mut Vec<String>
 fn collect_message_facts(message: &Message, facts: &mut Vec<String>, seen: &mut HashSet<String>) {
     match message {
         Message::User { content } => collect_user_facts(content, facts, seen),
-        Message::Assistant { content, .. } => collect_assistant_facts(content, facts, seen),
+        Message::Assistant(asst) => collect_assistant_facts(&asst.content, facts, seen),
         Message::System { content } => collect_text_facts(content, facts, seen),
     }
 }

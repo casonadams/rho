@@ -84,18 +84,17 @@ pub(crate) struct StreamError {
 }
 
 pub(crate) fn usage_from_metadata(metadata: &UsageMetadata) -> Usage {
-    Usage {
-        input_tokens: Some(
-            metadata
-                .prompt_token_count
-                .saturating_sub(metadata.cached_content_token_count),
-        ),
-        output_tokens: Some(metadata.candidates_token_count + metadata.thoughts_token_count),
-        total_tokens: Some(metadata.total_token_count),
-        cached_input_tokens: Some(metadata.cached_content_token_count),
-        reasoning_tokens: Some(metadata.thoughts_token_count),
-        ..Default::default()
-    }
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(
+        metadata
+            .prompt_token_count
+            .saturating_sub(metadata.cached_content_token_count),
+    );
+    usage.output_tokens = Some(metadata.candidates_token_count + metadata.thoughts_token_count);
+    usage.total_tokens = Some(metadata.total_token_count);
+    usage.cached_input_tokens = Some(metadata.cached_content_token_count);
+    usage.reasoning_tokens = Some(metadata.thoughts_token_count);
+    usage
 }
 
 pub fn map_finish_reason(reason: &str) -> FinishReason {

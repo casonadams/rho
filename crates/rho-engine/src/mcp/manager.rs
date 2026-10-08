@@ -41,7 +41,9 @@ fn build_pooled_mcp_tool(
     let original_name = tool.name;
     let s_name = server_name.to_string();
 
-    DynamicTool::new(tool_name, description, schema, move |args| {
+    let tn =
+        rig::message::ToolName::new(&tool_name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
+    DynamicTool::new(tn, description, schema, move |args| {
         let pool = pool.clone();
         let original_name = original_name.clone();
         let server_name = s_name.clone();

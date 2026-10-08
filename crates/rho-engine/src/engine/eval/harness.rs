@@ -130,9 +130,13 @@ pub fn normalize_message(message: &Message, ids: &mut HashMap<String, String>) -
             role: "user",
             parts: content.iter().map(|part| normalize_user_part(part, ids)).collect(),
         },
-        Message::Assistant { content, .. } => super::types::NormalizedMessage {
+        Message::Assistant(asst) => super::types::NormalizedMessage {
             role: "assistant",
-            parts: content.iter().map(|part| normalize_assistant_part(part, ids)).collect(),
+            parts: asst
+                .content
+                .iter()
+                .map(|part| normalize_assistant_part(part, ids))
+                .collect(),
         },
     }
 }
@@ -160,6 +164,7 @@ pub fn normalize_assistant_part(part: &AssistantContent, ids: &mut HashMap<Strin
         },
         AssistantContent::Reasoning(_) => NormalizedPart::Reasoning,
         AssistantContent::Image(_) => NormalizedPart::Image,
+        _ => NormalizedPart::Text,
     }
 }
 

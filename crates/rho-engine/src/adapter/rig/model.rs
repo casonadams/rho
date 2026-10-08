@@ -3,9 +3,8 @@ use rig::completion::{CompletionRequest, Usage};
 use rig::driver::{DynModel, Exchange, Model, Opened, Opening, Transport};
 use rig::error::{EncodeError, ProviderError};
 use rig::message::{CallId, ToolName};
-use rig::operation::{CallPart, Completion, Finish, TextPart};
+use rig::operation::{Block, Completion, Finish};
 use rig::wire::{Decoder, Descriptor, Flow, Mode, Out, Wire, WireEvent};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::adapter::rig::from_rig_message;
@@ -32,41 +31,23 @@ pub struct AdapterWire {
 }
 
 #[derive(Default)]
+pub struct AdapterReassembler;
+
+impl rig::wire::document::Serves<Completion> for AdapterReassembler {}
+
+impl rig::wire::document::Reassemble<AdapterFrame> for AdapterReassembler {
+    fn absorb(&mut self, _frame: &AdapterFrame) {}
+
+    fn finish(self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
+}
+
+#[derive(Default)]
 pub struct AdapterDecoder<'id> {
-    text: Option<TextPart<'id>>,
-    calls: BTreeMap<String, CallPart<'id>>,
-}
-
-impl<'id> AdapterDecoder<'id> {
-    fn finish(&mut self, mut out: Out<'id, Completion>, usage: Usage) -> Result<Flow, ProviderError> {
-        if let Some(part) = self.text.take() {
-            out.close_text(part);
-        }
-        for (_, part) in std::mem::take(&mut self.calls) {
-            out.close_call(part)?;
-        }
-        Ok(out.end(Finish {
-            usage,
-            ..Finish::default()
-        }))
-    }
-}
-
-fn decode_tool_call(
-    out: &mut Out<'_, Completion>,
-    id: String,
-    name: String,
-    arguments: String,
-    signature: Option<String>,
-) -> Result<(), ProviderError> {
-    let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
-    let part = out.call(CallId::from_wire(id), tool_name)?;
-    if signature.is_some() {
-        out.decorate_call(&part, signature, None);
-    }
-    out.push_arguments(&part, &arguments);
-    out.close_call(part)?;
-    Ok(())
+    next_index: usize,
+    text_index: Option<usize>,
+    _phantom: std::marker::PhantomData<&'id ()>,
 }
 
 impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
@@ -79,13 +60,27 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
     fn decode(&mut self, frame: AdapterFrame, mut out: Out<'id, Completion>) -> Result<Flow, ProviderError> {
         match frame {
             AdapterFrame::Text(text) => {
-                let part = self.text.get_or_insert_with(|| out.text());
-                out.push_text(part, &text);
+                let idx = match self.text_index {
+                    Some(i) => i,
+                    None => {
+                        let i = self.next_index;
+                        self.next_index += 1;
+                        out.open(i, Block::Text, serde_json::Value::Null)?;
+                        self.text_index = Some(i);
+                        i
+                    }
+                };
+                out.push(idx, &text)?;
             }
             AdapterFrame::Reasoning(reasoning) => {
-                let part = out.reasoning();
-                out.push_reasoning(&part, &reasoning);
-                out.close_reasoning(part, Default::default());
+                let idx = self.next_index;
+                self.next_index += 1;
+                out.whole(
+                    idx,
+                    Block::Reasoning { redacted: false },
+                    serde_json::Value::Null,
+                    &reasoning,
+                )?;
             }
             AdapterFrame::ToolCall {
                 id,
@@ -93,10 +88,30 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
                 arguments,
                 signature,
             } => {
-                decode_tool_call(&mut out, id, name, arguments, signature)?;
+                let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
+                let idx = self.next_index;
+                self.next_index += 1;
+                let native = signature
+                    .map(|s| serde_json::json!({ "signature": s }))
+                    .unwrap_or(serde_json::Value::Null);
+                out.open(
+                    idx,
+                    Block::Call {
+                        id: CallId::from_wire(id),
+                        name: tool_name,
+                    },
+                    native,
+                )?;
+                out.push(idx, &arguments)?;
+                out.finish(idx)?;
             }
             AdapterFrame::Done { usage } => {
-                return self.finish(out, usage);
+                out.finish_open()?;
+                return Ok(out.end(Finish {
+                    usage,
+                    reason: Some(rig::completion::FinishReason::Stop),
+                    ..Finish::default()
+                }));
             }
         }
         Ok(Flow::More)
@@ -108,9 +123,10 @@ impl Wire for AdapterWire {
     type Payload = CompletionRequest;
     type Frame = AdapterFrame;
     type Decoder<'id> = AdapterDecoder<'id>;
+    type Reassembler = AdapterReassembler;
 
     fn describe(&self) -> Descriptor<'_> {
-        Descriptor::new(&self.name)
+        Descriptor::new(&self.name).replay(self)
     }
 
     fn encode(&self, request: CompletionRequest, _mode: Mode) -> Result<CompletionRequest, EncodeError> {
@@ -119,6 +135,56 @@ impl Wire for AdapterWire {
 
     fn decoder<'id>(&self) -> AdapterDecoder<'id> {
         AdapterDecoder::default()
+    }
+}
+
+impl rig::completion::ReplayTarget for AdapterWire {
+    fn api(&self) -> rig::message::Api {
+        rig::message::Api::from_static("rho.adapter")
+    }
+
+    fn provider(&self) -> &str {
+        &self.name
+    }
+
+    fn model(&self) -> &str {
+        ""
+    }
+
+    fn accepts(&self, _model: &str) -> rig::completion::Accepts {
+        rig::completion::Accepts::ALL
+    }
+
+    fn map_options(
+        &self,
+        _request: &CompletionRequest,
+        fields: rig::completion::options::OptionFields<'_>,
+    ) -> rig::completion::options::OptionMap {
+        use rig::completion::options::{Mapping, OptionFields, OptionMap};
+        let OptionFields {
+            reasoning,
+            cache,
+            service_tier,
+            verbosity,
+            parallel_tool_calls,
+            top_p,
+            seed,
+            stop,
+        } = fields;
+        let mapped = |set: bool| match set {
+            true => Mapping::unsupported("adapter does not map options"),
+            false => Mapping::Nothing,
+        };
+        OptionMap {
+            reasoning: mapped(reasoning.is_some()),
+            cache: mapped(cache.is_some()),
+            service_tier: mapped(service_tier.is_some()),
+            verbosity: mapped(verbosity.is_some()),
+            parallel_tool_calls: mapped(parallel_tool_calls.is_some()),
+            top_p: mapped(top_p.is_some()),
+            seed: mapped(seed.is_some()),
+            stop: mapped(!stop.is_empty()),
+        }
     }
 }
 
@@ -182,7 +248,7 @@ fn to_rho_request(request: &CompletionRequest) -> ModelCompletionRequest {
         .tools
         .iter()
         .map(|t| ModelToolDefinition {
-            name: t.name.clone(),
+            name: t.name.to_string(),
             description: t.description.clone(),
             parameters: t.parameters.clone(),
         })
@@ -197,15 +263,14 @@ fn to_rho_request(request: &CompletionRequest) -> ModelCompletionRequest {
 }
 
 fn make_rig_usage(u: &crate::engine::metrics::StructuralUsage) -> Usage {
-    Usage {
-        input_tokens: Some(u.input_tokens),
-        output_tokens: Some(u.output_tokens),
-        total_tokens: Some(u.total_tokens),
-        cached_input_tokens: u.cached_input_tokens,
-        cache_creation_input_tokens: u.cache_creation_input_tokens,
-        reasoning_tokens: u.reasoning_tokens,
-        ..Default::default()
-    }
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(u.input_tokens);
+    usage.output_tokens = Some(u.output_tokens);
+    usage.total_tokens = Some(u.total_tokens);
+    usage.cached_input_tokens = u.cached_input_tokens;
+    usage.cache_creation_input_tokens = u.cache_creation_input_tokens;
+    usage.reasoning_tokens = u.reasoning_tokens;
+    usage
 }
 
 pub fn into_dyn_model<M: ModelAdapter + 'static>(adapter: M) -> DynModel<Completion> {

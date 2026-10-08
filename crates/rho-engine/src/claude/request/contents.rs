@@ -28,8 +28,8 @@ pub fn convert_messages(request: &CompletionRequest) -> Vec<Value> {
                 let parts: Vec<Value> = content.iter().filter_map(convert_user_content).collect();
                 append_turn(&mut messages, "user", parts);
             }
-            Message::Assistant { content, .. } => {
-                let parts: Vec<Value> = content.iter().filter_map(convert_assistant_content).collect();
+            Message::Assistant(asst) => {
+                let parts: Vec<Value> = asst.content.iter().filter_map(convert_assistant_content).collect();
                 append_turn(&mut messages, "assistant", parts);
             }
         }
@@ -114,12 +114,13 @@ fn convert_assistant_content(item: &AssistantContent) -> Option<Value> {
             Some(json!({ "type": "text", "text": text.text }))
         }
         AssistantContent::Reasoning(reasoning) => {
-            let r = reasoning.open(reasoning.issuer())?;
-            let block = r.content.first()?;
-            if let rig::message::ReasoningContent::Text { text, signature } = block
-                && let Some(sig) = signature
-            {
-                Some(json!({ "type": "thinking", "thinking": text, "signature": sig }))
+            if !reasoning.text.trim().is_empty() {
+                let sig = reasoning
+                    .native
+                    .as_ref()
+                    .and_then(|n| n.item.get("signature"))
+                    .and_then(|s| s.as_str());
+                sig.map(|sig| json!({ "type": "thinking", "thinking": reasoning.text, "signature": sig }))
             } else {
                 None
             }

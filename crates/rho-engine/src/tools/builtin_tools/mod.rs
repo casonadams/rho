@@ -37,7 +37,9 @@ where
         + Send
         + 'static,
 {
-    DynamicTool::new_with_context(name, description, generated_schema::<A>(), move |ctx, args| {
+    let tool_name =
+        rig::message::ToolName::new(name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
+    DynamicTool::new_with_context(tool_name, description, generated_schema::<A>(), move |ctx, args| {
         let fut = match parse_args::<A>(args) {
             Ok(a) => Ok(execute(ctx, a)),
             Err(err) => Err(err),

@@ -130,10 +130,18 @@ pub(crate) async fn handle_session_branching_result(
 }
 
 pub(crate) fn show_session_summaries(session: &ReplSession) -> Result<()> {
+    let mut shown = 0;
     for s in rho_harness_core::session::list_session_summaries(&session.config.sessions_dir)? {
+        if s.turn_count == 0 && s.name.is_none() {
+            continue;
+        }
+        shown += 1;
         session
             .renderer
             .print_notice(&format!("  - {} ({}): {}\n", s.session_id, s.turn_count, s.preview));
+    }
+    if shown == 0 {
+        session.renderer.print_notice("  No previous sessions found.\n");
     }
     Ok(())
 }

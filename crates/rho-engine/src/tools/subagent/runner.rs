@@ -15,7 +15,11 @@ pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> Strin
 
 pub fn filter_tools_for_role(tools: &[DynamicTool], role: SubagentRole) -> Vec<DynamicTool> {
     let allowed = role.allowed_tools();
-    let mut filtered: Vec<DynamicTool> = tools.iter().filter(|t| allowed.contains(&t.name())).cloned().collect();
+    let mut filtered: Vec<DynamicTool> = tools
+        .iter()
+        .filter(|t| allowed.contains(&t.name().as_str()))
+        .cloned()
+        .collect();
     filtered.sort_by(|a, b| a.name().cmp(b.name()));
     filtered
 }
@@ -41,7 +45,7 @@ impl SubagentRunner {
 
     #[must_use]
     pub fn tool_names(&self) -> Vec<&str> {
-        self.tools.iter().map(|t| t.name()).collect()
+        self.tools.iter().map(|t| t.name().as_str()).collect()
     }
 
     pub async fn run(&self, prompt: &str, context_slice: Option<&str>) -> ToolResult {
@@ -65,7 +69,8 @@ impl SubagentRunner {
 
         match tokio::time::timeout(timeout, runner.run()).await {
             Ok(Ok(response)) => {
-                let text = response.output.trim();
+                let output = response.output();
+                let text = output.trim();
                 if text.is_empty() {
                     ToolResult::error("Subagent completed without generating an output summary.")
                 } else {

@@ -181,10 +181,10 @@ fn test_logout_provider_named_and_empty_list() {
 
     assert!(super::logout_provider(None, &config, &mut auth_store).is_ok());
 
-    auth_store.set_key("gemini", "key-val").unwrap();
-    assert!(auth_store.get_key_sync("gemini").unwrap().is_some());
-    assert!(super::logout_provider(Some("gemini"), &config, &mut auth_store).is_ok());
-    assert!(auth_store.get_key_sync("gemini").unwrap().is_none());
+    auth_store.set_key("openrouter", "key-val").unwrap();
+    assert!(auth_store.get_key_sync("openrouter").unwrap().is_some());
+    assert!(super::logout_provider(Some("openrouter"), &config, &mut auth_store).is_ok());
+    assert!(auth_store.get_key_sync("openrouter").unwrap().is_none());
 }
 
 #[test]

@@ -6,7 +6,8 @@ use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
-use rig::agent::{AgentRunner, CompletionCall, MultiTurnStreamItem, PromptResponse, StreamingError};
+use rig::agent::{AgentRunner, CompletionCall, MultiTurnStreamItem, PromptResponse};
+use rig::completion::PromptError;
 use rig::message::Message;
 use rig::streaming::{Item, Part, StreamEvent};
 
@@ -15,8 +16,8 @@ use super::streaming_tool::StreamingToolTracker;
 use super::types::TurnOutput;
 use crate::engine::AgentEngine;
 use crate::engine::runner::history::{
-    DisplayEvent, budget_history, checkpoint_messages, display_events, extract_retry_after, is_transient_network_error,
-    map_streaming_error, streaming_error_provider_request_id,
+    DisplayEvent, budget_history, checkpoint_messages, display_events, extract_retry_after, is_content_filter_error,
+    is_transient_network_error, map_streaming_error, streaming_error_provider_request_id,
 };
 use crate::engine::runner::sink::{TerminalApprovalSink, TurnArtifacts};
 use crate::engine::tracking::UsageTracker;
@@ -51,6 +52,7 @@ pub(super) enum StreamRunResult {
     RateLimitRetry,
     NetworkRetry,
     Complete(Box<TurnStreamState>),
+    ContentFiltered(Box<TurnStreamState>),
 }
 
 enum StreamErrorAction {
@@ -245,7 +247,7 @@ impl AgentEngine {
 
     async fn try_context_overflow(
         &self,
-        error: &StreamingError,
+        error: &PromptError,
         presenter: &dyn Presenter,
         visible_history: &mut Vec<ChatMessage>,
         checkpoint: &mut Option<Vec<ChatMessage>>,
@@ -260,7 +262,7 @@ impl AgentEngine {
 
     async fn try_budget_continuation(
         &self,
-        error: &StreamingError,
+        error: &PromptError,
         presenter: &dyn Presenter,
         visible_history: &[ChatMessage],
         checkpoint: &mut Option<Vec<ChatMessage>>,
@@ -274,7 +276,7 @@ impl AgentEngine {
         Ok(false)
     }
 
-    async fn handle_fatal_stream_error(&self, error: StreamingError) -> Result<StreamErrorAction> {
+    async fn handle_fatal_stream_error(&self, error: PromptError) -> Result<StreamErrorAction> {
         if let Some(req_id) = streaming_error_provider_request_id(&error) {
             self.run_tracker.set_last_request_id(req_id);
         }
@@ -288,7 +290,7 @@ impl AgentEngine {
 
     async fn handle_stream_error(
         &self,
-        error: StreamingError,
+        error: PromptError,
         presenter: &dyn Presenter,
         sink: &Arc<TerminalApprovalSink>,
         loop_state: &mut TurnLoopState,
@@ -363,6 +365,9 @@ impl AgentEngine {
             match item {
                 Ok(item) => self.process_stream_item(item, sink, &mut state, active_model),
                 Err(err) => {
+                    if is_content_filter_error(&err) {
+                        return Ok(StreamRunResult::ContentFiltered(Box::new(state)));
+                    }
                     let action = self
                         .handle_stream_error(err, presenter, sink, loop_state, state.content_emitted)
                         .await?;
@@ -397,7 +402,7 @@ impl AgentEngine {
         Ok(())
     }
 
-    fn elapsed_generation_ms(state: &TurnStreamState) -> u64 {
+    pub(super) fn elapsed_generation_ms(state: &TurnStreamState) -> u64 {
         (state.total_generation_elapsed_ms
             + state
                 .model_call_start
@@ -433,7 +438,7 @@ impl AgentEngine {
             self.record_failed_metrics(&err).await?;
             return Err(err);
         }
-        self.promote_continuation_checkpoint(response.messages.clone(), checkpoint)
+        self.promote_continuation_checkpoint(Some(response.messages.clone()), checkpoint)
             .await?;
         self.finish_turn(TurnArtifacts {
             response,
@@ -515,7 +520,7 @@ mod tests {
             network_retries: 0,
         };
 
-        let transient_err = StreamingError::Completion(ProviderError::Provider(
+        let transient_err = PromptError::Provider(ProviderError::Provider(
             "error sending request for url (https://cloudcode-pa.googleapis.com)".to_string(),
         ));
 
@@ -526,7 +531,7 @@ mod tests {
         assert!(matches!(action, StreamErrorAction::NetworkRetry));
         assert_eq!(loop_state.network_retries, 1);
 
-        let transient_err = StreamingError::Completion(ProviderError::Provider("connection reset by peer".to_string()));
+        let transient_err = PromptError::Provider(ProviderError::Provider("connection reset by peer".to_string()));
         let action = engine
             .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
             .await
@@ -534,7 +539,7 @@ mod tests {
         assert!(matches!(action, StreamErrorAction::NetworkRetry));
         assert_eq!(loop_state.network_retries, 2);
 
-        let transient_err = StreamingError::Completion(ProviderError::Provider("connection reset by peer".to_string()));
+        let transient_err = PromptError::Provider(ProviderError::Provider("connection reset by peer".to_string()));
         let result = engine
             .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
             .await;
@@ -567,7 +572,7 @@ mod tests {
         };
 
         let transient_err =
-            StreamingError::Completion(ProviderError::Provider("Claude stream failed: broken pipe".to_string()));
+            PromptError::Provider(ProviderError::Provider("Claude stream failed: broken pipe".to_string()));
 
         let result = engine
             .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, true)

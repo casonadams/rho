@@ -14,8 +14,13 @@ pub fn presenter(renderer: &TerminalRenderer) -> Arc<dyn Presenter> {
 
 pub fn test_engine(model: MockCompletionModel, app_config: Config) -> AgentEngine {
     let dir = std::env::temp_dir().join(format!("runner_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let session_manager = SessionManager::new(&dir, None).unwrap();
+    let sessions_dir = dir.join("sessions");
+    std::fs::create_dir_all(&sessions_dir).unwrap();
+    let session_manager = SessionManager::new(&sessions_dir, None).unwrap();
+    let app_config = Config {
+        sessions_dir,
+        ..app_config
+    };
     test_engine_with_session(model, app_config, Some(session_manager))
 }
 

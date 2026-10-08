@@ -13,7 +13,7 @@ fn renderer_events_preserve_reasoning_text_order_without_duplicates() {
     let transcript = Transcript::parse_prefix(serde_json::json!([
         {"item": "event", "value": {"event": "start", "part": 0, "kind": "reasoning"}},
         {"item": "event", "value": {"event": "reasoning", "part": 0, "text": "think"}},
-        {"item": "event", "value": {"event": "end", "part": 0, "content": {"type": "reasoning", "issuer": "test", "content": [{"type": "text", "content": {"text": "think"}}]}}},
+        {"item": "event", "value": {"event": "end", "part": 0, "content": {"type": "reasoning", "text": "think"}}},
         {"item": "event", "value": {"event": "start", "part": 1, "kind": "text"}},
         {"item": "event", "value": {"event": "text", "part": 1, "text": "answer"}},
         {"item": "event", "value": {"event": "end", "part": 1, "content": {"type": "text", "text": "answer"}}},

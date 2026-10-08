@@ -3,7 +3,8 @@ use crate::claude::http::{claude_headers, friendly_error};
 use crate::claude::request::{build_request_body, normalize_model_alias, resolve_thinking_budget};
 use rig::completion::ToolDefinition;
 use rig::message::{
-    AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
+    AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
+    UserContent,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,18 +12,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 fn sample_request() -> CompletionRequest {
-    CompletionRequest {
-        model: None,
-        chat_history: vec![Message::system("system instructions"), Message::user("hello world")],
-        documents: Vec::new(),
-        tools: Vec::new(),
-        temperature: Some(0.7),
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    }
+    let mut req = CompletionRequest::new(Message::system("system instructions"));
+    req.chat_history.push(Message::user("hello world"));
+    req.temperature = Some(0.7);
+    req
 }
 
 #[test]
@@ -114,10 +107,9 @@ fn sample_tool_history_chat(call: ToolCall, res: ToolResult) -> Vec<Message> {
     vec![
         Message::system("system instructions"),
         Message::user("run tool"),
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
+            call,
+        )])),
         Message::User {
             content: vec![UserContent::ToolResult(res)],
         },
@@ -126,11 +118,11 @@ fn sample_tool_history_chat(call: ToolCall, res: ToolResult) -> Vec<Message> {
 
 fn request_with_tool_and_history() -> CompletionRequest {
     let mut req = sample_request();
-    req.tools.push(ToolDefinition {
-        name: "test_tool".into(),
-        description: "A test tool".into(),
-        parameters: serde_json::json!({ "type": "object", "properties": { "arg": { "type": "string" } } }),
-    });
+    req.tools.push(ToolDefinition::new(
+        ToolName::new("test_tool").unwrap(),
+        "A test tool",
+        serde_json::json!({ "type": "object", "properties": { "arg": { "type": "string" } } }),
+    ));
     let call = ToolCall::new(
         CallId::from_wire("tool_call_1"),
         ToolFunction::new(
@@ -142,6 +134,7 @@ fn request_with_tool_and_history() -> CompletionRequest {
         call: CallId::from_wire("tool_call_1"),
         name: rig::message::ToolName::new("test_tool").unwrap(),
         content: vec![ToolResultContent::Text(Text::new("tool output"))],
+        is_error: false,
     };
     req.chat_history = sample_tool_history_chat(call, res);
     req
@@ -428,18 +421,18 @@ fn test_opus_5_5_tool_choice_falls_back_to_auto() {
     use rig::message::ToolChoice;
 
     let mut req = sample_request();
-    req.tools = vec![ToolDefinition {
-        name: "bash".to_string(),
-        description: "Run command".to_string(),
-        parameters: serde_json::json!({ "type": "object" }),
-    }];
+    req.tools = vec![ToolDefinition::new(
+        ToolName::new("bash").unwrap(),
+        "Run command",
+        serde_json::json!({ "type": "object" }),
+    )];
 
     req.tool_choice = Some(ToolChoice::Required);
     let body_required = build_request_body("claude-opus-5-5", None, &req).unwrap();
     assert_eq!(body_required["tool_choice"]["type"], "auto");
 
     req.tool_choice = Some(ToolChoice::Specific {
-        function_names: vec!["bash".to_string()],
+        function_names: vec![ToolName::new("bash").unwrap()],
     });
     let body_specific = build_request_body("claude-opus-5-5", None, &req).unwrap();
     assert_eq!(body_specific["tool_choice"]["type"], "auto");
@@ -450,7 +443,7 @@ fn test_opus_5_5_tool_choice_falls_back_to_auto() {
     assert_eq!(body_sonnet["tool_choice"]["type"], "any");
 
     req.tool_choice = Some(ToolChoice::Specific {
-        function_names: vec!["bash".to_string()],
+        function_names: vec![ToolName::new("bash").unwrap()],
     });
     let body_sonnet_spec = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
     assert_eq!(body_sonnet_spec["tool_choice"]["type"], "tool");

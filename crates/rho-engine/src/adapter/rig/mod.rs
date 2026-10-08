@@ -7,13 +7,13 @@ pub mod tools;
 pub use memory::RigSessionMemory;
 
 use rho_harness_core::model::{
-    AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, TextContent, ToolCall, ToolFunction,
-    ToolResult, ToolResultContent, UserContent,
+    AssistantContent, ChatMessage, ImageContent, Reasoning, TextContent, ToolCall, ToolFunction, ToolResult,
+    ToolResultContent, UserContent,
 };
 use rig::message::{
-    AssistantContent as RigAssistantContent, CallId as RigCallId, Image as RigImage, ImageMediaType as RigMediaType,
-    Message as RigMessage, Reasoning as RigReasoning, ReasoningContent as RigReasoningContent, Text as RigText,
-    ToolCall as RigToolCall, ToolFunction as RigToolFunction, ToolResult as RigToolResult,
+    AssistantContent as RigAssistantContent, AssistantMessage as RigAssistantMessage, CallId as RigCallId,
+    Image as RigImage, ImageMediaType as RigMediaType, Message as RigMessage, Reasoning as RigReasoning,
+    Text as RigText, ToolCall as RigToolCall, ToolFunction as RigToolFunction, ToolResult as RigToolResult,
     ToolResultContent as RigToolResultContent, UserContent as RigUserContent,
 };
 
@@ -26,10 +26,9 @@ pub fn to_rig_message(msg: &ChatMessage) -> RigMessage {
         ChatMessage::User { content } => RigMessage::User {
             content: content.iter().map(to_rig_user_content).collect(),
         },
-        ChatMessage::Assistant { id, content } => RigMessage::Assistant {
-            id: id.clone(),
-            content: content.iter().map(to_rig_assistant_content).collect(),
-        },
+        ChatMessage::Assistant { id: _, content } => RigMessage::Assistant(RigAssistantMessage::new(
+            content.iter().map(to_rig_assistant_content).collect(),
+        )),
     }
 }
 
@@ -47,9 +46,9 @@ pub fn from_rig_message(msg: &RigMessage) -> ChatMessage {
         RigMessage::User { content } => ChatMessage::User {
             content: content.iter().map(from_rig_user_content).collect(),
         },
-        RigMessage::Assistant { id, content } => ChatMessage::Assistant {
-            id: id.clone(),
-            content: content.iter().map(from_rig_assistant_content).collect(),
+        RigMessage::Assistant(asst) => ChatMessage::Assistant {
+            id: None,
+            content: asst.content.iter().map(from_rig_assistant_content).collect(),
         },
     }
 }
@@ -85,10 +84,7 @@ fn to_rig_assistant_content(item: &AssistantContent) -> RigAssistantContent {
     match item {
         AssistantContent::Text(t) => RigAssistantContent::Text(RigText::new(&t.text)),
         AssistantContent::ToolCall(call) => RigAssistantContent::ToolCall(to_rig_tool_call(call)),
-        AssistantContent::Reasoning(r) => RigAssistantContent::Reasoning(rig::message::Sealed::new(
-            rig::message::Issuer::from_static("rho"),
-            to_rig_reasoning(r),
-        )),
+        AssistantContent::Reasoning(r) => RigAssistantContent::Reasoning(to_rig_reasoning(r)),
         AssistantContent::Image(img) => RigAssistantContent::Image(to_rig_image(img)),
     }
 }
@@ -97,16 +93,9 @@ fn from_rig_assistant_content(item: &RigAssistantContent) -> AssistantContent {
     match item {
         RigAssistantContent::Text(t) => AssistantContent::Text(TextContent::new(&t.text)),
         RigAssistantContent::ToolCall(call) => AssistantContent::ToolCall(from_rig_tool_call(call)),
-        RigAssistantContent::Reasoning(r) => {
-            let reasoning = r.open(r.issuer());
-            AssistantContent::Reasoning(Reasoning {
-                id: reasoning.and_then(|r| r.id.clone()),
-                content: reasoning
-                    .map(|r| r.content.iter().map(from_rig_reasoning_content).collect())
-                    .unwrap_or_default(),
-            })
-        }
+        RigAssistantContent::Reasoning(r) => AssistantContent::Reasoning(from_rig_reasoning(r)),
         RigAssistantContent::Image(img) => AssistantContent::Image(from_rig_image(img)),
+        _ => AssistantContent::Text(TextContent::new("")),
     }
 }
 
@@ -117,16 +106,28 @@ fn to_rig_tool_call(call: &ToolCall) -> RigToolCall {
         RigCallId::from_wire(&call.id),
         RigToolFunction::new(tool_name, call.function.arguments.clone()),
     );
-    tc.signature = call.signature.clone();
+    if let Some(sig) = &call.signature {
+        let item = serde_json::json!({ "signature": sig });
+        let fingerprint = rig::message::AssistantContent::ToolCall(tc.clone()).fingerprint();
+        tc.native = Some(rig::message::Native { item, fingerprint });
+    }
     tc
 }
 
 fn from_rig_tool_call(call: &RigToolCall) -> ToolCall {
     let mut tc = ToolCall::new(
         call.id.wire().as_ref(),
-        ToolFunction::new(call.function.name.as_str(), call.function.arguments.clone()),
+        ToolFunction::new(
+            call.function.name.as_str(),
+            serde_json::Value::Object(call.function.arguments.clone()),
+        ),
     );
-    tc.signature = call.signature.clone();
+    tc.signature = call
+        .native
+        .as_ref()
+        .and_then(|n| n.item.get("signature"))
+        .and_then(|s| s.as_str())
+        .map(ToString::to_string);
     tc
 }
 
@@ -137,6 +138,7 @@ fn to_rig_tool_result(res: &ToolResult) -> RigToolResult {
         call: RigCallId::from_wire(&res.call),
         name: tool_name,
         content: res.content.iter().map(to_rig_tool_result_content).collect(),
+        is_error: false,
     }
 }
 
@@ -157,38 +159,24 @@ fn from_rig_tool_result_content(item: &RigToolResultContent) -> ToolResultConten
 }
 
 fn to_rig_reasoning(r: &Reasoning) -> RigReasoning {
-    let mut rr = RigReasoning {
-        id: r.id.clone(),
-        content: r.content.iter().map(to_rig_reasoning_content).collect(),
-    };
-    if let Some(id) = &r.id {
-        rr = rr.with_id(id.clone());
+    let text = r.display_text();
+    let mut reasoning = RigReasoning::new(text);
+    if let Some(sig) = r.first_signature() {
+        let item = serde_json::json!({ "signature": sig });
+        let fingerprint = rig::message::AssistantContent::Reasoning(reasoning.clone()).fingerprint();
+        reasoning.native = Some(rig::message::Native { item, fingerprint });
     }
-    rr
+    reasoning
 }
 
-fn to_rig_reasoning_content(c: &ReasoningContent) -> RigReasoningContent {
-    match c {
-        ReasoningContent::Text { text, signature } => RigReasoningContent::Text {
-            text: text.clone(),
-            signature: signature.clone(),
-        },
-        ReasoningContent::Summary(s) => RigReasoningContent::Summary(s.clone()),
-        ReasoningContent::Redacted { data } => RigReasoningContent::Redacted { data: data.clone() },
-        ReasoningContent::Encrypted(e) => RigReasoningContent::Encrypted(e.clone()),
-    }
-}
-
-fn from_rig_reasoning_content(c: &RigReasoningContent) -> ReasoningContent {
-    match c {
-        RigReasoningContent::Text { text, signature } => ReasoningContent::Text {
-            text: text.clone(),
-            signature: signature.clone(),
-        },
-        RigReasoningContent::Summary(s) => ReasoningContent::Summary(s.clone()),
-        RigReasoningContent::Redacted { data } => ReasoningContent::Redacted { data: data.clone() },
-        RigReasoningContent::Encrypted(e) => ReasoningContent::Encrypted(e.clone()),
-    }
+fn from_rig_reasoning(r: &RigReasoning) -> Reasoning {
+    let signature = r
+        .native
+        .as_ref()
+        .and_then(|n| n.item.get("signature"))
+        .and_then(|s| s.as_str())
+        .map(ToString::to_string);
+    Reasoning::new_with_signature(&r.text, signature)
 }
 
 fn to_rig_image(img: &ImageContent) -> RigImage {
@@ -196,7 +184,7 @@ fn to_rig_image(img: &ImageContent) -> RigImage {
         data: rig::message::DocumentSourceKind::Base64(img.data.clone()),
         media_type: img.media_type.as_deref().and_then(parse_media_type),
         detail: None,
-        additional_params: None,
+        native: None,
     }
 }
 
@@ -247,7 +235,7 @@ mod tests {
             ToolFunction::new("bash", serde_json::json!({"command": "cargo test"})),
         );
         let asst_msg = ChatMessage::Assistant {
-            id: Some("asst_1".to_string()),
+            id: None,
             content: vec![AssistantContent::ToolCall(call)],
         };
         let rig_asst = to_rig_message(&asst_msg);

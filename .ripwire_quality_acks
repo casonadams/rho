@@ -5,77 +5,278 @@ ack complexity bfa3b77bfbcff5ab 12 cid=23df79b8efd43418 now=12 was=1 p=crates/rh
 ack dead-code:new-symbol 0948ff1e0b82fb1d 0 cid=3645687159758259 now=0 was=0 p=tests/mcp_lazy_lifecycle.rs:41 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol 0fb68e3e7cc3b0f6 0 cid=768232ef6a15f426 now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:147 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol 10290e64f680c279 0 cid=a508c5380e7118a1 now=0 was=0 p=tests/mcp_direct_tools.rs:39 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 164110b9257005ec 0 cid=63c636809636325b now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:39 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack dead-code:new-symbol 19f72495e71ff0b8 0 cid=f126ee9b40ee110c now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:146 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol 1d1191dfea56df7e 0 cid=81bb26c2f528a63e now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:255 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol 22d0c7322a57f2bf 0 cid=d8ddcacfc50ff360 now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:143 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 273529f5db1682df 0 cid=32ef068f3369c743 now=0 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:104 fix(session): prune empty sessions and filter from resume selector
+ack dead-code:new-symbol 30a85d9f612ef746 0 cid=537ff11d01722657 now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:150 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol 3453c30b079c365b 0 cid=75a2063617eee6cf now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol 3f57ff5c1ebf6faf 0 cid=fb6533e37d2dd606 now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:160 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol 442e519dd69b36c1 0 cid=755aacb4054bcb9a now=0 was=0 p=tests/mcp_lazy_lifecycle.rs:53 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 4adb4dd4dc8f98ab 0 cid=21505e8cd96397c8 now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:142 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol 5d5786f533062be6 0 cid=0b39b4a1f3f52da0 now=0 was=0 p=crates/rho-harness-core/src/config/mcp.rs:511 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 6d95a088d8b26658 0 cid=adb5c33fcb39e34d now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:158 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol 7a1a68274dd86151 0 cid=47558974f4596769 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:216 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol 88e93ca17c56daa4 0 cid=06af63ca56bfec3a now=0 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:124 test(session): add tests for empty session pruning
 ack dead-code:new-symbol 9ca722a348b84cb2 0 cid=3b66d170be9ef758 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol a4f74bdc30783319 0 cid=d751e26070443822 now=0 was=0 p=crates/rho-engine/src/mcp/trust.rs:171 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol b3765ed613db1fd6 0 cid=5cf3348cf8e31910 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:55 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol b8bf8e69ade39f89 0 cid=8dfe1893cae60aa5 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:213 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol ce33cec47d4fe36d 0 cid=d7a84993f006dc1c now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:137 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol f5d5dceb92fd23b3 0 cid=e63f34d0f06b0e38 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:226 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol f87b7ba24d599872 0 cid=d1090cfc04102252 now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:154 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol f8d2e1fb2645a08d 0 cid=1f5e619ad9d38341 now=0 was=0 p=crates/rho-engine/src/mcp/search.rs:598 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:preexisting 515cbaf314fd217c 0 cid=bbef482a9d2cd996 now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:81 fix(settings): preserve modal stack and refresh model descriptions
 ack dead-code:preexisting 658dfa752c39d24e 0 cid=926151db5b8328bd now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:92 fix(settings): preserve modal stack and refresh model descriptions
 ack dead-code:preexisting f2bc705397ef94ee 0 cid=bd25cfbf1a40c450 now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:45 fix(settings): preserve modal stack and refresh model descriptions
+ack duplication 01704ab0ccfb141e 109 now=109 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:92 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 01b7c5a04ff72819 85 now=85 was=0 p=crates/rho-engine/src/mcp/trust.rs:110 feat(mcp): modernize MCP adapter subsystem
 ack duplication 037fefd1426d8220 81 now=81 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
+ack duplication 056427819791c7fe 312 now=312 was=0 p=crates/rho-engine/src/permission/tests/hook.rs:16 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 137e7fa3c732d541 53 now=53 was=0 p=crates/rho-harness-core/src/net.rs:21 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 141d7db1a629cae4 41 now=41 was=0 p=crates/rho-engine/src/claude/request/mod.rs:148 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 1a96b3a0e30b20e2 70 now=70 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
 ack duplication 1aa96ceeb196d3e7 83 now=83 was=0 p=crates/rho-harness-core/src/config/mcp.rs:75 feat(mcp): modernize MCP adapter subsystem
 ack duplication 1b7e962415bdd8f2 72 now=72 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
+ack duplication 1db457a8f924adb8 161 now=161 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:104 test(session): add tests for empty session pruning
 ack duplication 2043ae147ecd9b50 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
+ack duplication 22228ad401007723 21 now=21 was=0 p=crates/rho-engine/src/chatgpt/client.rs:342 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 261f2e49e410e7a9 159 now=159 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:86 fix(session): prune empty sessions and filter from resume selector
+ack duplication 2a5d65c6d25bf539 92 now=92 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:83 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 3806bf748dfa9b4d 51 now=51 was=0 p=tests/mcp_lazy_lifecycle.rs:14 feat(mcp): modernize MCP adapter subsystem
+ack duplication 3a81518d5a35fba4 159 now=159 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:26 fix(session): prune empty sessions and filter from resume selector
 ack duplication 3fb2cbe46eb5dcbf 38 now=38 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
+ack duplication 42b0fb8589ce314e 147 now=147 was=0 p=crates/rho-harness-core/src/session/prune.rs:147 fix(session): prune empty sessions and filter from resume selector
+ack duplication 43f203e7b372f2b0 159 now=159 was=0 p=crates/rho-engine/src/mcp/search.rs:110 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 49b7cd2d7e317377 325 now=325 was=0 p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:298 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 4d6dafab4f59ee70 38 now=38 was=0 p=crates/rho-engine/src/mcp/trust.rs:143 feat(mcp): modernize MCP adapter subsystem
 ack duplication 539cc7e0ea550ba8 51 now=51 was=0 p=crates/rho-harness-core/src/session/summary.rs:187 feat(mcp): modernize MCP adapter subsystem
 ack duplication 562ecf8a74fb890e 153 now=153 was=0 p=crates/rho-engine/src/mcp/cache.rs:88 feat(mcp): modernize MCP adapter subsystem
+ack duplication 5cae3157cb01f2c5 226 now=226 was=0 p=src/repl/live/tests/modal_action.rs:8 test(repl): isolate test session directory in selector tests
 ack duplication 6f16c6c5376a25ae 72 now=72 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
 ack duplication 71a0c262f8a2b54a 104 now=104 was=0 p=crates/rho-engine/src/mcp/trust.rs:93 feat(mcp): modernize MCP adapter subsystem
+ack duplication 75b72353de354c99 139 now=139 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:41 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 765543dd71ff01fe 47 now=47 was=0 p=crates/rho-engine/src/mcp/pool.rs:115 feat(mcp): modernize MCP adapter subsystem
+ack duplication 76c833f1f6e6d90f 115 now=115 was=0 p=crates/rho-harness-core/src/workspace/tests.rs:4 test(repl): isolate test session directory in selector tests
 ack duplication 7f20f6d43f11af14 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
 ack duplication 834cbe4220bcc6e8 83 now=83 was=0 p=crates/rho-harness-core/src/config/mcp.rs:57 feat(mcp): modernize MCP adapter subsystem
+ack duplication 860656c036d56f7e 131 now=131 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:92 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 8b083d8c867357e0 159 now=159 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:56 fix(session): prune empty sessions and filter from resume selector
+ack duplication 998c266fcdef7966 24 now=24 was=0 p=crates/rho-harness-core/src/config/merge/env.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 9b64be5bc2391e71 161 now=161 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:56 test(session): add tests for empty session pruning
+ack duplication 9d5a403a4aea35ee 43 now=43 was=0 p=crates/rho-engine/src/engine/compactor/tests.rs:955 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 9dc82d1a37741525 53 now=53 was=0 p=crates/rho-engine/src/mcp/pool.rs:115 feat(mcp): modernize MCP adapter subsystem
+ack duplication 9f391de1c3e99b48 29 now=29 was=0 p=crates/rho-engine/src/engine/runner/history.rs:211 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 9f805be3e97748a5 161 now=161 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:26 test(session): add tests for empty session pruning
+ack duplication a0f504f5496ca285 125 now=125 was=0 p=crates/rho-engine/src/tools/builtin_tools/tests.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication b0d94ce48df253f8 38 now=38 was=0 p=crates/rho-engine/src/engine/runner/sink/approval.rs:119 feat(mcp): modernize MCP adapter subsystem
+ack duplication b4947b97e4be122c 92 now=92 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:83 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication b6f6b2fe0973472d 279 now=279 was=0 p=crates/rho-engine/src/permission/tests/hook.rs:395 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication b8daeb50ae8d4ffb 38 now=38 was=0 p=crates/rho-engine/src/mcp/trust.rs:143 feat(mcp): modernize MCP adapter subsystem
 ack duplication bce4137bfa189487 32 now=32 was=0 p=crates/rho-harness-core/src/config/types/integrations.rs:77 feat(mcp): modernize MCP adapter subsystem
+ack duplication c6bf44b09d5523db 125 now=125 was=0 p=crates/rho-engine/src/tools/builtin_tools/tests.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication ca17ce823f0aa87d 29 now=29 was=0 p=crates/rho-engine/src/antigravity/quota/summary.rs:73 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication d2953eee886d27e4 161 now=161 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:86 test(session): add tests for empty session pruning
+ack duplication d410c7eea4ab98a6 159 now=159 was=0 p=crates/rho-engine/src/mcp/search.rs:110 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication d7b7723ff3df4495 40 now=40 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
 ack duplication d7ebfc6617d5e1b1 71 now=71 was=0 p=tests/mcp_lazy_lifecycle.rs:41 feat(mcp): modernize MCP adapter subsystem
+ack duplication d963d55c58331315 42 now=42 was=0 p=crates/rho-engine/src/antigravity/request/tests.rs:10 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication d9f26bd7caacdf82 53 now=53 was=0 p=crates/rho-engine/src/mcp/pool.rs:35 feat(mcp): modernize MCP adapter subsystem
 ack duplication dc80797805f06aa2 85 now=85 was=0 p=crates/rho-harness-core/src/config/mcp.rs:97 feat(mcp): modernize MCP adapter subsystem
+ack duplication e40dcc61a6770a5f 71 now=71 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:265 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication e53ec7dcbe1a2951 147 now=147 was=0 p=crates/rho-harness-core/src/session/prune.rs:169 fix(session): prune empty sessions and filter from resume selector
+ack duplication ee700d12e92ba5de 93 now=93 was=0 p=src/repl/live/modal/selectors/collab.rs:95 test(repl): isolate test session directory in selector tests
 ack duplication eed2dfd466fa710b 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
 ack duplication eef8dcc634ded99d 178 now=178 was=0 p=crates/rho-engine/src/mcp/trust.rs:171 feat(mcp): modernize MCP adapter subsystem
+ack duplication fcdbf93c9a331ce6 33 now=33 was=0 p=crates/rho-engine/src/engine/runner/history.rs:211 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication fed7a6855422a063 519 now=519 was=0 p=tests/mcp_lazy_lifecycle.rs:53 feat(mcp): modernize MCP adapter subsystem
 ack new-clone-of-reused-helper 1a96b3a0e30b20e2 3 now=3 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper 22228ad401007723 9 now=9 was=0 p=crates/rho-engine/src/chatgpt/client.rs:342 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack new-clone-of-reused-helper 539cc7e0ea550ba8 20 now=20 was=0 p=crates/rho-harness-core/src/session/summary.rs:187 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper 5cae3157cb01f2c5 12 now=12 was=0 p=src/repl/live/tests/modal_action.rs:8 test(repl): isolate test session directory in selector tests
+ack new-clone-of-reused-helper 75b72353de354c99 6 now=6 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:41 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack new-clone-of-reused-helper 765543dd71ff01fe 3 now=3 was=0 p=crates/rho-engine/src/mcp/pool.rs:115 feat(mcp): modernize MCP adapter subsystem
 ack new-clone-of-reused-helper bce4137bfa189487 3 now=3 was=0 p=crates/rho-harness-core/src/config/types/integrations.rs:77 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper d963d55c58331315 15 now=15 was=0 p=crates/rho-engine/src/antigravity/request/tests.rs:10 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack new-clone-of-reused-helper d9f26bd7caacdf82 11 now=11 was=0 p=crates/rho-engine/src/mcp/pool.rs:35 feat(mcp): modernize MCP adapter subsystem
+ack new-clone-of-reused-helper e40dcc61a6770a5f 4 now=4 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:265 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack params 4e3cc1d0852e0b24 6 cid=c4d1b082ea2a0fed now=6 was=0 p=crates/rho-engine/src/mcp/manager.rs:99 feat(mcp): modernize MCP adapter subsystem
 ack params 9bdd47fb71a81eb2 6 cid=73f0699dd9a32651 now=6 was=0 p=crates/rho-engine/src/mcp/manager.rs:145 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 07bd7239347584bf 4 cid=e1447698f17a0af9 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/runtime.rs:71 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 0919ed15e4282956 4 cid=e0725642971d5e87 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:102 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 0947128aa09d7fc3 5 cid=396a5f7e4e7f378b now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:507 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 0cd9a4fa90822a94 4 cid=a6bb9fcc22bfc7ea now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/model.rs:47 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 0ce5997f34fe9fe0 2 cid=70e3771555e42293 now=2 was=0 facet=ambient p=crates/rho-engine/src/adapter/rig/context/tests.rs:97 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 0db3172c61e19bfa 3 cid=6e02503159aff0fb now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/types/integrations.rs:77 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 0e18afb96ff5d176 2 cid=97bcba42316318d9 now=2 was=0 facet=self p=crates/rho-engine/src/chatgpt/client.rs:111 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 0f9e5d03a4a7fabe 3 cid=f467495bb98b1f45 now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:187 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 101308a5332bb591 4 cid=1d7ab5a8fadf73e4 now=4 was=0 facet=self p=crates/rho-engine/src/tools/builtin_tools/tests.rs:50 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 10dce9000748e9c6 4 cid=ed6e782025dd62f7 now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:52 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 11e4897252fdb063 4 cid=0cf98a4006abf295 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/compactor/tests.rs:1052 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 1220795bf0f89820 3 cid=26af25ff4e69833b now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:57 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 1742f2b0f827f366 2 cid=89cc6fd478b8e762 now=2 was=0 facet=ambient p=crates/rho-engine/src/claude/client/tests.rs:106 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 1baf555147a9e365 3 cid=b5da8af2bb9f0698 now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 1c16eff6fdc15a0b 2 cid=2fc5dc17a9dfa4e8 now=2 was=0 facet=ambient p=crates/rho-engine/src/engine/eval/harness.rs:158 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 1e7fc10c1e425707 3 cid=2d44ec40e06d0763 now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/mod.rs:49 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 1fb522537ddd9be3 6 cid=e0ac1af6dccd1c30 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:697 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 1fba64e890d0c6c2 5 cid=7ce5daf6aa12f520 now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:277 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 203552cb4877945c 2 cid=3d035646568f2810 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:291 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 231b081e5e3b544a 3 cid=9b0bcad1e05e3734 now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:389 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 25a5422fcc87b67c 4 cid=dbe0204557767e1e now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:248 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 25dd5b667a4a2605 10 cid=cf040c935cca9b68 now=10 was=0 facet=ambient p=crates/rho-engine/src/permission/tests/hook.rs:69 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 265e89bb56fb8435 3 cid=8fa52f7be4adc913 now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/types/integrations.rs:65 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 270e678974789d57 3 cid=bdab289ba3306eeb now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:278 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 27ccc8f9a3566884 3 cid=6d8403fac74a3fe8 now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:248 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 2806769d60c8b855 4 cid=4c170f6af58b8ce5 now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:233 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 280cfb21ac177629 6 cid=921622fee1ee17cf now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:915 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 2902ef2247f0a2bd 2 cid=0b05c1695ebfb650 now=2 was=0 facet=ambient p=tests/eval.rs:240 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 2a51cc1b166c10b1 2 cid=e2d2b2a9bfe7867e now=2 was=0 facet=self p=crates/rho-engine/src/chatgpt/client.rs:259 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 2cfbd7c263f0eb2b 4 cid=fbc8441bcdadb4d1 now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:1237 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 3073c1545f85fb2f 4 cid=f30eb7c00c08a956 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:117 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 3143dc2aceae8a36 5 cid=f839376631308412 now=5 was=0 facet=self p=crates/rho-engine/src/antigravity/request/contents.rs:290 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 318a99a8b2e318e4 2 cid=41111054a0f781c5 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:244 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 323438548ec29cf8 5 cid=977c0ab4b6df4043 now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:243 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 328b22ee43fb67ac 4 cid=80f4f3f445ba611e now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/model.rs:128 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 33b15419eb8dd4b7 5 cid=89b89e1418f9e4ea now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:25 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 3490f9b67a032113 2 cid=e7580160e55f9fc3 now=2 was=0 facet=ambient p=tests/eval.rs:301 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 34af86068a133473 4 cid=0b62e6f0babc26bf now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:272 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 352c0d5c3aaad6fe 4 cid=0e7b8407fd8bbf78 now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:955 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 36c275e211d2fa4b 2 cid=d71c256f8f016c89 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:94 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 395e14d1088fa6db 2 cid=e4864c219f5916a8 now=2 was=0 facet=ambient p=tests/repeat_call.rs:14 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 3f416a6707f7d8a4 4 cid=eefc5308a3882b9a now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:888 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 3fc4f9093c528c81 4 cid=b362f7cd23c0b349 now=4 was=0 facet=self p=crates/rho-engine/src/permission/guard/evaluator.rs:26 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 423270b4fb197850 9 cid=998640a641792861 now=9 was=0 facet=self p=src/repl/live/idle/modal_action.rs:463 fix(settings): preserve modal stack and refresh model descriptions
+ack short-horizon-churn 43cb8b3b2357296a 2 cid=a73f6e44b07dee60 now=2 was=0 facet=self p=crates/rho-engine/src/chatgpt/client.rs:342 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 447605776112338f 10 cid=6567c9a58a28830e now=10 was=0 facet=ambient p=src/repl/live/tests/modals.rs:772 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 4505104206891c51 4 cid=7acae9a47771194b now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:298 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 4546b9b399f2cd19 5 cid=1a7830c7b2af8580 now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:447 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 4614082f63e6bcdf 2 cid=1df77805e6b7cd7c now=2 was=0 facet=ambient p=crates/rho-engine/src/adapter/rig/context/tests.rs:43 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 4691b818acebb517 4 cid=471119f0afe1456e now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/compactor/tests.rs:1019 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 4d7f41bf27f409ed 6 cid=9b22f00d8a6bf8ce now=6 was=0 facet=self p=src/repl/live/modal/settings.rs:27 fix(settings): preserve modal stack and refresh model descriptions
+ack short-horizon-churn 4f7b3f11d224c8dc 4 cid=def44f0373628cf9 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/compactor/tests.rs:509 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 50381d5c21fb9f0a 6 cid=f21f02027e719de1 now=6 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:246 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 5151045786fc160f 6 cid=be2d034b04f37920 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:127 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 53945ceeaaf20234 4 cid=94bdcd2b4e2bf477 now=4 was=0 facet=self p=crates/rho-engine/src/tools/builtin_tools/tests.rs:26 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 53a5eda83860f1c8 4 cid=51a7dd854a38750b now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:144 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 53b1f74ffb749eac 2 cid=2111ab4bf1948f65 now=2 was=0 facet=self p=tests/eval.rs:649 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 54bc08a4678c56ab 3 cid=ffe4813c0058189f now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:455 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 55c4dbc2c75f68fc 4 cid=3bb62f663de08b7c now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/client/tests.rs:165 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 59aaf86c1c0f19dc 4 cid=2d0dbc6556d40643 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/model.rs:60 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 5a5764239f357272 2 cid=e3fb8c73bfc1d989 now=2 was=0 facet=ambient p=crates/rho-engine/src/mcp/gateway/mod.rs:235 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 5e2033f62125c897 3 cid=969b4f9cee51fabb now=3 was=0 facet=self p=crates/rho-engine/src/tools/subagent/tests.rs:103 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 5e207f87d56a6e2e 2 cid=437bd812ecf02429 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:102 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 5f38ead8a35b1417 4 cid=4829fe289a6fab64 now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:551 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 5fe588fb3625bf39 4 cid=d4bb61d510ca20a6 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:232 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 6072cae6f70a9e3f 4 cid=b0e0df63d94e013e now=4 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:31 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 6177d74461b5969f 2 cid=3ed2820309167a68 now=2 was=0 facet=ambient p=crates/rho-engine/src/adapter/rig/context/tests.rs:60 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 63012f93f25f4e7b 2 cid=f02873352b0f21a1 now=2 was=0 facet=self p=tests/eval.rs:352 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 631265abc1cad658 3 cid=b02919f0ada5ea0b now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:333 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 63e65d2f5c67497a 4 cid=7934b6fe532065bc now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/tests.rs:221 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 65335f6a613286a9 2 cid=f68709632989ead5 now=2 was=0 facet=self p=crates/rho-engine/src/tools/subagent/runner.rs:47 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 6c0c6e571d823479 2 cid=1c89f55d19c4a181 now=2 was=0 facet=self p=crates/rho-engine/src/tools/subagent/runner.rs:51 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 6d25027c4bf0a2ae 4 cid=ea0bf9daa9746986 now=4 was=0 facet=ambient p=crates/rho-engine/src/tools/builtin_tools/tests.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 6df237ecdc3e544e 10 cid=c78bcf9f007f333c now=10 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/prepare.rs:157 fix(settings): preserve modal stack and refresh model descriptions
+ack short-horizon-churn 6e9199ade8d76e63 6 cid=f9f36f89a519a546 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:187 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 6f6cad8e24b02327 2 cid=3c9c4508890da356 now=2 was=0 facet=ambient p=crates/rho-engine/src/mcp/gateway/mod.rs:267 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 70a88121535c6ce1 6 cid=78aca176c721bd2d now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:955 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 7179d9e6b438a626 4 cid=132d900022f6bb5c now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/stream.rs:354 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 71d61b127c1bb124 4 cid=5c82ba7ed7ec5cb7 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:182 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 72d6d7c3a5e6a07b 4 cid=c7f45341a663130f now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:263 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 782fd8d0e139538a 3 cid=846016d4a9beab95 now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:424 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 798e341a5e9ded5b 6 cid=91c15e655b5330aa now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:852 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 7995cb6d021588c7 3 cid=255a7377560d2d9a now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:193 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 7dfad77ca22d93b9 4 cid=833f139178231730 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/stream.rs:421 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 7e8b0c06d9175192 10 cid=ba12c6e906b4ec70 now=10 was=0 facet=self p=crates/rho-engine/src/permission/tests/hook.rs:431 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 8410300c108612c0 3 cid=c327e7df77634368 now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:17 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 845185f3d8cbd8a5 3 cid=780a9035843d58bb now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 84ca5a0681fc8e9f 10 cid=717f4ed87f4e2d9a now=10 was=0 facet=self p=crates/rho-engine/src/permission/tests/hook.rs:252 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 88876b40bf14172f 2 cid=35f41ede68c5f062 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:174 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 8c0f458b2f5ed707 4 cid=a776e9b0d311c250 now=4 was=0 facet=self p=src/repl/live/modal/selectors/tools.rs:156 test(repl): isolate test session directory in selector tests
+ack short-horizon-churn 8c42b507d7f6c3fe 2 cid=a18a82b421f90a5b now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:315 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 8e496e970ed114a9 3 cid=4f55fe21af6b9b09 now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:526 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 92f0a4b5536ffa6a 2 cid=d00f454505b56c62 now=2 was=0 facet=self p=crates/rho-engine/src/tools/subagent/runner.rs:16 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 9324ef493ce0a3ab 4 cid=1042a65af764a563 now=4 was=0 facet=ambient p=crates/rho-engine/src/adapter/rig/mod.rs:134 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 9447bbae679aa226 6 cid=4299ab451cafe6e5 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:775 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 97d74064cfa21c9f 5 cid=c1e9ed7e4ec75faf now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:106 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn 98d72e3939462267 3 cid=592a0ec160670d92 now=3 was=0 facet=ambient p=crates/rho-engine/src/claude/request/tests.rs:107 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 9bdc111263d07d97 4 cid=65d3f82edb905c2d now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:210 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 9e093ad75bd70c16 5 cid=d51939f94187e5c9 now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:110 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 9e5caaabff02ca83 2 cid=9b71059103fb7f81 now=2 was=0 facet=self p=crates/rho-engine/src/claude/client/tests.rs:14 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 9ebdb71a862c2591 4 cid=a1f9745b0cdc0db6 now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:1145 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a2dd1fd602d55fb0 10 cid=e5ddd1a6f8a6c6bb now=10 was=0 facet=ambient p=crates/rho-engine/src/permission/tests/hook.rs:92 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a5930a6c0b1d1859 2 cid=f29bd59e786fc7ec now=2 was=0 facet=ambient p=crates/rho-engine/src/claude/client/tests.rs:119 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a5d46e2b7fce495d 3 cid=e679893ae9af1210 now=3 was=0 facet=self p=crates/rho-engine/src/chatgpt/stream.rs:299 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a5f0916f19c702b5 3 cid=a624d995c3e787bf now=3 was=0 facet=self p=crates/rho-engine/src/tools/subagent/tests.rs:104 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a751e4ba3a8879c4 4 cid=ba68c5695ac0eebe now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:454 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a8ac12ee1cd61fa6 2 cid=77335f025b1bef2b now=2 was=0 facet=self p=crates/rho-engine/src/adapter/rig/tools/mod.rs:50 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn adeba5ec267004c6 3 cid=6e3161dc306c8de6 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:165 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn aef0e8966538267d 6 cid=98bcb36ad3f718e1 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:650 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn af288a4b6d1c5e7c 2 cid=91816c5d5bc27c67 now=2 was=0 facet=self p=crates/rho-engine/src/adapter/rig/tools/mod.rs:66 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn af311a295b5fee05 2 cid=267bad8e550c6093 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:166 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn b12af160981dfe2a 3 cid=cef4584610860fc0 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:219 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn b41cf811438b83a2 3 cid=a58c633f7702c58c now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:293 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn b49656010166e97c 4 cid=13c33da0ac95be0b now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/runtime.rs:101 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn b5a6de969839a994 2 cid=29250250cc9e80e1 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:216 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn b6da2f9c1013cf51 10 cid=959a3d17b62c4c77 now=10 was=0 facet=self p=crates/rho-engine/src/permission/tests/hook.rs:395 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn bb3b557ca89811f7 4 cid=42a3623c7a393fb4 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:41 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn bb8bf6be833f4bb8 4 cid=7b31205c28e4ee33 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/compactor/llm.rs:34 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn bd0ec010ce61bce3 4 cid=bdd57cdf78d7bc51 now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:901 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn bfa3b77bfbcff5ab 3 cid=23df79b8efd43418 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:224 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn bfec4a064eb8f817 6 cid=a9530b5698af5014 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:310 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn c0489ae167d1f049 5 cid=254ac92af7f340fe now=5 was=0 facet=ambient p=crates/rho-engine/src/mcp/search.rs:301 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn c3bd9129bef68036 4 cid=565b8d29e74cb747 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/model.rs:230 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn c8343888e69a0c6b 2 cid=5f03ae0b111dfda1 now=2 was=0 facet=self p=src/repl/live/modal/selectors/search_engine.rs:58 test(repl): isolate test session directory in selector tests
+ack short-horizon-churn c8f3d8361140676d 4 cid=7aacf3ac249004e6 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:161 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn c91010a2625157fe 2 cid=04e83040162fc2b7 now=2 was=0 facet=self p=src/cli/auth/tests.rs:177 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn cb09601e119d1385 6 cid=6bf8fda2ff967a79 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:391 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn cc178cd8d2dceefa 4 cid=f4e44b09dada6e28 now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:857 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn cc1f7bccfced9dcf 3 cid=e53649f3abc2961f now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:165 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn cc6b7d8e2cd220c0 4 cid=e088ad6f23f19253 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/compactor/tests.rs:541 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn cd1eab1c993bc235 2 cid=4ea19ea8465f510a now=2 was=0 facet=self p=tests/eval.rs:87 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn ce2777b994db98ca 4 cid=72090a4812429940 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:92 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn cea0fdee71e0b942 3 cid=09cba3563c5a863c now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/contents.rs:111 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn ceac66754ca301d9 5 cid=8b0fba9e93a247cc now=5 was=0 facet=self p=crates/rho-engine/src/mcp/search.rs:14 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn d10cb70926454cc4 10 cid=2c55b1158a355a90 now=10 was=0 facet=ambient p=crates/rho-engine/src/permission/tests/hook.rs:39 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn d185352fe3b56245 2 cid=5492191b46d0dadc now=2 was=0 facet=self p=src/repl/live/modal/selectors/search_engine.rs:100 test(repl): isolate test session directory in selector tests
+ack short-horizon-churn d313a1df77107d48 2 cid=6c27d2dd18b0e536 now=2 was=0 facet=self p=crates/rho-engine/src/claude/stream/mod.rs:110 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn d389b65a8d4aa691 4 cid=5492191b46d0dadc now=4 was=0 facet=self p=src/repl/live/modal/selectors/tools.rs:197 test(repl): isolate test session directory in selector tests
+ack short-horizon-churn d52ebbbdd0f926fa 3 cid=cf2d3e46b77cf6eb now=3 was=0 facet=self p=src/repl/live/modal/selectors/models.rs:100 test(repl): isolate test session directory in selector tests
+ack short-horizon-churn d5625fff9fdc3d9f 2 cid=e057ff2665137bb4 now=2 was=0 facet=self p=crates/rho-engine/src/claude/client/tests.rs:419 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn d73ec7826861d2cb 2 cid=ff485a988496d8d9 now=2 was=0 facet=ambient p=tests/repeat_call.rs:5 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn d887fb8d50292976 4 cid=529c4dc256171a34 now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:500 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn da31c10ac7617bf2 4 cid=435de8d37d85bbaa now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/model.rs:265 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn dbde4352c0e194f8 4 cid=b67b76d28dc2be77 now=4 was=0 facet=self p=crates/rho-engine/src/tools/builtin_tools/tests.rs:38 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn dfb0694c9807a6ae 6 cid=77a3161a0716dc0f now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:436 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e00e0927204b4731 2 cid=82af4154360d712f now=2 was=0 facet=self p=crates/rho-engine/src/chatgpt/client.rs:481 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e0dc6e2178a897dd 2 cid=63e6c9cd51f42a2f now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:86 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e0f1bfec97490cbe 2 cid=4c0d6cda47ce549f now=2 was=0 facet=self p=crates/rho-engine/src/antigravity/stream/wire.rs:86 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn e341bb4c28b11537 5 cid=466b077bd366ab3c now=5 was=0 facet=ambient p=crates/rho-engine/src/engine/tests.rs:58 feat(mcp): modernize MCP adapter subsystem
+ack short-horizon-churn e392b1c6e6b1e5d5 2 cid=2f3626ac8aa50857 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:41 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e3d8843da4c6daee 3 cid=5492191b46d0dadc now=3 was=0 facet=self p=src/repl/live/modal/selectors/models.rs:139 test(repl): isolate test session directory in selector tests
+ack short-horizon-churn e71335356900d0a8 3 cid=13afe8255c19e32b now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:259 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e724960d36493f1d 2 cid=c2621e836ac14570 now=2 was=0 facet=ambient p=crates/rho-engine/src/chatgpt/client.rs:275 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e82ca09e68457d8e 6 cid=af83213f36a92d5d now=6 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:65 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn e8c2a7f6d5ec2e8a 2 cid=95d866753d955315 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:133 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn ebc25fff6658daf4 10 cid=dc8d96a889c698b2 now=10 was=0 facet=ambient p=crates/rho-engine/src/permission/tests/hook.rs:16 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn ed3cca094e3c9501 5 cid=274ae63418b3f229 now=5 was=0 facet=ambient p=crates/rho-engine/src/antigravity/request/contents.rs:264 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn f00df3edecb79bd7 4 cid=350d952d22f7bcbc now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:83 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn f0f46e98ed70ac43 10 cid=5f671df8ca71c05c now=10 was=0 facet=ambient p=crates/rho-engine/src/permission/tests/hook.rs:114 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn f26f29d463e95c1a 4 cid=479e6f0948d790d0 now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:291 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn f27ac317eb66b077 10 cid=f5c7324673e1917e now=10 was=0 facet=self p=crates/rho-engine/src/permission/tests/hook.rs:148 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn f2bdc220bdceeb24 3 cid=33404b46584d5edd now=3 was=0 facet=ambient p=crates/rho-engine/src/claude/request/contents.rs:8 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn f4794123559ddf7e 6 cid=ab590189b1b3a00b now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:479 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn f7519bff4d5c575d 8 cid=51d0819d716b6092 now=8 was=0 facet=self p=crates/rho-engine/src/permission/hook.rs:115 fix(settings): preserve modal stack and refresh model descriptions
+ack short-horizon-churn f82791e6668be295 2 cid=134265d21a8dc642 now=2 was=0 facet=self p=crates/rho-engine/src/engine/runner/history.rs:13 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn fa9b8b6c2578f73d 3 cid=d5560c38db0a7f32 now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:535 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn fcbf249186ed21de 4 cid=9aded0bf744767c1 now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/mod.rs:21 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn fdc629ab6b3d3fd9 10 cid=5c7c00fdb421c5ae now=10 was=0 facet=self p=crates/rho-engine/src/tools/builtin_tools/mod.rs:32 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn fe6456076ca4f4af 4 cid=b0ee4ca95370ac9c now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:1182 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack verbosity 0947128aa09d7fc3 162 cid=396a5f7e4e7f378b now=162 was=153 p=crates/rho-engine/src/mcp/search.rs:507 feat(mcp): modernize MCP adapter subsystem
 ack verbosity 10290e64f680c279 62 cid=a508c5380e7118a1 now=62 was=0 p=tests/mcp_direct_tools.rs:39 feat(mcp): modernize MCP adapter subsystem
+ack verbosity 318a99a8b2e318e4 104 cid=41111054a0f781c5 now=104 was=102 p=crates/rho-engine/src/engine/runner/history.rs:244 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack verbosity 59aaf86c1c0f19dc 59 cid=2d0dbc6556d40643 now=59 was=25 p=crates/rho-engine/src/adapter/rig/model.rs:60 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack verbosity 845185f3d8cbd8a5 190 cid=780a9035843d58bb now=190 was=139 p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem
+ack verbosity 8c0f458b2f5ed707 131 cid=a776e9b0d311c250 now=131 was=129 p=src/repl/live/modal/selectors/tools.rs:156 test(repl): isolate test session directory in selector tests
+ack verbosity c8343888e69a0c6b 86 cid=5f03ae0b111dfda1 now=86 was=84 p=src/repl/live/modal/selectors/search_engine.rs:58 test(repl): isolate test session directory in selector tests
+ack verbosity d52ebbbdd0f926fa 77 cid=cf2d3e46b77cf6eb now=77 was=75 p=src/repl/live/modal/selectors/models.rs:100 test(repl): isolate test session directory in selector tests

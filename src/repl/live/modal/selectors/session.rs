@@ -8,10 +8,14 @@ use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalC
 use crate::ui::render::formatters::format_relative_time;
 
 pub fn open_session_selector<B: TerminalBackend>(sessions_dir: &Path, controller: &mut TerminalController<B>) {
+    let _ = rho_harness_core::session::prune_empty_sessions(sessions_dir, None);
     let summaries = rho_harness_core::session::list_session_summaries(sessions_dir).unwrap_or_default();
     let mut options = Vec::new();
 
     for item in summaries {
+        if item.turn_count == 0 && item.name.is_none() {
+            continue;
+        }
         let display_title = item.name.unwrap_or_else(|| item.session_id.clone());
         let relative_time = format_relative_time(item.last_modified);
         let desc = format!("{}\t{} turns\t{}", item.session_id, item.turn_count, item.preview);
@@ -19,7 +23,12 @@ pub fn open_session_selector<B: TerminalBackend>(sessions_dir: &Path, controller
         options.push(ModalOption::new(label, Some(desc)));
     }
 
-    let modal = ModalState::new("Resume Session", "", options).with_search(true);
+    let subtitle = if options.is_empty() {
+        "No previous sessions to resume"
+    } else {
+        ""
+    };
+    let modal = ModalState::new("Resume Session", subtitle, options).with_search(true);
     controller.state_mut().push_modal(modal);
 }
 

@@ -51,8 +51,10 @@ pub fn into_dynamic_tool_arc(tool: Arc<dyn EngineTool>) -> DynamicTool {
     let name = tool.name().to_string();
     let description = tool.description().to_string();
     let parameters = tool.parameters();
+    let tool_name =
+        rig::message::ToolName::new(&name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
 
-    DynamicTool::new_with_context(&name, &description, parameters, move |_ctx, args| {
+    DynamicTool::new_with_context(tool_name, description, parameters, move |_ctx, args| {
         let t = tool.clone();
         Box::pin(async move {
             let res = t.execute(args).await;
@@ -64,7 +66,7 @@ pub fn into_dynamic_tool_arc(tool: Arc<dyn EngineTool>) -> DynamicTool {
 pub fn into_streaming_dynamic_tool<T: EngineTool + 'static, F>(tool: Arc<T>, streamer: F) -> DynamicTool
 where
     F: Fn(
-            &rig::tool::ToolContext,
+            &mut rig::tool::ToolContext,
             &T,
             serde_json::Value,
         ) -> futures::future::BoxFuture<'static, Result<crate::tools::ToolResult, AppError>>
@@ -75,8 +77,10 @@ where
     let name = tool.name().to_string();
     let description = tool.description().to_string();
     let parameters = tool.parameters();
+    let tool_name =
+        rig::message::ToolName::new(&name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
 
-    DynamicTool::new_with_context(&name, &description, parameters, move |ctx, args| {
+    DynamicTool::new_with_context(tool_name, description, parameters, move |ctx, args| {
         let t = tool.clone();
         let fut = streamer(ctx, &t, args);
         Box::pin(async move {

@@ -8,20 +8,9 @@ use rig::completion::CompletionRequest;
 use rig::message::Message;
 
 fn minimal_request(history: Vec<Message>) -> CompletionRequest {
-    let mut chat_history = vec![Message::system("system prompt")];
-    chat_history.extend(history);
-    CompletionRequest {
-        model: None,
-        chat_history,
-        documents: Vec::new(),
-        tools: Vec::new(),
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    }
+    let mut req = CompletionRequest::new(Message::system("system prompt"));
+    req.chat_history.extend(history);
+    req
 }
 
 fn envelope() -> Envelope {

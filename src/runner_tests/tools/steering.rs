@@ -63,8 +63,8 @@ fn count_calls_and_results(history: &[Message]) -> (usize, usize) {
     let calls = history
         .iter()
         .filter_map(|m| match m {
-            Message::Assistant { content, .. } => Some(
-                content
+            Message::Assistant(asst) => Some(
+                asst.content
                     .iter()
                     .filter(|c| matches!(c, AssistantContent::ToolCall(_)))
                     .count(),

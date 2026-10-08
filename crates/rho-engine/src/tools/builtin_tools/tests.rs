@@ -6,7 +6,7 @@ fn builtin_tools_build_successfully() {
     let config = Config::default();
     let tools = build_builtin_tools(&root, &config).unwrap();
     assert_eq!(tools.len(), 9);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
+    let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     for expected in [
         "read",
         "write",
@@ -29,7 +29,7 @@ fn builtin_tools_omits_web_search_when_disabled() {
     config.tools.web.search.enabled = false;
     let tools = build_builtin_tools(&root, &config).unwrap();
     assert_eq!(tools.len(), 8);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
+    let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     assert!(!names.contains(&"web_search"));
     assert!(names.contains(&"web_fetch"));
 }
@@ -41,7 +41,7 @@ fn builtin_tools_omits_web_fetch_when_disabled() {
     config.tools.web.fetch.enabled = false;
     let tools = build_builtin_tools(&root, &config).unwrap();
     assert_eq!(tools.len(), 8);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
+    let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     assert!(names.contains(&"web_search"));
     assert!(!names.contains(&"web_fetch"));
 }
@@ -54,7 +54,7 @@ fn builtin_tools_omits_both_web_tools_when_disabled() {
     config.tools.web.fetch.enabled = false;
     let tools = build_builtin_tools(&root, &config).unwrap();
     assert_eq!(tools.len(), 7);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
+    let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     assert!(!names.contains(&"web_search"));
     assert!(!names.contains(&"web_fetch"));
 }

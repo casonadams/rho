@@ -45,7 +45,7 @@ impl GuardEvaluator {
             };
         }
         match tokio::time::timeout(self.timeout, agent.prompt(&eval_prompt).run()).await {
-            Ok(Ok(response)) => parse_guard_output(&response.output),
+            Ok(Ok(response)) => parse_guard_output(&response.output()),
             Ok(Err(err)) => GuardVerdict {
                 safe: false,
                 action: None,

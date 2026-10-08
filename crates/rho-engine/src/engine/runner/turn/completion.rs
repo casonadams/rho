@@ -18,7 +18,7 @@ fn assemble_turn_output(
     TurnOutput {
         tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
         requests: response.requests(),
-        final_text: response.output,
+        final_text: response.output(),
         tool_calls_count,
         usage,
         status,
@@ -135,7 +135,7 @@ impl AgentEngine {
         self.session_manager
             .append_event(
                 SessionEventKind::AssistantResponse,
-                serde_json::json!({ "content": response.output }),
+                serde_json::json!({ "content": response.output() }),
             )
             .await?;
 

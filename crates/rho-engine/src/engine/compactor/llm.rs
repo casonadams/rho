@@ -39,7 +39,7 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
         .build();
     let runner = crate::engine::runtime::build_runner(&agent, prompt).max_turns(1);
     match tokio::time::timeout(Duration::from_secs(60), runner.run()).await {
-        Ok(Ok(resp)) if !resp.output.trim().is_empty() => Ok((resp.output.trim().to_string(), resp.usage.into())),
+        Ok(Ok(resp)) if !resp.output().trim().is_empty() => Ok((resp.output().trim().to_string(), resp.usage.into())),
         Ok(Ok(_)) => Err(LlmCallError::Other),
         Ok(Err(e)) => {
             let msg = e.to_string();

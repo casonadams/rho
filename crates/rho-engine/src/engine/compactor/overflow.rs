@@ -1,6 +1,6 @@
-use rig::agent::StreamingError;
+use rig::completion::PromptError;
 
-pub fn is_context_overflow_error(error: &StreamingError) -> bool {
+pub fn is_context_overflow_error(error: &PromptError) -> bool {
     is_context_overflow_message(&error.to_string())
 }
 

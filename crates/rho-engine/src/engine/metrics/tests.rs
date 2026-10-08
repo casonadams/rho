@@ -3,15 +3,14 @@ use rig::agent::{CompletionCall, PromptResponse};
 use rig::completion::{FinishReason, Usage};
 
 fn usage() -> Usage {
-    Usage {
-        input_tokens: Some(10),
-        output_tokens: Some(4),
-        total_tokens: Some(14),
-        cached_input_tokens: Some(3),
-        cache_creation_input_tokens: Some(2),
-        reasoning_tokens: Some(5),
-        ..Default::default()
-    }
+    let mut u = Usage::new();
+    u.input_tokens = Some(10);
+    u.output_tokens = Some(4);
+    u.total_tokens = Some(14);
+    u.cached_input_tokens = Some(3);
+    u.cache_creation_input_tokens = Some(2);
+    u.reasoning_tokens = Some(5);
+    u
 }
 
 #[test]
@@ -20,12 +19,11 @@ fn usage_records_optional_cache_and_reasoning_only_when_reported() {
     assert_eq!(available.cached_input_tokens, Some(3));
     assert_eq!(available.reasoning_tokens, Some(5));
 
-    let absent = StructuralUsage::from(Usage {
-        input_tokens: Some(2),
-        output_tokens: Some(1),
-        total_tokens: Some(3),
-        ..Default::default()
-    });
+    let mut u = Usage::new();
+    u.input_tokens = Some(2);
+    u.output_tokens = Some(1);
+    u.total_tokens = Some(3);
+    let absent = StructuralUsage::from(u);
     let encoded = serde_json::to_string(&absent).unwrap();
     assert!(!encoded.contains("cached_input_tokens"));
     assert!(!encoded.contains("reasoning_tokens"));
@@ -79,7 +77,6 @@ fn structural_metrics_contain_no_response_or_identity_content() {
     let response = PromptResponse::new(sentinel, usage()).with_completion_calls(vec![
         CompletionCall::new(0, usage(), serde_json::Value::Null)
             .with_identity(rig::completion::ResponseIdentity {
-                message_id: Some(sentinel.to_string()),
                 response_id: Some(sentinel.to_string()),
                 provider_request_id: Some(sentinel.to_string()),
             })

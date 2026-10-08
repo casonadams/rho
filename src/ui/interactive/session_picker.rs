@@ -23,6 +23,7 @@ pub fn prompt_session_picker(sessions_dir: &Path, theme: &Theme) -> Result<Optio
 pub fn session_modal(summaries: &[SessionSummary]) -> ModalState {
     let options = summaries
         .iter()
+        .filter(|s| s.turn_count > 0 || s.name.is_some())
         .map(|s| {
             let title = s.name.as_deref().unwrap_or(&s.preview);
             let time = format_relative_time(s.last_modified);

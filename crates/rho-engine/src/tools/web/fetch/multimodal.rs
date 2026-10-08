@@ -152,10 +152,15 @@ pub fn parse_gemini_multimodal_response(json_str: &str) -> Result<String, AppErr
 }
 
 pub fn resolve_gemini_api_key(auth_file: Option<&Path>) -> Result<String, AppError> {
+    resolve_gemini_key_from(auth_file, |v| std::env::var(v).ok())
+}
+
+fn resolve_gemini_key_from(
+    auth_file: Option<&Path>,
+    get_env: impl Fn(&str) -> Option<String>,
+) -> Result<String, AppError> {
     for env_var in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        if let Ok(k) = std::env::var(env_var)
-            && !k.trim().is_empty()
-        {
+        if let Some(k) = get_env(env_var).filter(|k| !k.trim().is_empty()) {
             return Ok(k.trim().to_string());
         }
     }
@@ -312,12 +317,12 @@ mod tests {
         std::fs::write(&auth_file, r#"{"gemini": "test-gemini-stored-key"}"#).unwrap();
 
         let resolved = resolve_gemini_api_key(Some(&auth_file));
-        if let Ok(env_key) = std::env::var("GEMINI_API_KEY")
-            && !env_key.trim().is_empty()
-        {
-            assert_eq!(resolved.unwrap(), env_key.trim());
-            return;
-        }
-        assert_eq!(resolved.unwrap(), "test-gemini-stored-key");
+        assert!(resolved.is_ok());
+
+        let from_store = resolve_gemini_key_from(Some(&auth_file), |_| None).unwrap();
+        assert_eq!(from_store, "test-gemini-stored-key");
+
+        let missing = resolve_gemini_key_from(None, |_| None);
+        assert!(missing.is_err());
     }
 }

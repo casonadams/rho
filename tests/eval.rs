@@ -85,28 +85,16 @@ async fn agent_eval_harness_rejects_malformed_scripted_events_without_leaking_th
 }
 
 fn sample_sensitive_request() -> CompletionRequest {
-    CompletionRequest {
-        model: None,
-        chat_history: vec![
-            Message::user("credential-sentinel"),
-            Message::Assistant {
-                id: Some("provider-secret".to_string()),
-                content: vec![AssistantContent::tool_call(
-                    "random-id",
-                    rig::completion::message::ToolName::new("read").unwrap(),
-                    json!({"path":"secret"}),
-                )],
-            },
-        ],
-        documents: vec![],
-        tools: vec![],
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    }
+    let mut req = CompletionRequest::new(Message::user("credential-sentinel"));
+    req.chat_history
+        .push(Message::Assistant(rig::message::AssistantMessage::new(vec![
+            AssistantContent::tool_call(
+                "random-id",
+                rig::completion::message::ToolName::new("read").unwrap(),
+                json!({"path":"secret"}),
+            ),
+        ])));
+    req
 }
 
 #[test]
@@ -265,7 +253,7 @@ async fn agent_eval_core_denied_mutation_has_no_side_effect() {
         .record_content_telemetry(false)
         .build();
     let response = agent.prompt("write").max_turns(3).run().await.unwrap();
-    assert_eq!(response.output, "recovered from denial");
+    assert_eq!(response.output(), "recovered from denial");
     assert!(!marker.exists());
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("no changes were made"));
@@ -323,7 +311,7 @@ async fn agent_eval_core_invalid_tool_recovery() {
         .run()
         .await
         .unwrap();
-    assert_eq!((response.output.as_str(), model.request_count()), ("recovered", 2));
+    assert_eq!((response.output().as_str(), model.request_count()), ("recovered", 2));
 }
 
 fn build_repeat_turns(file: &Path) -> Vec<Vec<MockStreamEvent>> {
@@ -362,15 +350,14 @@ async fn agent_eval_core_repeated_calls_are_steered_on_third_attempt() {
 }
 
 fn sample_eval_usage() -> Usage {
-    Usage {
-        input_tokens: Some(8),
-        output_tokens: Some(3),
-        total_tokens: Some(11),
-        cached_input_tokens: Some(2),
-        cache_creation_input_tokens: Some(1),
-        reasoning_tokens: Some(4),
-        ..Default::default()
-    }
+    let mut u = Usage::new();
+    u.input_tokens = Some(8);
+    u.output_tokens = Some(3);
+    u.total_tokens = Some(11);
+    u.cached_input_tokens = Some(2);
+    u.cache_creation_input_tokens = Some(1);
+    u.reasoning_tokens = Some(4);
+    u
 }
 
 #[tokio::test]
@@ -520,7 +507,8 @@ fn text_occurrences(request: &CompletionRequest, needle: &str) -> usize {
                 .iter()
                 .filter(|part| matches!(part, UserContent::Text(text) if text.text.contains(needle)))
                 .count(),
-            Message::Assistant { content, .. } => content
+            Message::Assistant(asst) => asst
+                .content
                 .iter()
                 .filter(|part| matches!(part, AssistantContent::Text(text) if text.text.contains(needle)))
                 .count(),
@@ -659,18 +647,14 @@ fn assert_context_usage_reports(reports: &[ContextComparisonReport]) {
 
 #[tokio::test]
 async fn agent_eval_context_reports_usage_only_when_available_and_is_deterministic() {
-    let before_usage = Usage {
-        input_tokens: Some(120),
-        output_tokens: Some(3),
-        total_tokens: Some(123),
-        ..Default::default()
-    };
-    let after_usage = Usage {
-        input_tokens: Some(42),
-        output_tokens: Some(3),
-        total_tokens: Some(45),
-        ..Default::default()
-    };
+    let mut before_usage = Usage::new();
+    before_usage.input_tokens = Some(120);
+    before_usage.output_tokens = Some(3);
+    before_usage.total_tokens = Some(123);
+    let mut after_usage = Usage::new();
+    after_usage.input_tokens = Some(42);
+    after_usage.output_tokens = Some(3);
+    after_usage.total_tokens = Some(45);
     let mut reports = Vec::new();
     for label in ["context-stable-a", "context-stable-b"] {
         let dir = temp_dir(label);

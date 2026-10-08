@@ -7,26 +7,18 @@ use rig::message::{
 use serde_json::json;
 
 fn dummy_tool(name: &str) -> ToolDefinition {
-    ToolDefinition {
-        name: name.to_string(),
-        description: format!("Description for {name}"),
-        parameters: json!({ "type": "object", "properties": {} }),
-    }
+    ToolDefinition::new(
+        ToolName::new(name).unwrap(),
+        format!("Description for {name}"),
+        json!({ "type": "object", "properties": {} }),
+    )
 }
 
 fn sample_request_with_tools(tools: Vec<ToolDefinition>) -> CompletionRequest {
-    CompletionRequest {
-        model: None,
-        chat_history: vec![Message::system("system preamble"), Message::user("hello")],
-        documents: Vec::new(),
-        tools,
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    }
+    let mut req = CompletionRequest::new(Message::system("system preamble"));
+    req.chat_history.push(Message::user("hello"));
+    req.tools = tools;
+    req
 }
 
 #[test]
@@ -123,16 +115,16 @@ fn multi_turn_with_in_flight_tool_results_maintains_prior_turn_checkpoint() {
         call: CallId::from_wire("call_1"),
         name: ToolName::new("bash").unwrap(),
         content: vec![ToolResultContent::Text(Text::new("/tmp"))],
+        is_error: false,
     };
     req.chat_history = vec![
         Message::system("system preamble"),
         Message::user("Turn 1 prompt"),
         Message::assistant("Turn 1 response"),
         Message::user("Turn 2 prompt"),
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
+            call,
+        )])),
         Message::User {
             content: vec![UserContent::ToolResult(res)],
         },
@@ -202,53 +194,42 @@ fn convert_messages_converts_user_and_assistant_images() {
                 data: DocumentSourceKind::Base64("b64jpeg".to_string()),
                 media_type: Some(ImageMediaType::JPEG),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(Image {
                 data: DocumentSourceKind::Raw(b"rawpng".to_vec()),
                 media_type: Some(ImageMediaType::PNG),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(Image {
                 data: DocumentSourceKind::Base64("b64gif".to_string()),
                 media_type: Some(ImageMediaType::GIF),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(Image {
                 data: DocumentSourceKind::Base64("b64webp".to_string()),
                 media_type: Some(ImageMediaType::WEBP),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(Image {
                 data: DocumentSourceKind::Base64("b64fallback".to_string()),
                 media_type: None,
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
             UserContent::Image(Image {
                 data: DocumentSourceKind::Url("https://example.com/img.png".to_string()),
                 media_type: Some(ImageMediaType::PNG),
                 detail: None,
-                additional_params: None,
+                native: None,
             }),
         ],
     };
 
-    let req = CompletionRequest {
-        model: None,
-        chat_history: vec![user_msg],
-        documents: Vec::new(),
-        tools: Vec::new(),
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    };
+    let req = CompletionRequest::new(user_msg);
 
     let messages = contents::convert_messages(&req);
     assert_eq!(messages.len(), 1);
@@ -265,48 +246,21 @@ fn convert_messages_converts_user_and_assistant_images() {
 
 #[test]
 fn convert_messages_handles_reasoning_and_assistant_first() {
-    let req = CompletionRequest {
-        model: None,
-        chat_history: vec![
-            Message::System {
-                content: "ignore me".to_string(),
-            },
-            Message::Assistant {
-                content: vec![
-                    AssistantContent::Reasoning(rig::message::Sealed::new(
-                        rig::message::Issuer::from_static("claude"),
-                        rig::message::Reasoning {
-                            id: None,
-                            content: vec![rig::message::ReasoningContent::Text {
-                                text: "let me think".to_string(),
-                                signature: Some("sig_123".to_string()),
-                            }],
-                        },
-                    )),
-                    AssistantContent::Reasoning(rig::message::Sealed::new(
-                        rig::message::Issuer::from_static("claude"),
-                        rig::message::Reasoning {
-                            id: None,
-                            content: vec![rig::message::ReasoningContent::Text {
-                                text: "unsigned thought".to_string(),
-                                signature: None,
-                            }],
-                        },
-                    )),
-                    AssistantContent::Text(Text::new("done")),
-                ],
-                id: None,
-            },
-        ],
-        documents: Vec::new(),
-        tools: Vec::new(),
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    };
+    let mut req = CompletionRequest::new(Message::System {
+        content: "ignore me".to_string(),
+    });
+    req.chat_history
+        .push(Message::Assistant(rig::message::AssistantMessage::new(vec![
+            AssistantContent::Reasoning({
+                let mut r = rig::message::Reasoning::new("let me think");
+                let item = serde_json::json!({ "signature": "sig_123" });
+                let fingerprint = rig::message::AssistantContent::Reasoning(r.clone()).fingerprint();
+                r.native = Some(rig::message::Native { item, fingerprint });
+                r
+            }),
+            AssistantContent::Reasoning(rig::message::Reasoning::new("unsigned thought")),
+            AssistantContent::Text(Text::new("done")),
+        ])));
 
     let messages = contents::convert_messages(&req);
     assert_eq!(messages.len(), 2);
@@ -322,29 +276,19 @@ fn convert_messages_handles_reasoning_and_assistant_first() {
 
 #[test]
 fn convert_messages_handles_tool_results() {
-    let req = CompletionRequest {
-        model: None,
-        chat_history: vec![Message::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: CallId::from_wire("call_json"),
-                name: rig::message::ToolName::new("bash").unwrap(),
-                content: vec![
-                    ToolResultContent::Json {
-                        value: json!("result text"),
-                    },
-                    ToolResultContent::Text(Text::new("extra")),
-                ],
-            })],
-        }],
-        documents: Vec::new(),
-        tools: Vec::new(),
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    };
+    let req = CompletionRequest::new(Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: CallId::from_wire("call_json"),
+            name: rig::message::ToolName::new("bash").unwrap(),
+            content: vec![
+                ToolResultContent::Json {
+                    value: json!("result text"),
+                },
+                ToolResultContent::Text(Text::new("extra")),
+            ],
+            is_error: false,
+        })],
+    });
 
     let messages = contents::convert_messages(&req);
     assert_eq!(messages.len(), 1);
@@ -402,7 +346,7 @@ fn convert_tool_choice_variants() {
     assert_eq!(
         convert_tool_choice(
             &ToolChoice::Specific {
-                function_names: vec!["bash".to_string()]
+                function_names: vec![ToolName::new("bash").unwrap()]
             },
             true
         ),
@@ -411,7 +355,7 @@ fn convert_tool_choice_variants() {
     assert_eq!(
         convert_tool_choice(
             &ToolChoice::Specific {
-                function_names: vec!["bash".to_string()]
+                function_names: vec![ToolName::new("bash").unwrap()]
             },
             false
         ),

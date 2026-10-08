@@ -65,6 +65,24 @@ impl AgentEngine {
                     .await?;
                 Ok(Some(out))
             }
+            StreamRunResult::ContentFiltered(state) => {
+                loop_state.rate_limit_retries = 0;
+                loop_state.network_retries = 0;
+                let elapsed = Self::elapsed_generation_ms(&state);
+                sink.finish_spinner();
+                sink.flush_display();
+                let prompt_response = rig::agent::PromptResponse::new("", rig::completion::Usage::new());
+                let mut out = self
+                    .finish_turn(crate::engine::runner::sink::TurnArtifacts {
+                        response: prompt_response,
+                        tool_calls_count: state.total_tool_calls,
+                        completed_tools: sink.completed(),
+                        generation_elapsed_ms: elapsed,
+                    })
+                    .await?;
+                out.status = crate::engine::runner::turn::types::RunStatus::ContentFiltered;
+                Ok(Some(out))
+            }
         }
     }
 

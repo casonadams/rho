@@ -129,6 +129,12 @@ impl AuthStore {
         io::save_credentials_async(&self.file_path, &self.credentials).await
     }
 
+    pub fn list_stored_providers(&self) -> Vec<String> {
+        let mut list: Vec<String> = self.credentials.keys().cloned().collect();
+        list.sort();
+        list
+    }
+
     pub fn list_configured_providers(&self) -> Vec<String> {
         let mut list: Vec<String> = self.credentials.keys().cloned().collect();
         for id in ProviderId::API_KEY_PROVIDERS {

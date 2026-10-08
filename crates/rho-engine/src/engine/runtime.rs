@@ -103,7 +103,7 @@ mod tests {
         let agent = build_agent(model.clone().erase(), &Config::default(), "system");
         let error = build_runner(&agent, "prompt").max_turns(0).run().await.unwrap_err();
 
-        assert!(matches!(error, PromptError::MaxTurnsError { max_turns: 0, .. }));
+        assert!(matches!(error, PromptError::MaxTurns { max_turns: 0, .. }));
         assert_eq!(model.request_count(), 0);
     }
 

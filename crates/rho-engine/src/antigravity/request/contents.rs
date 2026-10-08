@@ -245,24 +245,33 @@ fn convert_user_content(content: &[UserContent], ctx: &ConversionContext<'_>) ->
 }
 
 fn convert_reasoning_part(reasoning: &rig::message::Reasoning, parts: &mut Vec<Part>) {
-    for block in &reasoning.content {
-        if let rig::message::ReasoningContent::Text { text, signature } = block
-            && !text.trim().is_empty()
-        {
-            parts.push(Part {
-                text: Some(text.clone()),
-                thought: Some(true),
-                thought_signature: signature.clone(),
-                ..Part::default()
-            });
-        }
+    if !reasoning.text.trim().is_empty() {
+        let signature = reasoning
+            .native
+            .as_ref()
+            .and_then(|n| n.item.get("signature"))
+            .and_then(|s| s.as_str())
+            .map(ToString::to_string);
+        parts.push(Part {
+            text: Some(reasoning.text.clone()),
+            thought: Some(true),
+            thought_signature: signature,
+            ..Part::default()
+        });
     }
 }
 
 fn convert_tool_call_part(call: &rig::message::ToolCall, ctx: &mut ConversionContext<'_>, parts: &mut Vec<Part>) {
     let raw_id = call.id.to_string();
-    let args_text = call.function.arguments.to_string();
-    if ctx.requires_sig && call.signature.is_none() {
+    let args_val = serde_json::Value::Object(call.function.arguments.clone());
+    let args_text = args_val.to_string();
+    let signature = call
+        .native
+        .as_ref()
+        .and_then(|n| n.item.get("signature"))
+        .and_then(|s| s.as_str())
+        .map(ToString::to_string);
+    if ctx.requires_sig && signature.is_none() {
         ctx.dropped.insert(raw_id.clone(), args_text.clone());
         ctx.dropped.insert(sanitize_tool_call_id(&raw_id), args_text);
         return;
@@ -270,10 +279,10 @@ fn convert_tool_call_part(call: &rig::message::ToolCall, ctx: &mut ConversionCon
     parts.push(Part {
         function_call: Some(FunctionCall {
             name: call.function.name.to_string(),
-            args: call.function.arguments.clone(),
+            args: args_val,
             id: ctx.call_ids.then(|| sanitize_tool_call_id(&raw_id)),
         }),
-        thought_signature: call.signature.clone(),
+        thought_signature: signature,
         ..Part::default()
     });
 }
@@ -284,9 +293,7 @@ fn convert_assistant_content(content: &[AssistantContent], ctx: &mut ConversionC
         match block {
             AssistantContent::Text(text) if !text.text.trim().is_empty() => parts.push(part_text(text.text.clone())),
             AssistantContent::Reasoning(reasoning) => {
-                if let Some(r) = reasoning.open(reasoning.issuer()) {
-                    convert_reasoning_part(r, &mut parts);
-                }
+                convert_reasoning_part(reasoning, &mut parts);
             }
             AssistantContent::ToolCall(call) => convert_tool_call_part(call, ctx, &mut parts),
             _ => {}
@@ -302,8 +309,8 @@ fn convert_turn_content(message: &Message, ctx: &mut ConversionContext<'_>, cont
             let parts = convert_user_content(content, ctx);
             append_turn(contents, "user", parts);
         }
-        Message::Assistant { content, .. } => {
-            let parts = convert_assistant_content(content, ctx);
+        Message::Assistant(asst) => {
+            let parts = convert_assistant_content(&asst.content, ctx);
             append_turn(contents, "model", parts);
         }
     }

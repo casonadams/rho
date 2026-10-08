@@ -9,13 +9,14 @@ use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 use rig::completion::CompletionRequest;
 use rig::error::ProviderError;
-use rig::providers::openai::responses_api::{
-    CompletionRequest as ResponsesRequest, Include, ResponsesRequestParams, SystemInstructionsPlacement,
-};
+use rig::providers::openai::OpenAIConfig;
+use rig::providers::openai::responses_api::wire::Responses;
+use rig::wire::{Mode, Wire};
 
 pub const DEFAULT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub const RESPONSES_PATH: &str = "/responses";
 pub const PROVIDER_NAME: &str = "chatgpt";
+#[cfg(test)]
 const DEFAULT_INSTRUCTIONS: &str = "You are ChatGPT, a helpful AI assistant.";
 
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
@@ -107,45 +108,17 @@ impl ChatGptClient {
         headers
     }
 
-    fn build_request(&self, request: CompletionRequest) -> Result<ResponsesRequest, Box<ProviderError>> {
-        let mut req = ResponsesRequest::try_from(ResponsesRequestParams {
-            model: self.model.clone(),
-            request,
-            system_instructions_placement: SystemInstructionsPlacement::AllInstructions,
-            issuers: Vec::new(),
-        })
-        .map_err(|e| Box::new(ProviderError::Provider(e.to_string())))?;
-
-        let instructions = match req.instructions.take() {
-            Some(existing) if !existing.contains(DEFAULT_INSTRUCTIONS) => {
-                format!("{DEFAULT_INSTRUCTIONS}\n\n{existing}")
-            }
-            Some(existing) => existing,
-            None => DEFAULT_INSTRUCTIONS.to_string(),
+    fn build_request(&self, request: CompletionRequest) -> Result<serde_json::Value, Box<ProviderError>> {
+        let config = OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "");
+        let wire = Responses::new(config, self.model.clone());
+        let encoded = wire
+            .encode(request, Mode::Streaming)
+            .map_err(|e| Box::new(ProviderError::Provider(e.to_string())))?;
+        let bytes = match encoded.request.into_body() {
+            rig::wire::Body::Bytes(bytes) => bytes,
+            _ => Vec::new(),
         };
-        req.instructions = Some(instructions);
-        req.temperature = None;
-        req.max_output_tokens = None;
-        req.stream = Some(true);
-
-        let include = req.additional_parameters.include.get_or_insert_with(Vec::new);
-        if !include
-            .iter()
-            .any(|item| matches!(item, Include::ReasoningEncryptedContent))
-        {
-            include.push(Include::ReasoningEncryptedContent);
-        }
-
-        req.additional_parameters.background = None;
-        req.additional_parameters.metadata.clear();
-        req.additional_parameters.parallel_tool_calls = None;
-        req.additional_parameters.service_tier = None;
-        req.additional_parameters.store = Some(false);
-        req.additional_parameters.text = None;
-        req.additional_parameters.top_p = None;
-        req.additional_parameters.user = None;
-
-        Ok(req)
+        serde_json::from_slice(&bytes).map_err(|e| Box::new(ProviderError::Provider(e.to_string())))
     }
 
     async fn post_stream(
@@ -301,26 +274,16 @@ mod tests {
     #[test]
     fn build_request_sets_store_false_and_encrypted_reasoning() {
         let client = ChatGptClient::new("test-token", "gpt-5.4");
-        let req = client
-            .build_request(CompletionRequest {
-                model: None,
-                output_schema: None,
-                record_telemetry_content: false,
-                documents: Vec::new(),
-                tools: Vec::new(),
-                temperature: Some(0.7),
-                max_tokens: Some(100),
-                tool_choice: None,
-                additional_params: None,
-                chat_history: vec![rig::message::Message::user("hi")],
-            })
-            .unwrap();
+        let mut req = CompletionRequest::new(rig::message::Message::user("hi"));
+        req.temperature = Some(0.7);
+        req.max_tokens = Some(100);
+        let json_body = client.build_request(req).unwrap();
 
-        assert_eq!(req.additional_parameters.store, Some(false));
-        assert!(req.temperature.is_none());
-        assert!(req.max_output_tokens.is_none());
-        let includes = req.additional_parameters.include.unwrap();
-        assert!(includes.iter().any(|i| matches!(i, Include::ReasoningEncryptedContent)));
+        assert_eq!(json_body["store"], false);
+        assert!(json_body.get("temperature").is_none());
+        assert!(json_body.get("max_output_tokens").is_none());
+        let includes = json_body["include"].as_array().unwrap();
+        assert!(includes.iter().any(|i| i == "reasoning.encrypted_content"));
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -377,18 +340,7 @@ mod tests {
     }
 
     fn sample_completion_request() -> CompletionRequest {
-        CompletionRequest {
-            model: None,
-            output_schema: None,
-            documents: Vec::new(),
-            tools: Vec::new(),
-            temperature: None,
-            max_tokens: None,
-            tool_choice: None,
-            additional_params: None,
-            chat_history: vec![rig::message::Message::user("hi")],
-            record_telemetry_content: false,
-        }
+        CompletionRequest::new(rig::message::Message::user("hi"))
     }
 
     #[tokio::test]
@@ -535,7 +487,7 @@ mod tests {
             .insert(0, rig::message::Message::system("Act as a Rust compiler."));
         let res_custom = client.build_request(req_with_custom).unwrap();
         assert_eq!(
-            res_custom.instructions.unwrap(),
+            res_custom["instructions"].as_str().unwrap(),
             format!("{DEFAULT_INSTRUCTIONS}\n\nAct as a Rust compiler.")
         );
 
@@ -546,7 +498,7 @@ mod tests {
         );
         let res_default = client.build_request(req_with_default).unwrap();
         assert_eq!(
-            res_default.instructions.unwrap(),
+            res_default["instructions"].as_str().unwrap(),
             format!("{DEFAULT_INSTRUCTIONS} Be concise.")
         );
     }

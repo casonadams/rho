@@ -68,7 +68,7 @@ mod tests {
             .build();
 
         let resp = agent.prompt("hello").await.unwrap();
-        assert_eq!(resp.output, "done");
+        assert_eq!(resp.output(), "done");
         assert_eq!(model.requests().len(), 1);
     }
 
@@ -85,7 +85,7 @@ mod tests {
             .build();
 
         let resp = agent.prompt("generate code").max_turns(3).run().await.unwrap();
-        assert_eq!(resp.output, "completed successfully!");
+        assert_eq!(resp.output(), "completed successfully!");
         let reqs = model.requests();
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].max_tokens, Some(1000));

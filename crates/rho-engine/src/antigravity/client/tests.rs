@@ -163,21 +163,9 @@ fn antigravity_headers_sets_expected_keys() {
 }
 
 fn test_completion_request() -> CompletionRequest {
-    CompletionRequest {
-        model: None,
-        chat_history: vec![
-            rig::message::Message::system("system prompt"),
-            rig::message::Message::user("hello"),
-        ],
-        documents: Vec::new(),
-        tools: Vec::new(),
-        temperature: None,
-        max_tokens: None,
-        tool_choice: None,
-        additional_params: None,
-        output_schema: None,
-        record_telemetry_content: false,
-    }
+    let mut req = CompletionRequest::new(rig::message::Message::system("system prompt"));
+    req.chat_history.push(rig::message::Message::user("hello"));
+    req
 }
 
 use std::sync::Arc;

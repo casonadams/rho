@@ -32,7 +32,7 @@ mod tests {
             .build();
         let response = agent.prompt("repeat").max_turns(5).run().await.unwrap();
 
-        assert_eq!(response.output, "changed approach");
+        assert_eq!(response.output(), "changed approach");
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "xx");
         let third_request = format!("{:?}", model.requests()[3].chat_history);
         assert!(third_request.contains("blocked after three consecutive attempts"));

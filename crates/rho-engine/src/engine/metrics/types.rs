@@ -217,7 +217,7 @@ pub(crate) fn finish_status(reason: &FinishReason) -> String {
         FinishReason::Length => "length".to_string(),
         FinishReason::ToolCalls => "tool_calls".to_string(),
         FinishReason::ContentFilter => "content_filter".to_string(),
-        FinishReason::Other(_) => "other".to_string(),
+        _ => "other".to_string(),
     }
 }
 

@@ -99,3 +99,45 @@ async fn async_prunes_expired_unnamed_sessions() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn test_prune_empty_sessions() {
+    use super::super::prune::prune_empty_sessions;
+
+    let dir = temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+
+    create_test_session_file(&dir, "empty_session", 0, false);
+    create_test_session_file(&dir, "active_empty", 0, false);
+    create_test_session_file(&dir, "named_empty", 0, true);
+
+    let pruned = prune_empty_sessions(&dir, Some("active_empty")).unwrap();
+    assert_eq!(pruned, 1);
+    assert!(!dir.join("empty_session.jsonl").exists());
+    assert!(dir.join("active_empty.jsonl").exists());
+    assert!(dir.join("named_empty.jsonl").exists());
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn test_prune_empty_sessions_async() {
+    use super::super::prune::prune_empty_sessions_async;
+
+    let dir = temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+
+    create_test_session_file(&dir, "empty_session_async", 0, false);
+    create_test_session_file(&dir, "active_empty_async", 0, false);
+    create_test_session_file(&dir, "named_empty_async", 0, true);
+
+    let pruned = prune_empty_sessions_async(&dir, Some("active_empty_async"))
+        .await
+        .unwrap();
+    assert_eq!(pruned, 1);
+    assert!(!dir.join("empty_session_async.jsonl").exists());
+    assert!(dir.join("active_empty_async.jsonl").exists());
+    assert!(dir.join("named_empty_async.jsonl").exists());
+
+    let _ = std::fs::remove_dir_all(dir);
+}

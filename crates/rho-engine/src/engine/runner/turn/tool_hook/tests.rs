@@ -79,7 +79,7 @@ mod activation {
             .record_content_telemetry(false)
             .build();
         let response = agent.prompt("Inspect subcrate").max_turns(3).run().await.unwrap();
-        assert_eq!(response.output, "file inspected");
+        assert_eq!(response.output(), "file inspected");
 
         let guard = shared_ctx.lock().await;
         let (_, updated_ctx) = guard.as_ref().unwrap();
@@ -285,7 +285,7 @@ mod model_switch {
             .build();
 
         let response = agent.prompt("execute task").max_turns(3).run().await.unwrap();
-        assert_eq!(response.output, "second model finished");
+        assert_eq!(response.output(), "second model finished");
         assert_eq!((model_1.requests().len(), model_2.requests().len()), (1, 1));
     }
 }
@@ -416,7 +416,7 @@ mod steering {
             .build();
 
         let response = agent.prompt("start").max_turns(5).run().await.unwrap();
-        assert_eq!(response.output, "acknowledged steering");
+        assert_eq!(response.output(), "acknowledged steering");
         assert_steering_applied(&model, &file_b);
     }
 
@@ -442,7 +442,7 @@ mod steering {
             .build();
 
         let response = agent.prompt("start").max_turns(3).run().await.unwrap();
-        assert_eq!(response.output, "tool skipped");
+        assert_eq!(response.output(), "tool skipped");
         assert!(!file_b.exists());
 
         let requests = model.requests();
@@ -481,7 +481,7 @@ mod steering {
             .build();
 
         let response = agent.prompt("start").max_turns(5).run().await.unwrap();
-        assert_eq!(response.output, "all tools done");
+        assert_eq!(response.output(), "all tools done");
         assert!(file_b.exists());
         let content = tokio::fs::read_to_string(&file_b).await.unwrap();
         assert_eq!(content, "created");
@@ -575,7 +575,7 @@ mod tool_search_activation {
         let runner = crate::engine::runtime::build_runner(&agent, "What tools do you have?").max_turns(3);
         let response = runner.run().await.unwrap();
 
-        assert_eq!(response.output, "Weather tool found and loaded");
+        assert_eq!(response.output(), "Weather tool found and loaded");
 
         let requests = model.requests();
         assert_eq!(requests.len(), 2);

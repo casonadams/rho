@@ -108,20 +108,15 @@ impl SseParser {
     }
 
     fn handle_message_stop(&mut self, events: &mut SseEvents) {
-        let usage = Usage {
-            input_tokens: Some(self.input_tokens),
-            output_tokens: Some(self.output_tokens),
-            cached_input_tokens: Some(self.cache_read_input_tokens),
-            cache_creation_input_tokens: Some(self.cache_creation_input_tokens),
-            reasoning_tokens: Some(self.reasoning_tokens),
-            total_tokens: Some(
-                self.input_tokens
-                    + self.cache_read_input_tokens
-                    + self.cache_creation_input_tokens
-                    + self.output_tokens,
-            ),
-            ..Default::default()
-        };
+        let mut usage = Usage::new();
+        usage.input_tokens = Some(self.input_tokens);
+        usage.output_tokens = Some(self.output_tokens);
+        usage.cached_input_tokens = Some(self.cache_read_input_tokens);
+        usage.cache_creation_input_tokens = Some(self.cache_creation_input_tokens);
+        usage.reasoning_tokens = Some(self.reasoning_tokens);
+        usage.total_tokens = Some(
+            self.input_tokens + self.cache_read_input_tokens + self.cache_creation_input_tokens + self.output_tokens,
+        );
         events.push(Ok(AdapterFrame::Done { usage }));
     }
 

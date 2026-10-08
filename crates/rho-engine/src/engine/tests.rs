@@ -225,7 +225,7 @@ async fn builder_attaches_dynamic_tools() {
     let base_dir = std::env::temp_dir();
 
     let custom_tool = rig::tool::DynamicTool::new(
-        "generate_image",
+        rig::message::ToolName::new("generate_image").unwrap(),
         "Generate image tool",
         serde_json::json!({
             "type": "object",

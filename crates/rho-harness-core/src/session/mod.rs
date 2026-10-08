@@ -39,7 +39,9 @@ pub(crate) use fs::{
     new_session_id, session_error, set_private_directory_permissions, set_private_directory_permissions_async,
     set_private_file_permissions, set_private_file_permissions_async, validate_session_id,
 };
-pub use prune::{prune_expired_sessions, prune_expired_sessions_async};
+pub use prune::{
+    prune_empty_sessions, prune_empty_sessions_async, prune_expired_sessions, prune_expired_sessions_async,
+};
 pub use summary::{
     SessionSummary, delete_session, delete_session_async, list_session_summaries, list_session_summaries_async,
     list_sessions, list_sessions_async,
@@ -214,11 +216,13 @@ impl SessionManager {
 
     pub fn auto_prune(&self, retention_days: u32) -> Result<usize> {
         let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
+        let _ = prune_empty_sessions(sessions_dir, Some(&self.session_id));
         prune_expired_sessions(sessions_dir, &self.session_id, retention_days)
     }
 
     pub async fn auto_prune_async(&self, retention_days: u32) -> Result<usize> {
         let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
+        let _ = prune_empty_sessions_async(sessions_dir, Some(&self.session_id)).await;
         prune_expired_sessions_async(sessions_dir, &self.session_id, retention_days).await
     }
 

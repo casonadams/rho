@@ -30,6 +30,68 @@ pub fn prune_expired_sessions(sessions_dir: &Path, active_session_id: &str, rete
     Ok(count)
 }
 
+pub fn prune_empty_sessions(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
+    if !sessions_dir.exists() {
+        return Ok(0);
+    }
+    let mut count = 0;
+    for entry in std::fs::read_dir(sessions_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if should_prune_empty_session(&path, active_session_id, entry.metadata().ok())
+            && std::fs::remove_file(&path).is_ok()
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+fn should_prune_empty_session(
+    path: &Path,
+    active_session_id: Option<&str>,
+    metadata: Option<std::fs::Metadata>,
+) -> bool {
+    let Some(meta) = metadata else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+        return false;
+    }
+    if let Some(active) = active_session_id
+        && path.file_stem().and_then(|stem| stem.to_str()) == Some(active)
+    {
+        return false;
+    }
+    if meta.len() > 300 {
+        return false;
+    }
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    !content.contains("\"turn_node\"") && !content.contains("\"session_named\"")
+}
+
+pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
+    if !sessions_dir_exists(sessions_dir).await {
+        return Ok(0);
+    }
+    let mut entries = tokio::fs::read_dir(sessions_dir).await?;
+    let mut count = 0;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        let metadata = entry.metadata().await.ok();
+        if should_prune_empty_session(&path, active_session_id, metadata) && tokio::fs::remove_file(&path).await.is_ok()
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 fn calculate_prune_cutoff(retention_days: u32) -> Option<SystemTime> {
     if retention_days == 0 {
         return None;

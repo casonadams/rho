@@ -547,13 +547,13 @@ mod orchestrator {
             call: CallId::from_wire(cid),
             name: ToolName::new(tool).unwrap(),
             content: vec![ToolResultContent::Text(Text::new("data"))],
+            is_error: false,
         };
         vec![
             Message::user(user),
-            Message::Assistant {
-                id: None,
-                content: vec![AssistantContent::ToolCall(call)],
-            },
+            Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
+                call,
+            )])),
             Message::User {
                 content: vec![UserContent::ToolResult(res)],
             },
@@ -855,7 +855,6 @@ mod orchestrator {
 }
 
 mod overflow {
-    use rig::agent::StreamingError;
     use rig::completion::PromptError;
     use rig::error::ProviderError;
 
@@ -888,16 +887,13 @@ mod overflow {
     #[test]
     fn test_is_context_overflow_streaming_error() {
         let completion_err =
-            StreamingError::Completion(ProviderError::Response("prompt is too long: 210000 tokens".to_string()));
+            PromptError::Provider(ProviderError::Response("prompt is too long: 210000 tokens".to_string()));
         assert!(is_context_overflow_error(&completion_err));
 
-        let prompt_err = StreamingError::Prompt(PromptError::CompletionError(ProviderError::Response(
-            "context_length_exceeded".to_string(),
-        )));
+        let prompt_err = PromptError::Provider(ProviderError::Response("context_length_exceeded".to_string()));
         assert!(is_context_overflow_error(&prompt_err));
 
-        let unrelated =
-            StreamingError::Completion(ProviderError::Response("Model overloaded, try again later".to_string()));
+        let unrelated = PromptError::Provider(ProviderError::Response("Model overloaded, try again later".to_string()));
         assert!(!is_context_overflow_error(&unrelated));
     }
 }
@@ -957,12 +953,11 @@ mod recovery {
     }
 
     fn sample_overflow_usage() -> Usage {
-        Usage {
-            input_tokens: Some(10),
-            output_tokens: Some(5),
-            total_tokens: Some(15),
-            ..Default::default()
-        }
+        let mut u = Usage::new();
+        u.input_tokens = Some(10);
+        u.output_tokens = Some(5);
+        u.total_tokens = Some(15);
+        u
     }
 
     #[tokio::test]
@@ -1057,18 +1052,18 @@ mod sequential {
     fn file_turn(call_id: &str, tool: &str, path: &str) -> Vec<Message> {
         vec![
             Message::user(format!("Execute {tool} on {path}")),
-            Message::Assistant {
-                id: None,
-                content: vec![AssistantContent::ToolCall(ToolCall::new(
+            Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
+                ToolCall::new(
                     CallId::from_wire(call_id),
                     ToolFunction::new(ToolName::new(tool).unwrap(), serde_json::json!({"path": path})),
-                ))],
-            },
+                ),
+            )])),
             Message::User {
                 content: vec![UserContent::ToolResult(ToolResult {
                     call: CallId::from_wire(call_id),
                     name: ToolName::new(tool).unwrap(),
                     content: vec![ToolResultContent::Text(Text::new("done"))],
+                    is_error: false,
                 })],
             },
             Message::assistant(format!("Completed {tool} on {path}.")),
@@ -1192,12 +1187,10 @@ mod auto_compact {
             auth_file: dir.join("auth.json"),
             ..Config::default()
         };
-        let usage = Usage {
-            input_tokens: Some(10),
-            output_tokens: Some(5),
-            total_tokens: Some(15),
-            ..Default::default()
-        };
+        let mut usage = Usage::new();
+        usage.input_tokens = Some(10);
+        usage.output_tokens = Some(5);
+        usage.total_tokens = Some(15);
         let model =
             MockCompletionModel::from_stream_turns([[MockStreamEvent::text("turn response"), final_event(usage)]]);
         mock_engine(
@@ -1242,11 +1235,9 @@ mod auto_compact {
     }
 
     fn record_test_turn_usage(engine: &crate::engine::AgentEngine, tokens: u64) {
-        let u = Usage {
-            input_tokens: Some(tokens),
-            ..Default::default()
-        }
-        .into();
+        let mut usage = Usage::new();
+        usage.input_tokens = Some(tokens);
+        let u = usage.into();
         engine
             .usage
             .record_turn(crate::engine::tracking::TurnUsage::new(u, u), 100);

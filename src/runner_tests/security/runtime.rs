@@ -9,15 +9,13 @@ use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 
 #[tokio::test]
 async fn normalized_usage_is_exposed_when_available() {
-    let usage = Usage {
-        input_tokens: Some(10),
-        output_tokens: Some(4),
-        total_tokens: Some(14),
-        cached_input_tokens: Some(3),
-        cache_creation_input_tokens: Some(2),
-        reasoning_tokens: Some(2),
-        ..Default::default()
-    };
+    let mut usage = Usage::new();
+    usage.input_tokens = Some(10);
+    usage.output_tokens = Some(4);
+    usage.total_tokens = Some(14);
+    usage.cached_input_tokens = Some(3);
+    usage.cache_creation_input_tokens = Some(2);
+    usage.reasoning_tokens = Some(2);
     let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(usage)]]);
     let engine = test_engine(model, Config::default());
     let output = engine

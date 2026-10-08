@@ -175,7 +175,7 @@ fn prompt_logout_selection<R: std::io::BufRead, W: std::io::Write>(
 }
 
 fn select_logout_target(auth_store: &AuthStore) -> Result<Option<String>> {
-    let configured = auth_store.list_configured_providers();
+    let configured = auth_store.list_stored_providers();
     if configured.is_empty() {
         println!("No stored credentials to remove.");
         return Ok(None);

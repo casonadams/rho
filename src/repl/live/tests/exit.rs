@@ -8,6 +8,7 @@ async fn setup_live_session_and_engine(
 ) -> (crate::repl::ReplSession, crate::engine::AgentEngine) {
     let config = rho_harness_core::config::Config {
         config_dir: dir.to_path_buf(),
+        sessions_dir: dir.join("sessions"),
         ..Default::default()
     };
     let auth = crate::auth::AuthStore::default();

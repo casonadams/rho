@@ -10,7 +10,13 @@ async fn setup_shortcut_harness() -> (
     crate::engine::AgentEngine,
 ) {
     let controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    let config = rho_harness_core::config::Config::default();
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        config_dir: temp.path().to_path_buf(),
+        sessions_dir: temp.path().join("sessions"),
+        ..Default::default()
+    };
+    std::fs::create_dir_all(&config.sessions_dir).unwrap();
     let auth = crate::auth::AuthStore::default();
     let session = crate::repl::ReplSession::new(config.clone(), auth.clone(), None);
     let engine = crate::platform::agent_engine(config, auth, None).await.unwrap();
@@ -79,11 +85,13 @@ async fn test_idle_shortcut_double_escape_opens_tree_when_empty() {
 #[test]
 fn test_modal_filter_ctrl_c_clears_query_and_esc_dismisses() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    let session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        config_dir: temp.path().to_path_buf(),
+        sessions_dir: temp.path().join("sessions"),
+        ..Default::default()
+    };
+    let session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);
     super::super::modal::open_model_selector(&session, &mut controller);
     controller.state_mut().active_modal_mut().unwrap().set_filter("claude");
 

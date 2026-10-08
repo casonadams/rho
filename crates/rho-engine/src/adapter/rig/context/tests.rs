@@ -46,11 +46,13 @@ fn coding_tool_results() -> Vec<UserContent> {
             call: CallId::from_wire("edit-call"),
             name: ToolName::new("edit").unwrap(),
             content: vec![ToolResultContent::text("changed")],
+            is_error: false,
         }),
         UserContent::ToolResult(ToolResult {
             call: CallId::from_wire("test-call"),
             name: ToolName::new("bash").unwrap(),
             content: vec![ToolResultContent::text("tests passed")],
+            is_error: false,
         }),
     ]
 }
@@ -62,10 +64,7 @@ fn coding_turn(secret: Option<&str>) -> Vec<Message> {
     );
     vec![
         Message::user(objective),
-        Message::Assistant {
-            id: None,
-            content: coding_tool_calls(),
-        },
+        Message::Assistant(rig::message::AssistantMessage::new(coding_tool_calls())),
         Message::User {
             content: coding_tool_results(),
         },
@@ -102,7 +101,7 @@ fn sliding_window_preserves_tool_pair() {
     assert_eq!(complete_pair.len(), 3);
     assert!(matches!(
         (&complete_pair[0], &complete_pair[1]),
-        (Message::Assistant { .. }, Message::User { .. })
+        (Message::Assistant(_), Message::User { .. })
     ));
 }
 
