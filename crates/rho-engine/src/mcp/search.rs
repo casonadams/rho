@@ -447,10 +447,11 @@ async fn maybe_execute_tool(
 pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicToolActivator) -> DynamicTool {
     let summary = catalog.catalog_summary();
     let description = format!(
-        "Search and dynamically load deferred MCP tools into the active tools registry for subsequent turns. \
-         Keywords match tool names, descriptions, and parameter names; exact tool name matches win. \
-         To search and execute a tool immediately in one turn, provide the optional 'execute' object. \
-         Deferred tools: {summary}"
+        "Search and dynamically load deferred MCP tools into active tools for subsequent turns. \
+         Some tools are not loaded upfront; for external services, databases, or APIs, always use 'tool_search' \
+         to discover specialized MCP tools instead of CLI commands in bash. \
+         Keywords match tool names, descriptions, parameters; exact matches win. \
+         To execute immediately, provide 'execute'. Deferred tools: {summary}"
     );
 
     let schema = serde_json::json!({

@@ -49,8 +49,30 @@ fn dynamic_tools_omits_unregistered_guidelines() {
             "Use write only for new files",
             "Commands run directly in the working directory",
             "Never use bash for file inspection",
+            "Never use bash when a specialized tool or MCP tool exists",
             "Use rg for content search",
         ],
+    );
+}
+
+#[test]
+fn bash_with_specialized_tools_adds_mcp_guideline() {
+    let tools_with_mcp = vec!["bash".to_string(), "tool_search".to_string()];
+    let assembled = assemble_base_system_prompt(&tools_with_mcp);
+
+    assert_contains_all(
+        &assembled,
+        &[
+            "Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools and search for them with tool_search if not loaded",
+        ],
+    );
+
+    let tools_default_only = vec!["bash".to_string(), "read".to_string()];
+    let assembled_default = assemble_base_system_prompt(&tools_default_only);
+
+    assert_contains_none(
+        &assembled_default,
+        &["Never use bash when a specialized tool or MCP tool exists"],
     );
 }
 

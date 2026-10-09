@@ -36,6 +36,17 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
         if has_inspectors {
             out.push("Never use bash for file inspection (ls, find, grep, cat); use fd, rg, and read instead");
         }
+        let has_specialized = active_tools.iter().any(|t| {
+            t == "tool_search"
+                || t.starts_with("mcp__")
+                || (!matches!(
+                    t.as_str(),
+                    "bash" | "read" | "write" | "edit" | "fd" | "rg" | "web_search" | "web_fetch" | "subagent"
+                ))
+        });
+        if has_specialized {
+            out.push("Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools and search for them with tool_search if not loaded");
+        }
     }
     if active_tools.iter().any(|t| t == "read") {
         out.push("Use read to examine files instead of cat or sed");
