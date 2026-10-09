@@ -169,6 +169,7 @@ ack short-horizon-churn 4691b818acebb517 4 cid=471119f0afe1456e now=4 was=0 face
 ack short-horizon-churn 4d7f41bf27f409ed 6 cid=9b22f00d8a6bf8ce now=6 was=0 facet=self p=src/repl/live/modal/settings.rs:27 fix(settings): preserve modal stack and refresh model descriptions
 ack short-horizon-churn 4f7b3f11d224c8dc 4 cid=def44f0373628cf9 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/compactor/tests.rs:509 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 50381d5c21fb9f0a 6 cid=f21f02027e719de1 now=6 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:246 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 51026b94b341b6ef 7 cid=77862701c8cb6d71 now=7 was=0 facet=ambient p=crates/rho-harness-core/src/tokens/mod.rs:21 feat(models): add claude 5.5 and gpt-6.1-sol presets
 ack short-horizon-churn 5151045786fc160f 6 cid=be2d034b04f37920 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:127 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 53945ceeaaf20234 4 cid=94bdcd2b4e2bf477 now=4 was=0 facet=self p=crates/rho-engine/src/tools/builtin_tools/tests.rs:26 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 53a5eda83860f1c8 4 cid=51a7dd854a38750b now=4 was=0 facet=self p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:144 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -203,6 +204,7 @@ ack short-horizon-churn 798e341a5e9ded5b 6 cid=91c15e655b5330aa now=6 was=0 face
 ack short-horizon-churn 7995cb6d021588c7 3 cid=255a7377560d2d9a now=3 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/tool_hook/tests.rs:193 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 7dfad77ca22d93b9 4 cid=833f139178231730 now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/runner/turn/stream.rs:421 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 7e8b0c06d9175192 10 cid=ba12c6e906b4ec70 now=10 was=0 facet=self p=crates/rho-engine/src/permission/tests/hook.rs:431 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 80ca01ae3c547bc7 6 cid=0d095fb866b9631d now=6 was=0 facet=self p=crates/rho-harness-core/src/tokens/tests.rs:228 feat(models): add claude 5.5 and gpt-6.1-sol presets
 ack short-horizon-churn 8410300c108612c0 3 cid=c327e7df77634368 now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:17 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 845185f3d8cbd8a5 3 cid=780a9035843d58bb now=3 was=0 facet=ambient p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn 84ca5a0681fc8e9f 10 cid=717f4ed87f4e2d9a now=10 was=0 facet=self p=crates/rho-engine/src/permission/tests/hook.rs:252 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -225,6 +227,7 @@ ack short-horizon-churn a5930a6c0b1d1859 2 cid=f29bd59e786fc7ec now=2 was=0 face
 ack short-horizon-churn a5d46e2b7fce495d 3 cid=e679893ae9af1210 now=3 was=0 facet=self p=crates/rho-engine/src/chatgpt/stream.rs:299 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn a5f0916f19c702b5 3 cid=a624d995c3e787bf now=3 was=0 facet=self p=crates/rho-engine/src/tools/subagent/tests.rs:104 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn a751e4ba3a8879c4 4 cid=ba68c5695ac0eebe now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:454 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn a867d8eef13a8a6c 3 cid=f50103d6c29b1d0c now=3 was=0 facet=ambient p=crates/rho-engine/src/claude/client/tests.rs:22 feat(models): add claude 5.5 and gpt-6.1-sol presets
 ack short-horizon-churn a8ac12ee1cd61fa6 2 cid=77335f025b1bef2b now=2 was=0 facet=self p=crates/rho-engine/src/adapter/rig/tools/mod.rs:50 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn adeba5ec267004c6 3 cid=6e3161dc306c8de6 now=3 was=0 facet=self p=crates/rho-engine/src/mcp/manager.rs:165 feat(mcp): modernize MCP adapter subsystem
 ack short-horizon-churn aef0e8966538267d 6 cid=98bcb36ad3f718e1 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:650 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -263,7 +266,9 @@ ack short-horizon-churn d52ebbbdd0f926fa 3 cid=cf2d3e46b77cf6eb now=3 was=0 face
 ack short-horizon-churn d5625fff9fdc3d9f 2 cid=e057ff2665137bb4 now=2 was=0 facet=self p=crates/rho-engine/src/claude/client/tests.rs:419 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn d73ec7826861d2cb 2 cid=ff485a988496d8d9 now=2 was=0 facet=ambient p=tests/repeat_call.rs:5 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn d887fb8d50292976 4 cid=529c4dc256171a34 now=4 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/stream.rs:500 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn d8ddd1d67eaf37b0 6 cid=9f950bfd5a7a345a now=6 was=0 facet=ambient p=crates/rho-harness-core/src/tokens/tests.rs:188 feat(models): add claude 5.5 and gpt-6.1-sol presets
 ack short-horizon-churn da31c10ac7617bf2 4 cid=435de8d37d85bbaa now=4 was=0 facet=self p=crates/rho-engine/src/adapter/rig/model.rs:265 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn db3e89e49c985936 5 cid=ffe13a945907bb9a now=5 was=0 facet=ambient p=crates/rho-engine/src/claude/request/mod.rs:98 feat(models): add claude 5.5 and gpt-6.1-sol presets
 ack short-horizon-churn dbde4352c0e194f8 4 cid=b67b76d28dc2be77 now=4 was=0 facet=self p=crates/rho-engine/src/tools/builtin_tools/tests.rs:38 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn dfb0694c9807a6ae 6 cid=77a3161a0716dc0f now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:436 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn e00e0927204b4731 2 cid=82af4154360d712f now=2 was=0 facet=self p=crates/rho-engine/src/chatgpt/client.rs:481 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -293,6 +298,7 @@ ack short-horizon-churn fdc629ab6b3d3fd9 10 cid=5c7c00fdb421c5ae now=10 was=0 fa
 ack short-horizon-churn fe6456076ca4f4af 4 cid=b0ee4ca95370ac9c now=4 was=0 facet=self p=crates/rho-engine/src/engine/compactor/tests.rs:1182 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack verbosity 0947128aa09d7fc3 162 cid=396a5f7e4e7f378b now=162 was=153 p=crates/rho-engine/src/mcp/search.rs:507 feat(mcp): modernize MCP adapter subsystem
 ack verbosity 10290e64f680c279 62 cid=a508c5380e7118a1 now=62 was=0 p=tests/mcp_direct_tools.rs:39 feat(mcp): modernize MCP adapter subsystem
+ack verbosity 11407cd0ba1989cd 72 cid=bb18f3207b44ff85 now=72 was=51 p=crates/rho-engine/src/provider/discovery/presets.rs:244 feat(models): add claude 5.5 and gpt-6.1-sol presets
 ack verbosity 318a99a8b2e318e4 104 cid=41111054a0f781c5 now=104 was=102 p=crates/rho-engine/src/engine/runner/history.rs:244 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack verbosity 59aaf86c1c0f19dc 72 cid=272f7931127e4178 now=72 was=59 p=crates/rho-engine/src/adapter/rig/model.rs:79 feat(engine): preserve reasoning signatures and add react loop guidelines | prior: refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack verbosity 845185f3d8cbd8a5 190 cid=780a9035843d58bb now=190 was=139 p=crates/rho-harness-core/src/config/mcp.rs:350 feat(mcp): modernize MCP adapter subsystem

@@ -190,6 +190,10 @@ fn test_context_window_size() {
         ("claude-sonnet-4-6", 1_000_000),
         ("claude-opus-4-6", 1_000_000),
         ("claude-opus-5-5", 1_000_000),
+        ("claude-sonnet-5-5", 1_000_000),
+        ("claude-haiku-5-5", 1_000_000),
+        ("claude-mythos-5.1", 1_000_000),
+        ("claude-mythos-5-1", 1_000_000),
         ("claude-fable-5.1", 1_000_000),
         ("claude-fable-5-1", 1_000_000),
         ("claude-haiku-4-5", 200_000),
@@ -201,6 +205,7 @@ fn test_context_window_size() {
         ("gemini-2.5-pro", 2_000_000),
         ("gemini-2.5-flash", 1_000_000),
         ("gpt-6-astra", 1_050_000),
+        ("gpt-6.1-sol", 372_000),
         ("gpt-6-sol", 372_000),
         ("gpt-6-terra", 372_000),
         ("gpt-6-luna", 372_000),
@@ -221,7 +226,7 @@ fn context_window_size_is_provider_aware_for_gpt_6_astra() {
 
 #[test]
 fn context_window_size_for_gpt_6_reasoning_models_is_372k() {
-    for model in ["gpt-6-sol", "gpt-6-terra", "gpt-6-luna"] {
+    for model in ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-terra", "gpt-6-luna"] {
         assert_eq!(context_window_size(model), 372_000);
         assert_eq!(context_window_size_for_provider(model, "openai"), 372_000);
         assert_eq!(context_window_size_for_provider(model, "chatgpt"), 372_000);

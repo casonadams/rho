@@ -113,6 +113,7 @@ fn chatgpt_codex_presets_include_gpt_6_astra() {
 fn chatgpt_codex_presets_include_gpt_6_reasoning_family() {
     let models = chatgpt_codex_models();
     let expected = [
+        ("gpt-6.1-sol", "GPT-6.1 Sol", "372k ctx · deep reasoning"),
         ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
         ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
         ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
@@ -145,6 +146,7 @@ fn openai_presets_include_gpt_6_astra() {
 fn openai_presets_include_gpt_6_reasoning_family() {
     let models = openai_preset_models();
     let expected = [
+        ("gpt-6.1-sol", "GPT-6.1 Sol", "372k ctx · deep reasoning"),
         ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
         ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
         ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
