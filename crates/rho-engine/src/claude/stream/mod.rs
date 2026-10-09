@@ -91,12 +91,16 @@ impl SseParser {
             }
             ContentDeltaPayload::ThinkingDelta { thinking } => {
                 self.thinking_text.push_str(&thinking);
-                events.push(Ok(AdapterFrame::Reasoning(thinking)));
+                events.push(Ok(AdapterFrame::reasoning(thinking)));
             }
             ContentDeltaPayload::SignatureDelta { signature } => {
                 self.thinking_signature
                     .get_or_insert_with(String::new)
                     .push_str(&signature);
+                events.push(Ok(AdapterFrame::reasoning_with_signature(
+                    String::new(),
+                    self.thinking_signature.clone(),
+                )));
             }
             ContentDeltaPayload::InputJsonDelta { partial_json } => {
                 if let Some(tool) = self.tool_uses.get_mut(&index) {
@@ -171,8 +175,11 @@ impl SseParser {
         }
     }
 
-    fn close_thinking_block(&mut self, _index: usize, _events: &mut SseEvents) {
+    fn close_thinking_block(&mut self, _index: usize, events: &mut SseEvents) {
         self.thinking_open = false;
+        if let Some(sig) = self.thinking_signature.take() {
+            events.push(Ok(AdapterFrame::reasoning_with_signature(String::new(), Some(sig))));
+        }
     }
 
     fn close_tool_use_block(&mut self, index: usize, events: &mut SseEvents) {

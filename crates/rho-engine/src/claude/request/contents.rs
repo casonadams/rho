@@ -120,7 +120,11 @@ fn convert_assistant_content(item: &AssistantContent) -> Option<Value> {
                     .as_ref()
                     .and_then(|n| n.item.get("signature"))
                     .and_then(|s| s.as_str());
-                sig.map(|sig| json!({ "type": "thinking", "thinking": reasoning.text, "signature": sig }))
+                if let Some(sig) = sig {
+                    Some(json!({ "type": "thinking", "thinking": reasoning.text, "signature": sig }))
+                } else {
+                    Some(json!({ "type": "text", "text": format!("<thinking>\n{}\n</thinking>", reasoning.text) }))
+                }
             } else {
                 None
             }

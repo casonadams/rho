@@ -13,7 +13,10 @@ use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelStream
 #[derive(Debug, Clone)]
 pub enum AdapterFrame {
     Text(String),
-    Reasoning(String),
+    Reasoning {
+        text: String,
+        signature: Option<String>,
+    },
     ToolCall {
         id: String,
         name: String,
@@ -23,6 +26,22 @@ pub enum AdapterFrame {
     Done {
         usage: Usage,
     },
+}
+
+impl AdapterFrame {
+    pub fn reasoning(text: impl Into<String>) -> Self {
+        Self::Reasoning {
+            text: text.into(),
+            signature: None,
+        }
+    }
+
+    pub fn reasoning_with_signature(text: impl Into<String>, signature: Option<String>) -> Self {
+        Self::Reasoning {
+            text: text.into(),
+            signature,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,9 +66,9 @@ impl rig::wire::document::Reassemble<AdapterFrame> for AdapterReassembler {
 pub struct AdapterDecoder<'id> {
     next_index: usize,
     text_index: Option<usize>,
+    reasoning_index: Option<usize>,
     _phantom: std::marker::PhantomData<&'id ()>,
 }
-
 impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
     type Event = AdapterFrame;
 
@@ -72,15 +91,28 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
                 };
                 out.push(idx, &text)?;
             }
-            AdapterFrame::Reasoning(reasoning) => {
-                let idx = self.next_index;
-                self.next_index += 1;
-                out.whole(
-                    idx,
-                    Block::Reasoning { redacted: false },
-                    serde_json::Value::Null,
-                    &reasoning,
-                )?;
+            AdapterFrame::Reasoning { text, signature } => {
+                let idx = match self.reasoning_index {
+                    Some(i) => {
+                        if let Some(sig) = signature {
+                            let _ = out.edit(i, |val| {
+                                *val = serde_json::json!({ "signature": sig });
+                            });
+                        }
+                        i
+                    }
+                    None => {
+                        let i = self.next_index;
+                        self.next_index += 1;
+                        let native = signature
+                            .map(|s| serde_json::json!({ "signature": s }))
+                            .unwrap_or(serde_json::Value::Null);
+                        out.open(i, Block::Reasoning { redacted: false }, native)?;
+                        self.reasoning_index = Some(i);
+                        i
+                    }
+                };
+                out.push(idx, &text)?;
             }
             AdapterFrame::ToolCall {
                 id,
@@ -207,7 +239,7 @@ impl Transport<AdapterWire> for AdapterTransport {
                 let item = s.next().await?;
                 let frame = match item {
                     Ok(ModelStreamEvent::Text(t)) => Ok(AdapterFrame::Text(t)),
-                    Ok(ModelStreamEvent::Reasoning(r)) => Ok(AdapterFrame::Reasoning(r)),
+                    Ok(ModelStreamEvent::Reasoning(r)) => Ok(AdapterFrame::reasoning(r)),
                     Ok(ModelStreamEvent::ToolCall(call)) => Ok(AdapterFrame::ToolCall {
                         id: call.id,
                         name: call.function.name,

@@ -24,8 +24,8 @@ fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {
 
     let mut reasoning_pieces = Vec::new();
     for event in &events {
-        if let Ok(AdapterFrame::Reasoning(reasoning)) = event {
-            reasoning_pieces.push(reasoning.as_str());
+        if let Ok(AdapterFrame::Reasoning { text, .. }) = event {
+            reasoning_pieces.push(text.as_str());
         }
     }
 
@@ -127,8 +127,8 @@ fn reasoning_summary_across_multiple_output_items_does_not_collide() {
 
     let mut reasoning_pieces = Vec::new();
     for event in &events {
-        if let Ok(AdapterFrame::Reasoning(reasoning)) = event {
-            reasoning_pieces.push(reasoning.as_str());
+        if let Ok(AdapterFrame::Reasoning { text, .. }) = event {
+            reasoning_pieces.push(text.as_str());
         }
     }
 

@@ -55,6 +55,11 @@ fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static st
 }
 
 fn append_universal_guidelines(out: &mut Vec<&'static str>) {
+    out.push("Drive tasks autonomously to completion: continue using tools step-by-step to read, edit, execute, and verify until the user request is completely resolved");
+    out.push("Do not stop prematurely or ask for user input when you can discover the information or make progress using available tools");
+    out.push(
+        "Always verify your changes before finishing (run tests, check build diagnostics, or inspect command outputs)",
+    );
     out.push("Be concise in your responses");
     out.push("Show file paths clearly when working with files");
 }

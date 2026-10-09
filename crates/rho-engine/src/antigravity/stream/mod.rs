@@ -118,11 +118,12 @@ impl SseParser {
 
     fn handle_part_thought(&mut self, text: String, signature: Option<String>, events: &mut SseEvents) {
         self.reasoning_open = true;
-        if let Some(sig) = signature {
-            self.reasoning_signature = Some(sig);
+        if let Some(sig) = &signature {
+            self.reasoning_signature = Some(sig.clone());
         }
+        let sig = signature.or_else(|| self.reasoning_signature.clone());
         self.reasoning_text.push_str(&text);
-        events.push(Ok(AdapterFrame::Reasoning(text)));
+        events.push(Ok(AdapterFrame::reasoning_with_signature(text, sig)));
     }
 
     fn interpret_part(&mut self, part: StreamPart, events: &mut SseEvents) {

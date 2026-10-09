@@ -212,7 +212,7 @@ impl SseParser {
     fn start_reasoning_part(&mut self, coord: SummaryPartCoord, events: &mut SseEvents) {
         if self.active_summary_part != Some(coord) {
             if self.has_reasoning_content && !self.reasoning_trailing_newline {
-                events.push(Ok(AdapterFrame::Reasoning("\n\n".to_string())));
+                events.push(Ok(AdapterFrame::reasoning("\n\n")));
                 self.reasoning_trailing_newline = true;
             }
             self.active_summary_part = Some(coord);
@@ -242,7 +242,7 @@ impl SseParser {
         }
         self.has_reasoning_content = true;
         self.reasoning_trailing_newline = delta.ends_with('\n');
-        events.push(Ok(AdapterFrame::Reasoning(delta)));
+        events.push(Ok(AdapterFrame::reasoning(delta)));
     }
 
     fn handle_function_call_added(&mut self, call: FunctionCallPayload, index: u64) {

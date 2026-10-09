@@ -268,10 +268,11 @@ fn convert_messages_handles_reasoning_and_assistant_first() {
     assert_eq!(messages[0]["content"][0]["text"], "Hello");
     assert_eq!(messages[1]["role"], "assistant");
     let assistant_parts = messages[1]["content"].as_array().unwrap();
-    assert_eq!(assistant_parts.len(), 2);
+    assert_eq!(assistant_parts.len(), 3);
     assert_eq!(assistant_parts[0]["type"], "thinking");
     assert_eq!(assistant_parts[0]["signature"], "sig_123");
     assert_eq!(assistant_parts[1]["type"], "text");
+    assert_eq!(assistant_parts[2]["type"], "text");
 }
 
 #[test]
