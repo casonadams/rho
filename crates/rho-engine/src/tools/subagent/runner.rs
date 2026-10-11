@@ -77,9 +77,85 @@ impl SubagentRunner {
                     ToolResult::success(text)
                 }
             }
-            Ok(Err(err)) => ToolResult::error(format!("Subagent execution failed: {err}")),
+            Ok(Err(err)) => {
+                if let Some((max_turns, history)) = crate::engine::runner::budget_history(&err) {
+                    synthesize_budget_exhausted_result(max_turns, &history)
+                } else {
+                    ToolResult::error(format!("Subagent execution failed: {err}"))
+                }
+            }
             Err(_) => ToolResult::error("Subagent execution timed out after 120s."),
         }
+    }
+}
+
+fn extract_assistant_text(asst: &rig::message::AssistantMessage, out: &mut Vec<String>) {
+    for content in &asst.content {
+        if let rig::message::AssistantContent::Text(t) = content {
+            let trimmed = t.text.trim();
+            if !trimmed.is_empty() {
+                out.push(trimmed.to_string());
+            }
+        }
+    }
+}
+
+fn single_tool_result_text(tr: &rig::message::ToolResult) -> Option<String> {
+    let mut parts = Vec::new();
+    for item in &tr.content {
+        if let rig::message::ToolResultContent::Text(t) = item {
+            parts.push(t.text.as_str());
+        }
+    }
+    let joined = parts.join(" ");
+    let trimmed = joined.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let snippet = if trimmed.len() > 300 {
+        format!("{}...", &trimmed[..300])
+    } else {
+        trimmed.to_string()
+    };
+    Some(format!("{}: {snippet}", tr.name))
+}
+
+fn extract_tool_result_preview(user_content: &[rig::message::UserContent], out: &mut Vec<String>) {
+    for c in user_content {
+        if let rig::message::UserContent::ToolResult(tr) = c
+            && let Some(summary) = single_tool_result_text(tr)
+        {
+            out.push(summary);
+        }
+    }
+}
+
+fn synthesize_budget_exhausted_result(max_turns: usize, history: &[rig::message::Message]) -> ToolResult {
+    let mut texts = Vec::new();
+    let mut tools = Vec::new();
+
+    for msg in history {
+        match msg {
+            rig::message::Message::Assistant(asst) => extract_assistant_text(asst, &mut texts),
+            rig::message::Message::User { content } => extract_tool_result_preview(content, &mut tools),
+            _ => {}
+        }
+    }
+
+    if !texts.is_empty() {
+        let findings = texts.join("\n\n");
+        ToolResult::success(format!(
+            "Subagent reached turn limit of {max_turns}. Gathered findings:\n\n{findings}"
+        ))
+    } else if !tools.is_empty() {
+        let findings = tools.join("\n");
+        ToolResult::success(format!(
+            "Subagent reached turn limit of {max_turns} during exploration. Discovered:\n\n{findings}"
+        ))
+    } else {
+        ToolResult::error(format!(
+            "Subagent reached turn limit of {max_turns} without producing output"
+        ))
     }
 }
 
@@ -155,5 +231,22 @@ mod tests {
         let res = runner.run("find files", Some("search in src/")).await;
         assert!(!res.is_error);
         assert_eq!(res.content, "Found 3 files matching pattern.");
+    }
+
+    #[test]
+    fn test_synthesize_budget_exhausted_result() {
+        let text_content = vec![rig::message::AssistantContent::text(
+            "Here is what was found in the codebase.",
+        )];
+        let asst_msg = rig::message::Message::Assistant(rig::message::AssistantMessage::new(text_content));
+        let history = vec![asst_msg];
+
+        let result = synthesize_budget_exhausted_result(8, &history);
+        assert!(!result.is_error);
+        assert!(result.content.contains("reached turn limit of 8"));
+        assert!(result.content.contains("Here is what was found in the codebase."));
+
+        let empty_result = synthesize_budget_exhausted_result(8, &[]);
+        assert!(empty_result.is_error);
     }
 }

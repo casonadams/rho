@@ -88,7 +88,7 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
-- Subagents run up to max_turns (default 8) and return a concise summary to the parent.";
+- Subagents run up to max_turns (default 10) and return a concise summary to the parent.";
 
 pub static PROMPT_LSP: &str = "\
 Query Language Server Protocol for diagnostics, definitions, references, document symbols, and renames.

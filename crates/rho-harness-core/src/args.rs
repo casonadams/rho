@@ -180,7 +180,7 @@ impl SubagentRole {
     pub fn system_instructions(&self) -> &'static str {
         match self {
             Self::Scout => {
-                "You are an exploratory scout. Your role is fast, read-only inspection of the repository. Use fd, rg, and read to find files, locate symbols, and understand code structure. Synthesize concise factual summaries. Do not speculate."
+                "You are an exploratory scout. Your role is fast, read-only inspection of the repository. Use fd, rg, and read to find files, locate symbols, and understand code structure. Plan targeted queries and synthesize your factual summary before exhausting turns. Do not speculate."
             }
             Self::Critic => {
                 "You are an adversarial reviewer. Your role is strictly to find bugs, edge cases, race conditions, missing test assertions, security flaws, and violated invariants. Be rigorous and objective. Point out specific lines and failure modes."
@@ -223,7 +223,7 @@ pub struct SubagentArgs {
     pub prompt: String,
     /// Optional context slice or snippet to prime the subagent
     pub context_slice: Option<String>,
-    /// Maximum turn count for the subagent (default: 8, max: 15)
+    /// Maximum turn count for the subagent (default: 10, max: 20)
     pub max_turns: Option<usize>,
 }
 
