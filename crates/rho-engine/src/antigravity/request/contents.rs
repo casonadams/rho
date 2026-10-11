@@ -137,9 +137,9 @@ pub fn tool_result_inline_data(image: &rig::message::Image) -> Option<InlineData
 }
 
 struct ConversionContext<'a> {
-    dropped: &'a mut std::collections::HashMap<String, String>,
     requires_sig: bool,
     call_ids: bool,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
 fn extract_image_parts(content: &[rig::message::ToolResultContent]) -> Vec<FunctionResponsePart> {
@@ -154,29 +154,6 @@ fn extract_image_parts(content: &[rig::message::ToolResultContent]) -> Vec<Funct
             _ => None,
         })
         .collect()
-}
-
-fn push_observation_parts(
-    result_name: &str,
-    args: &str,
-    response_text: &str,
-    image_parts: Vec<FunctionResponsePart>,
-    parts: &mut Vec<Part>,
-) {
-    let label = if args == "{}" {
-        format!("`{result_name}`")
-    } else {
-        format!("`{result_name}` ({args})")
-    };
-    parts.push(part_text(format!("[Observation from {label}:\n{response_text}]")));
-    for p in image_parts {
-        if let Some(inline_data) = p.inline_data {
-            parts.push(Part {
-                inline_data: Some(inline_data),
-                ..Part::default()
-            });
-        }
-    }
 }
 
 fn build_function_response_part(
@@ -196,28 +173,13 @@ fn build_function_response_part(
         ..Part::default()
     }
 }
-
 fn convert_tool_result_part(result: &rig::message::ToolResult, ctx: &ConversionContext<'_>, parts: &mut Vec<Part>) {
     let response_text = tool_result_text(&result.content);
     let raw_id = result.call.to_string();
     let sanitized_id = sanitize_tool_call_id(&raw_id);
     let image_parts = extract_image_parts(&result.content);
-
-    let dropped_args = ctx
-        .requires_sig
-        .then(|| {
-            ctx.dropped
-                .get(&raw_id)
-                .or_else(|| ctx.dropped.get(&sanitized_id))
-                .cloned()
-        })
-        .flatten();
-    if let Some(args) = dropped_args {
-        push_observation_parts(&result.name, &args, &response_text, image_parts, parts);
-    } else {
-        let part = build_function_response_part(result, sanitized_id, response_text, image_parts, ctx);
-        parts.push(part);
-    }
+    let part = build_function_response_part(result, sanitized_id, response_text, image_parts, ctx);
+    parts.push(part);
 }
 
 fn convert_image_part(image: &rig::message::Image) -> Option<Part> {
@@ -261,21 +223,31 @@ fn convert_reasoning_part(reasoning: &rig::message::Reasoning, parts: &mut Vec<P
     }
 }
 
-fn convert_tool_call_part(call: &rig::message::ToolCall, ctx: &mut ConversionContext<'_>, parts: &mut Vec<Part>) {
+const SKIP_THOUGHT_SIGNATURE: &str = "skip_thought_signature_validator";
+
+fn convert_tool_call_part(
+    call: &rig::message::ToolCall,
+    ctx: &ConversionContext<'_>,
+    is_first_tool_call: &mut bool,
+    parts: &mut Vec<Part>,
+) {
     let raw_id = call.id.to_string();
     let args_val = serde_json::Value::Object(call.function.arguments.clone());
-    let args_text = args_val.to_string();
     let signature = call
         .native
         .as_ref()
         .and_then(|n| n.item.get("signature"))
         .and_then(|s| s.as_str())
-        .map(ToString::to_string);
-    if ctx.requires_sig && signature.is_none() {
-        ctx.dropped.insert(raw_id.clone(), args_text.clone());
-        ctx.dropped.insert(sanitize_tool_call_id(&raw_id), args_text);
-        return;
-    }
+        .map(ToString::to_string)
+        .or_else(|| {
+            if ctx.requires_sig && *is_first_tool_call {
+                Some(SKIP_THOUGHT_SIGNATURE.to_string())
+            } else {
+                None
+            }
+        });
+    *is_first_tool_call = false;
+
     parts.push(Part {
         function_call: Some(FunctionCall {
             name: call.function.name.to_string(),
@@ -287,22 +259,25 @@ fn convert_tool_call_part(call: &rig::message::ToolCall, ctx: &mut ConversionCon
     });
 }
 
-fn convert_assistant_content(content: &[AssistantContent], ctx: &mut ConversionContext<'_>) -> Vec<Part> {
+fn convert_assistant_content(content: &[AssistantContent], ctx: &ConversionContext<'_>) -> Vec<Part> {
     let mut parts = Vec::new();
+    let mut is_first_tool_call = true;
     for block in content {
         match block {
             AssistantContent::Text(text) if !text.text.trim().is_empty() => parts.push(part_text(text.text.clone())),
             AssistantContent::Reasoning(reasoning) => {
                 convert_reasoning_part(reasoning, &mut parts);
             }
-            AssistantContent::ToolCall(call) => convert_tool_call_part(call, ctx, &mut parts),
+            AssistantContent::ToolCall(call) => {
+                convert_tool_call_part(call, ctx, &mut is_first_tool_call, &mut parts);
+            }
             _ => {}
         }
     }
     parts
 }
 
-fn convert_turn_content(message: &Message, ctx: &mut ConversionContext<'_>, contents: &mut Vec<Content>) {
+fn convert_turn_content(message: &Message, ctx: &ConversionContext<'_>, contents: &mut Vec<Content>) {
     match message {
         Message::System { .. } => {}
         Message::User { content } => {
@@ -318,17 +293,16 @@ fn convert_turn_content(message: &Message, ctx: &mut ConversionContext<'_>, cont
 
 pub fn convert_contents(request: &CompletionRequest, runtime_model: &str) -> Vec<Content> {
     let mut contents: Vec<Content> = Vec::new();
-    let mut dropped = std::collections::HashMap::new();
     let requires_sig = gemini_requires_thought_signature(runtime_model);
     let call_ids = needs_function_call_id(runtime_model);
-    let mut ctx = ConversionContext {
-        dropped: &mut dropped,
+    let ctx = ConversionContext {
         requires_sig,
         call_ids,
+        _marker: std::marker::PhantomData,
     };
 
     for message in &request.chat_history {
-        convert_turn_content(message, &mut ctx, &mut contents);
+        convert_turn_content(message, &ctx, &mut contents);
     }
 
     if contents.first().is_some_and(|first| first.role == "model") {

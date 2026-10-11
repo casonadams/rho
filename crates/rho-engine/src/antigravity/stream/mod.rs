@@ -98,7 +98,7 @@ impl SseParser {
         (call, signature): (StreamFunctionCall, Option<String>),
         events: &mut SseEvents,
     ) {
-        let sig = signature.or_else(|| self.reasoning_signature.clone());
+        let sig = signature.or_else(|| self.reasoning_signature.take());
         self.close_reasoning();
         let sanitized = sanitize_tool_call_id(call.id.as_deref().unwrap_or_default());
         let id = if call.id.as_deref().is_some_and(|id| !id.is_empty()) {

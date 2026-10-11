@@ -75,19 +75,85 @@ fn sample_tool_history(sig: Option<String>) -> Vec<Message> {
 }
 
 #[test]
-fn unsigned_tool_calls_flatten_to_observations_on_gemini_3() {
+fn unsigned_tool_calls_bypass_sentinel_on_gemini_3() {
     let request = minimal_request(sample_tool_history(None));
     let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
     let contents = body["request"]["contents"].as_array().unwrap();
 
-    assert!(!body.to_string().contains("functionCall"));
-    let obs = contents[0]["parts"][1]["text"].as_str().unwrap();
-    assert!(obs.contains("[Observation from `read_file`") && obs.contains("file body"));
+    assert_eq!(contents[1]["parts"][0]["functionCall"]["name"], "read_file");
+    assert_eq!(
+        contents[1]["parts"][0]["thoughtSignature"],
+        "skip_thought_signature_validator"
+    );
+    assert_eq!(contents[2]["parts"][0]["functionResponse"]["name"], "read_file");
 
     let body_claude = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
     let contents_claude = body_claude["request"]["contents"].as_array().unwrap();
     assert_eq!(contents_claude[1]["parts"][0]["functionCall"]["name"], "read_file");
     assert_eq!(contents_claude[2]["parts"][0]["functionResponse"]["name"], "read_file");
+}
+
+#[test]
+fn parallel_tool_calls_omit_signature_on_secondary_calls() {
+    let call_id_1 = rig::message::CallId::from_wire("call_1");
+    let mut tool_call_1 = rig::message::ToolCall::new(
+        call_id_1.clone(),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("read_file").unwrap(),
+            serde_json::json!({"path": "a.rs"}),
+        ),
+    );
+    let item = serde_json::json!({ "signature": "c2lnbmF0dXJl" });
+    let fingerprint = rig::message::AssistantContent::ToolCall(tool_call_1.clone()).fingerprint();
+    tool_call_1.native = Some(rig::message::Native { item, fingerprint });
+
+    let call_id_2 = rig::message::CallId::from_wire("call_2");
+    let tool_call_2 = rig::message::ToolCall::new(
+        call_id_2.clone(),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("grep").unwrap(),
+            serde_json::json!({"pattern": "fn"}),
+        ),
+    );
+
+    let messages = vec![
+        rig::message::Message::user("do search"),
+        rig::message::Message::Assistant(rig::message::AssistantMessage::new(vec![
+            rig::message::AssistantContent::ToolCall(tool_call_1),
+            rig::message::AssistantContent::ToolCall(tool_call_2),
+        ])),
+        rig::message::Message::User {
+            content: vec![
+                rig::message::UserContent::ToolResult(rig::message::ToolResult {
+                    call: call_id_1,
+                    name: rig::message::ToolName::new("read_file").unwrap(),
+                    content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new("code"))],
+                    is_error: false,
+                }),
+                rig::message::UserContent::ToolResult(rig::message::ToolResult {
+                    call: call_id_2,
+                    name: rig::message::ToolName::new("grep").unwrap(),
+                    content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new("match"))],
+                    is_error: false,
+                }),
+            ],
+        },
+    ];
+    let request = minimal_request(messages);
+    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+    let contents = body["request"]["contents"].as_array().unwrap();
+
+    let model_parts = contents[1]["parts"].as_array().unwrap();
+    assert_eq!(model_parts.len(), 2);
+    assert_eq!(model_parts[0]["functionCall"]["name"], "read_file");
+    assert_eq!(model_parts[0]["thoughtSignature"], "c2lnbmF0dXJl");
+    assert_eq!(model_parts[1]["functionCall"]["name"], "grep");
+    assert!(model_parts[1].get("thoughtSignature").is_none());
+
+    let user_parts = contents[2]["parts"].as_array().unwrap();
+    assert_eq!(user_parts.len(), 2);
+    assert_eq!(user_parts[0]["functionResponse"]["name"], "read_file");
+    assert_eq!(user_parts[1]["functionResponse"]["name"], "grep");
 }
 
 #[test]
@@ -167,36 +233,23 @@ fn sample_image_tool_history() -> Vec<Message> {
 }
 
 #[test]
-fn tool_result_with_image_claude_response() {
-    let request = minimal_request(sample_image_tool_history());
-    let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
-    let contents = body["request"]["contents"].as_array().unwrap();
-    let fn_resp = &contents[2]["parts"][0]["functionResponse"];
-    assert_eq!(fn_resp["name"], "read");
-    let parts = fn_resp["parts"].as_array().unwrap();
-    assert_eq!(
-        (
-            parts.len(),
-            parts[0]["inlineData"]["mimeType"].as_str(),
-            parts[0]["inlineData"]["data"].as_str()
-        ),
-        (1, Some("image/png"), Some("iVBORw0KGgo="))
-    );
-}
-
-#[test]
-fn tool_result_with_image_gemini_observation() {
-    let request = minimal_request(sample_image_tool_history());
-    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
-    let parts = body["request"]["contents"][0]["parts"].as_array().unwrap();
-    assert_eq!(parts.len(), 3);
-    assert_eq!(
-        (
-            parts[2]["inlineData"]["mimeType"].as_str(),
-            parts[2]["inlineData"]["data"].as_str()
-        ),
-        (Some("image/png"), Some("iVBORw0KGgo="))
-    );
+fn tool_result_with_image_multimodal_response() {
+    for model in ["claude-sonnet-4-6", "gemini-3.8-flash-low"] {
+        let request = minimal_request(sample_image_tool_history());
+        let body = build_request_body(target("p", model), &request, &envelope()).unwrap();
+        let contents = body["request"]["contents"].as_array().unwrap();
+        let fn_resp = &contents[2]["parts"][0]["functionResponse"];
+        assert_eq!(fn_resp["name"], "read");
+        let parts = fn_resp["parts"].as_array().unwrap();
+        assert_eq!(
+            (
+                parts.len(),
+                parts[0]["inlineData"]["mimeType"].as_str(),
+                parts[0]["inlineData"]["data"].as_str()
+            ),
+            (1, Some("image/png"), Some("iVBORw0KGgo="))
+        );
+    }
 }
 
 #[test]

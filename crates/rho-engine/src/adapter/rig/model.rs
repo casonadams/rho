@@ -67,6 +67,7 @@ pub struct AdapterDecoder<'id> {
     next_index: usize,
     text_index: Option<usize>,
     reasoning_index: Option<usize>,
+    has_tool_calls: bool,
     _phantom: std::marker::PhantomData<&'id ()>,
 }
 impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
@@ -120,6 +121,7 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
                 arguments,
                 signature,
             } => {
+                self.has_tool_calls = true;
                 let tool_name = ToolName::new(name).map_err(|e| ProviderError::Provider(e.to_string()))?;
                 let idx = self.next_index;
                 self.next_index += 1;
@@ -139,14 +141,33 @@ impl<'id> Decoder<'id, Completion, AdapterFrame> for AdapterDecoder<'id> {
             }
             AdapterFrame::Done { usage } => {
                 out.finish_open()?;
+                let reason = if self.has_tool_calls {
+                    rig::completion::FinishReason::ToolCalls
+                } else {
+                    rig::completion::FinishReason::Stop
+                };
                 return Ok(out.end(Finish {
                     usage,
-                    reason: Some(rig::completion::FinishReason::Stop),
+                    reason: Some(reason),
                     ..Finish::default()
                 }));
             }
         }
         Ok(Flow::More)
+    }
+
+    fn eof(&mut self, mut out: Out<'id, Completion>) -> Result<Flow, ProviderError> {
+        out.finish_open()?;
+        let reason = if self.has_tool_calls {
+            rig::completion::FinishReason::ToolCalls
+        } else {
+            rig::completion::FinishReason::Stop
+        };
+        Ok(out.end(Finish {
+            usage: Usage::new(),
+            reason: Some(reason),
+            ..Finish::default()
+        }))
     }
 }
 
