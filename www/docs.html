@@ -227,18 +227,27 @@ rho update</code></pre>
 
       <img src="assets/chat.svg" alt="rho streaming assistant turn with collapsible reasoning block" class="doc-screenshot" width="960" height="620">
 
-      <h2 id="built-in-tools">8 Built-in Native Tools</h2>
+      <h2 id="built-in-tools">10 Built-in Native Tools</h2>
       <p>
-        rho includes 8 fast, native tools designed specifically for coding agents:
+        rho includes 10 fast, native tools designed specifically for coding agents:
       </p>
 
       <ul>
-        <li><strong><code>read</code></strong>: Safe file inspection with line numbers, chunk offsets, limit bounds, and image sniffing.</li>
+        <li><strong><code>read</code></strong>: Safe file inspection with line numbers, chunk offsets, limit bounds, image sniffing, and universal Virtual File System (VFS) schemes:
+          <ul>
+            <li><code>diff://staged</code>: Git staged diff changes.</li>
+            <li><code>diff://workdir</code>: Working directory unstaged diff changes.</li>
+            <li><code>conflict://&lt;path&gt;</code>: Structured three-way merge conflict blocks (ours, theirs, ancestor).</li>
+            <li><code>pr://&lt;number&gt;</code>: GitHub PR metadata, descriptions, comments, and unified patch review.</li>
+          </ul>
+        </li>
         <li><strong><code>write</code></strong>: Creates or overwrites files with automatic missing directory creation.</li>
         <li><strong><code>edit</code></strong>: Targeted, exact text replacements verifying strict single-match semantics.</li>
         <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization.</li>
         <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching.</li>
         <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines.</li>
+        <li><strong><code>subagent</code></strong>: Spawns isolated subagents with specialized roles (<code>scout</code>, <code>critic</code>, <code>planner</code>, <code>general</code>) to perform focused discovery and review without parent context bloat.</li>
+        <li><strong><code>lsp</code></strong>: Query Language Server Protocol servers for compiler diagnostics, symbol definitions, cross-file references, document symbols, and rename diff previews without invoking slow external builds.</li>
         <li><strong><code>web_search</code></strong>: Live web searching with domain filters and structured summaries.</li>
         <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, feeds, or images from URLs. Includes specialized extractors for GitHub, YouTube transcripts, and Gemini multimodal analysis for visual charts, diagrams, and scanned PDFs.</li>
       </ul>
@@ -585,6 +594,36 @@ rho config models.guard none</code></pre>
         <li><strong>Peer Attribution &amp; Prompt Synchronization:</strong> Machine hostnames are securely exchanged during handshake. Submitting a prompt renders formatted user prompt cards on all screens simultaneously, with author attribution notices displayed on the host.</li>
         <li><strong>Live Footer Metrics &amp; Activity:</strong> The guest footer continuously mirrors the active model, provider, token counts, velocity, context percent, and quota, transitioning seamlessly between working and idle states with turn execution.</li>
       </ul>
+
+      <h2 id="agent-mesh">Sovereign Agent Mesh: Peer-to-Peer Task Delegation</h2>
+      <p>
+        <code>rho agent</code> enables secure, distributed subagent execution across autonomous machines over end-to-end encrypted <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh</a> QUIC streams (ALPN <code>rho/agent/task/v1</code>).
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Starting an Agent Worker Node</span>
+          <button class="copy-btn" data-copy="rho agent serve --cap read_only">Copy</button>
+        </div>
+        <pre><code>rho agent serve --cap read_only</code></pre>
+      </div>
+
+      <p>
+        The worker generates cryptographic capability tickets (<code>rho-agent://</code>) enforcing strict execution invariants:
+      </p>
+      <ul>
+        <li><strong><code>read_only</code>:</strong> Allows non-mutating discovery tools (<code>read</code>, <code>fd</code>, <code>rg</code>, <code>lsp</code>, <code>web_search</code>, <code>web_fetch</code>). The worker strictly refuses to invoke mutating tools (<code>write</code>, <code>edit</code>, <code>bash</code>) even if prompted by the model.</li>
+        <li><strong><code>propose</code>:</strong> Allows inspecting code and generating diffs/edits, but prohibits arbitrary shell execution (<code>bash</code>).</li>
+        <li><strong><code>full</code>:</strong> Full access within the local sandbox environment.</li>
+      </ul>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Delegating a Task to a Remote Worker</span>
+          <button class="copy-btn" data-copy="rho agent run &quot;rho-agent://...&quot; &quot;Locate all struct definitions&quot; --role scout">Copy</button>
+        </div>
+        <pre><code>rho agent run "rho-agent://&lt;node_id&gt;?cap=read_only#&lt;secret&gt;" "Locate all struct definitions" --role scout</code></pre>
+      </div>
 
       <h2 id="rpc-mode">Headless &amp; IDE RPC Server Mode</h2>
       <p>

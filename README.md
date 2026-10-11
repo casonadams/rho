@@ -35,10 +35,11 @@ rho --resume-picker
 
 ## Built-in Tools
 
-`rho` includes 8 fast, native tools designed for coding agents:
+`rho` includes 10 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
-  safeguards. Supports image sniffing and downscaling.
+  safeguards. Supports universal virtual file system schemes (`diff://staged`,
+  `diff://workdir`, `conflict://`, `pr://<number>`), image sniffing, and downscaling.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
 - **`edit`**: Apply targeted, exact text replacements to files.
@@ -48,6 +49,12 @@ rho --resume-picker
   matching.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files, and bounds output.
+- **`subagent`**: Spawn isolated subagents with specialized roles (`scout`, `critic`,
+  `planner`, `general`) to perform focused research, trade-off analysis, or code review
+  without parent context bloat.
+- **`lsp`**: Query Language Server Protocol servers for compiler diagnostics,
+  symbol definitions, cross-file references, document symbols, and rename diff previews
+  without invoking slow external shell build commands.
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo, Firecrawl).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs. Includes specialized extractors for GitHub (issues, PRs with
