@@ -85,20 +85,6 @@ impl fmt::Display for CollabTicket {
     }
 }
 
-fn parse_secret_fragment(fragment: &str) -> Result<[u8; 32], TicketError> {
-    let secret_bytes = URL_SAFE_NO_PAD
-        .decode(fragment)
-        .map_err(|_| TicketError::InvalidSecretBase64)?;
-
-    if secret_bytes.len() != 32 {
-        return Err(TicketError::InvalidSecretLength(secret_bytes.len()));
-    }
-
-    let mut secret = [0u8; 32];
-    secret.copy_from_slice(&secret_bytes);
-    Ok(secret)
-}
-
 fn parse_query_params(query: Option<&str>) -> Result<(Option<RelayUrl>, bool), TicketError> {
     let mut relay_url = None;
     let mut is_view_only = false;
@@ -126,32 +112,47 @@ fn parse_query_params(query: Option<&str>) -> Result<(Option<RelayUrl>, bool), T
     Ok((relay_url, is_view_only))
 }
 
+pub struct RawTicketParts<'a> {
+    pub endpoint_id: EndpointId,
+    pub query: Option<&'a str>,
+    pub secret: [u8; 32],
+}
+
+pub fn parse_ticket_uri<'a>(raw: &'a str, scheme: &str) -> Result<RawTicketParts<'a>, TicketError> {
+    let s = raw.trim();
+    let without_scheme = s.strip_prefix(scheme).ok_or(TicketError::InvalidScheme)?;
+    let (before_fragment, fragment) = without_scheme.split_once('#').ok_or(TicketError::MissingSecret)?;
+    let secret = crate::collab::crypto::decode_secret_32(fragment).map_err(|_| TicketError::InvalidSecretBase64)?;
+
+    let (endpoint_str, query) = match before_fragment.split_once('?') {
+        Some((h, q)) => (h, Some(q)),
+        None => (before_fragment, None),
+    };
+
+    if endpoint_str.is_empty() {
+        return Err(TicketError::MissingEndpointId);
+    }
+    let endpoint_id = EndpointId::from_str(endpoint_str).map_err(|e| TicketError::InvalidEndpointId(e.to_string()))?;
+
+    Ok(RawTicketParts {
+        endpoint_id,
+        query,
+        secret,
+    })
+}
+
 impl FromStr for CollabTicket {
     type Err = TicketError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.trim();
-        let without_scheme = s.strip_prefix("rho://").ok_or(TicketError::InvalidScheme)?;
-        let (before_fragment, fragment) = without_scheme.split_once('#').ok_or(TicketError::MissingSecret)?;
-        let secret = parse_secret_fragment(fragment)?;
-
-        let (host_str, query) = match before_fragment.split_once('?') {
-            Some((h, q)) => (h, Some(q)),
-            None => (before_fragment, None),
-        };
-
-        if host_str.is_empty() {
-            return Err(TicketError::MissingEndpointId);
-        }
-
-        let endpoint_id = EndpointId::from_str(host_str).map_err(|e| TicketError::InvalidEndpointId(e.to_string()))?;
-        let (relay_url, is_view_only) = parse_query_params(query)?;
+        let parts = parse_ticket_uri(s, "rho://")?;
+        let (relay_url, is_view_only) = parse_query_params(parts.query)?;
 
         Ok(Self {
-            endpoint_id,
+            endpoint_id: parts.endpoint_id,
             relay_url,
             is_view_only,
-            secret,
+            secret: parts.secret,
         })
     }
 }

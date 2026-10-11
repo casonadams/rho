@@ -50,7 +50,7 @@ impl CollabSecret {
         self.expand_sub_key(b"rho-collab-write-v1")
     }
 
-    fn expand_sub_key(&self, context: &[u8]) -> Result<[u8; 32], Unspecified> {
+    pub fn expand_sub_key(&self, context: &[u8]) -> Result<[u8; 32], Unspecified> {
         let salt = ring::hkdf::Salt::new(HKDF_SHA256, &[]);
         let prk = salt.extract(&self.seed);
         let mut out = [0u8; 32];
@@ -74,6 +74,18 @@ impl CollabSecret {
         let s_key = Key::new(HMAC_SHA256, key);
         ring::hmac::verify(&s_key, nonce, tag_bytes.as_slice()).is_ok()
     }
+}
+
+pub fn decode_secret_32(fragment: &str) -> Result<[u8; 32], Unspecified> {
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let bytes = URL_SAFE_NO_PAD.decode(fragment).map_err(|_| Unspecified)?;
+    if bytes.len() != 32 {
+        return Err(Unspecified);
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
 }
 
 #[cfg(test)]
