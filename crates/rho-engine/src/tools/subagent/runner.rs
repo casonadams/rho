@@ -112,10 +112,9 @@ fn single_tool_result_text(tr: &rig::message::ToolResult) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let snippet = if trimmed.len() > 300 {
-        format!("{}...", &trimmed[..300])
-    } else {
-        trimmed.to_string()
+    let snippet = match trimmed.char_indices().nth(300) {
+        Some((idx, _)) => format!("{}...", &trimmed[..idx]),
+        None => trimmed.to_string(),
     };
     Some(format!("{}: {snippet}", tr.name))
 }
@@ -248,5 +247,22 @@ mod tests {
 
         let empty_result = synthesize_budget_exhausted_result(8, &[]);
         assert!(empty_result.is_error);
+    }
+
+    #[test]
+    fn test_single_tool_result_text_safe_unicode_boundary() {
+        let mut text = "a".repeat(299);
+        text.push('\u{1F980}');
+        text.push_str("more text");
+        let name = rig::message::ToolName::new("read").unwrap();
+        let tr = rig::message::ToolResult {
+            call: rig::message::CallId::from_wire("call_1"),
+            name,
+            content: vec![rig::message::ToolResultContent::text(text)],
+            is_error: false,
+        };
+        let preview = single_tool_result_text(&tr).expect("has preview");
+        assert!(preview.starts_with("read: aaaaa"));
+        assert!(preview.ends_with("..."));
     }
 }
