@@ -41,6 +41,43 @@ pub enum Commands {
         #[command(subcommand)]
         action: CollabCommands,
     },
+    /// Manage sovereign agent peer mesh execution
+    Agent {
+        #[command(subcommand)]
+        action: AgentCommands,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum AgentCommands {
+    /// Serve subagent tasks over P2P mesh
+    Serve {
+        /// Capability level granted to joining peers: read_only, propose, full
+        #[arg(long, default_value = "read_only")]
+        cap: String,
+        /// Optional Iroh relay URL
+        #[arg(long)]
+        relay: Option<String>,
+        /// Optional bind address (e.g. 127.0.0.1:0 for testing)
+        #[arg(long)]
+        bind: Option<String>,
+    },
+    /// Delegate execution to a remote agent worker node
+    Run {
+        /// Ticket URI (rho-agent://...)
+        ticket: String,
+        /// Prompt or task instructions for the remote agent
+        prompt: String,
+        /// Context slice or initial file snippet
+        #[arg(long)]
+        context: Option<String>,
+        /// Subagent role: scout, critic, planner, general
+        #[arg(long)]
+        role: Option<String>,
+        /// Maximum turn limit
+        #[arg(long)]
+        max_turns: Option<usize>,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

@@ -50,6 +50,7 @@ memchr = "2"
 streaming-iterator = "0.1"
 toml.workspace = true
 toml_edit.workspace = true
+iroh.workspace = true
 
 [features]
 default = []

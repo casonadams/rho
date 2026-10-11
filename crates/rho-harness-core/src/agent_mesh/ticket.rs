@@ -3,12 +3,14 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use iroh::{EndpointId, RelayUrl};
 use std::fmt;
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTicket {
     pub endpoint_id: EndpointId,
     pub relay_url: Option<RelayUrl>,
+    pub direct_addr: Option<SocketAddr>,
     pub capability: AgentCapability,
     pub secret: [u8; 32],
 }
@@ -44,9 +46,16 @@ impl AgentTicket {
         Self {
             endpoint_id,
             relay_url,
+            direct_addr: None,
             capability,
             secret,
         }
+    }
+
+    #[must_use]
+    pub fn with_direct_addr(mut self, addr: SocketAddr) -> Self {
+        self.direct_addr = Some(addr);
+        self
     }
 
     pub fn parse(s: &str) -> Result<Self, AgentTicketError> {
@@ -55,10 +64,14 @@ impl AgentTicket {
 
     #[must_use]
     pub fn to_endpoint_addr(&self) -> iroh::EndpointAddr {
-        match &self.relay_url {
-            Some(relay) => iroh::EndpointAddr::new(self.endpoint_id).with_relay_url(relay.clone()),
-            None => iroh::EndpointAddr::new(self.endpoint_id),
+        let mut addr = iroh::EndpointAddr::new(self.endpoint_id);
+        if let Some(ref relay) = self.relay_url {
+            addr = addr.with_relay_url(relay.clone());
         }
+        if let Some(direct) = self.direct_addr {
+            addr = addr.with_ip_addr(direct);
+        }
+        addr
     }
 
     #[must_use]
@@ -69,8 +82,13 @@ impl AgentTicket {
             .as_ref()
             .map(|r| format!("&relay={r}"))
             .unwrap_or_default();
+        let direct_part = self
+            .direct_addr
+            .as_ref()
+            .map(|d| format!("&direct={d}"))
+            .unwrap_or_default();
         format!(
-            "rho-agent://{}?cap={}{relay_part}#{b64}",
+            "rho-agent://{}?cap={}{relay_part}{direct_part}#{b64}",
             self.endpoint_id, self.capability
         )
     }
@@ -82,9 +100,12 @@ impl fmt::Display for AgentTicket {
     }
 }
 
-fn parse_ticket_query(query_str: &str) -> Result<(AgentCapability, Option<RelayUrl>), AgentTicketError> {
+fn parse_ticket_query(
+    query_str: &str,
+) -> Result<(AgentCapability, Option<RelayUrl>, Option<SocketAddr>), AgentTicketError> {
     let mut capability = None;
     let mut relay_url = None;
+    let mut direct_addr = None;
 
     for part in query_str.split('&') {
         if let Some(val) = part.strip_prefix("cap=") {
@@ -94,11 +115,15 @@ fn parse_ticket_query(query_str: &str) -> Result<(AgentCapability, Option<RelayU
         } else if let Some(val) = part.strip_prefix("relay=") {
             let url = RelayUrl::from_str(val).map_err(|e| AgentTicketError::InvalidRelayUrl(e.to_string()))?;
             relay_url = Some(url);
+        } else if let Some(val) = part.strip_prefix("direct=")
+            && let Ok(addr) = val.parse::<SocketAddr>()
+        {
+            direct_addr = Some(addr);
         }
     }
 
     let cap = capability.ok_or_else(|| AgentTicketError::InvalidCapability("missing cap parameter".into()))?;
-    Ok((cap, relay_url))
+    Ok((cap, relay_url, direct_addr))
 }
 
 impl From<crate::collab::ticket::TicketError> for AgentTicketError {
@@ -123,8 +148,12 @@ impl FromStr for AgentTicket {
         let query_str = parts
             .query
             .ok_or_else(|| AgentTicketError::InvalidCapability("missing query parameters".into()))?;
-        let (capability, relay_url) = parse_ticket_query(query_str)?;
-        Ok(Self::new(parts.endpoint_id, relay_url, capability, parts.secret))
+        let (capability, relay_url, direct_addr) = parse_ticket_query(query_str)?;
+        let mut ticket = Self::new(parts.endpoint_id, relay_url, capability, parts.secret);
+        if let Some(direct) = direct_addr {
+            ticket = ticket.with_direct_addr(direct);
+        }
+        Ok(ticket)
     }
 }
 

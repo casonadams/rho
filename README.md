@@ -104,6 +104,12 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Full interactive TUI for guests: alternate-screen rendering, markdown token streaming, styled tool cards, and snapshot transcript hydration.
   - Shared interactive tool approval synchronization across terminals via in-TUI confirmation modals.
 
+- **Sovereign Agent Mesh (Peer-to-Peer Task Delegation)**
+  - Delegate autonomous subagent tasks across sovereign peer nodes over end-to-end encrypted Iroh QUIC streams.
+  - Cryptographic capability tickets (`rho-agent://`) enforcing strict sandbox invariants: `read_only` (read/lsp/search only), `propose` (file diffs/edits without shell), or `full` access.
+  - Start a worker node with `rho agent serve --cap <read_only|propose|full>`.
+  - Delegate tasks from any terminal with `rho agent run <ticket> "<prompt>"`.
+
 ---
 
 ## Privacy & Zero Telemetry

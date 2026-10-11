@@ -4,6 +4,7 @@ pub mod ticket;
 pub mod types;
 
 pub use crypto::AgentSecret;
+pub use iroh::RelayUrl;
 pub use protocol::{
     AgentHandshakeAck, AgentHandshakeChallenge, AgentHandshakeMessage, AgentHandshakeResponse, enforce_tool_permission,
     perform_client_handshake, perform_worker_handshake,

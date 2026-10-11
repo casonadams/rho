@@ -3974,6 +3974,7 @@ dependencies = [
  "http",
  "ignore",
  "image",
+ "iroh",
  "libc",
  "memchr",
  "moka",

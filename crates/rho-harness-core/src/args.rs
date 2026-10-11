@@ -195,6 +195,26 @@ impl SubagentRole {
     }
 }
 
+impl std::str::FromStr for SubagentRole {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let norm = s.trim().to_ascii_lowercase();
+        const ROLES: [(&str, SubagentRole); 4] = [
+            ("scout", SubagentRole::Scout),
+            ("critic", SubagentRole::Critic),
+            ("planner", SubagentRole::Planner),
+            ("general", SubagentRole::General),
+        ];
+        for (name, role) in ROLES {
+            if name == norm {
+                return Ok(role);
+            }
+        }
+        Err(format!("unknown subagent role: '{s}'"))
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SubagentArgs {
     /// Role profile for the subagent ('scout', 'critic', 'planner', 'general')

@@ -1,6 +1,7 @@
 //! CLI subcommand routing: `run`/`auth`/`mcp`/`update`/`rpc` dispatch, credential
 //! flows, self-update, and process cleanup guards.
 
+pub mod agent;
 pub mod auth;
 pub mod collab;
 mod commands;

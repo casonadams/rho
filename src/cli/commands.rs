@@ -56,6 +56,7 @@ pub async fn handle_command(
                 super::collab::run_guest_client(&ticket).await?;
             }
         },
+        Commands::Agent { action } => super::agent::handle_agent(action, config, auth_store).await?,
         _ => {}
     }
     Ok(())
