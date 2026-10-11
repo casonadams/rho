@@ -10,6 +10,7 @@ Available tools:
 - web_search: Search the web and return structured summaries and URLs
 - web_fetch: Fetch and extract clean text or markdown from URLs
 - subagent: Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')
+- lsp: Query Language Server Protocol for diagnostics, definitions, references, document symbols, and renames
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

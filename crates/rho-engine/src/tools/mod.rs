@@ -28,10 +28,11 @@ pub use builtin_tools::{
 pub use edit::{EditArgs, EditTool};
 pub use engine_tool::EngineTool;
 pub use fd::{FdArgs, FdSort, FdTool};
+pub use lsp::LspTool;
 pub use read::{ReadArgs, ReadTool};
 pub use registry::ToolRegistry;
 pub use rg::{RgArgs, RgTool};
-pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
+pub use rho_harness_core::args::{LspArgs, WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
 pub use types::{ToolResult, generated_schema, normalize_schema};

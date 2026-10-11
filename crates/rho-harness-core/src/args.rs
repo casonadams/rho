@@ -207,6 +207,24 @@ pub struct SubagentArgs {
     pub max_turns: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LspArgs {
+    /// LSP operation to perform: 'diagnostics', 'definition', 'references', 'symbols', 'rename', or 'detect'
+    pub operation: String,
+    /// Path to target file
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Line number (1-indexed)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    /// Character column (1-indexed)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character: Option<usize>,
+    /// Target new name for rename operation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+}
+
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};
@@ -234,6 +252,9 @@ pub mod write {
 }
 pub mod subagent {
     pub use super::{SubagentArgs, SubagentRole};
+}
+pub mod lsp {
+    pub use super::LspArgs;
 }
 
 #[cfg(test)]
@@ -267,5 +288,20 @@ mod tests {
 
         let serialized = serde_json::to_string(&parsed).expect("can serialize");
         assert!(serialized.contains(r#""role":"scout""#));
+    }
+
+    #[test]
+    fn test_lsp_args_roundtrip() {
+        let args = LspArgs {
+            operation: "rename".to_string(),
+            path: Some("lib.rs".to_string()),
+            line: Some(42),
+            character: Some(7),
+            new_name: Some("renamed_sym".to_string()),
+        };
+        let encoded = serde_json::to_string(&args).expect("serialize");
+        let decoded: LspArgs = serde_json::from_str(&encoded).expect("deserialize");
+        assert_eq!(decoded.operation, "rename");
+        assert_eq!(decoded.new_name.as_deref(), Some("renamed_sym"));
     }
 }

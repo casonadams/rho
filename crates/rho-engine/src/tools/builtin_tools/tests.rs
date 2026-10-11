@@ -5,7 +5,7 @@ fn builtin_tools_build_successfully() {
     let root = std::env::temp_dir();
     let config = Config::default();
     let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 10);
     let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     for expected in [
         "read",
@@ -14,6 +14,7 @@ fn builtin_tools_build_successfully() {
         "bash",
         "fd",
         "rg",
+        "lsp",
         "web_search",
         "web_fetch",
         "subagent",
@@ -28,7 +29,7 @@ fn builtin_tools_omits_web_search_when_disabled() {
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
     let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 9);
     let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     assert!(!names.contains(&"web_search"));
     assert!(names.contains(&"web_fetch"));
@@ -40,7 +41,7 @@ fn builtin_tools_omits_web_fetch_when_disabled() {
     let mut config = Config::default();
     config.tools.web.fetch.enabled = false;
     let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 9);
     let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     assert!(names.contains(&"web_search"));
     assert!(!names.contains(&"web_fetch"));
@@ -53,7 +54,7 @@ fn builtin_tools_omits_both_web_tools_when_disabled() {
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
     let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 7);
+    assert_eq!(tools.len(), 8);
     let names: Vec<_> = tools.iter().map(|t| t.name().as_str()).collect();
     assert!(!names.contains(&"web_search"));
     assert!(!names.contains(&"web_fetch"));
@@ -64,7 +65,7 @@ fn native_builtin_tools_build_successfully() {
     let root = std::env::temp_dir();
     let config = Config::default();
     let tools = build_native_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 10);
     let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
     for expected in [
         "read",
@@ -73,6 +74,7 @@ fn native_builtin_tools_build_successfully() {
         "bash",
         "fd",
         "rg",
+        "lsp",
         "web_search",
         "web_fetch",
         "subagent",
@@ -88,5 +90,5 @@ fn native_builtin_tools_omits_web_when_disabled() {
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
     let tools = build_native_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 7);
+    assert_eq!(tools.len(), 8);
 }

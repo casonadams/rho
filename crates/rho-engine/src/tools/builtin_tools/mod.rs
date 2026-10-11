@@ -3,14 +3,15 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG,
-    PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_LSP,
+    PROMPT_READ, PROMPT_RG, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
 use crate::adapter::rig::tools::into_dynamic_result;
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::fd::FdTool;
+use crate::tools::lsp::LspTool;
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::rg::RgTool;
 use crate::tools::types::{ToolResult, generated_schema};
@@ -18,7 +19,7 @@ use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_harness_core::args::{FdArgs, RgArgs, WebFetchArgs, WebSearchArgs};
+use rho_harness_core::args::{FdArgs, LspArgs, RgArgs, WebFetchArgs, WebSearchArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rig::tool::{DynamicTool, ToolContext};
@@ -192,6 +193,7 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
     let bash = Arc::new(BashTool::new(base_dir));
     let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
     let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
+    let lsp = Arc::new(LspTool::new(base_dir));
 
     vec![
         read as Arc<dyn crate::tools::EngineTool>,
@@ -200,6 +202,7 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
         bash as Arc<dyn crate::tools::EngineTool>,
         fd as Arc<dyn crate::tools::EngineTool>,
         rg as Arc<dyn crate::tools::EngineTool>,
+        lsp as Arc<dyn crate::tools::EngineTool>,
     ]
 }
 
@@ -260,6 +263,15 @@ fn build_workspace_tools(base_dir: &Path, _config: &Config) -> Vec<DynamicTool> 
     let bash = Arc::new(BashTool::new(base_dir));
     let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
     let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
+    let lsp = Arc::new(LspTool::new(base_dir));
+    let lsp_dyn = dynamic_tool(
+        "lsp",
+        "Language Server Protocol tool for querying diagnostics, symbol definitions, references, document symbols, and renames.",
+        move |_ctx, args: LspArgs| {
+            let l = Arc::clone(&lsp);
+            async move { l.execute_lsp(args).await }
+        },
+    );
 
     vec![
         make_read_tool(read),
@@ -268,6 +280,7 @@ fn build_workspace_tools(base_dir: &Path, _config: &Config) -> Vec<DynamicTool> 
         make_bash_tool(bash),
         make_fd_tool(fd),
         make_rg_tool(rg),
+        lsp_dyn,
     ]
 }
 
