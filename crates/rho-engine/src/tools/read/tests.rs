@@ -384,3 +384,85 @@ async fn test_read_skill_full_content_on_first_read() {
     assert!(res_page2.content.contains("line 20"));
     assert!(!res_page2.content.contains("line 21"));
 }
+
+#[tokio::test]
+async fn test_read_tool_vfs_diff_staged_and_hunks() {
+    let tool = ReadTool::new(std::env::current_dir().unwrap());
+    let diff_staged = tool
+        .execute(ReadArgs {
+            path: "diff://staged".into(),
+            offset: None,
+            limit: Some(10),
+        })
+        .await
+        .unwrap();
+    assert!(!diff_staged.is_error);
+
+    let conflict_check = tool
+        .execute(ReadArgs {
+            path: "conflict://".into(),
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert!(!conflict_check.is_error);
+
+    let raw_conflict = "<<<<<<< HEAD\nalpha\n=======\nbeta\n>>>>>>> incoming\n";
+    let extracted = super::vfs::extract_conflict_hunks(raw_conflict);
+    assert!(extracted.contains("Conflict Hunk #1"));
+    assert!(extracted.contains("[OURS]"));
+    assert!(extracted.contains("alpha"));
+    assert!(extracted.contains("[THEIRS]"));
+    assert!(extracted.contains("beta"));
+
+    let gh_res = tool
+        .execute(ReadArgs {
+            path: "pr://102".into(),
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert!(!gh_res.is_error);
+
+    let gh_diff = tool
+        .execute(ReadArgs {
+            path: "pr://102/diff".into(),
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert!(!gh_diff.is_error);
+
+    let issue_res = tool
+        .execute(ReadArgs {
+            path: "issue://42".into(),
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert!(!issue_res.is_error);
+
+    let explicit_gh = tool
+        .execute(ReadArgs {
+            path: "gh://owner/repo/pull/55".into(),
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+    assert!(!explicit_gh.is_error);
+
+    assert_eq!(
+        super::vfs::parse_github_remote("git@github.com:casonadams/rho.git"),
+        Some(("casonadams".into(), "rho".into()))
+    );
+    assert_eq!(
+        super::vfs::parse_github_remote("https://github.com/casonadams/rho"),
+        Some(("casonadams".into(), "rho".into()))
+    );
+    assert!(super::vfs::parse_github_remote("https://gitlab.com/foo/bar").is_none());
+}
