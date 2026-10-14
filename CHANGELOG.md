@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.12.1](https://github.com/casonadams/rho/compare/v0.12.0...v0.12.1) (2026-10-14)
+
+
+### Features
+
+* **config:** add role-based model routing presets and flags ([aea7851](https://github.com/casonadams/rho/commit/aea78510ab0fd9b5dadecb812fba6428f39df897))
+* **engine:** add systemone decision provider and language server protocol tool ([151da1b](https://github.com/casonadams/rho/commit/151da1b74a7958ed273a546adfa9edb6232b352b))
+* **engine:** add time-traveling stream rules and terminal session recording ([137f46b](https://github.com/casonadams/rho/commit/137f46b08ebf3a6643a93d9f48640ca9cc00def5))
+* **engine:** preserve reasoning signatures and add react loop guidelines ([e0f1be1](https://github.com/casonadams/rho/commit/e0f1be12d47f78b96cc529e096444714b59c6518))
+* **lsp:** implement native language server protocol tool and lifecycle manager ([e7e7f9b](https://github.com/casonadams/rho/commit/e7e7f9bc208cfb1c51095ec92be163ebaedbec1a))
+* **mesh:** implement remote agent peer execution and cli workflows (rho agent) ([a718be0](https://github.com/casonadams/rho/commit/a718be08d48315e5530fdf3551959774aae55448))
+* **mesh:** implement sovereign agent protocol, capability mesh, and agent tickets ([f6b0899](https://github.com/casonadams/rho/commit/f6b0899f1ab45a4ea3a82b303067e6c73da43ed2))
+* **models:** add claude 5.5 series, mythos 5.1, and gpt-6.1-sol ([ea19947](https://github.com/casonadams/rho/commit/ea19947f4a3f15370643f5c21cf41f46a2642803))
+* **models:** add dedicated models menu with judge precedence over guard ([15e3409](https://github.com/casonadams/rho/commit/15e3409f3007e27922b543c24130c4219ea1ca64))
+* **models:** add gemini-4-argon models and upgrade merman to 0.9.0 ([9d2d08a](https://github.com/casonadams/rho/commit/9d2d08a1f47cd23bcedebc0394c7a989ff365102))
+* **permission:** surface evaluator attribution in permission prompts ([e7c4ce6](https://github.com/casonadams/rho/commit/e7c4ce6632587aaacf181fdc9d89e387580dd694))
+* **prompt:** steer model to prefer specialized MCP tools over bash ([090e75a](https://github.com/casonadams/rho/commit/090e75aa200dcda922fa969af23e70f61f87ac1c))
+* **repl:** support inline ghost-text prediction and right-arrow acceptance ([091389e](https://github.com/casonadams/rho/commit/091389e4c1fc93b396c78255bf0bb2b97cf8751d))
+* **repl:** support mid-prompt skill completion, range replacement, and directory chaining ([deb8c14](https://github.com/casonadams/rho/commit/deb8c14a830b0ea5009f8c899a55c1fb46c4b0a3))
+* **routing:** add decision-model tier routing and route command ([e609886](https://github.com/casonadams/rho/commit/e6098868290039e5cbf6ec3dd9f4dd0958049f0f))
+* **settings:** preserve modal stack and update model selections in-place ([5df6076](https://github.com/casonadams/rho/commit/5df607618622232bff3b25b836f8e7e9538b1c23))
+* **subagent:** add budget awareness and recovery synthesis on exhaustion ([942176c](https://github.com/casonadams/rho/commit/942176c1619fd521c21e821b092bde4e09743f38))
+* **subagent:** add subagent role definitions, args, and tool catalog declaration ([d949a06](https://github.com/casonadams/rho/commit/d949a0612dc6f94cb8367938844c4be9a406d050))
+* **subagent:** implement isolated subagent execution loop and engine tool ([e9a26fc](https://github.com/casonadams/rho/commit/e9a26fc5ce2c1907fa14404cf84f2d1c0e387a60))
+* **tools:** add universal virtual uri schemes to read tool ([19118b7](https://github.com/casonadams/rho/commit/19118b713b9c4dfb1e00ac6fe65f9df3012d1743))
+* **tools:** implement hashline content-hashed patch editing mode ([50d2bc0](https://github.com/casonadams/rho/commit/50d2bc0f69dc66dcf845f56923a7387af3e6f96c))
+* **tui:** expose role models and tool features in settings modal ([598125b](https://github.com/casonadams/rho/commit/598125bde774bc8ef0ac66896ccc16fd0693fdeb))
+* **ui:** add ghost text rendering and acceptance in interactive editor ([124c908](https://github.com/casonadams/rho/commit/124c908cd34037915df28d41df8eedc79c92d13a))
+* **ui:** track replacement range in AutocompleteItem and add set_text_with_cursor ([0b2f283](https://github.com/casonadams/rho/commit/0b2f2832442eec3e79bd72607697b42b87dfa81f))
+* **vfs:** add universal schemes for diff, conflict, and pr context in read ([48d8a7f](https://github.com/casonadams/rho/commit/48d8a7f1e4ecb93f29bbe75c308c231269e87a53))
+
+
+### Bug Fixes
+
+* **antigravity:** preserve parallel tool calls and handle unsigned-first sentinel ([2feaa7e](https://github.com/casonadams/rho/commit/2feaa7e9dd664b18abc35582ddb6e7cc6fae4ab7))
+* **engine:** preserve tool call thought signature in SSE stream to prevent loop ([529aa88](https://github.com/casonadams/rho/commit/529aa88b0148de96227791d49c1af1340d853018))
+* **permission:** resolve merge conflicts and align settings modal tests ([454fdac](https://github.com/casonadams/rho/commit/454fdace52a985717f6318efd6b0be287eb7d7dd))
+* **read:** reduce CRAP score on parse_gh_target and prevent gh cli network invocation in tests ([0d04463](https://github.com/casonadams/rho/commit/0d044632d02930eebd7f2d7c834183a944c2bb05))
+* **skills:** load full skill content on first read without line limit ([9311e35](https://github.com/casonadams/rho/commit/9311e353bd4f463c7fa0badde2eedf350a5da60c))
+* **subagent:** avoid panic on multibyte utf8 char boundary during tool result truncation ([3d40cc5](https://github.com/casonadams/rho/commit/3d40cc5b5d65099a94adf9d68856e7c73a5ccd9f))
+* **subagent:** synthesize gathered findings on turn budget exhaustion instead of failing ([55311f7](https://github.com/casonadams/rho/commit/55311f7380e09674f96ea2dca8af9e56ad5e7bb0))
+
+
+### Performance Improvements
+
+* **session:** optimize JSONL session loading with zero-allocation line parser ([d6127db](https://github.com/casonadams/rho/commit/d6127db4c903631a26332508d5566f2891af5090))
+
 ## [0.12.0](https://github.com/casonadams/rho/compare/v0.11.0...v0.12.0) (2026-10-03)
 
 
