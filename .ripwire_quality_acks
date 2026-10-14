@@ -28,6 +28,7 @@ ack dead-code:new-symbol f5d5dceb92fd23b3 0 cid=e63f34d0f06b0e38 now=0 was=0 p=c
 ack dead-code:new-symbol f87b7ba24d599872 0 cid=d1090cfc04102252 now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:154 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol f8d2e1fb2645a08d 0 cid=1f5e619ad9d38341 now=0 was=0 p=crates/rho-engine/src/mcp/search.rs:598 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:preexisting 515cbaf314fd217c 0 cid=bbef482a9d2cd996 now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:81 fix(settings): preserve modal stack and refresh model descriptions
+ack dead-code:preexisting 6358dea207ea1108 0 cid=0e1688a86ff6598f now=0 was=0 p=crates/rho-harness-core/src/args.rs:180 fix(subagent): recovery synthesis on budget exhaustion and pacing guidance
 ack dead-code:preexisting 658dfa752c39d24e 0 cid=926151db5b8328bd now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:92 fix(settings): preserve modal stack and refresh model descriptions
 ack dead-code:preexisting f2bc705397ef94ee 0 cid=bd25cfbf1a40c450 now=0 was=0 p=crates/rho-engine/src/provider/systemone.rs:45 fix(settings): preserve modal stack and refresh model descriptions
 ack duplication 01704ab0ccfb141e 109 now=109 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:92 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -190,7 +191,7 @@ ack short-horizon-churn 63012f93f25f4e7b 2 cid=f02873352b0f21a1 now=2 was=0 face
 ack short-horizon-churn 631265abc1cad658 3 cid=b02919f0ada5ea0b now=3 was=0 facet=self p=crates/rho-engine/src/claude/request/tests.rs:333 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 63e65d2f5c67497a 4 cid=7934b6fe532065bc now=4 was=0 facet=ambient p=crates/rho-engine/src/engine/tests.rs:221 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 65335f6a613286a9 2 cid=f68709632989ead5 now=2 was=0 facet=self p=crates/rho-engine/src/tools/subagent/runner.rs:47 refactor(rig): upgrade to rig 0.44.0 and adapt message types
-ack short-horizon-churn 6c0c6e571d823479 2 cid=1c89f55d19c4a181 now=2 was=0 facet=self p=crates/rho-engine/src/tools/subagent/runner.rs:51 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack short-horizon-churn 6c0c6e571d823479 5 cid=81e9dc91276b4439 now=5 was=0 facet=self p=crates/rho-engine/src/tools/subagent/runner.rs:61 fix(subagent): recovery synthesis on budget exhaustion and pacing guidance | prior: refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 6d25027c4bf0a2ae 4 cid=ea0bf9daa9746986 now=4 was=0 facet=ambient p=crates/rho-engine/src/tools/builtin_tools/tests.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack short-horizon-churn 6df237ecdc3e544e 10 cid=c78bcf9f007f333c now=10 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/prepare.rs:157 fix(settings): preserve modal stack and refresh model descriptions
 ack short-horizon-churn 6e9199ade8d76e63 6 cid=f9f36f89a519a546 now=6 was=0 facet=self p=crates/rho-engine/src/engine/runner/turn/auto_compact/tests.rs:187 refactor(rig): upgrade to rig 0.44.0 and adapt message types

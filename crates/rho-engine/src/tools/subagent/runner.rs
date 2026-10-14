@@ -48,6 +48,16 @@ impl SubagentRunner {
         self.tools.iter().map(|t| t.name().as_str()).collect()
     }
 
+    async fn handle_runner_error(&self, err: rig::completion::PromptError) -> ToolResult {
+        let Some((max_turns, history)) = crate::engine::runner::budget_history(&err) else {
+            return ToolResult::error(format!("Subagent execution failed: {err}"));
+        };
+        if let Some(synthesis) = attempt_recovery_synthesis(&self.model, self.role, &history).await {
+            return ToolResult::success(synthesis);
+        }
+        synthesize_budget_exhausted_result(max_turns, &history)
+    }
+
     pub async fn run(&self, prompt: &str, context_slice: Option<&str>) -> ToolResult {
         if prompt.trim().is_empty() {
             return ToolResult::error("subagent prompt cannot be empty");
@@ -57,8 +67,13 @@ impl SubagentRunner {
         let tool_server = rig::tool::server::ToolServer::new().dynamic_tools(self.tools.clone());
         let tool_handle = tool_server.run();
 
+        let preamble = format!(
+            "{}\n\nYou have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final findings.",
+            self.role.system_instructions(),
+            self.max_turns
+        );
         let agent = rig::agent::AgentBuilder::new(self.model.clone())
-            .preamble(self.role.system_instructions())
+            .preamble(preamble)
             .default_max_turns(self.max_turns)
             .record_content_telemetry(false)
             .tool_server_handle(tool_handle)
@@ -68,25 +83,64 @@ impl SubagentRunner {
         let timeout = Duration::from_secs(120);
 
         match tokio::time::timeout(timeout, runner.run()).await {
-            Ok(Ok(response)) => {
-                let output = response.output();
-                let text = output.trim();
-                if text.is_empty() {
-                    ToolResult::error("Subagent completed without generating an output summary.")
-                } else {
-                    ToolResult::success(text)
-                }
-            }
-            Ok(Err(err)) => {
-                if let Some((max_turns, history)) = crate::engine::runner::budget_history(&err) {
-                    synthesize_budget_exhausted_result(max_turns, &history)
-                } else {
-                    ToolResult::error(format!("Subagent execution failed: {err}"))
-                }
-            }
+            Ok(Ok(response)) => handle_runner_success(&response.output()),
+            Ok(Err(err)) => self.handle_runner_error(err).await,
             Err(_) => ToolResult::error("Subagent execution timed out after 120s."),
         }
     }
+}
+
+fn handle_runner_success(output: &str) -> ToolResult {
+    let text = output.trim();
+    if text.is_empty() {
+        ToolResult::error("Subagent completed without generating an output summary.")
+    } else {
+        ToolResult::success(text)
+    }
+}
+
+fn has_tool_calls(content: &[rig::message::AssistantContent]) -> bool {
+    content
+        .iter()
+        .any(|c| matches!(c, rig::message::AssistantContent::ToolCall(_)))
+}
+
+pub(crate) fn prepare_history_for_recovery(history: &[rig::message::Message]) -> Vec<rig::message::Message> {
+    let mut end = history.len();
+    while end > 0 {
+        match &history[end - 1] {
+            rig::message::Message::Assistant(asst) if has_tool_calls(&asst.content) => end -= 1,
+            _ => break,
+        }
+    }
+    history[..end].to_vec()
+}
+
+async fn attempt_recovery_synthesis(
+    model: &ModelHandle,
+    role: SubagentRole,
+    history: &[rig::message::Message],
+) -> Option<String> {
+    let sanitized_history = prepare_history_for_recovery(history);
+    let preamble = format!(
+        "{}\n\nYour tool exploration is complete. Synthesize a structured summary of your findings addressing the user's task. Do not call tools.",
+        role.system_instructions()
+    );
+    let agent = rig::agent::AgentBuilder::new(model.clone())
+        .preamble(preamble)
+        .default_max_turns(1)
+        .record_content_telemetry(false)
+        .build();
+    let prompt = "Please synthesize your final structured findings and summary based on the findings above.";
+    let runner = crate::engine::runtime::build_runner(&agent, prompt)
+        .history(sanitized_history)
+        .max_turns(1);
+    let resp = tokio::time::timeout(Duration::from_secs(45), runner.run())
+        .await
+        .ok()?
+        .ok()?;
+    let text = resp.output().trim().to_string();
+    if text.is_empty() { None } else { Some(text) }
 }
 
 fn extract_assistant_text(asst: &rig::message::AssistantMessage, out: &mut Vec<String>) {

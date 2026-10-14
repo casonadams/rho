@@ -156,3 +156,49 @@ async fn test_subagent_as_dynamic_tool() {
     let dyn_res = crate::adapter::rig::tools::into_dynamic_result(Ok(res)).unwrap();
     assert_eq!(dyn_res.as_text(), Some("Scout report: zero defects found"));
 }
+
+#[tokio::test]
+async fn test_subagent_runner_budget_exhaustion_scenarios() {
+    let ok_runner = SubagentRunner::new(
+        into_dyn_model(TestModel {
+            answer: "Synthesized findings after turn exhaustion.".into(),
+        }),
+        SubagentRole::Scout,
+        &[],
+        0,
+    );
+    let ok_res = ok_runner.run("search", None).await;
+    assert_eq!(ok_res.content, "Synthesized findings after turn exhaustion.");
+
+    let empty_runner = SubagentRunner::new(
+        into_dyn_model(TestModel { answer: String::new() }),
+        SubagentRole::Scout,
+        &[],
+        0,
+    );
+    let err_res = empty_runner.run("search", None).await;
+    assert!(err_res.is_error);
+    assert!(err_res.content.contains("without producing output"));
+}
+
+#[test]
+fn test_prepare_history_for_recovery() {
+    let tool_call = rig::message::ToolCall::new(
+        rig::message::CallId::from_wire("call_1"),
+        rig::message::ToolFunction::new(
+            rig::message::ToolName::new("read").unwrap(),
+            serde_json::json!({"path": "foo.rs"}),
+        ),
+    );
+    let dangling_msg = rig::message::Message::Assistant(rig::message::AssistantMessage::new(vec![
+        rig::message::AssistantContent::ToolCall(tool_call),
+    ]));
+    let valid_msg = rig::message::Message::Assistant(rig::message::AssistantMessage::new(vec![
+        rig::message::AssistantContent::text("Here are my thoughts"),
+    ]));
+
+    let history = vec![valid_msg.clone(), dangling_msg];
+    let sanitized = runner::prepare_history_for_recovery(&history);
+    assert_eq!(sanitized.len(), 1);
+    assert_eq!(sanitized[0], valid_msg);
+}
