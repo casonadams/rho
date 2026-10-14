@@ -416,6 +416,10 @@ async fn test_read_tool_vfs_diff_staged_and_hunks() {
     assert!(extracted.contains("[THEIRS]"));
     assert!(extracted.contains("beta"));
 
+    let raw_3way = "<<<<<<< HEAD\nalpha\n||||||| base\nancestor\n=======\nbeta\n>>>>>>> incoming\n";
+    let extracted_3way = super::vfs::extract_conflict_hunks(raw_3way);
+    assert!(extracted_3way.contains("[BASE]"));
+
     let gh_res = tool
         .execute(ReadArgs {
             path: "pr://102".into(),
@@ -465,4 +469,56 @@ async fn test_read_tool_vfs_diff_staged_and_hunks() {
         Some(("casonadams".into(), "rho".into()))
     );
     assert!(super::vfs::parse_github_remote("https://gitlab.com/foo/bar").is_none());
+}
+
+#[test]
+fn test_vfs_uri_extended_targets() {
+    use super::vfs::{VfsUri, parse_vfs_uri};
+    assert_eq!(
+        parse_vfs_uri("gh://owner/repo/pull/55/diff"),
+        Some(VfsUri::Github {
+            repo: Some(("owner".into(), "repo".into())),
+            item_type: "pr".into(),
+            id: "55".into(),
+            is_diff: true,
+        })
+    );
+    assert_eq!(
+        parse_vfs_uri("gh://owner/repo/pulls/10"),
+        Some(VfsUri::Github {
+            repo: Some(("owner".into(), "repo".into())),
+            item_type: "pr".into(),
+            id: "10".into(),
+            is_diff: false,
+        })
+    );
+    assert_eq!(
+        parse_vfs_uri("gh://owner/repo/issues/42"),
+        Some(VfsUri::Github {
+            repo: Some(("owner".into(), "repo".into())),
+            item_type: "issue".into(),
+            id: "42".into(),
+            is_diff: false,
+        })
+    );
+    assert_eq!(
+        parse_vfs_uri("gh://pr/99"),
+        Some(VfsUri::Github {
+            repo: None,
+            item_type: "pr".into(),
+            id: "99".into(),
+            is_diff: false,
+        })
+    );
+    assert_eq!(
+        parse_vfs_uri("pr://77/diff"),
+        Some(VfsUri::Github {
+            repo: None,
+            item_type: "pr".into(),
+            id: "77".into(),
+            is_diff: true,
+        })
+    );
+    assert_eq!(parse_vfs_uri("gh://"), None);
+    assert_eq!(parse_vfs_uri("gh://single"), None);
 }

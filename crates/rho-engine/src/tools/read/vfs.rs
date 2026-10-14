@@ -19,32 +19,33 @@ pub enum VfsUri {
 
 fn parse_gh_target(rest: &str) -> Option<VfsUri> {
     let parts: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
-    if parts.len() == 4 && (parts[2] == "pull" || parts[2] == "pulls" || parts[2] == "issues") {
-        let is_pr = parts[2].starts_with("pull");
-        return Some(VfsUri::Github {
-            repo: Some((parts[0].to_string(), parts[1].to_string())),
-            item_type: if is_pr { "pr".to_string() } else { "issue".to_string() },
-            id: parts[3].to_string(),
-            is_diff: false,
-        });
-    }
-    if parts.len() == 5 && (parts[2] == "pull" || parts[2] == "pulls") && parts[4] == "diff" {
-        return Some(VfsUri::Github {
-            repo: Some((parts[0].to_string(), parts[1].to_string())),
+    match parts.as_slice() {
+        [owner, repo, "pull" | "pulls", id] => Some(VfsUri::Github {
+            repo: Some(((*owner).to_string(), (*repo).to_string())),
             item_type: "pr".to_string(),
-            id: parts[3].to_string(),
-            is_diff: true,
-        });
-    }
-    if parts.len() >= 2 {
-        return Some(VfsUri::Github {
-            repo: None,
-            item_type: parts[0].to_string(),
-            id: parts[1].to_string(),
+            id: (*id).to_string(),
             is_diff: false,
-        });
+        }),
+        [owner, repo, "pull" | "pulls", id, "diff"] => Some(VfsUri::Github {
+            repo: Some(((*owner).to_string(), (*repo).to_string())),
+            item_type: "pr".to_string(),
+            id: (*id).to_string(),
+            is_diff: true,
+        }),
+        [owner, repo, "issues" | "issue", id] => Some(VfsUri::Github {
+            repo: Some(((*owner).to_string(), (*repo).to_string())),
+            item_type: "issue".to_string(),
+            id: (*id).to_string(),
+            is_diff: false,
+        }),
+        [item_type, id, ..] => Some(VfsUri::Github {
+            repo: None,
+            item_type: (*item_type).to_string(),
+            id: (*id).to_string(),
+            is_diff: false,
+        }),
+        _ => None,
     }
-    None
 }
 
 fn parse_pr_target(rest: &str) -> Option<VfsUri> {
@@ -208,6 +209,9 @@ pub fn resolve_conflicts(base_dir: &Path, file: Option<&str>) -> Result<String, 
 }
 
 fn exec_clean_stdout(dir: &Path, program: &str, args: &[&str]) -> Option<String> {
+    if cfg!(test) && program == "gh" {
+        return None;
+    }
     let res = Command::new(program).current_dir(dir).args(args).output().ok()?;
     res.status
         .success()
