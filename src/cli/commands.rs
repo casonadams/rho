@@ -124,7 +124,7 @@ async fn handle_models(config: &Config, auth_store: &AuthStore) {
     let cached = store.get_models(&config.provider).cloned();
 
     let is_local = config.provider == "local" || config.provider == "ollama";
-    let models = if is_local || cached.is_none() {
+    let mut models = if is_local || cached.is_none() {
         if let Ok(provider_id) = ProviderId::from_str(&config.provider)
             && let Ok(discovered) =
                 rho_engine::provider::discovery::discover_provider_models(provider_id, auth_store).await
@@ -138,6 +138,13 @@ async fn handle_models(config: &Config, auth_store: &AuthStore) {
     } else {
         cached.unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(&config.provider))
     };
+
+    for preset in rho_engine::provider::discovery::default_presets_for(&config.provider) {
+        if !models.iter().any(|m| m.id == preset.id) {
+            models.push(preset);
+        }
+    }
+    let models = rho_engine::provider::discovery::sort_models_newest_first(models);
 
     println!("Models for {}:", config.provider);
     for line in format_model_entries(&models, &config.model) {

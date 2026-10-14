@@ -33,20 +33,36 @@ fn make_discovered_gemini_model(id: &str, name: &str) -> DiscoveredModel {
 fn test_sort_models_newest_first_descending_and_stable() {
     let models = vec![
         make_discovered_gemini_model("gemini-2.0-flash", "Gemini 2.0"),
+        make_discovered_gemini_model("gemini-4-argon", "Gemini 4 Argon"),
         make_discovered_gemini_model("gemini-3.8-flash", "Gemini 3.8"),
         make_discovered_gemini_model("gemini-2.0-pro", "Gemini 2.0 Pro"),
     ];
 
     let sorted = sort_models_newest_first(models);
     let ids: Vec<&str> = sorted.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids, vec!["gemini-3.8-flash", "gemini-2.0-flash", "gemini-2.0-pro"]);
+    assert_eq!(
+        ids,
+        vec![
+            "gemini-4-argon",
+            "gemini-3.8-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-pro"
+        ]
+    );
 }
 
 #[test]
 fn test_antigravity_display_name_token_conversion() {
-    assert_eq!(antigravity_display_name("gemini-3.8-flash"), "Gemini 3.8 Flash");
-    assert_eq!(antigravity_display_name("claude-opus-4-6"), "Claude Opus 4.6");
-    assert_eq!(antigravity_display_name("gpt-oss-120b"), "GPT OSS 120b");
+    let cases = [
+        ("gemini-4-argon", "Gemini 4 Argon"),
+        ("gemini-4-argon-cyber-permissive", "Gemini 4 Argon Cyber Permissive"),
+        ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ("claude-opus-4-6", "Claude Opus 4.6"),
+        ("gpt-oss-120b", "GPT OSS 120b"),
+    ];
+    for (id, expected) in cases {
+        assert_eq!(antigravity_display_name(id), expected);
+    }
 }
 
 #[test]
@@ -188,9 +204,19 @@ async fn test_discover_fallbacks_when_offline_or_empty_key() {
 
 #[test]
 fn test_gemini_presets_use_active_models() {
-    let models = super::presets::gemini_preset_models();
-    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids, vec!["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]);
+    let ids: Vec<String> = super::presets::gemini_preset_models()
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            "gemini-4-argon".to_string(),
+            "gemini-2.5-flash".to_string(),
+            "gemini-2.5-pro".to_string(),
+            "gemini-2.5-flash-lite".to_string(),
+        ]
+    );
 }
 
 #[test]

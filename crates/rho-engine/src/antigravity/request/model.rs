@@ -80,8 +80,15 @@ pub fn collapse_runtime_id(runtime: &str) -> (String, Option<Effort>) {
     (runtime.to_string(), None)
 }
 
+pub fn is_gemini_4(runtime_model: &str) -> bool {
+    runtime_model.starts_with("gemini-4")
+}
+
 /// Next-generation fallback when a runtime id 404s (pi parity: 3.8 → 3.7 → 3.6).
 pub fn fallback_runtime_model(runtime: &str) -> Option<String> {
+    if is_gemini_4(runtime) {
+        return Some("gemini-3.8-flash-medium".to_string());
+    }
     if let Some(rest) = runtime.strip_prefix("gemini-3.8-flash-") {
         return Some(format!("gemini-3.7-flash-{rest}"));
     }
@@ -209,6 +216,15 @@ fn gemini_thinking_budget(model: &str, effort: Effort) -> i64 {
 pub fn thinking_config(runtime_model: &str, effort: Effort) -> Value {
     if !runtime_model.starts_with("gemini-") {
         return Value::Null;
+    }
+    if is_gemini_4(runtime_model) {
+        let level = match effort {
+            Effort::High => "HIGH",
+            Effort::Low | Effort::Minimal | Effort::Off => "LOW",
+            _ if runtime_model.contains("cyber") => "HIGH",
+            _ => "MEDIUM",
+        };
+        return json!({ "thinkingLevel": level });
     }
     if effort == Effort::Off {
         return json!({ "includeThoughts": false, "thinkingBudget": 0 });

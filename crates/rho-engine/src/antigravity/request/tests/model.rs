@@ -18,16 +18,16 @@ fn runtime_mapping_covers_known_families_and_passes_through_unknown() {
 
 #[test]
 fn fallback_chain_degrades_next_generation() {
-    assert_eq!(
-        fallback_runtime_model("gemini-3.8-flash-low"),
-        Some("gemini-3.7-flash-low".to_string())
-    );
-    assert_eq!(
-        fallback_runtime_model("gemini-3.7-flash-medium"),
-        Some("gemini-3.6-flash-medium".to_string())
-    );
-    assert_eq!(fallback_runtime_model("gemini-3.6-flash-low"), None);
-    assert_eq!(fallback_runtime_model("claude-sonnet-4-6"), None);
+    let cases = [
+        ("gemini-4-argon", Some("gemini-3.8-flash-medium")),
+        ("gemini-3.8-flash-low", Some("gemini-3.7-flash-low")),
+        ("gemini-3.7-flash-medium", Some("gemini-3.6-flash-medium")),
+        ("gemini-3.6-flash-low", None),
+        ("claude-sonnet-4-6", None),
+    ];
+    for (runtime, expected) in cases {
+        assert_eq!(fallback_runtime_model(runtime).as_deref(), expected);
+    }
 }
 
 #[test]
@@ -145,4 +145,47 @@ fn thinking_config_tracks_claude_headers() {
     assert!(wants_claude_thinking_header("claude-sonnet-4-6", Effort::High));
     assert!(!wants_claude_thinking_header("claude-sonnet-4-6", Effort::Off));
     assert!(!wants_claude_thinking_header("gemini-3.7-flash-high", Effort::High));
+}
+
+#[test]
+fn gemini_4_argon_thinking_config_and_envelope() {
+    assert!(is_gemini_4("gemini-4-argon"));
+    assert!(is_gemini_4("gemini-4-argon-cyber-permissive"));
+    assert!(!is_gemini_4("gemini-3.8-flash"));
+
+    let levels = [
+        (Effort::Off, "LOW"),
+        (Effort::Low, "LOW"),
+        (Effort::Medium, "MEDIUM"),
+        (Effort::High, "HIGH"),
+    ];
+    for (effort, expected) in levels {
+        let cfg = thinking_config("gemini-4-argon", effort);
+        assert_eq!(cfg["thinkingLevel"], expected);
+    }
+
+    let cyber_cfg = thinking_config("gemini-4-argon-cyber-permissive", Effort::Medium);
+    assert_eq!(cyber_cfg, json!({ "thinkingLevel": "HIGH" }));
+
+    let mut request = minimal_request(vec![Message::User {
+        content: vec![UserContent::text("hi")],
+    }]);
+    request.temperature = Some(0.7);
+
+    let body = build_request_body(
+        RequestTarget {
+            project: "p",
+            runtime_model: "gemini-4-argon",
+            effort: Effort::Medium,
+        },
+        &request,
+        &envelope(),
+    )
+    .unwrap();
+
+    let gen_cfg = &body["request"]["generationConfig"];
+    assert_eq!(gen_cfg["maxOutputTokens"], 65535);
+    assert_eq!(gen_cfg["thinkingConfig"]["thinkingLevel"], "MEDIUM");
+    assert!(gen_cfg["thinkingConfig"].get("thinkingBudget").is_none());
+    assert!(gen_cfg.get("temperature").is_none());
 }

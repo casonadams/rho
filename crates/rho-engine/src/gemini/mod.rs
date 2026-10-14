@@ -24,8 +24,12 @@ pub fn billing_windows(now: DateTime<Utc>) -> BillingWindows {
 }
 
 pub fn calculate_gemini_cost(model: &str, input_tokens: u64, output_tokens: u64, cached_tokens: u64) -> f64 {
-    let is_pro = model.to_ascii_lowercase().contains("pro");
-    let (input_per_m, output_per_m, cached_per_m) = if is_pro {
+    let lower = model.to_ascii_lowercase();
+    let is_argon = lower.contains("argon");
+    let is_pro = lower.contains("pro");
+    let (input_per_m, output_per_m, cached_per_m) = if is_argon {
+        (2.00, 10.00, 0.50)
+    } else if is_pro {
         (1.25, 5.00, 0.3125)
     } else {
         (0.10, 0.40, 0.025)
@@ -171,6 +175,9 @@ mod tests {
 
         let pro_cost = calculate_gemini_cost("gemini-2.5-pro", 1_000_000, 1_000_000, 1_000_000);
         assert!((pro_cost - 6.5625).abs() < 1e-6);
+
+        let argon_cost = calculate_gemini_cost("gemini-4-argon", 1_000_000, 1_000_000, 1_000_000);
+        assert!((argon_cost - 12.5).abs() < 1e-6);
     }
 
     #[test]

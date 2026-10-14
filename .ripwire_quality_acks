@@ -24,6 +24,7 @@ ack dead-code:new-symbol a4f74bdc30783319 0 cid=d751e26070443822 now=0 was=0 p=c
 ack dead-code:new-symbol b3765ed613db1fd6 0 cid=5cf3348cf8e31910 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:55 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol b8bf8e69ade39f89 0 cid=8dfe1893cae60aa5 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:213 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol ce33cec47d4fe36d 0 cid=d7a84993f006dc1c now=0 was=0 p=crates/rho-engine/src/mcp/cache.rs:137 feat(mcp): modernize MCP adapter subsystem
+ack dead-code:new-symbol f3d6f73c21a47072 0 cid=34c16e4dbd8e5073 now=0 was=0 p=crates/rho-engine/src/antigravity/request/tests/model.rs:151 feat(antigravity): add gemini-4-argon models
 ack dead-code:new-symbol f5d5dceb92fd23b3 0 cid=e63f34d0f06b0e38 now=0 was=0 p=crates/rho-engine/src/mcp/pool.rs:226 feat(mcp): modernize MCP adapter subsystem
 ack dead-code:new-symbol f87b7ba24d599872 0 cid=d1090cfc04102252 now=0 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:154 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack dead-code:new-symbol f8d2e1fb2645a08d 0 cid=1f5e619ad9d38341 now=0 was=0 p=crates/rho-engine/src/mcp/search.rs:598 feat(mcp): modernize MCP adapter subsystem
@@ -35,8 +36,11 @@ ack duplication 01704ab0ccfb141e 109 now=109 was=0 p=crates/rho-engine/src/adapt
 ack duplication 01b7c5a04ff72819 85 now=85 was=0 p=crates/rho-engine/src/mcp/trust.rs:110 feat(mcp): modernize MCP adapter subsystem
 ack duplication 037fefd1426d8220 81 now=81 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
 ack duplication 056427819791c7fe 312 now=312 was=0 p=crates/rho-engine/src/permission/tests/hook.rs:16 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 0d2d8f48e9e40b3e 60 now=60 was=0 p=crates/rho-engine/src/permission/tests/bash.rs:65 feat(antigravity): add gemini-4-argon models
 ack duplication 137e7fa3c732d541 53 now=53 was=0 p=crates/rho-harness-core/src/net.rs:21 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 141d7db1a629cae4 41 now=41 was=0 p=crates/rho-engine/src/claude/request/mod.rs:148 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 16066e06d1a0c526 77 now=77 was=0 p=crates/rho-engine/src/provider/discovery/tests.rs:55 feat(antigravity): add gemini-4-argon models
+ack duplication 17423f439b757669 35 now=35 was=0 p=crates/rho-engine/src/auth/resolver.rs:180 feat(antigravity): add gemini-4-argon models
 ack duplication 1a96b3a0e30b20e2 70 now=70 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
 ack duplication 1aa96ceeb196d3e7 83 now=83 was=0 p=crates/rho-harness-core/src/config/mcp.rs:75 feat(mcp): modernize MCP adapter subsystem
 ack duplication 1b7e962415bdd8f2 72 now=72 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
@@ -47,16 +51,20 @@ ack duplication 261f2e49e410e7a9 159 now=159 was=0 p=crates/rho-harness-core/src
 ack duplication 2a5d65c6d25bf539 92 now=92 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:83 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 31f1e23cf9a7164a 21 now=21 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:39 feat(engine): preserve reasoning signatures and add react loop guidelines
 ack duplication 3806bf748dfa9b4d 51 now=51 was=0 p=tests/mcp_lazy_lifecycle.rs:14 feat(mcp): modernize MCP adapter subsystem
+ack duplication 397f5acbd18f72a5 35 now=35 was=0 p=crates/rho-engine/src/tools/edit/normalize.rs:81 feat(antigravity): add gemini-4-argon models
 ack duplication 3a81518d5a35fba4 159 now=159 was=0 p=crates/rho-harness-core/src/session/tests/prune.rs:26 fix(session): prune empty sessions and filter from resume selector
 ack duplication 3fb2cbe46eb5dcbf 38 now=38 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
 ack duplication 42b0fb8589ce314e 147 now=147 was=0 p=crates/rho-harness-core/src/session/prune.rs:147 fix(session): prune empty sessions and filter from resume selector
 ack duplication 43f203e7b372f2b0 159 now=159 was=0 p=crates/rho-engine/src/mcp/search.rs:110 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication 48e8471357342ef9 72 now=72 was=0 p=crates/rho-engine/src/antigravity/request/tests/model.rs:20 feat(antigravity): add gemini-4-argon models
 ack duplication 49b7cd2d7e317377 325 now=325 was=0 p=crates/rho-engine/src/antigravity/request/tests/envelope.rs:298 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication 4d6dafab4f59ee70 38 now=38 was=0 p=crates/rho-engine/src/mcp/trust.rs:143 feat(mcp): modernize MCP adapter subsystem
+ack duplication 50cb379e5f16f8c3 59 now=59 was=0 p=crates/rho-engine/src/provider/discovery/tests.rs:55 feat(antigravity): add gemini-4-argon models
 ack duplication 5173da9dc1fa8d86 18 now=18 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:39 feat(engine): preserve reasoning signatures and add react loop guidelines
 ack duplication 539cc7e0ea550ba8 51 now=51 was=0 p=crates/rho-harness-core/src/session/summary.rs:187 feat(mcp): modernize MCP adapter subsystem
 ack duplication 562ecf8a74fb890e 153 now=153 was=0 p=crates/rho-engine/src/mcp/cache.rs:88 feat(mcp): modernize MCP adapter subsystem
 ack duplication 5cae3157cb01f2c5 226 now=226 was=0 p=src/repl/live/tests/modal_action.rs:8 test(repl): isolate test session directory in selector tests
+ack duplication 6424428b5c567f95 80 now=80 was=0 p=crates/rho-engine/src/antigravity/request/tests/model.rs:20 feat(antigravity): add gemini-4-argon models
 ack duplication 6f16c6c5376a25ae 72 now=72 was=0 p=crates/rho-engine/src/mcp/cache.rs:184 feat(mcp): modernize MCP adapter subsystem
 ack duplication 71a0c262f8a2b54a 104 now=104 was=0 p=crates/rho-engine/src/mcp/trust.rs:93 feat(mcp): modernize MCP adapter subsystem
 ack duplication 75b72353de354c99 139 now=139 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:41 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -76,6 +84,7 @@ ack duplication 9f805be3e97748a5 161 now=161 was=0 p=crates/rho-harness-core/src
 ack duplication a0f504f5496ca285 125 now=125 was=0 p=crates/rho-engine/src/tools/builtin_tools/tests.rs:4 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication aa1609cd497365d7 28 now=28 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:32 feat(engine): preserve reasoning signatures and add react loop guidelines
 ack duplication b0d94ce48df253f8 38 now=38 was=0 p=crates/rho-engine/src/engine/runner/sink/approval.rs:119 feat(mcp): modernize MCP adapter subsystem
+ack duplication b2c51468777aa474 46 now=46 was=0 p=crates/rho-engine/src/engine/runner/history.rs:252 feat(antigravity): add gemini-4-argon models
 ack duplication b3f5116b18f4a048 21 now=21 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:32 feat(engine): preserve reasoning signatures and add react loop guidelines
 ack duplication b4947b97e4be122c 92 now=92 was=0 p=crates/rho-engine/src/adapter/rig/mod.rs:83 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication b6f6b2fe0973472d 279 now=279 was=0 p=crates/rho-engine/src/permission/tests/hook.rs:395 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -88,16 +97,20 @@ ack duplication d2953eee886d27e4 161 now=161 was=0 p=crates/rho-harness-core/src
 ack duplication d410c7eea4ab98a6 159 now=159 was=0 p=crates/rho-engine/src/mcp/search.rs:110 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication d7b7723ff3df4495 40 now=40 was=0 p=crates/rho-engine/src/mcp/pool.rs:60 feat(mcp): modernize MCP adapter subsystem
 ack duplication d7ebfc6617d5e1b1 71 now=71 was=0 p=tests/mcp_lazy_lifecycle.rs:41 feat(mcp): modernize MCP adapter subsystem
+ack duplication d86232b486649889 46 now=46 was=0 p=crates/rho-engine/src/tools/edit/normalize.rs:81 feat(antigravity): add gemini-4-argon models
 ack duplication d963d55c58331315 42 now=42 was=0 p=crates/rho-engine/src/antigravity/request/tests.rs:10 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication d9f26bd7caacdf82 53 now=53 was=0 p=crates/rho-engine/src/mcp/pool.rs:35 feat(mcp): modernize MCP adapter subsystem
 ack duplication dc80797805f06aa2 85 now=85 was=0 p=crates/rho-harness-core/src/config/mcp.rs:97 feat(mcp): modernize MCP adapter subsystem
+ack duplication e1b2f95d584d0785 65 now=65 was=0 p=crates/rho-engine/src/provider/discovery/tests.rs:55 feat(antigravity): add gemini-4-argon models
 ack duplication e40dcc61a6770a5f 71 now=71 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:265 refactor(rig): upgrade to rig 0.44.0 and adapt message types
 ack duplication e53ec7dcbe1a2951 147 now=147 was=0 p=crates/rho-harness-core/src/session/prune.rs:169 fix(session): prune empty sessions and filter from resume selector
 ack duplication ee700d12e92ba5de 93 now=93 was=0 p=src/repl/live/modal/selectors/collab.rs:95 test(repl): isolate test session directory in selector tests
 ack duplication eed2dfd466fa710b 43 now=43 was=0 p=crates/rho-engine/src/mcp/trust.rs:131 feat(mcp): modernize MCP adapter subsystem
 ack duplication eef8dcc634ded99d 178 now=178 was=0 p=crates/rho-engine/src/mcp/trust.rs:171 feat(mcp): modernize MCP adapter subsystem
+ack duplication f4893c7ecda6399b 80 now=80 was=0 p=crates/rho-engine/src/provider/discovery/tests.rs:55 feat(antigravity): add gemini-4-argon models
 ack duplication f8cabbec9dcfae8a 20 now=20 was=0 p=crates/rho-engine/src/adapter/rig/model.rs:32 feat(engine): preserve reasoning signatures and add react loop guidelines
 ack duplication fcdbf93c9a331ce6 33 now=33 was=0 p=crates/rho-engine/src/engine/runner/history.rs:211 refactor(rig): upgrade to rig 0.44.0 and adapt message types
+ack duplication fda28ea16e6f901c 77 now=77 was=0 p=crates/rho-engine/src/antigravity/request/tests/model.rs:20 feat(antigravity): add gemini-4-argon models
 ack duplication fed7a6855422a063 519 now=519 was=0 p=tests/mcp_lazy_lifecycle.rs:53 feat(mcp): modernize MCP adapter subsystem
 ack new-clone-of-reused-helper 1a96b3a0e30b20e2 3 now=3 was=0 p=crates/rho-engine/src/mcp/trust.rs:82 feat(mcp): modernize MCP adapter subsystem
 ack new-clone-of-reused-helper 22228ad401007723 9 now=9 was=0 p=crates/rho-engine/src/chatgpt/client.rs:342 refactor(rig): upgrade to rig 0.44.0 and adapt message types
@@ -306,3 +319,4 @@ ack verbosity 845185f3d8cbd8a5 190 cid=780a9035843d58bb now=190 was=139 p=crates
 ack verbosity 8c0f458b2f5ed707 131 cid=a776e9b0d311c250 now=131 was=129 p=src/repl/live/modal/selectors/tools.rs:156 test(repl): isolate test session directory in selector tests
 ack verbosity c8343888e69a0c6b 86 cid=5f03ae0b111dfda1 now=86 was=84 p=src/repl/live/modal/selectors/search_engine.rs:58 test(repl): isolate test session directory in selector tests
 ack verbosity d52ebbbdd0f926fa 77 cid=cf2d3e46b77cf6eb now=77 was=75 p=src/repl/live/modal/selectors/models.rs:100 test(repl): isolate test session directory in selector tests
+ack verbosity edd052c03725393e 120 cid=0e7afe123e352bf8 now=120 was=118 p=crates/rho-engine/src/gemini/mod.rs:153 feat(antigravity): add gemini-4-argon models

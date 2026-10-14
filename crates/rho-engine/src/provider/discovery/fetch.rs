@@ -177,8 +177,15 @@ pub(crate) async fn discover_gemini_models(api_key: &str) -> Result<Vec<Discover
 }
 
 pub(crate) async fn discover_antigravity_models(token: &str, project_id: &str) -> Result<Vec<DiscoveredModel>> {
+    let presets = antigravity_preset_models();
     if let Some(ids) = crate::antigravity::discover_models(token, project_id).await {
-        return Ok(collapse_antigravity_catalog(ids));
+        let mut discovered = collapse_antigravity_catalog(ids);
+        for preset in presets {
+            if !discovered.iter().any(|m| m.id == preset.id) {
+                discovered.push(preset);
+            }
+        }
+        return Ok(sort_models_newest_first(discovered));
     }
-    Ok(antigravity_preset_models())
+    Ok(presets)
 }

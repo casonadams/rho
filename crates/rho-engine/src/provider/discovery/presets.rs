@@ -38,6 +38,12 @@ fn build_presets(table: &[(&str, &str, &str, &str)]) -> Vec<DiscoveredModel> {
 }
 
 const ANTIGRAVITY_PRESETS: &[(&str, &str, &str, &str)] = &[
+    (
+        "gemini-4-argon",
+        "Gemini 4 Argon",
+        "antigravity",
+        "1M ctx · frontier reasoning",
+    ),
     ("gemini-3.8-flash", "Gemini 3.8 Flash", "antigravity", "1M ctx · fast"),
     ("gemini-3.7-flash", "Gemini 3.7 Flash", "antigravity", "1M ctx · fast"),
     ("gemini-3.1-pro", "Gemini 3.1 Pro", "antigravity", "1M ctx · reasoning"),
@@ -178,6 +184,12 @@ pub fn openai_preset_models() -> Vec<DiscoveredModel> {
 }
 
 const GEMINI_PRESETS: &[(&str, &str, &str, &str)] = &[
+    (
+        "gemini-4-argon",
+        "Gemini 4 Argon",
+        "gemini",
+        "1M ctx · frontier reasoning",
+    ),
     ("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", "1M ctx · fast"),
     ("gemini-2.5-pro", "Gemini 2.5 Pro", "gemini", "2M ctx · reasoning"),
     (

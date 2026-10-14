@@ -55,7 +55,9 @@ fn build_generation_config(runtime_model: &str, effort: Effort, request: &Comple
     let mut config = json!({
         "maxOutputTokens": cap_max_tokens(runtime_model, request.max_tokens),
     });
-    if let Some(temperature) = request.temperature {
+    if !is_gemini_4(runtime_model)
+        && let Some(temperature) = request.temperature
+    {
         config["temperature"] = json!(temperature);
     }
     let thinking = thinking_config(runtime_model, effort);

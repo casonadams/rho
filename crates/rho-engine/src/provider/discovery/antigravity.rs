@@ -64,7 +64,7 @@ pub fn sort_models_newest_first(mut models: Vec<DiscoveredModel>) -> Vec<Discove
     models
 }
 
-const TITLES: [(&str, &str); 13] = [
+const TITLES: [(&str, &str); 16] = [
     ("gemini", "Gemini"),
     ("claude", "Claude"),
     ("gpt", "GPT"),
@@ -76,6 +76,9 @@ const TITLES: [(&str, &str); 13] = [
     ("pro", "Pro"),
     ("flash", "Flash"),
     ("lite", "Lite"),
+    ("argon", "Argon"),
+    ("cyber", "Cyber"),
+    ("permissive", "Permissive"),
     ("thinking", "Thinking"),
     ("agent", "Agent"),
 ];

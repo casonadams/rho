@@ -52,6 +52,18 @@ fn append_local_models(models: &mut Vec<ModelItem>, store: &ModelStore) {
     }
 }
 
+fn merge_provider_presets(
+    prov: &str,
+    mut models: Vec<rho_engine::provider::discovery::DiscoveredModel>,
+) -> Vec<rho_engine::provider::discovery::DiscoveredModel> {
+    for preset in rho_engine::provider::discovery::default_presets_for(prov) {
+        if !models.iter().any(|m| m.id == preset.id) {
+            models.push(preset);
+        }
+    }
+    rho_engine::provider::discovery::sort_models_newest_first(models)
+}
+
 fn append_configured_provider_models(models: &mut Vec<ModelItem>, store: &ModelStore, auth_store: &AuthStore) {
     let mut configured: Vec<String> = auth_store.list_configured_providers();
     for prov in store.providers() {
@@ -60,11 +72,8 @@ fn append_configured_provider_models(models: &mut Vec<ModelItem>, store: &ModelS
         }
     }
     for prov in configured.iter().filter(|p| *p != "local" && *p != "ollama") {
-        let prov_models = store
-            .get_models(prov)
-            .cloned()
-            .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(prov));
-        let prov_models = rho_engine::provider::discovery::sort_models_newest_first(prov_models);
+        let raw_models = store.get_models(prov).cloned().unwrap_or_default();
+        let prov_models = merge_provider_presets(prov, raw_models);
         for m in prov_models {
             push_model_item_unique(
                 models,
