@@ -148,21 +148,23 @@ fn from_str_aliases_and_case_insensitivity() {
 
 #[test]
 fn infer_provider_for_model_resolves_common_prefixes() {
-    let cases = [
-        ("claude-3-7-sonnet-20250219", Some("anthropic")),
-        ("gpt-4o", Some("openai")),
-        ("o3-mini", Some("openai")),
-        ("gemini-2.0-flash", Some("gemini")),
-        ("deepseek-chat", Some("deepseek")),
-        ("grok-2", Some("xai")),
-        ("mistral-large-latest", Some("mistral")),
-        ("llama-3.3-70b-versatile", Some("groq")),
-        ("meta-llama/llama-3-70b", Some("openrouter")),
-        ("unknown-model", None),
-    ];
-    for (model, expected) in cases {
-        assert_eq!(infer_provider_for_model(model), expected);
-    }
+    let assert_provider = |m: &str, p: Option<&str>| {
+        assert_eq!(infer_provider_for_model(m), p);
+    };
+    assert_provider("claude-3-7-sonnet-20250219", Some("anthropic"));
+    assert_provider("haiku-5.5", Some("anthropic"));
+    assert_provider("haiku-5-5", Some("anthropic"));
+    assert_provider("sonnet-5.5", Some("anthropic"));
+    assert_provider("opus-5.5", Some("anthropic"));
+    assert_provider("gpt-4o", Some("openai"));
+    assert_provider("o3-mini", Some("openai"));
+    assert_provider("gemini-2.0-flash", Some("gemini"));
+    assert_provider("deepseek-chat", Some("deepseek"));
+    assert_provider("grok-2", Some("xai"));
+    assert_provider("mistral-large-latest", Some("mistral"));
+    assert_provider("llama-3.3-70b-versatile", Some("groq"));
+    assert_provider("meta-llama/llama-3-70b", Some("openrouter"));
+    assert_provider("unknown-model", None);
 }
 
 #[test]

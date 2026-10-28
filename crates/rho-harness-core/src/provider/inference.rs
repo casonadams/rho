@@ -1,5 +1,5 @@
 const PREFIX_PROVIDERS: &[(&[&str], &str)] = &[
-    (&["claude-"], "anthropic"),
+    (&["claude-", "haiku-", "sonnet-", "opus-"], "anthropic"),
     (&["gpt-", "o1", "o3", "chatgpt-"], "openai"),
     (&["gemini-"], "gemini"),
     (&["deepseek-"], "deepseek"),

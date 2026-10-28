@@ -95,6 +95,7 @@ fn build_rig_named_client(provider: ProviderId, model: &str, key: String) -> Res
     use rig::providers::openai::wire::{DEEPSEEK, GROQ, OPENROUTER, OpenAIConfig};
     match provider {
         ProviderId::Anthropic => {
+            let model = crate::claude::request::normalize_model_alias(model);
             let c = rig::providers::anthropic::Anthropic::new(key);
             Ok(c.completion(model).erase())
         }

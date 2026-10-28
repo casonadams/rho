@@ -41,6 +41,8 @@ fn test_model_alias_normalization() {
         ("sonnet-5.5", "claude-sonnet-5-5"),
         ("claude-sonnet-5-5", "claude-sonnet-5-5"),
         ("claude-sonnet-5.5", "claude-sonnet-5-5"),
+        ("haiku-5", "claude-haiku-5-5"),
+        ("claude-haiku-5", "claude-haiku-5-5"),
         ("haiku-5-5", "claude-haiku-5-5"),
         ("haiku-5.5", "claude-haiku-5-5"),
         ("claude-haiku-5-5", "claude-haiku-5-5"),
