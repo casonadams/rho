@@ -14,7 +14,7 @@ pub struct CompletedTool {
 }
 
 pub struct TurnArtifacts {
-    pub response: rig::agent::PromptResponse,
+    pub response: crate::engine::metrics::types::PromptResponse,
     pub tool_calls_count: usize,
     pub completed_tools: Vec<CompletedTool>,
     pub generation_elapsed_ms: u64,

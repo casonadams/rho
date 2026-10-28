@@ -1,21 +1,22 @@
 use super::*;
 use crate::claude::http::{claude_headers, friendly_error};
 use crate::claude::request::{build_request_body, normalize_model_alias, resolve_thinking_budget};
-use rig::completion::ToolDefinition;
-use rig::message::{
-    AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
-    UserContent,
-};
+use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
+use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-fn sample_request() -> CompletionRequest {
-    let mut req = CompletionRequest::new(Message::system("system instructions"));
-    req.chat_history.push(Message::user("hello world"));
-    req.temperature = Some(0.7);
-    req
+fn sample_request() -> ModelCompletionRequest {
+    ModelCompletionRequest {
+        preamble: Some("system instructions".to_string()),
+        prompt: "hello world".to_string(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: Some(0.7),
+    }
 }
 
 #[test]
@@ -117,41 +118,34 @@ fn test_build_request_body_without_thinking_includes_temperature() {
     assert_eq!(body["max_tokens"], 8192);
 }
 
-fn sample_tool_history_chat(call: ToolCall, res: ToolResult) -> Vec<Message> {
-    vec![
-        Message::system("system instructions"),
-        Message::user("run tool"),
-        Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
-            call,
-        )])),
-        Message::User {
-            content: vec![UserContent::ToolResult(res)],
-        },
-    ]
-}
-
-fn request_with_tool_and_history() -> CompletionRequest {
-    let mut req = sample_request();
-    req.tools.push(ToolDefinition::new(
-        ToolName::new("test_tool").unwrap(),
-        "A test tool",
-        serde_json::json!({ "type": "object", "properties": { "arg": { "type": "string" } } }),
-    ));
+fn request_with_tool_and_history() -> ModelCompletionRequest {
     let call = ToolCall::new(
-        CallId::from_wire("tool_call_1"),
-        ToolFunction::new(
-            rig::message::ToolName::new("test_tool").unwrap(),
-            serde_json::json!({ "arg": "val" }),
-        ),
+        "tool_call_1",
+        ToolFunction::new("test_tool", serde_json::json!({ "arg": "val" })),
     );
-    let res = ToolResult {
-        call: CallId::from_wire("tool_call_1"),
-        name: rig::message::ToolName::new("test_tool").unwrap(),
-        content: vec![ToolResultContent::Text(Text::new("tool output"))],
-        is_error: false,
-    };
-    req.chat_history = sample_tool_history_chat(call, res);
-    req
+    ModelCompletionRequest {
+        preamble: Some("system instructions".to_string()),
+        prompt: String::new(),
+        messages: vec![
+            ChatMessage::user("run tool"),
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            ChatMessage::User {
+                content: vec![rho_harness_core::model::UserContent::ToolResult(
+                    rho_harness_core::model::ToolResult::new("tool_call_1", "test_tool", "tool output"),
+                )],
+            },
+        ],
+        tools: vec![ModelToolDefinition {
+            name: "test_tool".to_string(),
+            description: "A test tool".to_string(),
+            parameters: serde_json::json!({ "type": "object", "properties": { "arg": { "type": "string" } } }),
+        }],
+        max_tokens: None,
+        temperature: Some(0.7),
+    }
 }
 
 #[test]
@@ -208,10 +202,11 @@ fn test_build_request_body_marks_conversation_tail_without_tools() {
 #[test]
 fn test_build_request_body_marks_penultimate_turn_and_tail_in_multi_turn() {
     let mut req = sample_request();
-    req.chat_history = vec![
-        Message::user("first"),
-        Message::assistant("second"),
-        Message::user("third"),
+    req.prompt = String::new();
+    req.messages = vec![
+        ChatMessage::user("first"),
+        ChatMessage::assistant("second"),
+        ChatMessage::user("third"),
     ];
     let body = build_request_body("default", None, &req).unwrap();
     let messages = body["messages"].as_array().unwrap();
@@ -343,20 +338,16 @@ async fn test_completion_model_aggregates_unary_response() {
 
     let client = ClaudeClient::new("test-token", "claude-sonnet-4-5").with_endpoint(format!("http://{addr}"));
     let handle = crate::claude::into_handle(client);
-    let resp = handle.call(sample_request()).await.unwrap();
+    let resp = handle.complete(sample_request()).await.unwrap();
     assert_eq!(
         (
             resp.usage.input_tokens,
             resp.usage.output_tokens,
             resp.usage.total_tokens
         ),
-        (Some(12), Some(8), Some(20))
+        (12, 8, 20)
     );
-    assert!(
-        resp.choice
-            .iter()
-            .any(|c| matches!(c, AssistantContent::Text(t) if t.text == "Full response text"))
-    );
+    assert_eq!(resp.content, "Full response text");
 }
 
 #[tokio::test]
@@ -368,13 +359,13 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
     ctx.git_status = Some("## main...origin/main".to_string());
     let preamble_turn1 = ctx.build_system_prompt();
     let mut req1 = sample_request();
-    req1.chat_history.insert(0, Message::system(preamble_turn1.clone()));
+    req1.preamble = Some(preamble_turn1.clone());
     let body1 = build_request_body("claude-sonnet-4-5", None, &req1).unwrap();
 
     ctx.git_status = Some("## main...origin/main [ahead 1] | M src/lib.rs | ?? new_file.rs".to_string());
     let preamble_turn2 = ctx.build_system_prompt();
     let mut req2 = sample_request();
-    req2.chat_history.insert(0, Message::system(preamble_turn2.clone()));
+    req2.preamble = Some(preamble_turn2.clone());
     let body2 = build_request_body("claude-sonnet-4-5", None, &req2).unwrap();
 
     assert_eq!(preamble_turn1, preamble_turn2);
@@ -427,39 +418,4 @@ fn test_sonnet_5_thinking_off_attaches_disabled_type() {
     assert_eq!(body["model"], "claude-sonnet-5");
     assert_eq!(body["thinking"]["type"], "disabled");
     assert_eq!(body["temperature"], 0.7);
-}
-
-#[test]
-fn test_opus_5_5_tool_choice_falls_back_to_auto() {
-    use rig::completion::ToolDefinition;
-    use rig::message::ToolChoice;
-
-    let mut req = sample_request();
-    req.tools = vec![ToolDefinition::new(
-        ToolName::new("bash").unwrap(),
-        "Run command",
-        serde_json::json!({ "type": "object" }),
-    )];
-
-    req.tool_choice = Some(ToolChoice::Required);
-    let body_required = build_request_body("claude-opus-5-5", None, &req).unwrap();
-    assert_eq!(body_required["tool_choice"]["type"], "auto");
-
-    req.tool_choice = Some(ToolChoice::Specific {
-        function_names: vec![ToolName::new("bash").unwrap()],
-    });
-    let body_specific = build_request_body("claude-opus-5-5", None, &req).unwrap();
-    assert_eq!(body_specific["tool_choice"]["type"], "auto");
-
-    // On standard models that allow forced tools, Required -> any and Specific -> tool
-    req.tool_choice = Some(ToolChoice::Required);
-    let body_sonnet = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-    assert_eq!(body_sonnet["tool_choice"]["type"], "any");
-
-    req.tool_choice = Some(ToolChoice::Specific {
-        function_names: vec![ToolName::new("bash").unwrap()],
-    });
-    let body_sonnet_spec = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-    assert_eq!(body_sonnet_spec["tool_choice"]["type"], "tool");
-    assert_eq!(body_sonnet_spec["tool_choice"]["name"], "Bash");
 }

@@ -28,14 +28,6 @@ impl GuardEvaluator {
             return verdict;
         }
 
-        let agent = rig::agent::AgentBuilder::new(self.model.clone())
-            .preamble(GUARD_SYSTEM_PROMPT)
-            .default_max_turns(1)
-            .max_tokens(256)
-            .temperature(0.0)
-            .record_content_telemetry(false)
-            .build();
-
         let eval_prompt = format!("<command_to_evaluate>\n{command}\n</command_to_evaluate>");
         if self.timeout.is_zero() {
             return GuardVerdict {
@@ -44,8 +36,18 @@ impl GuardEvaluator {
                 reason: "Guard model evaluation timed out after 0s. Approval required.".to_string(),
             };
         }
-        match tokio::time::timeout(self.timeout, agent.prompt(&eval_prompt).run()).await {
-            Ok(Ok(response)) => parse_guard_output(&response.output()),
+
+        let req = crate::provider::adapter::ModelCompletionRequest {
+            preamble: Some(GUARD_SYSTEM_PROMPT.to_string()),
+            prompt: eval_prompt,
+            messages: Vec::new(),
+            tools: Vec::new(),
+            max_tokens: Some(256),
+            temperature: Some(0.0),
+        };
+
+        match tokio::time::timeout(self.timeout, self.model.complete(req)).await {
+            Ok(Ok(response)) => parse_guard_output(&response.content),
             Ok(Err(err)) => GuardVerdict {
                 safe: false,
                 action: None,
@@ -63,12 +65,12 @@ impl GuardEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig::test_utils::{MockCompletionModel, MockTurn};
+    use crate::provider::adapter::MockAdapter;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn evaluate_critical_danger_intercepts_without_calling_model() {
-        // Model with zero turns would fail if called
-        let mock = MockCompletionModel::from_turns([]).erase();
+        let mock = Arc::new(MockAdapter::default());
         let evaluator = GuardEvaluator::new(mock);
         let verdict = evaluator.evaluate("rm -rf /").await;
         assert!(!verdict.safe);
@@ -78,10 +80,9 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_safe_verdict() {
-        let mock = MockCompletionModel::from_turns([MockTurn::text(
+        let mock = Arc::new(MockAdapter::text(
             r#"{"safe": true, "reason": "Local directory creation"}"#,
-        )])
-        .erase();
+        ));
         let evaluator = GuardEvaluator::new(mock);
         let verdict = evaluator.evaluate("mkdir -p src/foo").await;
         assert!(verdict.safe);
@@ -90,10 +91,9 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_unsafe_verdict() {
-        let mock = MockCompletionModel::from_turns([MockTurn::text(
+        let mock = Arc::new(MockAdapter::text(
             r#"{"safe": false, "reason": "Git push modifies remote state"}"#,
-        )])
-        .erase();
+        ));
         let evaluator = GuardEvaluator::new(mock);
         let verdict = evaluator.evaluate("git push origin main").await;
         assert!(!verdict.safe);
@@ -102,10 +102,9 @@ mod tests {
 
     #[tokio::test]
     async fn evaluate_handles_model_timeout_fail_closed() {
-        let mock = MockCompletionModel::from_turns([MockTurn::text(
+        let mock = Arc::new(MockAdapter::text(
             r#"{"safe": true, "reason": "Should not arrive before timeout"}"#,
-        )])
-        .erase();
+        ));
         let evaluator = GuardEvaluator::new(mock).with_timeout(Duration::from_millis(0));
         let verdict = evaluator.evaluate("cargo build").await;
         assert!(!verdict.safe);

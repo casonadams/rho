@@ -2,10 +2,11 @@ use super::cache::{McpCache, compute_definition_hash};
 use super::client::McpToolDefinition;
 use super::pool::McpServerPool;
 use super::trust::is_server_definition_trusted;
+use crate::tools::{EngineTool, GenericTool, ToolResult};
 use rho_harness_core::config::{Config, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig};
-use rig::tool::{DynamicTool, ToolOutput};
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -33,7 +34,7 @@ fn build_pooled_mcp_tool(
     pool: McpServerPool,
     server_name: &str,
     max_bytes: usize,
-) -> DynamicTool {
+) -> Arc<dyn EngineTool> {
     let tool_name = format!("{}_{}", server_name, tool.name);
     let description = format!("[MCP: {}] {}", server_name, tool.description.unwrap_or_default());
     let mut schema = tool.input_schema;
@@ -41,13 +42,11 @@ fn build_pooled_mcp_tool(
     let original_name = tool.name;
     let s_name = server_name.to_string();
 
-    let tn =
-        rig::message::ToolName::new(&tool_name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
-    DynamicTool::new(tn, description, schema, move |args| {
+    Arc::new(GenericTool::new(tool_name, description, schema, move |args| {
         let pool = pool.clone();
         let original_name = original_name.clone();
         let server_name = s_name.clone();
-        Box::pin(async move {
+        async move {
             match pool.get_or_connect(&server_name).await {
                 Ok((client, in_flight)) => {
                     let res = client.call_tool(&original_name, args).await;
@@ -57,20 +56,20 @@ fn build_pooled_mcp_tool(
                         Ok(result) => {
                             let text = result.as_text_truncated(max_bytes);
                             if result.is_error.unwrap_or(false) {
-                                Ok(ToolOutput::text(format!("[Error] {text}")))
+                                Ok(ToolResult::error(text))
                             } else {
-                                Ok(ToolOutput::text(text))
+                                Ok(ToolResult::success(text))
                             }
                         }
-                        Err(e) => Ok(ToolOutput::text(format!("[MCP Error] {e}"))),
+                        Err(e) => Ok(ToolResult::error(format!("[MCP Error] {e}"))),
                     }
                 }
-                Err(e) => Ok(ToolOutput::text(format!(
+                Err(e) => Ok(ToolResult::error(format!(
                     "[MCP Error] Failed to connect to server '{server_name}': {e}"
                 ))),
             }
-        })
-    })
+        }
+    }))
 }
 
 async fn discover_uncached_tools(
@@ -175,7 +174,7 @@ struct ToolRoutingContext<'a> {
 fn route_discovered_server(
     server: DiscoveredServer,
     ctx: &ToolRoutingContext<'_>,
-    initial_tools: &mut Vec<DynamicTool>,
+    initial_tools: &mut Vec<Arc<dyn EngineTool>>,
     deferred_tools: &mut Vec<super::search::DeferredMcpTool>,
 ) {
     let mode = server.config.mode.unwrap_or(McpExposureMode::Auto);
@@ -219,7 +218,7 @@ fn route_discovered_server(
     }
 }
 
-pub async fn load_mcp_tools(config: &Config, working_dir: &Path) -> Vec<DynamicTool> {
+pub async fn load_mcp_tools(config: &Config, working_dir: &Path) -> Vec<Arc<dyn EngineTool>> {
     let (tools, _) = load_mcp_tools_with_activator(config, working_dir, &HashSet::new()).await;
     tools
 }
@@ -228,7 +227,7 @@ pub async fn load_mcp_tools_with_activator(
     config: &Config,
     working_dir: &Path,
     active_history_tools: &HashSet<String>,
-) -> (Vec<DynamicTool>, super::search::DynamicToolActivator) {
+) -> (Vec<Arc<dyn EngineTool>>, super::search::DynamicToolActivator) {
     if !config.mcp.enabled {
         return (Vec::new(), super::search::DynamicToolActivator::new());
     }

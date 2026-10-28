@@ -1,8 +1,7 @@
-//! Antigravity streaming client: endpoint/model fallback routing and the SSE
-//! feed consumed by the rig [`CompletionModel`] adapter in `completion`.
+//! Antigravity streaming client: endpoint/model fallback routing and SSE streaming.
 
 use super::request::{self, Effort, RequestTarget};
-use rig::completion::CompletionRequest;
+use crate::provider::adapter::ModelCompletionRequest;
 
 pub mod completion;
 pub mod discovery;
@@ -46,7 +45,7 @@ impl<'a> Endpoint<'a> {
     }
 }
 
-/// Rig client for the Antigravity Cloud Code Assist API.
+/// Client for the Antigravity Cloud Code Assist API.
 #[derive(Clone)]
 pub struct AntigravityClient {
     token_provider: std::sync::Arc<dyn TokenProvider>,
@@ -54,6 +53,15 @@ pub struct AntigravityClient {
     model: String,
     effort: Effort,
     endpoint: Option<String>,
+}
+
+impl std::fmt::Debug for AntigravityClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AntigravityClient")
+            .field("model", &self.model)
+            .field("project_id", &self.project_id)
+            .finish()
+    }
 }
 
 fn resolve_candidate_models(model: &str, effort: Effort) -> Vec<String> {
@@ -68,7 +76,7 @@ fn resolve_candidate_models(model: &str, effort: Effort) -> Vec<String> {
 async fn try_post_stream_refresh(
     client: &AntigravityClient,
     endpoint: Endpoint<'_>,
-    request: &CompletionRequest,
+    request: &ModelCompletionRequest,
     token: &mut String,
     refreshed: &mut bool,
 ) -> Result<reqwest::Response, (Option<u16>, String)> {
@@ -163,7 +171,7 @@ impl AntigravityClient {
     async fn post_stream(
         &self,
         target: EndpointTarget<'_, '_>,
-        request: &CompletionRequest,
+        request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let envelope = request::new_envelope();
         let wire_target = target.endpoint.wire_target();
@@ -196,7 +204,7 @@ impl AntigravityClient {
         endpoints: &[&str],
         token: &mut String,
         refreshed: &mut bool,
-        request: &CompletionRequest,
+        request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let mut last = None;
         for candidate in candidates {
@@ -216,7 +224,10 @@ impl AntigravityClient {
         Err(last.unwrap_or((None, "no endpoint available".to_string())))
     }
 
-    async fn open_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
+    pub(crate) async fn open_stream(
+        &self,
+        request: &ModelCompletionRequest,
+    ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let mut token = self
             .token_provider
             .token()

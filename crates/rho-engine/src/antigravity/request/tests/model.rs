@@ -1,5 +1,9 @@
 use super::*;
-use rig::message::UserContent;
+use rho_harness_core::model::ChatMessage;
+
+fn sample_user_request() -> ModelCompletionRequest {
+    minimal_request(vec![ChatMessage::user("hi")])
+}
 
 #[test]
 fn runtime_mapping_covers_known_families_and_passes_through_unknown() {
@@ -32,9 +36,7 @@ fn fallback_chain_degrades_next_generation() {
 
 #[test]
 fn max_tokens_is_capped_per_runtime_family() {
-    let mut request = minimal_request(vec![Message::User {
-        content: vec![UserContent::text("hi")],
-    }]);
+    let mut request = sample_user_request();
     request.max_tokens = Some(1_000_000);
     let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
     assert_eq!(body["request"]["generationConfig"]["maxOutputTokens"], 64000);
@@ -45,9 +47,7 @@ fn max_tokens_is_capped_per_runtime_family() {
 
 #[test]
 fn model_enum_label_uses_rollout_ids() {
-    let request = minimal_request(vec![Message::User {
-        content: vec![UserContent::text("hi")],
-    }]);
+    let request = sample_user_request();
     let body = build_request_body(target("p", "gemini-3.5-flash-extra-low"), &request, &envelope()).unwrap();
     assert_eq!(body["request"]["labels"]["model_enum"], "MODEL_PLACEHOLDER_M187");
 }
@@ -72,11 +72,15 @@ fn thinking_level_routes_runtime_variants() {
 fn effort_parse_max_and_off() {
     assert_eq!(Effort::parse(Some("xhigh")), Effort::High);
     assert_eq!(Effort::parse(Some("max")), Effort::High);
+    assert_eq!(Effort::parse(Some("high")), Effort::High);
+    assert_eq!(Effort::parse(Some("medium")), Effort::Medium);
+    assert_eq!(Effort::parse(Some("low")), Effort::Low);
+    assert_eq!(Effort::parse(Some("off")), Effort::Off);
     assert_eq!(Effort::parse(None), Effort::Off);
 }
 
 #[test]
-fn collapse_runtime_id_folds_tiers_into_families() {
+fn collapse_runtime_id_preserves_canonical() {
     let cases = [
         ("gemini-3.7-flash-high", "gemini-3.7-flash", Some(Effort::High)),
         ("gemini-3.5-flash-extra-low", "gemini-3.5-flash", Some(Effort::Low)),
@@ -93,9 +97,7 @@ fn collapse_runtime_id_folds_tiers_into_families() {
 
 #[test]
 fn thinking_config_tracks_gemini() {
-    let request = minimal_request(vec![Message::User {
-        content: vec![UserContent::text("hi")],
-    }]);
+    let request = sample_user_request();
     let body = build_request_body(high_target("p", "gemini-3.7-flash-high"), &request, &envelope()).unwrap();
     let cfg = &body["request"]["generationConfig"]["thinkingConfig"];
     assert_eq!(
@@ -137,9 +139,7 @@ fn thinking_config_tracks_gemini() {
 
 #[test]
 fn thinking_config_tracks_claude_headers() {
-    let request = minimal_request(vec![Message::User {
-        content: vec![UserContent::text("hi")],
-    }]);
+    let request = sample_user_request();
     let body = build_request_body(high_target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
     assert!(body["request"]["generationConfig"].get("thinkingConfig").is_none());
     assert!(wants_claude_thinking_header("claude-sonnet-4-6", Effort::High));
@@ -167,9 +167,7 @@ fn gemini_4_argon_thinking_config_and_envelope() {
     let cyber_cfg = thinking_config("gemini-4-argon-cyber-permissive", Effort::Medium);
     assert_eq!(cyber_cfg, json!({ "thinkingLevel": "HIGH" }));
 
-    let mut request = minimal_request(vec![Message::User {
-        content: vec![UserContent::text("hi")],
-    }]);
+    let mut request = sample_user_request();
     request.temperature = Some(0.7);
 
     let body = build_request_body(

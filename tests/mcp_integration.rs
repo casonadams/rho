@@ -2,7 +2,6 @@
 
 use rho_engine::mcp::load_mcp_tools;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
-use rig::tool::{ToolContext, ToolSet};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -48,12 +47,9 @@ async fn test_mcp_server_discovery_and_tool_invocation_end_to_end() {
     let tool_names: Vec<String> = tools.iter().map(|d| d.name().to_string()).collect();
     assert!(tool_names.contains(&"filesystem_fs_read".to_string()));
 
-    let tool_set = ToolSet::from_dynamic_tools(tools);
-    let result = tool_set
-        .execute("filesystem_fs_read", r#"{"path":"foo.txt"}"#, &mut ToolContext::new())
-        .await;
-    assert!(result.is_success());
-    let text = result.output().as_text().unwrap_or_default();
-    assert!(text.contains("content from mock fs MCP"));
+    let fs_read = tools.iter().find(|t| t.name() == "filesystem_fs_read").unwrap();
+    let res = fs_read.execute(serde_json::json!({"path":"foo.txt"})).await.unwrap();
+    assert!(!res.is_error);
+    assert!(res.content.contains("content from mock fs MCP"));
     let _ = std::fs::remove_dir_all(&workspace);
 }

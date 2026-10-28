@@ -1,6 +1,6 @@
 use super::model::{gemini_requires_thought_signature, needs_function_call_id, sanitize_tool_call_id};
-use rig::completion::CompletionRequest;
-use rig::message::{AssistantContent, Message, UserContent};
+use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::model::{AssistantContent, ChatMessage, ToolResultContent, UserContent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -39,13 +39,6 @@ pub struct FunctionCall {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct FunctionResponsePart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inline_data: Option<InlineData>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct FunctionResponse {
     pub name: String,
     pub response: Value,
@@ -55,12 +48,21 @@ pub struct FunctionResponse {
     pub parts: Option<Vec<FunctionResponsePart>>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionResponsePart {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_data: Option<InlineData>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Content {
     pub role: String,
     pub parts: Vec<Part>,
 }
+
+pub const SKIP_THOUGHT_SIGNATURE: &str = "skip_thought_signature_validator";
 
 pub fn part_text(text: impl Into<String>) -> Part {
     Part {
@@ -69,229 +71,145 @@ pub fn part_text(text: impl Into<String>) -> Part {
     }
 }
 
-pub fn append_turn(contents: &mut Vec<Content>, role: &str, parts: Vec<Part>) {
-    if parts.is_empty() {
-        return;
-    }
-    match contents.last_mut() {
-        Some(last) if last.role == role => last.parts.extend(parts),
-        _ => contents.push(Content {
-            role: role.to_string(),
-            parts,
-        }),
-    }
-}
-
-pub fn tool_result_text(content: &[rig::message::ToolResultContent]) -> String {
-    content
-        .iter()
-        .map(|c| match c {
-            rig::message::ToolResultContent::Text(text) => text.text.clone(),
-            rig::message::ToolResultContent::Json { value } => value.to_string(),
-            rig::message::ToolResultContent::Image(_) => String::new(),
-        })
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-pub fn image_data(data: &rig::message::DocumentSourceKind) -> Option<String> {
-    match data {
-        rig::message::DocumentSourceKind::Base64(data) => Some(data.clone()),
-        rig::message::DocumentSourceKind::Raw(bytes) => {
-            use base64::Engine;
-            Some(base64::engine::general_purpose::STANDARD.encode(bytes))
-        }
-        rig::message::DocumentSourceKind::String(s) => Some(s.clone()),
-        _ => None,
-    }
-}
-
-pub fn image_mime_type(media_type: Option<&rig::message::ImageMediaType>) -> &'static str {
-    match media_type {
-        Some(rig::message::ImageMediaType::JPEG) => "image/jpeg",
-        Some(rig::message::ImageMediaType::PNG) => "image/png",
-        Some(rig::message::ImageMediaType::GIF) => "image/gif",
-        Some(rig::message::ImageMediaType::WEBP) => "image/webp",
-        Some(rig::message::ImageMediaType::HEIC) => "image/heic",
-        Some(rig::message::ImageMediaType::HEIF) => "image/heif",
-        Some(rig::message::ImageMediaType::SVG) => "image/svg+xml",
-        None => "image/png",
-    }
-}
-
-pub fn tool_result_inline_data(image: &rig::message::Image) -> Option<InlineData> {
-    let data = image_data(&image.data)?;
-    let (mime, data) = if let Some(rest) = data.strip_prefix("data:") {
-        rest.split_once(";base64,")?
-    } else {
-        (image_mime_type(image.media_type.as_ref()), data.as_str())
-    };
-    if data.is_empty() {
-        return None;
-    }
-    Some(InlineData {
-        mime_type: mime.to_string(),
-        data: data.to_string(),
-    })
-}
-
-struct ConversionContext<'a> {
-    requires_sig: bool,
-    call_ids: bool,
+pub struct ConversionContext<'a> {
+    pub requires_sig: bool,
+    pub call_ids: bool,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
-fn extract_image_parts(content: &[rig::message::ToolResultContent]) -> Vec<FunctionResponsePart> {
-    content
-        .iter()
-        .filter_map(|c| match c {
-            rig::message::ToolResultContent::Image(image) => {
-                tool_result_inline_data(image).map(|inline_data| FunctionResponsePart {
-                    inline_data: Some(inline_data),
-                })
+fn convert_tool_result_part(result: &rho_harness_core::model::ToolResult, call_ids: bool) -> Part {
+    let mut text = String::new();
+    let mut image_parts = Vec::new();
+    for c in &result.content {
+        match c {
+            ToolResultContent::Text(t) => text.push_str(&t.text),
+            ToolResultContent::Image(img) => {
+                image_parts.push(FunctionResponsePart {
+                    inline_data: Some(InlineData {
+                        mime_type: img.media_type.clone().unwrap_or_else(|| "image/png".to_string()),
+                        data: img.data.clone(),
+                    }),
+                });
             }
-            _ => None,
-        })
-        .collect()
-}
-
-fn build_function_response_part(
-    result: &rig::message::ToolResult,
-    sanitized_id: String,
-    response_text: String,
-    image_parts: Vec<FunctionResponsePart>,
-    ctx: &ConversionContext<'_>,
-) -> Part {
+            ToolResultContent::Json { value } => text.push_str(&value.to_string()),
+        }
+    }
     Part {
         function_response: Some(FunctionResponse {
-            name: result.name.to_string(),
-            response: json!({ "output": response_text }),
-            id: ctx.call_ids.then_some(sanitized_id),
+            name: result.name.clone(),
+            response: json!({ "output": text }),
+            id: call_ids.then(|| sanitize_tool_call_id(&result.call)),
             parts: (!image_parts.is_empty()).then_some(image_parts),
         }),
         ..Part::default()
     }
 }
-fn convert_tool_result_part(result: &rig::message::ToolResult, ctx: &ConversionContext<'_>, parts: &mut Vec<Part>) {
-    let response_text = tool_result_text(&result.content);
-    let raw_id = result.call.to_string();
-    let sanitized_id = sanitize_tool_call_id(&raw_id);
-    let image_parts = extract_image_parts(&result.content);
-    let part = build_function_response_part(result, sanitized_id, response_text, image_parts, ctx);
-    parts.push(part);
-}
 
-fn convert_image_part(image: &rig::message::Image) -> Option<Part> {
-    tool_result_inline_data(image).map(|inline_data| Part {
-        inline_data: Some(inline_data),
-        ..Part::default()
-    })
-}
-
-fn convert_user_content(content: &[UserContent], ctx: &ConversionContext<'_>) -> Vec<Part> {
-    let mut parts = Vec::new();
-    for item in content {
-        match item {
-            UserContent::Text(text) if !text.text.trim().is_empty() => parts.push(part_text(text.text.clone())),
-            UserContent::ToolResult(result) => convert_tool_result_part(result, ctx, &mut parts),
-            UserContent::Image(image) => {
-                if let Some(part) = convert_image_part(image) {
-                    parts.push(part);
-                }
+fn convert_antigravity_user_part(part: &UserContent, call_ids: bool) -> Option<Part> {
+    match part {
+        UserContent::Text(t) => {
+            let trimmed = t.text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(part_text(&t.text))
             }
-            _ => {}
         }
-    }
-    parts
-}
-
-fn convert_reasoning_part(reasoning: &rig::message::Reasoning, parts: &mut Vec<Part>) {
-    if !reasoning.text.trim().is_empty() {
-        let signature = reasoning
-            .native
-            .as_ref()
-            .and_then(|n| n.item.get("signature"))
-            .and_then(|s| s.as_str())
-            .map(ToString::to_string);
-        parts.push(Part {
-            text: Some(reasoning.text.clone()),
-            thought: Some(true),
-            thought_signature: signature,
+        UserContent::Image(img) => Some(Part {
+            inline_data: Some(InlineData {
+                mime_type: img.media_type.clone().unwrap_or_else(|| "image/png".to_string()),
+                data: img.data.clone(),
+            }),
             ..Part::default()
-        });
+        }),
+        UserContent::ToolResult(result) => Some(convert_tool_result_part(result, call_ids)),
     }
 }
 
-const SKIP_THOUGHT_SIGNATURE: &str = "skip_thought_signature_validator";
+fn convert_antigravity_user(content: &[UserContent], call_ids: bool) -> Vec<Part> {
+    content
+        .iter()
+        .filter_map(|p| convert_antigravity_user_part(p, call_ids))
+        .collect()
+}
 
-fn convert_tool_call_part(
-    call: &rig::message::ToolCall,
+fn convert_antigravity_assistant_part(
+    part: &AssistantContent,
     ctx: &ConversionContext<'_>,
-    is_first_tool_call: &mut bool,
-    parts: &mut Vec<Part>,
-) {
-    let raw_id = call.id.to_string();
-    let args_val = serde_json::Value::Object(call.function.arguments.clone());
-    let signature = call
-        .native
-        .as_ref()
-        .and_then(|n| n.item.get("signature"))
-        .and_then(|s| s.as_str())
-        .map(ToString::to_string)
-        .or_else(|| {
-            if ctx.requires_sig && *is_first_tool_call {
+    is_first_call: &mut bool,
+) -> Option<Part> {
+    match part {
+        AssistantContent::Reasoning(reasoning) => {
+            let (text_opt, sig_opt) = reasoning.first_text_and_signature();
+            let text = text_opt?.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(Part {
+                    text: Some(text.to_string()),
+                    thought: Some(true),
+                    thought_signature: sig_opt.map(str::to_string),
+                    ..Part::default()
+                })
+            }
+        }
+        AssistantContent::Text(t) => {
+            let trimmed = t.text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(part_text(&t.text))
+            }
+        }
+        AssistantContent::ToolCall(call) => {
+            let sig = if ctx.requires_sig && *is_first_call {
                 Some(SKIP_THOUGHT_SIGNATURE.to_string())
             } else {
                 None
-            }
-        });
-    *is_first_tool_call = false;
-
-    parts.push(Part {
-        function_call: Some(FunctionCall {
-            name: call.function.name.to_string(),
-            args: args_val,
-            id: ctx.call_ids.then(|| sanitize_tool_call_id(&raw_id)),
-        }),
-        thought_signature: signature,
-        ..Part::default()
-    });
+            };
+            *is_first_call = false;
+            Some(Part {
+                function_call: Some(FunctionCall {
+                    name: call.function.name.clone(),
+                    args: call.function.arguments.clone(),
+                    id: ctx.call_ids.then(|| sanitize_tool_call_id(&call.id)),
+                }),
+                thought_signature: sig,
+                ..Part::default()
+            })
+        }
+        _ => None,
+    }
 }
 
-fn convert_assistant_content(content: &[AssistantContent], ctx: &ConversionContext<'_>) -> Vec<Part> {
+fn convert_antigravity_assistant(content: &[AssistantContent], ctx: &ConversionContext<'_>) -> Vec<Part> {
     let mut parts = Vec::new();
-    let mut is_first_tool_call = true;
-    for block in content {
-        match block {
-            AssistantContent::Text(text) if !text.text.trim().is_empty() => parts.push(part_text(text.text.clone())),
-            AssistantContent::Reasoning(reasoning) => {
-                convert_reasoning_part(reasoning, &mut parts);
-            }
-            AssistantContent::ToolCall(call) => {
-                convert_tool_call_part(call, ctx, &mut is_first_tool_call, &mut parts);
-            }
-            _ => {}
+    let mut is_first = true;
+    for part in content {
+        if let Some(p) = convert_antigravity_assistant_part(part, ctx, &mut is_first) {
+            parts.push(p);
         }
     }
     parts
 }
 
-fn convert_turn_content(message: &Message, ctx: &ConversionContext<'_>, contents: &mut Vec<Content>) {
-    match message {
-        Message::System { .. } => {}
-        Message::User { content } => {
-            let parts = convert_user_content(content, ctx);
-            append_turn(contents, "user", parts);
-        }
-        Message::Assistant(asst) => {
-            let parts = convert_assistant_content(&asst.content, ctx);
-            append_turn(contents, "model", parts);
-        }
+fn append_turn(contents: &mut Vec<Content>, role: &str, mut parts: Vec<Part>) {
+    if parts.is_empty() {
+        return;
+    }
+    if let Some(last) = contents.last_mut()
+        && last.role == role
+    {
+        last.parts.append(&mut parts);
+    } else {
+        contents.push(Content {
+            role: role.to_string(),
+            parts,
+        });
     }
 }
 
-pub fn convert_contents(request: &CompletionRequest, runtime_model: &str) -> Vec<Content> {
+pub fn convert_contents(request: &ModelCompletionRequest, runtime_model: &str) -> Vec<Content> {
     let mut contents: Vec<Content> = Vec::new();
     let requires_sig = gemini_requires_thought_signature(runtime_model);
     let call_ids = needs_function_call_id(runtime_model);
@@ -301,8 +219,22 @@ pub fn convert_contents(request: &CompletionRequest, runtime_model: &str) -> Vec
         _marker: std::marker::PhantomData,
     };
 
-    for message in &request.chat_history {
-        convert_turn_content(message, &ctx, &mut contents);
+    for message in &request.messages {
+        match message {
+            ChatMessage::System { .. } => {}
+            ChatMessage::User { content } => {
+                let parts = convert_antigravity_user(content, ctx.call_ids);
+                append_turn(&mut contents, "user", parts);
+            }
+            ChatMessage::Assistant { content, .. } => {
+                let parts = convert_antigravity_assistant(content, &ctx);
+                append_turn(&mut contents, "model", parts);
+            }
+        }
+    }
+
+    if !request.prompt.trim().is_empty() {
+        append_turn(&mut contents, "user", vec![part_text(request.prompt.trim())]);
     }
 
     if contents.first().is_some_and(|first| first.role == "model") {

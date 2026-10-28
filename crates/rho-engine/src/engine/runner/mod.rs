@@ -1,7 +1,7 @@
-mod helpers;
-mod history;
-mod sink;
-mod turn;
+pub mod helpers;
+pub mod history;
+pub mod sink;
+pub mod turn;
 
 pub use helpers::{clear_spinner, disarm_spinner, redact_text, redact_value};
 pub use history::{
@@ -15,5 +15,5 @@ pub use sink::{
 pub use turn::{
     ActiveModelSwitch, CancellationSignal, DEFAULT_PRUNE_LINE_THRESHOLD, QUEUED_MESSAGE_BOUNDARY,
     QueuedMessageBoundary, RunStatus, SharedModelSwitch, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails,
-    prune_historical_tool_outputs,
+    prune_historical_tool_outputs, runner::StreamEvent,
 };

@@ -1,38 +1,44 @@
-//! Rig `Transport` driver for `AntigravityClient`.
+//! `ModelAdapter` implementation for `AntigravityClient`.
 
 use super::AntigravityClient;
-use super::http::{PROVIDER_NAME, friendly_error};
-use crate::adapter::rig::model::{AdapterFrame, AdapterWire};
+use super::http::friendly_error;
 use crate::antigravity::stream::unfold_antigravity_stream;
 use crate::engine::compactor::llm::ModelHandle;
-use rig::completion::CompletionRequest;
-use rig::driver::{Exchange, Model, Opened, Opening, Transport};
-use rig::error::ProviderError;
+use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
+use futures::Stream;
+use rho_harness_core::error::AppError;
+use std::pin::Pin;
+use std::sync::Arc;
 
-#[derive(Clone)]
-pub struct AntigravityTransport {
-    pub(crate) client: AntigravityClient,
-}
+#[async_trait::async_trait]
+impl ModelAdapter for AntigravityClient {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
 
-impl Transport<AdapterWire> for AntigravityTransport {
-    fn send(&self, payload: CompletionRequest, _exchange: Exchange) -> Opening<AdapterFrame> {
-        let client = self.client.clone();
-        Opening::new(async move {
-            let response = client
-                .open_stream(&payload)
-                .await
-                .map_err(|(status, body)| ProviderError::Provider(friendly_error(status, &body)))?;
+    fn provider_name(&self) -> &str {
+        "antigravity"
+    }
 
-            let stream = unfold_antigravity_stream(response);
-            Ok(Opened::new(stream))
-        })
+    async fn complete(&self, req: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
+        let stream = self.stream(req).await?;
+        let events = futures::StreamExt::collect::<Vec<_>>(stream).await;
+        crate::provider::sse::aggregate_stream_events(events)
+    }
+
+    async fn stream(
+        &self,
+        req: ModelCompletionRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+        let response = self
+            .open_stream(&req)
+            .await
+            .map_err(|(status, body)| AppError::Provider(friendly_error(status, &body)))?;
+
+        Ok(Box::pin(unfold_antigravity_stream(response)))
     }
 }
 
 pub fn into_handle(client: AntigravityClient) -> ModelHandle {
-    let wire = AdapterWire {
-        name: PROVIDER_NAME.to_string(),
-    };
-    let transport = AntigravityTransport { client };
-    Model::new(wire, transport).erase()
+    Arc::new(client)
 }

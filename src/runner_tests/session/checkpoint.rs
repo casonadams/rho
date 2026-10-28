@@ -1,22 +1,23 @@
-use super::super::helpers::{final_event, presenter, request, test_engine, test_engine_with_session};
+use super::super::helpers::{presenter, request, test_engine, test_engine_with_session};
 use crate::config::Config;
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
-use rig::completion::Usage;
-use rig::test_utils::{MockCompletionModel, MockStreamEvent};
+use rho_engine::provider::adapter::{MockAdapter, ModelCompletionRequest, ModelStreamEvent};
+use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
 use std::path::PathBuf;
+use std::sync::Arc;
 
-fn budget_exhausted_model() -> MockCompletionModel {
-    MockCompletionModel::from_stream_turns([
-        [
-            MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path":"missing-a"})),
-            final_event(Usage::default()),
-        ],
-        [
-            MockStreamEvent::tool_call("call-2", "read", serde_json::json!({"path":"missing-b"})),
-            final_event(Usage::default()),
-        ],
-    ])
+fn budget_exhausted_model() -> Arc<MockAdapter> {
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-1",
+        ToolFunction::new("read", serde_json::json!({"path":"missing-a"})),
+    )))]);
+    model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-2",
+        ToolFunction::new("read", serde_json::json!({"path":"missing-b"})),
+    )))]);
+    model
 }
 
 async fn setup_budget_exhausted_checkpoint() -> (String, PathBuf) {
@@ -39,7 +40,7 @@ async fn setup_budget_exhausted_checkpoint() -> (String, PathBuf) {
     (id, dir)
 }
 
-fn assert_resumed_history_promoted(history: &[rig::message::Message]) {
+fn assert_resumed_history_promoted(history: &[ChatMessage]) {
     let encoded = serde_json::to_string(history).unwrap();
     assert_eq!(encoded.matches("inspect the repository").count(), 1);
     assert_eq!(
@@ -65,10 +66,7 @@ async fn assert_checkpoint_promoted_in_stores(engine: &crate::engine::AgentEngin
 async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once() {
     let (id, dir) = setup_budget_exhausted_checkpoint().await;
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
-    let resumed_model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::text("repository summary"),
-        final_event(Usage::default()),
-    ]]);
+    let resumed_model = Arc::new(MockAdapter::text("repository summary"));
     let resumed = test_engine_with_session(
         resumed_model.clone(),
         Config {
@@ -83,15 +81,16 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
         .await
         .unwrap();
 
-    assert_resumed_history_promoted(&resumed_model.requests()[0].chat_history);
+    assert_resumed_history_promoted(&resumed_model.requests()[0].messages);
     assert_checkpoint_promoted_in_stores(&resumed, &dir, &id).await;
 }
 
-async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rho_harness_core::model::ChatMessage>, String, PathBuf) {
-    let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": probe})),
-        final_event(Usage::default()),
-    ]]);
+async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String, PathBuf) {
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-1",
+        ToolFunction::new("read", serde_json::json!({"path": probe})),
+    )))]);
     let first = test_engine(
         model,
         Config {
@@ -110,9 +109,9 @@ async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rho_harness_core::mod
     (cp, id, dir)
 }
 
-fn assert_requests_contain_probe(requests: &[rig::completion::CompletionRequest], probe: &str) {
+fn assert_requests_contain_probe(requests: &[ModelCompletionRequest], probe: &str) {
     for req in requests {
-        let history = serde_json::to_string(&req.chat_history).unwrap();
+        let history = serde_json::to_string(&req.messages).unwrap();
         assert_eq!(history.matches(probe).count(), 2);
     }
 }
@@ -134,10 +133,12 @@ async fn assert_retry_session_state(engine: &crate::engine::AgentEngine, dir: &s
 async fn failed_checkpoint_continuation_remains_available_until_success() {
     let (checkpoint, id, dir) = setup_single_turn_checkpoint("checkpoint-probe-missing-3f9b").await;
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
-    let resumed_model = MockCompletionModel::from_stream_turns([
-        vec![MockStreamEvent::error("offline provider failure")],
-        vec![MockStreamEvent::text("done"), final_event(Usage::default())],
-    ]);
+    let resumed_model = Arc::new(MockAdapter::default());
+    resumed_model.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+        "offline provider failure".to_string(),
+    ))]);
+    resumed_model.add_turn(vec![Ok(ModelStreamEvent::Text("done".to_string()))]);
+
     let resumed = test_engine_with_session(
         resumed_model.clone(),
         Config {
@@ -159,6 +160,7 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
         .run_turn(request("continue again"), presenter(&TerminalRenderer::default()))
         .await
         .unwrap();
+
     assert_requests_contain_probe(&resumed_model.requests(), "checkpoint-probe-missing-3f9b");
     assert_retry_session_state(&resumed, &dir, &id).await;
 }

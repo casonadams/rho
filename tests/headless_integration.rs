@@ -1,10 +1,11 @@
 #![cfg(unix)]
 
 use rho::config::Config;
-use rho::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
+use rho::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho::engine::runner::TurnRequest;
 use rho::presentation::{RecordingSink, StructuredPresenter, UiEnvelope, UiEvent};
-use rig::test_utils::{MockCompletionModel, MockStreamEvent};
+use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
+use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,17 +16,16 @@ fn temp_workspace() -> PathBuf {
     dir
 }
 
-fn setup_headless_model(path: &str) -> MockCompletionModel {
-    MockCompletionModel::from_stream_turns([
-        vec![
-            MockStreamEvent::tool_call("call_1", "read", json!({"path": path})),
-            final_event(rig::completion::Usage::default()),
-        ],
-        vec![
-            MockStreamEvent::text("The file contains: headless content"),
-            final_event(rig::completion::Usage::default()),
-        ],
-    ])
+fn setup_headless_model(path: &str) -> Arc<MockAdapter> {
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call_1",
+        ToolFunction::new("read", json!({"path": path})),
+    )))]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text(
+        "The file contains: headless content".to_string(),
+    ))]);
+    model
 }
 
 fn assert_headless_tool_events(events: &[UiEvent], file_path: &str) {
@@ -90,10 +90,7 @@ fn headless_interactive_mode_diagnostic_message_is_actionable() {
 }
 
 fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engine::AgentEngine {
-    let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::text("should not run"),
-        final_event(rig::completion::Usage::default()),
-    ]]);
+    let model = Arc::new(MockAdapter::text("should not run"));
     let config = Config {
         reserve_tokens: 127_980,
         keep_recent_tokens: 5,

@@ -1,5 +1,5 @@
 //! Claude OAuth provider: direct Messages API streaming, OAuth headers,
-//! dynamic in-session token auto-refresh with 401 retry, and rig CompletionModel.
+//! dynamic in-session token auto-refresh with 401 retry, and ModelAdapter.
 
 pub mod client;
 pub mod completion;

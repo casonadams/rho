@@ -224,16 +224,16 @@ async fn builder_attaches_dynamic_tools() {
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
 
-    let custom_tool = rig::tool::DynamicTool::new(
-        rig::message::ToolName::new("generate_image").unwrap(),
+    let custom_tool = Arc::new(crate::tools::GenericTool::new(
+        "generate_image",
         "Generate image tool",
         serde_json::json!({
             "type": "object",
             "properties": { "prompt": { "type": "string" } },
             "required": ["prompt"]
         }),
-        |_args| Box::pin(async { Ok(rig::tool::ToolOutput::text("image.png")) }),
-    );
+        |_args| async { Ok(crate::tools::ToolResult::success("image.png")) },
+    ));
 
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(base_dir)
@@ -317,7 +317,7 @@ async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
         ..config
     };
     let engine = crate::engine::eval::mock::mock_engine(
-        rig::test_utils::MockCompletionModel::default(),
+        Arc::new(crate::provider::adapter::MockAdapter::default()),
         crate::engine::eval::mock::MockEngineConfig {
             base_dir: &dir,
             app_config: config,
@@ -341,7 +341,7 @@ async fn refresh_quota_gemini_populates_billing_window_cost() {
         ..config
     };
     let engine = crate::engine::eval::mock::mock_engine(
-        rig::test_utils::MockCompletionModel::default(),
+        Arc::new(crate::provider::adapter::MockAdapter::default()),
         crate::engine::eval::mock::MockEngineConfig {
             base_dir: &dir,
             app_config: config,
@@ -359,7 +359,7 @@ async fn refresh_quota_gemini_populates_billing_window_cost() {
 
 fn mock_quota_engine(dir: &std::path::Path, provider: &str, model: &str) -> crate::engine::AgentEngine {
     crate::engine::eval::mock::mock_engine(
-        rig::test_utils::MockCompletionModel::default(),
+        Arc::new(crate::provider::adapter::MockAdapter::default()),
         crate::engine::eval::mock::MockEngineConfig {
             base_dir: dir,
             app_config: Config {
@@ -576,31 +576,17 @@ impl rho_harness_core::presentation::presenter::Presenter for RetryTestPresenter
 
 #[tokio::test(start_paused = true)]
 async fn rate_limit_429_with_retry_after_retries_and_succeeds() {
-    use crate::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
-    use reqwest::StatusCode;
-    use rig::ProviderResponseError;
-    use rig::test_utils::{MockCompletionModel, MockError, MockStreamEvent};
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
+    use rho_harness_core::error::AppError;
 
     let dir = std::env::temp_dir().join(format!("retry_429_{}", uuid::Uuid::new_v4()));
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::RETRY_AFTER,
-        reqwest::header::HeaderValue::from_static("1"),
-    );
 
-    let err_429 = MockError::ProviderResponse(
-        ProviderResponseError::new(StatusCode::TOO_MANY_REQUESTS, "rate limited")
-            .with_headers(Some(headers))
-            .with_provider_request_id(Some("req-rate-limit-test".to_string())),
-    );
-
-    let model = MockCompletionModel::from_stream_turns([
-        vec![MockStreamEvent::Error(err_429)],
-        vec![
-            MockStreamEvent::text("recovered successfully after rate limit"),
-            final_event(rig::completion::Usage::default()),
-        ],
-    ]);
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Err(AppError::Provider("rate limited".to_string()))]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text(
+        "recovered successfully after rate limit".to_string(),
+    ))]);
 
     let app_config = Config {
         keep_recent_tokens: 5,

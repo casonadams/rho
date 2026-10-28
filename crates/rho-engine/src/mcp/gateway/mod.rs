@@ -1,5 +1,5 @@
 use super::client::{McpClient, McpToolDefinition, McpToolResult};
-use rig::tool::{DynamicTool, ToolOutput};
+use crate::tools::{EngineTool, GenericTool, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -142,7 +142,7 @@ impl McpGateway {
         Ok(format_tool_result(result, self.max_output_bytes))
     }
 
-    pub fn into_dynamic_tools(self) -> (DynamicTool, DynamicTool) {
+    pub fn into_tools(self) -> (Arc<dyn EngineTool>, Arc<dyn EngineTool>) {
         let gateway = Arc::new(self);
         (
             build_mcp_gateway_tool(Arc::clone(&gateway)),
@@ -232,20 +232,20 @@ async fn execute_gateway_parsed_call(gw: &McpGateway, parsed: McpGatewayArgs) ->
     execute_named_tool_call(gw, parsed).await
 }
 
-fn build_mcp_gateway_tool(gateway: Arc<McpGateway>) -> DynamicTool {
-    DynamicTool::new(
-        rig::message::ToolName::new("mcp").unwrap(),
+fn build_mcp_gateway_tool(gateway: Arc<McpGateway>) -> Arc<dyn EngineTool> {
+    Arc::new(GenericTool::new(
+        "mcp",
         "MCP gateway — server status, tool search/describe, and single MCP tool calls. Use this to discover and invoke tools dynamically.",
         mcp_gateway_schema(),
         move |args| {
             let gw = Arc::clone(&gateway);
-            Box::pin(async move {
+            async move {
                 let parsed = serde_json::from_value::<McpGatewayArgs>(args).unwrap_or_default();
                 let output = execute_gateway_parsed_call(&gw, parsed).await;
-                Ok(ToolOutput::text(output))
-            })
+                Ok(ToolResult::success(output))
+            }
         },
-    )
+    ))
 }
 
 async fn execute_mcp_batch(gw: &McpGateway, calls: Vec<McpSingleCall>) -> String {
@@ -264,21 +264,21 @@ async fn execute_mcp_batch(gw: &McpGateway, calls: Vec<McpSingleCall>) -> String
     outputs.join("\n\n")
 }
 
-fn build_mcp_script_tool(gateway: Arc<McpGateway>) -> DynamicTool {
-    DynamicTool::new(
-        rig::message::ToolName::new("mcpScript").unwrap(),
+fn build_mcp_script_tool(gateway: Arc<McpGateway>) -> Arc<dyn EngineTool> {
+    Arc::new(GenericTool::new(
+        "mcpScript",
         "Run multiple MCP tool calls in one request — batch execution across any connected MCP server.",
         mcp_script_schema(),
         move |args| {
             let gw = Arc::clone(&gateway);
-            Box::pin(async move {
+            async move {
                 let parsed = serde_json::from_value::<McpBatchArgs>(args).unwrap_or(McpBatchArgs { calls: Vec::new() });
                 if parsed.calls.is_empty() {
-                    return Ok(ToolOutput::text("No calls provided in batch"));
+                    return Ok(ToolResult::success("No calls provided in batch"));
                 }
                 let output = execute_mcp_batch(&gw, parsed.calls).await;
-                Ok(ToolOutput::text(output))
-            })
+                Ok(ToolResult::success(output))
+            }
         },
-    )
+    ))
 }

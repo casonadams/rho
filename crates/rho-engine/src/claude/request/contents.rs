@@ -1,45 +1,114 @@
 //! Content and message conversions for Claude Messages API requests.
 
-use base64::Engine;
-use rig::completion::CompletionRequest;
-use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
+use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::model::{AssistantContent, ChatMessage, ImageContent, ToolResultContent, UserContent};
 use serde_json::{Value, json};
 
-pub fn convert_messages(request: &CompletionRequest) -> Vec<Value> {
-    let mut messages: Vec<(String, Vec<Value>)> = Vec::new();
-    let mut first_system_seen = false;
-    for message in &request.chat_history {
-        match message {
-            Message::System { content } => {
-                if !first_system_seen {
-                    first_system_seen = true;
-                } else {
-                    append_turn(
-                        &mut messages,
-                        "user",
-                        vec![json!({
-                            "type": "text",
-                            "text": content,
-                        })],
-                    );
+fn convert_user_part(part: &UserContent) -> Option<Value> {
+    match part {
+        UserContent::Text(t) => {
+            let trimmed = t.text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(json!({ "type": "text", "text": t.text }))
+            }
+        }
+        UserContent::Image(img) => Some(image_json(img)),
+        UserContent::ToolResult(result) => {
+            let mut text = String::new();
+            for c in &result.content {
+                if let ToolResultContent::Text(t) = c {
+                    text.push_str(&t.text);
                 }
             }
-            Message::User { content } => {
-                let parts: Vec<Value> = content.iter().filter_map(convert_user_content).collect();
-                append_turn(&mut messages, "user", parts);
+            Some(json!({
+                "type": "tool_result",
+                "tool_use_id": result.call,
+                "content": text,
+            }))
+        }
+    }
+}
+
+fn convert_claude_user(content: &[UserContent]) -> Vec<Value> {
+    content.iter().filter_map(convert_user_part).collect()
+}
+
+fn convert_assistant_reasoning(reasoning: &rho_harness_core::model::Reasoning) -> Option<Value> {
+    let (text_opt, sig_opt) = reasoning.first_text_and_signature();
+    let text = text_opt?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if let Some(sig) = sig_opt {
+        Some(json!({
+            "type": "thinking",
+            "thinking": text,
+            "signature": sig,
+        }))
+    } else {
+        Some(json!({
+            "type": "text",
+            "text": format!("<thinking>\n{}\n</thinking>", text),
+        }))
+    }
+}
+
+fn convert_assistant_part(part: &AssistantContent) -> Option<Value> {
+    match part {
+        AssistantContent::Reasoning(r) => convert_assistant_reasoning(r),
+        AssistantContent::Text(t) => {
+            if t.text.trim().is_empty() {
+                None
+            } else {
+                Some(json!({ "type": "text", "text": t.text }))
             }
-            Message::Assistant(asst) => {
-                let parts: Vec<Value> = asst.content.iter().filter_map(convert_assistant_content).collect();
-                append_turn(&mut messages, "assistant", parts);
+        }
+        AssistantContent::ToolCall(call) => Some(json!({
+            "type": "tool_use",
+            "id": call.id,
+            "name": super::to_claude_tool_name(&call.function.name),
+            "input": call.function.arguments,
+        })),
+        _ => None,
+    }
+}
+
+fn convert_claude_assistant(content: &[AssistantContent]) -> Vec<Value> {
+    content.iter().filter_map(convert_assistant_part).collect()
+}
+
+pub fn convert_messages(request: &ModelCompletionRequest) -> Vec<Value> {
+    let mut turns: Vec<(String, Vec<Value>)> = Vec::new();
+
+    for message in &request.messages {
+        match message {
+            ChatMessage::System { .. } => {}
+            ChatMessage::User { content } => {
+                let parts = convert_claude_user(content);
+                append_turn(&mut turns, "user", parts);
+            }
+            ChatMessage::Assistant { content, .. } => {
+                let parts = convert_claude_assistant(content);
+                append_turn(&mut turns, "assistant", parts);
             }
         }
     }
 
-    if messages.first().is_some_and(|(role, _)| role == "assistant") {
-        messages.insert(0, ("user".to_string(), vec![json!({"type": "text", "text": "Hello"})]));
+    if !request.prompt.trim().is_empty() {
+        append_turn(
+            &mut turns,
+            "user",
+            vec![json!({ "type": "text", "text": request.prompt.trim() })],
+        );
     }
 
-    messages
+    if turns.first().is_some_and(|(role, _)| role == "assistant") {
+        turns.insert(0, ("user".to_string(), vec![json!({"type": "text", "text": "Hello"})]));
+    }
+
+    turns
         .into_iter()
         .map(|(role, content)| json!({ "role": role, "content": content }))
         .collect()
@@ -58,83 +127,14 @@ fn append_turn(turns: &mut Vec<(String, Vec<Value>)>, role: &str, mut parts: Vec
     }
 }
 
-fn tool_result_json(result: &rig::message::ToolResult) -> Value {
-    let text = result
-        .content
-        .iter()
-        .filter_map(|c| match c {
-            ToolResultContent::Text(t) => Some(t.text.as_str()),
-            ToolResultContent::Json { value } => value.as_str(),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+fn image_json(image: &ImageContent) -> Value {
+    let media_type = image.media_type.as_deref().unwrap_or("image/png");
     json!({
-        "type": "tool_result",
-        "tool_use_id": result.call.to_string(),
-        "content": text,
-    })
-}
-
-fn image_json(image: &rig::message::Image) -> Option<Value> {
-    let data = match &image.data {
-        rig::message::DocumentSourceKind::Base64(b64) => b64.clone(),
-        rig::message::DocumentSourceKind::Raw(bytes) => base64::engine::general_purpose::STANDARD.encode(bytes),
-        _ => return None,
-    };
-    let media_type = match image.media_type.as_ref() {
-        Some(rig::message::ImageMediaType::JPEG) => "image/jpeg",
-        Some(rig::message::ImageMediaType::PNG) => "image/png",
-        Some(rig::message::ImageMediaType::GIF) => "image/gif",
-        Some(rig::message::ImageMediaType::WEBP) => "image/webp",
-        _ => "image/png",
-    };
-    Some(json!({
         "type": "image",
         "source": {
             "type": "base64",
             "media_type": media_type,
-            "data": data,
+            "data": image.data,
         }
-    }))
-}
-
-fn convert_user_content(item: &UserContent) -> Option<Value> {
-    match item {
-        UserContent::Text(text) if !text.text.trim().is_empty() => Some(json!({ "type": "text", "text": text.text })),
-        UserContent::ToolResult(result) => Some(tool_result_json(result)),
-        UserContent::Image(image) => image_json(image),
-        _ => None,
-    }
-}
-
-fn convert_assistant_content(item: &AssistantContent) -> Option<Value> {
-    match item {
-        AssistantContent::Text(text) if !text.text.trim().is_empty() => {
-            Some(json!({ "type": "text", "text": text.text }))
-        }
-        AssistantContent::Reasoning(reasoning) => {
-            if !reasoning.text.trim().is_empty() {
-                let sig = reasoning
-                    .native
-                    .as_ref()
-                    .and_then(|n| n.item.get("signature"))
-                    .and_then(|s| s.as_str());
-                if let Some(sig) = sig {
-                    Some(json!({ "type": "thinking", "thinking": reasoning.text, "signature": sig }))
-                } else {
-                    Some(json!({ "type": "text", "text": format!("<thinking>\n{}\n</thinking>", reasoning.text) }))
-                }
-            } else {
-                None
-            }
-        }
-        AssistantContent::ToolCall(call) => Some(json!({
-            "type": "tool_use",
-            "id": call.id.to_string(),
-            "name": super::to_claude_tool_name(&call.function.name),
-            "input": call.function.arguments,
-        })),
-        _ => None,
-    }
+    })
 }

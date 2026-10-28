@@ -1,6 +1,5 @@
+use super::types::{CompletionCall, FinishReason, PromptResponse, Usage};
 use super::*;
-use rig::agent::{CompletionCall, PromptResponse};
-use rig::completion::{FinishReason, Usage};
 
 fn usage() -> Usage {
     let mut u = Usage::new();
@@ -61,7 +60,7 @@ fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
 #[test]
 fn normalized_metrics_are_stable_across_runs() {
     let response = PromptResponse::new("not recorded", usage()).with_completion_calls(vec![
-        CompletionCall::new(0, usage(), serde_json::Value::Null).with_finish_reason(Some(FinishReason::Stop)),
+        CompletionCall::new(0, usage()).with_finish_reason(Some(FinishReason::Stop)),
     ]);
     let first = track_sample_run("random-a", &response);
     let second = track_sample_run("random-b", &response);
@@ -75,12 +74,7 @@ fn normalized_metrics_are_stable_across_runs() {
 fn structural_metrics_contain_no_response_or_identity_content() {
     let sentinel = "credential-sentinel";
     let response = PromptResponse::new(sentinel, usage()).with_completion_calls(vec![
-        CompletionCall::new(0, usage(), serde_json::Value::Null)
-            .with_identity(rig::completion::ResponseIdentity {
-                response_id: Some(sentinel.to_string()),
-                provider_request_id: Some(sentinel.to_string()),
-            })
-            .with_finish_reason(Some(FinishReason::Other(sentinel.to_string()))),
+        CompletionCall::new(0, usage()).with_finish_reason(Some(FinishReason::Other)),
     ]);
     let tracker = RunTracker::default();
     tracker.start();

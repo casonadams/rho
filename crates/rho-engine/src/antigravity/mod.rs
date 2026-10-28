@@ -1,5 +1,5 @@
 //! Antigravity (Google Cloud Code Assist) transport: endpoint/header helpers,
-//! project/model discovery, the streaming rig client, and the Gemini-shaped
+//! project/model discovery, the streaming client, and the Gemini-shaped
 //! wire format used by the `v1internal` endpoints.
 
 pub mod client;

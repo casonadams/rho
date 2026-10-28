@@ -31,7 +31,7 @@ fn custom_provider_builds_generic_client_from_config() {
     let config = config_with_provider("acme", spec("https://api.acme.dev/v1", None), false);
 
     let handle = ProviderFactory::create_model(&config, "acme-large", &auth_store).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "acme");
 
     std::fs::remove_dir_all(dir).unwrap();
     unsafe {
@@ -54,7 +54,7 @@ fn custom_provider_resolves_key_from_key_env() {
     );
 
     let handle = ProviderFactory::create_model(&config, "acme", &auth_store).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "acme");
 
     std::fs::remove_dir_all(dir).unwrap();
     unsafe {
@@ -249,7 +249,7 @@ fn claude_provider_builds_model_handle() {
         shared_auth: None,
     };
     let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
-    assert_eq!(handle.name(), "claude");
+    assert_eq!(handle.provider_name(), "claude-code");
 
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -367,7 +367,7 @@ fn test_factory_creates_model_from_spec() {
         ..Default::default()
     };
     let handle = ProviderFactory::create_model(&config, "local/qwen2.5-coder:7b", &auth_store).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "ollama-local");
 
     // 2. Bare model fallback to config.provider
     let config = Config {
@@ -375,7 +375,7 @@ fn test_factory_creates_model_from_spec() {
         ..Default::default()
     };
     let handle = ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "ollama-local");
 
     // 3. Bare model without config.provider infers or falls back to local
     let config = Config {
@@ -383,7 +383,7 @@ fn test_factory_creates_model_from_spec() {
         ..Default::default()
     };
     let handle = ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "ollama-local");
 
     // 4. create_engine_model with canonical model spec
     let config = Config {
@@ -392,7 +392,7 @@ fn test_factory_creates_model_from_spec() {
         ..Default::default()
     };
     let handle = crate::engine::builder::create_engine_model(&config, &auth_store, None).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "ollama-local");
 
     // 5. Direct create_model_for with canonical model spec strips provider prefix
     let request = ModelRequest {
@@ -402,7 +402,7 @@ fn test_factory_creates_model_from_spec() {
         shared_auth: None,
     };
     let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
-    assert_eq!(handle.name(), "openai");
+    assert_eq!(handle.provider_name(), "ollama-local");
 
     // 6. Test strip_provider_prefix directly across multiple providers
     assert_eq!(

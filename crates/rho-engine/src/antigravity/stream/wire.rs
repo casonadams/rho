@@ -1,6 +1,7 @@
 //! Antigravity wire format definitions and JSON deserialization schemas.
 
-use rig::completion::{FinishReason, Usage};
+use crate::engine::metrics::types::Usage;
+use crate::provider::adapter::FinishReason;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -102,7 +103,7 @@ pub fn map_finish_reason(reason: &str) -> FinishReason {
         "STOP" => FinishReason::Stop,
         "MAX_TOKENS" => FinishReason::Length,
         "SAFETY" | "PROHIBITED_CONTENT" | "BLOCKLIST" => FinishReason::ContentFilter,
-        other => FinishReason::Other(other.to_string()),
+        _ => FinishReason::Other,
     }
 }
 
@@ -120,6 +121,6 @@ mod tests {
             FinishReason::ContentFilter
         ));
         assert!(matches!(map_finish_reason("BLOCKLIST"), FinishReason::ContentFilter));
-        assert!(matches!(map_finish_reason("UNKNOWN"), FinishReason::Other(_)));
+        assert!(matches!(map_finish_reason("UNKNOWN"), FinishReason::Other));
     }
 }

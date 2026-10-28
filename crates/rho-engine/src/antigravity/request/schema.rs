@@ -1,5 +1,4 @@
-use rig::completion::{CompletionRequest, ToolDefinition};
-use rig::message::ToolChoice;
+use crate::provider::adapter::ModelCompletionRequest;
 use serde_json::{Value, json};
 
 pub fn strip_meta_schema(schema: &Value) -> Value {
@@ -77,7 +76,7 @@ pub fn ensure_root_object(schema: &Value) -> Value {
     }
 }
 
-pub fn convert_tools(request: &CompletionRequest, legacy_parameters: bool) -> Option<Value> {
+pub fn convert_tools(request: &ModelCompletionRequest, legacy_parameters: bool) -> Option<Value> {
     if request.tools.is_empty() {
         return None;
     }
@@ -85,7 +84,7 @@ pub fn convert_tools(request: &CompletionRequest, legacy_parameters: bool) -> Op
     tools.sort_by(|a, b| a.name.cmp(&b.name));
     let declarations: Vec<Value> = tools
         .into_iter()
-        .map(|tool: ToolDefinition| {
+        .map(|tool| {
             let schema = strip_meta_schema(&tool.parameters);
             let schema = ensure_root_object(&schema);
             let mut declaration = json!({
@@ -101,12 +100,4 @@ pub fn convert_tools(request: &CompletionRequest, legacy_parameters: bool) -> Op
         })
         .collect();
     Some(json!([{ "functionDeclarations": declarations }]))
-}
-
-pub fn tool_config_mode(choice: Option<ToolChoice>) -> &'static str {
-    match choice {
-        Some(ToolChoice::None) => "NONE",
-        Some(ToolChoice::Required | ToolChoice::Specific { .. }) => "ANY",
-        _ => "VALIDATED",
-    }
 }

@@ -1,8 +1,5 @@
+pub use crate::provider::adapter::ModelHandle;
 use rho_harness_core::model::{ChatMessage, ToolResult, ToolResultContent, UserContent};
-use rig::driver::DynModel;
-use rig::operation::Completion;
-
-pub type ModelHandle = DynModel<Completion>;
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
@@ -32,14 +29,16 @@ enum LlmCallError {
 }
 
 async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(String, StructuralUsage), LlmCallError> {
-    let agent = rig::agent::AgentBuilder::new(model)
-        .preamble(SUMMARIZATION_SYSTEM_PROMPT)
-        .default_max_turns(1)
-        .record_content_telemetry(false)
-        .build();
-    let runner = crate::engine::runtime::build_runner(&agent, prompt).max_turns(1);
-    match tokio::time::timeout(Duration::from_secs(60), runner.run()).await {
-        Ok(Ok(resp)) if !resp.output().trim().is_empty() => Ok((resp.output().trim().to_string(), resp.usage.into())),
+    let req = crate::provider::adapter::ModelCompletionRequest {
+        preamble: Some(SUMMARIZATION_SYSTEM_PROMPT.to_string()),
+        prompt: prompt.to_string(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: Some(0.0),
+    };
+    match tokio::time::timeout(Duration::from_secs(60), model.complete(req)).await {
+        Ok(Ok(resp)) if !resp.content.trim().is_empty() => Ok((resp.content.trim().to_string(), resp.usage)),
         Ok(Ok(_)) => Err(LlmCallError::Other),
         Ok(Err(e)) => {
             let msg = e.to_string();
@@ -57,32 +56,35 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
     }
 }
 
+fn strip_json_fences(text: &str) -> &str {
+    let trimmed = text.trim();
+    if let Some(rest) = trimmed.strip_prefix("```json") {
+        if let Some(content) = rest.strip_suffix("```") {
+            return content.trim();
+        }
+    } else if let Some(rest) = trimmed.strip_prefix("```")
+        && let Some(content) = rest.strip_suffix("```")
+    {
+        return content.trim();
+    }
+    trimmed
+}
+
 async fn run_agent_extraction<T>(model: ModelHandle, prompt: &str) -> Result<T, LlmCallError>
 where
-    T: schemars::JsonSchema
-        + for<'de> serde::Deserialize<'de>
-        + serde::Serialize
-        + rig::wasm_compat::WasmCompatSend
-        + rig::wasm_compat::WasmCompatSync
-        + 'static,
+    T: schemars::JsonSchema + for<'de> serde::Deserialize<'de> + serde::Serialize + Send + Sync + 'static,
 {
-    let extractor = rig::extractor::ExtractorBuilder::<T>::new(model).build();
-    match tokio::time::timeout(Duration::from_secs(60), extractor.extract(prompt)).await {
-        Ok(Ok(val)) => Ok(val.output),
-        Ok(Err(e)) => {
-            let msg = e.to_string();
-            if crate::engine::compactor::is_context_overflow_message(&msg) {
-                Err(LlmCallError::ContextOverflow(msg))
-            } else {
-                eprintln!("Warning: Extraction failed: {e}");
-                Err(LlmCallError::Other)
-            }
-        }
-        Err(_) => {
-            eprintln!("Warning: Extraction timed out after 60s");
-            Err(LlmCallError::Other)
-        }
-    }
+    let schema = schemars::schema_for!(T);
+    let schema_json = serde_json::to_string_pretty(&schema).unwrap_or_default();
+    let full_prompt = format!(
+        "{prompt}\n\nYou must return ONLY valid JSON matching this JSON schema:\n{schema_json}\nDo not include explanation, markdown formatting, or code fences, only the JSON object."
+    );
+    let (text, _) = run_agent_completion(model, &full_prompt).await?;
+    let cleaned = strip_json_fences(&text);
+    serde_json::from_str(cleaned).map_err(|e| {
+        eprintln!("Warning: Extraction failed: {e}");
+        LlmCallError::Other
+    })
 }
 
 fn truncate_oldest_round(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
@@ -155,12 +157,7 @@ impl LlmCompactor {
 
     pub async fn extract<T>(&self, prompt: &str) -> Option<T>
     where
-        T: schemars::JsonSchema
-            + for<'de> serde::Deserialize<'de>
-            + serde::Serialize
-            + rig::wasm_compat::WasmCompatSend
-            + rig::wasm_compat::WasmCompatSync
-            + 'static,
+        T: schemars::JsonSchema + for<'de> serde::Deserialize<'de> + serde::Serialize + Send + Sync + 'static,
     {
         let model = self.model.as_ref()?.clone();
         run_agent_extraction(model, prompt).await.ok()

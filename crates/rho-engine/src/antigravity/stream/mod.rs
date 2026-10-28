@@ -1,4 +1,4 @@
-//! Antigravity wire format, stream side: SSE chunk decoding into rig's
+//! Antigravity wire format, stream side: SSE chunk decoding into
 //! canonical streaming events.
 
 pub mod wire;
@@ -9,11 +9,11 @@ mod tests;
 pub use wire::map_finish_reason;
 use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, usage_from_metadata};
 
-use crate::adapter::rig::model::AdapterFrame;
+use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::SseLineDecoder;
 use futures::StreamExt;
-use rig::completion::Usage;
-use rig::error::ProviderError;
+use rho_harness_core::error::AppError;
+use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::Value;
 
 use super::request::sanitize_tool_call_id;
@@ -27,7 +27,7 @@ pub struct SseParser {
     next_minted_tool: u64,
 }
 
-pub type SseEvents = Vec<Result<AdapterFrame, ProviderError>>;
+pub type SseEvents = Vec<Result<ModelStreamEvent, AppError>>;
 
 impl Default for SseParser {
     fn default() -> Self {
@@ -62,7 +62,12 @@ impl SseParser {
         events
     }
 
-    fn handle_candidate(&mut self, candidate: &mut StreamCandidate, usage: Usage, events: &mut SseEvents) {
+    fn handle_candidate(
+        &mut self,
+        candidate: &mut StreamCandidate,
+        usage: crate::engine::metrics::types::Usage,
+        events: &mut SseEvents,
+    ) {
         if let Some(content) = candidate.content.take() {
             for part in content.parts {
                 self.interpret_part(part, events);
@@ -70,7 +75,8 @@ impl SseParser {
         }
         if candidate.finish_reason.is_some() {
             self.close_reasoning();
-            events.push(Ok(AdapterFrame::Done { usage }));
+            events.push(Ok(ModelStreamEvent::Usage(usage.into())));
+            events.push(Ok(ModelStreamEvent::Finish(FinishReason::Stop)));
         }
     }
 
@@ -79,7 +85,7 @@ impl SseParser {
             return;
         };
         if let Some(ref error) = chunk.error {
-            events.push(Err(ProviderError::Provider(format_chunk_error(error))));
+            events.push(Err(AppError::Provider(format_chunk_error(error))));
             return;
         }
         let mut body = chunk.response.unwrap_or(chunk.direct);
@@ -98,7 +104,7 @@ impl SseParser {
         (call, signature): (StreamFunctionCall, Option<String>),
         events: &mut SseEvents,
     ) {
-        let sig = signature.or_else(|| self.reasoning_signature.take());
+        let _sig = signature.or_else(|| self.reasoning_signature.take());
         self.close_reasoning();
         let sanitized = sanitize_tool_call_id(call.id.as_deref().unwrap_or_default());
         let id = if call.id.as_deref().is_some_and(|id| !id.is_empty()) {
@@ -108,12 +114,10 @@ impl SseParser {
             self.next_minted_tool += 1;
             format!("call-{index}")
         };
-        events.push(Ok(AdapterFrame::ToolCall {
+        events.push(Ok(ModelStreamEvent::ToolCall(ToolCall::new(
             id,
-            name: call.name,
-            arguments: call.args.to_string(),
-            signature: sig,
-        }));
+            ToolFunction::new(call.name, call.args),
+        ))));
     }
 
     fn handle_part_thought(&mut self, text: String, signature: Option<String>, events: &mut SseEvents) {
@@ -121,9 +125,9 @@ impl SseParser {
         if let Some(sig) = &signature {
             self.reasoning_signature = Some(sig.clone());
         }
-        let sig = signature.or_else(|| self.reasoning_signature.clone());
+        let _sig = signature.or_else(|| self.reasoning_signature.clone());
         self.reasoning_text.push_str(&text);
-        events.push(Ok(AdapterFrame::reasoning_with_signature(text, sig)));
+        events.push(Ok(ModelStreamEvent::Reasoning(text)));
     }
 
     fn interpret_part(&mut self, part: StreamPart, events: &mut SseEvents) {
@@ -146,7 +150,7 @@ impl SseParser {
             }
         } else {
             self.close_reasoning();
-            events.push(Ok(AdapterFrame::Text(text)));
+            events.push(Ok(ModelStreamEvent::Text(text)));
         }
     }
 
@@ -159,7 +163,7 @@ impl SseParser {
 
 pub fn unfold_antigravity_stream(
     response: reqwest::Response,
-) -> impl futures::Stream<Item = Result<AdapterFrame, ProviderError>> + Send + 'static {
+) -> impl futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send + 'static {
     futures::stream::unfold((response.bytes_stream(), SseParser::new(), false), next_stream_batch)
         .map(futures::stream::iter)
         .flatten()
@@ -169,7 +173,7 @@ type StreamState<S> = (S, SseParser, bool);
 
 async fn next_stream_batch<B, S>(
     (mut byte_stream, mut parser, finished): StreamState<S>,
-) -> Option<(Vec<Result<AdapterFrame, ProviderError>>, StreamState<S>)>
+) -> Option<(Vec<Result<ModelStreamEvent, AppError>>, StreamState<S>)>
 where
     B: AsRef<[u8]>,
     S: futures::Stream<Item = reqwest::Result<B>> + Unpin,
@@ -184,12 +188,12 @@ where
                 if !events.is_empty() {
                     let has_term = events
                         .iter()
-                        .any(|e| matches!(e, Ok(AdapterFrame::Done { .. }) | Err(_)));
+                        .any(|e| matches!(e, Ok(ModelStreamEvent::Finish(_)) | Err(_)));
                     return Some((events, (byte_stream, parser, has_term)));
                 }
             }
             Err(e) => {
-                let err = ProviderError::Provider(format!("Antigravity stream transport failed: {e}"));
+                let err = AppError::Provider(format!("Antigravity stream transport failed: {e}"));
                 return Some((vec![Err(err)], (byte_stream, parser, true)));
             }
         }

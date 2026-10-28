@@ -1,13 +1,12 @@
 use super::AgentEngine;
-use super::runtime::CodingRuntime;
 use super::tracking::{ContextTracker, QuotaTracker, UsageTracker};
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
+use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionManager;
-use rig::tool::DynamicTool;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,16 +17,22 @@ pub struct AgentEngineBuilder {
     resume_id: Option<String>,
     session_manager: Option<SessionManager>,
     base_dir: Option<PathBuf>,
-    rig_tools: Option<Vec<rig::tool::DynamicTool>>,
-    extra_tools: Vec<rig::tool::DynamicTool>,
+    tools: Option<Vec<Arc<dyn EngineTool>>>,
+    extra_tools: Vec<Arc<dyn EngineTool>>,
     model: Option<ModelHandle>,
-    demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
+    demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
 }
+
+type EngineAssembly = (
+    Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
+    Vec<String>,
+    ModelHandle,
+);
 
 impl AgentEngineBuilder {
     pub fn new(config: Config, auth_store: AuthStore) -> Self {
         Self {
-            rig_tools: None,
+            tools: None,
             extra_tools: Vec::new(),
             config,
             auth_store,
@@ -49,17 +54,17 @@ impl AgentEngineBuilder {
         self
     }
 
-    pub fn tools(mut self, rig_tools: Vec<rig::tool::DynamicTool>) -> Self {
-        self.rig_tools = Some(rig_tools);
+    pub fn tools(mut self, tools: Vec<Arc<dyn EngineTool>>) -> Self {
+        self.tools = Some(tools);
         self
     }
 
-    pub fn add_tool(mut self, tool: rig::tool::DynamicTool) -> Self {
+    pub fn add_tool(mut self, tool: Arc<dyn EngineTool>) -> Self {
         self.extra_tools.push(tool);
         self
     }
 
-    pub fn add_tools(mut self, tools: impl IntoIterator<Item = rig::tool::DynamicTool>) -> Self {
+    pub fn add_tools(mut self, tools: impl IntoIterator<Item = Arc<dyn EngineTool>>) -> Self {
         self.extra_tools.extend(tools);
         self
     }
@@ -74,7 +79,7 @@ impl AgentEngineBuilder {
         self
     }
 
-    pub fn demotion_hook(mut self, hook: Arc<dyn rig::memory::DemotionHook>) -> Self {
+    pub fn demotion_hook(mut self, hook: Arc<dyn crate::engine::compactor::DemotionHook>) -> Self {
         self.demotion_hook = Some(hook);
         self
     }
@@ -139,17 +144,17 @@ async fn build_engine_tools(
     base_dir: &Path,
     config: &Config,
     model: &ModelHandle,
-    rig_tools: Option<Vec<DynamicTool>>,
-    extra_tools: Vec<DynamicTool>,
+    tools_opt: Option<Vec<Arc<dyn EngineTool>>>,
+    extra_tools: Vec<Arc<dyn EngineTool>>,
     history_tools: &std::collections::HashSet<String>,
-) -> Result<(Vec<DynamicTool>, crate::mcp::DynamicToolActivator)> {
+) -> Result<(Vec<Arc<dyn EngineTool>>, crate::mcp::DynamicToolActivator)> {
     let (mcp_tools, activator) = if config.mcp.enabled && !config.mcp.servers.is_empty() {
         crate::mcp::load_mcp_tools_with_activator(config, base_dir, history_tools).await
     } else {
         (Vec::new(), crate::mcp::DynamicToolActivator::new())
     };
 
-    let mut tools = match rig_tools {
+    let mut tools = match tools_opt {
         Some(t) => t,
         None => {
             let mut t =
@@ -195,34 +200,28 @@ impl AgentEngineBuilder {
         self,
         base_dir: PathBuf,
         (session_manager, auth_store): (SessionManager, Arc<tokio::sync::Mutex<AuthStore>>),
-        (tools, model, agent, tool_handle): (
-            Vec<DynamicTool>,
-            ModelHandle,
-            rig::agent::Agent,
-            rig::tool::server::ToolServerHandle,
-        ),
+        (tools, tool_names, model): EngineAssembly,
     ) -> AgentEngine {
-        let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
         let context_limit = super::model::resolve_context_limit(&self.config);
         let demotion_hook = self.demotion_hook.or_else(|| {
-            Some(Arc::new(crate::adapter::rig::context::ArtifactDemotionHook::new(
-                base_dir.join(".rho/artifacts"),
-            )))
+            Some(Arc::new(
+                crate::engine::compactor::artifact_spill::ArtifactDemotionHook::new(base_dir.join(".rho/artifacts")),
+            ))
         });
         AgentEngine {
             config: self.config,
             base_dir,
             session_manager,
             tool_names: Arc::new(std::sync::RwLock::new(tool_names)),
-            tool_server_handle: tool_handle,
-            agent: Arc::new(tokio::sync::RwLock::new(agent)),
+            tools,
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
             context: ContextTracker::new(context_limit),
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
             auth_store,
-            model: Some(model),
+            model: Some(model.clone()),
+            compactor_model: Some(model),
             demotion_hook,
         }
     }
@@ -240,27 +239,20 @@ impl AgentEngineBuilder {
             &base_dir,
             &self.config,
             &model,
-            self.rig_tools.take(),
+            self.tools.take(),
             std::mem::take(&mut self.extra_tools),
             &history_tools,
         )
         .await?;
-        let (agent, tool_handle) = super::runtime::build_coding_agent(
-            model.clone(),
-            &self.config,
-            CodingRuntime {
-                base_dir: &base_dir,
-                memory: session_manager.clone(),
-                built_in_tools: Some(tools.clone()),
-            },
-        )?;
 
+        let tool_names = tools.iter().map(|t| t.name().to_string()).collect::<Vec<_>>();
+        let tools_lock = Arc::new(tokio::sync::RwLock::new(tools));
         let engine = self.into_engine(
             base_dir,
             (session_manager, shared_auth),
-            (tools, model, agent, tool_handle.clone()),
+            (tools_lock.clone(), tool_names, model),
         );
-        activator.attach(tool_handle, engine.tool_names.clone());
+        activator.attach(tools_lock, engine.tool_names.clone());
         Ok(engine)
     }
 }

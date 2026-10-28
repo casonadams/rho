@@ -4,14 +4,14 @@
 mod branch {
     use rho_harness_core::config::Config;
     use rho_harness_core::model::ChatMessage;
-
-    use rig::test_utils::MockCompletionModel;
+    use std::sync::Arc;
 
     use crate::auth::AuthStore;
     use crate::engine::AgentEngine;
     use crate::engine::builder::AgentEngineBuilder;
+    use crate::provider::adapter::{MockAdapter, ModelAdapter};
 
-    async fn test_engine(label: &str, model: Option<MockCompletionModel>) -> AgentEngine {
+    async fn test_engine(label: &str, model: Option<Arc<dyn ModelAdapter>>) -> AgentEngine {
         let dir = std::env::temp_dir().join(format!("branch_{label}_{}", uuid::Uuid::new_v4()));
         let config = Config {
             sessions_dir: dir.join("sessions"),
@@ -23,7 +23,7 @@ mod branch {
             .base_dir(dir)
             .tools(Vec::new());
         if let Some(m) = model {
-            builder = builder.model(m.erase());
+            builder = builder.model(m);
         }
         builder.build().await.unwrap()
     }
@@ -52,7 +52,7 @@ mod branch {
     #[tokio::test]
     async fn test_summarize_branch_with_llm_model() {
         let mock_response = "# Goal\nOptimize AST memory usage\n\n# Key Decisions\nReplaced clones with Arc";
-        let model = MockCompletionModel::text(mock_response);
+        let model = Arc::new(MockAdapter::text(mock_response));
         let engine = test_engine("llm", Some(model)).await;
 
         let messages = vec![
@@ -68,7 +68,7 @@ mod branch {
     async fn test_summarize_branch_redacts_credentials() {
         let secret = "sk-ant-api03-abcdefghijklmnop1234567890abcdefghijklmnop";
         let mock_response = format!("# Critical Context\nDiscovered secret: {secret}");
-        let model = MockCompletionModel::text(&mock_response);
+        let model = Arc::new(MockAdapter::text(&mock_response));
         let engine = test_engine("redact", Some(model)).await;
         engine.session_manager.add_secrets(vec![secret.to_string()]).unwrap();
 
@@ -85,10 +85,10 @@ mod branch {
 
 mod compactor {
     use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
-
-    use rig::test_utils::{MockCompletionModel, MockTurn};
+    use std::sync::Arc;
 
     use crate::engine::compactor::llm::{LlmCompactor, SummarizeOptions};
+    use crate::provider::adapter::MockAdapter;
 
     #[tokio::test]
     async fn test_llm_compactor_fallback_when_model_is_none() {
@@ -152,9 +152,10 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_successful_llm_call() {
-        let mock = MockCompletionModel::text("## Goal\nImplement feature Y\n\n## Progress\n### Done\n- [x] Done");
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::text(
+            "## Goal\nImplement feature Y\n\n## Progress\n### Done\n- [x] Done",
+        ));
+        let compactor = LlmCompactor::new(Some(mock.clone()));
 
         let messages = vec![
             ChatMessage::user("Please implement feature Y"),
@@ -170,10 +171,8 @@ mod compactor {
         let requests = mock.requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(
-            requests[0].chat_history[0],
-            rig::message::Message::System {
-                content: rho_harness_core::session::compaction::SUMMARIZATION_SYSTEM_PROMPT.to_string(),
-            }
+            requests[0].preamble.as_deref(),
+            Some(rho_harness_core::session::compaction::SUMMARIZATION_SYSTEM_PROMPT)
         );
     }
 
@@ -185,16 +184,8 @@ mod compactor {
             files: Vec<String>,
         }
 
-        let mock = MockCompletionModel::from_turns([MockTurn::tool_call(
-            "1",
-            "submit",
-            serde_json::json!({
-                "goal": "Fix bug",
-                "files": ["src/main.rs"],
-            }),
-        )]);
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::text(r#"{"goal": "Fix bug", "files": ["src/main.rs"]}"#));
+        let compactor = LlmCompactor::new(Some(mock));
 
         let res: Option<TestMetadata> = compactor.extract("extract summary").await;
         assert_eq!(
@@ -208,19 +199,17 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_structured_extract_and_render() {
-        let mock = MockCompletionModel::from_turns([MockTurn::tool_call(
-            "1",
-            "submit",
-            serde_json::json!({
+        let mock = Arc::new(MockAdapter::text(
+            serde_json::to_string(&serde_json::json!({
                 "goals": ["Build fast CLI"],
                 "decisions": ["Use Rust"],
                 "completed": ["Scaffolded repo"],
                 "active_files": ["src/main.rs"],
                 "open_questions": ["Add tests"],
-            }),
-        )]);
-        let handle = mock.erase();
-        let compactor = LlmCompactor::new(Some(handle));
+            }))
+            .unwrap(),
+        ));
+        let compactor = LlmCompactor::new(Some(mock));
 
         let messages = vec![
             ChatMessage::user("Please build fast CLI"),
@@ -246,18 +235,14 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_invalid_extraction_falls_back_to_completion() {
-        let mock = MockCompletionModel::from_turns([
-            MockTurn::tool_call(
-                "1",
-                "submit",
-                serde_json::json!({
-                    "goals": 12345,
-                }),
-            ),
-            MockTurn::text("## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item"),
-        ]);
-        let handle = mock.erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::default());
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "invalid json causing extraction fallback".to_string(),
+        ))]);
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item".to_string(),
+        ))]);
+        let compactor = LlmCompactor::new(Some(mock));
 
         let messages = vec![
             ChatMessage::user("Please test fallback"),
@@ -282,12 +267,14 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_completion_failure_falls_back_to_deterministic_summary() {
-        let mock = MockCompletionModel::from_turns([
-            MockTurn::text("non-json text causing extraction failure"),
-            MockTurn::text(""),
-        ]);
-        let handle = mock.erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::default());
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "non-json text causing extraction failure".to_string(),
+        ))]);
+        mock.add_turn(vec![Ok(
+            crate::provider::adapter::ModelStreamEvent::Text(String::new()),
+        )]);
+        let compactor = LlmCompactor::new(Some(mock));
 
         let messages = vec![
             ChatMessage::user("Critical task to summarize"),
@@ -310,9 +297,8 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_update_with_prior_summary() {
-        let mock = MockCompletionModel::text("## Goal\nUpdated goal");
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::text("## Goal\nUpdated goal"));
+        let compactor = LlmCompactor::new(Some(mock.clone()));
 
         let messages = vec![
             ChatMessage::user("Next step for task"),
@@ -342,9 +328,8 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_split_turn_summarization() {
-        let mock = MockCompletionModel::text("## Early Progress\nPrefix work completed");
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::text("## Early Progress\nPrefix work completed"));
+        let compactor = LlmCompactor::new(Some(mock));
 
         let messages = vec![
             ChatMessage::user("Do huge operation"),
@@ -371,12 +356,14 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_overflow_retries_and_recovers() {
-        let mock = MockCompletionModel::from_turns([
-            MockTurn::error("context_length_exceeded: maximum context length is 128000 tokens"),
-            MockTurn::text("## Goal\nRecovered after oldest round pruned\n\n## Progress\n### Done\n- [x] Succeeded"),
-        ]);
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::default());
+        mock.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+            "context_length_exceeded: maximum context length is 128000 tokens".to_string(),
+        ))]);
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "## Goal\nRecovered after oldest round pruned\n\n## Progress\n### Done\n- [x] Succeeded".to_string(),
+        ))]);
+        let compactor = LlmCompactor::new(Some(mock.clone()));
 
         let messages = vec![
             ChatMessage::user("Turn 1 user request to be dropped on overflow"),
@@ -402,14 +389,13 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_overflow_falls_back_when_all_retries_exhausted() {
-        let mock = MockCompletionModel::from_turns([
-            MockTurn::error("context_length_exceeded"),
-            MockTurn::error("context_length_exceeded"),
-            MockTurn::error("context_length_exceeded"),
-            MockTurn::error("context_length_exceeded"),
-        ]);
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::default());
+        for _ in 0..4 {
+            mock.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+                "context_length_exceeded".to_string(),
+            ))]);
+        }
+        let compactor = LlmCompactor::new(Some(mock.clone()));
 
         let messages = vec![
             ChatMessage::user("Turn 1"),
@@ -432,9 +418,11 @@ mod compactor {
 
     #[tokio::test]
     async fn test_llm_compactor_overflow_single_turn_falls_back_without_retrying() {
-        let mock = MockCompletionModel::from_turns([MockTurn::error("context_length_exceeded")]);
-        let handle = mock.clone().erase();
-        let compactor = LlmCompactor::new(Some(handle));
+        let mock = Arc::new(MockAdapter::default());
+        mock.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+            "context_length_exceeded".to_string(),
+        ))]);
+        let compactor = LlmCompactor::new(Some(mock.clone()));
 
         let messages = vec![
             ChatMessage::user("Only turn user prompt"),
@@ -459,12 +447,9 @@ mod common {
     pub async fn append_test_messages(
         sm: &rho_harness_core::session::SessionManager,
         sid: &str,
-        msgs: Vec<rig::message::Message>,
+        msgs: Vec<rho_harness_core::model::ChatMessage>,
     ) {
-        let memory = crate::adapter::rig::RigSessionMemory::new(sm.clone());
-        let conv_id = rig::id::ConversationId::from(sid);
-        use rig::memory::ConversationMemory;
-        ConversationMemory::append(&memory, &conv_id, msgs).await.unwrap();
+        sm.append_messages(sid, msgs).await.unwrap();
     }
 
     #[derive(Default)]
@@ -509,18 +494,15 @@ mod common {
 mod orchestrator {
     use super::common;
     use rho_harness_core::config::Config;
+    use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
     use rho_harness_core::session::tree::TreeNodeKind;
-
-    use rig::message::{
-        AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
-        UserContent,
-    };
-    use rig::test_utils::MockCompletionModel;
+    use std::sync::Arc;
 
     use crate::auth::AuthStore;
     use crate::engine::builder::AgentEngineBuilder;
+    use crate::provider::adapter::MockAdapter;
 
-    async fn test_engine(label: &str, model: Option<MockCompletionModel>) -> crate::engine::AgentEngine {
+    async fn test_engine(label: &str, model: Option<Arc<MockAdapter>>) -> crate::engine::AgentEngine {
         let dir = std::env::temp_dir().join(format!("orchestrator_{label}_{}", uuid::Uuid::new_v4()));
         let config = Config {
             sessions_dir: dir.join("sessions"),
@@ -533,31 +515,25 @@ mod orchestrator {
             .base_dir(dir)
             .tools(Vec::new());
         if let Some(m) = model {
-            builder = builder.model(m.erase());
+            builder = builder.model(m);
         }
         builder.build().await.unwrap()
     }
 
-    fn tool_turn(cid: &str, tool: &str, path: &str, user: &str, done: &str) -> Vec<Message> {
-        let call = ToolCall::new(
-            CallId::from_wire(cid),
-            ToolFunction::new(ToolName::new(tool).unwrap(), serde_json::json!({"path": path})),
-        );
-        let res = ToolResult {
-            call: CallId::from_wire(cid),
-            name: ToolName::new(tool).unwrap(),
-            content: vec![ToolResultContent::Text(Text::new("data"))],
-            is_error: false,
-        };
+    fn tool_turn(cid: &str, tool: &str, path: &str, user: &str, done: &str) -> Vec<ChatMessage> {
+        let call = ToolCall::new(cid, ToolFunction::new(tool, serde_json::json!({"path": path})));
         vec![
-            Message::user(user),
-            Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
-                call,
-            )])),
-            Message::User {
-                content: vec![UserContent::ToolResult(res)],
+            ChatMessage::user(user),
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::assistant(done),
+            ChatMessage::User {
+                content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
+                    cid, tool, "data",
+                ))],
+            },
+            ChatMessage::assistant(done),
         ]
     }
 
@@ -567,7 +543,7 @@ mod orchestrator {
         for turn in [
             turn1,
             turn2,
-            vec![Message::user("Verify"), Message::assistant("Verified")],
+            vec![ChatMessage::user("Verify"), ChatMessage::assistant("Verified")],
         ] {
             common::append_test_messages(sm, sid, turn).await;
         }
@@ -575,8 +551,9 @@ mod orchestrator {
 
     #[tokio::test]
     async fn test_compact_session_with_file_tracking_and_metrics() {
-        let mock =
-            MockCompletionModel::text("## Goal\nRefactor session storage\n\n## Progress\n### Done\n- [x] Read files");
+        let mock = Arc::new(MockAdapter::text(
+            "## Goal\nRefactor session storage\n\n## Progress\n### Done\n- [x] Read files",
+        ));
         let engine = test_engine("file_tracking", Some(mock)).await;
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
@@ -612,7 +589,7 @@ mod orchestrator {
     async fn test_compaction_usage_tracking_preserves_session_totals_and_updates_active_context() {
         use crate::engine::metrics::StructuralUsage;
 
-        let mock = MockCompletionModel::text("## Summary\nPrior work completed");
+        let mock = Arc::new(MockAdapter::text("## Summary\nPrior work completed"));
         let engine = test_engine("usage_preservation", Some(mock)).await;
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
@@ -630,11 +607,9 @@ mod orchestrator {
         let stats = engine.compact_session(None).await.unwrap();
         assert!(stats.tokens_after > 0);
 
-        // Active context is updated to tokens_after
         let latest = engine.usage.latest().expect("latest context updated");
         assert_eq!(latest.input_tokens, stats.tokens_after as u64);
 
-        // Session total input tokens does not have tokens_after falsely added to it!
         let totals_after = engine.usage.totals();
         assert_ne!(totals_after.total_input, 10_000 + stats.tokens_after as u64);
     }
@@ -649,7 +624,7 @@ mod orchestrator {
         common::append_test_messages(
             &engine.session_manager,
             &session_id,
-            vec![Message::user("Hello"), Message::assistant("Hi")],
+            vec![ChatMessage::user("Hello"), ChatMessage::assistant("Hi")],
         )
         .await;
 
@@ -657,14 +632,14 @@ mod orchestrator {
         assert_eq!(stats2.saved_tokens, 0);
     }
 
-    fn split_turn_fixture() -> Vec<Message> {
+    fn split_turn_fixture() -> Vec<ChatMessage> {
         vec![
-            Message::user("Preamble prompt"),
-            Message::assistant("Early reply"),
-            Message::user("Tool result 1"),
-            Message::assistant("Mid reply with many tokens to force cut point selection"),
-            Message::user("Tool result 2"),
-            Message::assistant("Final suffix reply"),
+            ChatMessage::user("Preamble prompt"),
+            ChatMessage::assistant("Early reply"),
+            ChatMessage::user("Tool result 1"),
+            ChatMessage::assistant("Mid reply with many tokens to force cut point selection"),
+            ChatMessage::user("Tool result 2"),
+            ChatMessage::assistant("Final suffix reply"),
         ]
     }
 
@@ -684,28 +659,28 @@ mod orchestrator {
 
     #[derive(Default)]
     struct CapturingDemotionHook {
-        demotions: std::sync::Mutex<Vec<(String, Vec<Message>)>>,
+        demotions: std::sync::Mutex<Vec<(String, Vec<ChatMessage>)>>,
         fail: bool,
         panic: bool,
     }
 
-    impl rig::memory::DemotionHook for CapturingDemotionHook {
+    impl crate::engine::compactor::DemotionHook for CapturingDemotionHook {
         fn on_demote<'a>(
             &'a self,
-            conversation_id: &'a rig::id::ConversationId,
-            messages: Vec<Message>,
-        ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
+            session_id: &'a str,
+            messages: &'a [ChatMessage],
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
             Box::pin(async move {
                 if self.panic {
                     panic!("simulated hook panic");
                 }
                 if self.fail {
-                    return Err(rig::memory::MemoryError::Internal("simulated hook failure".to_string()));
+                    return Err("simulated hook failure".to_string());
                 }
                 self.demotions
                     .lock()
                     .unwrap()
-                    .push((conversation_id.to_string(), messages));
+                    .push((session_id.to_string(), messages.to_vec()));
                 Ok(())
             })
         }
@@ -802,7 +777,7 @@ mod orchestrator {
 
     #[tokio::test]
     async fn test_compact_session_split_turn_prunes_prefix_messages() {
-        let mock = MockCompletionModel::text("## Goal\nComplete huge operation");
+        let mock = Arc::new(MockAdapter::text("## Goal\nComplete huge operation"));
         let engine = test_engine("split_turn", Some(mock)).await;
         let sid = engine.session_manager.session_id.clone();
         common::append_test_messages(&engine.session_manager, &sid, split_turn_fixture()).await;
@@ -855,10 +830,8 @@ mod orchestrator {
 }
 
 mod overflow {
-    use rig::completion::PromptError;
-    use rig::error::ProviderError;
-
     use crate::engine::compactor::{is_context_overflow_error, is_context_overflow_message};
+    use rho_harness_core::error::AppError;
 
     #[test]
     fn test_is_context_overflow_message_patterns() {
@@ -886,36 +859,35 @@ mod overflow {
 
     #[test]
     fn test_is_context_overflow_streaming_error() {
-        let completion_err =
-            PromptError::Provider(ProviderError::Response("prompt is too long: 210000 tokens".to_string()));
+        let completion_err = AppError::Provider("prompt is too long: 210000 tokens".to_string());
         assert!(is_context_overflow_error(&completion_err));
 
-        let prompt_err = PromptError::Provider(ProviderError::Response("context_length_exceeded".to_string()));
+        let prompt_err = AppError::Provider("context_length_exceeded".to_string());
         assert!(is_context_overflow_error(&prompt_err));
 
-        let unrelated = PromptError::Provider(ProviderError::Response("Model overloaded, try again later".to_string()));
+        let unrelated = AppError::Provider("Model overloaded, try again later".to_string());
         assert!(!is_context_overflow_error(&unrelated));
     }
 }
 
 mod recovery {
     use super::common;
-    use rig::message::Message;
+    use rho_harness_core::model::ChatMessage;
     use std::sync::Arc;
 
     use rho_harness_core::config::Config;
-    use rig::completion::Usage;
-    use rig::test_utils::{MockCompletionModel, MockError, MockStreamEvent};
+    use rho_harness_core::error::AppError;
 
     use super::common::CapturingPresenter;
-    use crate::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::runner::TurnRequest;
+    use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
 
     async fn populate_recovery_history(sm: &rho_harness_core::session::SessionManager, sid: &str) {
         for i in 1..=2 {
             let msgs = vec![
-                Message::user(format!("Old turn {i}")),
-                Message::assistant(format!("Old response {i}")),
+                ChatMessage::user(format!("Old turn {i}")),
+                ChatMessage::assistant(format!("Old response {i}")),
             ];
             common::append_test_messages(sm, sid, msgs).await;
         }
@@ -935,7 +907,7 @@ mod recovery {
         );
     }
 
-    fn recovery_engine(dir: &std::path::Path, model: MockCompletionModel) -> crate::engine::AgentEngine {
+    fn recovery_engine(dir: &std::path::Path, model: Arc<MockAdapter>) -> crate::engine::AgentEngine {
         let app_config = Config {
             keep_recent_tokens: 5,
             auth_file: dir.join("auth.json"),
@@ -952,26 +924,14 @@ mod recovery {
         )
     }
 
-    fn sample_overflow_usage() -> Usage {
-        let mut u = Usage::new();
-        u.input_tokens = Some(10);
-        u.output_tokens = Some(5);
-        u.total_tokens = Some(15);
-        u
-    }
-
     #[tokio::test]
     async fn test_context_overflow_auto_recovery_halts_after_compaction() {
         let dir = std::env::temp_dir().join(format!("overflow_rec_{}", uuid::Uuid::new_v4()));
-        let model = MockCompletionModel::from_stream_turns([
-            vec![MockStreamEvent::Error(MockError::provider(
-                "context_length_exceeded: maximum context length is 128000 tokens",
-            ))],
-            vec![
-                MockStreamEvent::text("recovered from overflow"),
-                final_event(sample_overflow_usage()),
-            ],
-        ]);
+        let model = Arc::new(MockAdapter::default());
+        model.add_turn(vec![Err(AppError::Provider(
+            "context_length_exceeded: maximum context length is 128000 tokens".to_string(),
+        ))]);
+        model.add_turn(vec![Ok(ModelStreamEvent::Text("recovered from overflow".to_string()))]);
 
         let engine = recovery_engine(&dir, model);
         let session_id = engine.session_manager.session_id.clone();
@@ -993,10 +953,9 @@ mod recovery {
     #[tokio::test]
     async fn test_context_overflow_fails_if_overflow_persists() {
         let dir = std::env::temp_dir().join(format!("overflow_loop_{}", uuid::Uuid::new_v4()));
-        let model = MockCompletionModel::from_stream_turns([
-            vec![MockStreamEvent::Error(MockError::provider("context_length_exceeded"))],
-            vec![MockStreamEvent::Error(MockError::provider("context_length_exceeded"))],
-        ]);
+        let model = Arc::new(MockAdapter::default());
+        model.add_turn(vec![Err(AppError::Provider("context_length_exceeded".to_string()))]);
+        model.add_turn(vec![Err(AppError::Provider("context_length_exceeded".to_string()))]);
 
         let engine = recovery_engine(&dir, model);
         let session_id = engine.session_manager.session_id.clone();
@@ -1019,19 +978,16 @@ mod recovery {
 mod sequential {
     use super::common;
     use rho_harness_core::config::Config;
+    use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
     use rho_harness_core::session::tree::TreeNodeKind;
-
-    use rig::message::{
-        AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
-        UserContent,
-    };
-    use rig::test_utils::{MockCompletionModel, MockTurn};
+    use std::sync::Arc;
 
     use crate::auth::AuthStore;
     use crate::engine::AgentEngine;
     use crate::engine::builder::AgentEngineBuilder;
+    use crate::provider::adapter::MockAdapter;
 
-    async fn test_engine(label: &str, model: Option<MockCompletionModel>) -> AgentEngine {
+    async fn test_engine(label: &str, model: Option<Arc<MockAdapter>>) -> AgentEngine {
         let dir = std::env::temp_dir().join(format!("sequential_{label}_{}", uuid::Uuid::new_v4()));
         let config = Config {
             sessions_dir: dir.join("sessions"),
@@ -1044,29 +1000,25 @@ mod sequential {
             .base_dir(dir)
             .tools(Vec::new());
         if let Some(m) = model {
-            builder = builder.model(m.erase());
+            builder = builder.model(m);
         }
         builder.build().await.unwrap()
     }
 
-    fn file_turn(call_id: &str, tool: &str, path: &str) -> Vec<Message> {
+    fn file_turn(call_id: &str, tool: &str, path: &str) -> Vec<ChatMessage> {
+        let call = ToolCall::new(call_id, ToolFunction::new(tool, serde_json::json!({"path": path})));
         vec![
-            Message::user(format!("Execute {tool} on {path}")),
-            Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
-                ToolCall::new(
-                    CallId::from_wire(call_id),
-                    ToolFunction::new(ToolName::new(tool).unwrap(), serde_json::json!({"path": path})),
-                ),
-            )])),
-            Message::User {
-                content: vec![UserContent::ToolResult(ToolResult {
-                    call: CallId::from_wire(call_id),
-                    name: ToolName::new(tool).unwrap(),
-                    content: vec![ToolResultContent::Text(Text::new("done"))],
-                    is_error: false,
-                })],
+            ChatMessage::user(format!("Execute {tool} on {path}")),
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
             },
-            Message::assistant(format!("Completed {tool} on {path}.")),
+            ChatMessage::User {
+                content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
+                    call_id, tool, "done",
+                ))],
+            },
+            ChatMessage::assistant(format!("Completed {tool} on {path}.")),
         ]
     }
 
@@ -1098,25 +1050,29 @@ mod sequential {
         }
     }
 
-    fn assert_no_system_messages_in_prompts(requests: &[rig::completion::CompletionRequest]) {
+    fn assert_no_system_messages_in_prompts(requests: &[crate::provider::adapter::ModelCompletionRequest]) {
         assert!(requests.len() >= 2);
         for req in &requests[1..] {
-            assert!(!format!("{req:?}").contains("[System]: ## Goal"));
+            assert!(req.messages.iter().all(|m| !m.is_system()));
         }
-    }
-
-    fn sequential_mock() -> MockCompletionModel {
-        MockCompletionModel::from_turns([
-            MockTurn::text("## Goal\nFirst compaction"),
-            MockTurn::text("## Goal\nPrefix 1"),
-            MockTurn::text("## Goal\nSecond compaction"),
-            MockTurn::text("## Goal\nPrefix 2"),
-        ])
     }
 
     #[tokio::test]
     async fn test_sequential_compactions_accumulate_files() {
-        let mock = sequential_mock();
+        let mock = Arc::new(MockAdapter::default());
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "## Goal\nFirst compaction".to_string(),
+        ))]);
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "## Goal\nPrefix 1".to_string(),
+        ))]);
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "## Goal\nSecond compaction".to_string(),
+        ))]);
+        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
+            "## Goal\nPrefix 2".to_string(),
+        ))]);
+
         let engine = test_engine("seq", Some(mock.clone())).await;
         let sid = engine.session_manager.session_id.clone();
 
@@ -1144,23 +1100,22 @@ mod sequential {
 
 mod auto_compact {
     use super::common;
-    use rig::message::Message;
+    use rho_harness_core::model::ChatMessage;
     use std::sync::Arc;
 
     use rho_harness_core::config::Config;
     use rho_harness_core::session::tree::TreeNodeKind;
-    use rig::completion::Usage;
-    use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 
     use super::common::CapturingPresenter;
-    use crate::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::runner::TurnRequest;
+    use crate::provider::adapter::MockAdapter;
 
     async fn populate_proactive_history(sm: &rho_harness_core::session::SessionManager, sid: &str) {
         for i in 1..=2 {
             let msgs = vec![
-                Message::user(format!("Turn {i} request with many tokens")),
-                Message::assistant(format!("Turn {i} response")),
+                ChatMessage::user(format!("Turn {i} request with many tokens")),
+                ChatMessage::assistant(format!("Turn {i} response")),
             ];
             common::append_test_messages(sm, sid, msgs).await;
         }
@@ -1187,12 +1142,7 @@ mod auto_compact {
             auth_file: dir.join("auth.json"),
             ..Config::default()
         };
-        let mut usage = Usage::new();
-        usage.input_tokens = Some(10);
-        usage.output_tokens = Some(5);
-        usage.total_tokens = Some(15);
-        let model =
-            MockCompletionModel::from_stream_turns([[MockStreamEvent::text("turn response"), final_event(usage)]]);
+        let model = Arc::new(MockAdapter::text("turn response"));
         mock_engine(
             model,
             MockEngineConfig {
@@ -1235,9 +1185,15 @@ mod auto_compact {
     }
 
     fn record_test_turn_usage(engine: &crate::engine::AgentEngine, tokens: u64) {
-        let mut usage = Usage::new();
-        usage.input_tokens = Some(tokens);
-        let u = usage.into();
+        let u = crate::engine::metrics::StructuralUsage {
+            input_tokens: tokens,
+            output_tokens: 0,
+            total_tokens: tokens,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: None,
+        };
         engine
             .usage
             .record_turn(crate::engine::tracking::TurnUsage::new(u, u), 100);
@@ -1260,10 +1216,7 @@ mod auto_compact {
             auth_file: dir.join("auth.json"),
             ..Config::default()
         };
-        let model = MockCompletionModel::from_stream_turns([[
-            MockStreamEvent::text("response"),
-            final_event(Usage::default()),
-        ]]);
+        let model = Arc::new(MockAdapter::text("response"));
         mock_engine(
             model,
             MockEngineConfig {
@@ -1277,7 +1230,10 @@ mod auto_compact {
 
     async fn seed_threshold_history(engine: &crate::engine::AgentEngine) -> Vec<rho_harness_core::model::ChatMessage> {
         let sid = &engine.session_manager.session_id;
-        let msgs = vec![Message::user("prior prompt"), Message::assistant("prior response")];
+        let msgs = vec![
+            ChatMessage::user("prior prompt"),
+            ChatMessage::assistant("prior response"),
+        ];
         common::append_test_messages(&engine.session_manager, sid, msgs).await;
         engine.session_manager.load_messages().await.unwrap()
     }

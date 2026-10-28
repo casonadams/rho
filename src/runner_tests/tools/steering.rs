@@ -1,10 +1,10 @@
-use super::super::helpers::{final_event, presenter, request, test_engine};
+use super::super::helpers::{presenter, request, test_engine};
 use crate::config::Config;
 use crate::engine::runner::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary};
 use crate::ui::TerminalRenderer;
-use rig::completion::Usage;
-use rig::message::{AssistantContent, Message, UserContent};
-use rig::test_utils::{MockCompletionModel, MockStreamEvent};
+use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
+use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
+use std::sync::Arc;
 
 async fn assert_steering_event_order(sm: &crate::session::SessionManager) {
     let events = sm.load_events().await.unwrap();
@@ -31,17 +31,14 @@ async fn assert_steering_event_order(sm: &crate::session::SessionManager) {
 #[tokio::test]
 async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
     assert_eq!(QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary::ActiveRunCompleted);
-    let model = MockCompletionModel::from_stream_turns([
-        [
-            MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
-            final_event(Usage::default()),
-        ],
-        [
-            MockStreamEvent::text("active run complete"),
-            final_event(Usage::default()),
-        ],
-        [MockStreamEvent::text("queued response"), final_event(Usage::default())],
-    ]);
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-1",
+        ToolFunction::new("read", serde_json::json!({"path": "missing"})),
+    )))]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text("active run complete".to_string()))]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text("queued response".to_string()))]);
+
     let engine = test_engine(model.clone(), Config::default());
 
     engine
@@ -55,47 +52,42 @@ async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
         .unwrap();
 
     assert_steering_event_order(&engine.session_manager).await;
-    let encoded = serde_json::to_string(&model.requests()[2].chat_history).unwrap();
+    let encoded = serde_json::to_string(&model.requests()[2].messages).unwrap();
     assert!(encoded.contains("active run complete") && encoded.contains("queued steering"));
 }
 
-fn count_calls_and_results(history: &[Message]) -> (usize, usize) {
-    let calls = history
-        .iter()
-        .filter_map(|m| match m {
-            Message::Assistant(asst) => Some(
-                asst.content
+fn count_calls_and_results(history: &[ChatMessage]) -> (usize, usize) {
+    let mut calls = 0;
+    let mut results = 0;
+    for m in history {
+        match m {
+            ChatMessage::Assistant { content, .. } => {
+                calls += content
                     .iter()
                     .filter(|c| matches!(c, AssistantContent::ToolCall(_)))
-                    .count(),
-            ),
-            _ => None,
-        })
-        .sum();
-    let results = history
-        .iter()
-        .filter_map(|m| match m {
-            Message::User { content } => Some(
-                content
+                    .count();
+            }
+            ChatMessage::User { content } => {
+                results += content
                     .iter()
                     .filter(|c| matches!(c, UserContent::ToolResult(_)))
-                    .count(),
-            ),
-            _ => None,
-        })
-        .sum();
+                    .count();
+            }
+            _ => {}
+        }
+    }
     (calls, results)
 }
 
 #[tokio::test]
 async fn one_tool_round_preserves_canonical_call_and_one_result() {
-    let model = MockCompletionModel::from_stream_turns([
-        [
-            MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
-            final_event(Usage::default()),
-        ],
-        [MockStreamEvent::text("done"), final_event(Usage::default())],
-    ]);
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-1",
+        ToolFunction::new("read", serde_json::json!({"path": "missing"})),
+    )))]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text("done".to_string()))]);
+
     let engine = test_engine(model.clone(), Config::default());
     let output = engine
         .run_turn(request("read"), presenter(&TerminalRenderer::default()))
@@ -103,19 +95,24 @@ async fn one_tool_round_preserves_canonical_call_and_one_result() {
         .unwrap();
 
     assert_eq!(output.tool_calls_count, 1);
-    assert_eq!(count_calls_and_results(&model.requests()[1].chat_history), (1, 1));
+    assert_eq!(count_calls_and_results(&model.requests()[1].messages), (1, 1));
 }
 
 #[tokio::test]
 async fn multiple_tool_calls_have_one_correlated_result_each() {
-    let model = MockCompletionModel::from_stream_turns([
-        vec![
-            MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing-a"})),
-            MockStreamEvent::tool_call("call-2", "read", serde_json::json!({"path": "missing-b"})),
-            final_event(Usage::default()),
-        ],
-        vec![MockStreamEvent::text("done"), final_event(Usage::default())],
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![
+        Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+            "call-1",
+            ToolFunction::new("read", serde_json::json!({"path": "missing-a"})),
+        ))),
+        Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+            "call-2",
+            ToolFunction::new("read", serde_json::json!({"path": "missing-b"})),
+        ))),
     ]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text("done".to_string()))]);
+
     let engine = test_engine(model.clone(), Config::default());
     let output = engine
         .run_turn(request("read both"), presenter(&TerminalRenderer::default()))
@@ -125,7 +122,7 @@ async fn multiple_tool_calls_have_one_correlated_result_each() {
     assert_eq!(output.tool_calls_count, 2);
     assert_eq!(output.tool_failures_count, 2);
     let req = &model.requests()[1];
-    let serialized = serde_json::to_value(&req.chat_history).unwrap();
+    let serialized = serde_json::to_value(&req.messages).unwrap();
     let calls = serialized.to_string().matches("toolcall").count();
     let results = serialized.to_string().matches("toolresult").count();
     assert_eq!((calls, results), (2, 2));

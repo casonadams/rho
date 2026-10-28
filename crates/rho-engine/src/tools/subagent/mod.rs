@@ -12,18 +12,17 @@ use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::types::{ToolResult, generated_schema};
 use rho_harness_core::error::AppError;
-use rig::tool::DynamicTool;
 use std::sync::Arc;
 
 pub struct SubagentTool {
     model: Option<ModelHandle>,
     depth: usize,
-    tools: Vec<DynamicTool>,
+    tools: Vec<Arc<dyn EngineTool>>,
 }
 
 impl SubagentTool {
     #[must_use]
-    pub fn new(model: Option<ModelHandle>, depth: usize, tools: Vec<DynamicTool>) -> Self {
+    pub fn new(model: Option<ModelHandle>, depth: usize, tools: Vec<Arc<dyn EngineTool>>) -> Self {
         Self { model, depth, tools }
     }
 
@@ -76,9 +75,4 @@ impl EngineTool for SubagentTool {
         let result = runner.run(&parsed.prompt, parsed.context_slice.as_deref()).await;
         Ok(result)
     }
-}
-
-#[must_use]
-pub fn make_subagent_tool(tool: Arc<SubagentTool>) -> DynamicTool {
-    crate::adapter::rig::tools::into_dynamic_tool_arc(tool)
 }

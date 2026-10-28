@@ -1,6 +1,6 @@
 use super::client::{McpClient, McpToolDefinition};
 use super::pool::McpServerPool;
-use rig::tool::{DynamicTool, ToolOutput};
+use crate::tools::{EngineTool, GenericTool, ToolResult};
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -107,22 +107,20 @@ impl DeferredMcpTool {
         (self.call_fn)(self.name.clone(), args).await
     }
 
-    pub fn into_dynamic_tool(&self) -> DynamicTool {
+    pub fn into_engine_tool(&self) -> Arc<dyn EngineTool> {
         let tool_name = self.wire_name.clone();
         let description = self.description.clone();
         let mut schema = self.input_schema.clone();
         crate::tools::normalize_schema(&mut schema);
         let tool = self.clone();
 
-        let tn =
-            rig::message::ToolName::new(&tool_name).unwrap_or_else(|_| rig::message::ToolName::new("unknown").unwrap());
-        DynamicTool::new(tn, description, schema, move |args| {
+        Arc::new(GenericTool::new(tool_name, description, schema, move |args| {
             let tool = tool.clone();
-            Box::pin(async move {
+            async move {
                 let output = tool.execute_call(args).await;
-                Ok(ToolOutput::text(output))
-            })
-        })
+                Ok(ToolResult::success(output))
+            }
+        }))
     }
 }
 
@@ -321,11 +319,12 @@ fn score_tool_match(tool: &DeferredMcpTool, query: &str, tokens: &[&str]) -> usi
     score
 }
 
+type SharedToolsRegistry = Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>;
 type SharedToolNames = Arc<std::sync::RwLock<Vec<String>>>;
 
 #[derive(Clone, Default)]
 pub struct DynamicToolActivator {
-    server_handle: Arc<std::sync::RwLock<Option<rig::tool::server::ToolServerHandle>>>,
+    tools_registry: Arc<std::sync::RwLock<Option<SharedToolsRegistry>>>,
     tool_names: Arc<std::sync::RwLock<Option<SharedToolNames>>>,
     activated_names: Arc<std::sync::RwLock<HashSet<String>>>,
 }
@@ -335,8 +334,8 @@ impl DynamicToolActivator {
         Self::default()
     }
 
-    pub fn attach(&self, handle: rig::tool::server::ToolServerHandle, tool_names: SharedToolNames) {
-        *self.server_handle.write().unwrap() = Some(handle);
+    pub fn attach(&self, registry: SharedToolsRegistry, tool_names: SharedToolNames) {
+        *self.tools_registry.write().unwrap() = Some(registry);
         *self.tool_names.write().unwrap() = Some(tool_names);
     }
 
@@ -358,12 +357,12 @@ impl DynamicToolActivator {
                 }
             }
         }
-        let handle_opt = self.server_handle.read().unwrap().clone();
+        let reg_opt = self.tools_registry.read().unwrap().clone();
         let tool_names_opt = self.tool_names.read().unwrap().clone();
 
         for tool in to_activate {
-            if let Some(handle) = handle_opt.as_ref() {
-                handle.add_dynamic_tool(tool.into_dynamic_tool());
+            if let Some(reg) = reg_opt.as_ref() {
+                reg.write().await.push(tool.into_engine_tool());
             }
             if let Some(names_ref) = tool_names_opt.as_ref() {
                 names_ref.write().unwrap().push(tool.wire_name.clone());
@@ -444,7 +443,7 @@ async fn maybe_execute_tool(
     }
 }
 
-pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicToolActivator) -> DynamicTool {
+pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicToolActivator) -> Arc<dyn EngineTool> {
     let summary = catalog.catalog_summary();
     let description = format!(
         "Search and dynamically load deferred MCP tools into active tools for subsequent turns. \
@@ -483,11 +482,10 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
         "required": ["query"]
     });
 
-    let tn = rig::message::ToolName::new("tool_search").unwrap();
-    DynamicTool::new(tn, description, schema, move |args| {
+    Arc::new(GenericTool::new("tool_search", description, schema, move |args| {
         let catalog = catalog.clone();
         let activator = activator.clone();
-        Box::pin(async move {
+        async move {
             let query = args.get("query").and_then(|q| q.as_str()).unwrap_or("").trim();
             let limit = args
                 .get("limit")
@@ -502,9 +500,9 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
             {
                 output.push_str(&exec_result);
             }
-            Ok(ToolOutput::text(output))
-        })
-    })
+            Ok(ToolResult::success(output))
+        }
+    }))
 }
 
 #[cfg(test)]
@@ -661,30 +659,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_tool_search_dynamic_tool_execution() {
-        let handle = rig::tool::server::ToolServer::new().run();
+        let registry = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+        let names = Arc::new(std::sync::RwLock::new(Vec::new()));
         let activator = DynamicToolActivator::new();
-        activator.attach(handle.clone(), Arc::new(std::sync::RwLock::new(Vec::new())));
+        activator.attach(registry.clone(), names);
 
         let catalog = ToolSearchCatalog::new(sample_tools());
         let tool = build_tool_search_tool(catalog, activator.clone());
-        handle.add_dynamic_tool(tool);
 
-        let mut context = rig::tool::ToolContext::default();
-        let result = handle
-            .execute("tool_search", r#"{"query": "forecast"}"#, &mut context)
-            .await;
-        let text = result.output().as_text().unwrap_or_default();
-        assert!(text.contains("weather_get_forecast"));
+        let result = tool.execute(serde_json::json!({"query": "forecast"})).await.unwrap();
+        assert!(result.content.contains("weather_get_forecast"));
         assert!(activator.is_activated("weather_get_forecast"));
 
-        let err_result = handle
-            .execute(
-                "tool_search",
-                r#"{"query": "forecast", "execute": {"tool": "nonexistent"}}"#,
-                &mut context,
-            )
-            .await;
-        let err_text = err_result.output().as_text().unwrap_or_default();
-        assert!(err_text.contains("[Execution Error] Target tool 'nonexistent' not found"));
+        let err_result = tool
+            .execute(serde_json::json!({"query": "forecast", "execute": {"tool": "nonexistent"}}))
+            .await
+            .unwrap();
+        assert!(
+            err_result
+                .content
+                .contains("[Execution Error] Target tool 'nonexistent' not found")
+        );
     }
 }

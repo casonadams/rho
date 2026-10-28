@@ -1,8 +1,10 @@
 use super::ModelRequest;
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
+use crate::provider::openai::OpenAiClient;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
+use std::sync::Arc;
 
 pub(crate) static SHARED_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
     crate::install_crypto_provider();
@@ -24,10 +26,12 @@ pub(super) fn validate_custom_provider_url(name: &str, url: &str, allow_private:
 pub(super) fn build_local_ollama_model(model: &str) -> Result<ModelHandle> {
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
     crate::install_crypto_provider();
-    let mut config = rig::providers::openai::wire::OpenAIConfig::new("");
-    config.base_url = format!("{host}/v1");
-    let client = config.client();
-    Ok(client.completion(model).erase())
+    Ok(Arc::new(OpenAiClient::new(
+        format!("{host}/v1"),
+        "",
+        model,
+        "ollama-local",
+    )))
 }
 
 pub(super) fn resolve_provider_key(provider: ProviderId, auth_store: &AuthStore) -> Result<String> {
@@ -61,8 +65,12 @@ pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthS
 }
 
 pub(super) fn build_gemini_model(model: &str, key: String) -> Result<ModelHandle> {
-    let client = rig::providers::gemini::Gemini::new(key);
-    Ok(client.completion(model).erase())
+    Ok(Arc::new(OpenAiClient::new(
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        key,
+        model,
+        "gemini",
+    )))
 }
 
 pub(super) fn build_antigravity_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
@@ -92,37 +100,42 @@ pub(super) fn build_claude_code_model(request: &ModelRequest<'_>, auth_store: &A
 }
 
 fn build_rig_named_client(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
-    use rig::providers::openai::wire::{DEEPSEEK, GROQ, OPENROUTER, OpenAIConfig};
     match provider {
         ProviderId::Anthropic => {
             let model = crate::claude::request::normalize_model_alias(model);
-            let c = rig::providers::anthropic::Anthropic::new(key);
-            Ok(c.completion(model).erase())
+            Ok(Arc::new(crate::claude::ClaudeClient::new(key, model)))
         }
-        ProviderId::DeepSeek => {
-            let c = OpenAIConfig::with_key(&DEEPSEEK, key).client();
-            Ok(c.completion(model).erase())
-        }
-        ProviderId::Groq => {
-            let c = OpenAIConfig::with_key(&GROQ, key).client();
-            Ok(c.completion(model).erase())
-        }
-        ProviderId::OpenRouter => {
-            let c = OpenAIConfig::with_key(&OPENROUTER, key).client();
-            Ok(c.completion(model).erase())
-        }
-        ProviderId::XAi => {
-            let c = rig::providers::xai::new(key);
-            Ok(c.completion(model).erase())
-        }
-        ProviderId::Mistral => {
-            let c = rig::providers::mistral::new(key);
-            Ok(c.completion(model).erase())
-        }
-        ProviderId::Cohere => {
-            let c = rig::providers::cohere::Cohere::new(key);
-            Ok(c.completion(model).erase())
-        }
+        ProviderId::DeepSeek => Ok(Arc::new(OpenAiClient::new(
+            "https://api.deepseek.com",
+            key,
+            model,
+            "deepseek",
+        ))),
+        ProviderId::Groq => Ok(Arc::new(OpenAiClient::new(
+            "https://api.groq.com/openai/v1",
+            key,
+            model,
+            "groq",
+        ))),
+        ProviderId::OpenRouter => Ok(Arc::new(OpenAiClient::new(
+            "https://openrouter.ai/api/v1",
+            key,
+            model,
+            "openrouter",
+        ))),
+        ProviderId::XAi => Ok(Arc::new(OpenAiClient::new("https://api.x.ai/v1", key, model, "xai"))),
+        ProviderId::Mistral => Ok(Arc::new(OpenAiClient::new(
+            "https://api.mistral.ai/v1",
+            key,
+            model,
+            "mistral",
+        ))),
+        ProviderId::Cohere => Ok(Arc::new(OpenAiClient::new(
+            "https://api.cohere.com/v2",
+            key,
+            model,
+            "cohere",
+        ))),
         _ => Err(AppError::Provider(format!(
             "Unsupported standard provider '{}'",
             provider.as_str()
@@ -132,18 +145,22 @@ fn build_rig_named_client(provider: ProviderId, model: &str, key: String) -> Res
 
 fn build_ollama_cloud_model(model: &str, key: String) -> Result<ModelHandle> {
     crate::install_crypto_provider();
-    let mut config = rig::providers::openai::wire::OpenAIConfig::new(key);
-    config.base_url = "https://ollama.com/v1".to_string();
-    let c = config.client();
-    Ok(c.completion(model).erase())
+    Ok(Arc::new(OpenAiClient::new(
+        "https://ollama.com/v1",
+        key,
+        model,
+        "ollama-cloud",
+    )))
 }
 
 pub(super) fn build_standard_client_model(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
     match provider {
-        ProviderId::OpenAi => {
-            let c = rig::providers::openai::OpenAI::new(key);
-            Ok(c.completion(model).erase())
-        }
+        ProviderId::OpenAi => Ok(Arc::new(OpenAiClient::new(
+            "https://api.openai.com/v1",
+            key,
+            model,
+            "openai",
+        ))),
         ProviderId::OllamaCloud => build_ollama_cloud_model(model, key),
         _ => build_rig_named_client(provider, model, key),
     }

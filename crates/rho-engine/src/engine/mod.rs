@@ -17,7 +17,6 @@ pub mod metrics;
 mod model;
 mod quota;
 pub mod runner;
-pub mod runtime;
 pub mod stream_rules;
 pub mod tracking;
 
@@ -29,10 +28,10 @@ mod tests;
 pub mod eval;
 
 use crate::auth::AuthStore;
+use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::session::SessionManager;
-use rig::agent::Agent;
 use std::sync::Arc;
 use tracking::{ContextTracker, QuotaTracker, UsageTracker};
 
@@ -41,8 +40,7 @@ pub struct AgentEngine {
     pub base_dir: std::path::PathBuf,
     pub session_manager: SessionManager,
     pub(crate) tool_names: Arc<std::sync::RwLock<Vec<String>>>,
-    pub(crate) tool_server_handle: rig::tool::server::ToolServerHandle,
-    pub(crate) agent: Arc<tokio::sync::RwLock<Agent>>,
+    pub(crate) tools: Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
     pub(crate) context: ContextTracker,
@@ -50,7 +48,8 @@ pub struct AgentEngine {
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
     pub(crate) model: Option<crate::engine::compactor::llm::ModelHandle>,
-    pub(crate) demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
+    pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
+    pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
 }
 
 impl AgentEngine {
@@ -65,8 +64,8 @@ impl AgentEngine {
         self.tool_names.read().unwrap().clone()
     }
 
-    pub fn tool_server_handle(&self) -> &rig::tool::server::ToolServerHandle {
-        &self.tool_server_handle
+    pub fn tools(&self) -> Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>> {
+        Arc::clone(&self.tools)
     }
 
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {

@@ -4,8 +4,8 @@ mod schema;
 
 pub use schema::{generated_schema, normalize_schema};
 
-/// An inline image attached to a successful tool result. The turn hook keeps it
-/// for providers whose rig adapter serializes tool-result images and replaces
+/// An inline image attached to a successful tool result. The turn runner keeps it
+/// for providers that serialize tool-result images and replaces
 /// it with an omission note for everyone else.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolImage {

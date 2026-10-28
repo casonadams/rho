@@ -3,43 +3,11 @@
 use super::DiscoveredModel;
 use super::antigravity::{collapse_antigravity_catalog, sort_models_newest_first};
 use super::presets::{
-    anthropic_preset_models, antigravity_preset_models, default_presets_for, format_context_desc,
-    format_context_tokens, gemini_preset_models,
+    anthropic_preset_models, antigravity_preset_models, default_presets_for, format_context_tokens,
+    gemini_preset_models,
 };
 use crate::provider::builders::SHARED_HTTP_CLIENT;
 use rho_harness_core::error::Result;
-
-fn map_rig_models(models: Vec<rig::model::listing::ModelInfo>, provider_name: &str) -> Vec<DiscoveredModel> {
-    let out: Vec<DiscoveredModel> = models
-        .into_iter()
-        .filter_map(|item| {
-            let id = if provider_name == "gemini" {
-                let trimmed = item.id.strip_prefix("models/").unwrap_or(&item.id);
-                if !trimmed.starts_with("gemini") {
-                    return None;
-                }
-                trimmed.to_string()
-            } else {
-                item.id
-            };
-            if id.trim().is_empty() {
-                return None;
-            }
-            let description = item
-                .context_length
-                .map(|ctx| format_context_tokens(ctx as usize))
-                .unwrap_or_else(|| format_context_desc(&id));
-            Some(DiscoveredModel {
-                context_tokens: item.context_length.map(|l| l as usize),
-                name: item.name.unwrap_or_else(|| id.clone()),
-                id,
-                provider: provider_name.to_string(),
-                description,
-            })
-        })
-        .collect();
-    sort_models_newest_first(out)
-}
 
 pub(crate) async fn discover_openai_compatible(
     provider_name: &str,
@@ -48,14 +16,10 @@ pub(crate) async fn discover_openai_compatible(
 ) -> Result<Vec<DiscoveredModel>> {
     crate::install_crypto_provider();
     let key = if api_key.trim().is_empty() { "" } else { api_key.trim() };
-    let mut config = rig::providers::openai::wire::OpenAIConfig::new(key);
-    config.base_url = base_url.to_string();
-    let client = config.client();
-    if let Ok(list) = client.list_models().await {
-        let models = map_rig_models(list.data, provider_name);
-        if !models.is_empty() {
-            return Ok(models);
-        }
+    if let Ok(models) = crate::provider::openai::discover_openai_models(base_url, key, provider_name).await
+        && !models.is_empty()
+    {
+        return Ok(models);
     }
 
     Ok(default_presets_for(provider_name))
@@ -64,16 +28,13 @@ pub(crate) async fn discover_openai_compatible(
 pub(crate) async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
     crate::install_crypto_provider();
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
-    let mut config = rig::providers::openai::wire::OpenAIConfig::new("");
-    config.base_url = format!("{host}/v1");
-    let client = config.client();
+    let base_url = format!("{host}/v1");
 
-    if let Ok(list) = client.list_models().await {
-        let mut models = map_rig_models(list.data, "local");
-        if !models.is_empty() {
-            enrich_ollama_models(&host, &mut models).await;
-            return Ok(models);
-        }
+    if let Ok(mut models) = crate::provider::openai::discover_openai_models(&base_url, "", "local").await
+        && !models.is_empty()
+    {
+        enrich_ollama_models(&host, &mut models).await;
+        return Ok(models);
     }
 
     Ok(default_presets_for("local"))
@@ -146,31 +107,22 @@ fn is_dummy_key(key: &str) -> bool {
     trimmed.is_empty() || PREFIXES.iter().any(|needle| trimmed.starts_with(needle)) || trimmed == "test"
 }
 
-pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
-    crate::install_crypto_provider();
-    if !is_dummy_key(api_key) {
-        let client = rig::providers::anthropic::Anthropic::new(api_key.trim());
-        if let Ok(list) = client.list_models().await {
-            let models = map_rig_models(list.data, "anthropic");
-            if !models.is_empty() {
-                return Ok(models);
-            }
-        }
-    }
-
+pub(crate) async fn discover_anthropic_models(_api_key: &str) -> Result<Vec<DiscoveredModel>> {
     Ok(anthropic_preset_models())
 }
 
 pub(crate) async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
     crate::install_crypto_provider();
-    if !is_dummy_key(api_key) {
-        let client = rig::providers::gemini::Gemini::new(api_key.trim());
-        if let Ok(list) = client.list_models().await {
-            let models = map_rig_models(list.data, "gemini");
-            if !models.is_empty() {
-                return Ok(models);
-            }
-        }
+    if !is_dummy_key(api_key)
+        && let Ok(models) = crate::provider::openai::discover_openai_models(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            api_key,
+            "gemini",
+        )
+        .await
+        && !models.is_empty()
+    {
+        return Ok(models);
     }
 
     Ok(gemini_preset_models())

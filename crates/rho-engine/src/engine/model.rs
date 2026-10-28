@@ -35,10 +35,9 @@ impl AgentEngine {
             self.config.provider = spec_p;
         }
         let model_handle = self.build_model_handle(&self.config).await?;
-        self.model = Some(model_handle.clone());
+        self.model = Some(model_handle);
         self.context = ContextTracker::new(resolve_context_limit(&self.config));
 
-        self.agent.write().await.set_model(model_handle);
         self.force_refresh_quota();
         Ok(())
     }

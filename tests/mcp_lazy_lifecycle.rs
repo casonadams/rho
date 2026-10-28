@@ -99,12 +99,17 @@ async fn test_cached_servers_launch_with_zero_child_processes() {
     assert!(engine.tool_names().contains(&"mock_srv_ping".to_string()));
     assert_eq!(count_processes(pattern), 0);
 
-    let mut context = rig::tool::ToolContext::default();
-    let res = engine
-        .tool_server_handle()
-        .execute("mock_srv_ping", "{}", &mut context)
-        .await;
-    assert_eq!(res.output().as_text().unwrap(), "pong");
+    let ping_tool = {
+        let tools = engine.tools();
+        let tools_guard = tools.read().await;
+        tools_guard
+            .iter()
+            .find(|t| t.name() == "mock_srv_ping")
+            .cloned()
+            .unwrap()
+    };
+    let res = ping_tool.execute(serde_json::json!({})).await.unwrap();
+    assert_eq!(res.content, "pong");
     assert_eq!(count_processes(pattern), 1);
 
     let _ = std::fs::remove_dir_all(&workspace);

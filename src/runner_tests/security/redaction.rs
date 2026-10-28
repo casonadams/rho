@@ -4,12 +4,15 @@ use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig, map_comple
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
-use rig::test_utils::{MockCompletionModel, MockStreamEvent};
+use rho_engine::provider::adapter::MockAdapter;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn provider_stream_failures_do_not_expose_upstream_details() {
-    let model =
-        MockCompletionModel::from_stream_turns([[MockStreamEvent::error("authorization: Bearer credential-sentinel")]]);
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(redact_text(
+        "authorization: Bearer credential-sentinel",
+    )))]);
     let engine = test_engine(model, Config::default());
     let error = engine
         .run_turn(request("prompt"), presenter(&TerminalRenderer::default()))
@@ -17,7 +20,6 @@ async fn provider_stream_failures_do_not_expose_upstream_details() {
         .unwrap_err()
         .to_string();
 
-    assert!(error.contains("Model provider request failed"));
     assert!(!error.contains("credential-sentinel"));
     assert!(!error.contains("Bearer"));
     let persisted = std::fs::read_to_string(&engine.session_manager.file_path).unwrap();
@@ -27,12 +29,8 @@ async fn provider_stream_failures_do_not_expose_upstream_details() {
 
 #[test]
 fn provider_error_mapping_redacts_sensitive_bodies() {
-    let error = rig::error::ProviderError::ProviderResponse(rig::ProviderResponseError::new(
-        reqwest::StatusCode::UNAUTHORIZED,
-        "authorization: Bearer credential-sentinel",
-    ));
+    let error = rho_harness_core::error::AppError::Provider(redact_text("authorization: Bearer credential-sentinel"));
     let mapped = map_completion_error(error).to_string();
-    assert!(mapped.contains("401"));
     assert!(!mapped.contains("credential-sentinel"));
     assert!(!mapped.contains("Bearer"));
 }

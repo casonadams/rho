@@ -1,3 +1,4 @@
+use super::artifact_spill::DemotionHook;
 use crate::engine::compactor::llm::ModelHandle;
 use rho_harness_core::error::Result;
 use rho_harness_core::model::ChatMessage;
@@ -7,7 +8,6 @@ use rho_harness_core::session::compaction::{
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 use rho_harness_core::tokens::{find_token_cut_point, is_tool_result_message};
-use rig::memory::DemotionHook;
 use std::sync::Arc;
 
 use super::llm::LlmCompactor;
@@ -189,26 +189,6 @@ impl SessionCompactor {
         self.demotion_hook.as_ref()
     }
 
-    pub(crate) fn session_manager(&self) -> &SessionManager {
-        &self.session_manager
-    }
-
-    pub(crate) fn model(&self) -> Option<&ModelHandle> {
-        self.model.as_ref()
-    }
-
-    pub(crate) fn model_name(&self) -> &str {
-        &self.model_name
-    }
-
-    pub(crate) fn keep_recent_tokens(&self) -> usize {
-        self.keep_recent_tokens
-    }
-
-    pub(crate) fn max_bytes(&self) -> usize {
-        self.max_bytes
-    }
-
     pub async fn compact(&self, instructions: Option<&str>) -> Result<CompactionStats> {
         let tree = self.session_manager.load_tree().await?;
         let Some(active_leaf_id) = &tree.active_leaf_id else {
@@ -351,7 +331,7 @@ impl AgentEngine {
             self.session_manager.clone(),
             self.usage.clone(),
             self.context.clone(),
-            self.model.clone(),
+            self.compactor_model.clone(),
             SessionCompactorConfig {
                 model_name: self.config.model.clone(),
                 keep_recent_tokens: self.config.keep_recent_tokens,
@@ -375,9 +355,7 @@ pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, sessio
             return;
         }
         let hook = Arc::clone(hook);
-        let sid = rig::id::ConversationId::from(session_id);
-        let msgs = messages.iter().map(crate::adapter::rig::to_rig_message).collect();
-        let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(&sid, msgs).await });
+        let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(session_id, messages).await });
         match futures::FutureExt::catch_unwind(fut).await {
             Ok(Ok(())) => {}
             Ok(Err(err)) => {

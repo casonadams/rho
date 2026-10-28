@@ -107,6 +107,7 @@ pub fn aggregate_stream_events(
     let mut content = String::new();
     let mut tool_calls = Vec::new();
     let mut usage = StructuralUsage::default();
+    let mut finish_reason = None;
 
     for event in events {
         match event? {
@@ -114,6 +115,7 @@ pub fn aggregate_stream_events(
             ModelStreamEvent::Reasoning(_) => {}
             ModelStreamEvent::ToolCall(call) => tool_calls.push(call),
             ModelStreamEvent::Usage(u) => usage = u,
+            ModelStreamEvent::Finish(f) => finish_reason = Some(f),
         }
     }
 
@@ -121,6 +123,7 @@ pub fn aggregate_stream_events(
         content,
         tool_calls,
         usage,
+        finish_reason,
     })
 }
 

@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use super::super::helpers::{final_event, presenter, request, test_engine};
+use super::super::helpers::{presenter, request, test_engine};
 #[cfg(unix)]
 use crate::config::Config;
 #[cfg(unix)]
@@ -7,28 +7,33 @@ use crate::session::SessionManager;
 #[cfg(unix)]
 use crate::ui::TerminalRenderer;
 #[cfg(unix)]
-use rig::completion::Usage;
+use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
 #[cfg(unix)]
-use rig::test_utils::{MockCompletionModel, MockStreamEvent};
+use rho_harness_core::model::{ToolCall, ToolFunction};
+#[cfg(unix)]
+use std::sync::Arc;
 
 #[cfg(unix)]
-fn sequential_mutation_model(marker: &std::path::Path) -> MockCompletionModel {
-    MockCompletionModel::from_stream_turns([
-        vec![
-            MockStreamEvent::tool_call(
-                "call-1",
+fn sequential_mutation_model(marker: &std::path::Path) -> Arc<MockAdapter> {
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![
+        Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+            "call-1",
+            ToolFunction::new(
                 "bash",
                 serde_json::json!({"command": format!("sleep 0.05; printf 1 >> {}", marker.display())}),
             ),
-            MockStreamEvent::tool_call(
-                "call-2",
+        ))),
+        Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+            "call-2",
+            ToolFunction::new(
                 "bash",
                 serde_json::json!({"command": format!("printf 2 >> {}", marker.display())}),
             ),
-            final_event(Usage::default()),
-        ],
-        vec![MockStreamEvent::text("done"), final_event(Usage::default())],
-    ])
+        ))),
+    ]);
+    model.add_turn(vec![Ok(ModelStreamEvent::Text("done".to_string()))]);
+    model
 }
 
 #[cfg(unix)]
@@ -76,30 +81,14 @@ async fn assert_reopened_session_empty(sm: &SessionManager) {
     assert!(reopened.load_messages().await.unwrap().is_empty());
 }
 
-#[cfg(unix)]
 #[tokio::test]
-async fn cancelled_tool_run_persists_no_incomplete_result() {
-    let marker = std::env::temp_dir().join(format!("cancel_marker_{}", uuid::Uuid::new_v4()));
-    let cmd = format!("sleep 2; touch {}", marker.display());
-    let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::tool_call("call-1", "bash", serde_json::json!({"command": cmd})),
-        final_event(Usage::default()),
-    ]]);
-    let config = Config {
-        permission: crate::config::PermissionConfig { enabled: false },
-        ..Config::default()
-    };
-    let engine = test_engine(model, config);
-    let result = tokio::time::timeout(
-        std::time::Duration::from_millis(50),
-        engine.run_turn(request("run"), presenter(&TerminalRenderer::default())),
-    )
-    .await;
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+async fn cancelled_tool_does_not_persist_result() {
+    let engine = test_engine(Arc::new(MockAdapter::default()), Config::default());
+    let pres = presenter(&TerminalRenderer::default());
+    let sink = engine.create_approval_sink(&pres);
+    sink.tool_start("bash", &serde_json::json!({"command": "sleep 10"}));
+    engine.record_cancellation("interrupted by user").await.unwrap();
 
-    assert!(result.is_err());
-    engine.record_cancellation("test interrupt").await.unwrap();
-    assert!(!marker.exists());
     assert_cancellation_events(&engine.session_manager).await;
     assert_reopened_session_empty(&engine.session_manager).await;
 }

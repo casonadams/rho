@@ -1,15 +1,16 @@
 use crate::engine::AgentEngine;
+use crate::engine::metrics::types::PromptResponse;
 use crate::engine::metrics::{RunMetrics, TerminalStatus};
 use crate::engine::runner::helpers::redact_text;
 use crate::engine::runner::sink::TurnArtifacts;
 use crate::engine::runner::turn::types::{RunStatus, TurnOutput, UsageDetails};
+use crate::provider::adapter::FinishReason;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::session::SessionEventKind;
-use rig::completion::FinishReason;
 
 fn assemble_turn_output(
     (response, completed_tools, tool_calls_count): (
-        rig::agent::PromptResponse,
+        PromptResponse,
         &[crate::engine::runner::sink::CompletedTool],
         usize,
     ),
@@ -17,8 +18,8 @@ fn assemble_turn_output(
 ) -> TurnOutput {
     TurnOutput {
         tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
-        requests: response.requests(),
-        final_text: response.output(),
+        requests: response.requests.len(),
+        final_text: response.output,
         tool_calls_count,
         usage,
         status,
@@ -92,13 +93,13 @@ impl AgentEngine {
 
     async fn record_turn_usage(
         &self,
-        response: &rig::agent::PromptResponse,
+        response: &PromptResponse,
         generation_elapsed_ms: u64,
     ) -> Result<Option<UsageDetails>> {
         let usage = response.usage;
-        let usage_details = usage.is_reported().then(|| usage.into());
+        let usage_details = usage.is_reported().then_some(usage);
         let latest_context_usage = response.completion_calls.last().map(|call| call.usage).unwrap_or(usage);
-        let turn_usage = crate::engine::tracking::TurnUsage::new(usage.into(), latest_context_usage.into());
+        let turn_usage = crate::engine::tracking::TurnUsage::new(usage, latest_context_usage);
         self.usage.record_turn(turn_usage, generation_elapsed_ms);
         self.session_manager
             .append_event(
@@ -111,7 +112,7 @@ impl AgentEngine {
 
     async fn finalize_turn_summary(
         &self,
-        response: &rig::agent::PromptResponse,
+        response: &PromptResponse,
         terminal_status: TerminalStatus,
     ) -> Result<RunMetrics> {
         let metrics = self.run_tracker.complete(crate::engine::metrics::CompletionOutcome {
@@ -165,7 +166,7 @@ impl AgentEngine {
     }
 }
 
-fn determine_turn_status(response: &rig::agent::PromptResponse) -> (RunStatus, TerminalStatus) {
+fn determine_turn_status(response: &PromptResponse) -> (RunStatus, TerminalStatus) {
     let is_filtered = response
         .completion_calls
         .last()

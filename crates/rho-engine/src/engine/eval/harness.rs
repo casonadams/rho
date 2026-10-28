@@ -1,31 +1,23 @@
 //! Core harness: `EvalHarness::run` plus the verify/normalize helpers it composes.
-//!
-//! The split mirrors the runtime layers the harness covers:
-//! - [`EvalHarness::run`] drives a scenario end-to-end (run → verify output → normalize
-//!   transcript → verify tool order).
-//! - [`verify_output`] / [`verify_tool_order`] assert scenario invariants on
-//!   the final outcome and the recorded completion requests.
-//! - [`normalize_requests`] / [`normalize_message`] / [`normalize_user_part`] /
-//!   [`normalize_assistant_part`] / [`normalize_id`] produce a stable transcript
-//!   representation that drops provider-specific IDs and content.
 
 use super::mock::mock_engine;
 use super::types::{EvalFailure, EvalReport, EvalScenario, NormalizedPart, NormalizedRequest, NormalizedTranscript};
 use crate::engine::metrics::TerminalStatus;
 use crate::engine::runner::{TurnOutput, TurnRequest};
-use rig::completion::CompletionRequest;
-use rig::message::{AssistantContent, Message, UserContent};
+use crate::provider::adapter::{MockAdapter, ModelCompletionRequest};
+use rho_harness_core::model::ChatMessage;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct EvalHarness;
 
 fn build_harness_engine(
     scenario: &EvalScenario,
     base_dir: &std::path::Path,
-    model: &rig::test_utils::MockCompletionModel,
+    model: Arc<MockAdapter>,
 ) -> crate::engine::AgentEngine {
     mock_engine(
-        model.clone(),
+        model,
         super::mock::MockEngineConfig {
             base_dir,
             app_config: rho_harness_core::config::Config {
@@ -41,8 +33,8 @@ fn build_harness_engine(
 
 impl EvalHarness {
     pub async fn run(scenario: EvalScenario, base_dir: &std::path::Path) -> Result<EvalReport, EvalFailure> {
-        let model = rig::test_utils::MockCompletionModel::from_stream_turns(scenario.turns.clone());
-        let engine = build_harness_engine(&scenario, base_dir, &model);
+        let model = Arc::new(MockAdapter::from_turns(scenario.turns.clone()));
+        let engine = build_harness_engine(&scenario, base_dir, model.clone());
         let output = engine
             .run_turn(TurnRequest::new(scenario.prompt), super::presenter::presenter())
             .await
@@ -102,16 +94,16 @@ pub fn verify_tool_order(scenario: &EvalScenario, transcript: &NormalizedTranscr
     Ok(())
 }
 
-pub fn normalize_requests(requests: &[CompletionRequest]) -> NormalizedTranscript {
+pub fn normalize_requests(requests: &[ModelCompletionRequest]) -> NormalizedTranscript {
     let mut ids = HashMap::new();
     let requests = requests
         .iter()
         .enumerate()
         .map(|(index, request)| NormalizedRequest {
             index,
-            content_telemetry: request.record_telemetry_content,
+            content_telemetry: false,
             messages: request
-                .chat_history
+                .messages
                 .iter()
                 .map(|message| normalize_message(message, &mut ids))
                 .collect(),
@@ -120,51 +112,44 @@ pub fn normalize_requests(requests: &[CompletionRequest]) -> NormalizedTranscrip
     NormalizedTranscript { requests }
 }
 
-pub fn normalize_message(message: &Message, ids: &mut HashMap<String, String>) -> super::types::NormalizedMessage {
+pub fn normalize_message(message: &ChatMessage, ids: &mut HashMap<String, String>) -> super::types::NormalizedMessage {
     match message {
-        Message::System { .. } => super::types::NormalizedMessage {
+        ChatMessage::System { .. } => super::types::NormalizedMessage {
             role: "system",
             parts: vec![NormalizedPart::Text],
         },
-        Message::User { content } => super::types::NormalizedMessage {
-            role: "user",
-            parts: content.iter().map(|part| normalize_user_part(part, ids)).collect(),
-        },
-        Message::Assistant(asst) => super::types::NormalizedMessage {
-            role: "assistant",
-            parts: asst
-                .content
-                .iter()
-                .map(|part| normalize_assistant_part(part, ids))
-                .collect(),
-        },
-    }
-}
-
-pub fn normalize_user_part(part: &UserContent, ids: &mut HashMap<String, String>) -> NormalizedPart {
-    match part {
-        UserContent::Text(_) => NormalizedPart::Text,
-        UserContent::ToolResult(result) => NormalizedPart::ToolResult {
-            id: normalize_id(result.call.wire().as_ref(), ids),
-            name: result.name.to_string(),
-        },
-        UserContent::Image(_) => NormalizedPart::Image,
-        UserContent::Audio(_) => NormalizedPart::Audio,
-        UserContent::Video(_) => NormalizedPart::Video,
-        UserContent::Document(_) => NormalizedPart::Document,
-    }
-}
-
-pub fn normalize_assistant_part(part: &AssistantContent, ids: &mut HashMap<String, String>) -> NormalizedPart {
-    match part {
-        AssistantContent::Text(_) => NormalizedPart::Text,
-        AssistantContent::ToolCall(call) => NormalizedPart::ToolCall {
-            id: normalize_id(call.id.wire().as_ref(), ids),
-            name: call.function.name.to_string(),
-        },
-        AssistantContent::Reasoning(_) => NormalizedPart::Reasoning,
-        AssistantContent::Image(_) => NormalizedPart::Image,
-        _ => NormalizedPart::Text,
+        ChatMessage::User { content } => {
+            let mut parts = Vec::new();
+            for part in content {
+                match part {
+                    rho_harness_core::model::UserContent::Text(_) => parts.push(NormalizedPart::Text),
+                    rho_harness_core::model::UserContent::Image(_) => parts.push(NormalizedPart::Image),
+                    rho_harness_core::model::UserContent::ToolResult(r) => parts.push(NormalizedPart::ToolResult {
+                        id: normalize_id(&r.call, ids),
+                        name: r.name.clone(),
+                    }),
+                }
+            }
+            super::types::NormalizedMessage { role: "user", parts }
+        }
+        ChatMessage::Assistant { content, .. } => {
+            let mut parts = Vec::new();
+            for part in content {
+                match part {
+                    rho_harness_core::model::AssistantContent::Text(_) => parts.push(NormalizedPart::Text),
+                    rho_harness_core::model::AssistantContent::Reasoning(_) => parts.push(NormalizedPart::Reasoning),
+                    rho_harness_core::model::AssistantContent::Image(_) => parts.push(NormalizedPart::Image),
+                    rho_harness_core::model::AssistantContent::ToolCall(call) => parts.push(NormalizedPart::ToolCall {
+                        id: normalize_id(&call.id, ids),
+                        name: call.function.name.clone(),
+                    }),
+                }
+            }
+            super::types::NormalizedMessage {
+                role: "assistant",
+                parts,
+            }
+        }
     }
 }
 

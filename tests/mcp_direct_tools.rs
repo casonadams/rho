@@ -96,13 +96,16 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
     assert!(!tool_names.contains(&"srv_deferred_tool".to_string()));
     assert!(tool_names.contains(&"tool_search".to_string()));
 
-    let mut context = rig::tool::ToolContext::default();
-    let res = engine
-        .tool_server_handle()
-        .execute("tool_search", r#"{"query": "magic_alias"}"#, &mut context)
-        .await;
-    let out = res.output().as_text().unwrap();
-    assert!(out.contains("srv_deferred_tool"));
+    let tool_search = {
+        let tools = engine.tools();
+        let tools_guard = tools.read().await;
+        tools_guard.iter().find(|t| t.name() == "tool_search").cloned().unwrap()
+    };
+    let res = tool_search
+        .execute(serde_json::json!({"query": "magic_alias"}))
+        .await
+        .unwrap();
+    assert!(res.content.contains("srv_deferred_tool"));
 
     let _ = std::fs::remove_dir_all(&workspace);
 }

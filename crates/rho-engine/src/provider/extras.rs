@@ -1,5 +1,4 @@
-//! Per-provider request extras carried on every agent completion via rig's
-//! agent-level `additional_params`.
+//! Per-provider request extras carried on model completions.
 //!
 //! OpenAI Responses-based providers (openai, chatgpt/codex) stream reasoning
 //! summaries only when the request opts in with `reasoning.summary`, and route

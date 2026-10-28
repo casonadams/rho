@@ -17,9 +17,8 @@ pub use contents::*;
 pub use model::*;
 pub use schema::*;
 
-use rig::completion::CompletionRequest;
-use rig::error::ProviderError;
-use rig::message::Message;
+use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::error::AppError;
 use serde_json::{Value, json};
 
 pub struct Envelope {
@@ -51,7 +50,7 @@ pub struct RequestTarget<'a> {
 }
 
 /// Build the full Antigravity request envelope for a completion request.
-fn build_generation_config(runtime_model: &str, effort: Effort, request: &CompletionRequest) -> Value {
+fn build_generation_config(runtime_model: &str, effort: Effort, request: &ModelCompletionRequest) -> Value {
     let mut config = json!({
         "maxOutputTokens": cap_max_tokens(runtime_model, request.max_tokens),
     });
@@ -84,14 +83,14 @@ fn build_request_labels(runtime_model: &str, is_claude: bool) -> Value {
 }
 
 fn build_tool_configuration(
-    request: &CompletionRequest,
+    request: &ModelCompletionRequest,
     is_claude: bool,
     legacy_parameters: bool,
 ) -> (Option<Value>, Option<Value>) {
     if !request.tools.is_empty() {
         let tools = convert_tools(request, legacy_parameters).expect("non-empty tools produce declarations");
         let tool_config = json!({
-            "functionCallingConfig": { "mode": tool_config_mode(request.tool_choice.clone()) }
+            "functionCallingConfig": { "mode": "VALIDATED" }
         });
         (Some(tools), Some(tool_config))
     } else if is_claude {
@@ -112,9 +111,9 @@ fn attach_tools(req: &mut Value, tools: Option<Value>, tool_config: Option<Value
 
 pub fn build_request_body(
     target: RequestTarget<'_>,
-    request: &CompletionRequest,
+    request: &ModelCompletionRequest,
     envelope: &Envelope,
-) -> Result<Value, Box<ProviderError>> {
+) -> Result<Value, AppError> {
     let runtime_model = target.runtime_model;
     let is_claude = runtime_model.starts_with("claude-");
     let legacy_parameters = is_claude || runtime_model.starts_with("gpt-oss-");
@@ -143,12 +142,7 @@ pub fn build_request_body(
     }))
 }
 
-fn system_prompt(request: &CompletionRequest) -> String {
+fn system_prompt(request: &ModelCompletionRequest) -> String {
     const DEFAULT_INSTRUCTION: &str = "You are Antigravity, a powerful agentic AI coding assistant designed by Google DeepMind. You are pair programming with a user to solve coding tasks. Be concise, practical, and tool-aware.";
-    for message in &request.chat_history {
-        if let Message::System { content } = message {
-            return content.clone();
-        }
-    }
-    DEFAULT_INSTRUCTION.to_string()
+    request.preamble.as_deref().unwrap_or(DEFAULT_INSTRUCTION).to_string()
 }

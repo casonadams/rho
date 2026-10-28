@@ -1,6 +1,6 @@
 # rho
 
-`rho` is a fast, clean, local, private, and secure coding agent CLI built in Rust on [Rig](https://github.com/0xPlaygrounds/rig).
+`rho` is a fast, clean, local, private, and secure coding agent CLI built in Rust.
 
 ---
 
@@ -145,5 +145,4 @@ cargo fmt --all -- --check
 ## Acknowledgments
 
 - Special thanks to [pi.dev](https://pi.dev) for inspiring aspects of rho's design and ergonomics.
-- Built on [Rig](https://github.com/0xPlaygrounds/rig) for modular, performant LLM application pipelines in Rust.
 - Powered by [Iroh](https://iroh.computer) for direct, zero-infrastructure peer-to-peer QUIC networking and NAT traversal.

@@ -1,6 +1,67 @@
-use rig::agent::{CompletionCall, PromptResponse};
-use rig::completion::{FinishReason, Usage};
+pub use crate::provider::adapter::FinishReason;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletionCall {
+    pub call_index: usize,
+    pub usage: StructuralUsage,
+    pub finish_reason: Option<FinishReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_request_id: Option<String>,
+}
+
+impl CompletionCall {
+    pub fn new(call_index: usize, usage: impl Into<StructuralUsage>) -> Self {
+        Self {
+            call_index,
+            usage: usage.into(),
+            finish_reason: None,
+            provider_request_id: None,
+        }
+    }
+
+    pub fn with_finish_reason(mut self, reason: Option<FinishReason>) -> Self {
+        self.finish_reason = reason;
+        self
+    }
+
+    pub fn with_provider_request_id(mut self, id: Option<String>) -> Self {
+        self.provider_request_id = id;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PromptResponse {
+    pub output: String,
+    pub usage: StructuralUsage,
+    pub requests: Vec<crate::provider::adapter::ModelCompletionRequest>,
+    pub completion_calls: Vec<CompletionCall>,
+}
+
+impl PromptResponse {
+    pub fn new(output: impl Into<String>, usage: impl Into<StructuralUsage>) -> Self {
+        Self {
+            output: output.into(),
+            usage: usage.into(),
+            requests: Vec::new(),
+            completion_calls: Vec::new(),
+        }
+    }
+
+    pub fn with_completion_calls(mut self, calls: Vec<CompletionCall>) -> Self {
+        self.completion_calls = calls;
+        self
+    }
+
+    pub fn output(&self) -> String {
+        self.output.clone()
+    }
+
+    pub fn requests(&self) -> Vec<crate::provider::adapter::ModelCompletionRequest> {
+        self.requests.clone()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +117,10 @@ pub struct StructuralUsage {
 }
 
 impl StructuralUsage {
+    pub fn is_reported(self) -> bool {
+        self.has_values()
+    }
+
     pub fn has_values(self) -> bool {
         self.input_tokens != 0 || self.output_tokens != 0 || self.total_tokens != 0
     }
@@ -99,6 +164,23 @@ impl StructuralUsage {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+    pub tool_use_prompt_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
+}
+
+impl Usage {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl From<Usage> for StructuralUsage {
     fn from(usage: Usage) -> Self {
         Self {
@@ -128,7 +210,7 @@ impl From<&CompletionCall> for ModelCallMetrics {
         Self {
             call_index: call.call_index,
             usage_available: call.usage.is_reported(),
-            usage: call.usage.is_reported().then(|| call.usage.into()),
+            usage: call.usage.is_reported().then_some(call.usage),
             finish_status: call.finish_reason.as_ref().map(finish_status),
         }
     }

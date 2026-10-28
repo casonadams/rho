@@ -4,13 +4,18 @@ mod envelope;
 mod model;
 
 use super::*;
-use rig::completion::CompletionRequest;
-use rig::message::Message;
+use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::model::ChatMessage;
 
-fn minimal_request(history: Vec<Message>) -> CompletionRequest {
-    let mut req = CompletionRequest::new(Message::system("system prompt"));
-    req.chat_history.extend(history);
-    req
+fn minimal_request(history: Vec<ChatMessage>) -> ModelCompletionRequest {
+    ModelCompletionRequest {
+        preamble: Some("system prompt".to_string()),
+        prompt: String::new(),
+        messages: history,
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: None,
+    }
 }
 
 fn envelope() -> Envelope {

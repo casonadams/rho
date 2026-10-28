@@ -41,7 +41,8 @@ pub fn parse_guard_output(text: &str) -> GuardVerdict {
     }
 
     let lower = clean.to_ascii_lowercase();
-    let is_safe = (lower.contains("\"safe\": true") || lower.contains("safe: true")) && !lower.contains("unsafe");
+    let is_safe = !lower.contains("unsafe")
+        && (lower.contains("\"safe\": true") || lower.contains("\"safe\":true") || lower.contains("safe: true"));
     let fallback_reason = clean
         .replace("```json", "")
         .replace("```", "")
@@ -122,6 +123,10 @@ This is a standard local workspace file operation under <safe_operations>.
         let input = "safe: true\nReason: Standard cargo test run";
         let verdict = parse_guard_output(input);
         assert!(verdict.safe);
+
+        let input_compact = "{\"safe\":true,\"reason\":\"Local build\"}";
+        let verdict_compact = parse_guard_output(input_compact);
+        assert!(verdict_compact.safe);
 
         let input_malformed = "I do not think this is safe to run without confirmation";
         let verdict_malformed = parse_guard_output(input_malformed);

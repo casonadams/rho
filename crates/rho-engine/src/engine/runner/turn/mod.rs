@@ -1,11 +1,9 @@
-mod auto_compact;
 mod completion;
 mod prepare;
 pub(crate) mod prune;
+pub mod runner;
 mod stream;
 mod streaming_tool;
-mod tool_hook;
-mod truncation_hook;
 pub mod types;
 
 pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, prune_historical_tool_outputs};
@@ -25,43 +23,30 @@ use stream::StreamRunResult;
 use super::sink::TerminalApprovalSink;
 
 impl AgentEngine {
-    async fn handle_budget_continue(
-        &self,
-        sink: &Arc<TerminalApprovalSink>,
-        presenter: &dyn Presenter,
-        loop_state: &mut TurnLoopState,
-    ) -> Result<Option<TurnOutput>> {
-        sink.resume_model_spinner();
-        loop_state.current_prompt = "Please continue where you left off and finish the task.".to_string();
-        loop_state.current_budget = 50;
-        let additional_tokens =
-            rho_harness_core::tokens::estimate_text_tokens(&loop_state.current_prompt, &self.config.model);
-        if self
-            .check_proactive_compaction(presenter, &mut loop_state.visible_history, additional_tokens)
-            .await?
-            .is_some()
-        {
-            return self.compacted_turn_output().await.map(Some);
-        }
-        Ok(None)
-    }
-
     async fn handle_stream_run_result(
         &self,
         res: StreamRunResult,
         sink: &Arc<TerminalApprovalSink>,
-        presenter: &dyn Presenter,
+        _presenter: &dyn Presenter,
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
             StreamRunResult::RateLimitRetry | StreamRunResult::NetworkRetry => Ok(None),
             StreamRunResult::Compacted => self.compacted_turn_output().await.map(Some),
-            StreamRunResult::BudgetContinue => self.handle_budget_continue(sink, presenter, loop_state).await,
             StreamRunResult::Complete(state) => {
                 loop_state.rate_limit_retries = 0;
                 loop_state.network_retries = 0;
+                let elapsed = Self::elapsed_generation_ms(&state);
+                sink.finish_spinner();
+                sink.flush_display();
+                let prompt_response = state.final_response.unwrap_or_default();
                 let out = self
-                    .finalize_turn_execution(*state, sink, loop_state.checkpoint.as_deref())
+                    .finish_turn(crate::engine::runner::sink::TurnArtifacts {
+                        response: prompt_response,
+                        tool_calls_count: state.total_tool_calls,
+                        completed_tools: sink.completed(),
+                        generation_elapsed_ms: elapsed,
+                    })
                     .await?;
                 Ok(Some(out))
             }
@@ -71,7 +56,10 @@ impl AgentEngine {
                 let elapsed = Self::elapsed_generation_ms(&state);
                 sink.finish_spinner();
                 sink.flush_display();
-                let prompt_response = rig::agent::PromptResponse::new("", rig::completion::Usage::new());
+                let prompt_response = crate::engine::metrics::types::PromptResponse::new(
+                    "",
+                    crate::engine::metrics::types::StructuralUsage::default(),
+                );
                 let mut out = self
                     .finish_turn(crate::engine::runner::sink::TurnArtifacts {
                         response: prompt_response,

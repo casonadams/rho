@@ -1,52 +1,45 @@
-use rig::agent::hook::{AgentHook, DispatchAction, DispatchEvent, HookContext};
-use rig::effect::EffectKind;
-use rig::error::{ErrorKind, ErrorReport};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 pub const REPEATED_CALL_MESSAGE: &str = "This identical tool call was blocked after three consecutive attempts. No operation was executed. Try a semantically different approach.";
 
 #[derive(Clone, Default)]
-struct RepeatedCallState {
+pub struct RepeatedCallTracker {
+    working_dir: PathBuf,
     key: Option<String>,
     consecutive: usize,
 }
 
-#[derive(Clone)]
-pub struct RepeatedCallHook {
-    working_dir: PathBuf,
-}
+pub type RepeatedCallHook = RepeatedCallTracker;
 
-impl RepeatedCallHook {
+impl RepeatedCallTracker {
     pub fn new(working_dir: impl AsRef<Path>) -> Self {
         let p = working_dir.as_ref();
         let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-        Self { working_dir: canonical }
-    }
-}
-
-impl AgentHook for RepeatedCallHook {
-    async fn on_dispatch(&self, ctx: &HookContext, event: DispatchEvent<'_>) -> DispatchAction {
-        let (tool_name, args_str) = match event.kind {
-            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
-            _ => return DispatchAction::Proceed,
-        };
-        let arguments =
-            serde_json::from_str::<Value>(args_str).unwrap_or_else(|_| Value::String(args_str.trim().into()));
-        let key = normalized_call_key(tool_name, &arguments, &self.working_dir);
-        let consecutive = ctx.scratchpad().update::<RepeatedCallState, _>(|state| {
-            if state.key.as_ref() == Some(&key) {
-                state.consecutive += 1;
-            } else {
-                state.key = Some(key);
-                state.consecutive = 1;
-            }
-            state.consecutive
-        });
-        if consecutive < 3 {
-            return DispatchAction::Proceed;
+        Self {
+            working_dir: canonical,
+            key: None,
+            consecutive: 0,
         }
-        DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, REPEATED_CALL_MESSAGE))
+    }
+
+    pub fn check(&mut self, tool_name: &str, arguments: &Value) -> Result<(), &'static str> {
+        let key = normalized_call_key(tool_name, arguments, &self.working_dir);
+        if self.key.as_ref() == Some(&key) {
+            self.consecutive += 1;
+        } else {
+            self.key = Some(key);
+            self.consecutive = 1;
+        }
+        if self.consecutive >= 3 {
+            return Err(REPEATED_CALL_MESSAGE);
+        }
+        Ok(())
+    }
+
+    pub fn reset(&mut self) {
+        self.key = None;
+        self.consecutive = 0;
     }
 }
 

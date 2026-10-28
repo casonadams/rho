@@ -1,8 +1,9 @@
 use super::*;
-use crate::adapter::rig::model::into_dyn_model;
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
+use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
 use serde_json::json;
 
+#[derive(Debug)]
 struct TestModel {
     answer: String,
 }
@@ -22,6 +23,7 @@ impl ModelAdapter for TestModel {
             content: self.answer.clone(),
             tool_calls: Vec::new(),
             usage: Default::default(),
+            finish_reason: None,
         })
     }
 
@@ -75,7 +77,7 @@ async fn test_subagent_tool_invalid_args() {
 
 #[tokio::test]
 async fn test_subagent_tool_success() {
-    let model = into_dyn_model(TestModel {
+    let model = Arc::new(TestModel {
         answer: "Scout completed: identified 4 services".into(),
     });
     let tool = SubagentTool::new(Some(model), 0, Vec::new());
@@ -101,10 +103,10 @@ fn test_subagent_tool_metadata() {
 
 #[test]
 fn test_role_tool_filtering() {
-    fn dummy_tool(name: &'static str) -> DynamicTool {
-        DynamicTool::new(rig::message::ToolName::new(name).unwrap(), "desc", json!({}), |_| {
-            Box::pin(async { Ok(rig::tool::ToolOutput::text("ok")) })
-        })
+    fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
+        Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
+            Ok(crate::tools::ToolResult::success("ok"))
+        }))
     }
 
     let all_tools = vec![
@@ -118,7 +120,7 @@ fn test_role_tool_filtering() {
         dummy_tool("web_search"),
     ];
 
-    let model = into_dyn_model(TestModel { answer: "ok".into() });
+    let model = Arc::new(TestModel { answer: "ok".into() });
 
     let scout = SubagentRunner::new(model.clone(), SubagentRole::Scout, &all_tools, 5);
     assert_eq!(scout.tool_names(), vec!["fd", "read", "rg", "web_fetch", "web_search"]);
@@ -142,7 +144,7 @@ fn test_role_tool_filtering() {
 
 #[tokio::test]
 async fn test_subagent_as_dynamic_tool() {
-    let model = into_dyn_model(TestModel {
+    let model = Arc::new(TestModel {
         answer: "Scout report: zero defects found".into(),
     });
     let subagent = Arc::new(SubagentTool::new(Some(model), 0, Vec::new()));
@@ -153,14 +155,13 @@ async fn test_subagent_as_dynamic_tool() {
     });
     let res = subagent.execute(args).await.unwrap();
     assert!(!res.is_error);
-    let dyn_res = crate::adapter::rig::tools::into_dynamic_result(Ok(res)).unwrap();
-    assert_eq!(dyn_res.as_text(), Some("Scout report: zero defects found"));
+    assert_eq!(res.content, "Scout report: zero defects found");
 }
 
 #[tokio::test]
 async fn test_subagent_runner_budget_exhaustion_scenarios() {
     let ok_runner = SubagentRunner::new(
-        into_dyn_model(TestModel {
+        Arc::new(TestModel {
             answer: "Synthesized findings after turn exhaustion.".into(),
         }),
         SubagentRole::Scout,
@@ -171,7 +172,7 @@ async fn test_subagent_runner_budget_exhaustion_scenarios() {
     assert_eq!(ok_res.content, "Synthesized findings after turn exhaustion.");
 
     let empty_runner = SubagentRunner::new(
-        into_dyn_model(TestModel { answer: String::new() }),
+        Arc::new(TestModel { answer: String::new() }),
         SubagentRole::Scout,
         &[],
         0,
@@ -183,19 +184,18 @@ async fn test_subagent_runner_budget_exhaustion_scenarios() {
 
 #[test]
 fn test_prepare_history_for_recovery() {
-    let tool_call = rig::message::ToolCall::new(
-        rig::message::CallId::from_wire("call_1"),
-        rig::message::ToolFunction::new(
-            rig::message::ToolName::new("read").unwrap(),
-            serde_json::json!({"path": "foo.rs"}),
-        ),
+    let tool_call = ToolCall::new(
+        "call_1",
+        ToolFunction::new("read", serde_json::json!({"path": "foo.rs"})),
     );
-    let dangling_msg = rig::message::Message::Assistant(rig::message::AssistantMessage::new(vec![
-        rig::message::AssistantContent::ToolCall(tool_call),
-    ]));
-    let valid_msg = rig::message::Message::Assistant(rig::message::AssistantMessage::new(vec![
-        rig::message::AssistantContent::text("Here are my thoughts"),
-    ]));
+    let dangling_msg = ChatMessage::Assistant {
+        id: None,
+        content: vec![AssistantContent::ToolCall(tool_call)],
+    };
+    let valid_msg = ChatMessage::Assistant {
+        id: None,
+        content: vec![AssistantContent::text("Here are my thoughts")],
+    };
 
     let history = vec![valid_msg.clone(), dangling_msg];
     let sanitized = runner::prepare_history_for_recovery(&history);

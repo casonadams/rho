@@ -381,33 +381,19 @@ async fn test_gateway_batch_execution() {
 async fn test_gateway_dynamic_tools() {
     let clients = BTreeMap::new();
     let gateway = McpGateway::new(clients, vec![], 1024);
-    let (gw_tool, script_tool) = gateway.into_dynamic_tools();
+    let (gw_tool, script_tool) = gateway.into_tools();
 
-    let tool_set = rig::tool::ToolSet::from_dynamic_tools(vec![gw_tool, script_tool]);
-    let mut ctx = rig::tool::ToolContext::new();
+    let res = gw_tool.execute(json!({"action":"status"})).await.unwrap();
+    assert!(!res.is_error);
 
-    let res = tool_set.execute("mcp", r#"{"action":"status"}"#, &mut ctx).await;
-    assert!(res.is_success());
+    let res_script = script_tool.execute(json!({"calls":[]})).await.unwrap();
+    assert!(!res_script.is_error);
+    assert!(res_script.content.contains("No calls provided in batch"));
 
-    let res_script = tool_set.execute("mcpScript", r#"{"calls":[]}"#, &mut ctx).await;
-    assert!(res_script.is_success());
-    assert!(
-        res_script
-            .output()
-            .as_text()
-            .unwrap_or_default()
-            .contains("No calls provided in batch")
-    );
-
-    let res_script_nonempty = tool_set
-        .execute("mcpScript", r#"{"calls":[{"tool":"nonexistent"}]}"#, &mut ctx)
-        .await;
-    assert!(res_script_nonempty.is_success());
-    assert!(
-        res_script_nonempty
-            .output()
-            .as_text()
-            .unwrap_or_default()
-            .contains("Unknown tool: nonexistent")
-    );
+    let res_script_nonempty = script_tool
+        .execute(json!({"calls":[{"tool":"nonexistent"}]}))
+        .await
+        .unwrap();
+    assert!(!res_script_nonempty.is_error);
+    assert!(res_script_nonempty.content.contains("Unknown tool: nonexistent"));
 }

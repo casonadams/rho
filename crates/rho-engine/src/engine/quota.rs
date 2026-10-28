@@ -615,7 +615,7 @@ mod tests {
     async fn engine_quota_lifecycle_and_invalidation() {
         let temp = tempfile::tempdir().unwrap();
         let engine = crate::engine::eval::mock::mock_engine(
-            rig::test_utils::MockCompletionModel::default(),
+            std::sync::Arc::new(crate::provider::adapter::MockAdapter::default()),
             crate::engine::eval::mock::MockEngineConfig {
                 base_dir: temp.path(),
                 app_config: rho_harness_core::config::Config {
@@ -644,7 +644,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         for provider in &["chatgpt", "claude", "gemini", "ollama-cloud", "unknown"] {
             let engine = crate::engine::eval::mock::mock_engine(
-                rig::test_utils::MockCompletionModel::default(),
+                std::sync::Arc::new(crate::provider::adapter::MockAdapter::default()),
                 crate::engine::eval::mock::MockEngineConfig {
                     base_dir: temp.path(),
                     app_config: rho_harness_core::config::Config {

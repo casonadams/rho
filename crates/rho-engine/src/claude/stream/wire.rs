@@ -1,6 +1,6 @@
 //! Wire types for Anthropic SSE streaming events.
 
-use rig::completion::FinishReason;
+use crate::provider::adapter::FinishReason;
 use serde::Deserialize;
 
 pub fn map_finish_reason(reason: &str) -> FinishReason {
@@ -9,7 +9,7 @@ pub fn map_finish_reason(reason: &str) -> FinishReason {
         "max_tokens" => FinishReason::Length,
         "stop_sequence" => FinishReason::Stop,
         "tool_use" => FinishReason::ToolCalls,
-        other => FinishReason::Other(other.to_string()),
+        _ => FinishReason::Other,
     }
 }
 
@@ -126,6 +126,6 @@ mod tests {
         assert!(matches!(map_finish_reason("max_tokens"), FinishReason::Length));
         assert!(matches!(map_finish_reason("stop_sequence"), FinishReason::Stop));
         assert!(matches!(map_finish_reason("tool_use"), FinishReason::ToolCalls));
-        assert!(matches!(map_finish_reason("other"), FinishReason::Other(_)));
+        assert!(matches!(map_finish_reason("other"), FinishReason::Other));
     }
 }

@@ -3,6 +3,7 @@ mod builders;
 pub mod capabilities;
 pub mod discovery;
 mod extras;
+pub mod openai;
 pub mod sse;
 pub mod store;
 pub mod systemone;
@@ -12,6 +13,7 @@ pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse,
 pub use capabilities::supports_tool_result_images;
 pub use discovery::DiscoveredModel;
 pub use extras::provider_request_extras;
+pub use openai::OpenAiClient;
 pub use store::ModelStore;
 
 use crate::auth::AuthStore;
@@ -161,10 +163,8 @@ impl ProviderFactory {
         })?;
 
         crate::install_crypto_provider();
-        let mut config = rig::providers::openai::wire::OpenAIConfig::new(key);
-        config.base_url = spec.base_url.clone();
-        let client = config.client();
-        Ok(client.completion(model).erase())
+        let client = OpenAiClient::new(&spec.base_url, key, model, name);
+        Ok(std::sync::Arc::new(client))
     }
 
     fn custom_key(

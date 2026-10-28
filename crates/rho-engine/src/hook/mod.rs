@@ -9,15 +9,21 @@ pub use types::{HookAction, HookEvent};
 
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::types::{InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout};
-use rig::agent::hook::{
-    AgentHook, CompletionCallAction, CompletionCallEvent, DispatchAction, DispatchEvent, HookContext,
-    InvalidToolCallAction, InvalidToolCallContext, OutcomeAction, OutcomeEvent,
-};
-use rig::effect::EffectKind;
-use rig::error::{ErrorKind, ErrorReport};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub enum ToolDispatchAction {
+    Proceed,
+    Deny(String),
+    RewriteArgs(serde_json::Value),
+}
+
+pub enum ToolOutcomeAction {
+    Proceed,
+    Stop(String),
+    RewriteResult(String),
+}
 
 pub struct LifecycleHook {
     working_dir: PathBuf,
@@ -99,125 +105,59 @@ impl LifecycleHook {
             Some(InteractionResponse::Selected(0))
         )
     }
-}
 
-impl AgentHook for LifecycleHook {
-    async fn on_dispatch(&self, _ctx: &HookContext, event: DispatchEvent<'_>) -> DispatchAction {
-        let (tool_name, args_str) = match event.kind {
-            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
-            _ => return DispatchAction::Proceed,
-        };
+    pub async fn on_tool_dispatch(&self, tool_name: &str, args: &serde_json::Value) -> ToolDispatchAction {
         let Some(hook) = self.find_hook("tool_call") else {
-            return DispatchAction::Proceed;
+            return ToolDispatchAction::Proceed;
         };
 
-        let parsed_args = serde_json::from_str(args_str).unwrap_or(serde_json::json!(args_str));
         let hook_event = HookEvent::ToolCall {
             tool_name: tool_name.to_string(),
-            args: parsed_args,
+            args: args.clone(),
             turn: self.turn.load(Ordering::SeqCst),
             session_id: self.session_id.clone(),
         };
 
         match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
-            Ok(HookAction::Continue) => DispatchAction::Proceed,
-            Ok(HookAction::Stop { reason }) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Cancelled, reason)),
-            Ok(HookAction::Skip { reason }) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, reason)),
-            Ok(HookAction::RewriteArgs { args }) => DispatchAction::Patch(EffectKind::ToolCall {
-                name: tool_name.to_string(),
-                args: serde_json::to_string(&args).unwrap_or_default(),
-            }),
+            Ok(HookAction::Continue) => ToolDispatchAction::Proceed,
+            Ok(HookAction::Stop { reason }) => ToolDispatchAction::Deny(reason),
+            Ok(HookAction::Skip { reason }) => ToolDispatchAction::Deny(reason),
+            Ok(HookAction::RewriteArgs { args }) => ToolDispatchAction::RewriteArgs(args),
             Ok(HookAction::Ask { message }) => {
                 let approved = self.prompt_user_confirmation(&message, tool_name).await;
                 if approved {
-                    DispatchAction::Proceed
+                    ToolDispatchAction::Proceed
                 } else {
-                    DispatchAction::Deny(ErrorReport::new(
-                        ErrorKind::Other,
-                        format!("Operation denied by user: {message}"),
-                    ))
+                    ToolDispatchAction::Deny(format!("Operation denied by user: {message}"))
                 }
             }
-            Ok(_) => DispatchAction::Proceed,
-            Err(err) => DispatchAction::Deny(ErrorReport::new(ErrorKind::Other, format!("Hook error: {err}"))),
+            Ok(_) => ToolDispatchAction::Proceed,
+            Err(err) => ToolDispatchAction::Deny(format!("Hook error: {err}")),
         }
     }
 
-    async fn on_outcome(&self, _ctx: &HookContext, event: OutcomeEvent<'_>) -> OutcomeAction {
-        let (tool_name, args_str) = match event.kind {
-            EffectKind::ToolCall { name, args } => (name.as_str(), args.as_str()),
-            _ => return OutcomeAction::Proceed,
-        };
+    pub async fn on_tool_outcome(
+        &self,
+        tool_name: &str,
+        args: &serde_json::Value,
+        output: &str,
+        is_error: bool,
+    ) -> ToolOutcomeAction {
         let Some(hook) = self.find_hook("tool_result") else {
-            return OutcomeAction::Proceed;
+            return ToolOutcomeAction::Proceed;
         };
 
-        let (output, is_error) = match event.outcome {
-            Ok(rig::effect::Outcome::ToolResult { result }) => (
-                result.output().as_text().unwrap_or_default().to_string(),
-                result.is_error(),
-            ),
-            Err(e) => (e.to_string(), true),
-            _ => (String::new(), false),
-        };
-
-        let parsed_args = serde_json::from_str(args_str).unwrap_or(serde_json::json!(args_str));
         let hook_event = HookEvent::ToolResult {
             tool_name: tool_name.to_string(),
-            args: parsed_args,
-            output,
+            args: args.clone(),
+            output: output.to_string(),
             is_error,
         };
 
         match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
-            Ok(HookAction::Stop { reason }) => OutcomeAction::stop(reason),
-            Ok(HookAction::RewriteResult { result }) => {
-                OutcomeAction::rewrite_tool_output(&event, rig::tool::ToolOutput::text(result))
-            }
-            _ => OutcomeAction::Proceed,
-        }
-    }
-
-    async fn on_completion_call(&self, _ctx: &HookContext, event: CompletionCallEvent<'_>) -> CompletionCallAction {
-        let Some(hook) = self.find_hook("completion_call") else {
-            return CompletionCallAction::continue_run();
-        };
-
-        let hook_event = HookEvent::CompletionCall {
-            turn: self.turn.load(Ordering::SeqCst),
-            prompt: serde_json::to_value(event.prompt).unwrap_or_default(),
-        };
-
-        match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
-            Ok(HookAction::Stop { reason }) => CompletionCallAction::stop(reason),
-            _ => CompletionCallAction::continue_run(),
-        }
-    }
-
-    async fn on_invalid_tool_call(
-        &self,
-        _ctx: &HookContext,
-        event: &InvalidToolCallContext,
-    ) -> Option<InvalidToolCallAction> {
-        let hook = self.find_hook("invalid_tool_call")?;
-
-        let parsed_args = event
-            .args
-            .as_deref()
-            .and_then(|a| serde_json::from_str(a).ok())
-            .unwrap_or(serde_json::json!(event.args));
-
-        let hook_event = HookEvent::InvalidToolCall {
-            tool_name: event.tool_name.to_string(),
-            args: parsed_args,
-            available_tools: event.available_tools.to_vec(),
-        };
-
-        match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
-            Ok(HookAction::Stop { reason }) => Some(InvalidToolCallAction::Stop { reason }),
-            Ok(HookAction::Retry { feedback }) => Some(InvalidToolCallAction::Retry { feedback }),
-            Ok(HookAction::Skip { reason }) => Some(InvalidToolCallAction::Skip { reason }),
-            _ => None,
+            Ok(HookAction::Stop { reason }) => ToolOutcomeAction::Stop(reason),
+            Ok(HookAction::RewriteResult { result }) => ToolOutcomeAction::RewriteResult(result),
+            _ => ToolOutcomeAction::Proceed,
         }
     }
 }

@@ -6,7 +6,7 @@ use super::http::{
     resolve_endpoints,
 };
 use crate::auth::TokenProvider;
-use rig::completion::CompletionRequest;
+use crate::provider::adapter::ModelCompletionRequest;
 
 #[test]
 fn is_selectable_runtime_model_filters_correctly() {
@@ -162,10 +162,15 @@ fn antigravity_headers_sets_expected_keys() {
     }
 }
 
-fn test_completion_request() -> CompletionRequest {
-    let mut req = CompletionRequest::new(rig::message::Message::system("system prompt"));
-    req.chat_history.push(rig::message::Message::user("hello"));
-    req
+fn test_completion_request() -> ModelCompletionRequest {
+    ModelCompletionRequest {
+        preamble: Some("system prompt".to_string()),
+        prompt: "hello".to_string(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: None,
+    }
 }
 
 use std::sync::Arc;
@@ -371,8 +376,6 @@ async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() 
 
 #[tokio::test]
 async fn antigravity_completion_aggregates_sse_response() {
-    use rig::message::AssistantContent;
-
     let sse_chunk = concat!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from Antigravity\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":6,\"totalTokenCount\":18}}}\n\n"
@@ -393,14 +396,10 @@ async fn antigravity_completion_aggregates_sse_response() {
     let client =
         AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
     let handle = super::completion::into_handle(client);
-    let resp = handle.call(test_completion_request()).await.unwrap();
+    let resp = handle.complete(test_completion_request()).await.unwrap();
 
-    assert_eq!((resp.usage.input_tokens, resp.usage.output_tokens), (Some(12), Some(6)));
-    assert!(
-        resp.choice
-            .iter()
-            .any(|c| matches!(c, AssistantContent::Text(t) if t.text == "Hello from Antigravity"))
-    );
+    assert_eq!((resp.usage.input_tokens, resp.usage.output_tokens), (12, 6));
+    assert_eq!(resp.content, "Hello from Antigravity");
 }
 
 #[tokio::test]
@@ -427,7 +426,7 @@ async fn antigravity_stream_returns_sse_stream() {
     let client =
         AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
     let handle = super::completion::into_handle(client);
-    let mut stream = handle.stream(test_completion_request()).unwrap();
+    let mut stream = handle.stream(test_completion_request()).await.unwrap();
     let first = stream.next().await;
     assert!(first.is_some());
 }

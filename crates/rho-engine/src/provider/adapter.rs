@@ -2,7 +2,22 @@ use crate::engine::metrics::StructuralUsage;
 use futures::Stream;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, ToolCall};
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+
+pub type ModelHandle = Arc<dyn ModelAdapter>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    #[default]
+    Stop,
+    ToolCalls,
+    Length,
+    ContentFilter,
+    Other,
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModelToolDefinition {
@@ -13,6 +28,7 @@ pub struct ModelToolDefinition {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModelCompletionRequest {
+    pub preamble: Option<String>,
     pub prompt: String,
     pub messages: Vec<ChatMessage>,
     pub tools: Vec<ModelToolDefinition>,
@@ -25,6 +41,7 @@ pub struct ModelCompletionResponse {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
     pub usage: StructuralUsage,
+    pub finish_reason: Option<FinishReason>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,10 +50,11 @@ pub enum ModelStreamEvent {
     Reasoning(String),
     ToolCall(ToolCall),
     Usage(StructuralUsage),
+    Finish(FinishReason),
 }
 
 #[async_trait::async_trait]
-pub trait ModelAdapter: Send + Sync {
+pub trait ModelAdapter: Send + Sync + std::fmt::Debug {
     fn model_name(&self) -> &str;
     fn provider_name(&self) -> &str;
 
@@ -48,12 +66,122 @@ pub trait ModelAdapter: Send + Sync {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>;
 }
 
+type MockTurns = Arc<Mutex<Vec<Vec<Result<ModelStreamEvent, AppError>>>>>;
+
+#[derive(Clone, Debug, Default)]
+pub struct MockAdapter {
+    model: String,
+    provider: String,
+    turns: MockTurns,
+    requests: Arc<Mutex<Vec<ModelCompletionRequest>>>,
+}
+
+impl MockAdapter {
+    pub fn new(model: impl Into<String>, provider: impl Into<String>) -> Self {
+        Self {
+            model: model.into(),
+            provider: provider.into(),
+            turns: Arc::new(Mutex::new(Vec::new())),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn text(response_text: impl Into<String>) -> Self {
+        let adapter = Self::new("mock-model", "mock-provider");
+        adapter.add_turn(vec![
+            Ok(ModelStreamEvent::Text(response_text.into())),
+            Ok(ModelStreamEvent::Finish(FinishReason::Stop)),
+        ]);
+        adapter
+    }
+
+    pub fn from_turns(turns: impl IntoIterator<Item = Vec<ModelStreamEvent>>) -> Self {
+        let adapter = Self::new("mock-model", "mock-provider");
+        for turn in turns {
+            let res_turn = turn.into_iter().map(Ok).collect();
+            adapter.add_turn(res_turn);
+        }
+        adapter
+    }
+
+    pub fn from_result_turns(turns: impl IntoIterator<Item = Vec<Result<ModelStreamEvent, AppError>>>) -> Self {
+        let adapter = Self::new("mock-model", "mock-provider");
+        for turn in turns {
+            adapter.add_turn(turn);
+        }
+        adapter
+    }
+
+    pub fn add_turn(&self, turn: Vec<Result<ModelStreamEvent, AppError>>) {
+        self.turns.lock().unwrap().push(turn);
+    }
+
+    pub fn requests(&self) -> Vec<ModelCompletionRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl ModelAdapter for MockAdapter {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    fn provider_name(&self) -> &str {
+        &self.provider
+    }
+
+    async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
+        self.requests.lock().unwrap().push(request);
+        let turn = {
+            let mut turns = self.turns.lock().unwrap();
+            if turns.is_empty() { Vec::new() } else { turns.remove(0) }
+        };
+
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+        let mut usage = StructuralUsage::default();
+        let mut finish_reason = None;
+
+        for event_res in turn {
+            let event = event_res?;
+            match event {
+                ModelStreamEvent::Text(s) => content.push_str(&s),
+                ModelStreamEvent::ToolCall(tc) => tool_calls.push(tc),
+                ModelStreamEvent::Usage(u) => usage = usage.merge(&u),
+                ModelStreamEvent::Finish(f) => finish_reason = Some(f),
+                ModelStreamEvent::Reasoning(_) => {}
+            }
+        }
+
+        Ok(ModelCompletionResponse {
+            content,
+            tool_calls,
+            usage,
+            finish_reason,
+        })
+    }
+
+    async fn stream(
+        &self,
+        request: ModelCompletionRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+        self.requests.lock().unwrap().push(request);
+        let turn = {
+            let mut turns = self.turns.lock().unwrap();
+            if turns.is_empty() { Vec::new() } else { turns.remove(0) }
+        };
+        Ok(Box::pin(futures::stream::iter(turn)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use futures::StreamExt;
     use rho_harness_core::model::{ToolCall, ToolFunction};
 
+    #[derive(Debug)]
     struct MockAdapter {
         model: String,
         provider: String,
@@ -82,6 +210,7 @@ mod tests {
                     output_tokens: 5,
                     ..Default::default()
                 },
+                finish_reason: None,
             })
         }
 
@@ -114,6 +243,7 @@ mod tests {
         assert_eq!(adapter.provider_name(), "test-provider");
 
         let req = ModelCompletionRequest {
+            preamble: None,
             prompt: "world".to_string(),
             messages: vec![ChatMessage::user("world")],
             tools: vec![],

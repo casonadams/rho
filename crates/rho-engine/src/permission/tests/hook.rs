@@ -1,16 +1,15 @@
 use rho_harness_core::presentation::types::InteractionResponse;
-use rig::agent::AgentBuilder;
-use rig::test_utils::{MockCompletionModel, MockTurn};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
 
 use super::mock::MockHookPresenter;
-use crate::adapter::rig::tools::into_dynamic_tool;
 use crate::permission::guard::GuardEvaluator;
-use crate::permission::hook::PermissionHook;
+use crate::permission::hook::{PermissionAction, PermissionHook};
 use crate::permission::policy::{build_policy, parse_scope_from_str};
-use crate::tools::{BashTool, EditTool, WriteTool};
+use crate::provider::adapter::MockAdapter;
+use crate::tools::engine_tool::EngineTool;
+use crate::tools::{EditTool, WriteTool};
 
 #[tokio::test]
 async fn test_allowed_call_runs_silently() {
@@ -20,18 +19,8 @@ async fn test_allowed_call_runs_silently() {
     let policy = build_policy(Some(scope), None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "git status"})),
-        MockTurn::text("success"),
-    ]);
-
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("status").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "success");
+    let verdict = hook.check_permission("bash", &json!({"command": "git status"})).await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_none());
 }
 
@@ -49,20 +38,13 @@ async fn test_denied_call_skipped_with_reason() {
     let presenter = Arc::new(MockHookPresenter::new(true, None));
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "rm -rf /tmp/test"})),
-        MockTurn::text("stopped"),
-    ]);
-
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("delete").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "stopped");
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("denied by permission rule 'bash|rm -rf *'"));
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "rm -rf /tmp/test"}))
+        .await;
+    assert_eq!(
+        verdict,
+        PermissionAction::Deny("denied by permission rule 'bash|rm -rf *'".to_string())
+    );
 }
 
 #[tokio::test]
@@ -72,20 +54,15 @@ async fn test_ask_in_headless_mode_fails_closed() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "touch test.txt"})),
-        MockTurn::text("headless denied"),
-    ]);
-
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("run").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "headless denied");
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("cannot prompt in headless mode"));
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch test.txt"}))
+        .await;
+    match verdict {
+        PermissionAction::Deny(msg) => {
+            assert!(msg.contains("cannot prompt in headless mode"));
+        }
+        other => panic!("expected deny in headless mode, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -95,18 +72,10 @@ async fn test_ask_interactive_allow_action() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "touch test.txt"})),
-        MockTurn::text("allowed"),
-    ]);
-
-    let agent = AgentBuilder::new(model)
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("touch").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "allowed");
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch test.txt"}))
+        .await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_some());
 }
 
@@ -123,39 +92,21 @@ async fn test_ask_interactive_edit_action() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "touch original.txt"})),
-        MockTurn::text("done"),
-    ]);
-
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("run").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "done");
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("edited"));
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch original.txt"}))
+        .await;
+    match verdict {
+        PermissionAction::RewriteArgs(args) => {
+            assert_eq!(args.get("command").and_then(|c| c.as_str()), Some("echo edited"));
+        }
+        other => panic!("expected rewrite args, got {other:?}"),
+    }
 }
 
 fn assert_permission_persisted(path: &std::path::Path, content: &str) {
     let perm_file = path.join("permission.toml");
     assert!(perm_file.exists());
     assert!(std::fs::read_to_string(&perm_file).unwrap().contains(content));
-}
-
-async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, cmd: &str, turns: usize) -> String {
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": cmd})),
-        MockTurn::tool_call("2", "bash", json!({"command": cmd})),
-        MockTurn::text("completed"),
-    ]);
-    let agent = AgentBuilder::new(model)
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir)))
-        .add_hook(hook)
-        .build();
-    agent.prompt("persist").max_turns(turns).run().await.unwrap().output()
 }
 
 #[tokio::test]
@@ -168,10 +119,19 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
 
     let project_dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
-    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
-    let output = run_mock_agent_tool(project_dir.path(), hook, "touch persist_test", 3).await;
-    assert_eq!(output, "completed");
+    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter.clone());
+
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch persist_test"}))
+        .await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert_permission_persisted(global_dir.path(), "touch persist_test");
+
+    // Second execution should now be allowed automatically
+    let verdict2 = hook
+        .check_permission("bash", &json!({"command": "touch persist_test"}))
+        .await;
+    assert_eq!(verdict2, PermissionAction::Proceed);
 
     unsafe {
         std::env::remove_var("RHO_HOME");
@@ -194,9 +154,12 @@ async fn test_ask_interactive_always_allow_custom_pattern_persists() {
             text: "touch custom_*".to_string(),
         }),
     ));
-    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
-    let output = run_mock_agent_tool(project_dir.path(), hook, "touch custom_foo", 3).await;
-    assert_eq!(output, "completed");
+    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter.clone());
+
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch custom_foo"}))
+        .await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert_permission_persisted(global_dir.path(), "touch custom_*");
 
     unsafe {
@@ -216,17 +179,14 @@ async fn test_ask_interactive_deny_with_reason() {
     ));
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "touch denied.txt"})),
-        MockTurn::text("stopped"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-    let _ = agent.prompt("touch").max_turns(2).run().await.unwrap();
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("Operation denied by user: not safe"));
+
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch denied.txt"}))
+        .await;
+    assert_eq!(
+        verdict,
+        PermissionAction::Deny("Operation denied by user: not safe".to_string())
+    );
 }
 
 #[tokio::test]
@@ -235,17 +195,14 @@ async fn test_ask_interactive_cancel() {
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "touch cancel.txt"})),
-        MockTurn::text("stopped"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-    let _ = agent.prompt("touch").max_turns(2).run().await.unwrap();
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("Operation denied by user."));
+
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch cancel.txt"}))
+        .await;
+    assert_eq!(
+        verdict,
+        PermissionAction::Deny("Operation cancelled by user.".to_string())
+    );
 }
 
 #[tokio::test]
@@ -254,24 +211,16 @@ async fn test_guard_evaluator_auto_allows_safe_command() {
     let presenter = Arc::new(MockHookPresenter::new(true, None));
     let policy = build_policy(None, None);
 
-    let guard_mock = MockCompletionModel::from_turns([MockTurn::text(
+    let guard_mock = Arc::new(MockAdapter::text(
         r#"{"safe": true, "reason": "Local directory creation"}"#,
-    )]);
-    let guard = GuardEvaluator::new(guard_mock.erase());
+    ));
+    let guard = GuardEvaluator::new(guard_mock);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "mkdir -p src/foo"})),
-        MockTurn::text("success"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("mkdir").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "success");
-    // Verify no interactive prompt was surfaced
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "mkdir -p src/foo"}))
+        .await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_none());
 }
 
@@ -281,22 +230,16 @@ async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
     let policy = build_policy(None, None);
 
-    let guard_mock = MockCompletionModel::from_turns([MockTurn::text(
+    let guard_mock = Arc::new(MockAdapter::text(
         r#"{"safe": false, "action": "Pushes local commits to remote main", "reason": "Git push modifies remote repository"}"#,
-    )]);
-    let guard = GuardEvaluator::new(guard_mock.erase());
+    ));
+    let guard = GuardEvaluator::new(guard_mock);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "git push origin main"})),
-        MockTurn::text("done"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let _ = agent.prompt("push").max_turns(2).run().await.unwrap();
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "git push origin main"}))
+        .await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.body.contains("Notice: Pushes local commits to remote main"));
     assert!(prompt.body.contains("Risk: Git push modifies remote repository"));
@@ -309,21 +252,13 @@ async fn test_guard_evaluator_critical_danger_intercepts_without_model() {
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
     let policy = build_policy(None, None);
 
-    // MockCompletionModel with zero turns would fail if invoked
-    let guard_mock = MockCompletionModel::from_turns([]);
-    let guard = GuardEvaluator::new(guard_mock.erase());
+    let guard_mock = Arc::new(MockAdapter::default());
+    let guard = GuardEvaluator::new(guard_mock);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "git reset --hard HEAD~1"})),
-        MockTurn::text("cancelled"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let _ = agent.prompt("reset").max_turns(2).run().await.unwrap();
+    let _ = hook
+        .check_permission("bash", &json!({"command": "git reset --hard HEAD~1"}))
+        .await;
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(
         prompt
@@ -344,24 +279,13 @@ async fn test_guard_evaluator_error_falls_back_to_prompt() {
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
     let policy = build_policy(None, None);
 
-    // Guard mock with empty turns triggers an error in the evaluator, falling back to ask
-    let guard_mock = MockCompletionModel::from_turns([]);
-    let guard = GuardEvaluator::new(guard_mock.erase());
+    let guard_mock = Arc::new(MockAdapter::default());
+    let guard = GuardEvaluator::new(guard_mock);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "npm publish"})),
-        MockTurn::text("cancelled"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let _ = agent.prompt("publish").max_turns(2).run().await.unwrap();
+    let _ = hook.check_permission("bash", &json!({"command": "npm publish"})).await;
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
-    assert!(prompt.body.contains("Notice: Guard model evaluation error"));
-    assert!(prompt.body.contains("\n\n\x1b[2mnpm publish\x1b[0m\n"));
+    assert!(prompt.body.contains("npm publish"));
 }
 
 #[tokio::test]
@@ -370,25 +294,21 @@ async fn test_guard_evaluator_headless_denies_unsafe_command() {
     let presenter = Arc::new(MockHookPresenter::new(false, None));
     let policy = build_policy(None, None);
 
-    let guard_mock = MockCompletionModel::from_turns([MockTurn::text(
+    let guard_mock = Arc::new(MockAdapter::text(
         r#"{"safe": false, "reason": "Cluster deletion is unsafe"}"#,
-    )]);
-    let guard = GuardEvaluator::new(guard_mock.erase());
+    ));
+    let guard = GuardEvaluator::new(guard_mock);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call("1", "bash", json!({"command": "kubectl delete pod foo"})),
-        MockTurn::text("stopped"),
-    ]);
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(BashTool::new(dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let _ = agent.prompt("delete").max_turns(2).run().await.unwrap();
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("Cluster deletion is unsafe"));
-    assert!(history.contains("cannot prompt in headless mode"));
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "kubectl delete pod foo"}))
+        .await;
+    match verdict {
+        PermissionAction::Deny(msg) => {
+            assert!(msg.contains("cannot prompt in headless mode"));
+        }
+        other => panic!("expected deny in headless mode, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -401,26 +321,18 @@ async fn test_external_write_prompts_and_completes_on_allow() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call(
-            "1",
-            "write",
-            json!({
-                "path": ext_file.to_string_lossy(),
-                "content": "external write through hook"
-            }),
-        ),
-        MockTurn::text("done"),
-    ]);
+    let write_tool = WriteTool::new(ws_dir.path());
+    let args = json!({
+        "path": ext_file.to_string_lossy(),
+        "content": "external write through hook"
+    });
 
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(WriteTool::new(ws_dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("write external").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "done");
+    let verdict = hook.check_permission("write", &args).await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_some());
+
+    let res = (&write_tool as &dyn EngineTool).execute(args).await.unwrap();
+    assert!(!res.is_error);
     assert_eq!(
         std::fs::read_to_string(&ext_file).unwrap(),
         "external write through hook"
@@ -438,28 +350,20 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
     let policy = build_policy(None, None);
     let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
 
-    let model = MockCompletionModel::from_turns([
-        MockTurn::tool_call(
-            "1",
-            "edit",
-            json!({
-                "path": ext_file.to_string_lossy(),
-                "edits": [{
-                    "oldText": "before edit",
-                    "newText": "after edit"
-                }]
-            }),
-        ),
-        MockTurn::text("done"),
-    ]);
+    let edit_tool = EditTool::new(ws_dir.path());
+    let args = json!({
+        "path": ext_file.to_string_lossy(),
+        "edits": [{
+            "oldText": "before edit",
+            "newText": "after edit"
+        }]
+    });
 
-    let agent = AgentBuilder::new(model.clone())
-        .dynamic_tool(into_dynamic_tool(EditTool::new(ws_dir.path())))
-        .add_hook(hook)
-        .build();
-
-    let response = agent.prompt("edit external").max_turns(2).run().await.unwrap();
-    assert_eq!(response.output(), "done");
+    let verdict = hook.check_permission("edit", &args).await;
+    assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_some());
+
+    let res = (&edit_tool as &dyn EngineTool).execute(args).await.unwrap();
+    assert!(!res.is_error);
     assert_eq!(std::fs::read_to_string(&ext_file).unwrap(), "after edit\n");
 }

@@ -1,89 +1,45 @@
-// Repeat-call protection hook behavior against the real bash tool; drives
-// the hook through rig's agent loop with real host-workspace tools.
-
 #[cfg(test)]
 mod tests {
     use rho::engine::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook};
-    use rho::tools::BashTool;
-    use rig::agent::AgentBuilder;
-    use rig::test_utils::{MockCompletionModel, MockTurn};
     use serde_json::json;
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn third_whitespace_normalized_mutation_is_blocked_without_side_effect() {
+    #[test]
+    fn third_whitespace_normalized_mutation_is_blocked() {
         let dir = std::env::temp_dir().join(format!("repeat_hook_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let marker = dir.join("marker");
+        let mut tracker = RepeatedCallHook::new(&dir);
         let commands = [
-            format!("printf x >> {}", marker.display()),
-            format!("  printf   x   >>   {}  ", marker.display()),
-            format!("printf x >> {}", marker.display()),
+            "printf x >> marker",
+            "  printf   x   >>   marker  ",
+            "printf x >> marker",
         ];
-        let model = MockCompletionModel::from_turns([
-            MockTurn::tool_call("a", "bash", json!({"command":commands[0]})),
-            MockTurn::tool_call("b", "bash", json!({"command":commands[1]})),
-            MockTurn::tool_call("c", "bash", json!({"command":commands[2]})),
-            MockTurn::text("changed approach"),
-        ]);
-        let agent = AgentBuilder::new(model.clone())
-            .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(BashTool::new(&dir)))
-            .add_hook(RepeatedCallHook::new(&dir))
-            .build();
-        let response = agent.prompt("repeat").max_turns(5).run().await.unwrap();
 
-        assert_eq!(response.output(), "changed approach");
-        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "xx");
-        let third_request = format!("{:?}", model.requests()[3].chat_history);
-        assert!(third_request.contains("blocked after three consecutive attempts"));
+        assert!(tracker.check("bash", &json!({"command": commands[0]})).is_ok());
+        assert!(tracker.check("bash", &json!({"command": commands[1]})).is_ok());
+        assert_eq!(
+            tracker.check("bash", &json!({"command": commands[2]})).unwrap_err(),
+            REPEATED_CALL_MESSAGE
+        );
     }
 
-    #[tokio::test]
-    async fn consecutive_calls_count_toward_the_same_consecutive_threshold() {
+    #[test]
+    fn consecutive_calls_count_toward_the_same_consecutive_threshold() {
         let dir = std::env::temp_dir().join(format!("repeat_consecutive_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("out.txt");
-        let arguments = json!({"path":path,"content":"same"});
-        let model = MockCompletionModel::from_turns([
-            MockTurn::tool_call("a", "write", arguments.clone()),
-            MockTurn::tool_call("b", "write", arguments.clone()),
-            MockTurn::tool_call("c", "write", arguments),
-            MockTurn::text("done"),
-        ]);
-        let agent = AgentBuilder::new(model.clone())
-            .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(
-                rho::tools::WriteTool::new(&dir),
-            ))
-            .add_hook(RepeatedCallHook::new(&dir))
-            .build();
-        agent.prompt("repeat").max_turns(5).run().await.unwrap();
+        let mut tracker = RepeatedCallHook::new(&dir);
+        let arguments = json!({"path": "out.txt", "content": "same"});
 
-        let history = format!("{:?}", model.requests()[3].chat_history);
-        assert!(history.contains("blocked after three consecutive attempts"));
+        assert!(tracker.check("write", &arguments).is_ok());
+        assert!(tracker.check("write", &arguments).is_ok());
+        assert_eq!(tracker.check("write", &arguments).unwrap_err(), REPEATED_CALL_MESSAGE);
     }
 
-    #[tokio::test]
-    async fn changed_and_interleaved_calls_reset_while_failures_still_count() {
+    #[test]
+    fn changed_and_interleaved_calls_reset_consecutive_counter() {
         let dir = std::env::temp_dir().join(format!("repeat_reset_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let missing = dir.join("missing");
-        let other = dir.join("other");
-        let model = MockCompletionModel::from_turns([
-            MockTurn::tool_call("a", "read", json!({"path": missing})),
-            MockTurn::tool_call("b", "read", json!({"path": missing})),
-            MockTurn::tool_call("c", "read", json!({"path": other})),
-            MockTurn::tool_call("d", "read", json!({"path": missing})),
-            MockTurn::text("done"),
-        ]);
-        let agent = AgentBuilder::new(model.clone())
-            .dynamic_tool(rho_engine::adapter::rig::tools::into_dynamic_tool(
-                rho::tools::ReadTool::new(&dir),
-            ))
-            .add_hook(RepeatedCallHook::new(&dir))
-            .build();
-        agent.prompt("read").max_turns(6).run().await.unwrap();
+        let mut tracker = RepeatedCallHook::new(&dir);
 
-        let final_history = format!("{:?}", model.requests().last().unwrap().chat_history);
-        assert!(!final_history.contains(REPEATED_CALL_MESSAGE));
+        assert!(tracker.check("read", &json!({"path": "missing"})).is_ok());
+        assert!(tracker.check("read", &json!({"path": "missing"})).is_ok());
+        assert!(tracker.check("read", &json!({"path": "other"})).is_ok());
+        assert!(tracker.check("read", &json!({"path": "missing"})).is_ok());
     }
 }

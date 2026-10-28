@@ -3,17 +3,13 @@ use std::sync::Arc;
 use crate::engine::AgentEngine;
 use crate::engine::runner::history::continuation_history;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
-use crate::engine::runtime::build_runner;
-use crate::repeat::RepeatedCallHook;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::session::SessionEventKind;
-use rig::agent::AgentRunner;
-use rig::tool::ToolContext;
 
-use super::tool_hook::TurnToolExecutionHook;
+use super::runner::AgentRunner;
 use super::types::{TurnOutput, TurnRequest};
 
 pub(super) enum PreparedTurnOutcome {
@@ -27,7 +23,6 @@ pub(super) struct TurnRunnerParams<'a> {
     pub budget: usize,
     pub checkpoint: Option<&'a [ChatMessage]>,
     pub history: &'a [ChatMessage],
-    pub hooks: rig::agent::hook::HookStack,
     pub stream_port: ToolStreamPort,
 }
 
@@ -67,7 +62,7 @@ impl AgentEngine {
         self.usage.start_turn(Some(est));
     }
 
-    pub(super) fn create_approval_sink(&self, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
+    pub fn create_approval_sink(&self, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
         let model_label = format!("{}:{}", self.config.model, self.context_usage_display());
         TerminalApprovalSink::new(
             presenter,
@@ -79,7 +74,7 @@ impl AgentEngine {
         )
     }
 
-    async fn load_initial_history(&self) -> Result<Vec<ChatMessage>> {
+    pub(super) async fn load_initial_history(&self) -> Result<Vec<ChatMessage>> {
         let raw = self
             .session_manager
             .active_messages()
@@ -91,6 +86,35 @@ impl AgentEngine {
             .unwrap_or(128_000);
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         Ok(super::prune::prune_historical_tool_outputs_with_policy(&raw, &policy))
+    }
+
+    pub(crate) async fn check_proactive_compaction(
+        &self,
+        presenter: &dyn Presenter,
+        history: &mut Vec<ChatMessage>,
+        additional_tokens: usize,
+    ) -> Result<Option<crate::engine::CompactionStats>> {
+        let history_tokens = self.usage.latest().map(|u| u.input_tokens as usize).unwrap_or_else(|| {
+            history
+                .iter()
+                .map(|m| rho_harness_core::tokens::estimate_message_tokens(m, &self.config.model))
+                .sum::<usize>()
+        });
+        let total_tokens = history_tokens.saturating_add(additional_tokens);
+        let limit = crate::engine::model::resolve_context_limit(&self.config).unwrap_or(128_000);
+        let threshold = limit.saturating_sub(self.config.reserve_tokens);
+        if total_tokens > threshold {
+            let _spinner = presenter.start_spinner("Compacting...");
+            let stats = self.compact_session(None).await?;
+            *history = self.session_manager.active_messages().await?;
+            presenter.print_notice(&format!(
+                "[Auto-compacted context: {} -> {} tokens (saved {})]",
+                stats.tokens_before, stats.tokens_after, stats.saved_tokens
+            ));
+            Ok(Some(stats))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn check_turn_proactive_compaction(
@@ -169,109 +193,28 @@ impl AgentEngine {
             .map(PreparedTurnOutcome::Ready)
     }
 
-    async fn build_turn_hooks(
+    async fn build_turn_runner<'a>(
         &self,
-        sink: &Arc<TerminalApprovalSink>,
+        params: TurnRunnerParams<'a>,
+        sink: Arc<TerminalApprovalSink>,
         request: &TurnRequest<'_>,
-        presenter: &Arc<dyn Presenter>,
-        prompt: &str,
-    ) -> Result<rig::agent::hook::HookStack> {
-        let cwd = self.base_dir.clone();
-        let lifecycle_hook =
-            crate::hook::LifecycleHook::new(cwd.clone(), self.session_manager.session_id.clone(), presenter.clone());
-        lifecycle_hook.notify_turn_start(prompt).await;
-
-        let mut hook_stack = rig::agent::hook::HookStack::new();
-        hook_stack.push(RepeatedCallHook::new(cwd.clone()));
-        hook_stack.push(lifecycle_hook);
-        if self.config.permission.enabled {
-            let mut perm_hook = crate::permission::PermissionHook::new(Some(cwd), presenter.clone());
-            let auth_store = self.auth_store.lock().await;
-            if let Ok(Some(guard_model)) =
-                crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store)
-            {
-                perm_hook = perm_hook.with_guard(crate::permission::guard::GuardEvaluator::new(guard_model));
-            }
-            drop(auth_store);
-            hook_stack.push(perm_hook);
-        }
-        let mut auto_compact = super::auto_compact::AutoCompactHook::new(
-            self.session_compactor(),
-            presenter.clone(),
-            self.usage.clone(),
-            self.context.clone(),
-            &self.config.provider,
-            self.config.reserve_tokens,
-        );
-        if let Some(hook) = &self.demotion_hook {
-            auto_compact = auto_compact.with_demotion_hook(Arc::clone(hook));
-        }
-        hook_stack.push(auto_compact);
-        let ceiling = crate::engine::model::resolve_context_limit(&self.config)
-            .map(|l| l as u64)
-            .unwrap_or(65536);
-        hook_stack.push(super::truncation_hook::TruncationRecoveryHook::new(
-            self.config.max_output_tokens,
-            ceiling,
-            2,
-        ));
-        let mut tool_hook = TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
-            .with_model_switch(request.model_switch.clone())
-            .with_project_context(self.project_context.clone());
-        if let Some(routed) = &request.routed_model {
-            let (_, m) = rho_harness_core::provider::parse_model_spec(routed);
-            let model_name = if m.is_empty() { routed } else { &m };
-            tool_hook = tool_hook.with_routed_model(Some(model_name.to_string()));
-        }
-        hook_stack.push(tool_hook);
-        Ok(hook_stack)
-    }
-
-    async fn build_turn_runner<'a>(&self, params: TurnRunnerParams<'a>) -> AgentRunner {
-        let tool_context = ToolContext::new().with_scope(Arc::new(params.stream_port));
-        let agent_guard = self.agent.read().await;
-        let runner = build_runner(&agent_guard, params.prompt)
-            .conversation(self.session_manager.session_id.clone())
-            .preamble(params.preamble)
-            .max_turns(params.budget)
-            .tool_context(tool_context)
-            .add_hook(params.hooks);
-        drop(agent_guard);
-        match params.checkpoint {
-            Some(pending) => {
-                let combined = continuation_history(params.history, pending);
-                runner.history(
-                    combined
-                        .into_iter()
-                        .map(crate::adapter::rig::into_rig_message)
-                        .collect::<Vec<_>>(),
-                )
-            }
-            None => runner,
-        }
-    }
-
-    fn apply_runner_provider_extras(
-        runner: AgentRunner,
-        provider: &str,
-        thinking_level: Option<&str>,
-        session_id: &str,
     ) -> AgentRunner {
-        match crate::provider::provider_request_extras(provider, thinking_level, session_id) {
-            Some(extras) => runner.replace_additional_params(extras),
-            None => runner.without_additional_params(),
-        }
-    }
+        let tools = self.tools.read().await.clone();
+        let model = self.model.clone().expect("Model must be initialized");
+        let mut runner = AgentRunner::new(model, tools, self.session_manager.clone(), sink)
+            .preamble(params.preamble)
+            .prompt(params.prompt)
+            .budget(params.budget)
+            .stream_port(params.stream_port)
+            .steering(request.steering.clone());
 
-    fn resolve_active_provider(request: &TurnRequest<'_>, active_model: &str, default_provider: &str) -> String {
-        if let Some(p) = request.model_switch.as_ref().and_then(|s| s.current_provider()) {
-            return p.to_string();
+        if let Some(pending) = params.checkpoint {
+            let combined = continuation_history(params.history, pending);
+            runner = runner.history(combined);
+        } else {
+            runner = runner.history(params.history.to_vec());
         }
-        let (spec_p, _) = rho_harness_core::provider::parse_model_spec(active_model);
-        if !spec_p.is_empty() {
-            return spec_p;
-        }
-        default_provider.to_string()
+        runner
     }
 
     pub(super) async fn prepare_step_runner<'a>(
@@ -287,27 +230,22 @@ impl AgentEngine {
             .as_ref()
             .and_then(|s| s.current_model())
             .unwrap_or_else(|| self.config.model.clone());
-        let hooks = self
-            .build_turn_hooks(sink, request, presenter, &loop_state.current_prompt)
-            .await?;
+
         let runner = self
-            .build_turn_runner(TurnRunnerParams {
-                prompt: &loop_state.current_prompt,
-                preamble,
-                budget: loop_state.current_budget,
-                checkpoint: loop_state.checkpoint.as_deref(),
-                history: &loop_state.visible_history,
-                hooks,
-                stream_port: presenter.stream_port(),
-            })
+            .build_turn_runner(
+                TurnRunnerParams {
+                    prompt: &loop_state.current_prompt,
+                    preamble,
+                    budget: loop_state.current_budget,
+                    checkpoint: loop_state.checkpoint.as_deref(),
+                    history: &loop_state.visible_history,
+                    stream_port: presenter.stream_port(),
+                },
+                sink.clone(),
+                request,
+            )
             .await;
-        let provider = Self::resolve_active_provider(request, &active_model, &self.config.provider);
-        let runner = Self::apply_runner_provider_extras(
-            runner,
-            &provider,
-            self.config.thinking_level.as_deref(),
-            &self.session_manager.session_id,
-        );
+
         Ok((runner, active_model))
     }
 
@@ -339,40 +277,11 @@ impl AgentEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rig::agent::AgentBuilder;
-    use rig::test_utils::MockCompletionModel;
-
     #[test]
     fn test_resolve_active_provider() {
-        let request = TurnRequest::new("test");
-        assert_eq!(
-            AgentEngine::resolve_active_provider(&request, "antigravity/gemini-3.8-flash", "chatgpt"),
-            "antigravity"
-        );
-        assert_eq!(
-            AgentEngine::resolve_active_provider(&request, "gemini-3.8-flash", "chatgpt"),
-            "chatgpt"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_apply_runner_provider_extras_clears_openai_params_for_antigravity() {
-        let model = MockCompletionModel::text("ok");
-        let initial_extras = serde_json::json!({
-            "prompt_cache_key": "sess-1",
-            "reasoning": { "effort": "medium", "summary": "auto" }
-        });
-        let agent = AgentBuilder::new(model.clone().erase())
-            .additional_params(initial_extras)
-            .build();
-
-        let runner = build_runner(&agent, "hi");
-        let cleaned_runner = AgentEngine::apply_runner_provider_extras(runner, "antigravity", None, "sess-1");
-        cleaned_runner.run().await.unwrap();
-
-        let reqs = model.requests();
-        assert_eq!(reqs.len(), 1);
-        assert!(reqs[0].additional_params.is_none());
+        let (spec_p, _) = rho_harness_core::provider::parse_model_spec("antigravity/gemini-3.8-flash");
+        assert_eq!(spec_p, "antigravity");
+        let (spec_p2, _) = rho_harness_core::provider::parse_model_spec("gemini-3.8-flash");
+        assert!(spec_p2.is_empty());
     }
 }

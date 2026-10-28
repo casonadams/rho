@@ -1,4 +1,5 @@
 use super::*;
+use crate::provider::adapter::ModelStreamEvent;
 
 #[test]
 fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {
@@ -24,7 +25,7 @@ fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {
 
     let mut reasoning_pieces = Vec::new();
     for event in &events {
-        if let Ok(AdapterFrame::Reasoning { text, .. }) = event {
+        if let Ok(ModelStreamEvent::Reasoning(text)) = event {
             reasoning_pieces.push(text.as_str());
         }
     }
@@ -71,13 +72,11 @@ fn text_and_tool_calls_stream_and_aggregate() {
 
     for event in events {
         match event.unwrap() {
-            AdapterFrame::Text(t) if t == "Let me run that." => has_text = true,
-            AdapterFrame::ToolCall {
-                id, name, arguments, ..
-            } => {
-                tool_call = Some((id, name, arguments));
+            ModelStreamEvent::Text(t) if t == "Let me run that." => has_text = true,
+            ModelStreamEvent::ToolCall(call) => {
+                tool_call = Some((call.id, call.function.name, call.function.arguments));
             }
-            AdapterFrame::Done { usage } => total_tokens = usage.total_tokens,
+            ModelStreamEvent::Usage(usage) => total_tokens = Some(usage.total_tokens),
             _ => {}
         }
     }
@@ -87,10 +86,7 @@ fn text_and_tool_calls_stream_and_aggregate() {
     let (id, name, args) = tool_call.unwrap();
     assert_eq!(id, "call_1");
     assert_eq!(name, "bash");
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&args).unwrap(),
-        serde_json::json!({"command": "cargo check"})
-    );
+    assert_eq!(args, serde_json::json!({"command": "cargo check"}));
 }
 
 #[test]
@@ -127,7 +123,7 @@ fn reasoning_summary_across_multiple_output_items_does_not_collide() {
 
     let mut reasoning_pieces = Vec::new();
     for event in &events {
-        if let Ok(AdapterFrame::Reasoning { text, .. }) = event {
+        if let Ok(ModelStreamEvent::Reasoning(text)) = event {
             reasoning_pieces.push(text.as_str());
         }
     }

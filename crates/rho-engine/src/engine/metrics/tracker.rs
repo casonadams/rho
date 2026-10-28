@@ -1,9 +1,7 @@
 use super::types::{
-    CompletionOutcome, ModelCallMetrics, NeutralOutcome, ObservationMetricsInput, RunMetrics, TerminalStatus,
-    metrics_from_observation,
+    CompletionCall, CompletionOutcome, ModelCallMetrics, NeutralOutcome, ObservationMetricsInput, RunMetrics,
+    StructuralUsage, TerminalStatus, metrics_from_observation,
 };
-use rig::agent::CompletionCall;
-use rig::completion::Usage;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -68,23 +66,13 @@ impl RunTracker {
         }
     }
 
-    pub fn set_last_request_id(&self, request_id: impl Into<String>) {
-        if let Some(state) = self.state().as_mut() {
-            state.last_request_id = Some(request_id.into());
-        }
-    }
-
     pub fn last_request_id(&self) -> Option<String> {
         self.state().as_ref().and_then(|s| s.last_request_id.clone())
     }
 
     pub fn complete(&self, outcome: CompletionOutcome<'_>) -> RunMetrics {
         let observation = self.take();
-        let usage = outcome
-            .response
-            .usage
-            .is_reported()
-            .then(|| outcome.response.usage.into());
+        let usage = outcome.response.usage.is_reported().then_some(outcome.response.usage);
         let calls = outcome
             .response
             .completion_calls
@@ -97,7 +85,7 @@ impl RunTracker {
             status: outcome.status,
             usage,
             completion_calls: calls,
-            requests: outcome.response.requests(),
+            requests: outcome.response.requests().len(),
         })
     }
 
@@ -118,8 +106,8 @@ impl RunTracker {
             let usage = state
                 .completion_calls
                 .iter()
-                .fold(Usage::default(), |total, call| total + call.usage);
-            usage.is_reported().then(|| usage.into())
+                .fold(StructuralUsage::default(), |total, call| total.merge(&call.usage));
+            usage.is_reported().then_some(usage)
         });
         let calls: Vec<ModelCallMetrics> = observation
             .as_ref()

@@ -1,7 +1,7 @@
 use rho_harness_core::provider::ProviderId;
 use std::str::FromStr;
 
-/// Whether a provider's rig adapter serializes `ToolResultContent::Image`
+/// Whether a provider serializes `ToolResultContent::Image`
 /// blocks inside tool results.
 ///
 /// rig 0.42 splits at the provider boundary: the Anthropic and Gemini adapters

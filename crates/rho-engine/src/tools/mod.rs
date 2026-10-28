@@ -26,7 +26,7 @@ pub use builtin_tools::{
     BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_all_builtin_tools, build_builtin_tools,
 };
 pub use edit::{EditArgs, EditTool};
-pub use engine_tool::EngineTool;
+pub use engine_tool::{EngineTool, GenericTool};
 pub use fd::{FdArgs, FdSort, FdTool};
 pub use lsp::LspTool;
 pub use read::{ReadArgs, ReadTool};

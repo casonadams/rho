@@ -1,4 +1,5 @@
 use crate::engine::compactor::llm::ModelHandle;
+use crate::tools::EngineTool;
 use crate::tools::subagent::SubagentRunner;
 use crate::tools::subagent::types::SubagentRole;
 use iroh::endpoint::presets::{Minimal, N0};
@@ -9,15 +10,15 @@ use rho_harness_core::agent_mesh::{
 };
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
-use rig::tool::DynamicTool;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 pub struct AgentWorkerConfig {
     pub capability: AgentCapability,
     pub relay_url: Option<RelayUrl>,
     pub bind_addr: Option<SocketAddr>,
     pub model: Option<ModelHandle>,
-    pub tools: Vec<DynamicTool>,
+    pub tools: Vec<Arc<dyn EngineTool>>,
 }
 
 pub struct AgentWorkerServer {
@@ -98,7 +99,7 @@ async fn run_worker_accept_loop(
     endpoint: Endpoint,
     secret: AgentSecret,
     model: Option<ModelHandle>,
-    tools: Vec<DynamicTool>,
+    tools: Vec<Arc<dyn EngineTool>>,
 ) {
     while let Some(incoming) = endpoint.accept().await {
         let s_clone = secret.clone();
@@ -116,7 +117,7 @@ async fn handle_worker_connection(
     conn: iroh::endpoint::Connection,
     secret: AgentSecret,
     model: Option<ModelHandle>,
-    tools: Vec<DynamicTool>,
+    tools: Vec<Arc<dyn EngineTool>>,
 ) {
     let (send_stream, recv_stream) = match conn.open_bi().await {
         Ok(streams) => streams,
@@ -149,7 +150,7 @@ async fn execute_worker_task(
     req: &AgentTaskRequest,
     granted_cap: AgentCapability,
     model: Option<&ModelHandle>,
-    tools: &[DynamicTool],
+    tools: &[Arc<dyn EngineTool>],
 ) -> AgentTaskEvent {
     let model = match model {
         Some(m) => m.clone(),
@@ -166,7 +167,7 @@ async fn execute_worker_task(
         .and_then(|r| r.parse::<SubagentRole>().ok())
         .unwrap_or(SubagentRole::General);
 
-    let safe_tools: Vec<DynamicTool> = tools
+    let safe_tools: Vec<Arc<dyn EngineTool>> = tools
         .iter()
         .filter(|t| granted_cap.is_tool_allowed(t.name()))
         .cloned()

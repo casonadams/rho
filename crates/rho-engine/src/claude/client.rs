@@ -7,7 +7,7 @@ use super::http::{DEFAULT_ENDPOINT, MESSAGES_PATH, claude_headers, http_client};
 use super::request::build_request_body;
 use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
-use rig::completion::CompletionRequest;
+use crate::provider::adapter::ModelCompletionRequest;
 
 #[cfg(test)]
 mod tests;
@@ -15,12 +15,24 @@ mod tests;
 #[derive(Clone)]
 pub struct ClaudeClient {
     token_provider: Arc<dyn TokenProvider>,
-    model: String,
-    thinking_level: Option<String>,
-    endpoint: Option<String>,
+    pub(crate) model: String,
+    pub(crate) thinking_level: Option<String>,
+    pub(crate) endpoint: Option<String>,
+}
+
+impl std::fmt::Debug for ClaudeClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClaudeClient")
+            .field("model", &self.model)
+            .field("thinking_level", &self.thinking_level)
+            .finish()
+    }
 }
 
 impl ClaudeClient {
+    pub fn model(&self) -> &str {
+        &self.model
+    }
     pub fn new(token: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
             token_provider: Arc::new(StaticTokenProvider::new(token)),
@@ -64,7 +76,7 @@ impl ClaudeClient {
     async fn post_stream(
         &self,
         token: &str,
-        request: &CompletionRequest,
+        request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let body = build_request_body(&self.model, self.thinking_level.as_deref(), request)
             .map_err(|e| (None, e.to_string()))?;
@@ -87,7 +99,7 @@ impl ClaudeClient {
 
     async fn refresh_and_retry(
         &self,
-        request: &CompletionRequest,
+        request: &ModelCompletionRequest,
         body: &str,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         if let Ok(new_token) = self.token_provider.force_refresh().await {
@@ -99,7 +111,7 @@ impl ClaudeClient {
 
     pub(crate) async fn open_stream(
         &self,
-        request: &CompletionRequest,
+        request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let token = self
             .token_provider

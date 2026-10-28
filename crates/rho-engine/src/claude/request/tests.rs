@@ -1,24 +1,27 @@
 use super::*;
-use rig::completion::ToolDefinition;
-use rig::message::{
-    AssistantContent, CallId, Message, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent,
-    UserContent,
+use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, ImageContent, Reasoning, ToolCall, ToolFunction, UserContent,
 };
 use serde_json::json;
 
-fn dummy_tool(name: &str) -> ToolDefinition {
-    ToolDefinition::new(
-        ToolName::new(name).unwrap(),
-        format!("Description for {name}"),
-        json!({ "type": "object", "properties": {} }),
-    )
+fn dummy_tool(name: &str) -> ModelToolDefinition {
+    ModelToolDefinition {
+        name: name.to_string(),
+        description: format!("Description for {name}"),
+        parameters: json!({ "type": "object", "properties": {} }),
+    }
 }
 
-fn sample_request_with_tools(tools: Vec<ToolDefinition>) -> CompletionRequest {
-    let mut req = CompletionRequest::new(Message::system("system preamble"));
-    req.chat_history.push(Message::user("hello"));
-    req.tools = tools;
-    req
+fn sample_request_with_tools(tools: Vec<ModelToolDefinition>) -> ModelCompletionRequest {
+    ModelCompletionRequest {
+        preamble: Some("system preamble".to_string()),
+        prompt: "hello".to_string(),
+        messages: Vec::new(),
+        tools,
+        max_tokens: None,
+        temperature: None,
+    }
 }
 
 #[test]
@@ -41,92 +44,44 @@ fn tools_are_sorted_alphabetically_by_name() {
 }
 
 #[test]
-fn custom_mcp_tools_are_sorted_alphabetically_by_name() {
-    let tools = vec![
-        dummy_tool("mcp__server__zebra"),
-        dummy_tool("mcp__server__alpha"),
-        dummy_tool("mcp__server__middle"),
-    ];
-    let req = sample_request_with_tools(tools);
+fn single_user_turn_no_cache_control_on_user_message() {
+    let req = sample_request_with_tools(vec![dummy_tool("bash")]);
     let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-    let body_tools = body["tools"].as_array().expect("tools array present");
-
-    assert_eq!(body_tools.len(), 3);
-    assert_eq!(body_tools[0]["name"], "mcp__server__alpha");
-    assert_eq!(body_tools[1]["name"], "mcp__server__middle");
-    assert_eq!(body_tools[2]["name"], "mcp__server__zebra");
-}
-
-#[test]
-fn single_turn_conversation_assigns_at_most_three_breakpoints() {
-    let tools = vec![dummy_tool("read"), dummy_tool("bash")];
-    let req = sample_request_with_tools(tools);
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-
-    let total_breakpoints = count_cache_breakpoints(&body);
-    assert!(total_breakpoints <= 3, "expected <= 3, got {total_breakpoints}");
-    assert_eq!(total_breakpoints, 3);
-
-    assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
-    assert_eq!(body["tools"][1]["cache_control"]["type"], "ephemeral");
-    assert_eq!(body["messages"][0]["content"][0]["cache_control"]["type"], "ephemeral");
-}
-
-#[test]
-fn multi_turn_conversation_with_three_turns_assigns_exactly_four_breakpoints() {
-    let tools = vec![dummy_tool("bash")];
-    let mut req = sample_request_with_tools(tools);
-    req.chat_history = vec![
-        Message::system("system preamble"),
-        Message::user("Turn 1 prompt"),
-        Message::assistant("Turn 1 response"),
-        Message::user("Turn 2 prompt"),
-        Message::assistant("Turn 2 response"),
-        Message::user("Turn 3 prompt"),
-    ];
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-
-    let total_breakpoints = count_cache_breakpoints(&body);
-    assert_eq!(total_breakpoints, 4);
-
-    assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
-    assert_eq!(body["tools"][0]["cache_control"]["type"], "ephemeral");
 
     let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 5);
-
+    assert_eq!(messages.len(), 1);
     assert!(messages[0]["content"][0].get("cache_control").is_none());
-    assert!(messages[1]["content"][0].get("cache_control").is_none());
-    assert!(messages[2]["content"][0].get("cache_control").is_none());
-
-    assert_eq!(messages[3]["content"][0]["cache_control"]["type"], "ephemeral");
-    assert_eq!(messages[4]["content"][0]["cache_control"]["type"], "ephemeral");
 }
 
 #[test]
-fn multi_turn_with_in_flight_tool_results_maintains_prior_turn_checkpoint() {
-    let tools = vec![dummy_tool("bash")];
-    let mut req = sample_request_with_tools(tools);
-    let call = ToolCall::new(
-        CallId::from_wire("call_1"),
-        ToolFunction::new(ToolName::new("bash").unwrap(), json!({ "command": "pwd" })),
-    );
-    let res = ToolResult {
-        call: CallId::from_wire("call_1"),
-        name: ToolName::new("bash").unwrap(),
-        content: vec![ToolResultContent::Text(Text::new("/tmp"))],
-        is_error: false,
-    };
-    req.chat_history = vec![
-        Message::system("system preamble"),
-        Message::user("Turn 1 prompt"),
-        Message::assistant("Turn 1 response"),
-        Message::user("Turn 2 prompt"),
-        Message::Assistant(rig::message::AssistantMessage::new(vec![AssistantContent::ToolCall(
-            call,
-        )])),
-        Message::User {
-            content: vec![UserContent::ToolResult(res)],
+fn single_user_turn_cache_control_on_system_and_tools() {
+    let req = sample_request_with_tools(vec![dummy_tool("bash")]);
+    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+
+    let system = body["system"].as_array().unwrap();
+    assert_eq!(system.last().unwrap()["cache_control"]["type"], "ephemeral");
+
+    let tools = body["tools"].as_array().unwrap();
+    assert_eq!(tools.last().unwrap()["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn cache_breakpoints_capped_at_four_in_deep_conversation() {
+    let mut req = sample_request_with_tools(vec![dummy_tool("bash")]);
+    req.prompt = String::new();
+    let call = ToolCall::new("call_1", ToolFunction::new("bash", json!({ "command": "pwd" })));
+    req.messages = vec![
+        ChatMessage::user("Turn 1 prompt"),
+        ChatMessage::assistant("Turn 1 response"),
+        ChatMessage::user("Turn 2 prompt"),
+        ChatMessage::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(call)],
+        },
+        ChatMessage::User {
+            content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
+                "call_1", "bash", "/tmp",
+            ))],
         },
     ];
     let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
@@ -144,11 +99,11 @@ fn multi_turn_with_in_flight_tool_results_maintains_prior_turn_checkpoint() {
 #[test]
 fn empty_tools_assigns_three_breakpoints_in_multi_turn() {
     let mut req = sample_request_with_tools(Vec::new());
-    req.chat_history = vec![
-        Message::system("system preamble"),
-        Message::user("Turn 1 prompt"),
-        Message::assistant("Turn 1 response"),
-        Message::user("Turn 2 prompt"),
+    req.prompt = String::new();
+    req.messages = vec![
+        ChatMessage::user("Turn 1 prompt"),
+        ChatMessage::assistant("Turn 1 response"),
+        ChatMessage::user("Turn 2 prompt"),
     ];
     let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
 
@@ -185,82 +140,70 @@ fn empty_system_blocks_assigns_breakpoints_without_exceeding_four() {
 
 #[test]
 fn convert_messages_converts_user_and_assistant_images() {
-    use rig::message::{DocumentSourceKind, Image, ImageMediaType};
-
-    let user_msg = Message::User {
+    let user_msg = ChatMessage::User {
         content: vec![
-            UserContent::Text(Text::new("Look:")),
-            UserContent::Image(Image {
-                data: DocumentSourceKind::Base64("b64jpeg".to_string()),
-                media_type: Some(ImageMediaType::JPEG),
-                detail: None,
-                native: None,
+            UserContent::text("Look:"),
+            UserContent::Image(ImageContent {
+                data: "b64jpeg".to_string(),
+                media_type: Some("image/jpeg".to_string()),
             }),
-            UserContent::Image(Image {
-                data: DocumentSourceKind::Raw(b"rawpng".to_vec()),
-                media_type: Some(ImageMediaType::PNG),
-                detail: None,
-                native: None,
+            UserContent::Image(ImageContent {
+                data: "rawpng".to_string(),
+                media_type: Some("image/png".to_string()),
             }),
-            UserContent::Image(Image {
-                data: DocumentSourceKind::Base64("b64gif".to_string()),
-                media_type: Some(ImageMediaType::GIF),
-                detail: None,
-                native: None,
+            UserContent::Image(ImageContent {
+                data: "b64gif".to_string(),
+                media_type: Some("image/gif".to_string()),
             }),
-            UserContent::Image(Image {
-                data: DocumentSourceKind::Base64("b64webp".to_string()),
-                media_type: Some(ImageMediaType::WEBP),
-                detail: None,
-                native: None,
-            }),
-            UserContent::Image(Image {
-                data: DocumentSourceKind::Base64("b64fallback".to_string()),
-                media_type: None,
-                detail: None,
-                native: None,
-            }),
-            UserContent::Image(Image {
-                data: DocumentSourceKind::Url("https://example.com/img.png".to_string()),
-                media_type: Some(ImageMediaType::PNG),
-                detail: None,
-                native: None,
+            UserContent::Image(ImageContent {
+                data: "b64webp".to_string(),
+                media_type: Some("image/webp".to_string()),
             }),
         ],
     };
 
-    let req = CompletionRequest::new(user_msg);
+    let req = ModelCompletionRequest {
+        prompt: String::new(),
+        preamble: None,
+        messages: vec![user_msg],
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: None,
+    };
 
     let messages = contents::convert_messages(&req);
     assert_eq!(messages.len(), 1);
     let parts = messages[0]["content"].as_array().unwrap();
-    assert_eq!(parts.len(), 6);
+    assert_eq!(parts.len(), 5);
     assert_eq!(parts[0]["type"], "text");
     assert_eq!(parts[1]["source"]["media_type"], "image/jpeg");
     assert_eq!(parts[1]["source"]["data"], "b64jpeg");
     assert_eq!(parts[2]["source"]["media_type"], "image/png");
     assert_eq!(parts[3]["source"]["media_type"], "image/gif");
     assert_eq!(parts[4]["source"]["media_type"], "image/webp");
-    assert_eq!(parts[5]["source"]["media_type"], "image/png");
 }
 
 #[test]
 fn convert_messages_handles_reasoning_and_assistant_first() {
-    let mut req = CompletionRequest::new(Message::System {
-        content: "ignore me".to_string(),
-    });
-    req.chat_history
-        .push(Message::Assistant(rig::message::AssistantMessage::new(vec![
-            AssistantContent::Reasoning({
-                let mut r = rig::message::Reasoning::new("let me think");
-                let item = serde_json::json!({ "signature": "sig_123" });
-                let fingerprint = rig::message::AssistantContent::Reasoning(r.clone()).fingerprint();
-                r.native = Some(rig::message::Native { item, fingerprint });
-                r
-            }),
-            AssistantContent::Reasoning(rig::message::Reasoning::new("unsigned thought")),
-            AssistantContent::Text(Text::new("done")),
-        ])));
+    let asst_msg = ChatMessage::Assistant {
+        id: None,
+        content: vec![
+            AssistantContent::Reasoning(Reasoning::new_with_signature(
+                "let me think",
+                Some("sig_123".to_string()),
+            )),
+            AssistantContent::text("done"),
+        ],
+    };
+
+    let req = ModelCompletionRequest {
+        prompt: String::new(),
+        preamble: None,
+        messages: vec![asst_msg],
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: None,
+    };
 
     let messages = contents::convert_messages(&req);
     assert_eq!(messages.len(), 2);
@@ -268,33 +211,33 @@ fn convert_messages_handles_reasoning_and_assistant_first() {
     assert_eq!(messages[0]["content"][0]["text"], "Hello");
     assert_eq!(messages[1]["role"], "assistant");
     let assistant_parts = messages[1]["content"].as_array().unwrap();
-    assert_eq!(assistant_parts.len(), 3);
+    assert_eq!(assistant_parts.len(), 2);
     assert_eq!(assistant_parts[0]["type"], "thinking");
     assert_eq!(assistant_parts[0]["signature"], "sig_123");
     assert_eq!(assistant_parts[1]["type"], "text");
-    assert_eq!(assistant_parts[2]["type"], "text");
 }
 
 #[test]
 fn convert_messages_handles_tool_results() {
-    let req = CompletionRequest::new(Message::User {
-        content: vec![UserContent::ToolResult(ToolResult {
-            call: CallId::from_wire("call_json"),
-            name: rig::message::ToolName::new("bash").unwrap(),
-            content: vec![
-                ToolResultContent::Json {
-                    value: json!("result text"),
-                },
-                ToolResultContent::Text(Text::new("extra")),
-            ],
-            is_error: false,
-        })],
-    });
+    let req = ModelCompletionRequest {
+        prompt: String::new(),
+        preamble: None,
+        messages: vec![ChatMessage::User {
+            content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
+                "call_json",
+                "bash",
+                "result text",
+            ))],
+        }],
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: None,
+    };
 
     let messages = contents::convert_messages(&req);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["content"][0]["type"], "tool_result");
-    assert_eq!(messages[0]["content"][0]["content"], "result text\nextra");
+    assert_eq!(messages[0]["content"][0]["content"], "result text");
 }
 
 #[test]
@@ -328,70 +271,4 @@ fn from_claude_tool_name_mapping() {
     for (input, expected) in cases {
         assert_eq!(from_claude_tool_name(input), expected);
     }
-}
-
-#[test]
-fn convert_tool_choice_variants() {
-    assert_eq!(convert_tool_choice(&ToolChoice::Auto, true), json!({ "type": "auto" }));
-    assert_eq!(convert_tool_choice(&ToolChoice::Auto, false), json!({ "type": "auto" }));
-    assert_eq!(convert_tool_choice(&ToolChoice::None, true), json!({ "type": "none" }));
-    assert_eq!(convert_tool_choice(&ToolChoice::None, false), json!({ "type": "none" }));
-    assert_eq!(
-        convert_tool_choice(&ToolChoice::Required, true),
-        json!({ "type": "any" })
-    );
-    assert_eq!(
-        convert_tool_choice(&ToolChoice::Required, false),
-        json!({ "type": "auto" })
-    );
-    assert_eq!(
-        convert_tool_choice(
-            &ToolChoice::Specific {
-                function_names: vec![ToolName::new("bash").unwrap()]
-            },
-            true
-        ),
-        json!({ "type": "tool", "name": "Bash" })
-    );
-    assert_eq!(
-        convert_tool_choice(
-            &ToolChoice::Specific {
-                function_names: vec![ToolName::new("bash").unwrap()]
-            },
-            false
-        ),
-        json!({ "type": "auto" })
-    );
-    assert_eq!(
-        convert_tool_choice(&ToolChoice::Specific { function_names: vec![] }, true),
-        json!({ "type": "auto" })
-    );
-    assert_eq!(
-        convert_tool_choice(&ToolChoice::Specific { function_names: vec![] }, false),
-        json!({ "type": "auto" })
-    );
-}
-
-#[test]
-fn test_system_prompt_remains_invariant_when_compaction_summary_present() {
-    let mut req = sample_request_with_tools(vec![dummy_tool("bash")]);
-    req.chat_history = vec![
-        Message::system("Project base instructions and guidelines"),
-        Message::System {
-            content: "[Context Summary: Prior turns summarized here]".to_string(),
-        },
-        Message::user("Next user turn"),
-    ];
-
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-    assert_eq!(body["system"][1]["text"], "Project base instructions and guidelines");
-    assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
-
-    let messages = body["messages"].as_array().unwrap();
-    assert!(
-        messages[0]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("[Context Summary: Prior turns summarized here]")
-    );
 }

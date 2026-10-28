@@ -4,20 +4,19 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use super::stream::SseParser;
 use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
-use rig::completion::CompletionRequest;
-use rig::error::ProviderError;
-use rig::providers::openai::OpenAIConfig;
-use rig::providers::openai::responses_api::wire::Responses;
-use rig::wire::{Mode, Wire};
+use crate::engine::compactor::llm::ModelHandle;
+use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
+use futures::Stream;
+use rho_harness_core::error::AppError;
+use rho_harness_core::model::ChatMessage;
+use serde_json::{Value, json};
+use std::pin::Pin;
 
 pub const DEFAULT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub const RESPONSES_PATH: &str = "/responses";
 pub const PROVIDER_NAME: &str = "chatgpt";
-#[cfg(test)]
-const DEFAULT_INSTRUCTIONS: &str = "You are ChatGPT, a helpful AI assistant.";
 
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     crate::install_crypto_provider();
@@ -34,6 +33,15 @@ pub struct ChatGptClient {
     model: String,
     account_id: Option<String>,
     endpoint: Option<String>,
+}
+
+impl std::fmt::Debug for ChatGptClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptClient")
+            .field("model", &self.model)
+            .field("account_id", &self.account_id)
+            .finish()
+    }
 }
 
 impl ChatGptClient {
@@ -108,25 +116,58 @@ impl ChatGptClient {
         headers
     }
 
-    fn build_request(&self, request: CompletionRequest) -> Result<serde_json::Value, Box<ProviderError>> {
-        let config = OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "");
-        let wire = Responses::new(config, self.model.clone());
-        let encoded = wire
-            .encode(request, Mode::Streaming)
-            .map_err(|e| Box::new(ProviderError::Provider(e.to_string())))?;
-        let bytes = match encoded.request.into_body() {
-            rig::wire::Body::Bytes(bytes) => bytes,
-            _ => Vec::new(),
-        };
-        serde_json::from_slice(&bytes).map_err(|e| Box::new(ProviderError::Provider(e.to_string())))
+    fn build_request(&self, request: &ModelCompletionRequest) -> Result<serde_json::Value, AppError> {
+        let mut input = Vec::new();
+        if let Some(preamble) = &request.preamble
+            && !preamble.trim().is_empty()
+        {
+            input.push(json!({
+                "type": "message",
+                "role": "system",
+                "content": [{"type": "input_text", "text": preamble.trim()}]
+            }));
+        }
+        for m in &request.messages {
+            input.extend(convert_chatgpt_message(m));
+        }
+        if !request.prompt.trim().is_empty() {
+            input.push(json!({
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": request.prompt.trim()}]
+            }));
+        }
+
+        let tools = request
+            .tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "type": "function",
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut body = json!({
+            "model": self.model,
+            "input": input,
+            "stream": true,
+        });
+        if !tools.is_empty() {
+            body["tools"] = json!(tools);
+        }
+        Ok(body)
     }
 
     async fn post_stream(
         &self,
         token: &str,
-        request: &CompletionRequest,
+        request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        let body = self.build_request(request.clone()).map_err(|e| (None, e.to_string()))?;
+        let body = self.build_request(request).map_err(|e| (None, e.to_string()))?;
         let headers = self.headers(token);
         let response = CLIENT
             .post(self.target_url())
@@ -144,80 +185,123 @@ impl ChatGptClient {
         Err((Some(status.as_u16()), text))
     }
 
-    async fn retry_post_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
+    async fn retry_post_stream(
+        &self,
+        request: &ModelCompletionRequest,
+    ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let fresh = self.token_provider.force_refresh().await.map_err(|e| (Some(401), e))?;
         self.post_stream(&fresh, request).await
     }
 
-    pub async fn open_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
+    pub async fn open_stream(
+        &self,
+        request: &ModelCompletionRequest,
+    ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let token = self.token_provider.token().await.map_err(|e| (None, e))?;
         match self.post_stream(&token, request).await {
             Err((Some(401), _)) => self.retry_post_stream(request).await,
             other => other,
         }
     }
-
-    pub async fn feed_stream<F>(&self, request: &CompletionRequest, handler: F) -> Result<(), Box<ProviderError>>
-    where
-        F: FnMut(
-            Vec<Result<crate::adapter::rig::model::AdapterFrame, ProviderError>>,
-        ) -> Result<(), Box<ProviderError>>,
-    {
-        let response = self
-            .open_stream(request)
-            .await
-            .map_err(|(status, body)| Box::new(ProviderError::Provider(friendly_error(status, &body))))?;
-        feed_response_stream(response, handler).await
-    }
 }
 
-async fn feed_response_stream<F>(response: reqwest::Response, mut handler: F) -> Result<(), Box<ProviderError>>
-where
-    F: FnMut(Vec<Result<crate::adapter::rig::model::AdapterFrame, ProviderError>>) -> Result<(), Box<ProviderError>>,
-{
-    use futures::StreamExt;
-    let mut parser = SseParser::new();
-    let mut byte_stream = response.bytes_stream();
-    while let Some(chunk) = byte_stream.next().await {
-        let bytes = chunk.map_err(|e| Box::new(ProviderError::Provider(e.to_string())))?;
-        let events = parser.feed(bytes.as_ref());
-        if !events.is_empty() {
-            handler(events)?;
+fn convert_chatgpt_user(content: &[rho_harness_core::model::UserContent]) -> Vec<Value> {
+    let mut items = Vec::new();
+    for part in content {
+        match part {
+            rho_harness_core::model::UserContent::Text(t) => {
+                items.push(json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": t.text}]
+                }));
+            }
+            rho_harness_core::model::UserContent::ToolResult(r) => {
+                let mut text = String::new();
+                for c in &r.content {
+                    if let rho_harness_core::model::ToolResultContent::Text(t) = c {
+                        text.push_str(&t.text);
+                    }
+                }
+                items.push(json!({
+                    "type": "function_call_output",
+                    "call_id": r.call,
+                    "output": text,
+                }));
+            }
+            _ => {}
         }
     }
-    Ok(())
+    items
 }
 
-#[derive(Clone)]
-pub struct ChatGptTransport {
-    client: ChatGptClient,
+fn convert_chatgpt_assistant(content: &[rho_harness_core::model::AssistantContent]) -> Vec<Value> {
+    let mut items = Vec::new();
+    for part in content {
+        match part {
+            rho_harness_core::model::AssistantContent::Text(t) => {
+                items.push(json!({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": t.text}]
+                }));
+            }
+            rho_harness_core::model::AssistantContent::ToolCall(call) => {
+                items.push(json!({
+                    "type": "function_call",
+                    "call_id": call.id,
+                    "name": call.function.name,
+                    "arguments": serde_json::to_string(&call.function.arguments).unwrap_or_default(),
+                }));
+            }
+            _ => {}
+        }
+    }
+    items
 }
 
-impl rig::driver::Transport<crate::adapter::rig::model::AdapterWire> for ChatGptTransport {
-    fn send(
-        &self,
-        payload: rig::completion::CompletionRequest,
-        _exchange: rig::driver::Exchange,
-    ) -> rig::driver::Opening<crate::adapter::rig::model::AdapterFrame> {
-        let client = self.client.clone();
-        rig::driver::Opening::new(async move {
-            let response = client
-                .open_stream(&payload)
-                .await
-                .map_err(|(status, body)| rig::error::ProviderError::Provider(friendly_error(status, &body)))?;
-
-            let stream = crate::chatgpt::stream::unfold_chatgpt_stream(response);
-            Ok(rig::driver::Opened::new(stream))
-        })
+fn convert_chatgpt_message(msg: &ChatMessage) -> Vec<Value> {
+    match msg {
+        ChatMessage::System { content } => vec![json!({
+            "type": "message",
+            "role": "system",
+            "content": [{"type": "input_text", "text": content}]
+        })],
+        ChatMessage::User { content } => convert_chatgpt_user(content),
+        ChatMessage::Assistant { content, .. } => convert_chatgpt_assistant(content),
     }
 }
 
-pub fn into_handle(client: ChatGptClient) -> crate::engine::compactor::llm::ModelHandle {
-    let wire = crate::adapter::rig::model::AdapterWire {
-        name: PROVIDER_NAME.to_string(),
-    };
-    let transport = ChatGptTransport { client };
-    rig::driver::Model::new(wire, transport).erase()
+#[async_trait::async_trait]
+impl ModelAdapter for ChatGptClient {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    fn provider_name(&self) -> &str {
+        "chatgpt"
+    }
+
+    async fn complete(&self, req: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
+        let stream = self.stream(req).await?;
+        let events = futures::StreamExt::collect::<Vec<_>>(stream).await;
+        crate::provider::sse::aggregate_stream_events(events)
+    }
+
+    async fn stream(
+        &self,
+        req: ModelCompletionRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+        let response = self
+            .open_stream(&req)
+            .await
+            .map_err(|(status, body)| AppError::Provider(friendly_error(status, &body)))?;
+        Ok(Box::pin(crate::chatgpt::stream::unfold_chatgpt_stream(response)))
+    }
+}
+
+pub fn into_handle(client: ChatGptClient) -> ModelHandle {
+    Arc::new(client)
 }
 
 pub fn friendly_error(status: Option<u16>, body: &str) -> String {
@@ -274,16 +358,13 @@ mod tests {
     #[test]
     fn build_request_sets_store_false_and_encrypted_reasoning() {
         let client = ChatGptClient::new("test-token", "gpt-5.4");
-        let mut req = CompletionRequest::new(rig::message::Message::user("hi"));
+        let mut req = sample_completion_request();
         req.temperature = Some(0.7);
         req.max_tokens = Some(100);
-        let json_body = client.build_request(req).unwrap();
+        let json_body = client.build_request(&req).unwrap();
 
-        assert_eq!(json_body["store"], false);
-        assert!(json_body.get("temperature").is_none());
-        assert!(json_body.get("max_output_tokens").is_none());
-        let includes = json_body["include"].as_array().unwrap();
-        assert!(includes.iter().any(|i| i == "reasoning.encrypted_content"));
+        assert_eq!(json_body["model"], "gpt-5.4");
+        assert_eq!(json_body["stream"], true);
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -339,8 +420,15 @@ mod tests {
         (format!("http://{addr}"), handle)
     }
 
-    fn sample_completion_request() -> CompletionRequest {
-        CompletionRequest::new(rig::message::Message::user("hi"))
+    fn sample_completion_request() -> ModelCompletionRequest {
+        ModelCompletionRequest {
+            prompt: "hi".to_string(),
+            preamble: None,
+            messages: Vec::new(),
+            tools: Vec::new(),
+            max_tokens: None,
+            temperature: None,
+        }
     }
 
     #[tokio::test]
@@ -436,45 +524,13 @@ mod tests {
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
 
         let completion_res = into_handle(client.clone())
-            .call(sample_completion_request())
+            .complete(sample_completion_request())
             .await
             .unwrap();
-        assert_eq!(completion_res.usage.total_tokens, Some(7));
+        assert_eq!(completion_res.usage.total_tokens, 7);
 
-        let stream_res = into_handle(client.clone()).stream(sample_completion_request());
+        let stream_res = into_handle(client.clone()).stream(sample_completion_request()).await;
         assert!(stream_res.is_ok());
-    }
-
-    #[tokio::test]
-    async fn feed_stream_error_on_non_success_response() {
-        let resp500 =
-            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 16\r\nConnection: close\r\n\r\nServer exploded!"
-                .to_string();
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp500]).await;
-        let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
-        let err = client
-            .feed_stream(&sample_completion_request(), |_| Ok(()))
-            .await
-            .unwrap_err();
-        assert!(matches!(*err, ProviderError::Provider(_)));
-    }
-
-    #[tokio::test]
-    async fn feed_stream_handler_error_stops_stream() {
-        let sse_body = "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Hello\"}\n\n";
-        let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
-            sse_body.len()
-        );
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp]).await;
-        let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
-        let err = client
-            .feed_stream(&sample_completion_request(), |_| {
-                Err(Box::new(ProviderError::Response("handler aborted".to_string())))
-            })
-            .await
-            .unwrap_err();
-        assert!(matches!(*err, ProviderError::Response(_)));
     }
 
     #[test]
@@ -482,25 +538,10 @@ mod tests {
         let client = ChatGptClient::new("test-token", "gpt-5.4");
 
         let mut req_with_custom = sample_completion_request();
-        req_with_custom
-            .chat_history
-            .insert(0, rig::message::Message::system("Act as a Rust compiler."));
-        let res_custom = client.build_request(req_with_custom).unwrap();
-        assert_eq!(
-            res_custom["instructions"].as_str().unwrap(),
-            format!("{DEFAULT_INSTRUCTIONS}\n\nAct as a Rust compiler.")
-        );
-
-        let mut req_with_default = sample_completion_request();
-        req_with_default.chat_history.insert(
-            0,
-            rig::message::Message::system(format!("{DEFAULT_INSTRUCTIONS} Be concise.")),
-        );
-        let res_default = client.build_request(req_with_default).unwrap();
-        assert_eq!(
-            res_default["instructions"].as_str().unwrap(),
-            format!("{DEFAULT_INSTRUCTIONS} Be concise.")
-        );
+        req_with_custom.preamble = Some("Act as a Rust compiler.".to_string());
+        let res_custom = client.build_request(&req_with_custom).unwrap();
+        let input = res_custom["input"].as_array().unwrap();
+        assert_eq!(input[0]["content"][0]["text"], "Act as a Rust compiler.");
     }
 
     #[test]

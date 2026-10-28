@@ -7,8 +7,9 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::eval::mock::{MockEngineConfig, mock_engine_with_session};
+use rho_engine::provider::adapter::MockAdapter;
 use rho_harness_core::session::SessionManager;
-use rig::test_utils::MockCompletionModel;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn collecting_renderer() -> (TerminalRenderer, mpsc::UnboundedReceiver<UiEvent>) {
@@ -101,7 +102,9 @@ fn setup_compact_env(
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
     let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
     let engine = mock_engine_with_session(
-        MockCompletionModel::text("## Goal\nAnalyze queries\n\n## Progress\nCompleted analyses"),
+        Arc::new(MockAdapter::text(
+            "## Goal\nAnalyze queries\n\n## Progress\nCompleted analyses",
+        )),
         MockEngineConfig {
             base_dir: temp,
             app_config: config.clone(),
@@ -387,7 +390,7 @@ async fn setup_engine_session(temp: &std::path::Path, config: Config) -> (crate:
     let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
     let sid = sm.session_id.clone();
     let engine = mock_engine_with_session(
-        MockCompletionModel::default(),
+        Arc::new(MockAdapter::default()),
         MockEngineConfig {
             base_dir: temp,
             app_config: config,
@@ -522,7 +525,7 @@ async fn tokens_command_displays_cache_hit_when_present() {
     let (mut config, mut auth) = (Config::default(), AuthStore::default());
     let (renderer, mut events) = collecting_renderer();
     let dir = tempfile::tempdir().unwrap();
-    let model = MockCompletionModel::text("test response");
+    let model = Arc::new(MockAdapter::text("test response"));
     let engine = mock_engine_with_session(
         model,
         MockEngineConfig {
@@ -567,7 +570,7 @@ async fn session_command_displays_cache_efficiency_when_present() {
     let (mut config, mut auth) = (Config::default(), AuthStore::default());
     let (renderer, mut events) = collecting_renderer();
     let dir = tempfile::tempdir().unwrap();
-    let model = MockCompletionModel::text("test response");
+    let model = Arc::new(MockAdapter::text("test response"));
     let engine = mock_engine_with_session(
         model,
         MockEngineConfig {

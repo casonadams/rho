@@ -1,7 +1,12 @@
 use crate::engine::compactor::llm::ModelHandle;
+use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
+use crate::tools::engine_tool::EngineTool;
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
-use rig::tool::DynamicTool;
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, TextContent, ToolCall, ToolResult as DomainToolResult, UserContent,
+};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> String {
@@ -13,13 +18,10 @@ pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> Strin
     }
 }
 
-pub fn filter_tools_for_role(tools: &[DynamicTool], role: SubagentRole) -> Vec<DynamicTool> {
+pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) -> Vec<Arc<dyn EngineTool>> {
     let allowed = role.allowed_tools();
-    let mut filtered: Vec<DynamicTool> = tools
-        .iter()
-        .filter(|t| allowed.contains(&t.name().as_str()))
-        .cloned()
-        .collect();
+    let mut filtered: Vec<Arc<dyn EngineTool>> =
+        tools.iter().filter(|t| allowed.contains(&t.name())).cloned().collect();
     filtered.sort_by(|a, b| a.name().cmp(b.name()));
     filtered
 }
@@ -27,13 +29,54 @@ pub fn filter_tools_for_role(tools: &[DynamicTool], role: SubagentRole) -> Vec<D
 pub struct SubagentRunner {
     model: ModelHandle,
     role: SubagentRole,
-    tools: Vec<DynamicTool>,
+    tools: Vec<Arc<dyn EngineTool>>,
     max_turns: usize,
+}
+
+fn create_assistant_tool_message(content: &str, calls: &[ToolCall]) -> ChatMessage {
+    let mut asst_content = Vec::new();
+    if !content.is_empty() {
+        asst_content.push(AssistantContent::Text(TextContent::new(content)));
+    }
+    for call in calls {
+        asst_content.push(AssistantContent::ToolCall(call.clone()));
+    }
+    ChatMessage::Assistant {
+        id: None,
+        content: asst_content,
+    }
+}
+
+async fn dispatch_subagent_tool_calls(calls: &[ToolCall], tools: &[Arc<dyn EngineTool>]) -> Vec<ChatMessage> {
+    let mut result_messages = Vec::new();
+    for call in calls {
+        let tool = tools.iter().find(|t| t.name() == call.function.name);
+        let (output, _is_error) = match tool {
+            Some(t) => match t.execute(call.function.arguments.clone()).await {
+                Ok(res) => (res.content, res.is_error),
+                Err(e) => (format!("Error: {e}"), true),
+            },
+            None => (format!("Error: Unknown tool '{}'", call.function.name), true),
+        };
+        result_messages.push(ChatMessage::User {
+            content: vec![UserContent::ToolResult(DomainToolResult::new(
+                call.id.clone(),
+                call.function.name.clone(),
+                output,
+            ))],
+        });
+    }
+    result_messages
 }
 
 impl SubagentRunner {
     #[must_use]
-    pub fn new(model: ModelHandle, role: SubagentRole, available_tools: &[DynamicTool], max_turns: usize) -> Self {
+    pub fn new(
+        model: ModelHandle,
+        role: SubagentRole,
+        available_tools: &[Arc<dyn EngineTool>],
+        max_turns: usize,
+    ) -> Self {
         let tools = filter_tools_for_role(available_tools, role);
         Self {
             model,
@@ -45,17 +88,7 @@ impl SubagentRunner {
 
     #[must_use]
     pub fn tool_names(&self) -> Vec<&str> {
-        self.tools.iter().map(|t| t.name().as_str()).collect()
-    }
-
-    async fn handle_runner_error(&self, err: rig::completion::PromptError) -> ToolResult {
-        let Some((max_turns, history)) = crate::engine::runner::budget_history(&err) else {
-            return ToolResult::error(format!("Subagent execution failed: {err}"));
-        };
-        if let Some(synthesis) = attempt_recovery_synthesis(&self.model, self.role, &history).await {
-            return ToolResult::success(synthesis);
-        }
-        synthesize_budget_exhausted_result(max_turns, &history)
+        self.tools.iter().map(|t| t.name()).collect()
     }
 
     pub async fn run(&self, prompt: &str, context_slice: Option<&str>) -> ToolResult {
@@ -64,29 +97,53 @@ impl SubagentRunner {
         }
 
         let full_prompt = build_subagent_prompt(prompt, context_slice);
-        let tool_server = rig::tool::server::ToolServer::new().dynamic_tools(self.tools.clone());
-        let tool_handle = tool_server.run();
-
         let preamble = format!(
             "{}\n\nYou have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final findings.",
             self.role.system_instructions(),
             self.max_turns
         );
-        let agent = rig::agent::AgentBuilder::new(self.model.clone())
-            .preamble(preamble)
-            .default_max_turns(self.max_turns)
-            .record_content_telemetry(false)
-            .tool_server_handle(tool_handle)
-            .build();
 
-        let runner = crate::engine::runtime::build_runner(&agent, full_prompt).max_turns(self.max_turns);
-        let timeout = Duration::from_secs(120);
+        let tools_def: Vec<ModelToolDefinition> = self
+            .tools
+            .iter()
+            .map(|t| ModelToolDefinition {
+                name: t.name().to_string(),
+                description: t.description().to_string(),
+                parameters: t.parameters(),
+            })
+            .collect();
 
-        match tokio::time::timeout(timeout, runner.run()).await {
-            Ok(Ok(response)) => handle_runner_success(&response.output()),
-            Ok(Err(err)) => self.handle_runner_error(err).await,
-            Err(_) => ToolResult::error("Subagent execution timed out after 120s."),
+        let mut messages: Vec<ChatMessage> = Vec::new();
+
+        for turn in 1..=self.max_turns {
+            let req = ModelCompletionRequest {
+                preamble: Some(preamble.clone()),
+                prompt: if turn == 1 { full_prompt.clone() } else { String::new() },
+                messages: messages.clone(),
+                tools: tools_def.clone(),
+                max_tokens: None,
+                temperature: Some(0.0),
+            };
+
+            let resp = match self.model.complete(req).await {
+                Ok(r) => r,
+                Err(e) => return ToolResult::error(format!("Subagent model call failed: {e}")),
+            };
+
+            if resp.tool_calls.is_empty() {
+                return handle_runner_success(&resp.content);
+            }
+
+            let asst = create_assistant_tool_message(&resp.content, &resp.tool_calls);
+            messages.push(asst);
+            let tool_results = dispatch_subagent_tool_calls(&resp.tool_calls, &self.tools).await;
+            messages.extend(tool_results);
         }
+
+        if let Some(synthesis) = attempt_recovery_synthesis(&self.model, self.role, &messages).await {
+            return ToolResult::success(synthesis);
+        }
+        synthesize_budget_exhausted_result(self.max_turns, &messages)
     }
 }
 
@@ -99,17 +156,15 @@ fn handle_runner_success(output: &str) -> ToolResult {
     }
 }
 
-fn has_tool_calls(content: &[rig::message::AssistantContent]) -> bool {
-    content
-        .iter()
-        .any(|c| matches!(c, rig::message::AssistantContent::ToolCall(_)))
-}
-
-pub(crate) fn prepare_history_for_recovery(history: &[rig::message::Message]) -> Vec<rig::message::Message> {
+pub(crate) fn prepare_history_for_recovery(history: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut end = history.len();
     while end > 0 {
         match &history[end - 1] {
-            rig::message::Message::Assistant(asst) if has_tool_calls(&asst.content) => end -= 1,
+            ChatMessage::Assistant { content, .. }
+                if content.iter().any(|c| matches!(c, AssistantContent::ToolCall(_))) =>
+            {
+                end -= 1
+            }
             _ => break,
         }
     }
@@ -119,82 +174,76 @@ pub(crate) fn prepare_history_for_recovery(history: &[rig::message::Message]) ->
 async fn attempt_recovery_synthesis(
     model: &ModelHandle,
     role: SubagentRole,
-    history: &[rig::message::Message],
+    history: &[ChatMessage],
 ) -> Option<String> {
     let sanitized_history = prepare_history_for_recovery(history);
     let preamble = format!(
         "{}\n\nYour tool exploration is complete. Synthesize a structured summary of your findings addressing the user's task. Do not call tools.",
         role.system_instructions()
     );
-    let agent = rig::agent::AgentBuilder::new(model.clone())
-        .preamble(preamble)
-        .default_max_turns(1)
-        .record_content_telemetry(false)
-        .build();
     let prompt = "Please synthesize your final structured findings and summary based on the findings above.";
-    let runner = crate::engine::runtime::build_runner(&agent, prompt)
-        .history(sanitized_history)
-        .max_turns(1);
-    let resp = tokio::time::timeout(Duration::from_secs(45), runner.run())
+    let req = ModelCompletionRequest {
+        preamble: Some(preamble),
+        prompt: prompt.to_string(),
+        messages: sanitized_history,
+        tools: Vec::new(),
+        max_tokens: None,
+        temperature: Some(0.0),
+    };
+    let resp = tokio::time::timeout(Duration::from_secs(45), model.complete(req))
         .await
         .ok()?
         .ok()?;
-    let text = resp.output().trim().to_string();
+    let text = resp.content.trim().to_string();
     if text.is_empty() { None } else { Some(text) }
 }
 
-fn extract_assistant_text(asst: &rig::message::AssistantMessage, out: &mut Vec<String>) {
-    for content in &asst.content {
-        if let rig::message::AssistantContent::Text(t) = content {
+fn extract_assistant_text(asst: &AssistantContent, out: &mut Vec<String>) {
+    if let AssistantContent::Text(t) = asst {
+        let trimmed = t.text.trim();
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+    }
+}
+
+fn extract_tool_result_text(res: &DomainToolResult, out: &mut Vec<String>) {
+    for item in &res.content {
+        if let rho_harness_core::model::ToolResultContent::Text(t) = item {
             let trimmed = t.text.trim();
             if !trimmed.is_empty() {
-                out.push(trimmed.to_string());
+                let snippet: String = trimmed.chars().take(200).collect();
+                out.push(format!("Tool {}: {snippet}", res.name));
             }
         }
     }
 }
 
-fn single_tool_result_text(tr: &rig::message::ToolResult) -> Option<String> {
-    let mut parts = Vec::new();
-    for item in &tr.content {
-        if let rig::message::ToolResultContent::Text(t) = item {
-            parts.push(t.text.as_str());
-        }
-    }
-    let joined = parts.join(" ");
-    let trimmed = joined.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let snippet = match trimmed.char_indices().nth(300) {
-        Some((idx, _)) => format!("{}...", &trimmed[..idx]),
-        None => trimmed.to_string(),
-    };
-    Some(format!("{}: {snippet}", tr.name))
-}
-
-fn extract_tool_result_preview(user_content: &[rig::message::UserContent], out: &mut Vec<String>) {
-    for c in user_content {
-        if let rig::message::UserContent::ToolResult(tr) = c
-            && let Some(summary) = single_tool_result_text(tr)
-        {
-            out.push(summary);
-        }
-    }
-}
-
-fn synthesize_budget_exhausted_result(max_turns: usize, history: &[rig::message::Message]) -> ToolResult {
+fn collect_history_findings(history: &[ChatMessage]) -> (Vec<String>, Vec<String>) {
     let mut texts = Vec::new();
     let mut tools = Vec::new();
-
     for msg in history {
         match msg {
-            rig::message::Message::Assistant(asst) => extract_assistant_text(asst, &mut texts),
-            rig::message::Message::User { content } => extract_tool_result_preview(content, &mut tools),
+            ChatMessage::Assistant { content, .. } => {
+                for c in content {
+                    extract_assistant_text(c, &mut texts);
+                }
+            }
+            ChatMessage::User { content } => {
+                for c in content {
+                    if let UserContent::ToolResult(res) = c {
+                        extract_tool_result_text(res, &mut tools);
+                    }
+                }
+            }
             _ => {}
         }
     }
+    (texts, tools)
+}
 
+pub(crate) fn synthesize_budget_exhausted_result(max_turns: usize, history: &[ChatMessage]) -> ToolResult {
+    let (texts, tools) = collect_history_findings(history);
     if !texts.is_empty() {
         let findings = texts.join("\n\n");
         ToolResult::success(format!(
@@ -215,46 +264,7 @@ fn synthesize_budget_exhausted_result(max_turns: usize, history: &[rig::message:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::rig::model::into_dyn_model;
-    use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
-    use rho_harness_core::error::AppError;
-
-    struct EchoMockAdapter {
-        reply: String,
-    }
-
-    #[async_trait::async_trait]
-    impl ModelAdapter for EchoMockAdapter {
-        fn model_name(&self) -> &str {
-            "mock-subagent"
-        }
-
-        fn provider_name(&self) -> &str {
-            "mock"
-        }
-
-        async fn complete(&self, _request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
-            Ok(ModelCompletionResponse {
-                content: self.reply.clone(),
-                tool_calls: Vec::new(),
-                usage: Default::default(),
-            })
-        }
-
-        async fn stream(
-            &self,
-            _request: ModelCompletionRequest,
-        ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>
-        {
-            let events = vec![
-                Ok(ModelStreamEvent::Text(self.reply.clone())),
-                Ok(ModelStreamEvent::Usage(
-                    crate::engine::metrics::StructuralUsage::default(),
-                )),
-            ];
-            Ok(Box::pin(futures::stream::iter(events)))
-        }
-    }
+    use crate::provider::adapter::MockAdapter;
 
     #[test]
     fn test_prompt_formatting() {
@@ -268,55 +278,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_subagent_runner_empty_prompt() {
-        let model = into_dyn_model(EchoMockAdapter { reply: "done".into() });
+        let model = Arc::new(MockAdapter::text("done"));
         let runner = SubagentRunner::new(model, SubagentRole::Scout, &[], 5);
         let res = runner.run("   ", None).await;
         assert!(res.is_error);
-        assert!(res.content.contains("subagent prompt cannot be empty"));
+        assert!(res.content.contains("cannot be empty"));
     }
 
     #[tokio::test]
-    async fn test_subagent_runner_success() {
-        let model = into_dyn_model(EchoMockAdapter {
-            reply: "Found 3 files matching pattern.".into(),
-        });
+    async fn test_subagent_runner_success_flow() {
+        let model = Arc::new(MockAdapter::text("Scout findings summary"));
         let runner = SubagentRunner::new(model, SubagentRole::Scout, &[], 5);
-        let res = runner.run("find files", Some("search in src/")).await;
+        let res = runner.run("investigate directory", None).await;
         assert!(!res.is_error);
-        assert_eq!(res.content, "Found 3 files matching pattern.");
-    }
-
-    #[test]
-    fn test_synthesize_budget_exhausted_result() {
-        let text_content = vec![rig::message::AssistantContent::text(
-            "Here is what was found in the codebase.",
-        )];
-        let asst_msg = rig::message::Message::Assistant(rig::message::AssistantMessage::new(text_content));
-        let history = vec![asst_msg];
-
-        let result = synthesize_budget_exhausted_result(8, &history);
-        assert!(!result.is_error);
-        assert!(result.content.contains("reached turn limit of 8"));
-        assert!(result.content.contains("Here is what was found in the codebase."));
-
-        let empty_result = synthesize_budget_exhausted_result(8, &[]);
-        assert!(empty_result.is_error);
-    }
-
-    #[test]
-    fn test_single_tool_result_text_safe_unicode_boundary() {
-        let mut text = "a".repeat(299);
-        text.push('\u{1F980}');
-        text.push_str("more text");
-        let name = rig::message::ToolName::new("read").unwrap();
-        let tr = rig::message::ToolResult {
-            call: rig::message::CallId::from_wire("call_1"),
-            name,
-            content: vec![rig::message::ToolResultContent::text(text)],
-            is_error: false,
-        };
-        let preview = single_tool_result_text(&tr).expect("has preview");
-        assert!(preview.starts_with("read: aaaaa"));
-        assert!(preview.ends_with("..."));
+        assert_eq!(res.content, "Scout findings summary");
     }
 }

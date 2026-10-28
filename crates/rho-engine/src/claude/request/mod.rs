@@ -90,9 +90,8 @@ fn sanitize_system_prompt(text: &str) -> String {
     .replace("rho packages", "cli packages")
 }
 
-use rig::completion::CompletionRequest;
-use rig::error::ProviderError;
-use rig::message::{Message, ToolChoice};
+use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::error::AppError;
 use serde_json::{Value, json};
 
 pub fn normalize_model_alias(model: &str) -> &str {
@@ -252,20 +251,17 @@ fn attach_thinking_or_temp(
     }
 }
 
-fn attach_tools_and_choice(body: &mut Value, request: &CompletionRequest, model: &str) {
+fn attach_tools_and_choice(body: &mut Value, request: &ModelCompletionRequest, _model: &str) {
     if !request.tools.is_empty() {
         body["tools"] = json!(convert_tools(request));
-        if let Some(ref choice) = request.tool_choice {
-            body["tool_choice"] = convert_tool_choice(choice, !is_unsupported_forced_tool_model(model));
-        }
     }
 }
 
 pub fn build_request_body(
     model: &str,
     thinking_level: Option<&str>,
-    request: &CompletionRequest,
-) -> Result<Value, Box<ProviderError>> {
+    request: &ModelCompletionRequest,
+) -> Result<Value, AppError> {
     let normalized_model = normalize_model_alias(model);
     let thinking_budget = resolve_thinking_budget(thinking_level);
     let adaptive = is_adaptive_model(normalized_model);
@@ -367,6 +363,11 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
         count += 1;
     }
 
+    let has_tools = body
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|t| !t.is_empty())
+        .unwrap_or(false);
     let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
@@ -380,7 +381,7 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
         .unwrap_or(0);
 
     if turn_n_start_idx > 0
-        && count + 2 <= 4
+        && count < 4
         && let Some(checkpoint_msg) = messages.get_mut(turn_n_start_idx - 1)
         && let Some(parts) = checkpoint_msg.get_mut("content").and_then(Value::as_array_mut)
         && let Some(last_part) = parts.last_mut()
@@ -391,6 +392,7 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
     }
 
     if count < 4
+        && (!has_tools || messages.len() > 1)
         && let Some(last_message) = messages.last_mut()
         && let Some(parts) = last_message.get_mut("content").and_then(Value::as_array_mut)
         && let Some(last_part) = parts.last_mut()
@@ -406,16 +408,11 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
     );
 }
 
-fn system_prompt(request: &CompletionRequest) -> Option<String> {
-    for message in &request.chat_history {
-        if let Message::System { content } = message {
-            return Some(content.clone());
-        }
-    }
-    None
+fn system_prompt(request: &ModelCompletionRequest) -> Option<String> {
+    request.preamble.clone()
 }
 
-fn convert_tools(request: &CompletionRequest) -> Vec<Value> {
+fn convert_tools(request: &ModelCompletionRequest) -> Vec<Value> {
     let mut tools = request.tools.clone();
     tools.sort_by(|a, b| a.name.cmp(&b.name));
     tools
@@ -428,17 +425,4 @@ fn convert_tools(request: &CompletionRequest) -> Vec<Value> {
             })
         })
         .collect()
-}
-
-pub(crate) fn convert_tool_choice(choice: &ToolChoice, forced_tools_supported: bool) -> Value {
-    match choice {
-        ToolChoice::Auto => json!({ "type": "auto" }),
-        ToolChoice::None => json!({ "type": "none" }),
-        ToolChoice::Required if forced_tools_supported => json!({ "type": "any" }),
-        ToolChoice::Specific { function_names } if forced_tools_supported => function_names.first().map_or_else(
-            || json!({ "type": "auto" }),
-            |name| json!({ "type": "tool", "name": to_claude_tool_name(name) }),
-        ),
-        _ => json!({ "type": "auto" }),
-    }
 }

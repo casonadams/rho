@@ -1,6 +1,4 @@
-use rig::completion::PromptError;
-
-pub fn is_context_overflow_error(error: &PromptError) -> bool {
+pub fn is_context_overflow_error(error: &(impl std::fmt::Display + ?Sized)) -> bool {
     is_context_overflow_message(&error.to_string())
 }
 
