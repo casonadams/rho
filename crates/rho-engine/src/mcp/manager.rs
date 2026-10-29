@@ -107,8 +107,9 @@ async fn discover_server_tools(
     config: &Config,
 ) -> Option<DiscoveredServer> {
     let def_hash = compute_definition_hash(cfg);
-    let is_project_scoped =
-        working_dir.join(".mcp.json").is_file() || working_dir.join(".agents").join("mcp.json").is_file();
+    let is_project_scoped = working_dir.join(".mcp.json").is_file()
+        || working_dir.join(".agents").join("mcp.json").is_file()
+        || working_dir.join(".claude").join("mcp.json").is_file();
 
     if is_project_scoped
         && !is_server_definition_trusted(working_dir, name, &def_hash, &config.config_dir)

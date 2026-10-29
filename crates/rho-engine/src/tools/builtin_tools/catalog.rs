@@ -54,12 +54,13 @@ Usage:
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
 
-pub static PROMPT_JOBS: &str = "\
-List and inspect background jobs and processes initiated by bash.
+pub static PROMPT_WAIT: &str = "\
+Wait only when blocked with nothing else to do.
 
 Usage:
-- Call with no arguments to list all active and finished background jobs.
-- Call with job_id to inspect a specific background job and retrieve its accumulated output.";
+- Call with no arguments to pause and await the first background result.
+- Returns the completed job output the moment it finishes.
+- Results auto-deliver upon completion; NEVER poll with sleep or run busy loops while work remains.";
 
 pub static PROMPT_BASH: &str = "\
 Execute bash commands in the current working directory.
@@ -185,13 +186,17 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         schema: generated_schema::<BashArgs>,
     },
     BuiltinToolDeclaration {
-        name: "jobs",
+        name: "wait",
         capability: BuiltinToolKind::ReadOnly,
-        description: "List and inspect background jobs and processes initiated by bash.",
-        prompt: PROMPT_JOBS,
-        prompt_snippet: Some("List and inspect background jobs"),
-        prompt_guidelines: &[],
-        schema: generated_schema::<rho_harness_core::args::JobsArgs>,
+        description: "Wait for the next background job to complete (only when blocked with nothing else to do).",
+        prompt: PROMPT_WAIT,
+        prompt_snippet: Some(
+            "Wait for the next background job to complete (only when blocked with nothing else to do)",
+        ),
+        prompt_guidelines: &[
+            "Results auto-deliver; NEVER poll with sleep; call wait only when blocked with nothing else to do",
+        ],
+        schema: generated_schema::<rho_harness_core::args::WaitArgs>,
     },
     BuiltinToolDeclaration {
         name: "fd",

@@ -164,15 +164,22 @@ impl LifecycleHook {
 }
 
 pub fn find_hook_in_paths(name: &str, project_dir: &Path, user_dir: Option<&Path>) -> Option<PathBuf> {
-    let project_hooks = project_dir.join(".agents").join("hooks");
-    if let Some(hook) = find_hook_in_dir(&project_hooks, name) {
-        return Some(hook);
+    let project_candidates = [
+        project_dir.join(".agents").join("hooks"),
+        project_dir.join(".claude").join("hooks"),
+    ];
+    for dir in &project_candidates {
+        if let Some(hook) = find_hook_in_dir(dir, name) {
+            return Some(hook);
+        }
     }
 
     if let Some(user) = user_dir {
-        let user_hooks = user.join(".agents").join("hooks");
-        if let Some(hook) = find_hook_in_dir(&user_hooks, name) {
-            return Some(hook);
+        let user_candidates = [user.join(".agents").join("hooks"), user.join(".claude").join("hooks")];
+        for dir in &user_candidates {
+            if let Some(hook) = find_hook_in_dir(dir, name) {
+                return Some(hook);
+            }
         }
     }
 

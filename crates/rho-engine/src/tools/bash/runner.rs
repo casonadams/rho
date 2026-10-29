@@ -20,6 +20,12 @@ fn setup_command_child(
         .map_err(|e| ToolResult::error(format!("Failed to spawn process for command '{command_str}': {e}")))
 }
 
+pub fn format_background_notice(job_id: &str) -> String {
+    format!(
+        "Backgrounded as job '{job_id}'; its output is injected into the conversation as a follow-up the moment it finishes. Do NOT poll for it (no `sleep`, `ps`, `pgrep`, `top`): every poll is a wasted turn. Continue other work, call `wait` if blocked, or end your reply and wait to be woken."
+    )
+}
+
 fn dispatch_background_task(
     mut cmd: StreamingCommand,
     mut rx: UnboundedReceiver<String>,
@@ -34,22 +40,22 @@ fn dispatch_background_task(
                 let snapshot = acc.snapshot();
                 let output = snapshot.formatted_text.trim().to_string();
                 let exit_code = exit_status.code().unwrap_or(-1);
-                crate::tools::jobs::JobManager::global().update_status(
+                crate::tools::wait::JobManager::global().update_status(
                     &job_id,
-                    crate::tools::jobs::JobStatus::Completed {
+                    crate::tools::wait::JobStatus::Completed {
                         exit_code,
                         output: output.clone(),
                     },
                 );
                 crate::engine::runner::turn::types::enqueue_background_notification(format!(
-                    "[Background Job '{job_id}' completed with exit code {exit_code}]\nOutput:\n{output}"
+                    "<system-notice>\nBackground job '{job_id}' completed with exit code {exit_code}.\nOutput:\n{output}\nResume your work using the results above.\n</system-notice>"
                 ));
             }
             Err(e) => {
-                crate::tools::jobs::JobManager::global()
-                    .update_status(&job_id, crate::tools::jobs::JobStatus::Failed { error: e.to_string() });
+                crate::tools::wait::JobManager::global()
+                    .update_status(&job_id, crate::tools::wait::JobStatus::Failed { error: e.to_string() });
                 crate::engine::runner::turn::types::enqueue_background_notification(format!(
-                    "[Background Job '{job_id}' failed: {e}]"
+                    "<system-notice>\nBackground job '{job_id}' failed: {e}.\nResume your work using the results above.\n</system-notice>"
                 ));
             }
         }
@@ -159,12 +165,13 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
     }
 
     let job_id = format!("bash-{}", uuid::Uuid::new_v4().simple());
-    crate::tools::jobs::JobManager::global().register(job_id.clone(), ctx.args.command.clone());
+    crate::tools::wait::JobManager::global().register(job_id.clone(), ctx.args.command.clone());
     let command_str = ctx.args.command.clone();
     dispatch_background_task(ctx.cmd, ctx.rx, ctx.acc, job_id.clone());
 
+    let notice = format_background_notice(&job_id);
     ToolResult::error(format!(
-        "[Command running in background after {}s timeout]\nJob ID: {job_id}\nCommand: {command_str}\nCommand timed out after {} seconds",
+        "[Command running in background after {}s timeout]\nJob ID: {job_id}\nCommand: {command_str}\nCommand timed out after {} seconds\n\n{notice}",
         ctx.timeout_sec, ctx.timeout_sec
     ))
 }
@@ -214,13 +221,14 @@ where
             Err(e) => return Ok(e),
         };
         let job_id = format!("bash-{}", uuid::Uuid::new_v4().simple());
-        crate::tools::jobs::JobManager::global().register(job_id.clone(), args.command.clone());
+        crate::tools::wait::JobManager::global().register(job_id.clone(), args.command.clone());
         let command_str = args.command.clone();
         let acc = OutputAccumulator::new();
         dispatch_background_task(cmd, rx, acc, job_id.clone());
 
+        let notice = format_background_notice(&job_id);
         return Ok(ToolResult::success(format!(
-            "[Command dispatched to background]\nJob ID: {job_id}\nCommand: {command_str}"
+            "[Command dispatched to background]\nJob ID: {job_id}\nCommand: {command_str}\n\n{notice}"
         )));
     }
 

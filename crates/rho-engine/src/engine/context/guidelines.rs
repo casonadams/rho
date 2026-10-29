@@ -42,7 +42,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                 || (!matches!(
                     t.as_str(),
                     "bash"
-                        | "jobs"
+                        | "wait"
                         | "read"
                         | "write"
                         | "edit"
@@ -62,6 +62,11 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
         out.push("Use read to examine files instead of cat or sed");
     }
     append_mutation_guidelines(active_tools, out);
+    if active_tools.iter().any(|t| t == "wait") {
+        out.push(
+            "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; continue other productive work, call wait only if completely blocked, or end your turn to wait for the completion signal",
+        );
+    }
 }
 
 fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {

@@ -1,3 +1,4 @@
+use rho_harness_core::agents::AgentMetadata;
 use rho_harness_core::skills::SkillMetadata;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,7 @@ pub struct ProjectContext {
     pub base_system_prompt: String,
     pub instruction_files: Vec<(String, String)>,
     pub skills: Vec<SkillMetadata>,
+    pub agents: Vec<AgentMetadata>,
     pub active_tools: Vec<String>,
     pub git_status: Option<String>,
     pub os_info: String,
@@ -33,14 +35,6 @@ pub struct ProjectContext {
     pub dynamic_instructions_count: usize,
     pub dynamic_instructions_bytes: usize,
     pub last_git_check: Option<std::time::Instant>,
-}
-
-async fn resolve_skills(base: &Path, home: Option<&Path>) -> Vec<SkillMetadata> {
-    rho_harness_core::skills::resolved_skills_for_paths_async(Some(base.to_path_buf()), home.map(Path::to_path_buf))
-        .await
-        .into_iter()
-        .map(|skill| skill.metadata)
-        .collect()
 }
 
 async fn resolve_full_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {
@@ -86,7 +80,18 @@ impl ProjectContext {
         let base = dir.as_ref();
         let (instruction_files, seen_instruction_files) =
             instructions::discover_instructions_with_seen_async(base, dirs).await;
-        let skills = resolve_skills(base, dirs.home_dir).await;
+        let base_buf = Some(base.to_path_buf());
+        let home_buf = dirs.home_dir.map(Path::to_path_buf);
+        let skills = rho_harness_core::skills::resolved_skills_for_paths_async(base_buf.clone(), home_buf.clone())
+            .await
+            .into_iter()
+            .map(|s| s.metadata)
+            .collect();
+        let agents = rho_harness_core::agents::resolved_agents_for_paths_async(base_buf, home_buf)
+            .await
+            .into_iter()
+            .map(|a| a.metadata)
+            .collect();
         let active_tools = dirs.active_tools.map_or_else(default_tool_names, <[String]>::to_vec);
         let base_system_prompt = resolve_full_system_prompt(base, dirs).await;
         let git_status = get_git_summary(base).await;
@@ -97,6 +102,7 @@ impl ProjectContext {
             base_system_prompt,
             instruction_files,
             skills,
+            agents,
             active_tools,
             git_status,
             os_info,

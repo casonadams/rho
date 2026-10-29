@@ -116,6 +116,20 @@ fn test_find_hook_project_agents_directory() {
 
     let found = find_hook_in_paths("tool_call", project.path(), None);
     assert_eq!(found, Some(hook_file));
+
+    let claude_project = tempfile::tempdir().unwrap();
+    let claude_file = claude_project.path().join(".claude/hooks/on_turn_start");
+    std::fs::create_dir_all(claude_file.parent().unwrap()).unwrap();
+    std::fs::write(&claude_file, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&claude_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    assert_eq!(
+        find_hook_in_paths("turn_start", claude_project.path(), None),
+        Some(claude_file)
+    );
 }
 
 #[test]

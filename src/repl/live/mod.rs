@@ -49,10 +49,12 @@ async fn dispatch_live_message<B: TerminalBackend>(
     engine: &mut AgentEngine,
     message: QueuedMessage,
 ) -> Result<bool> {
-    editor
-        .history
-        .record(&message.text)
-        .map_err(|e| anyhow::anyhow!("History could not be updated: {e}"))?;
+    if message.kind != crate::ui::interactive::QueueKind::FollowUp {
+        editor
+            .history
+            .record(&message.text)
+            .map_err(|e| anyhow::anyhow!("History could not be updated: {e}"))?;
+    }
     let io = LiveIo {
         controller: io.controller,
         events: io.events,

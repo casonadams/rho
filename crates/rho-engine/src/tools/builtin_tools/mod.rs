@@ -32,7 +32,7 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
     let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
     let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
     let lsp = Arc::new(LspTool::new(base_dir));
-    let jobs = Arc::new(crate::tools::jobs::JobsTool::new());
+    let wait = Arc::new(crate::tools::wait::WaitTool::new());
 
     vec![
         read as Arc<dyn EngineTool>,
@@ -42,7 +42,7 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
         fd as Arc<dyn EngineTool>,
         rg as Arc<dyn EngineTool>,
         lsp as Arc<dyn EngineTool>,
-        jobs as Arc<dyn EngineTool>,
+        wait as Arc<dyn EngineTool>,
     ]
 }
 
@@ -90,7 +90,10 @@ pub fn build_native_builtin_tools_with_model(
             tools.push(Arc::new(fetch));
         }
     }
-    let subagent = Arc::new(crate::tools::subagent::SubagentTool::new(model, 0, tools.clone()));
+    let resolved_agents = rho_harness_core::agents::resolved_agents(Some(base_dir));
+    let agent_metas: Vec<_> = resolved_agents.into_iter().map(|a| a.metadata).collect();
+    let subagent =
+        Arc::new(crate::tools::subagent::SubagentTool::new(model, 0, tools.clone()).with_agents(agent_metas));
     tools.push(subagent as Arc<dyn EngineTool>);
     Ok(tools)
 }

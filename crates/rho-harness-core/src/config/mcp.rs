@@ -206,71 +206,62 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
 }
 
 pub fn global_mcp_path(config_dir: &Path) -> PathBuf {
-    let standard_candidate = dirs_fallback().join(".config").join("mcp").join("mcp.json");
-    if standard_candidate.is_file() {
-        return standard_candidate;
+    let candidates = [
+        dirs_fallback().join(".config").join("mcp").join("mcp.json"),
+        dirs_fallback().join(".agents").join("mcp.json"),
+        dirs_fallback().join(".claude").join("mcp.json"),
+        dirs_fallback().join(".claude.json"),
+        config_dir.join("mcp.json"),
+    ];
+    for path in &candidates {
+        if path.is_file() {
+            return path.clone();
+        }
     }
-    let agents_candidate = dirs_fallback().join(".agents").join("mcp.json");
-    if agents_candidate.is_file() {
-        return agents_candidate;
-    }
-    let config_candidate = config_dir.join("mcp.json");
-    if config_candidate.is_file() {
-        return config_candidate;
-    }
-    standard_candidate
+    candidates[0].clone()
 }
 
 pub fn local_mcp_path(workspace_dir: &Path) -> PathBuf {
-    let agents_candidate = workspace_dir.join(".agents").join("mcp.json");
-    if agents_candidate.is_file() {
-        return agents_candidate;
+    let candidates = [
+        workspace_dir.join(".agents").join("mcp.json"),
+        workspace_dir.join(".claude").join("mcp.json"),
+        workspace_dir.join(".mcp.json"),
+    ];
+    for path in &candidates {
+        if path.is_file() {
+            return path.clone();
+        }
     }
-    let candidate = workspace_dir.join(".mcp.json");
-    if candidate.is_file() {
-        return candidate;
+    candidates[0].clone()
+}
+
+fn load_first_mcp_candidate(candidates: &[PathBuf]) -> Result<Option<McpConfig>> {
+    for path in candidates {
+        if path.is_file() {
+            let content = std::fs::read_to_string(path)
+                .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", path.display())))?;
+            return parse_mcp_json_str(&content).map(Some);
+        }
     }
-    agents_candidate
+    Ok(None)
 }
 
 pub fn load_global_mcp_config(config_dir: &Path) -> Result<Option<McpConfig>> {
-    let standard_candidate = dirs_fallback().join(".config").join("mcp").join("mcp.json");
-    if standard_candidate.is_file() {
-        let content = std::fs::read_to_string(&standard_candidate)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", standard_candidate.display())))?;
-        return parse_mcp_json_str(&content).map(Some);
-    }
-    let agents_candidate = dirs_fallback().join(".agents").join("mcp.json");
-    if agents_candidate.is_file() {
-        let content = std::fs::read_to_string(&agents_candidate)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", agents_candidate.display())))?;
-        return parse_mcp_json_str(&content).map(Some);
-    }
-    let config_candidate = config_dir.join("mcp.json");
-    if config_candidate.is_file() {
-        let content = std::fs::read_to_string(&config_candidate)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", config_candidate.display())))?;
-        return parse_mcp_json_str(&content).map(Some);
-    }
-    Ok(None)
+    load_first_mcp_candidate(&[
+        dirs_fallback().join(".config").join("mcp").join("mcp.json"),
+        dirs_fallback().join(".agents").join("mcp.json"),
+        dirs_fallback().join(".claude").join("mcp.json"),
+        dirs_fallback().join(".claude.json"),
+        config_dir.join("mcp.json"),
+    ])
 }
 
 pub fn load_project_mcp_config(workspace_dir: &Path) -> Result<Option<McpConfig>> {
-    let agents_candidate = workspace_dir.join(".agents").join("mcp.json");
-    if agents_candidate.is_file() {
-        let content = std::fs::read_to_string(&agents_candidate)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", agents_candidate.display())))?;
-        return parse_mcp_json_str(&content).map(Some);
-    }
-
-    let candidate = workspace_dir.join(".mcp.json");
-    if candidate.is_file() {
-        let content = std::fs::read_to_string(&candidate)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", candidate.display())))?;
-        return parse_mcp_json_str(&content).map(Some);
-    }
-
-    Ok(None)
+    load_first_mcp_candidate(&[
+        workspace_dir.join(".agents").join("mcp.json"),
+        workspace_dir.join(".claude").join("mcp.json"),
+        workspace_dir.join(".mcp.json"),
+    ])
 }
 
 pub fn write_mcp_server_json(target_path: &Path, name: &str, server: &McpServerConfig) -> Result<()> {
@@ -475,7 +466,7 @@ mod tests {
     #[test]
     fn test_project_mcp_fallback_to_root() {
         let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::create_dir_all(temp_dir.join(".claude")).unwrap();
         std::fs::write(
             temp_dir.join(".mcp.json"),
             r#"{"mcpServers": {"root_srv": {"command": "echo"}}}"#,
@@ -485,6 +476,15 @@ mod tests {
         assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".mcp.json"));
         let config = load_project_mcp_config(&temp_dir).unwrap().unwrap();
         assert!(config.servers.contains_key("root_srv"));
+
+        std::fs::write(
+            temp_dir.join(".claude/mcp.json"),
+            r#"{"mcpServers": {"claude_srv": {"command": "echo"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".claude/mcp.json"));
+        let config_claude = load_project_mcp_config(&temp_dir).unwrap().unwrap();
+        assert!(config_claude.servers.contains_key("claude_srv"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

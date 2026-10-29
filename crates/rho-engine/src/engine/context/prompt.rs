@@ -91,6 +91,24 @@ fn append_skills(prompt: &mut String, skills: &[rho_harness_core::skills::SkillM
     prompt.push_str("</available_skills>\n\n");
 }
 
+fn append_agents(prompt: &mut String, agents: &[rho_harness_core::agents::AgentMetadata], active_tools: &[String]) {
+    if !active_tools.iter().any(|t| t == "subagent") || agents.is_empty() {
+        return;
+    }
+    prompt.push_str("The following custom subagents are available for delegated tasks via the subagent tool:\n");
+    prompt.push_str("<available_agents>\n");
+    for agent in agents {
+        prompt.push_str("  <agent>\n");
+        prompt.push_str(&format!("    <name>{}</name>\n", escape_xml(&agent.name)));
+        prompt.push_str(&format!(
+            "    <description>{}</description>\n",
+            escape_xml(&agent.description)
+        ));
+        prompt.push_str("  </agent>\n");
+    }
+    prompt.push_str("</available_agents>\n\n");
+}
+
 fn append_environment_info(prompt: &mut String, ctx: &ProjectContext) {
     let clean_cwd = ctx.current_dir.display().to_string().replace('\\', "/");
     prompt.push_str(&format!("Current working directory: {clean_cwd}\n\n"));
@@ -110,11 +128,10 @@ pub fn format_turn_prompt(prompt: &str, git_status: Option<&str>) -> String {
 }
 
 pub fn build_system_prompt(ctx: &ProjectContext) -> String {
-    let mut prompt = String::new();
-    prompt.push_str(ctx.base_system_prompt.trim());
-    prompt.push_str("\n\n");
+    let mut prompt = format!("{}\n\n", ctx.base_system_prompt.trim());
     append_instruction_files(&mut prompt, &ctx.instruction_files);
     append_skills(&mut prompt, &ctx.skills, &ctx.active_tools);
+    append_agents(&mut prompt, &ctx.agents, &ctx.active_tools);
     append_environment_info(&mut prompt, ctx);
     prompt
 }

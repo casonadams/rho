@@ -28,6 +28,7 @@ pub fn discover_instructions_with_seen(
 
     if let Some(home) = dirs.home_dir {
         load_candidate_instructions(&home.join(".agents"), &mut files, &mut seen);
+        load_candidate_instructions(&home.join(".claude"), &mut files, &mut seen);
     }
 
     let repo_root = find_repo_root(base);
@@ -92,6 +93,7 @@ pub fn find_repo_root(base: &Path) -> Option<PathBuf> {
 fn load_ancestry_instructions(dirs: &[PathBuf], files: &mut Vec<(String, String)>, seen: &mut HashSet<PathBuf>) {
     for dir in dirs {
         load_candidate_instructions(&dir.join(".agents"), files, seen);
+        load_candidate_instructions(&dir.join(".claude"), files, seen);
         load_candidate_instructions(dir, files, seen);
     }
 }
@@ -113,23 +115,46 @@ fn ancestry_chain(base: &Path, root: &Path) -> Vec<PathBuf> {
     }
 }
 
-fn load_candidate_instructions(dir: &Path, files: &mut Vec<(String, String)>, seen: &mut HashSet<PathBuf>) {
-    if !dir.exists() || !dir.is_dir() {
+fn load_single_instruction_file(
+    file_path: &Path,
+    dir: &Path,
+    files: &mut Vec<(String, String)>,
+    seen: &mut HashSet<PathBuf>,
+) {
+    if !file_path.is_file() {
         return;
     }
-    let candidates = ["AGENTS.md", "CLAUDE.md", ".cursorrules"];
+    let canonical = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
+    if seen.insert(canonical)
+        && let Ok(content) = std::fs::read_to_string(file_path)
+    {
+        let base_dir = file_path.parent().unwrap_or(dir);
+        let expanded = super::transclusion::expand_transclusions_with_root(&content, base_dir, Some(file_path));
+        files.push((file_path.display().to_string(), expanded.trim().to_string()));
+    }
+}
+
+fn load_candidate_instructions(dir: &Path, files: &mut Vec<(String, String)>, seen: &mut HashSet<PathBuf>) {
+    if !dir.is_dir() {
+        return;
+    }
+    let candidates = ["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", ".cursorrules"];
     for filename in candidates {
-        let file_path = dir.join(filename);
-        if !file_path.is_file() {
-            continue;
-        }
-        let canonical = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
-        if seen.insert(canonical)
-            && let Ok(content) = std::fs::read_to_string(&file_path)
-        {
-            let base_dir = file_path.parent().unwrap_or(dir);
-            let expanded = super::transclusion::expand_transclusions_with_root(&content, base_dir, Some(&file_path));
-            files.push((file_path.display().to_string(), expanded.trim().to_string()));
+        load_single_instruction_file(&dir.join(filename), dir, files, seen);
+    }
+
+    let rules_dir = dir.join("rules");
+    if rules_dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&rules_dir)
+    {
+        let mut paths: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
+            .collect();
+        paths.sort();
+        for file_path in paths {
+            load_single_instruction_file(&file_path, dir, files, seen);
         }
     }
 }

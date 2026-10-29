@@ -265,3 +265,30 @@ async fn test_ancestry_walk_up_with_global_and_transclusion() {
     assert_eq!(ctx.instruction_files[2].1, "# Leaf Engine Rules");
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
+
+#[tokio::test]
+async fn test_claude_instructions_and_rules_discovery() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("user_home");
+    let repo = tmp.path().join("repo_root");
+    let rules = repo.join(".claude").join("rules");
+
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::create_dir_all(&rules).unwrap();
+
+    std::fs::write(home.join(".claude/CLAUDE.md"), "# User Rules\n").unwrap();
+    std::fs::write(repo.join(".claude/CLAUDE.md"), "# Repo Rules\n").unwrap();
+    std::fs::write(rules.join("style.md"), "# Modular Style\n").unwrap();
+
+    let discovered = ProjectContext::discover_with_dirs(
+        &repo,
+        ContextDirs {
+            home_dir: Some(&home),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let titles: Vec<_> = discovered.instruction_files.iter().map(|(_, c)| c.as_str()).collect();
+    assert_eq!(titles, &["# User Rules", "# Repo Rules", "# Modular Style"]);
+}

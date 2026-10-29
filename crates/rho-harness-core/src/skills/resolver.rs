@@ -3,8 +3,8 @@ use super::types::{ResolvedSkill, SkillMetadata, SkillOrigin, SkillResolutionPat
 use std::path::{Path, PathBuf};
 
 /// Resolve every skill available to the session: declarative skills as `SKILL.md`
-/// files under user directory `~/.agents/skills` and project skill directories
-/// (`.agents/skills`, `skills`). Project skills replace user skills by name.
+/// files under user directory `~/.agents/skills` or `~/.claude/skills` and project skill directories
+/// (`.agents/skills`, `.claude/skills`, `skills`, `.claude/commands`). Project skills replace user skills by name.
 /// Skills carry readable content only and are never executed.
 pub fn resolved_skills(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     resolved_skills_with_home(project_dir, None)
@@ -58,13 +58,21 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
     let mut resolved: Vec<ResolvedSkill> = Vec::new();
 
     if let Some(home_path) = paths.home_dir {
+        scan_directory(&home_path.join(".claude/commands"), SkillOrigin::User, &mut resolved);
+        scan_directory(&home_path.join(".claude/skills"), SkillOrigin::User, &mut resolved);
         scan_directory(&home_path.join(".agents/skills"), SkillOrigin::User, &mut resolved);
     }
     if let Some(project_dir) = paths.project_dir {
+        scan_directory(&project_dir.join("skills"), SkillOrigin::Project, &mut resolved);
         if paths.home_dir != Some(project_dir) {
+            scan_directory(
+                &project_dir.join(".claude/commands"),
+                SkillOrigin::Project,
+                &mut resolved,
+            );
+            scan_directory(&project_dir.join(".claude/skills"), SkillOrigin::Project, &mut resolved);
             scan_directory(&project_dir.join(".agents/skills"), SkillOrigin::Project, &mut resolved);
         }
-        scan_directory(&project_dir.join("skills"), SkillOrigin::Project, &mut resolved);
     }
     resolved.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
     resolved
@@ -77,7 +85,11 @@ pub fn is_skill_path(path: &Path) -> bool {
     if file_name.eq_ignore_ascii_case("SKILL.md") {
         return true;
     }
-    path.extension().is_some_and(|ext| ext == "md") && path.components().any(|c| c.as_os_str() == "skills")
+    path.extension().is_some_and(|ext| ext == "md")
+        && path.components().any(|c| {
+            let s = c.as_os_str();
+            s == "skills" || s == "commands"
+        })
 }
 
 fn skill_file_for_entry(path: &Path) -> Option<PathBuf> {

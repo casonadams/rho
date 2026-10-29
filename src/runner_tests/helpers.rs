@@ -17,10 +17,11 @@ pub fn test_engine(model: Arc<MockAdapter>, app_config: Config) -> AgentEngine {
     let sessions_dir = dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir).unwrap();
     let session_manager = SessionManager::new(&sessions_dir, None).unwrap();
-    let app_config = Config {
+    let mut app_config = Config {
         sessions_dir,
         ..app_config
     };
+    app_config.permission.enabled = false;
     test_engine_with_session(model, app_config, Some(session_manager))
 }
 

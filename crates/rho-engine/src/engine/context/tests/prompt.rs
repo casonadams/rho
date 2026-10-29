@@ -224,3 +224,35 @@ fn test_escape_xml() {
         "a &amp; b &lt; c &gt; d &quot; e &apos; f"
     );
 }
+
+#[tokio::test]
+async fn system_prompt_renders_available_agents() {
+    use rho_harness_core::agents::AgentMetadata;
+
+    let temp = std::env::temp_dir().join(format!("test_agents_prompt_{}", uuid::Uuid::new_v4()));
+    let _ = tokio::fs::create_dir_all(&temp).await;
+    let mut ctx = ProjectContext::discover_with_dirs(
+        &temp,
+        ContextDirs {
+            active_tools: Some(&["subagent".to_string()]),
+            ..Default::default()
+        },
+    )
+    .await;
+    ctx.agents = vec![AgentMetadata {
+        name: "code-reviewer".to_string(),
+        description: "Reviews code changes".to_string(),
+        location: ".claude/agents/code-reviewer.md".to_string(),
+        tools: None,
+        disallowed_tools: None,
+        model: None,
+        max_turns: None,
+        system_prompt: "Review code".to_string(),
+    }];
+
+    let prompt = ctx.build_system_prompt();
+    assert!(prompt.contains("<available_agents>"));
+    assert!(prompt.contains("<name>code-reviewer</name>"));
+    assert!(prompt.contains("<description>Reviews code changes</description>"));
+    let _ = tokio::fs::remove_dir_all(temp).await;
+}

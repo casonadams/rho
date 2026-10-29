@@ -159,6 +159,47 @@ async fn test_subagent_as_dynamic_tool() {
 }
 
 #[tokio::test]
+async fn test_subagent_custom_agent_execution() {
+    use rho_harness_core::agents::AgentMetadata;
+
+    let model = Arc::new(TestModel {
+        answer: "Code reviewer: Clean code, no issues found".into(),
+    });
+    let custom_agent = AgentMetadata {
+        name: "code-reviewer".to_string(),
+        description: "Reviews code diffs".to_string(),
+        location: ".claude/agents/code-reviewer.md".to_string(),
+        tools: Some(vec!["read".to_string(), "fd".to_string()]),
+        disallowed_tools: Some(vec!["bash".to_string()]),
+        model: Some("claude-3-5-sonnet".to_string()),
+        max_turns: Some(8),
+        system_prompt: "You are a code reviewer.".to_string(),
+    };
+
+    let subagent = Arc::new(SubagentTool::new(Some(model.clone()), 0, Vec::new()).with_agents(vec![custom_agent]));
+
+    assert!(subagent.description().contains("code-reviewer"));
+
+    // 1. Invoking via explicit "agent" parameter
+    let args_agent = json!({
+        "agent": "code-reviewer",
+        "prompt": "Review PR 42"
+    });
+    let res = subagent.execute(args_agent).await.unwrap();
+    assert!(!res.is_error);
+    assert_eq!(res.content, "Code reviewer: Clean code, no issues found");
+
+    // 2. Invoking via "role" matching custom agent name
+    let args_role = json!({
+        "role": "code-reviewer",
+        "prompt": "Review PR 42"
+    });
+    let res = subagent.execute(args_role).await.unwrap();
+    assert!(!res.is_error);
+    assert_eq!(res.content, "Code reviewer: Clean code, no issues found");
+}
+
+#[tokio::test]
 async fn test_subagent_runner_budget_exhaustion_scenarios() {
     let ok_runner = SubagentRunner::new(
         Arc::new(TestModel {

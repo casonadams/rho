@@ -29,6 +29,7 @@ pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) 
 pub struct SubagentRunner {
     model: ModelHandle,
     role: SubagentRole,
+    custom_preamble: Option<String>,
     tools: Vec<Arc<dyn EngineTool>>,
     max_turns: usize,
 }
@@ -81,6 +82,18 @@ impl SubagentRunner {
         Self {
             model,
             role,
+            custom_preamble: None,
+            tools,
+            max_turns,
+        }
+    }
+
+    #[must_use]
+    pub fn new_custom(model: ModelHandle, preamble: String, tools: Vec<Arc<dyn EngineTool>>, max_turns: usize) -> Self {
+        Self {
+            model,
+            role: SubagentRole::General,
+            custom_preamble: Some(preamble),
             tools,
             max_turns,
         }
@@ -97,9 +110,12 @@ impl SubagentRunner {
         }
 
         let full_prompt = build_subagent_prompt(prompt, context_slice);
+        let instructions = self
+            .custom_preamble
+            .as_deref()
+            .unwrap_or_else(|| self.role.system_instructions());
         let preamble = format!(
-            "{}\n\nYou have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final findings.",
-            self.role.system_instructions(),
+            "{instructions}\n\nYou have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final findings.",
             self.max_turns
         );
 

@@ -28,9 +28,10 @@ impl BashArgs {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct JobsArgs {
-    /// Optional specific background job ID to query (if omitted, lists all background jobs)
-    pub job_id: Option<String>,
+pub struct WaitArgs {
+    /// Optional timeout in seconds to wait for background jobs (default: 300)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
@@ -238,12 +239,18 @@ impl std::str::FromStr for SubagentRole {
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SubagentArgs {
     /// Role profile for the subagent ('scout', 'critic', 'planner', 'general')
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<SubagentRole>,
+    /// Custom subagent name to invoke (e.g. defined in .claude/agents/ or .agents/agents/)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     /// Task prompt or instructions for the subagent to execute
     pub prompt: String,
     /// Optional context slice or snippet to prime the subagent
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_slice: Option<String>,
     /// Maximum turn count for the subagent (default: 10, max: 20)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<usize>,
 }
 

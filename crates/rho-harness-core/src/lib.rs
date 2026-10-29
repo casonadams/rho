@@ -18,6 +18,7 @@
 //! See `ARCHITECTURE.md` at the repository root for the full map.
 
 pub mod agent_mesh;
+pub mod agents;
 pub mod args;
 pub mod auth;
 pub mod collab;

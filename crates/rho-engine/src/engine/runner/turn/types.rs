@@ -46,10 +46,17 @@ pub trait SteeringQueueProvider: Send + Sync {
 static BACKGROUND_NOTIFICATIONS: std::sync::LazyLock<std::sync::Mutex<Vec<String>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
+static BACKGROUND_NOTIF_TX: std::sync::LazyLock<tokio::sync::broadcast::Sender<String>> =
+    std::sync::LazyLock::new(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(64);
+        tx
+    });
+
 pub fn enqueue_background_notification(notification: String) {
     if let Ok(mut lock) = BACKGROUND_NOTIFICATIONS.lock() {
-        lock.push(notification);
+        lock.push(notification.clone());
     }
+    let _ = BACKGROUND_NOTIF_TX.send(notification);
 }
 
 pub fn drain_background_notifications() -> Vec<String> {
@@ -58,6 +65,10 @@ pub fn drain_background_notifications() -> Vec<String> {
     } else {
         Vec::new()
     }
+}
+
+pub fn subscribe_background_notifications() -> tokio::sync::broadcast::Receiver<String> {
+    BACKGROUND_NOTIF_TX.subscribe()
 }
 
 pub struct TurnRequest<'a> {

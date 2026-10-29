@@ -15,6 +15,8 @@ fn load_project_prompts(cwd: &Path, target: &mut BTreeMap<String, PromptTemplate
     let project_prompts = cwd.join("prompts");
     load_templates_from_dir(&project_prompts, "project", target);
     if is_distinct_project_dir(cwd) {
+        let project_dot_claude = cwd.join(".claude").join("prompts");
+        load_templates_from_dir(&project_dot_claude, "project", target);
         let project_dot_agents = cwd.join(".agents").join("prompts");
         load_templates_from_dir(&project_dot_agents, "project", target);
     }
@@ -29,6 +31,7 @@ fn load_user_prompts(
         load_templates_from_dir(&config_dir.join("prompts"), "user", target);
     }
     if let Some(home_dir) = home_dir {
+        load_templates_from_dir(&home_dir.join(".claude").join("prompts"), "user", target);
         load_templates_from_dir(&home_dir.join(".agents").join("prompts"), "user", target);
     }
 }
@@ -55,6 +58,8 @@ async fn load_project_prompts_async(cwd: &Path, target: &mut BTreeMap<String, Pr
     let project_prompts = cwd.join("prompts");
     load_templates_from_dir_async(&project_prompts, "project", target).await;
     if is_distinct_project_dir(cwd) {
+        let project_dot_claude = cwd.join(".claude").join("prompts");
+        load_templates_from_dir_async(&project_dot_claude, "project", target).await;
         let project_dot_agents = cwd.join(".agents").join("prompts");
         load_templates_from_dir_async(&project_dot_agents, "project", target).await;
     }
@@ -69,6 +74,7 @@ async fn load_user_prompts_async(
         load_templates_from_dir_async(&cfg.join("prompts"), "user", target).await;
     }
     if let Some(home) = home_dir {
+        load_templates_from_dir_async(&home.join(".claude").join("prompts"), "user", target).await;
         load_templates_from_dir_async(&home.join(".agents").join("prompts"), "user", target).await;
     }
 }

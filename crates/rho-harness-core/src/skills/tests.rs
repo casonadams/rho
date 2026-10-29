@@ -254,8 +254,69 @@ fn test_is_skill_path() {
     assert!(is_skill_path(Path::new("SKILL.md")));
     assert!(is_skill_path(Path::new("skill.md")));
     assert!(is_skill_path(Path::new(".agents/skills/deploy.md")));
+    assert!(is_skill_path(Path::new(".claude/skills/deploy/SKILL.md")));
+    assert!(is_skill_path(Path::new(".claude/commands/test.md")));
     assert!(is_skill_path(Path::new("skills/lint.md")));
     assert!(!is_skill_path(Path::new("README.md")));
     assert!(!is_skill_path(Path::new("src/skills/mod.rs")));
     assert!(!is_skill_path(Path::new("docs/skills.txt")));
+}
+
+#[test]
+fn claude_skills_and_commands_discovered_with_precedence() {
+    let fixture = fixture();
+    // User claude command
+    std::fs::create_dir_all(fixture.home_dir.join(".claude/commands")).unwrap();
+    std::fs::write(
+        fixture.home_dir.join(".claude/commands/user-cmd.md"),
+        "---\ndescription: User claude command\n---\n# User command\n",
+    )
+    .unwrap();
+
+    // User claude skill
+    write_skill(
+        &fixture.home_dir.join(".claude/skills"),
+        "user-skill",
+        "---\nname: user-skill\ndescription: User claude skill\n---\n# User claude skill\n",
+    );
+
+    // Project claude command
+    std::fs::create_dir_all(fixture.project_dir.join(".claude/commands")).unwrap();
+    std::fs::write(
+        fixture.project_dir.join(".claude/commands/proj-cmd.md"),
+        "---\ndescription: Project claude command\n---\n# Proj command\n",
+    )
+    .unwrap();
+
+    // Project claude skill overridden by .agents/skills
+    write_skill(
+        &fixture.project_dir.join(".claude/skills"),
+        "shared-skill",
+        "---\nname: shared-skill\ndescription: From claude dir\n---\n# Claude\n",
+    );
+    write_skill(
+        &fixture.project_dir.join(".agents/skills"),
+        "shared-skill",
+        "---\nname: shared-skill\ndescription: From agents dir\n---\n# Agents\n",
+    );
+
+    let paths = SkillResolutionPaths {
+        project_dir: Some(&fixture.project_dir),
+        home_dir: Some(&fixture.home_dir),
+    };
+    let resolved = resolved_skills_for_paths(paths);
+
+    let user_cmd = resolved.iter().find(|s| s.metadata.name == "user-cmd").unwrap();
+    assert_eq!(user_cmd.origin, SkillOrigin::User);
+    assert_eq!(user_cmd.metadata.description, "User claude command");
+
+    let user_skill = resolved.iter().find(|s| s.metadata.name == "user-skill").unwrap();
+    assert_eq!(user_skill.origin, SkillOrigin::User);
+
+    let proj_cmd = resolved.iter().find(|s| s.metadata.name == "proj-cmd").unwrap();
+    assert_eq!(proj_cmd.origin, SkillOrigin::Project);
+
+    let shared = resolved.iter().find(|s| s.metadata.name == "shared-skill").unwrap();
+    assert_eq!(shared.origin, SkillOrigin::Project);
+    assert_eq!(shared.metadata.description, "From agents dir");
 }

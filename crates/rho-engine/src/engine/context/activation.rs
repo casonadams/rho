@@ -65,6 +65,7 @@ fn walk_path_instructions(ctx: &mut ProjectContext, walk_root: &Path, canonical_
     for component in rel.components() {
         curr.push(component);
         load_candidate_instructions(&curr.join(".agents"), ctx);
+        load_candidate_instructions(&curr.join(".claude"), ctx);
         load_candidate_instructions(&curr, ctx);
     }
 }
@@ -153,6 +154,25 @@ fn load_candidate_instructions(dir: &Path, ctx: &mut ProjectContext) {
             || !try_load_candidate(&dir.join(filename), dir, ctx)
         {
             return;
+        }
+    }
+    let rules_dir = dir.join("rules");
+    if rules_dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&rules_dir)
+    {
+        let mut paths: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
+            .collect();
+        paths.sort();
+        for file_path in paths {
+            if ctx.dynamic_instructions_count >= MAX_DYNAMIC_INSTRUCTION_FILES
+                || ctx.dynamic_instructions_bytes >= MAX_DYNAMIC_INSTRUCTION_BYTES
+                || !try_load_candidate(&file_path, dir, ctx)
+            {
+                return;
+            }
         }
     }
 }

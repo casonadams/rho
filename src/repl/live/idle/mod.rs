@@ -23,6 +23,7 @@ struct IdleUi {
     batch: LiveBatch,
     frame: tokio::time::Interval,
     quota_rx: tokio::sync::watch::Receiver<u64>,
+    bg_rx: tokio::sync::broadcast::Receiver<String>,
 }
 
 impl IdleUi {
@@ -33,6 +34,7 @@ impl IdleUi {
             batch: LiveBatch::new(),
             frame,
             quota_rx: engine.quota_subscribe(),
+            bg_rx: crate::engine::runner::turn::types::subscribe_background_notifications(),
         }
     }
 }
@@ -48,6 +50,7 @@ enum IdleSource {
     Input(Option<std::io::Result<Event>>),
     CollabCommand(rho_harness_core::collab::CollabIncomingCommand),
     CollabPeer(rho_harness_core::collab::CollabPeerEvent),
+    BackgroundNotification(String),
 }
 
 async fn wait_quota(rx: &mut tokio::sync::watch::Receiver<u64>) {
@@ -74,6 +77,10 @@ async fn wait_collab_peer(
     }
 }
 
+async fn wait_bg_notif(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Option<String> {
+    rx.recv().await.ok()
+}
+
 async fn next_idle_step(
     ui: &mut IdleUi,
     input: &mut super::TerminalInputReader,
@@ -83,6 +90,7 @@ async fn next_idle_step(
     tokio::select! {
         biased;
         event = input.recv() => IdleSource::Input(event),
+        Some(notif) = wait_bg_notif(&mut ui.bg_rx) => IdleSource::BackgroundNotification(notif),
         Some(cmd) = wait_collab_cmd(collab) => IdleSource::CollabCommand(cmd),
         Some(pe) = wait_collab_peer(collab) => IdleSource::CollabPeer(pe),
         _ = wait_quota(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
@@ -202,6 +210,15 @@ fn handle_collab_idle_peer<B: TerminalBackend>(
     Ok(IdleStepOutcome::Continue)
 }
 
+fn handle_bg_notification(session: &mut crate::repl::ReplSession, notif: String) -> Result<IdleStepOutcome> {
+    crate::engine::runner::turn::types::drain_background_notifications();
+    session.renderer.print_notice("\n● Background job completed\n");
+    Ok(IdleStepOutcome::Message(QueuedMessage {
+        text: notif,
+        kind: crate::ui::interactive::QueueKind::FollowUp,
+    }))
+}
+
 async fn handle_idle_step_source<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     batch: &mut LiveBatch,
@@ -224,6 +241,7 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             Ok(msg.map_or(IdleStepOutcome::Continue, IdleStepOutcome::Message))
         }
         IdleSource::CollabPeer(pe) => handle_collab_idle_peer(controller, batch, ctx.session, ctx.engine, pe),
+        IdleSource::BackgroundNotification(notif) => handle_bg_notification(ctx.session, notif),
     }
 }
 
@@ -361,5 +379,14 @@ mod tests {
             .await
             .unwrap();
         assert!(batch.ui.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_wait_bg_notif_channels() {
+        let (tx, mut rx) = tokio::sync::broadcast::channel(2);
+        tx.send("notif".to_string()).unwrap();
+        assert_eq!(wait_bg_notif(&mut rx).await, Some("notif".to_string()));
+        drop(tx);
+        assert_eq!(wait_bg_notif(&mut rx).await, None);
     }
 }
