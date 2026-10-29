@@ -104,7 +104,7 @@ impl SseParser {
         (call, signature): (StreamFunctionCall, Option<String>),
         events: &mut SseEvents,
     ) {
-        let _sig = signature.or_else(|| self.reasoning_signature.take());
+        let sig = signature.or_else(|| self.reasoning_signature.take());
         self.close_reasoning();
         let sanitized = sanitize_tool_call_id(call.id.as_deref().unwrap_or_default());
         let id = if call.id.as_deref().is_some_and(|id| !id.is_empty()) {
@@ -114,10 +114,9 @@ impl SseParser {
             self.next_minted_tool += 1;
             format!("call-{index}")
         };
-        events.push(Ok(ModelStreamEvent::ToolCall(ToolCall::new(
-            id,
-            ToolFunction::new(call.name, call.args),
-        ))));
+        let mut tool_call = ToolCall::new(id, ToolFunction::new(call.name, call.args));
+        tool_call.signature = sig;
+        events.push(Ok(ModelStreamEvent::ToolCall(tool_call)));
     }
 
     fn handle_part_thought(&mut self, text: String, signature: Option<String>, events: &mut SseEvents) {

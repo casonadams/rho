@@ -9,7 +9,7 @@ use crate::tools::EngineTool;
 use futures::Stream;
 use futures::StreamExt;
 use rho_harness_core::error::AppError;
-use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall};
+use rho_harness_core::model::{AssistantContent, ChatMessage, Reasoning, ToolCall};
 use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::session::SessionManager;
 use std::pin::Pin;
@@ -141,6 +141,7 @@ impl AgentRunner {
 #[derive(Default)]
 struct TurnStreamOutcome {
     text: String,
+    reasoning: String,
     tool_calls: Vec<ToolCall>,
     usage: StructuralUsage,
     finish_reason: Option<FinishReason>,
@@ -158,10 +159,12 @@ async fn stream_single_event(
                 .await
                 .is_ok()
         }
-        ModelStreamEvent::Reasoning(r) => tx
-            .send(Ok(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(r))))
-            .await
-            .is_ok(),
+        ModelStreamEvent::Reasoning(r) => {
+            outcome.reasoning.push_str(&r);
+            tx.send(Ok(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(r))))
+                .await
+                .is_ok()
+        }
         ModelStreamEvent::ToolCall(tc) => {
             let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
             let _ = tx
@@ -426,6 +429,20 @@ async fn dispatch_tool_calls(
     Ok(())
 }
 
+fn build_assistant_message(outcome: &TurnStreamOutcome) -> ChatMessage {
+    let mut content = Vec::new();
+    if !outcome.reasoning.is_empty() {
+        content.push(AssistantContent::Reasoning(Reasoning::new(&outcome.reasoning)));
+    }
+    if !outcome.text.is_empty() {
+        content.push(AssistantContent::text(&outcome.text));
+    }
+    for call in &outcome.tool_calls {
+        content.push(AssistantContent::ToolCall(call.clone()));
+    }
+    ChatMessage::Assistant { id: None, content }
+}
+
 async fn execute_agent_step(
     runner: &AgentRunner,
     turn: usize,
@@ -460,10 +477,11 @@ async fn execute_agent_step(
     ctx.all_completion_calls.push(completion_call.clone());
     let _ = tx.send(Ok(MultiTurnStreamItem::CompletionCall(completion_call))).await;
 
+    let asst = build_assistant_message(&outcome);
+    ctx.current_messages.push(asst.clone());
+    ctx.new_turn_messages.push(asst);
+
     if outcome.tool_calls.is_empty() {
-        let asst = ChatMessage::assistant(outcome.text.clone());
-        ctx.current_messages.push(asst.clone());
-        ctx.new_turn_messages.push(asst);
         let resp = PromptResponse {
             output: outcome.text,
             usage: *ctx.total_usage,
@@ -472,20 +490,6 @@ async fn execute_agent_step(
         };
         return Ok(StepExecutionResult::Complete(resp));
     }
-
-    let mut asst_content = Vec::new();
-    if !outcome.text.is_empty() {
-        asst_content.push(AssistantContent::text(outcome.text.clone()));
-    }
-    for call in outcome.tool_calls.clone() {
-        asst_content.push(AssistantContent::ToolCall(call));
-    }
-    let asst = ChatMessage::Assistant {
-        id: None,
-        content: asst_content,
-    };
-    ctx.current_messages.push(asst.clone());
-    ctx.new_turn_messages.push(asst);
 
     dispatch_tool_calls(&outcome.tool_calls, runner, ctx, tx).await?;
     check_steering(runner.steering.as_ref(), ctx.current_messages, ctx.new_turn_messages).await;

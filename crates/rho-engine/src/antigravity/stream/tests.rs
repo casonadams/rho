@@ -64,3 +64,44 @@ fn sse_parser_surfaces_in_band_error_chunks() {
         other => panic!("expected provider error, got {other:?}"),
     }
 }
+
+#[test]
+fn sse_parser_attaches_thought_signature_to_tool_call() {
+    let mut parser = SseParser::new();
+    let sse = concat!(
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"plan\",\"thought\":true,\"thoughtSignature\":\"sig-123\"}]}}]}}\n\n",
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"bash\",\"args\":{\"command\":\"ls\"},\"id\":\"call-0\"}}]},\"finishReason\":\"STOP\"}]}}\n\n"
+    );
+    let events = parser.feed(sse.as_bytes());
+    assert_eq!(events.len(), 4);
+    if let Ok(ModelStreamEvent::ToolCall(call)) = &events[1] {
+        assert_eq!(call.signature.as_deref(), Some("sig-123"));
+    } else {
+        panic!("expected tool call with signature, got {:?}", events[1]);
+    }
+    assert!(matches!(&events[3], Ok(ModelStreamEvent::Finish(_))));
+}
+
+#[test]
+fn sse_parser_does_not_leak_signature_to_secondary_tool_calls() {
+    let mut parser = SseParser::new();
+    let sse = concat!(
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"plan\",\"thought\":true,\"thoughtSignature\":\"sig-123\"}]}}]}}\n\n",
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"bash\",\"args\":{\"command\":\"ls\"},\"id\":\"call-0\"}},{\"functionCall\":{\"name\":\"grep\",\"args\":{\"pattern\":\"foo\"},\"id\":\"call-1\"}}]},\"finishReason\":\"STOP\"}]}}\n\n"
+    );
+    let events = parser.feed(sse.as_bytes());
+    assert_eq!(events.len(), 5);
+    if let Ok(ModelStreamEvent::ToolCall(call)) = &events[1] {
+        assert_eq!(call.function.name, "bash");
+        assert_eq!(call.signature.as_deref(), Some("sig-123"));
+    } else {
+        panic!("expected tool call with signature, got {:?}", events[1]);
+    }
+    if let Ok(ModelStreamEvent::ToolCall(call)) = &events[2] {
+        assert_eq!(call.function.name, "grep");
+        assert_eq!(call.signature.as_deref(), None);
+    } else {
+        panic!("expected secondary tool call without signature, got {:?}", events[2]);
+    }
+    assert!(matches!(&events[4], Ok(ModelStreamEvent::Finish(_))));
+}

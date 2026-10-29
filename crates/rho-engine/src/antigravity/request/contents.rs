@@ -162,11 +162,13 @@ fn convert_antigravity_assistant_part(
             }
         }
         AssistantContent::ToolCall(call) => {
-            let sig = if ctx.requires_sig && *is_first_call {
-                Some(SKIP_THOUGHT_SIGNATURE.to_string())
-            } else {
-                None
-            };
+            let sig = call.signature.clone().or_else(|| {
+                if ctx.requires_sig && *is_first_call {
+                    Some(SKIP_THOUGHT_SIGNATURE.to_string())
+                } else {
+                    None
+                }
+            });
             *is_first_call = false;
             Some(Part {
                 function_call: Some(FunctionCall {
