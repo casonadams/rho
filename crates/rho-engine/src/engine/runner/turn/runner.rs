@@ -92,7 +92,7 @@ impl AgentRunner {
             cancellation: None,
             working_dir,
             quality_gate_enabled: true,
-            max_quality_gate_retries: 2,
+            max_quality_gate_retries: 3,
         }
     }
 
@@ -588,8 +588,11 @@ async fn evaluate_quality_gate(runner: &AgentRunner, ctx: &mut RunnerStepContext
     runner.sink.resume_spinner_with_message("thinking...");
 
     if let Some(feedback) = gate_res {
+        let attempt = *ctx.quality_gate_retries + 1;
+        let max_attempts = runner.max_quality_gate_retries;
         *ctx.quality_gate_retries += 1;
-        let feedback_msg = ChatMessage::user(feedback);
+        let content = format!("{feedback}\n\n[Quality Gate Attempt {attempt} of {max_attempts}]");
+        let feedback_msg = ChatMessage::user(content);
         ctx.current_messages.push(feedback_msg.clone());
         ctx.new_turn_messages.push(feedback_msg);
         return true;
