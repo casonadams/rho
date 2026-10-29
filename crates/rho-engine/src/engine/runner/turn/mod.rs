@@ -1,7 +1,6 @@
 mod completion;
 mod prepare;
 pub(crate) mod prune;
-pub(crate) mod quality;
 pub mod runner;
 mod stream;
 mod streaming_tool;

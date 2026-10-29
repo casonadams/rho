@@ -207,8 +207,7 @@ impl AgentEngine {
             .budget(params.budget)
             .stream_port(params.stream_port)
             .steering(request.steering.clone())
-            .working_dir(self.base_dir.clone())
-            .quality_gate(self.config.quality_gate);
+            .working_dir(self.base_dir.clone());
 
         if let Some(pending) = params.checkpoint {
             let combined = continuation_history(params.history, pending);

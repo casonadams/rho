@@ -80,8 +80,6 @@ pub(crate) struct FileConfig {
     pub models: ModelsConfig,
     #[serde(default)]
     pub tools: Option<ToolsConfigFile>,
-    #[serde(default)]
-    pub quality_gate: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

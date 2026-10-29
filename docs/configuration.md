@@ -252,20 +252,6 @@ When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from
 - **Multimodal Visual Analysis & PDF Fallback**: Intercepts direct image URLs (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.gif`) and generates structured Markdown summaries, OCR transcriptions, and GFM data tables using Gemini 2.5 Flash. When native text extraction of scanned or complex PDFs fails or produces low-confidence text (< 50 characters on documents $\ge$ 10 KB), `web_fetch` automatically falls back to Gemini multimodal extraction. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY` (or `rho login gemini`). Set `format = "multimodal"` or `format = "image"` in tool arguments to force multimodal analysis on any document or image.
 Pass `format = "html"` to bypass specialized extraction and perform raw HTML scraping.
 
----
-
-## Static Quality Completion Gate
-
-`rho` includes an in-process static verification gate powered by [`ripwire-rs`](https://crates.io/crates/ripwire-rs) that prevents agents from completing tasks when changes introduce code quality regressions, broken signatures, or untested blast radius.
-
-```toml
-# Enable/disable static quality verification upon agent completion (default: true)
-quality_gate = true
-```
-
-For full details on cognitive complexity thresholds, signature contract verification, and the push-back retry loop, see the [Static Quality Gate Guide](quality-gate.md).
-
----
 
 ## System Instructions (`AGENTS.md`)
 

@@ -59,8 +59,6 @@ pub struct Config {
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub auth_file: PathBuf,
-    #[serde(default = "default_true")]
-    pub quality_gate: bool,
 }
 
 macro_rules! default_config_literal {
@@ -106,7 +104,6 @@ macro_rules! default_config_literal {
             sessions_dir: $base_dir.join("sessions"),
             auth_file: $base_dir.join("auth.json"),
             config_dir: $base_dir,
-            quality_gate: true,
         }
     };
 }

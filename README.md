@@ -103,13 +103,6 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Context budget tool gating (`direct` vs `gateway` vs `auto`), `/mcp` TUI modal, and `rho mcp` management suite.
   - One-shot lifecycle hooks in `.agents/hooks/` for deterministic policy enforcement, tool gating, argument rewriting, and turn control without background daemons.
 
-- **[Static Quality Completion Gate](docs/quality-gate.md)**
-  - In-process static code verification powered by [`ripwire-rs`](https://crates.io/crates/ripwire-rs) directly in Rust.
-  - Automatically intercepts completion attempts to evaluate cognitive complexity ($\le 15$), nesting depth ($\le 4$), parameter counts ($\le 5$), dead code, AST clones, and defect shapes.
-  - Verifies public signature contracts and detects incompatible 1-hop callers across the workspace.
-  - Checks untested blast radius against affected unit and integration tests.
-  - Rejection push-back loop: sends the agent back to work with line-accurate diagnostic feedback for up to 3 turns until code quality standards pass.
-
 - **Collab (Peer-to-Peer Live Pairing)**
   - Share active sessions terminal-to-terminal over end-to-end encrypted QUIC powered by [Iroh](https://iroh.computer).
   - Capability-based cryptographic isolation: full interactive co-pilot vs. read-only spectator.

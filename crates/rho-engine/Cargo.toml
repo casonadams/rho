@@ -49,7 +49,6 @@ streaming-iterator = "0.1"
 toml.workspace = true
 toml_edit.workspace = true
 iroh.workspace = true
-ripwire-rs.workspace = true
 
 [features]
 default = []
