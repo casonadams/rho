@@ -290,7 +290,7 @@ pub fn check_completion_quality(working_dir: &Path) -> Option<String> {
     let root_str = working_dir.to_str()?;
     let dirty_files = check_dirty_files(root_str)?;
 
-    let workspace = Workspace::load(root_str)?;
+    let workspace = Workspace::load_uncached(root_str)?;
     let sources = FileSources {
         root: Path::new(root_str),
     };
