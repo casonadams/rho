@@ -53,6 +53,7 @@ pub struct AgentRunner {
     sink: Arc<TerminalApprovalSink>,
     repeat_tracker: RepeatedCallTracker,
     lifecycle: Option<Arc<LifecycleHook>>,
+    permission: Option<Arc<crate::permission::PermissionHook>>,
     stream_port: Option<ToolStreamPort>,
     steering: Option<Arc<dyn SteeringQueueProvider>>,
 }
@@ -80,6 +81,7 @@ impl AgentRunner {
             sink,
             repeat_tracker: RepeatedCallTracker::new(working_dir),
             lifecycle: None,
+            permission: None,
             stream_port: None,
             steering: None,
         }
@@ -107,6 +109,11 @@ impl AgentRunner {
 
     pub fn lifecycle(mut self, lifecycle: Option<Arc<LifecycleHook>>) -> Self {
         self.lifecycle = lifecycle;
+        self
+    }
+
+    pub fn permission(mut self, permission: Option<Arc<crate::permission::PermissionHook>>) -> Self {
+        self.permission = permission;
         self
     }
 
@@ -204,37 +211,117 @@ struct ToolExecutionContext<'a> {
     sink: &'a Arc<TerminalApprovalSink>,
     repeat_tracker: &'a mut RepeatedCallTracker,
     lifecycle: Option<&'a Arc<LifecycleHook>>,
+    permission: Option<&'a Arc<crate::permission::PermissionHook>>,
 }
 
-async fn execute_single_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> ChatMessage {
+enum DispatchDecision {
+    Proceed(serde_json::Value),
+    Deny(ChatMessage),
+    Stop(ChatMessage, String),
+}
+
+async fn evaluate_tool_dispatch(
+    call: &ToolCall,
+    lifecycle: Option<&Arc<LifecycleHook>>,
+    permission: Option<&Arc<crate::permission::PermissionHook>>,
+) -> DispatchDecision {
+    let mut args = call.function.arguments.clone();
+    if let Some(lifecycle) = lifecycle {
+        match lifecycle.on_tool_dispatch(&call.function.name, &args).await {
+            ToolDispatchAction::Stop(reason) => {
+                let msg = ChatMessage::User {
+                    content: vec![rho_harness_core::model::UserContent::ToolResult(
+                        rho_harness_core::model::ToolResult::new(
+                            call.id.clone(),
+                            call.function.name.clone(),
+                            format!("Stopped by hook: {reason}"),
+                        ),
+                    )],
+                };
+                return DispatchDecision::Stop(msg, reason);
+            }
+            ToolDispatchAction::Deny(reason) => {
+                let msg = ChatMessage::User {
+                    content: vec![rho_harness_core::model::UserContent::ToolResult(
+                        rho_harness_core::model::ToolResult::new(
+                            call.id.clone(),
+                            call.function.name.clone(),
+                            format!("Denied by hook: {reason}"),
+                        ),
+                    )],
+                };
+                return DispatchDecision::Deny(msg);
+            }
+            ToolDispatchAction::RewriteArgs(new_args) => args = new_args,
+            ToolDispatchAction::Proceed => {}
+        }
+    }
+
+    if let Some(permission) = permission {
+        match permission.check_permission(&call.function.name, &args).await {
+            crate::permission::hook::PermissionAction::Deny(reason) => {
+                let msg = ChatMessage::User {
+                    content: vec![rho_harness_core::model::UserContent::ToolResult(
+                        rho_harness_core::model::ToolResult::new(
+                            call.id.clone(),
+                            call.function.name.clone(),
+                            format!("Permission denied: {reason}"),
+                        ),
+                    )],
+                };
+                return DispatchDecision::Deny(msg);
+            }
+            crate::permission::hook::PermissionAction::RewriteArgs(new_args) => args = new_args,
+            crate::permission::hook::PermissionAction::Proceed => {}
+        }
+    }
+
+    DispatchDecision::Proceed(args)
+}
+
+async fn apply_tool_outcome_hooks(
+    lifecycle: Option<&Arc<LifecycleHook>>,
+    tool_name: &str,
+    args: &serde_json::Value,
+    output: &mut String,
+    is_error: bool,
+) -> Option<String> {
+    let lifecycle = lifecycle?;
+    match lifecycle.on_tool_outcome(tool_name, args, output, is_error).await {
+        crate::hook::ToolOutcomeAction::Proceed => None,
+        crate::hook::ToolOutcomeAction::RewriteResult(new_output) => {
+            *output = new_output;
+            None
+        }
+        crate::hook::ToolOutcomeAction::Stop(reason) => Some(reason),
+    }
+}
+
+async fn execute_single_tool_call(
+    call: &ToolCall,
+    ctx: &mut ToolExecutionContext<'_>,
+) -> (ChatMessage, Option<String>) {
     if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
-        return ChatMessage::User {
-            content: vec![rho_harness_core::model::UserContent::ToolResult(
-                rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), msg),
-            )],
-        };
+        return (
+            ChatMessage::User {
+                content: vec![rho_harness_core::model::UserContent::ToolResult(
+                    rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), msg),
+                )],
+            },
+            None,
+        );
     }
 
-    if let Some(lifecycle) = ctx.lifecycle
-        && let ToolDispatchAction::Deny(reason) = lifecycle
-            .on_tool_dispatch(&call.function.name, &call.function.arguments)
-            .await
-    {
-        return ChatMessage::User {
-            content: vec![rho_harness_core::model::UserContent::ToolResult(
-                rho_harness_core::model::ToolResult::new(
-                    call.id.clone(),
-                    call.function.name.clone(),
-                    format!("Denied by hook: {reason}"),
-                ),
-            )],
-        };
-    }
+    let effective_args = match evaluate_tool_dispatch(call, ctx.lifecycle, ctx.permission).await {
+        DispatchDecision::Proceed(args) => args,
+        DispatchDecision::Deny(msg) => return (msg, None),
+        DispatchDecision::Stop(msg, reason) => return (msg, Some(reason)),
+    };
 
-    ctx.sink.tool_start(&call.function.name, &call.function.arguments);
+    ctx.sink.tool_start(&call.function.name, &effective_args);
     let tool_opt = ctx.tools.iter().find(|t| t.name() == call.function.name);
-    let (output, is_error) = match tool_opt {
-        Some(t) => match t.execute(call.function.arguments.clone()).await {
+    let (mut output, is_error) = match tool_opt {
+        Some(t) => match t.execute(effective_args.clone()).await {
             Ok(r) => (r.content, r.is_error),
             Err(e) => (format!("Error: {e}"), true),
         },
@@ -243,22 +330,28 @@ async fn execute_single_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContex
 
     ctx.sink.tool_finished(crate::engine::runner::sink::ToolFinishDetails {
         name: &call.function.name,
-        arguments: &call.function.arguments,
+        arguments: &effective_args,
         output: &output,
         is_error,
     });
 
-    if let Some(lifecycle) = ctx.lifecycle {
-        let _ = lifecycle
-            .on_tool_outcome(&call.function.name, &call.function.arguments, &output, is_error)
-            .await;
-    }
+    let stop_reason = apply_tool_outcome_hooks(
+        ctx.lifecycle,
+        &call.function.name,
+        &effective_args,
+        &mut output,
+        is_error,
+    )
+    .await;
 
-    ChatMessage::User {
-        content: vec![rho_harness_core::model::UserContent::ToolResult(
-            rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), output),
-        )],
-    }
+    (
+        ChatMessage::User {
+            content: vec![rho_harness_core::model::UserContent::ToolResult(
+                rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), output),
+            )],
+        },
+        stop_reason,
+    )
 }
 
 async fn check_steering(
@@ -300,6 +393,32 @@ struct RunnerStepContext<'a> {
 enum StepExecutionResult {
     Complete(PromptResponse),
     Continue,
+}
+
+async fn dispatch_tool_calls(
+    outcome_calls: &[ToolCall],
+    runner: &AgentRunner,
+    ctx: &mut RunnerStepContext<'_>,
+    tx: &tokio::sync::mpsc::Sender<Result<MultiTurnStreamItem, AppError>>,
+) -> Result<(), AppError> {
+    let mut exec_ctx = ToolExecutionContext {
+        tools: &runner.tools,
+        sink: &runner.sink,
+        repeat_tracker: ctx.repeat_tracker,
+        lifecycle: runner.lifecycle.as_ref(),
+        permission: runner.permission.as_ref(),
+    };
+
+    for call in outcome_calls {
+        let (res_msg, stop_reason) = execute_single_tool_call(call, &mut exec_ctx).await;
+        ctx.current_messages.push(res_msg.clone());
+        ctx.new_turn_messages.push(res_msg);
+        let _ = tx.send(Ok(MultiTurnStreamItem::ToolExecutionCommitted)).await;
+        if let Some(reason) = stop_reason {
+            return Err(AppError::Cancelled(reason));
+        }
+    }
+    Ok(())
 }
 
 async fn execute_agent_step(
@@ -363,20 +482,7 @@ async fn execute_agent_step(
     ctx.current_messages.push(asst.clone());
     ctx.new_turn_messages.push(asst);
 
-    let mut exec_ctx = ToolExecutionContext {
-        tools: &runner.tools,
-        sink: &runner.sink,
-        repeat_tracker: ctx.repeat_tracker,
-        lifecycle: runner.lifecycle.as_ref(),
-    };
-
-    for call in &outcome.tool_calls {
-        let res_msg = execute_single_tool_call(call, &mut exec_ctx).await;
-        ctx.current_messages.push(res_msg.clone());
-        ctx.new_turn_messages.push(res_msg);
-        let _ = tx.send(Ok(MultiTurnStreamItem::ToolExecutionCommitted)).await;
-    }
-
+    dispatch_tool_calls(&outcome.tool_calls, runner, ctx, tx).await?;
     check_steering(runner.steering.as_ref(), ctx.current_messages, ctx.new_turn_messages).await;
     Ok(StepExecutionResult::Continue)
 }

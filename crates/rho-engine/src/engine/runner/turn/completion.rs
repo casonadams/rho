@@ -143,6 +143,18 @@ impl AgentEngine {
         let usage = self.record_turn_usage(&response, generation_elapsed_ms).await?;
         let (status, terminal_status) = determine_turn_status(&response);
         let metrics = self.finalize_turn_summary(&response, terminal_status).await?;
+
+        let lifecycle_hook = crate::hook::LifecycleHook::new(
+            self.base_dir.clone(),
+            self.session_manager.session_id.clone(),
+            std::sync::Arc::new(rho_harness_core::presentation::StructuredPresenter::recording(
+                Default::default(),
+            )),
+        );
+        lifecycle_hook
+            .notify_turn_end(&format!("{terminal_status:?}"), tool_calls_count)
+            .await;
+
         Ok(assemble_turn_output(
             (response, &completed_tools, tool_calls_count),
             (usage, status, metrics),

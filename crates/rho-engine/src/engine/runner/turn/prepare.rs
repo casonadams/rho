@@ -231,6 +231,28 @@ impl AgentEngine {
             .and_then(|s| s.current_model())
             .unwrap_or_else(|| self.config.model.clone());
 
+        let cwd = self.base_dir.clone();
+        let lifecycle_hook = Arc::new(crate::hook::LifecycleHook::new(
+            cwd.clone(),
+            self.session_manager.session_id.clone(),
+            presenter.clone(),
+        ));
+        lifecycle_hook.notify_turn_start(&loop_state.current_prompt).await;
+
+        let permission_hook = if self.config.permission.enabled {
+            let mut perm = crate::permission::PermissionHook::new(Some(cwd), presenter.clone());
+            let auth_store = self.auth_store.lock().await;
+            if let Ok(Some(guard_model)) =
+                crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store)
+            {
+                perm = perm.with_guard(crate::permission::guard::GuardEvaluator::new(guard_model));
+            }
+            drop(auth_store);
+            Some(Arc::new(perm))
+        } else {
+            None
+        };
+
         let runner = self
             .build_turn_runner(
                 TurnRunnerParams {
@@ -244,7 +266,9 @@ impl AgentEngine {
                 sink.clone(),
                 request,
             )
-            .await;
+            .await
+            .lifecycle(Some(lifecycle_hook))
+            .permission(permission_hook);
 
         Ok((runner, active_model))
     }

@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub enum ToolDispatchAction {
     Proceed,
     Deny(String),
+    Stop(String),
     RewriteArgs(serde_json::Value),
 }
 
@@ -120,7 +121,7 @@ impl LifecycleHook {
 
         match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
             Ok(HookAction::Continue) => ToolDispatchAction::Proceed,
-            Ok(HookAction::Stop { reason }) => ToolDispatchAction::Deny(reason),
+            Ok(HookAction::Stop { reason }) => ToolDispatchAction::Stop(reason),
             Ok(HookAction::Skip { reason }) => ToolDispatchAction::Deny(reason),
             Ok(HookAction::RewriteArgs { args }) => ToolDispatchAction::RewriteArgs(args),
             Ok(HookAction::Ask { message }) => {
