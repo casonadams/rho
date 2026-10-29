@@ -490,7 +490,7 @@ async fn wait_for_background_jobs(runner: &AgentRunner, ctx: &mut RunnerStepCont
         return Ok(false);
     }
 
-    runner.sink.resume_spinner_with_message("waiting for background job...");
+    runner.sink.resume_spinner_with_message("waiting...");
     let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
 
     while crate::tools::jobs::JobManager::global().has_running() {
