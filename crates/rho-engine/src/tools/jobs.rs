@@ -156,28 +156,58 @@ impl crate::tools::engine_tool::EngineTool for JobsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::engine_tool::EngineTool;
+
+    fn done(exit_code: i32, output: &str) -> JobStatus {
+        JobStatus::Completed {
+            exit_code,
+            output: output.into(),
+        }
+    }
 
     #[test]
     fn test_job_manager_lifecycle() {
         let mgr = JobManager::new();
-        mgr.register("job-1".to_string(), "echo test".to_string());
-        assert_eq!(mgr.get("job-1").unwrap().status, JobStatus::Running);
+        mgr.register("j1".into(), "echo 1".into());
+        assert_eq!(mgr.get("j1").unwrap().status, JobStatus::Running);
+        mgr.update_status("j1", done(0, "ok"));
+        assert_eq!(mgr.get("j1").unwrap().status, done(0, "ok"));
+    }
 
-        mgr.update_status(
-            "job-1",
-            JobStatus::Completed {
-                exit_code: 0,
-                output: "test\n".to_string(),
-            },
-        );
+    #[tokio::test]
+    async fn test_jobs_tool_execute() {
+        let tool = JobsTool::new();
+        assert_eq!(tool.name(), "jobs");
+        assert!(!tool.description().is_empty());
+        let _ = tool.parameters();
+        assert!(!tool.execute(serde_json::json!({})).await.unwrap().is_error);
+        assert!(tool.execute(serde_json::json!({"job_id": 1})).await.unwrap().is_error);
+        assert!(tool.execute(serde_json::json!({"job_id": "x"})).await.unwrap().is_error);
 
-        let job = mgr.get("job-1").unwrap();
-        assert_eq!(
-            job.status,
-            JobStatus::Completed {
-                exit_code: 0,
-                output: "test\n".to_string()
-            }
-        );
+        JobManager::global().register("gj-1".into(), "cmd".into());
+        let check = || tool.execute(serde_json::json!({"job_id": "gj-1"}));
+        assert!(check().await.unwrap().content.contains("RUNNING"));
+        JobManager::global().update_status("gj-1", done(0, "ok"));
+        assert!(check().await.unwrap().content.contains("COMPLETED"));
+        JobManager::global().update_status("gj-1", JobStatus::Failed { error: "e".into() });
+        assert!(check().await.unwrap().content.contains("FAILED"));
+    }
+
+    #[test]
+    fn test_format_jobs_list() {
+        assert!(format_jobs_list(&[]).content.contains("No background jobs"));
+        let make_job = |id: &str, status| BackgroundJobInfo {
+            id: id.into(),
+            command: "c".into(),
+            started_at: std::time::Instant::now(),
+            status,
+        };
+        let jobs = vec![
+            make_job("j1", JobStatus::Running),
+            make_job("j2", done(0, "")),
+            make_job("j3", JobStatus::Failed { error: "e".into() }),
+        ];
+        let res = format_jobs_list(&jobs);
+        assert!(res.content.contains("RUNNING") && res.content.contains("COMPLETED") && res.content.contains("FAILED"));
     }
 }
