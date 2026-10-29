@@ -27,13 +27,6 @@ impl BashArgs {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct WaitArgs {
-    /// Optional timeout in seconds to wait for background jobs (default: 300)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<u64>,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct EditReplacement {
     /// Exact text in the file to replace (must match exactly once)

@@ -89,4 +89,7 @@ pub(crate) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     apply_model_cli_overrides(config, c);
     apply_limit_cli_overrides(config, c);
     apply_prompt_cli_overrides(config, c);
+    if !c.hook_dir.is_empty() {
+        config.hook_dirs.extend(c.hook_dir.clone());
+    }
 }

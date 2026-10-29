@@ -12,27 +12,43 @@ pub enum RunStatus {
 
 pub type UsageDetails = StructuralUsage;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct CancellationSignal {
+    inner: std::sync::Arc<CancellationSignalInner>,
+}
+
+#[derive(Default)]
+struct CancellationSignalInner {
     cancelled: AtomicBool,
     interrupted: AtomicBool,
+    notify: tokio::sync::Notify,
 }
 
 impl CancellationSignal {
+    fn set_flag(&self, flag: &AtomicBool) {
+        flag.store(true, Ordering::Relaxed);
+        self.inner.notify.notify_waiters();
+    }
+
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
+        self.set_flag(&self.inner.cancelled);
     }
     pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        self.inner.cancelled.load(Ordering::Relaxed)
     }
     pub fn interrupt_stream(&self) {
-        self.interrupted.store(true, Ordering::Relaxed);
+        self.set_flag(&self.inner.interrupted);
     }
     pub fn is_interrupted(&self) -> bool {
-        self.interrupted.load(Ordering::Relaxed)
+        self.inner.interrupted.load(Ordering::Relaxed)
     }
     pub fn reset_interrupted(&self) {
-        self.interrupted.store(false, Ordering::Relaxed);
+        self.inner.interrupted.store(false, Ordering::Relaxed);
+    }
+    pub async fn wait_cancelled(&self) {
+        while !self.is_cancelled() {
+            self.inner.notify.notified().await;
+        }
     }
 }
 
@@ -202,4 +218,21 @@ pub struct TurnOutput {
     pub usage: Option<UsageDetails>,
     pub status: RunStatus,
     pub metrics: RunMetrics,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cancellation_signal_notify() {
+        let sig = CancellationSignal::default();
+        let clone = sig.clone();
+        let h = tokio::spawn(async move {
+            clone.wait_cancelled().await;
+            true
+        });
+        sig.cancel();
+        assert!(sig.is_cancelled() && h.await.unwrap());
+    }
 }

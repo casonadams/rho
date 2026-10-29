@@ -41,17 +41,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                 || t.starts_with("mcp__")
                 || (!matches!(
                     t.as_str(),
-                    "bash"
-                        | "wait"
-                        | "read"
-                        | "write"
-                        | "edit"
-                        | "fd"
-                        | "rg"
-                        | "lsp"
-                        | "web_search"
-                        | "web_fetch"
-                        | "subagent"
+                    "bash" | "read" | "write" | "edit" | "fd" | "rg" | "lsp" | "web_search" | "web_fetch" | "subagent"
                 ))
         });
         if has_specialized {
@@ -62,9 +52,9 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
         out.push("Use read to examine files instead of cat or sed");
     }
     append_mutation_guidelines(active_tools, out);
-    if active_tools.iter().any(|t| t == "wait") {
+    if active_tools.iter().any(|t| t == "bash") {
         out.push(
-            "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; continue other productive work, call wait only if completely blocked, or end your turn to wait for the completion signal",
+            "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; continue other productive work or end your turn to wait for the completion signal",
         );
     }
 }

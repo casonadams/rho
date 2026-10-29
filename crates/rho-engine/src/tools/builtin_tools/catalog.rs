@@ -54,14 +54,6 @@ Usage:
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
 
-pub static PROMPT_WAIT: &str = "\
-Wait only when blocked with nothing else to do.
-
-Usage:
-- Call with no arguments to pause and await the first background result.
-- Returns the completed job output the moment it finishes.
-- Results auto-deliver upon completion; NEVER poll with sleep or run busy loops while work remains.";
-
 pub static PROMPT_BASH: &str = "\
 Execute bash commands in the current working directory.
 
@@ -184,19 +176,6 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
             "Commands run directly in the working directory; do not prefix commands with cd",
         ],
         schema: generated_schema::<BashArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "wait",
-        capability: BuiltinToolKind::ReadOnly,
-        description: "Wait for the next background job to complete (only when blocked with nothing else to do).",
-        prompt: PROMPT_WAIT,
-        prompt_snippet: Some(
-            "Wait for the next background job to complete (only when blocked with nothing else to do)",
-        ),
-        prompt_guidelines: &[
-            "Results auto-deliver; NEVER poll with sleep; call wait only when blocked with nothing else to do",
-        ],
-        schema: generated_schema::<rho_harness_core::args::WaitArgs>,
     },
     BuiltinToolDeclaration {
         name: "fd",

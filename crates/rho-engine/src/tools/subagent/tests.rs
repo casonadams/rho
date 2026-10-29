@@ -243,3 +243,25 @@ fn test_prepare_history_for_recovery() {
     assert_eq!(sanitized.len(), 1);
     assert_eq!(sanitized[0], valid_msg);
 }
+
+#[tokio::test]
+async fn test_dispatch_subagent_tool_calls() {
+    let calls = vec![ToolCall::new("call_1", ToolFunction::new("unknown_tool", json!({})))];
+    let res = runner::dispatch_subagent_tool_calls(&calls, &[]).await;
+    assert_eq!(res.len(), 1);
+    match &res[0] {
+        ChatMessage::User { content } => match &content[0] {
+            rho_harness_core::model::UserContent::ToolResult(tr) => {
+                match &tr.content[0] {
+                    rho_harness_core::model::ToolResultContent::Text(t) => {
+                        assert!(t.text.contains("Unknown tool 'unknown_tool'"));
+                    }
+                    _ => panic!("Expected text content"),
+                }
+                assert_eq!(tr.call, "call_1");
+            }
+            _ => panic!("Expected ToolResult"),
+        },
+        _ => panic!("Expected User message"),
+    }
+}

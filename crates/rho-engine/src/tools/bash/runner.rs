@@ -22,7 +22,7 @@ fn setup_command_child(
 
 pub fn format_background_notice(job_id: &str) -> String {
     format!(
-        "Backgrounded as job '{job_id}'; its output is injected into the conversation as a follow-up the moment it finishes. Do NOT poll for it (no `sleep`, `ps`, `pgrep`, `top`): every poll is a wasted turn. Continue other work, call `wait` if blocked, or end your reply and wait to be woken."
+        "Backgrounded as job '{job_id}'; its output is injected into the conversation as a follow-up the moment it finishes. Do NOT poll for it (no `sleep`, `ps`, `pgrep`, `top`): every poll is a wasted turn. Continue other work, or conclude your response to wait for the completion signal."
     )
 }
 
@@ -40,9 +40,9 @@ fn dispatch_background_task(
                 let snapshot = acc.snapshot();
                 let output = snapshot.formatted_text.trim().to_string();
                 let exit_code = exit_status.code().unwrap_or(-1);
-                crate::tools::wait::JobManager::global().update_status(
+                crate::tools::jobs::JobManager::global().update_status(
                     &job_id,
-                    crate::tools::wait::JobStatus::Completed {
+                    crate::tools::jobs::JobStatus::Completed {
                         exit_code,
                         output: output.clone(),
                     },
@@ -52,8 +52,8 @@ fn dispatch_background_task(
                 ));
             }
             Err(e) => {
-                crate::tools::wait::JobManager::global()
-                    .update_status(&job_id, crate::tools::wait::JobStatus::Failed { error: e.to_string() });
+                crate::tools::jobs::JobManager::global()
+                    .update_status(&job_id, crate::tools::jobs::JobStatus::Failed { error: e.to_string() });
                 crate::engine::runner::turn::types::enqueue_background_notification(format!(
                     "<system-notice>\nBackground job '{job_id}' failed: {e}.\nResume your work using the results above.\n</system-notice>"
                 ));
@@ -165,7 +165,7 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
     }
 
     let job_id = format!("bash-{}", uuid::Uuid::new_v4().simple());
-    crate::tools::wait::JobManager::global().register(job_id.clone(), ctx.args.command.clone());
+    crate::tools::jobs::JobManager::global().register(job_id.clone(), ctx.args.command.clone());
     let command_str = ctx.args.command.clone();
     dispatch_background_task(ctx.cmd, ctx.rx, ctx.acc, job_id.clone());
 
@@ -221,7 +221,7 @@ where
             Err(e) => return Ok(e),
         };
         let job_id = format!("bash-{}", uuid::Uuid::new_v4().simple());
-        crate::tools::wait::JobManager::global().register(job_id.clone(), args.command.clone());
+        crate::tools::jobs::JobManager::global().register(job_id.clone(), args.command.clone());
         let command_str = args.command.clone();
         let acc = OutputAccumulator::new();
         dispatch_background_task(cmd, rx, acc, job_id.clone());

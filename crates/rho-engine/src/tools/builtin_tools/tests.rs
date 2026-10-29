@@ -2,17 +2,14 @@ use super::*;
 
 #[test]
 fn builtin_tools_build_successfully() {
-    let root = std::env::temp_dir();
-    let config = Config::default();
-    let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 11);
+    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default()).unwrap();
+    assert_eq!(tools.len(), 10);
     let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    for expected in [
+    for exp in [
         "read",
         "write",
         "edit",
         "bash",
-        "wait",
         "fd",
         "rg",
         "lsp",
@@ -20,77 +17,45 @@ fn builtin_tools_build_successfully() {
         "web_fetch",
         "subagent",
     ] {
-        assert!(names.contains(&expected));
+        assert!(names.contains(&exp));
     }
 }
 
 #[test]
-fn builtin_tools_omits_web_search_when_disabled() {
-    let root = std::env::temp_dir();
+fn builtin_tools_web_flags_control_inclusion() {
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
-    let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 10);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    assert!(!names.contains(&"web_search"));
-    assert!(names.contains(&"web_fetch"));
-}
+    let search_off = build_builtin_tools(&std::env::temp_dir(), &config).unwrap();
+    assert!(search_off.iter().all(|t| t.name() != "web_search"));
+    assert!(search_off.iter().any(|t| t.name() == "web_fetch"));
 
-#[test]
-fn builtin_tools_omits_web_fetch_when_disabled() {
-    let root = std::env::temp_dir();
-    let mut config = Config::default();
+    config.tools.web.search.enabled = true;
     config.tools.web.fetch.enabled = false;
-    let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 10);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    assert!(names.contains(&"web_search"));
-    assert!(!names.contains(&"web_fetch"));
-}
+    let fetch_off = build_builtin_tools(&std::env::temp_dir(), &config).unwrap();
+    assert!(fetch_off.iter().any(|t| t.name() == "web_search"));
+    assert!(fetch_off.iter().all(|t| t.name() != "web_fetch"));
 
-#[test]
-fn builtin_tools_omits_both_web_tools_when_disabled() {
-    let root = std::env::temp_dir();
-    let mut config = Config::default();
     config.tools.web.search.enabled = false;
-    config.tools.web.fetch.enabled = false;
-    let tools = build_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 9);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    assert!(!names.contains(&"web_search"));
-    assert!(!names.contains(&"web_fetch"));
+    let both_off = build_builtin_tools(&std::env::temp_dir(), &config).unwrap();
+    assert!(
+        both_off
+            .iter()
+            .all(|t| t.name() != "web_search" && t.name() != "web_fetch")
+    );
 }
 
 #[test]
 fn native_builtin_tools_build_successfully() {
-    let root = std::env::temp_dir();
-    let config = Config::default();
-    let tools = build_native_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 11);
-    let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
-    for expected in [
-        "read",
-        "write",
-        "edit",
-        "bash",
-        "wait",
-        "fd",
-        "rg",
-        "lsp",
-        "web_search",
-        "web_fetch",
-        "subagent",
-    ] {
-        assert!(names.contains(&expected));
-    }
+    let tools = build_native_builtin_tools(&std::env::temp_dir(), &Config::default()).unwrap();
+    assert_eq!(tools.len(), 10);
+    assert!(tools.iter().any(|t| t.name() == "bash"));
 }
 
 #[test]
 fn native_builtin_tools_omits_web_when_disabled() {
-    let root = std::env::temp_dir();
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
-    let tools = build_native_builtin_tools(&root, &config).unwrap();
-    assert_eq!(tools.len(), 9);
+    let tools = build_native_builtin_tools(&std::env::temp_dir(), &config).unwrap();
+    assert_eq!(tools.len(), 8);
 }

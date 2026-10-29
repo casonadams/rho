@@ -103,16 +103,19 @@ impl TerminalApprovalSink {
         }
     }
 
-    pub fn resume_model_spinner(&self) {
-        if self.state.lock().is_ok_and(|state| state.spinner.is_some()) {
-            return;
-        }
+    pub fn resume_spinner_with_message(&self, message: &str) {
         self.flush_reasoning();
         self.presenter.flush();
-        if let Ok(mut state) = self.state.lock()
-            && state.spinner.is_none()
-        {
-            state.spinner = Some(self.presenter.start_spinner("thinking..."));
+        if let Ok(mut state) = self.state.lock() {
+            disarm_spinner(&mut state);
+            state.spinner = Some(self.presenter.start_spinner(message));
+        }
+    }
+
+    pub fn resume_model_spinner(&self) {
+        let has_spinner = self.state.lock().is_ok_and(|s| s.spinner.is_some());
+        if !has_spinner {
+            self.resume_spinner_with_message("thinking...");
         }
     }
 

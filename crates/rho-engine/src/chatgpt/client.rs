@@ -367,6 +367,23 @@ mod tests {
         assert_eq!(json_body["stream"], true);
     }
 
+    #[test]
+    fn test_convert_chatgpt_user_content() {
+        let content = vec![
+            rho_harness_core::model::UserContent::text("hello"),
+            rho_harness_core::model::UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
+                "call-1",
+                "bash",
+                "output text",
+            )),
+        ];
+        let items = convert_chatgpt_user(&content);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["type"], "message");
+        assert_eq!(items[1]["type"], "function_call_output");
+        assert_eq!(items[1]["call_id"], "call-1");
+    }
+
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;

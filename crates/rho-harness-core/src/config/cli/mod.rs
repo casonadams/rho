@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::path::PathBuf;
 
 #[cfg(test)]
 mod alignment_tests;
@@ -57,6 +58,10 @@ pub struct Cli {
     /// Set session display name
     #[arg(short = 'n', long = "name")]
     pub name: Option<String>,
+
+    /// Additional directory to load lifecycle hooks from (repeatable, additive)
+    #[arg(long = "hook-dir", env = "RHO_HOOK_DIR")]
+    pub hook_dir: Vec<PathBuf>,
 
     /// Export session to HTML or Markdown file and exit
     #[arg(long = "export")]

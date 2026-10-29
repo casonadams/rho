@@ -47,6 +47,7 @@ clean: ## Clean cargo build artifacts
 .PHONY: coverage
 coverage: ## Generate LCOV test coverage trace (uses nextest when available)
 	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; \
+	$(CARGO) llvm-cov clean --profraw-only 2>/dev/null || true; \
 	if $(CARGO) nextest --version >/dev/null 2>&1; then \
 		$(CARGO) llvm-cov nextest --workspace --no-report && $(CARGO) llvm-cov report --workspace --lcov --output-path target/lcov.info; \
 	else \

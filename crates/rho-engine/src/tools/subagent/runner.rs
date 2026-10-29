@@ -48,24 +48,31 @@ fn create_assistant_tool_message(content: &str, calls: &[ToolCall]) -> ChatMessa
     }
 }
 
-async fn dispatch_subagent_tool_calls(calls: &[ToolCall], tools: &[Arc<dyn EngineTool>]) -> Vec<ChatMessage> {
-    let mut result_messages = Vec::new();
+async fn execute_subagent_call(call: &ToolCall, tools: &[Arc<dyn EngineTool>]) -> ChatMessage {
+    let tool = tools.iter().find(|t| t.name() == call.function.name);
+    let output = match tool {
+        Some(t) => match t.execute(call.function.arguments.clone()).await {
+            Ok(res) => res.content,
+            Err(e) => format!("Error: {e}"),
+        },
+        None => format!("Error: Unknown tool '{}'", call.function.name),
+    };
+    ChatMessage::User {
+        content: vec![UserContent::ToolResult(DomainToolResult::new(
+            call.id.clone(),
+            call.function.name.clone(),
+            output,
+        ))],
+    }
+}
+
+pub(crate) async fn dispatch_subagent_tool_calls(
+    calls: &[ToolCall],
+    tools: &[Arc<dyn EngineTool>],
+) -> Vec<ChatMessage> {
+    let mut result_messages = Vec::with_capacity(calls.len());
     for call in calls {
-        let tool = tools.iter().find(|t| t.name() == call.function.name);
-        let (output, _is_error) = match tool {
-            Some(t) => match t.execute(call.function.arguments.clone()).await {
-                Ok(res) => (res.content, res.is_error),
-                Err(e) => (format!("Error: {e}"), true),
-            },
-            None => (format!("Error: Unknown tool '{}'", call.function.name), true),
-        };
-        result_messages.push(ChatMessage::User {
-            content: vec![UserContent::ToolResult(DomainToolResult::new(
-                call.id.clone(),
-                call.function.name.clone(),
-                output,
-            ))],
-        });
+        result_messages.push(execute_subagent_call(call, tools).await);
     }
     result_messages
 }

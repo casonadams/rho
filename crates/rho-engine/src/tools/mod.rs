@@ -9,6 +9,7 @@ pub mod builtin_tools;
 pub mod edit;
 pub mod engine_tool;
 pub mod fd;
+pub mod jobs;
 pub mod lsp;
 pub mod read;
 pub mod registry;
@@ -17,7 +18,6 @@ pub mod subagent;
 pub(crate) mod traversal;
 pub mod truncate;
 pub mod types;
-pub mod wait;
 pub mod web;
 pub mod write;
 
@@ -29,6 +29,7 @@ pub use builtin_tools::{
 pub use edit::{EditArgs, EditTool};
 pub use engine_tool::{EngineTool, GenericTool};
 pub use fd::{FdArgs, FdSort, FdTool};
+pub use jobs::{BackgroundJobInfo, JobManager, JobStatus};
 pub use lsp::LspTool;
 pub use read::{ReadArgs, ReadTool};
 pub use registry::ToolRegistry;
@@ -37,7 +38,6 @@ pub use rho_harness_core::args::{LspArgs, WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
 pub use types::{ToolResult, generated_schema, normalize_schema};
-pub use wait::{BackgroundJobInfo, JobManager, JobStatus, WaitTool};
 pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };

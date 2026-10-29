@@ -208,3 +208,32 @@ fn test_find_hook_requires_executable_bit_on_unix() {
     let found = find_hook_in_paths("tool_call", project.path(), None);
     assert_eq!(found, None);
 }
+
+#[cfg(unix)]
+#[test]
+fn test_find_all_hooks_is_additive_with_hook_dirs() {
+    use std::os::unix::fs::PermissionsExt;
+    let project = tempfile::tempdir().unwrap();
+    let project_hooks = project.path().join(".agents").join("hooks");
+    std::fs::create_dir_all(&project_hooks).unwrap();
+    let project_hook = project_hooks.join("turn_end");
+    std::fs::write(&project_hook, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&project_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let extra_dir = tempfile::tempdir().unwrap();
+    let extra_hook = extra_dir.path().join("turn_end");
+    std::fs::write(&extra_hook, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&extra_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let hook = LifecycleHook::new(
+        project.path().to_path_buf(),
+        "s1",
+        Arc::new(crate::engine::eval::presenter::NoopPresenter),
+    )
+    .with_hook_dirs(vec![extra_dir.path().to_path_buf()]);
+
+    let all = hook.find_all_hooks("turn_end");
+    assert_eq!(all.len(), 2, "both extra hook-dir and project hook are found");
+    assert_eq!(all[0], extra_hook);
+    assert_eq!(all[1], project_hook);
+}

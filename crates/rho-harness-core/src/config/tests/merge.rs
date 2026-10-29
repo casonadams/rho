@@ -93,6 +93,7 @@ fn sample_cli_override(model: &str, turns: usize) -> cli::Cli {
         no_context_files: false,
         no_permission: false,
         command: None,
+        hook_dir: Vec::new(),
     }
 }
 
