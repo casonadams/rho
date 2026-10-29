@@ -32,6 +32,7 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
     let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
     let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
     let lsp = Arc::new(LspTool::new(base_dir));
+    let jobs = Arc::new(crate::tools::jobs::JobsTool::new());
 
     vec![
         read as Arc<dyn EngineTool>,
@@ -41,6 +42,7 @@ fn build_workspace_native_tools(base_dir: &Path, _config: &Config) -> Vec<Arc<dy
         fd as Arc<dyn EngineTool>,
         rg as Arc<dyn EngineTool>,
         lsp as Arc<dyn EngineTool>,
+        jobs as Arc<dyn EngineTool>,
     ]
 }
 

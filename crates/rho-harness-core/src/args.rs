@@ -10,7 +10,27 @@ pub struct BashArgs {
     /// Command to execute
     pub command: String,
     /// Timeout in seconds (default: 30)
+    #[serde(default)]
     pub timeout: Option<u64>,
+    /// Run command directly in background without waiting for completion (default: false)
+    #[serde(default)]
+    pub background: Option<bool>,
+}
+
+impl BashArgs {
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            timeout: None,
+            background: None,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct JobsArgs {
+    /// Optional specific background job ID to query (if omitted, lists all background jobs)
+    pub job_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]

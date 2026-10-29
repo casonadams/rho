@@ -109,6 +109,7 @@ async fn test_bash_preserves_error_message_at_end_of_large_output() {
         .execute(BashArgs {
             command: "seq 1 5000; echo 'CRITICAL_FAILURE_AT_END'".to_string(),
             timeout: Some(10),
+            background: None,
         })
         .await
         .unwrap();
@@ -129,6 +130,7 @@ async fn test_bash_streaming_receives_chunks() {
             BashArgs {
                 command: "echo 'first'; echo 'second'".to_string(),
                 timeout: Some(5),
+                background: None,
             },
             move |chunk| {
                 r_clone.lock().unwrap().push(chunk.to_string());
@@ -150,6 +152,7 @@ async fn test_bash_echo() {
         .execute(BashArgs {
             command: "echo 'hello from bash'".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -165,6 +168,7 @@ async fn test_bash_nonzero_exit() {
         .execute(BashArgs {
             command: "exit 42".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -180,6 +184,7 @@ async fn test_bash_timeout() {
         .execute(BashArgs {
             command: "sleep 3".to_string(),
             timeout: Some(1),
+            background: None,
         })
         .await
         .unwrap();
@@ -199,6 +204,7 @@ async fn test_bash_timeout_kills_process_group() {
         .execute(BashArgs {
             command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
             timeout: Some(1),
+            background: Some(false),
         })
         .await
         .unwrap();
@@ -225,6 +231,7 @@ async fn test_bash_cancellation_kills_process_group() {
     let mut future = Box::pin(tool.execute(BashArgs {
         command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
         timeout: Some(30),
+        background: None,
     }));
 
     tokio::select! {
@@ -265,6 +272,7 @@ async fn test_bash_timeout_preserves_accumulated_output() {
         .execute(BashArgs {
             command: "echo 'early output'; sleep 3".to_string(),
             timeout: Some(1),
+            background: None,
         })
         .await
         .unwrap();
@@ -281,6 +289,7 @@ async fn test_bash_nonzero_exit_preserves_output_before_status() {
         .execute(BashArgs {
             command: "echo 'first output line'; exit 42".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -308,6 +317,7 @@ async fn test_bash_sets_noninteractive_env_safeguards() {
                 "echo \"CI=$CI;GIT=$GIT_TERMINAL_PROMPT;PAGER=$PAGER;GIT_PAGER=$GIT_PAGER;CLICOLOR=$CLICOLOR;COLORTERM=$COLORTERM;TERM=$TERM\""
                     .to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -326,6 +336,7 @@ async fn test_bash_sanitizes_cargo_environment_variables() {
         .execute(BashArgs {
             command: "echo \"PKG=$CARGO_PKG_NAME;DIR=$CARGO_MANIFEST_DIR;OUT=$OUT_DIR\"".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -341,6 +352,7 @@ async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
         .execute(BashArgs {
             command: "seq 1 25".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -360,6 +372,7 @@ async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
         .execute(BashArgs {
             command: "seq 1 5".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -375,6 +388,7 @@ async fn test_bash_exit_zero_over_window_threshold_windows_output() {
         .execute(BashArgs {
             command: "seq 1 100".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();
@@ -396,6 +410,7 @@ async fn test_bash_collapses_consecutive_identical_lines() {
         .execute(BashArgs {
             command: "printf 'repeat\\n%.0s' {1..10}".to_string(),
             timeout: Some(5),
+            background: None,
         })
         .await
         .unwrap();

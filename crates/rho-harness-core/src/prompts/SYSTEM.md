@@ -5,6 +5,7 @@ Available tools:
 - write: Create or overwrite files (automatically creates parent directories)
 - edit: Make precise file edits with exact text replacement (every edits[].oldText must match uniquely)
 - bash: Execute bash commands in the current working directory
+- jobs: List and inspect background jobs
 - fd: Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)
 - rg: Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)
 - web_search: Search the web and return structured summaries and URLs

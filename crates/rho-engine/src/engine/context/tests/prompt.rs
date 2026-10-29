@@ -18,7 +18,9 @@ fn assert_contains_none(target: &str, unexpected: &[&str]) {
 fn default_tools_assemble_matches_static_system_prompt() {
     let default_tools = default_tool_names();
     let assembled = assemble_base_system_prompt(&default_tools);
-    assert_eq!(assembled.trim(), DEFAULT_SYSTEM_PROMPT.trim());
+    let normalized_assembled = assembled.trim().replace("\r\n", "\n");
+    let normalized_default = DEFAULT_SYSTEM_PROMPT.trim().replace("\r\n", "\n");
+    assert_eq!(normalized_assembled, normalized_default);
 }
 
 #[test]

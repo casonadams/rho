@@ -20,28 +20,40 @@ fn setup_command_child(
         .map_err(|e| ToolResult::error(format!("Failed to spawn process for command '{command_str}': {e}")))
 }
 
-async fn handle_timeout_cleanup<F: FnMut(&str)>(
+fn dispatch_background_task(
     mut cmd: StreamingCommand,
-    rx: &mut UnboundedReceiver<String>,
-    on_chunk: &mut F,
-    accumulator: &mut OutputAccumulator,
-    timeout_sec: u64,
-) -> ToolResult {
-    cmd.cancel().await;
-    while let Ok(chunk) = rx.try_recv() {
-        on_chunk(&chunk);
-        accumulator.append(chunk.as_bytes());
-    }
-    accumulator.finish();
-    let snapshot = accumulator.snapshot();
-    let output = snapshot.formatted_text.trim();
-    let msg = format!("Command timed out after {timeout_sec} seconds");
-    let res = if output.is_empty() {
-        msg
-    } else {
-        format!("{output}\n\n{msg}")
-    };
-    ToolResult::error(res)
+    mut rx: UnboundedReceiver<String>,
+    mut acc: OutputAccumulator,
+    job_id: String,
+) {
+    tokio::spawn(async move {
+        let mut chunk_handler = |_chunk: &str| {};
+        let status = execute_process_loop(&mut rx, &mut chunk_handler, &mut acc, &mut cmd).await;
+        match status {
+            Ok(exit_status) => {
+                let snapshot = acc.snapshot();
+                let output = snapshot.formatted_text.trim().to_string();
+                let exit_code = exit_status.code().unwrap_or(-1);
+                crate::tools::jobs::JobManager::global().update_status(
+                    &job_id,
+                    crate::tools::jobs::JobStatus::Completed {
+                        exit_code,
+                        output: output.clone(),
+                    },
+                );
+                crate::engine::runner::turn::types::enqueue_background_notification(format!(
+                    "[Background Job '{job_id}' completed with exit code {exit_code}]\nOutput:\n{output}"
+                ));
+            }
+            Err(e) => {
+                crate::tools::jobs::JobManager::global()
+                    .update_status(&job_id, crate::tools::jobs::JobStatus::Failed { error: e.to_string() });
+                crate::engine::runner::turn::types::enqueue_background_notification(format!(
+                    "[Background Job '{job_id}' failed: {e}]"
+                ));
+            }
+        }
+    });
 }
 
 fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccumulator) -> ToolResult {
@@ -118,6 +130,45 @@ async fn execute_process_loop<F: FnMut(&str)>(
     cmd.wait().await
 }
 
+struct TimeoutFallbackContext<'a, F: FnMut(&str)> {
+    cmd: StreamingCommand,
+    rx: UnboundedReceiver<String>,
+    on_chunk: F,
+    acc: OutputAccumulator,
+    args: &'a BashArgs,
+    timeout_sec: u64,
+}
+
+async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext<'_, F>) -> ToolResult {
+    if ctx.args.background == Some(false) {
+        ctx.cmd.cancel().await;
+        while let Ok(chunk) = ctx.rx.try_recv() {
+            (ctx.on_chunk)(&chunk);
+            ctx.acc.append(chunk.as_bytes());
+        }
+        ctx.acc.finish();
+        let snapshot = ctx.acc.snapshot();
+        let output = snapshot.formatted_text.trim();
+        let msg = format!("Command timed out after {} seconds", ctx.timeout_sec);
+        let res = if output.is_empty() {
+            msg
+        } else {
+            format!("{output}\n\n{msg}")
+        };
+        return ToolResult::error(res);
+    }
+
+    let job_id = format!("bash-{}", uuid::Uuid::new_v4().simple());
+    crate::tools::jobs::JobManager::global().register(job_id.clone(), ctx.args.command.clone());
+    let command_str = ctx.args.command.clone();
+    dispatch_background_task(ctx.cmd, ctx.rx, ctx.acc, job_id.clone());
+
+    ToolResult::error(format!(
+        "[Command running in background after {}s timeout]\nJob ID: {job_id}\nCommand: {command_str}\nCommand timed out after {} seconds",
+        ctx.timeout_sec, ctx.timeout_sec
+    ))
+}
+
 async fn run_with_timeout<F>(
     base_dir: &Path,
     args: &BashArgs,
@@ -139,7 +190,17 @@ where
             "Failed waiting for command '{}': {e}",
             args.command
         ))),
-        Err(_) => Ok(handle_timeout_cleanup(cmd, &mut rx, &mut on_chunk, &mut acc, timeout_sec).await),
+        Err(_) => {
+            let ctx = TimeoutFallbackContext {
+                cmd,
+                rx,
+                on_chunk,
+                acc,
+                args,
+                timeout_sec,
+            };
+            Ok(handle_timeout_fallback(ctx).await)
+        }
     }
 }
 
@@ -147,6 +208,22 @@ pub async fn run_command_streaming<F>(base_dir: &Path, args: &BashArgs, on_chunk
 where
     F: FnMut(&str) + Send + 'static,
 {
+    if args.background.unwrap_or(false) {
+        let (cmd, rx) = match setup_command_child(base_dir, &args.command) {
+            Ok(v) => v,
+            Err(e) => return Ok(e),
+        };
+        let job_id = format!("bash-{}", uuid::Uuid::new_v4().simple());
+        crate::tools::jobs::JobManager::global().register(job_id.clone(), args.command.clone());
+        let command_str = args.command.clone();
+        let acc = OutputAccumulator::new();
+        dispatch_background_task(cmd, rx, acc, job_id.clone());
+
+        return Ok(ToolResult::success(format!(
+            "[Command dispatched to background]\nJob ID: {job_id}\nCommand: {command_str}"
+        )));
+    }
+
     let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
     run_with_timeout(base_dir, args, on_chunk, timeout_sec).await
 }

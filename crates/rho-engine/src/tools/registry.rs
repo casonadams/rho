@@ -61,6 +61,7 @@ mod tests {
             "write",
             "edit",
             "bash",
+            "jobs",
             "fd",
             "rg",
             "web_search",

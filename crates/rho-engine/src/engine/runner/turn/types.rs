@@ -43,6 +43,23 @@ pub trait SteeringQueueProvider: Send + Sync {
     }
 }
 
+static BACKGROUND_NOTIFICATIONS: std::sync::LazyLock<std::sync::Mutex<Vec<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
+pub fn enqueue_background_notification(notification: String) {
+    if let Ok(mut lock) = BACKGROUND_NOTIFICATIONS.lock() {
+        lock.push(notification);
+    }
+}
+
+pub fn drain_background_notifications() -> Vec<String> {
+    if let Ok(mut lock) = BACKGROUND_NOTIFICATIONS.lock() {
+        std::mem::take(&mut *lock)
+    } else {
+        Vec::new()
+    }
+}
+
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,

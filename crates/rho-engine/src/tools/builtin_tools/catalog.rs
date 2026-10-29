@@ -54,6 +54,13 @@ Usage:
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
 
+pub static PROMPT_JOBS: &str = "\
+List and inspect background jobs and processes initiated by bash.
+
+Usage:
+- Call with no arguments to list all active and finished background jobs.
+- Call with job_id to inspect a specific background job and retrieve its accumulated output.";
+
 pub static PROMPT_BASH: &str = "\
 Execute bash commands in the current working directory.
 
@@ -176,6 +183,15 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
             "Commands run directly in the working directory; do not prefix commands with cd",
         ],
         schema: generated_schema::<BashArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "jobs",
+        capability: BuiltinToolKind::ReadOnly,
+        description: "List and inspect background jobs and processes initiated by bash.",
+        prompt: PROMPT_JOBS,
+        prompt_snippet: Some("List and inspect background jobs"),
+        prompt_guidelines: &[],
+        schema: generated_schema::<rho_harness_core::args::JobsArgs>,
     },
     BuiltinToolDeclaration {
         name: "fd",

@@ -359,6 +359,11 @@ async fn check_steering(
     current_messages: &mut Vec<ChatMessage>,
     new_turn_messages: &mut Vec<ChatMessage>,
 ) {
+    for notification in crate::engine::runner::turn::types::drain_background_notifications() {
+        let notif_msg = ChatMessage::user(notification);
+        current_messages.push(notif_msg.clone());
+        new_turn_messages.push(notif_msg);
+    }
     if let Some(provider) = steering {
         for text in provider.poll_steering().await {
             let steer_msg = ChatMessage::user(text);
