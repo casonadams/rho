@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.12.2](https://github.com/casonadams/rho/compare/v0.12.1...v0.12.2) (2026-10-29)
+
+
+### Features
+
+* **engine:** add static code quality completion gate via ripwire-rs ([726308a](https://github.com/casonadams/rho/commit/726308a2c79f63d941cdd844ced342d7e5761fc2))
+* **engine:** increase quality gate retries to 3 with explicit attempt tracking ([daf2350](https://github.com/casonadams/rho/commit/daf23503930af853bb35b8c8baaddfc9d4e09a30))
+* **models:** support haiku-5.5 model aliases and provider inference ([cddd74a](https://github.com/casonadams/rho/commit/cddd74ac281cd18d07862e9ec6264668a7b4729e))
+* **runner:** event-driven background job waiting in ReAct loop with active spinner ([0852155](https://github.com/casonadams/rho/commit/085215591f41ff45347324184c1c95095d7eed66))
+* **tools:** replace jobs polling with wait tool and idle auto-delivery ([ece9995](https://github.com/casonadams/rho/commit/ece9995848b1c07eb3ae29d1c0f583eec8a0a7ad))
+* **tools:** support background bash jobs and inspection tool ([1d64fd4](https://github.com/casonadams/rho/commit/1d64fd4cdc760763c6ace8ace95907801daeb1fb))
+
+
+### Bug Fixes
+
+* **antigravity:** preserve thought signatures on streamed tool calls ([a847878](https://github.com/casonadams/rho/commit/a84787899018c51a7899813f187dd1c883012ad7))
+* **antigravity:** use skip_thought_signature_validator and refactor engine harness ([2687eaf](https://github.com/casonadams/rho/commit/2687eafb2f9045f12ae8d3735f92c345cd8824d4))
+* **engine:** load uncached workspace for completion quality gate ([74a53da](https://github.com/casonadams/rho/commit/74a53da384ceba7f9cc0c03b684f767316f095ae))
+* **hooks:** wire lifecycle hooks and permission checks to agent turn runner ([126c450](https://github.com/casonadams/rho/commit/126c450c0deaeb1928ca89fc883b909ae436ff82))
+
 ## [0.12.1](https://github.com/casonadams/rho/compare/v0.12.0...v0.12.1) (2026-10-14)
 
 
