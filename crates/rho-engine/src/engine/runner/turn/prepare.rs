@@ -206,7 +206,9 @@ impl AgentEngine {
             .prompt(params.prompt)
             .budget(params.budget)
             .stream_port(params.stream_port)
-            .steering(request.steering.clone());
+            .steering(request.steering.clone())
+            .working_dir(self.base_dir.clone())
+            .quality_gate(self.config.quality_gate);
 
         if let Some(pending) = params.checkpoint {
             let combined = continuation_history(params.history, pending);
@@ -232,11 +234,12 @@ impl AgentEngine {
             .unwrap_or_else(|| self.config.model.clone());
 
         let cwd = self.base_dir.clone();
-        let lifecycle_hook = Arc::new(crate::hook::LifecycleHook::new(
-            cwd.clone(),
-            self.session_manager.session_id.clone(),
-            presenter.clone(),
-        ));
+        let mut hook =
+            crate::hook::LifecycleHook::new(cwd.clone(), self.session_manager.session_id.clone(), presenter.clone());
+        if !self.config.hook_dirs.is_empty() {
+            hook = hook.with_hook_dirs(self.config.hook_dirs.clone());
+        }
+        let lifecycle_hook = Arc::new(hook);
         lifecycle_hook.notify_turn_start(&loop_state.current_prompt).await;
 
         let permission_hook = if self.config.permission.enabled {
@@ -268,7 +271,8 @@ impl AgentEngine {
             )
             .await
             .lifecycle(Some(lifecycle_hook))
-            .permission(permission_hook);
+            .permission(permission_hook)
+            .cancellation(request.cancellation.cloned());
 
         Ok((runner, active_model))
     }

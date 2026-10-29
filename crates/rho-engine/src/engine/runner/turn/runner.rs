@@ -1,7 +1,7 @@
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse, StructuralUsage};
 use crate::engine::runner::sink::TerminalApprovalSink;
-use crate::engine::runner::turn::types::SteeringQueueProvider;
+use crate::engine::runner::turn::types::{CancellationSignal, SteeringQueueProvider};
 use crate::hook::{LifecycleHook, ToolDispatchAction};
 use crate::provider::adapter::{FinishReason, ModelCompletionRequest, ModelStreamEvent, ModelToolDefinition};
 use crate::repeat::RepeatedCallTracker;
@@ -42,6 +42,7 @@ impl<T> Stream for ReceiverStream<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct AgentRunner {
     model: ModelHandle,
     tools: Vec<Arc<dyn EngineTool>>,
@@ -56,6 +57,10 @@ pub struct AgentRunner {
     permission: Option<Arc<crate::permission::PermissionHook>>,
     stream_port: Option<ToolStreamPort>,
     steering: Option<Arc<dyn SteeringQueueProvider>>,
+    cancellation: Option<CancellationSignal>,
+    working_dir: std::path::PathBuf,
+    quality_gate_enabled: bool,
+    max_quality_gate_retries: usize,
 }
 
 impl AgentRunner {
@@ -79,11 +84,15 @@ impl AgentRunner {
             budget: 10,
             history: Vec::new(),
             sink,
-            repeat_tracker: RepeatedCallTracker::new(working_dir),
+            repeat_tracker: RepeatedCallTracker::new(working_dir.clone()),
             lifecycle: None,
             permission: None,
             stream_port: None,
             steering: None,
+            cancellation: None,
+            working_dir,
+            quality_gate_enabled: true,
+            max_quality_gate_retries: 2,
         }
     }
 
@@ -124,6 +133,26 @@ impl AgentRunner {
 
     pub fn steering(mut self, steering: Option<Arc<dyn SteeringQueueProvider>>) -> Self {
         self.steering = steering;
+        self
+    }
+
+    pub fn cancellation(mut self, cancellation: Option<CancellationSignal>) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
+
+    pub fn working_dir(mut self, working_dir: impl Into<std::path::PathBuf>) -> Self {
+        self.working_dir = working_dir.into();
+        self
+    }
+
+    pub fn quality_gate(mut self, enabled: bool) -> Self {
+        self.quality_gate_enabled = enabled;
+        self
+    }
+
+    pub fn max_quality_gate_retries(mut self, max: usize) -> Self {
+        self.max_quality_gate_retries = max;
         self
     }
 
@@ -357,23 +386,122 @@ async fn execute_single_tool_call(
     )
 }
 
+fn append_notification_messages(
+    notifications: Vec<String>,
+    current_messages: &mut Vec<ChatMessage>,
+    new_turn_messages: &mut Vec<ChatMessage>,
+) {
+    for notification in notifications {
+        let notif_msg = ChatMessage::user(notification);
+        current_messages.push(notif_msg.clone());
+        new_turn_messages.push(notif_msg);
+    }
+}
+
 async fn check_steering(
     steering: Option<&Arc<dyn SteeringQueueProvider>>,
     current_messages: &mut Vec<ChatMessage>,
     new_turn_messages: &mut Vec<ChatMessage>,
 ) {
-    for notification in crate::engine::runner::turn::types::drain_background_notifications() {
-        let notif_msg = ChatMessage::user(notification);
-        current_messages.push(notif_msg.clone());
-        new_turn_messages.push(notif_msg);
-    }
+    let notifs = crate::engine::runner::turn::types::drain_background_notifications();
+    append_notification_messages(notifs, current_messages, new_turn_messages);
     if let Some(provider) = steering {
-        for text in provider.poll_steering().await {
-            let steer_msg = ChatMessage::user(text);
-            current_messages.push(steer_msg.clone());
-            new_turn_messages.push(steer_msg);
+        let steered = provider.poll_steering().await;
+        append_notification_messages(steered, current_messages, new_turn_messages);
+    }
+}
+
+fn drain_background_to_context(ctx: &mut RunnerStepContext<'_>) -> bool {
+    let notifs = crate::engine::runner::turn::types::drain_background_notifications();
+    if notifs.is_empty() {
+        return false;
+    }
+    append_notification_messages(notifs, ctx.current_messages, ctx.new_turn_messages);
+    true
+}
+
+async fn drain_steering_to_context(
+    steering: Option<&Arc<dyn SteeringQueueProvider>>,
+    ctx: &mut RunnerStepContext<'_>,
+) -> bool {
+    let Some(provider) = steering else {
+        return false;
+    };
+    let steered = provider.poll_steering().await;
+    if steered.is_empty() {
+        return false;
+    }
+    append_notification_messages(steered, ctx.current_messages, ctx.new_turn_messages);
+    true
+}
+
+async fn wait_for_background_events(
+    notif_rx: &mut tokio::sync::broadcast::Receiver<String>,
+    cancellation: Option<&CancellationSignal>,
+) -> Result<Option<String>, AppError> {
+    tokio::select! {
+        res = notif_rx.recv() => {
+            match res {
+                Ok(notif) => Ok(Some(notif)),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => Ok(None),
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => Ok(None),
+            }
+        }
+        _ = async {
+            match cancellation {
+                Some(c) => c.wait_cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        } => Err(AppError::Cancelled("operator interrupt".to_string())),
+        _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(None),
+    }
+}
+
+enum WaitStepResult {
+    EventDelivered,
+    ContinueWaiting,
+}
+
+async fn wait_step(
+    runner: &AgentRunner,
+    notif_rx: &mut tokio::sync::broadcast::Receiver<String>,
+    ctx: &mut RunnerStepContext<'_>,
+) -> Result<WaitStepResult, AppError> {
+    if runner.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
+        return Err(AppError::Cancelled("operator interrupt".to_string()));
+    }
+
+    if drain_background_to_context(ctx) || drain_steering_to_context(runner.steering.as_ref(), ctx).await {
+        return Ok(WaitStepResult::EventDelivered);
+    }
+
+    if let Some(notif) = wait_for_background_events(notif_rx, runner.cancellation.as_ref()).await? {
+        let msg = ChatMessage::user(notif);
+        ctx.current_messages.push(msg.clone());
+        ctx.new_turn_messages.push(msg);
+        return Ok(WaitStepResult::EventDelivered);
+    }
+
+    Ok(WaitStepResult::ContinueWaiting)
+}
+
+async fn wait_for_background_jobs(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> Result<bool, AppError> {
+    if !crate::tools::jobs::JobManager::global().has_running() {
+        return Ok(false);
+    }
+
+    runner.sink.resume_spinner_with_message("waiting for background job...");
+    let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
+
+    while crate::tools::jobs::JobManager::global().has_running() {
+        if let WaitStepResult::EventDelivered = wait_step(runner, &mut notif_rx, ctx).await? {
+            runner.sink.resume_spinner_with_message("thinking...");
+            return Ok(true);
         }
     }
+
+    runner.sink.resume_spinner_with_message("thinking...");
+    Ok(drain_background_to_context(ctx))
 }
 
 async fn commit_turn_messages(session_manager: &SessionManager, new_messages: Vec<ChatMessage>, has_checkpoint: bool) {
@@ -396,6 +524,7 @@ struct RunnerStepContext<'a> {
     all_requests: &'a mut Vec<ModelCompletionRequest>,
     all_completion_calls: &'a mut Vec<CompletionCall>,
     total_usage: &'a mut StructuralUsage,
+    quality_gate_retries: &'a mut usize,
 }
 
 enum StepExecutionResult {
@@ -443,6 +572,31 @@ fn build_assistant_message(outcome: &TurnStreamOutcome) -> ChatMessage {
     ChatMessage::Assistant { id: None, content }
 }
 
+async fn evaluate_quality_gate(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> bool {
+    if !runner.quality_gate_enabled || *ctx.quality_gate_retries >= runner.max_quality_gate_retries {
+        return false;
+    }
+    let working_dir = runner.working_dir.clone();
+    runner
+        .sink
+        .resume_spinner_with_message("verifying code quality with ripwire...");
+    let gate_res = tokio::task::spawn_blocking(move || {
+        crate::engine::runner::turn::quality::check_completion_quality(&working_dir)
+    })
+    .await
+    .unwrap_or(None);
+    runner.sink.resume_spinner_with_message("thinking...");
+
+    if let Some(feedback) = gate_res {
+        *ctx.quality_gate_retries += 1;
+        let feedback_msg = ChatMessage::user(feedback);
+        ctx.current_messages.push(feedback_msg.clone());
+        ctx.new_turn_messages.push(feedback_msg);
+        return true;
+    }
+    false
+}
+
 async fn execute_agent_step(
     runner: &AgentRunner,
     turn: usize,
@@ -482,6 +636,12 @@ async fn execute_agent_step(
     ctx.new_turn_messages.push(asst);
 
     if outcome.tool_calls.is_empty() {
+        if wait_for_background_jobs(runner, ctx).await? {
+            return Ok(StepExecutionResult::Continue);
+        }
+        if evaluate_quality_gate(runner, ctx).await {
+            return Ok(StepExecutionResult::Continue);
+        }
         let resp = PromptResponse {
             output: outcome.text,
             usage: *ctx.total_usage,
@@ -517,6 +677,7 @@ async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Resul
     let mut repeat_tracker = runner.repeat_tracker.clone();
     let mut all_requests = Vec::new();
     let mut all_completion_calls = Vec::new();
+    let mut quality_gate_retries = 0;
 
     let tools_def: Vec<ModelToolDefinition> = runner
         .tools
@@ -537,6 +698,7 @@ async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Resul
             all_requests: &mut all_requests,
             all_completion_calls: &mut all_completion_calls,
             total_usage: &mut total_usage,
+            quality_gate_retries: &mut quality_gate_retries,
         };
         match execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, &tx).await {
             Ok(StepExecutionResult::Complete(resp)) => {
@@ -558,4 +720,105 @@ async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Resul
             max_turns: runner.budget,
         }))
         .await;
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TestStepBuffers {
+    current_messages: Vec<ChatMessage>,
+    new_turn_messages: Vec<ChatMessage>,
+    all_requests: Vec<ModelCompletionRequest>,
+    all_completion_calls: Vec<CompletionCall>,
+    total_usage: StructuralUsage,
+    quality_gate_retries: usize,
+}
+
+#[cfg(test)]
+impl<'a> RunnerStepContext<'a> {
+    fn from_test_buffers(buf: &'a mut TestStepBuffers, tracker: &'a mut RepeatedCallTracker) -> Self {
+        Self {
+            current_messages: &mut buf.current_messages,
+            new_turn_messages: &mut buf.new_turn_messages,
+            repeat_tracker: tracker,
+            all_requests: &mut buf.all_requests,
+            all_completion_calls: &mut buf.all_completion_calls,
+            total_usage: &mut buf.total_usage,
+            quality_gate_retries: &mut buf.quality_gate_retries,
+        }
+    }
+}
+
+#[cfg(test)]
+fn test_agent_env() -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
+    let temp = tempfile::tempdir().unwrap();
+    let sm = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
+    let cfg = crate::engine::runner::sink::TerminalSinkConfig {
+        model_label: "test".into(),
+        run_tracker: Default::default(),
+    };
+    let pres: Arc<dyn rho_harness_core::presentation::Presenter> =
+        Arc::new(crate::engine::eval::presenter::NoopPresenter);
+    let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
+    let mock = Arc::new(crate::provider::adapter::MockAdapter::new("m", "p"));
+    let runner = AgentRunner::new(mock, Vec::new(), sm, sink);
+    (
+        runner,
+        temp,
+        TestStepBuffers::default(),
+        RepeatedCallTracker::new(std::path::PathBuf::from(".")),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_wait_for_background_jobs_flow() {
+        let (runner, _temp, mut buf, mut tracker) = test_agent_env();
+        let sig = CancellationSignal::default();
+        let runner = runner.cancellation(Some(sig.clone()));
+        let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+
+        assert!(!wait_for_background_jobs(&runner, &mut ctx).await.unwrap());
+        crate::tools::jobs::JobManager::global().register("bg-1".into(), "echo 1".into());
+        tokio::spawn(async {
+            crate::tools::jobs::JobManager::global().update_status(
+                "bg-1",
+                crate::tools::jobs::JobStatus::Completed {
+                    exit_code: 0,
+                    output: "ok".into(),
+                },
+            );
+            crate::engine::runner::turn::types::enqueue_background_notification(
+                "<system-notice>done</system-notice>".into(),
+            );
+        });
+        assert!(wait_for_background_jobs(&runner, &mut ctx).await.unwrap());
+        crate::tools::jobs::JobManager::global().register("bg-2".into(), "sleep".into());
+        sig.cancel();
+        assert!(matches!(
+            wait_for_background_jobs(&runner, &mut ctx).await,
+            Err(AppError::Cancelled(_))
+        ));
+        crate::tools::jobs::JobManager::global()
+            .update_status("bg-2", crate::tools::jobs::JobStatus::Failed { error: "a".into() });
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_quality_gate_scenarios() {
+        let (runner, temp, mut buf, mut tracker) = test_agent_env();
+        let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+
+        let runner_off = runner.clone().quality_gate(false);
+        assert!(!evaluate_quality_gate(&runner_off, &mut ctx).await);
+
+        let runner_retries = runner.clone().max_quality_gate_retries(1);
+        *ctx.quality_gate_retries = 1;
+        assert!(!evaluate_quality_gate(&runner_retries, &mut ctx).await);
+
+        *ctx.quality_gate_retries = 0;
+        let runner_clean = runner.working_dir(temp.path()).quality_gate(true);
+        assert!(!evaluate_quality_gate(&runner_clean, &mut ctx).await);
+    }
 }

@@ -124,6 +124,9 @@ fn merge_modes(config: &mut Config, file: &FileConfig) {
     if let Some(f) = file.follow_up_mode {
         config.follow_up_mode = f;
     }
+    if let Some(q) = file.quality_gate {
+        config.quality_gate = q;
+    }
 }
 
 fn merge_retention(config: &mut Config, file: &FileConfig) {
