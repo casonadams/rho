@@ -116,6 +116,7 @@
           <li class="docs-nav-item"><a href="#compaction">Context Compaction</a></li>
           <li class="docs-nav-item"><a href="#hooks">Lifecycle Hooks</a></li>
           <li class="docs-nav-item"><a href="#mcp">MCP Configuration</a></li>
+          <li class="docs-nav-item"><a href="#quality-gate">Static Quality Gate</a></li>
         </ul>
       </div>
     </aside>
@@ -897,6 +898,34 @@ rho mcp add db "https://mcp.db.example.com/mcp"
       <p>
         When configured MCP servers expose more tools than the deferral threshold (<code>defer_threshold</code>, default 4), <code>rho</code> automatically defers tool schemas behind <code>tool_search</code> to minimize prompt token overhead. The model searches on-demand and dynamically activates matching tools with full schemas for subsequent turns, or can optionally specify <code>execute</code> to run matching tools in the same turn without extra latency.
       </p>
+
+      <h2 id="quality-gate">In-Process Static Quality Gate (ripwire-rs)</h2>
+      <p>
+        <code>rho</code> embeds an in-process deterministic static code verification oracle powered by <a href="https://crates.io/crates/ripwire-rs" target="_blank" rel="noopener"><code>ripwire-rs</code></a>. Rather than trusting LLM self-evaluations or incurring slow compilation overhead on every turn, <code>rho</code> analyzes working tree changes the moment the agent attempts to finalize its work.
+      </p>
+
+      <h3>Verification Dimensions</h3>
+      <ul>
+        <li><strong>Code Quality Regressions:</strong> Evaluates cognitive complexity (&le; 15, SonarSource Campbell standard), deep nesting (&gt; 4), parameter count (&gt; 5), function length, dead code, and AST code duplication against git <code>HEAD</code>.</li>
+        <li><strong>Broken Public Contracts:</strong> Verifies edited signatures against baseline contracts and flags any incompatible 1-hop callsites across the entire workspace.</li>
+        <li><strong>Untested Blast Radius:</strong> Traces transitive call graphs from modified symbols to unit and integration test reachability, identifying unverified code paths.</li>
+        <li><strong>Zero-Overhead Read-Only Fast Path:</strong> Uses in-memory <code>gix</code> working tree inspection (~0.5ms). Conversational queries or read-only turns bypass verification instantly.</li>
+      </ul>
+
+      <h3>Push-Back Feedback Loop</h3>
+      <p>
+        If blocking issues are detected, <code>rho</code> rejects completion and injects a line-accurate diagnostic prompt into the conversation context with exact file locations and recommended refactoring actions. The agent receives up to 3 retry attempts to edit, refactor, and verify its solution.
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>~/.config/rho/config.toml or .rho/config.toml</span>
+          <button class="copy-btn" data-copy="# Enabled by default in git repositories
+quality_gate = true">Copy</button>
+        </div>
+        <pre><code># Enabled by default in git repositories
+quality_gate = true</code></pre>
+      </div>
 
       <!-- Sequential Documentation Pagination -->
       <div class="docs-pagination">

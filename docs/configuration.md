@@ -254,6 +254,19 @@ Pass `format = "html"` to bypass specialized extraction and perform raw HTML scr
 
 ---
 
+## Static Quality Completion Gate
+
+`rho` includes an in-process static verification gate powered by [`ripwire-rs`](https://crates.io/crates/ripwire-rs) that prevents agents from completing tasks when changes introduce code quality regressions, broken signatures, or untested blast radius.
+
+```toml
+# Enable/disable static quality verification upon agent completion (default: true)
+quality_gate = true
+```
+
+For full details on cognitive complexity thresholds, signature contract verification, and the push-back retry loop, see the [Static Quality Gate Guide](quality-gate.md).
+
+---
+
 ## System Instructions (`AGENTS.md`)
 
 `rho` discovers instructions hierarchically and prepends them into the agent

@@ -332,6 +332,19 @@ rho --mode rpc
 # Proactive auto-compact at threshold</code></pre>
           </div>
         </div>
+
+        <div class="card">
+          <h3 class="card-title">Static Quality Gate (ripwire-rs)</h3>
+          <p class="card-desc">
+            Powered by in-process <a href="https://crates.io/crates/ripwire-rs" target="_blank" rel="noopener"><code>ripwire-rs</code></a>. Evaluates cognitive complexity (&le; 15), signature contract breaks, and untested blast radius upon completion—bouncing the agent back to work until verified.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code># Enabled by default in git repos
+quality_gate = true
+
+# Rejection prompt with exact fixes</code></pre>
+          </div>
+        </div>
       </div>
     </div>
   </section>
