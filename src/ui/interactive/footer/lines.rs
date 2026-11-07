@@ -8,7 +8,6 @@ fn resolve_status_text(footer: &FooterState, system_message: Option<&str>) -> Op
     system_message
         .filter(|s| !s.trim().is_empty())
         .or(footer.quota.as_deref().filter(|s| !s.is_empty()))
-        .or(footer.extra_status.as_deref().filter(|s| !s.is_empty()))
         .map(sanitize_status_text)
 }
 

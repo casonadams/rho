@@ -10,8 +10,7 @@ mod tests;
 
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
-use crate::provider::sse::SseLineDecoder;
-use futures::StreamExt;
+use crate::provider::sse::{SseLineDecoder, sse_line_feed};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde::Deserialize;
@@ -84,6 +83,10 @@ enum ResponsesWireEvent {
     OutputItemDone { item: OutputItemPayload, output_index: u64 },
     #[serde(rename = "response.completed")]
     ResponseCompleted { response: Option<ResponseCompletedPayload> },
+    #[serde(rename = "response.incomplete")]
+    ResponseIncomplete { response: Option<ResponseCompletedPayload> },
+    #[serde(rename = "response.failed")]
+    ResponseFailed { response: Option<ResponseFailedPayload> },
     #[serde(rename = "error")]
     Error {
         error: Option<ErrorDetailsPayload>,
@@ -118,6 +121,11 @@ struct FunctionCallPayload {
 struct ResponseCompletedPayload {
     #[serde(default)]
     usage: Option<ResponsesUsagePayload>,
+}
+
+#[derive(Deserialize)]
+struct ResponseFailedPayload {
+    error: Option<ErrorDetailsPayload>,
 }
 
 #[derive(Deserialize)]
@@ -201,14 +209,7 @@ impl SseParser {
         Self::default()
     }
 
-    pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        let lines = self.decoder.decode_lines(bytes);
-        let mut events = Vec::new();
-        for line in lines {
-            self.interpret_line(&line, &mut events);
-        }
-        events
-    }
+    sse_line_feed!();
 
     fn start_reasoning_part(&mut self, coord: SummaryPartCoord, events: &mut SseEvents) {
         if self.active_summary_part != Some(coord) {
@@ -293,7 +294,7 @@ impl SseParser {
         events.push(Ok(ModelStreamEvent::ToolCall(call)));
     }
 
-    fn handle_completed(&mut self, usage_payload: Option<ResponsesUsagePayload>, events: &mut SseEvents) {
+    fn handle_completed(usage_payload: Option<ResponsesUsagePayload>, reason: FinishReason, events: &mut SseEvents) {
         let usage = usage_payload
             .map(|u| StructuralUsage {
                 input_tokens: u.input_tokens.unwrap_or(0),
@@ -307,7 +308,7 @@ impl SseParser {
             .unwrap_or_default();
 
         events.push(Ok(ModelStreamEvent::Usage(usage)));
-        events.push(Ok(ModelStreamEvent::Finish(FinishReason::Stop)));
+        events.push(Ok(ModelStreamEvent::Finish(reason)));
     }
 
     fn interpret_line(&mut self, data: &str, events: &mut SseEvents) {
@@ -366,7 +367,18 @@ impl SseParser {
                 }
             }
             ResponsesWireEvent::ResponseCompleted { response } => {
-                self.handle_completed(response.and_then(|r| r.usage), events);
+                Self::handle_completed(response.and_then(|r| r.usage), FinishReason::Stop, events);
+            }
+            ResponsesWireEvent::ResponseIncomplete { response } => {
+                Self::handle_completed(response.and_then(|r| r.usage), FinishReason::Length, events);
+            }
+            ResponsesWireEvent::ResponseFailed { response } => {
+                let msg = response
+                    .and_then(|r| r.error)
+                    .map(|e| e.message)
+                    .filter(|m| !m.is_empty())
+                    .unwrap_or_else(|| "ChatGPT response failed".to_string());
+                events.push(Err(AppError::Provider(msg)));
             }
             ResponsesWireEvent::Error { error, message } => {
                 let msg = error
@@ -380,42 +392,8 @@ impl SseParser {
     }
 }
 
-pub fn unfold_chatgpt_stream(
-    response: reqwest::Response,
-) -> impl futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send + 'static {
-    futures::stream::unfold((response.bytes_stream(), SseParser::new(), false), next_stream_batch)
-        .map(futures::stream::iter)
-        .flatten()
-}
-
-type StreamState<S> = (S, SseParser, bool);
-
-async fn next_stream_batch<B, S>(
-    (mut byte_stream, mut parser, finished): StreamState<S>,
-) -> Option<(Vec<Result<ModelStreamEvent, AppError>>, StreamState<S>)>
-where
-    B: AsRef<[u8]>,
-    S: futures::Stream<Item = reqwest::Result<B>> + Unpin,
-{
-    if finished {
-        return None;
+impl crate::provider::sse::SseStreamParser for SseParser {
+    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+        SseParser::feed(self, bytes)
     }
-    while let Some(chunk) = byte_stream.next().await {
-        match chunk {
-            Ok(bytes) => {
-                let events = parser.feed(bytes.as_ref());
-                if !events.is_empty() {
-                    let has_term = events
-                        .iter()
-                        .any(|e| matches!(e, Ok(ModelStreamEvent::Finish(_)) | Err(_)));
-                    return Some((events, (byte_stream, parser, has_term)));
-                }
-            }
-            Err(e) => {
-                let err = AppError::Provider(format!("ChatGPT stream transport failed: {e}"));
-                return Some((vec![Err(err)], (byte_stream, parser, true)));
-            }
-        }
-    }
-    None
 }

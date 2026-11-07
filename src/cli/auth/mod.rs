@@ -24,7 +24,6 @@ use std::str::FromStr;
 fn provider_login_name(id: ProviderId) -> &'static str {
     match id {
         ProviderId::ChatGpt => "ChatGPT",
-        ProviderId::Copilot => "GitHub Copilot",
         ProviderId::Antigravity => "Google Antigravity",
         ProviderId::ClaudeCode => "Claude (Subscription)",
         ProviderId::OpenRouter => "OpenRouter",
@@ -62,7 +61,7 @@ fn resolve_login_target(provider: Option<&str>, config: &Config) -> Result<(Stri
 fn is_default_oauth_provider(id: ProviderId) -> bool {
     matches!(
         id,
-        ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity | ProviderId::ClaudeCode
+        ProviderId::ChatGpt | ProviderId::Antigravity | ProviderId::ClaudeCode
     )
 }
 

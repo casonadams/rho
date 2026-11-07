@@ -85,11 +85,6 @@ pub fn kill_all_tracked_processes() {
 }
 
 #[cfg(test)]
-pub fn tracked_pid_count() -> usize {
-    TRACKED_PIDS.lock().map(|s| s.len()).unwrap_or(0)
-}
-
-#[cfg(test)]
 pub fn is_pid_tracked(pid: u32) -> bool {
     TRACKED_PIDS.lock().map(|s| s.contains(&pid)).unwrap_or(false)
 }
@@ -104,20 +99,4 @@ pub async fn wait_group_dead(pid: u32) {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     panic!("process group {pid} still has living members");
-}
-
-/// Kills the child and all of its descendants.
-pub async fn kill_tree(child: &mut tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        kill_group_by_pid(pid);
-    }
-    let _ = child.kill().await;
-}
-
-/// Synchronous kill for `Drop` contexts that cannot await reaping.
-pub fn kill_tree_sync(child: &mut tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        kill_group_by_pid(pid);
-    }
-    let _ = child.start_kill();
 }

@@ -1,9 +1,7 @@
 pub mod args;
-pub mod collab;
 pub mod export;
 pub mod help;
 pub mod model;
-pub mod route;
 pub mod session;
 pub mod skills;
 #[cfg(test)]
@@ -38,13 +36,9 @@ async fn handle_async_slash_commands(
     match name {
         "thinking" | "think" => handle_thinking(ctx, parts),
         "model" => handle_model(ctx, parts),
-        "route" => route::handle_route(ctx, parts),
         "skill" | "skills" => handle_skill(ctx, parts).await,
         "mcp" => {
-            if parts.get(1) == Some(&"login") {
-                let target = parts.get(2).map(|s| format!("mcp:{s}"));
-                Ok(Some(CommandResult::Login { provider: target }))
-            } else if ctx.renderer.has_interactive_ui() {
+            if ctx.renderer.has_interactive_ui() {
                 Ok(Some(CommandResult::OpenMcpSelector))
             } else {
                 ctx.renderer.print_notice("  Configure MCP in ~/.config/rho/mcp.json\n");
@@ -56,7 +50,6 @@ async fn handle_async_slash_commands(
             provider: parts.get(1).map(|v| (*v).to_string()),
         })),
         "export" => handle_export(ctx, parts).await,
-        "collab" => collab::handle_collab(ctx, parts).await,
         custom => handle_custom(ctx, custom, parts).await,
     }
 }

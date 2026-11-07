@@ -49,10 +49,6 @@ impl<T> PendingMessageQueue<T> {
         self.messages.push_back(item);
     }
 
-    pub fn has_items(&self) -> bool {
-        !self.messages.is_empty()
-    }
-
     pub fn len(&self) -> usize {
         self.messages.len()
     }
@@ -74,16 +70,8 @@ impl<T> PendingMessageQueue<T> {
         }
     }
 
-    pub fn drain_all(&mut self) -> Vec<T> {
-        self.messages.drain(..).collect()
-    }
-
     pub fn clear(&mut self) {
         self.messages.clear();
-    }
-
-    pub fn peek(&self) -> Option<&T> {
-        self.messages.front()
     }
 }
 

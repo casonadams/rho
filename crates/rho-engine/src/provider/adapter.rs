@@ -53,17 +53,20 @@ pub enum ModelStreamEvent {
     Finish(FinishReason),
 }
 
+pub type ModelEventStream = Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>;
+
 #[async_trait::async_trait]
 pub trait ModelAdapter: Send + Sync + std::fmt::Debug {
     fn model_name(&self) -> &str;
     fn provider_name(&self) -> &str;
 
-    async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError>;
+    /// Streaming providers get a non-streaming completion by draining `stream`.
+    async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
+        let events = futures::StreamExt::collect::<Vec<_>>(self.stream(request).await?).await;
+        crate::provider::sse::aggregate_stream_events(events)
+    }
 
-    async fn stream(
-        &self,
-        request: ModelCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>;
+    async fn stream(&self, request: ModelCompletionRequest) -> Result<ModelEventStream, AppError>;
 }
 
 type MockTurns = Arc<Mutex<Vec<Vec<Result<ModelStreamEvent, AppError>>>>>;
@@ -129,37 +132,6 @@ impl ModelAdapter for MockAdapter {
 
     fn provider_name(&self) -> &str {
         &self.provider
-    }
-
-    async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
-        self.requests.lock().unwrap().push(request);
-        let turn = {
-            let mut turns = self.turns.lock().unwrap();
-            if turns.is_empty() { Vec::new() } else { turns.remove(0) }
-        };
-
-        let mut content = String::new();
-        let mut tool_calls = Vec::new();
-        let mut usage = StructuralUsage::default();
-        let mut finish_reason = None;
-
-        for event_res in turn {
-            let event = event_res?;
-            match event {
-                ModelStreamEvent::Text(s) => content.push_str(&s),
-                ModelStreamEvent::ToolCall(tc) => tool_calls.push(tc),
-                ModelStreamEvent::Usage(u) => usage = usage.merge(&u),
-                ModelStreamEvent::Finish(f) => finish_reason = Some(f),
-                ModelStreamEvent::Reasoning(_) => {}
-            }
-        }
-
-        Ok(ModelCompletionResponse {
-            content,
-            tool_calls,
-            usage,
-            finish_reason,
-        })
     }
 
     async fn stream(

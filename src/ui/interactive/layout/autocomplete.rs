@@ -1,3 +1,4 @@
+use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::state::autocomplete::{AutocompleteItem, AutocompleteState};
 use unicode_width::UnicodeWidthStr;
 
@@ -26,7 +27,7 @@ fn build_item_content(
     let desc = item.description.as_deref().unwrap_or("");
     if val_width + 3 < inner_width && !desc.is_empty() {
         let available = inner_width.saturating_sub(val_width + 2);
-        let truncated = truncate_width(desc, available);
+        let truncated = truncate_to_width(desc, available);
         let desc_styled = format!("{}{}{:#}", theme.dimmed, truncated, theme.dimmed);
         let pad_len = inner_width.saturating_sub(val_width + 2 + UnicodeWidthStr::width(truncated.as_str()));
         format!(" {prefix}{val_styled}  {desc_styled}{}", " ".repeat(pad_len))
@@ -48,7 +49,7 @@ fn format_dropdown_item(
     } else {
         "  ".to_string()
     };
-    let value = truncate_width(&item.value, inner_width.saturating_add(1));
+    let value = truncate_to_width(&item.value, inner_width.saturating_add(1));
     let val_styled = if is_selected {
         format!("{}{}{:#}", highlight.bold(), value, highlight.bold())
     } else {
@@ -73,18 +74,4 @@ pub(crate) fn render_autocomplete_dropdown(
     (start..start + visible_count)
         .map(|idx| format_dropdown_item(&state.items[idx], idx == state.selected, inner_width, theme))
         .collect()
-}
-
-fn truncate_width(s: &str, max_width: usize) -> String {
-    let mut current_width = 0;
-    let mut result = String::new();
-    for c in s.chars() {
-        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-        if current_width + w > max_width {
-            break;
-        }
-        result.push(c);
-        current_width += w;
-    }
-    result
 }

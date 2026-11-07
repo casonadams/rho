@@ -1,7 +1,7 @@
 use super::super::Config;
 use crate::config::cli::Cli;
 
-fn resolve_model_with_provider(config: &mut Config, model_spec: &str, provider_flag: Option<&str>) {
+pub(super) fn resolve_model_with_provider(config: &mut Config, model_spec: &str, provider_flag: Option<&str>) {
     let (p, _) = crate::provider::parse_model_spec(model_spec);
     if !p.is_empty() {
         if let Some(prov) = provider_flag {
@@ -49,9 +49,6 @@ fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
         }
     } else if let Some(ref p) = c.provider {
         apply_provider_flag_only(config, p);
-    }
-    if c.route {
-        config.routing = true;
     }
     if let Some(ref t) = c.thinking {
         config.thinking_level = (t != "off").then(|| t.clone());

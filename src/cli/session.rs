@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::config::cli::Cli;
 use rho_harness_core::error::AppError;
 use rho_harness_core::session::SessionManager;
+use rho_harness_core::session::export::{ExportFormat, write_export};
 use std::path::PathBuf;
 
 fn resolve_picker_target(config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
@@ -42,26 +43,6 @@ async fn resolve_export_target_id(
         .ok_or_else(|| AppError::Session("no session found to export".to_string()).into())
 }
 
-fn render_export_content(
-    tree: &rho_harness_core::session::tree::SessionTree,
-    id: &str,
-    path: &std::path::Path,
-) -> String {
-    if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
-        rho_harness_core::session::export::render_html(tree, id)
-    } else {
-        rho_harness_core::session::export::render_markdown(tree, id)
-    }
-}
-
-async fn write_export_file(path: &std::path::Path, content: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(path, content).await?;
-    Ok(())
-}
-
 pub async fn export_session(
     export_path: &str,
     resume_target: Option<String>,
@@ -71,8 +52,8 @@ pub async fn export_session(
     let session_manager = SessionManager::new_async(&config.sessions_dir, Some(&target_id)).await?;
     let tree = session_manager.load_tree().await?;
     let path = PathBuf::from(export_path);
-    let content = render_export_content(&tree, &target_id, &path);
-    write_export_file(&path, &content).await?;
+    let format = ExportFormat::from_extension(path.extension().and_then(|ext| ext.to_str()).unwrap_or(""));
+    write_export(&path, &tree, &target_id, format).await?;
     println!("Exported session {} to {}", target_id, path.display());
     Ok(())
 }
@@ -145,25 +126,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_render_export_content() {
+    async fn test_write_export_contains_session_id() {
         let temp = tempfile::tempdir().unwrap();
         let store = SessionManager::new(temp.path(), None).unwrap();
         let tree = store.load_tree().await.unwrap();
 
-        let md = render_export_content(&tree, &store.session_id, std::path::Path::new("export.md"));
-        assert!(md.contains(&store.session_id));
+        let md = temp.path().join("export.md");
+        write_export(&md, &tree, &store.session_id, ExportFormat::Markdown)
+            .await
+            .unwrap();
+        assert!(
+            tokio::fs::read_to_string(&md)
+                .await
+                .unwrap()
+                .contains(&store.session_id)
+        );
 
-        let html = render_export_content(&tree, &store.session_id, std::path::Path::new("export.html"));
-        assert!(html.contains(&store.session_id));
+        let html = temp.path().join("export.html");
+        write_export(&html, &tree, &store.session_id, ExportFormat::Html)
+            .await
+            .unwrap();
+        assert!(
+            tokio::fs::read_to_string(&html)
+                .await
+                .unwrap()
+                .contains(&store.session_id)
+        );
     }
 
     #[tokio::test]
     async fn test_write_export_file() {
         let temp = tempfile::tempdir().unwrap();
         let file_path = temp.path().join("nested").join("sub").join("output.txt");
-        write_export_file(&file_path, "hello world").await.unwrap();
+        let tree = rho_harness_core::session::tree::SessionTree::new();
+        write_export(&file_path, &tree, "sess", ExportFormat::Markdown)
+            .await
+            .unwrap();
         let read_back = tokio::fs::read_to_string(&file_path).await.unwrap();
-        assert_eq!(read_back, "hello world");
+        assert_eq!(
+            read_back,
+            rho_harness_core::session::export::render_markdown(&tree, "sess")
+        );
     }
 
     #[tokio::test]

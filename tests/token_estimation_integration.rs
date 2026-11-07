@@ -1,6 +1,4 @@
-use rho::tokens::{
-    calculate_context_tokens, context_window_size, estimate_text_tokens, find_token_cut_point, should_compact,
-};
+use rho::tokens::{calculate_context_tokens, context_window_size, estimate_text_tokens, find_token_cut_point};
 use rho_harness_core::model::{
     AssistantContent, ChatMessage, TextContent, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
@@ -42,13 +40,6 @@ fn test_context_window_ceilings() {
     for (model, expected) in cases {
         assert_eq!(context_window_size(model), expected);
     }
-}
-
-#[test]
-fn test_preflight_check_compaction() {
-    let window = context_window_size("claude-3-haiku-20240307");
-    assert!(!should_compact(100_000, window, 0) && !should_compact(190_000, window, 0));
-    assert!(should_compact(192_000, window, 0) && should_compact(195_000, window, 0));
 }
 
 #[test]

@@ -49,35 +49,26 @@ fn validate_providers(config: &super::Config) -> Result<()> {
     Ok(())
 }
 
+pub const SUPPORTED_SEARCH_ENGINES: &str = "brave, duckduckgo, yahoo";
+
 pub(crate) fn is_valid_search_engine_name(name: &str) -> bool {
     matches!(
         name.trim().to_ascii_lowercase().as_str(),
-        "brave"
-            | "duckduckgo"
-            | "ddg"
-            | "ddg_lite"
-            | "duckduckgo_lite"
-            | "duckduckgolite"
-            | "yahoo"
-            | "firecrawl"
-            | "exa"
-            | "gemini"
-            | "google"
+        "brave" | "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" | "yahoo"
     )
 }
 
 fn validate_search_engines(config: &super::types::WebSearchConfig) -> Result<()> {
     if !is_valid_search_engine_name(&config.default) {
         return Err(AppError::Config(format!(
-            "Unknown search engine '{}'. Supported engines: brave, duckduckgo, yahoo, firecrawl, exa, gemini",
+            "Unknown search engine '{}'. Supported engines: {SUPPORTED_SEARCH_ENGINES}",
             config.default
         )));
     }
     for engine in &config.fallback {
         if !is_valid_search_engine_name(engine) {
             return Err(AppError::Config(format!(
-                "Unknown search engine '{}'. Supported engines: brave, duckduckgo, yahoo, firecrawl, exa, gemini",
-                engine
+                "Unknown search engine '{engine}'. Supported engines: {SUPPORTED_SEARCH_ENGINES}"
             )));
         }
     }

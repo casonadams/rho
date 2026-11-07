@@ -82,10 +82,7 @@ rho mcp list
 # Test connection and tool discovery
 rho mcp test filesystem
 
-# Log in to an authenticated remote MCP server
-rho mcp login remote_jira
-
-# Add an MCP server to global config (~/.agents/mcp.json)
+# Add an MCP server to rho's global config (~/.config/rho/mcp.json)
 rho mcp add db "https://mcp.db.example.com/mcp"
 
 # Remove an MCP server
@@ -98,7 +95,7 @@ Or view and test active servers interactively inside the REPL with `/mcp`.
 
 When configured MCP servers expose more tools than the deferral threshold (`defer_threshold`, default: 4), `rho` defers individual tool definitions behind a compact `tool_search` tool to conserve context tokens. When the model needs a tool, it calls `tool_search` with keywords or tool names, which dynamically loads the matching tools with their full JSON schemas for subsequent turns.
 
-To avoid extra turn latency when discovering and running a tool, `tool_search` also supports an optional `execute` object (`tool`, `arguments`) to search, activate, and execute a tool immediately in the same turn. Tools already invoked in conversation history are automatically preserved and pre-activated upon session resumption.
+`tool_search` only searches and activates tools: matching tools join the active tool set for subsequent turns, and calling them goes through the normal permission checks. Tools already invoked in conversation history are automatically preserved and pre-activated upon session resumption.
 
 ---
 
@@ -107,7 +104,9 @@ To avoid extra turn latency when discovering and running a tool, `tool_search` a
 Lifecycle hooks allow developers and security teams to intercept agent turns and
 tool executions without building complex daemon runtimes.
 
-Hooks are executable scripts or binaries placed in `<workspace>/.agents/hooks/` (or user fallback `~/.agents/hooks/`):
+Hooks are executable scripts or binaries placed in `~/.agents/hooks/` or `<workspace>/.agents/hooks/`. Hook directories
+given with `--hook-dir` or `RHO_HOOK_DIR` and user hooks run before project hooks. Project hooks run only when the
+workspace is trusted with `RHO_TRUST_PROJECT=1`:
 
 | Hook Script            | Trigger Point                                                                              |
 | :--------------------- | :----------------------------------------------------------------------------------------- |

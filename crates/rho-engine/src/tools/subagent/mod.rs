@@ -4,9 +4,7 @@ mod tests;
 pub mod types;
 
 pub use runner::SubagentRunner;
-pub use types::{
-    DEFAULT_SUBAGENT_MAX_TURNS, MAX_SUBAGENT_DEPTH, MAX_SUBAGENT_TURNS, SubagentArgs, SubagentRole, clamp_max_turns,
-};
+pub use types::{DEFAULT_SUBAGENT_MAX_TURNS, MAX_SUBAGENT_TURNS, SubagentArgs, SubagentRole, clamp_max_turns};
 
 use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::engine_tool::EngineTool;
@@ -17,7 +15,6 @@ use std::sync::Arc;
 
 pub struct SubagentTool {
     model: Option<ModelHandle>,
-    depth: usize,
     tools: Vec<Arc<dyn EngineTool>>,
     agents: Vec<AgentMetadata>,
     description: String,
@@ -25,20 +22,13 @@ pub struct SubagentTool {
 
 impl SubagentTool {
     #[must_use]
-    pub fn new(model: Option<ModelHandle>, depth: usize, tools: Vec<Arc<dyn EngineTool>>) -> Self {
+    pub fn new(model: Option<ModelHandle>, tools: Vec<Arc<dyn EngineTool>>) -> Self {
         Self {
             model,
-            depth,
             tools,
             agents: Vec::new(),
             description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.".to_string(),
         }
-    }
-
-    #[must_use]
-    pub fn with_model(mut self, model: ModelHandle) -> Self {
-        self.model = Some(model);
-        self
     }
 
     #[must_use]
@@ -51,11 +41,6 @@ impl SubagentTool {
         }
         self.agents = agents;
         self
-    }
-
-    #[must_use]
-    pub fn depth(&self) -> usize {
-        self.depth
     }
 }
 
@@ -92,12 +77,6 @@ impl EngineTool for SubagentTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        if self.depth >= MAX_SUBAGENT_DEPTH {
-            return Ok(ToolResult::error(
-                "Maximum subagent recursion depth (1) reached: child subagents cannot spawn further subagents.",
-            ));
-        }
-
         let (role, agent_name, prompt, context_slice, max_turns) =
             match serde_json::from_value::<SubagentArgs>(args.clone()) {
                 Ok(parsed) => (

@@ -3,25 +3,17 @@
 #[cfg(test)]
 mod tests;
 
+use crate::http::CLIENT;
 use serde_json::Value;
-use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const CLOUD_HOST: &str = "https://ollama.com";
-
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::install_crypto_provider();
-    reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .unwrap_or_default()
-});
 
 /// Fetch the account usage summary from ollama.com and format it for the status line.
 pub async fn fetch_quota(api_key: &str) -> Option<String> {
     let response = CLIENT
         .get(format!("{CLOUD_HOST}/api/usage"))
+        .timeout(Duration::from_secs(10))
         .bearer_auth(api_key.trim())
         .send()
         .await

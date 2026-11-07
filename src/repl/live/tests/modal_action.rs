@@ -5,7 +5,7 @@ use crate::repl::live::idle::modal_action::{ModalActionContext, apply_modal_key_
 use crate::repl::live::modal::ModalKeyResult;
 use crate::ui::interactive::{InteractiveState, TerminalController};
 
-async fn setup_modal_action_harness(
+pub(super) async fn setup_modal_action_harness(
     temp: &std::path::Path,
 ) -> (
     TerminalController<HistoryTerminal>,
@@ -588,7 +588,7 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
 
     assert_eq!(tctx.controller.state().modal_depth(), 1);
     assert_eq!(
-        tctx.controller.state().active_modal().unwrap().options[4]
+        tctx.controller.state().active_modal().unwrap().options[3]
             .description
             .as_deref(),
         Some("ollama/qwen2.5-coder:7b")
@@ -655,4 +655,66 @@ async fn test_tools_and_permissions_modal_stack_preservation_and_updates() {
 
     tctx.controller.state_mut().pop_modal();
     assert_eq!(tctx.controller.state().modal_depth(), 0);
+}
+
+#[tokio::test]
+async fn test_modal_action_model_role_openers_open_their_selectors() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+    for res in [
+        ModalKeyResult::OpenModelsMenu,
+        ModalKeyResult::OpenGuardModelSelector,
+        ModalKeyResult::OpenSmolModelSelector,
+        ModalKeyResult::OpenSlowModelSelector,
+    ] {
+        assert!(tctx.dispatch(res).await);
+        assert!(tctx.controller.state().active_modal().is_some());
+        tctx.controller.state_mut().pop_modal();
+    }
+}
+
+#[tokio::test]
+async fn test_modal_action_remaining_role_model_selections_update_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+    let cases = [
+        (
+            ModalKeyResult::SmolModelSelected {
+                model: "haiku".to_string(),
+                provider: "anthropic".to_string(),
+            },
+            "smol",
+            Some("anthropic/haiku"),
+        ),
+        (
+            ModalKeyResult::SlowModelSelected {
+                model: "opus".to_string(),
+                provider: "anthropic".to_string(),
+            },
+            "slow",
+            Some("anthropic/opus"),
+        ),
+    ];
+    for (res, role, expected) in cases {
+        assert!(tctx.dispatch(res).await);
+        assert_eq!(tctx.session.config.models.get(role).map(String::as_str), expected);
+    }
 }

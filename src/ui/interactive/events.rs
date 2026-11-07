@@ -1,7 +1,3 @@
-use std::{
-    io::{self, Write},
-    sync::{Arc, Mutex},
-};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -23,12 +19,8 @@ pub enum OutputEvent {
 
 #[derive(Debug, Error)]
 pub enum UiPortError {
-    #[error("interactive UI is unavailable")]
-    Unavailable,
     #[error("interactive UI controller stopped")]
     Closed,
-    #[error("interactive UI output failed: {0}")]
-    Output(#[from] io::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +50,6 @@ pub enum UiEvent {
     ToolEnd,
     Transcript(crate::ui::interactive::TranscriptItem),
     RunningTool(Option<String>),
-    ExtraStatus(Option<String>),
     SystemMessage(Option<String>),
     Interaction {
         prompt: InteractionPrompt,
@@ -94,7 +85,6 @@ pub struct PendingUiBatch {
     tool_start: Option<ToolStartRequest>,
     tool_chunks: Vec<String>,
     tool_end: bool,
-    extra_status: Option<Option<String>>,
     system_message: Option<Option<String>>,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
     max_text_bytes: usize,
@@ -108,7 +98,6 @@ pub struct PendingUiDrain {
     pub tool_start: Option<ToolStartRequest>,
     pub tool_chunks: Vec<String>,
     pub tool_end: bool,
-    pub extra_status: Option<Option<String>>,
     pub system_message: Option<Option<String>>,
     pub transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
 }
@@ -135,7 +124,6 @@ impl PendingUiBatch {
             tool_start: None,
             tool_chunks: Vec::new(),
             tool_end: false,
-            extra_status: None,
             system_message: None,
             transcript_items: Vec::new(),
             max_text_bytes: max_text_bytes.max(1),
@@ -221,10 +209,6 @@ impl PendingUiBatch {
                 self.running_tool = Some(u);
                 BatchDecision::Pending
             }
-            UiEvent::ExtraStatus(s) => {
-                self.extra_status = Some(s);
-                BatchDecision::Pending
-            }
             event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
             UiEvent::DismissInteraction => Self::flushes(),
             other => self.push_flushing(other),
@@ -240,7 +224,6 @@ impl PendingUiBatch {
             tool_start: self.tool_start.take(),
             tool_chunks: std::mem::take(&mut self.tool_chunks),
             tool_end: std::mem::replace(&mut self.tool_end, false),
-            extra_status: self.extra_status.take(),
             system_message: self.system_message.take(),
             transcript_items: std::mem::take(&mut self.transcript_items),
         }
@@ -253,7 +236,6 @@ impl PendingUiBatch {
             && self.tool_start.is_none()
             && self.tool_chunks.is_empty()
             && !self.tool_end
-            && self.extra_status.is_none()
             && self.system_message.is_none()
             && self.transcript_items.is_empty()
     }
@@ -261,130 +243,70 @@ impl PendingUiBatch {
 
 #[derive(Clone)]
 pub struct InteractiveUi {
-    transport: Arc<Transport>,
-}
-
-enum Transport {
-    Channel(mpsc::UnboundedSender<UiEvent>),
-    Writer(Mutex<Box<dyn Write + Send>>),
+    sender: mpsc::UnboundedSender<UiEvent>,
 }
 
 impl InteractiveUi {
     pub fn channel() -> (Self, mpsc::UnboundedReceiver<UiEvent>) {
         let (sender, receiver) = mpsc::unbounded_channel();
-        (Self::from_sender(sender), receiver)
-    }
-
-    pub fn from_sender(sender: mpsc::UnboundedSender<UiEvent>) -> Self {
-        Self {
-            transport: Arc::new(Transport::Channel(sender)),
-        }
-    }
-
-    pub fn writer(writer: impl Write + Send + 'static) -> Self {
-        Self {
-            transport: Arc::new(Transport::Writer(Mutex::new(Box::new(writer)))),
-        }
+        (Self { sender }, receiver)
     }
 
     pub fn output(&self, event: OutputEvent) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender.send(UiEvent::Output(event)).map_err(|_| UiPortError::Closed),
-            Transport::Writer(writer) => {
-                let mut writer = writer
-                    .lock()
-                    .map_err(|_| io::Error::other("interactive UI writer lock poisoned"))?;
-                match event {
-                    OutputEvent::Text(text) | OutputEvent::StreamText(text) => writer.write_all(text.as_bytes())?,
-                }
-                writer.flush()?;
-                Ok(())
-            }
-        }
+        self.sender
+            .send(UiEvent::Output(event))
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub fn set_activity(&self, activity: Activity) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::Activity(activity))
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::Activity(activity))
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub fn set_running_tool(&self, command: Option<String>) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::RunningTool(command))
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
-    }
-
-    pub fn set_extra_status(&self, status: Option<String>) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::ExtraStatus(status))
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::RunningTool(command))
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub fn set_system_message(&self, message: Option<String>) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::SystemMessage(message))
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::SystemMessage(message))
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub fn tool_start(&self, request: ToolStartRequest) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::ToolStart(request))
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::ToolStart(request))
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub fn tool_chunk(&self, chunk: String) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::ToolChunk { chunk })
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::ToolChunk { chunk })
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub fn tool_end(&self) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender.send(UiEvent::ToolEnd).map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender.send(UiEvent::ToolEnd).map_err(|_| UiPortError::Closed)
     }
 
     pub fn push_transcript(&self, item: crate::ui::interactive::TranscriptItem) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender.send(UiEvent::Transcript(item)).map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::Transcript(item))
+            .map_err(|_| UiPortError::Closed)
     }
 
     pub async fn request(&self, prompt: InteractionPrompt) -> Result<InteractionResponse, UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => {
-                let (responder, receiver) = oneshot::channel();
-                sender
-                    .send(UiEvent::Interaction {
-                        prompt,
-                        responder: InteractionResponder { responder },
-                    })
-                    .map_err(|_| UiPortError::Closed)?;
-                receiver.await.map_err(|_| UiPortError::Closed)
-            }
-            Transport::Writer(_) => Err(UiPortError::Unavailable),
-        }
+        let (responder, receiver) = oneshot::channel();
+        self.sender
+            .send(UiEvent::Interaction {
+                prompt,
+                responder: InteractionResponder { responder },
+            })
+            .map_err(|_| UiPortError::Closed)?;
+        receiver.await.map_err(|_| UiPortError::Closed)
     }
 
     pub async fn interact(&self, prompt: InteractionPrompt) -> Result<InteractionResponse, UiPortError> {
@@ -392,11 +314,8 @@ impl InteractiveUi {
     }
 
     pub fn dismiss_interaction(&self) -> Result<(), UiPortError> {
-        match self.transport.as_ref() {
-            Transport::Channel(sender) => sender
-                .send(UiEvent::DismissInteraction)
-                .map_err(|_| UiPortError::Closed),
-            Transport::Writer(_) => Ok(()),
-        }
+        self.sender
+            .send(UiEvent::DismissInteraction)
+            .map_err(|_| UiPortError::Closed)
     }
 }

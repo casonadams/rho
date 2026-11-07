@@ -133,10 +133,6 @@ impl McpCache {
             },
         );
     }
-
-    pub fn invalidate(&mut self, server_name: &str) -> Option<McpCacheEntry> {
-        self.servers.remove(server_name)
-    }
 }
 
 #[cfg(test)]

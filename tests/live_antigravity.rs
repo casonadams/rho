@@ -5,23 +5,17 @@
 //! RHO_LIVE_AG_ACCESS (OAuth access token), RHO_LIVE_AG_REFRESH, and
 //! RHO_LIVE_AG_PROJECT. Kept out of CI because it spends real quota.
 
+use crate::temp_dir;
 use rho::auth::AuthStore;
 use rho::config::Config;
 use rho::engine::AgentEngine;
 use rho::engine::runner::TurnRequest;
 use rho::presentation::{RecordingSink, StructuredPresenter};
 use rho_harness_core::auth::StoredCredential;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 fn live_env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} must be set for the live Antigravity check"))
-}
-
-fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("{name}_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 fn live_config(workspace: &std::path::Path) -> Config {

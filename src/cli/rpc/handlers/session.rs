@@ -2,38 +2,43 @@ use super::super::types::RpcDaemonContext;
 use crate::error::Result;
 use rho_harness_core::model::{AssistantContent, ChatMessage, UserContent};
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcResponse};
+use rho_harness_core::rpc::transport::JsonLinesWriter;
+
+pub(crate) async fn write_command_result<W: tokio::io::AsyncWrite + Unpin, E: std::fmt::Display>(
+    writer: &mut JsonLinesWriter<W>,
+    req_id: Option<String>,
+    command: &str,
+    result: std::result::Result<Option<serde_json::Value>, E>,
+) -> Result<()> {
+    let resp = match result {
+        Ok(data) => RpcResponse::success(req_id, command, data),
+        Err(e) => RpcResponse::failure(req_id, command, &e.to_string()),
+    };
+    writer.write_message(&resp).await
+}
 
 pub(crate) async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let eng = ctx.engine.read().await;
-    match eng.session_manager.load_tree().await {
-        Ok(tree) => {
-            let entries = crate::ui::interactive::tree_view::build_tree_display(&tree);
-            let payload = serde_json::json!({
-                "active_leaf_id": tree.active_leaf_id,
-                "session_name": tree.session_name,
-                "entries": entries.into_iter().map(|e| serde_json::json!({
-                    "id": e.id,
-                    "parent_id": e.parent_id,
-                    "depth": e.depth,
-                    "is_active": e.is_active,
-                    "label": e.label,
-                    "preview": e.preview,
-                    "kind": format!("{:?}", e.kind),
-                })).collect::<Vec<_>>(),
-            });
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "get_tree", Some(payload)))
-                .await
-        }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "get_tree", &e.to_string()))
-                .await
-        }
-    }
+    let result = eng.session_manager.load_tree().await.map(|tree| {
+        let entries = crate::ui::interactive::tree_view::build_tree_display(&tree);
+        Some(serde_json::json!({
+            "active_leaf_id": tree.active_leaf_id,
+            "session_name": tree.session_name,
+            "entries": entries.into_iter().map(|e| serde_json::json!({
+                "id": e.id,
+                "parent_id": e.parent_id,
+                "depth": e.depth,
+                "is_active": e.is_active,
+                "label": e.label,
+                "preview": e.preview,
+                "kind": format!("{:?}", e.kind),
+            })).collect::<Vec<_>>(),
+        }))
+    });
+    write_command_result(ctx.writer, req_id, "get_tree", result).await
 }
 
 async fn handle_switch_branch_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -42,18 +47,12 @@ async fn handle_switch_branch_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let eng = ctx.engine.read().await;
-    match eng.session_manager.switch_branch(Some(node_id.to_string())).await {
-        Ok(_) => {
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "switch_branch", None))
-                .await
-        }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "switch_branch", &e.to_string()))
-                .await
-        }
-    }
+    let result = eng
+        .session_manager
+        .switch_branch(Some(node_id.to_string()))
+        .await
+        .map(|_| None);
+    write_command_result(ctx.writer, req_id, "switch_branch", result).await
 }
 
 async fn handle_set_node_label_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -256,24 +255,18 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let cfg = ctx.config.read().await.clone();
     let auth = ctx.auth_store.read().await.clone();
     let base_dir = ctx.engine.read().await.base_dir.clone();
-    match crate::platform::agent_engine_in_dir(cfg, auth, base_dir, Some(session_id)).await {
+    let result = match crate::platform::agent_engine_in_dir(cfg, auth, base_dir, Some(session_id)).await {
         Ok(new_eng) => {
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
             let messages = extract_chat_messages(&raw_msgs);
             new_eng.spawn_refresh_quota();
             let payload = build_engine_session_payload(&new_eng, Some(messages));
             *ctx.engine.write().await = new_eng;
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "resume_session", Some(payload)))
-                .await?;
+            Ok(Some(payload))
         }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "resume_session", &e.to_string()))
-                .await?;
-        }
-    }
-    Ok(())
+        Err(e) => Err(e),
+    };
+    write_command_result(ctx.writer, req_id, "resume_session", result).await
 }
 
 pub(crate) async fn handle_fork_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -283,20 +276,12 @@ pub(crate) async fn handle_fork_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<()> {
     let cfg = ctx.config.read().await;
     let eng = ctx.engine.read().await;
-    match eng.session_manager.fork_session(&cfg.sessions_dir, node_id).await {
-        Ok(forked) => {
-            let data = serde_json::json!({ "session_id": forked.session_id });
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "fork_session", Some(data)))
-                .await?;
-        }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "fork_session", &e.to_string()))
-                .await?;
-        }
-    }
-    Ok(())
+    let result = eng
+        .session_manager
+        .fork_session(&cfg.sessions_dir, node_id)
+        .await
+        .map(|forked| Some(serde_json::json!({ "session_id": forked.session_id })));
+    write_command_result(ctx.writer, req_id, "fork_session", result).await
 }
 
 pub(crate) async fn handle_resume_or_fork_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -338,21 +323,15 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cfg.sessions_dir = target_dir.join(".rho/sessions");
 
     let auth = ctx.auth_store.read().await.clone();
-    match crate::platform::agent_engine_in_dir(cfg.clone(), auth, target_dir, None).await {
+    let result = match crate::platform::agent_engine_in_dir(cfg.clone(), auth, target_dir, None).await {
         Ok(new_eng) => {
             new_eng.spawn_refresh_quota();
             let payload = build_engine_session_payload(&new_eng, None);
             *ctx.engine.write().await = new_eng;
             *ctx.config.write().await = cfg;
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "create_session", Some(payload)))
-                .await?;
+            Ok(Some(payload))
         }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "create_session", &e.to_string()))
-                .await?;
-        }
-    }
-    Ok(())
+        Err(e) => Err(e),
+    };
+    write_command_result(ctx.writer, req_id, "create_session", result).await
 }

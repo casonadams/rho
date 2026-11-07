@@ -6,7 +6,7 @@ use crate::repl::line_mode::dispatch::compact_context;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 use rho_engine::auth::AuthStore;
-use rho_engine::engine::eval::mock::{MockEngineConfig, mock_engine_with_session};
+use rho_engine::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho_engine::provider::adapter::MockAdapter;
 use rho_harness_core::session::SessionManager;
 use std::sync::Arc;
@@ -41,38 +41,50 @@ fn test_context<'a>(
         session_manager: None,
         engine: None,
         home_dir: None,
-        collab: None,
     }
 }
 
-#[tokio::test]
-async fn compact_command_without_instructions_dispatches() {
-    let mut config = Config::default();
+async fn run_command(
+    line: &str,
+    config: &mut Config,
+    session_id: &str,
+    engine: Option<&crate::engine::AgentEngine>,
+) -> (Option<CommandResult>, String) {
     let mut auth = AuthStore::default();
-    let (renderer, _) = collecting_renderer();
-    let mut context = test_context(&mut config, &mut auth, &renderer);
-
-    let result = SlashCommandHandler::handle("/compact", &mut context).await.unwrap();
-    assert_eq!(result, Some(CommandResult::Compact { instructions: None }));
+    let (renderer, mut events) = collecting_renderer();
+    let mut context = SlashCommandContext {
+        config,
+        auth_store: &mut auth,
+        renderer: &renderer,
+        session_id: Some(session_id),
+        session_manager: None,
+        engine,
+        home_dir: None,
+    };
+    let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+    (result, collected_output(&mut events))
 }
 
 #[tokio::test]
-async fn compact_command_with_instructions_dispatches() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, _) = collecting_renderer();
-    let mut context = test_context(&mut config, &mut auth, &renderer);
+async fn compact_command_dispatches_with_optional_instructions() {
+    let cases = [
+        ("/compact", None),
+        ("/compact focus on errors and tests", Some("focus on errors and tests")),
+    ];
+    for (line, instructions) in cases {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let (renderer, _) = collecting_renderer();
+        let mut context = test_context(&mut config, &mut auth, &renderer);
 
-    let result = SlashCommandHandler::handle("/compact focus on errors and tests", &mut context)
-        .await
-        .unwrap();
-
-    assert_eq!(
-        result,
-        Some(CommandResult::Compact {
-            instructions: Some("focus on errors and tests".to_string())
-        })
-    );
+        let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+        assert_eq!(
+            result,
+            Some(CommandResult::Compact {
+                instructions: instructions.map(str::to_string)
+            })
+        );
+    }
 }
 
 async fn seed_long_turns(session_mgr: &SessionManager, sid: &str) {
@@ -101,7 +113,7 @@ fn setup_compact_env(
     };
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
     let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
-    let engine = mock_engine_with_session(
+    let engine = mock_engine(
         Arc::new(MockAdapter::text(
             "## Goal\nAnalyze queries\n\n## Progress\nCompleted analyses",
         )),
@@ -250,11 +262,12 @@ async fn test_new_and_thinking_commands() {
 
 #[test]
 fn is_slash_command_recognizes_root_commands_and_excludes_file_paths() {
-    assert!(is_slash_command("/help"));
-    assert!(is_slash_command("/model gpt-4o"));
-    assert!(!is_slash_command("/usr/bin/env"));
-    assert!(!is_slash_command("/not_a_real_path/foo/bar"));
-    assert!(!is_slash_command("hello world"));
+    assert!(["/help", "/model gpt-4o"].into_iter().all(is_slash_command));
+    assert!(
+        ["/usr/bin/env", "/not_a_real_path/foo/bar", "hello world"]
+            .into_iter()
+            .all(|input| !is_slash_command(input))
+    );
 }
 
 async fn setup_export_session(workspace: &std::path::Path) -> (Config, SessionManager, String) {
@@ -287,7 +300,6 @@ async fn export_command_writes_markdown_default_path() {
         session_manager: Some(&session_manager),
         engine: None,
         home_dir: None,
-        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/export", &mut context).await.unwrap();
@@ -315,7 +327,6 @@ async fn export_command_writes_html_to_override_path() {
         session_manager: Some(&session_manager),
         engine: None,
         home_dir: None,
-        collab: None,
     };
 
     let cmd = format!("/export html {}", override_path.display());
@@ -350,7 +361,6 @@ async fn export_command_rejects_unknown_format_with_usage() {
         session_manager: Some(&session_manager),
         engine: None,
         home_dir: None,
-        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/export unknown_format", &mut context)
@@ -364,23 +374,9 @@ async fn export_command_rejects_unknown_format_with_usage() {
 #[tokio::test]
 async fn session_command_prints_diagnostics() {
     let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        session_id: Some("session-diag-123"),
-        session_manager: None,
-        engine: None,
-        home_dir: None,
-        collab: None,
-    };
-
-    let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
+    let (result, output) = run_command("/session", &mut config, "session-diag-123", None).await;
 
     assert!(matches!(result, Some(CommandResult::Continue)));
-    let output = collected_output(&mut events);
     assert!(output.contains("Session Diagnostics"));
     assert!(output.contains("Session ID:                  session-diag-123"));
 }
@@ -389,7 +385,7 @@ async fn setup_engine_session(temp: &std::path::Path, config: Config) -> (crate:
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
     let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
     let sid = sm.session_id.clone();
-    let engine = mock_engine_with_session(
+    let engine = mock_engine(
         Arc::new(MockAdapter::default()),
         MockEngineConfig {
             base_dir: temp,
@@ -409,24 +405,10 @@ async fn session_command_prints_diagnostics_with_engine() {
         thinking_level: Some("high".to_string()),
         ..Config::default()
     };
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
     let (engine, session_id) = setup_engine_session(&temp, config.clone()).await;
 
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        session_id: Some(&session_id),
-        session_manager: None,
-        engine: Some(&engine),
-        home_dir: None,
-        collab: None,
-    };
-
-    let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
+    let (result, output) = run_command("/session", &mut config, &session_id, Some(&engine)).await;
     assert!(matches!(result, Some(CommandResult::Continue)));
-    let output = collected_output(&mut events);
     assert!(output.contains("Session Diagnostics") && output.contains("Thinking Level:"));
     let _ = std::fs::remove_dir_all(temp);
 }
@@ -451,7 +433,6 @@ fn skill_context<'a>(
         session_manager: None,
         engine: None,
         home_dir,
-        collab: None,
     }
 }
 
@@ -520,92 +501,69 @@ async fn test_slash_skill_colon_invocation() {
     let _ = std::fs::remove_dir_all(workspace);
 }
 
-#[tokio::test]
-async fn tokens_command_displays_cache_hit_when_present() {
-    let (mut config, mut auth) = (Config::default(), AuthStore::default());
-    let (renderer, mut events) = collecting_renderer();
-    let dir = tempfile::tempdir().unwrap();
-    let model = Arc::new(MockAdapter::text("test response"));
-    let engine = mock_engine_with_session(
-        model,
+fn usage_engine(
+    base_dir: &std::path::Path,
+    config: &Config,
+    step: rho_engine::engine::metrics::StructuralUsage,
+) -> crate::engine::AgentEngine {
+    let engine = mock_engine(
+        Arc::new(MockAdapter::text("test response")),
         MockEngineConfig {
-            base_dir: dir.path(),
+            base_dir,
             app_config: config.clone(),
             session_manager: None,
             built_in_tools: None,
         },
     );
-    let step = rho_engine::engine::metrics::StructuralUsage {
-        input_tokens: 100,
-        output_tokens: 50,
-        cached_input_tokens: Some(900),
-        cache_creation_input_tokens: Some(100),
-        ..Default::default()
-    };
     engine
         .usage()
         .record_turn(rho_engine::engine::tracking::TurnUsage::single(step), 500);
+    engine
+}
 
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        session_id: Some("test-session"),
-        session_manager: None,
-        engine: Some(&engine),
-        home_dir: None,
-        collab: None,
-    };
-
-    let result = SlashCommandHandler::handle("/tokens", &mut context).await.unwrap();
+async fn run_usage_command(command: &str, step: rho_engine::engine::metrics::StructuralUsage) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    let engine = usage_engine(dir.path(), &config, step);
+    let (result, output) = run_command(command, &mut config, "test-session", Some(&engine)).await;
     assert_eq!(result, Some(CommandResult::Continue));
-    let output = collected_output(&mut events);
-    assert!(output.contains("Tokens:"));
-    assert!(output.contains("cache: R900 W100"));
-    assert!(output.contains("Prompt Cache Hit:            90.0%"));
+    output
 }
 
 #[tokio::test]
-async fn session_command_displays_cache_efficiency_when_present() {
-    let (mut config, mut auth) = (Config::default(), AuthStore::default());
-    let (renderer, mut events) = collecting_renderer();
-    let dir = tempfile::tempdir().unwrap();
-    let model = Arc::new(MockAdapter::text("test response"));
-    let engine = mock_engine_with_session(
-        model,
-        MockEngineConfig {
-            base_dir: dir.path(),
-            app_config: config.clone(),
-            session_manager: None,
-            built_in_tools: None,
-        },
-    );
-    let step = rho_engine::engine::metrics::StructuralUsage {
-        input_tokens: 1_000,
-        output_tokens: 200,
-        cached_input_tokens: Some(9_000),
-        ..Default::default()
-    };
-    engine
-        .usage()
-        .record_turn(rho_engine::engine::tracking::TurnUsage::single(step), 500);
-
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        session_id: Some("test-session"),
-        session_manager: None,
-        engine: Some(&engine),
-        home_dir: None,
-        collab: None,
-    };
-
-    let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
-    assert_eq!(result, Some(CommandResult::Continue));
-    let output = collected_output(&mut events);
-    assert!(output.contains("Cache Efficiency:            cache hit: 90%"));
-    assert!(output.contains("Prompt Cache Hit:            90.0%"));
+async fn usage_commands_display_cache_stats_when_present() {
+    let cases: [(&str, rho_engine::engine::metrics::StructuralUsage, &[&str]); 2] = [
+        (
+            "/tokens",
+            rho_engine::engine::metrics::StructuralUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cached_input_tokens: Some(900),
+                cache_creation_input_tokens: Some(100),
+                ..Default::default()
+            },
+            &["Tokens:", "cache: R900 W100", "Prompt Cache Hit:            90.0%"],
+        ),
+        (
+            "/session",
+            rho_engine::engine::metrics::StructuralUsage {
+                input_tokens: 1_000,
+                output_tokens: 200,
+                cached_input_tokens: Some(9_000),
+                ..Default::default()
+            },
+            &[
+                "Cache Efficiency:            cache hit: 90%",
+                "Prompt Cache Hit:            90.0%",
+            ],
+        ),
+    ];
+    for (command, step, expected) in cases {
+        let output = run_usage_command(command, step).await;
+        for &needle in expected {
+            assert!(output.contains(needle), "{command}: {output}");
+        }
+    }
 }
 
 #[test]
@@ -672,157 +630,4 @@ fn test_prompt_skill_choice_from() {
     let mut reader3 = Cursor::new(b"abc\n");
     let mut writer3 = Vec::new();
     assert_eq!(prompt_skill_choice_from(&mut reader3, &mut writer3, &skills), None);
-}
-
-#[tokio::test]
-async fn collab_commands_without_active_session() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mut slot: Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>> = None;
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        session_id: Some("test-session"),
-        session_manager: None,
-        engine: None,
-        home_dir: None,
-        collab: Some(&mut slot),
-    };
-
-    let kick_res = SlashCommandHandler::handle("/collab kick 1", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(kick_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collab session is not active"));
-
-    let link_res = SlashCommandHandler::handle("/collab link", &mut context).await.unwrap();
-    assert_eq!(link_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collab session is not active"));
-
-    let stop_res = SlashCommandHandler::handle("/collab stop", &mut context).await.unwrap();
-    assert_eq!(stop_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collab session is not active"));
-
-    let rotate_res = SlashCommandHandler::handle("/collab rotate", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(rotate_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collab session is not active"));
-
-    let peers_res = SlashCommandHandler::handle("/collab peers", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(peers_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collab session is not active"));
-}
-
-#[tokio::test]
-async fn collab_start_and_lifecycle() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mut slot: Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>> = None;
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        session_id: Some("test-session"),
-        session_manager: None,
-        engine: None,
-        home_dir: None,
-        collab: Some(&mut slot),
-    };
-
-    let start_res = SlashCommandHandler::handle("/collab start", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(start_res, Some(CommandResult::Continue));
-    assert!(context.collab.as_ref().unwrap().is_some());
-    let out = collected_output(&mut events);
-    assert!(out.contains("Collab session active"));
-    assert!(out.contains("rho join rho://"));
-
-    let link_res = SlashCommandHandler::handle("/collab link", &mut context).await.unwrap();
-    assert_eq!(link_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Active Collab Session"));
-
-    let rotate_res = SlashCommandHandler::handle("/collab rotate", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(rotate_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collab keys rotated"));
-
-    let kick_res = SlashCommandHandler::handle("/collab kick 42", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(kick_res, Some(CommandResult::Continue));
-    assert!(collected_output(&mut events).contains("Collaborator 42 not found"));
-
-    let peers_res = SlashCommandHandler::handle("/collab peers", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(peers_res, Some(CommandResult::OpenCollabSelector));
-
-    let stop_res = SlashCommandHandler::handle("/collab stop", &mut context).await.unwrap();
-    assert_eq!(stop_res, Some(CommandResult::Continue));
-    assert!(context.collab.as_ref().unwrap().is_none());
-    assert!(collected_output(&mut events).contains("Collab session stopped"));
-}
-
-#[tokio::test]
-async fn collab_peers_with_connected_peers() {
-    let (renderer, mut events) = collecting_renderer();
-    let peers = vec![
-        rho_harness_core::collab::CollabPeerInfo {
-            id: 1,
-            role: rho_harness_core::collab::CapabilityLevel::Full,
-            hostname: None,
-            connected_at: chrono::Utc::now(),
-        },
-        rho_harness_core::collab::CollabPeerInfo {
-            id: 2,
-            role: rho_harness_core::collab::CapabilityLevel::ViewOnly,
-            hostname: None,
-            connected_at: chrono::Utc::now(),
-        },
-    ];
-    super::collab::print_peer_list(&renderer, &peers);
-    let out = collected_output(&mut events);
-    assert!(out.contains("Active collaborators (2)"));
-    assert!(out.contains("#1: Full"));
-    assert!(out.contains("#2: ViewOnly"));
-}
-
-#[tokio::test]
-async fn test_route_command_status_and_toggles() {
-    let mut config = Config {
-        model: "default-chat-model".to_string(),
-        ..Default::default()
-    };
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mut context = test_context(&mut config, &mut auth, &renderer);
-
-    // Initial status
-    let res = SlashCommandHandler::handle("/route", &mut context).await.unwrap();
-    assert_eq!(res, Some(CommandResult::Continue));
-    let out = collected_output(&mut events);
-    assert!(out.contains("Model Routing: disabled"));
-    assert!(out.contains("default-chat-model"));
-
-    // Enable
-    let res = SlashCommandHandler::handle("/route on", &mut context).await.unwrap();
-    assert_eq!(res, Some(CommandResult::Continue));
-    assert!(context.config.routing);
-    let out = collected_output(&mut events);
-    assert!(out.contains("Model routing enabled"));
-
-    // Disable
-    let res = SlashCommandHandler::handle("/route off", &mut context).await.unwrap();
-    assert_eq!(res, Some(CommandResult::Continue));
-    assert!(!context.config.routing);
-    let out = collected_output(&mut events);
-    assert!(out.contains("Model routing disabled"));
 }

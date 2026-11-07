@@ -10,8 +10,6 @@ pub struct RepeatedCallTracker {
     consecutive: usize,
 }
 
-pub type RepeatedCallHook = RepeatedCallTracker;
-
 impl RepeatedCallTracker {
     pub fn new(working_dir: impl AsRef<Path>) -> Self {
         let p = working_dir.as_ref();

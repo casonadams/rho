@@ -1,4 +1,4 @@
-use super::super::prune::{prune_expired_sessions, prune_expired_sessions_async};
+use super::super::prune::{prune_empty_sessions_async, prune_expired_sessions_async};
 use super::temp_dir;
 use std::fs::File;
 use std::path::Path;
@@ -22,122 +22,104 @@ fn create_test_session_file(dir: &Path, session_id: &str, age_days: u64, is_name
     file.set_times(times).unwrap();
 }
 
-#[test]
-fn prunes_expired_unnamed_sessions() {
+fn seeded_dir(sessions: &[(&str, u64, bool)]) -> std::path::PathBuf {
     let dir = temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
+    for (id, age_days, is_named) in sessions {
+        create_test_session_file(&dir, id, *age_days, *is_named);
+    }
+    dir
+}
 
-    create_test_session_file(&dir, "old_session", 6, false);
-    create_test_session_file(&dir, "recent_session", 2, false);
-
-    let pruned = prune_expired_sessions(&dir, "active_session", 5).unwrap();
-    assert_eq!(pruned, 1);
-    assert!(!dir.join("old_session.jsonl").exists());
-    assert!(dir.join("recent_session.jsonl").exists());
-
+fn assert_sessions(dir: &Path, kept: &[&str], removed: &[&str]) {
+    for id in kept {
+        assert!(dir.join(format!("{id}.jsonl")).exists(), "{id} should be kept");
+    }
+    for id in removed {
+        assert!(!dir.join(format!("{id}.jsonl")).exists(), "{id} should be pruned");
+    }
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[test]
-fn preserves_active_session_even_if_old() {
-    let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
+type SeedList<'a> = &'a [(&'a str, u64, bool)];
 
-    create_test_session_file(&dir, "active_session", 10, false);
-
-    let pruned = prune_expired_sessions(&dir, "active_session", 5).unwrap();
-    assert_eq!(pruned, 0);
-    assert!(dir.join("active_session.jsonl").exists());
-
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn preserves_named_sessions_even_if_old() {
-    let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-
-    create_test_session_file(&dir, "named_old_session", 10, true);
-    create_test_session_file(&dir, "unnamed_old_session", 10, false);
-
-    let pruned = prune_expired_sessions(&dir, "active_session", 5).unwrap();
-    assert_eq!(pruned, 1);
-    assert!(dir.join("named_old_session.jsonl").exists());
-    assert!(!dir.join("unnamed_old_session.jsonl").exists());
-
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn disabled_when_retention_days_is_zero() {
-    let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-
-    create_test_session_file(&dir, "old_session", 30, false);
-
-    let pruned = prune_expired_sessions(&dir, "active_session", 0).unwrap();
-    assert_eq!(pruned, 0);
-    assert!(dir.join("old_session.jsonl").exists());
-
-    let _ = std::fs::remove_dir_all(dir);
+struct ExpiryCase<'a> {
+    name: &'a str,
+    sessions: SeedList<'a>,
+    retention_days: u32,
+    expected_pruned: usize,
+    kept: &'a [&'a str],
+    removed: &'a [&'a str],
 }
 
 #[tokio::test]
-async fn async_prunes_expired_unnamed_sessions() {
-    let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-
-    create_test_session_file(&dir, "old_session_1", 7, false);
-    create_test_session_file(&dir, "recent_session_1", 1, false);
-    create_test_session_file(&dir, "named_old_session_1", 10, true);
-
-    let pruned = prune_expired_sessions_async(&dir, "active_session", 5).await.unwrap();
-    assert_eq!(pruned, 1);
-    assert!(!dir.join("old_session_1.jsonl").exists());
-    assert!(dir.join("recent_session_1.jsonl").exists());
-    assert!(dir.join("named_old_session_1.jsonl").exists());
-
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn test_prune_empty_sessions() {
-    use super::super::prune::prune_empty_sessions;
-
-    let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-
-    create_test_session_file(&dir, "empty_session", 0, false);
-    create_test_session_file(&dir, "active_empty", 0, false);
-    create_test_session_file(&dir, "named_empty", 0, true);
-
-    let pruned = prune_empty_sessions(&dir, Some("active_empty")).unwrap();
-    assert_eq!(pruned, 1);
-    assert!(!dir.join("empty_session.jsonl").exists());
-    assert!(dir.join("active_empty.jsonl").exists());
-    assert!(dir.join("named_empty.jsonl").exists());
-
-    let _ = std::fs::remove_dir_all(dir);
+async fn expired_session_pruning_follows_retention_rules() {
+    let cases = [
+        ExpiryCase {
+            name: "prunes expired unnamed sessions",
+            sessions: &[("old_session", 6, false), ("recent_session", 2, false)],
+            retention_days: 5,
+            expected_pruned: 1,
+            kept: &["recent_session"],
+            removed: &["old_session"],
+        },
+        ExpiryCase {
+            name: "preserves the active session even if old",
+            sessions: &[("active_session", 10, false)],
+            retention_days: 5,
+            expected_pruned: 0,
+            kept: &["active_session"],
+            removed: &[],
+        },
+        ExpiryCase {
+            name: "preserves named sessions even if old",
+            sessions: &[("named_old_session", 10, true), ("unnamed_old_session", 10, false)],
+            retention_days: 5,
+            expected_pruned: 1,
+            kept: &["named_old_session"],
+            removed: &["unnamed_old_session"],
+        },
+        ExpiryCase {
+            name: "is disabled when retention days is zero",
+            sessions: &[("old_session", 30, false)],
+            retention_days: 0,
+            expected_pruned: 0,
+            kept: &["old_session"],
+            removed: &[],
+        },
+        ExpiryCase {
+            name: "mixed old, recent and named sessions",
+            sessions: &[
+                ("old_session_1", 7, false),
+                ("recent_session_1", 1, false),
+                ("named_old_session_1", 10, true),
+            ],
+            retention_days: 5,
+            expected_pruned: 1,
+            kept: &["recent_session_1", "named_old_session_1"],
+            removed: &["old_session_1"],
+        },
+    ];
+    for case in cases {
+        let dir = seeded_dir(case.sessions);
+        let pruned = prune_expired_sessions_async(&dir, "active_session", case.retention_days)
+            .await
+            .unwrap();
+        assert_eq!(pruned, case.expected_pruned, "{}", case.name);
+        assert_sessions(&dir, case.kept, case.removed);
+    }
 }
 
 #[tokio::test]
-async fn test_prune_empty_sessions_async() {
-    use super::super::prune::prune_empty_sessions_async;
+async fn empty_session_pruning_keeps_active_and_named_sessions() {
+    let seeds: SeedList = &[
+        ("empty_session", 0, false),
+        ("active_empty", 0, false),
+        ("named_empty", 0, true),
+    ];
+    let kept = ["active_empty", "named_empty"];
 
-    let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
-
-    create_test_session_file(&dir, "empty_session_async", 0, false);
-    create_test_session_file(&dir, "active_empty_async", 0, false);
-    create_test_session_file(&dir, "named_empty_async", 0, true);
-
-    let pruned = prune_empty_sessions_async(&dir, Some("active_empty_async"))
-        .await
-        .unwrap();
-    assert_eq!(pruned, 1);
-    assert!(!dir.join("empty_session_async.jsonl").exists());
-    assert!(dir.join("active_empty_async.jsonl").exists());
-    assert!(dir.join("named_empty_async.jsonl").exists());
-
-    let _ = std::fs::remove_dir_all(dir);
+    let dir = seeded_dir(seeds);
+    assert_eq!(prune_empty_sessions_async(&dir, Some("active_empty")).await.unwrap(), 1);
+    assert_sessions(&dir, &kept, &["empty_session"]);
 }

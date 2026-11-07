@@ -5,11 +5,9 @@ use chrono::Utc;
 use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
-use tokio::io::AsyncWriteExt;
 
+use super::super::empty_store_state;
 use super::super::session_error;
-use super::super::tree::SessionTree;
-use super::super::validation::CanonicalHistory;
 
 pub fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
     let header = SessionHeader {
@@ -32,70 +30,74 @@ pub fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn create_session_file_async(path: &Path, session_id: &str) -> Result<()> {
-    let header = SessionHeader {
-        record_type: HeaderRecordType::Header,
-        version: SESSION_VERSION,
-        session_id: session_id.to_string(),
-        created_at: Utc::now(),
-    };
-    let mut line = serde_json::to_vec(&header).map_err(|_| session_error("session header serialization failed"))?;
-    line.push(b'\n');
-    let mut options = tokio::fs::OpenOptions::new();
-    options.create_new(true).write(true);
-    #[cfg(unix)]
-    {
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).await?;
-    file.write_all(&line).await?;
-    file.sync_data().await?;
-    Ok(())
-}
-
 fn serialize_record_line(record: &SessionRecord) -> Result<Vec<u8>> {
     let mut line = serde_json::to_vec(record).map_err(|_| session_error("session record serialization failed"))?;
     line.push(b'\n');
     Ok(line)
 }
 
-fn write_record_sync(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
-    let line = serialize_record_line(record)?;
-    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-    file.write_all(&line)?;
-    if durable {
-        file.sync_data()?;
-    } else {
-        file.flush()?;
+fn drop_torn_tail(file: &mut std::fs::File) -> std::io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let len = file.metadata()?.len();
+    let mut end = len;
+    let mut chunk = [0u8; 4096];
+    while end > 0 {
+        let start = end.saturating_sub(chunk.len() as u64);
+        let buf = &mut chunk[..(end - start) as usize];
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(buf)?;
+        if let Some(pos) = buf.iter().rposition(|&byte| byte == b'\n') {
+            let keep = start + pos as u64 + 1;
+            if keep < len {
+                file.set_len(keep)?;
+            }
+            return Ok(());
+        }
+        end = start;
     }
     Ok(())
+}
+
+fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> Result<()> {
+    let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
+    drop_torn_tail(&mut file)?;
+    file.write_all(line)?;
+    if durable {
+        file.sync_data()?;
+    }
+    Ok(())
+}
+
+async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
+    let line = serialize_record_line(record)?;
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || write_line_sync(&path, &line, durable))
+        .await
+        .map_err(|e| session_error(format!("session write task failed: {e}")))?
 }
 
 /// Append an audit event without an fsync; the JSONL loader drops a torn
 /// trailing line, so at most the newest unflushed events are lost on a crash.
 pub async fn append_record(path: &Path, record: &SessionRecord) -> Result<()> {
-    write_record_sync(path, record, false)
+    write_record(path, record, false).await
 }
 
 /// Append a canonical-history state transition and fsync it so a resumable
 /// session never replays a half-committed state change.
 pub async fn append_durable_record(path: &Path, record: &SessionRecord) -> Result<()> {
-    write_record_sync(path, record, true)
+    write_record(path, record, true).await
 }
 
 pub fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(session_error(format!("unknown session id: {expected_id}")));
-        }
-        Err(error) => return Err(error.into()),
-    };
-    parse_committed_bytes(&bytes, expected_id)
+    parse_read_result(std::fs::read(path), expected_id)
 }
 
 pub async fn load_file_async(path: &Path, expected_id: &str) -> Result<StoreState> {
-    let bytes = match tokio::fs::read(path).await {
+    parse_read_result(tokio::fs::read(path).await, expected_id)
+}
+
+fn parse_read_result(read: std::io::Result<Vec<u8>>, expected_id: &str) -> Result<StoreState> {
+    let bytes = match read {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(session_error(format!("unknown session id: {expected_id}")));
@@ -118,14 +120,7 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
     }
     let header = parse_header(first)?;
     validate_header(&header, expected_id)?;
-    let mut state = StoreState {
-        next_sequence: 1,
-        messages: Vec::new(),
-        checkpoint: None,
-        events: Vec::new(),
-        tree: SessionTree::new(),
-        integrity: CanonicalHistory::new(),
-    };
+    let mut state = empty_store_state();
     for line in lines {
         if line.is_empty() {
             return Err(session_error("session contains an empty committed record"));
@@ -159,4 +154,40 @@ pub(crate) fn validate_header(header: &SessionHeader, expected_id: &str) -> Resu
         return Err(session_error("session identity does not match its file name"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::SessionManager;
+    use super::super::types::SessionEventKind;
+    use std::io::Write;
+
+    #[tokio::test]
+    async fn append_after_torn_tail_keeps_session_loadable() {
+        let dir = std::env::temp_dir().join(format!("rho_torn_tail_{}", uuid::Uuid::new_v4()));
+        let first = SessionManager::new_async(&dir, None).await.unwrap();
+        let session_id = first.session_id.clone();
+        first
+            .append_event(SessionEventKind::UserMessage, serde_json::json!({"n": 1}))
+            .await
+            .unwrap();
+        let path = first.file_path.clone();
+        drop(first);
+
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(br#"{"record_type":"audit_event","sequence":2,"sess"#)
+            .unwrap();
+        drop(file);
+
+        let resumed = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
+        resumed
+            .append_event(SessionEventKind::UserMessage, serde_json::json!({"n": 2}))
+            .await
+            .unwrap();
+        drop(resumed);
+
+        let reloaded = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
+        assert_eq!(reloaded.load_events().await.unwrap().len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

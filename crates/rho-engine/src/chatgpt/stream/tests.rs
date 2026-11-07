@@ -131,3 +131,163 @@ fn reasoning_summary_across_multiple_output_items_does_not_collide() {
     let full_reasoning = reasoning_pieces.concat();
     assert!(full_reasoning.contains("**Designing durable task reconciliation**\n\n**Planning startup task refresher invocation**\n\n**Evaluating job schedule frequency trade-offs**\n\n**Implementing task reconciliation at startup**\n\n**Adding automated tests**"));
 }
+
+fn feed_events(lines: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {
+    let mut parser = SseParser::new();
+    let mut events = Vec::new();
+    for line in lines {
+        events.extend(parser.feed(format!("data: {line}\n\n").as_bytes()));
+    }
+    events
+}
+
+fn has_event(events: &[Result<ModelStreamEvent, AppError>], pred: impl Fn(&ModelStreamEvent) -> bool) -> bool {
+    events.iter().any(|e| e.as_ref().is_ok_and(&pred))
+}
+
+const ERROR_CASES: &[(&str, &str)] = &[
+    (
+        r#"{"type": "response.failed", "response": {"error": {"message": "model overloaded"}}}"#,
+        "model overloaded",
+    ),
+    (
+        r#"{"type": "response.failed", "response": {"error": {"message": ""}}}"#,
+        "ChatGPT response failed",
+    ),
+    (r#"{"type": "response.failed"}"#, "ChatGPT response failed"),
+    (
+        r#"{"type": "error", "error": {"message": "rate limited"}, "message": "ignored"}"#,
+        "rate limited",
+    ),
+    (
+        r#"{"type": "error", "message": "top level failure"}"#,
+        "top level failure",
+    ),
+    (r#"{"type": "error"}"#, "ChatGPT API error"),
+];
+
+struct FinishCase {
+    line: &'static str,
+    finish: FinishReason,
+    usage: Option<(u64, u64)>,
+}
+
+const FINISH_CASES: &[FinishCase] = &[
+    FinishCase {
+        line: r#"{"type": "response.completed"}"#,
+        finish: FinishReason::Stop,
+        usage: Some((0, 0)),
+    },
+    FinishCase {
+        line: r#"{"type": "response.incomplete"}"#,
+        finish: FinishReason::Length,
+        usage: None,
+    },
+    FinishCase {
+        line: r#"{"type": "response.incomplete", "response": {"usage": {"input_tokens": 3, "output_tokens": 7, "total_tokens": 10}}}"#,
+        finish: FinishReason::Length,
+        usage: Some((3, 10)),
+    },
+];
+
+#[test]
+fn reasoning_summary_delta_and_done_variants_are_interpreted() {
+    let events = feed_events(&[
+        r#"{"type": "response.reasoning_summary.delta", "summary_index": 0, "delta": "alpha"}"#,
+        r#"{"type": "response.reasoning_summary_part.done"}"#,
+        r#"{"type": "response.reasoning_summary_text.done"}"#,
+        r#"{"type": "response.reasoning_summary.done"}"#,
+        r#"{"type": "response.reasoning_text.delta", "delta": "beta"}"#,
+    ]);
+    let reasoning: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            Ok(ModelStreamEvent::Reasoning(text)) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reasoning, vec!["alpha", "beta"]);
+}
+
+#[test]
+fn reasoning_summary_part_added_without_output_index_emits_no_error() {
+    let events = feed_events(&[
+        r#"{"type": "response.reasoning_summary_part.added", "summary_index": 0}"#,
+        r#"{"type": "response.reasoning_summary_text.delta", "summary_index": 0, "delta": "gamma"}"#,
+    ]);
+    assert!(events.iter().all(|e| e.is_ok()));
+    assert!(has_event(
+        &events,
+        |e| matches!(e, ModelStreamEvent::Reasoning(t) if t == "gamma")
+    ));
+}
+
+#[test]
+fn non_function_output_items_are_ignored_for_tool_calls() {
+    let events = feed_events(&[
+        r#"{"type": "response.output_item.added", "output_index": 0, "item": {"type": "message", "id": "msg_1"}}"#,
+        r#"{"type": "response.output_item.done", "output_index": 0, "item": {"type": "message", "id": "msg_1"}}"#,
+        r#"{"type": "response.output_text.delta", "delta": "hi"}"#,
+    ]);
+    assert!(!has_event(&events, |e| matches!(e, ModelStreamEvent::ToolCall(_))));
+    assert!(has_event(
+        &events,
+        |e| matches!(e, ModelStreamEvent::Text(t) if t == "hi")
+    ));
+}
+
+#[test]
+fn response_completed_usage_maps_cached_and_reasoning_tokens() {
+    let events = feed_events(&[
+        r#"{"type": "response.completed", "response": {"usage": {"input_tokens": 5, "output_tokens": 6, "total_tokens": 11, "input_tokens_details": {"cached_tokens": 2}, "output_tokens_details": {"reasoning_tokens": 3}}}}"#,
+    ]);
+    assert!(has_event(&events, |e| matches!(
+        e,
+        ModelStreamEvent::Usage(u)
+            if u.input_tokens == 5
+                && u.output_tokens == 6
+                && u.total_tokens == 11
+                && u.cached_input_tokens == Some(2)
+                && u.reasoning_tokens == Some(3)
+    )));
+}
+
+#[test]
+fn terminal_events_finish_with_reason_and_usage() {
+    for case in FINISH_CASES {
+        let events = feed_events(&[case.line]);
+        let finish = case.finish;
+        assert!(
+            has_event(&events, |e| matches!(e, ModelStreamEvent::Finish(f) if *f == finish)),
+            "{}",
+            case.line
+        );
+        if let Some((input, total)) = case.usage {
+            assert!(
+                has_event(
+                    &events,
+                    |e| matches!(e, ModelStreamEvent::Usage(u) if u.input_tokens == input && u.total_tokens == total)
+                ),
+                "{}",
+                case.line
+            );
+        }
+    }
+}
+
+#[test]
+fn error_events_surface_provider_errors() {
+    for &(line, expected) in ERROR_CASES {
+        let events = feed_events(&[line]);
+        assert!(
+            matches!(events.as_slice(), [Err(AppError::Provider(msg))] if msg == expected),
+            "{line}"
+        );
+    }
+}
+
+#[test]
+fn unknown_and_malformed_events_are_ignored() {
+    let events = feed_events(&[r#"{"type": "response.something_new"}"#, r#"{"not_type": true}"#]);
+    assert!(events.is_empty());
+}

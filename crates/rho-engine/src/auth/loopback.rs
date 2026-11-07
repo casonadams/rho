@@ -1,5 +1,6 @@
 //! Ephemeral loopback HTTP callback listener for OAuth 2.0 PKCE redirection.
 
+use rho_harness_core::auth::OAuthLoginCallbacks;
 use rho_harness_core::error::{AppError, Result};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -75,6 +76,24 @@ impl LoopbackServer {
             listener,
             port: bound_port,
         })
+    }
+
+    /// Bind the fixed redirect `port`, then hand the authorize URL to the user and announce the wait.
+    pub async fn bind_for_login(
+        callbacks: &dyn OAuthLoginCallbacks,
+        port: u16,
+        auth_url: &str,
+        hint: &str,
+        progress: &str,
+    ) -> Result<Self> {
+        let server = Self::bind_port(port).await.map_err(|e| {
+            AppError::Auth(format!(
+                "{e}\nEnsure no other process is using port {port} and try again."
+            ))
+        })?;
+        callbacks.on_auth_url(auth_url, Some(hint)).await?;
+        callbacks.on_progress(progress).await?;
+        Ok(server)
     }
 
     pub fn port(&self) -> u16 {

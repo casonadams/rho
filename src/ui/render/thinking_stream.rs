@@ -134,9 +134,7 @@ impl ThinkingStreamTracker {
 mod tests {
     use super::*;
 
-    fn strip_ansi(s: &str) -> String {
-        crate::ui::block::strip_ansi(s)
-    }
+    use crate::ui::block::strip_ansi;
 
     #[test]
     fn stream_thinking_wraps_on_word_boundaries() {

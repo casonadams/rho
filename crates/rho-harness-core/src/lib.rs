@@ -17,13 +17,12 @@
 //!
 //! See `ARCHITECTURE.md` at the repository root for the full map.
 
-pub mod agent_mesh;
 pub mod agents;
 pub mod args;
 pub mod auth;
-pub mod collab;
 pub mod config;
 pub mod error;
+pub mod fs;
 pub mod model;
 pub mod net;
 pub mod presentation;
@@ -33,5 +32,7 @@ pub mod queue;
 pub mod rpc;
 pub mod session;
 pub mod skills;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod tokens;
 pub mod workspace;

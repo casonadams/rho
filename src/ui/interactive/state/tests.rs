@@ -542,12 +542,9 @@ fn footer_state_equality_and_inequality() {
         total_cache_write_tokens: 25,
         total_cost: Some(0.015),
         tokens_per_second: Some(45.2),
-        extra_status: Some("ready".into()),
         hidden_status_count: 2,
         context: Some("ctx".into()),
         show_label: true,
-        remote_active: true,
-        remote_peers: 3,
     };
     assert_eq!(base, base.clone());
 
@@ -560,6 +557,6 @@ fn footer_state_equality_and_inequality() {
     assert_ne!(base, diff_metrics);
 
     let mut diff_ui = base.clone();
-    diff_ui.remote_peers = 4;
+    diff_ui.hidden_status_count = 3;
     assert_ne!(base, diff_ui);
 }

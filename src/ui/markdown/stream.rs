@@ -1,15 +1,9 @@
 use crate::ui::theme::Theme;
+use crate::ui::wrap::AnsiWordWrap;
 use unicode_width::UnicodeWidthChar;
 
 pub struct StreamWordWrapper {
-    max_width: usize,
-    col: usize,
-    active_ansi: String,
-    pending_ansi: String,
-    pending_spaces: String,
-    pending_spaces_width: usize,
-    pending_word: String,
-    pending_word_width: usize,
+    ansi: AnsiWordWrap,
 }
 
 impl Default for StreamWordWrapper {
@@ -18,84 +12,48 @@ impl Default for StreamWordWrapper {
     }
 }
 
+fn push_newline(line: &mut String) {
+    line.push('\n');
+}
+
 impl StreamWordWrapper {
     pub fn new(max_width: usize) -> Self {
         Self {
-            max_width,
-            col: 0,
-            active_ansi: String::new(),
-            pending_ansi: String::new(),
-            pending_spaces: String::new(),
-            pending_spaces_width: 0,
-            pending_word: String::new(),
-            pending_word_width: 0,
+            ansi: AnsiWordWrap::new(max_width),
         }
     }
 
     pub fn set_width(&mut self, width: usize) {
-        self.max_width = width;
+        self.ansi.word.width = width;
     }
 
-    fn try_consume_ansi(&mut self, chunk: &str, offset: &mut usize) -> bool {
-        if chunk[*offset..].starts_with('\x1b')
-            && let Some(end) = chunk[*offset..].find('m')
-        {
-            let seq = &chunk[*offset..=*offset + end];
-            self.pending_ansi.push_str(seq);
-            self.pending_word.push_str(seq);
-            *offset += end + 1;
-            true
-        } else {
-            false
-        }
+    fn commit_pending_word(&mut self, out: &mut String) {
+        self.ansi.commit(out, true, push_newline);
     }
 
     fn handle_newline(&mut self, out: &mut String) {
         self.commit_pending_word(out);
         out.push('\n');
-        self.col = 0;
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
+        self.ansi.word.current_width = 0;
+        self.ansi.word.clear_spaces();
     }
 
     fn handle_whitespace(&mut self, c: char, out: &mut String) {
-        if !self.pending_word.is_empty() {
-            self.commit_pending_word(out);
-        }
+        self.commit_pending_word(out);
         let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-        self.pending_spaces.push(c);
-        self.pending_spaces_width += cw;
-    }
-
-    fn handle_char(&mut self, c: char, cw: usize, out: &mut String) {
-        if self.pending_word_width + cw > self.max_width {
-            if self.col > 0 {
-                self.flush_line(out);
-                self.pending_spaces.clear();
-                self.pending_spaces_width = 0;
-            }
-            if self.pending_word_width > 0 && self.pending_word_width + cw > self.max_width {
-                out.push_str(&self.pending_word);
-                crate::ui::block::apply_pending_ansi(&mut self.pending_ansi, &mut self.active_ansi);
-                self.flush_line(out);
-                self.pending_word.clear();
-                self.pending_word_width = 0;
-            }
-        }
-        self.pending_word.push(c);
-        self.pending_word_width += cw;
+        self.ansi.word.push_space(c, cw);
     }
 
     pub fn process_chunk(&mut self, chunk: &str) -> String {
-        if self.max_width == 0 {
+        if self.ansi.word.width == 0 {
             return chunk.to_string();
         }
         let mut out = String::new();
         let mut offset = 0;
-        let len = chunk.len();
 
-        while offset < len {
-            if self.try_consume_ansi(chunk, &mut offset) {
+        while offset < chunk.len() {
+            if let Some(len) = self.ansi.consume_ansi(&chunk[offset..]) {
+                offset += len;
                 continue;
             }
 
@@ -112,57 +70,20 @@ impl StreamWordWrapper {
                 self.handle_whitespace(c, &mut out);
             } else {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                self.handle_char(c, cw, &mut out);
+                self.ansi.push_char(&mut out, c, cw, push_newline);
             }
         }
         out
     }
 
-    fn flush_line(&mut self, out: &mut String) {
-        if !self.active_ansi.is_empty() {
-            out.push_str("\x1b[0m");
-        }
-        out.push('\n');
-        if !self.active_ansi.is_empty() {
-            out.push_str(&self.active_ansi);
-        }
-        self.col = 0;
-    }
-
-    fn commit_pending_word(&mut self, out: &mut String) {
-        if self.pending_word.is_empty() && self.pending_word_width == 0 {
-            return;
-        }
-        let needed = self.pending_spaces_width + self.pending_word_width;
-        if self.col > 0 && self.col + needed > self.max_width {
-            self.flush_line(out);
-            self.pending_spaces.clear();
-            self.pending_spaces_width = 0;
-        }
-        if self.col > 0 || !self.pending_spaces.is_empty() {
-            out.push_str(&self.pending_spaces);
-            self.col += self.pending_spaces_width;
-        }
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
-
-        out.push_str(&self.pending_word);
-        self.col += self.pending_word_width;
-        self.pending_word.clear();
-        self.pending_word_width = 0;
-        crate::ui::block::apply_pending_ansi(&mut self.pending_ansi, &mut self.active_ansi);
-    }
-
     pub fn flush(&mut self) -> String {
         let mut out = String::new();
         self.commit_pending_word(&mut out);
-        self.col = 0;
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
-        self.pending_word.clear();
-        self.pending_word_width = 0;
-        self.pending_ansi.clear();
-        self.active_ansi.clear();
+        self.ansi.word.current_width = 0;
+        self.ansi.word.clear_spaces();
+        self.ansi.word.pending_word.clear();
+        self.ansi.word.pending_word_width = 0;
+        self.ansi.clear_ansi();
         out
     }
 }

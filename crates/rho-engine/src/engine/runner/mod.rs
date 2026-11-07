@@ -4,16 +4,13 @@ pub mod sink;
 pub mod turn;
 
 pub use helpers::{clear_spinner, disarm_spinner, redact_text, redact_value};
-pub use history::{
-    DisplayEvent, budget_history, display_events, map_completion_error, map_prompt_error, map_streaming_error,
-};
+pub use history::{DisplayEvent, display_events};
 pub use rho_harness_core::queue::{PendingMessageQueue, QueueMode};
 pub use sink::{
     CompletedTool, DisplayKind, TerminalApprovalSink, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
     TurnArtifacts,
 };
 pub use turn::{
-    ActiveModelSwitch, CancellationSignal, DEFAULT_PRUNE_LINE_THRESHOLD, QUEUED_MESSAGE_BOUNDARY,
-    QueuedMessageBoundary, RunStatus, SharedModelSwitch, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails,
-    prune_historical_tool_outputs, runner::StreamEvent,
+    CancellationSignal, DEFAULT_PRUNE_LINE_THRESHOLD, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus,
+    SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails, prune_historical_tool_outputs, runner::StreamEvent,
 };

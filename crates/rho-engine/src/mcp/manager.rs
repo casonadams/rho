@@ -111,12 +111,7 @@ async fn discover_server_tools(
         || working_dir.join(".agents").join("mcp.json").is_file()
         || working_dir.join(".claude").join("mcp.json").is_file();
 
-    if is_project_scoped
-        && !is_server_definition_trusted(working_dir, name, &def_hash, &config.config_dir)
-        && !std::env::var("RHO_TRUST_PROJECT")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    {
+    if is_project_scoped && !is_server_definition_trusted(working_dir, name, &def_hash, &config.config_dir) {
         eprintln!("Warning: Skipping untrusted project MCP server '{name}'. Definition has not been approved.");
         return None;
     }

@@ -6,6 +6,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
 pub const BASH_PRUNE_LINE_THRESHOLD: usize = 15;
+pub const BASH_MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct OutputSnapshot {
@@ -19,6 +20,9 @@ pub struct OutputAccumulator {
     max_lines: usize,
     max_bytes: usize,
     max_rolling_bytes: usize,
+    max_log_bytes: usize,
+    log_bytes: usize,
+    log_truncated: bool,
     temp_file_prefix: String,
     tail_text: String,
     total_raw_bytes: usize,
@@ -73,6 +77,9 @@ impl OutputAccumulator {
             max_lines: DEFAULT_MAX_LINES,
             max_bytes: DEFAULT_MAX_BYTES,
             max_rolling_bytes: DEFAULT_MAX_BYTES * 2,
+            max_log_bytes: BASH_MAX_LOG_BYTES,
+            log_bytes: 0,
+            log_truncated: false,
             temp_file_prefix: "rho-bash".to_string(),
             tail_text: String::new(),
             total_raw_bytes: 0,
@@ -85,6 +92,12 @@ impl OutputAccumulator {
             raw_chunks: Vec::new(),
             pending_ansi: String::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_log_limit(mut self, bytes: usize) -> Self {
+        self.max_log_bytes = bytes;
+        self
     }
 
     pub fn append(&mut self, data: &[u8]) {
@@ -110,9 +123,7 @@ impl OutputAccumulator {
 
         if self.temp_file_writer.is_some() || self.should_use_temp_file() {
             self.ensure_temp_file();
-            if let Some(writer) = &mut self.temp_file_writer {
-                let _ = writer.write_all(data);
-            }
+            self.write_log(data);
         } else {
             self.raw_chunks.push(data.to_vec());
         }
@@ -197,14 +208,33 @@ impl OutputAccumulator {
         }
         let id = uuid::Uuid::new_v4();
         let path = std::env::temp_dir().join(format!("{}-{id}.log", self.temp_file_prefix));
-        if let Ok(file) = File::create(&path) {
-            let mut writer = BufWriter::new(file);
-            for chunk in self.raw_chunks.drain(..) {
-                let _ = writer.write_all(&chunk);
-            }
-            self.temp_file_path = Some(path);
-            self.temp_file_writer = Some(writer);
+        let Ok(file) = File::create(&path) else {
+            return;
+        };
+        self.temp_file_path = Some(path);
+        self.temp_file_writer = Some(BufWriter::new(file));
+        for chunk in std::mem::take(&mut self.raw_chunks) {
+            self.write_log(&chunk);
         }
+    }
+
+    fn write_log(&mut self, data: &[u8]) {
+        if self.log_truncated {
+            return;
+        }
+        let Some(writer) = &mut self.temp_file_writer else {
+            return;
+        };
+        let remaining = self.max_log_bytes.saturating_sub(self.log_bytes);
+        if data.len() <= remaining {
+            let _ = writer.write_all(data);
+            self.log_bytes += data.len();
+            return;
+        }
+        let _ = writer.write_all(&data[..remaining]);
+        let _ = writer.write_all(format!("\n[log truncated at {} bytes]\n", self.max_log_bytes).as_bytes());
+        self.log_bytes = self.max_log_bytes;
+        self.log_truncated = true;
     }
 
     fn format_snapshot_text(&self, truncation: &Truncation) -> String {

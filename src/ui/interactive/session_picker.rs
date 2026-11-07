@@ -21,17 +21,35 @@ pub fn prompt_session_picker(sessions_dir: &Path, theme: &Theme) -> Result<Optio
 }
 
 pub fn session_modal(summaries: &[SessionSummary]) -> ModalState {
-    let options = summaries
+    resume_modal(resume_options(summaries, picker_row), "")
+}
+
+fn picker_row(summary: &SessionSummary) -> (String, String) {
+    let title = summary.name.as_deref().unwrap_or(&summary.preview);
+    let time = format_relative_time(summary.last_modified);
+    let label = format!(
+        "{title} ({} | {} turns | {time})",
+        summary.session_id, summary.turn_count
+    );
+    (label, summary.session_id.clone())
+}
+
+pub(crate) fn resume_options(
+    summaries: &[SessionSummary],
+    row: impl Fn(&SessionSummary) -> (String, String),
+) -> Vec<ModalOption> {
+    summaries
         .iter()
         .filter(|s| s.turn_count > 0 || s.name.is_some())
         .map(|s| {
-            let title = s.name.as_deref().unwrap_or(&s.preview);
-            let time = format_relative_time(s.last_modified);
-            let label = format!("{title} ({} | {} turns | {time})", s.session_id, s.turn_count);
-            ModalOption::new(label, Some(s.session_id.clone()))
+            let (label, description) = row(s);
+            ModalOption::new(label, Some(description)).with_value(s.session_id.clone())
         })
-        .collect();
-    ModalState::new("Resume Session", "", options).with_search(true)
+        .collect()
+}
+
+pub(crate) fn resume_modal(options: Vec<ModalOption>, subtitle: &str) -> ModalState {
+    ModalState::new("Resume Session", subtitle, options).with_search(true)
 }
 
 #[derive(Debug)]
@@ -58,7 +76,7 @@ fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
         KeyCode::Enter => {
             let session_id = modal
                 .selected_option()
-                .and_then(|o| o.description.clone())
+                .and_then(|o| o.value.clone())
                 .unwrap_or_default();
             PickerAction::Select(session_id)
         }
@@ -201,6 +219,13 @@ mod tests {
         assert_eq!(labels[0].1, "aaa-111");
         assert_eq!(labels[1].1, "bbb-222");
         assert!(labels[1].0.contains("second preview"));
+    }
+
+    #[test]
+    fn session_modal_options_carry_the_id_as_value() {
+        let modal = modal();
+        let values: Vec<Option<&str>> = modal.all_options.iter().map(|o| o.value.as_deref()).collect();
+        assert_eq!(values, [Some("aaa-111"), Some("bbb-222")]);
     }
 
     #[test]

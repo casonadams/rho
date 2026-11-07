@@ -1,14 +1,16 @@
 //! Shared SSE line framing, stream unfolding, and completion aggregation for
-//! provider streaming implementations (Claude, Antigravity, ChatGPT).
+//! provider streaming implementations (OpenAI-compatible, Claude, Antigravity, ChatGPT).
 
 use futures::{Stream, StreamExt, stream};
 use rho_harness_core::error::AppError;
 use std::pin::Pin;
+use std::time::Duration;
 
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{ModelCompletionResponse, ModelStreamEvent};
 
-/// Incremental SSE byte buffer decoder that extracts clean `data: ...` payload lines.
+pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
 #[derive(Default)]
 pub struct SseLineDecoder {
     buffer: Vec<u8>,
@@ -19,32 +21,33 @@ impl SseLineDecoder {
         Self::default()
     }
 
-    /// Feed byte chunks and extract ready `data:` payloads.
-    pub fn decode_lines(&mut self, bytes: &[u8]) -> Vec<String> {
+    pub fn decode_raw_lines(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
         let mut cursor = 0;
 
         while let Some(rel) = memchr::memchr(b'\n', &self.buffer[cursor..]) {
             let line_end = cursor + rel;
-            let line_bytes = &self.buffer[cursor..line_end];
+            let line = String::from_utf8_lossy(&self.buffer[cursor..line_end]);
+            lines.push(line.trim_end_matches('\r').to_string());
             cursor = line_end + 1;
-
-            let line = String::from_utf8_lossy(line_bytes);
-            let trimmed = line.trim_end_matches('\r');
-            if let Some(data) = trimmed.strip_prefix("data:") {
-                let payload = data.trim();
-                if !payload.is_empty() && payload != "[DONE]" {
-                    lines.push(payload.to_string());
-                }
-            }
         }
 
         if cursor > 0 {
             self.buffer.drain(..cursor);
         }
-
         lines
+    }
+
+    /// Feed byte chunks and extract ready `data:` payloads.
+    pub fn decode_lines(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.decode_raw_lines(bytes)
+            .iter()
+            .filter_map(|line| line.strip_prefix("data:"))
+            .map(str::trim)
+            .filter(|payload| !payload.is_empty() && *payload != "[DONE]")
+            .map(str::to_string)
+            .collect()
     }
 }
 
@@ -54,10 +57,11 @@ pub trait SseStreamParser: Send + 'static {
 }
 
 type StreamState<S, P> = (S, P, bool);
+type EventBatch = Vec<Result<ModelStreamEvent, AppError>>;
 
 async fn next_stream_batch<B, S, P>(
-    (mut byte_stream, mut parser, finished): StreamState<S, P>,
-) -> Option<(Vec<Result<ModelStreamEvent, AppError>>, StreamState<S, P>)>
+    (mut bytes, mut parser, finished): StreamState<S, P>,
+) -> Option<(EventBatch, StreamState<S, P>)>
 where
     B: AsRef<[u8]>,
     S: Stream<Item = reqwest::Result<B>> + Unpin,
@@ -66,39 +70,73 @@ where
     if finished {
         return None;
     }
-    while let Some(chunk) = byte_stream.next().await {
+    loop {
+        let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, bytes.next()).await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => return None,
+            Err(_) => {
+                let err = AppError::Provider("Provider stream went idle without sending data".to_string());
+                return Some((vec![Err(err)], (bytes, parser, true)));
+            }
+        };
         match chunk {
-            Ok(bytes) => {
-                let events = parser.feed(bytes.as_ref());
+            Ok(data) => {
+                let events = parser.feed(data.as_ref());
                 if !events.is_empty() {
-                    let has_term = events
+                    let finished = events
                         .iter()
                         .any(|e| matches!(e, Ok(ModelStreamEvent::Usage(_)) | Err(_)));
-                    return Some((events, (byte_stream, parser, has_term)));
+                    return Some((events, (bytes, parser, finished)));
                 }
             }
             Err(e) => {
                 let err = AppError::Provider(format!("Stream transport failed: {e}"));
-                return Some((vec![Err(err)], (byte_stream, parser, true)));
+                return Some((vec![Err(err)], (bytes, parser, true)));
             }
         }
     }
-    None
 }
 
-/// Unfold an SSE HTTP response into a pinned stream of domain events.
-pub fn unfold_sse_stream<P>(
-    response: reqwest::Response,
+/// Unfold a provider's HTTP body into a pinned stream of domain events.
+pub fn unfold_sse_stream<S, B, P>(
+    bytes: S,
     parser: P,
 ) -> Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>
 where
+    S: Stream<Item = reqwest::Result<B>> + Send + Unpin + 'static,
+    B: AsRef<[u8]> + Send + 'static,
     P: SseStreamParser,
 {
-    let event_stream = stream::unfold((response.bytes_stream(), parser, false), next_stream_batch)
+    let events = stream::unfold((bytes, parser, false), next_stream_batch)
         .map(stream::iter)
         .flatten();
-    Box::pin(event_stream)
+    Box::pin(events)
 }
+
+/// Map a provider's opened HTTP response (or its `(status, body)` failure) into an event stream.
+pub fn open_sse_stream<P: SseStreamParser>(
+    opened: Result<reqwest::Response, (Option<u16>, String)>,
+    friendly_error: fn(Option<u16>, &str) -> String,
+    parser: P,
+) -> Result<crate::provider::adapter::ModelEventStream, AppError> {
+    let response = opened.map_err(|(status, body)| AppError::Provider(friendly_error(status, &body)))?;
+    Ok(unfold_sse_stream(response.bytes_stream(), parser))
+}
+
+/// Defines `feed` for a line-oriented SSE parser exposing a `decoder` field and `interpret_line`.
+macro_rules! sse_line_feed {
+    () => {
+        pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+            let lines = self.decoder.decode_lines(bytes);
+            let mut events = Vec::new();
+            for line in lines {
+                self.interpret_line(&line, &mut events);
+            }
+            events
+        }
+    };
+}
+pub(crate) use sse_line_feed;
 
 /// Aggregate a vector of streaming events into a single unary `ModelCompletionResponse`.
 pub fn aggregate_stream_events(
@@ -114,7 +152,7 @@ pub fn aggregate_stream_events(
             ModelStreamEvent::Text(t) => content.push_str(&t),
             ModelStreamEvent::Reasoning(_) => {}
             ModelStreamEvent::ToolCall(call) => tool_calls.push(call),
-            ModelStreamEvent::Usage(u) => usage = u,
+            ModelStreamEvent::Usage(u) => usage = usage.merge(&u),
             ModelStreamEvent::Finish(f) => finish_reason = Some(f),
         }
     }
@@ -216,5 +254,44 @@ mod tests {
         assert_eq!(events2.len(), 1);
         let batch3 = next_stream_batch(state2).await;
         assert!(batch3.is_none());
+    }
+
+    #[test]
+    fn aggregate_stream_events_sums_usage_across_events() {
+        let usage = |total| {
+            Ok(ModelStreamEvent::Usage(StructuralUsage {
+                input_tokens: 4,
+                total_tokens: total,
+                ..Default::default()
+            }))
+        };
+        let response = aggregate_stream_events(vec![usage(10), usage(5)]).unwrap();
+        assert_eq!((response.usage.input_tokens, response.usage.total_tokens), (8, 15));
+    }
+
+    #[test]
+    fn sse_line_decoder_keeps_multibyte_characters_split_across_chunks() {
+        let mut decoder = SseLineDecoder::new();
+        let bytes = "data: \"é\"\n".as_bytes();
+        let split = bytes.iter().position(|b| *b == 0xC3).unwrap() + 1;
+        assert!(decoder.decode_raw_lines(&bytes[..split]).is_empty());
+        assert_eq!(decoder.decode_raw_lines(&bytes[split..]), vec!["data: \"é\""]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unfold_sse_stream_fails_instead_of_hanging_when_body_goes_idle() {
+        struct NoEvents;
+        impl SseStreamParser for NoEvents {
+            fn feed(&mut self, _bytes: &[u8]) -> Vec<Result<ModelStreamEvent, AppError>> {
+                Vec::new()
+            }
+        }
+
+        let idle_body = futures::stream::pending::<reqwest::Result<Vec<u8>>>();
+        let mut events = unfold_sse_stream(idle_body, NoEvents);
+        let first = tokio::time::timeout(Duration::from_secs(3600), events.next())
+            .await
+            .expect("idle stream must error, not hang");
+        assert!(matches!(first, Some(Err(AppError::Provider(msg))) if msg.contains("idle")));
     }
 }

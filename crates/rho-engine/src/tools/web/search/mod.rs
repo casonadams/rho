@@ -1,10 +1,7 @@
 pub mod brave;
 pub mod ddg_lite;
 pub mod engine;
-pub mod exa;
-pub mod firecrawl;
 pub mod format;
-pub mod gemini;
 pub mod query;
 pub mod result;
 pub mod yahoo;
@@ -18,7 +15,6 @@ use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 pub use engine::{
     EngineKind, EngineRequest, MultiEngineParams, default_engine_chain, resolve_engine_chain, search_multi_engine,
-    search_single_engine,
 };
 pub use format::{FormatResultsParams, format_search_results};
 pub use query::{
@@ -36,6 +32,7 @@ pub struct SearchQueryParams<'a> {
     pub domains: Option<&'a [String]>,
 }
 
+#[derive(Clone)]
 pub struct WebSearchConfig {
     pub region: String,
     pub timeout_sec: u64,
@@ -46,23 +43,18 @@ pub struct WebSearchConfig {
 pub struct WebSearchTool {
     pub http: HttpClient,
     pub rate_limiter: SearchRateLimiter,
-    pub region: String,
-    pub timeout_sec: u64,
-    pub engines: Vec<EngineKind>,
+    pub config: WebSearchConfig,
 }
 
 impl WebSearchTool {
-    pub fn new(http: HttpClient, rate_limiter: SearchRateLimiter, config: WebSearchConfig) -> Self {
+    pub fn new(http: HttpClient, rate_limiter: SearchRateLimiter, mut config: WebSearchConfig) -> Self {
+        if config.engines.is_empty() {
+            config.engines = default_engine_chain();
+        }
         Self {
             http,
             rate_limiter,
-            region: config.region,
-            timeout_sec: config.timeout_sec,
-            engines: if config.engines.is_empty() {
-                default_engine_chain()
-            } else {
-                config.engines
-            },
+            config,
         }
     }
 
@@ -145,13 +137,13 @@ impl WebSearchTool {
         search_multi_engine(MultiEngineParams {
             http: &self.http,
             rate_limiter: &self.rate_limiter,
-            region: &self.region,
-            timeout_sec: self.timeout_sec,
+            region: &self.config.region,
+            timeout_sec: self.config.timeout_sec,
             query: params.query,
             limit: params.limit,
             recency: params.recency,
             domains: params.domains,
-            engines: &self.engines,
+            engines: &self.config.engines,
         })
         .await
     }

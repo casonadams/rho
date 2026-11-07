@@ -44,7 +44,7 @@ pub fn prepare_lines(text: &str, max_bytes: usize) -> Vec<String> {
 pub fn page_lines(params: PageLinesParams<'_>) -> PageResult {
     let mut selected: Vec<&str> = Vec::new();
     let mut bytes = 0;
-    let end = params.lines.len().min(params.start + params.line_limit);
+    let end = params.lines.len().min(params.start.saturating_add(params.line_limit));
     for line in &params.lines[params.start..end] {
         let line_bytes = line.len() + usize::from(!selected.is_empty());
         if !selected.is_empty() && bytes + line_bytes > params.byte_limit {

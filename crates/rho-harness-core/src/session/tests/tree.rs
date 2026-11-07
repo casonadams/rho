@@ -36,6 +36,60 @@ async fn test_session_turns_and_rewind() {
     assert_eq!(turns_after[0].user_prompt, "first prompt");
 }
 
+#[tokio::test]
+async fn rewind_over_compaction_summary_keeps_history() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let id = session.session_id.clone();
+    session
+        .append_messages(
+            &id,
+            vec![
+                ChatMessage::user("first prompt"),
+                ChatMessage::assistant("first answer"),
+            ],
+        )
+        .await
+        .unwrap();
+    let summary = "Summary of first turn";
+    let metadata = crate::session::CompactionMetadata {
+        summary: summary.to_string(),
+        first_kept_node_id: None,
+        first_kept_message_index: None,
+        tokens_before: 10,
+        tokens_after: 5,
+        read_files: Vec::new(),
+        modified_files: Vec::new(),
+        custom_instructions: None,
+    };
+    session.append_compaction(summary, metadata).await.unwrap();
+    session
+        .append_messages(
+            &id,
+            vec![
+                ChatMessage::user("second prompt"),
+                ChatMessage::assistant("second answer"),
+            ],
+        )
+        .await
+        .unwrap();
+    session
+        .append_messages(
+            &id,
+            vec![
+                ChatMessage::user("third prompt"),
+                ChatMessage::assistant("third answer"),
+            ],
+        )
+        .await
+        .unwrap();
+    let before = session.load_messages().await.unwrap();
+
+    assert!(session.rewind_to_turn(1).await.is_err());
+
+    assert_eq!(session.load_messages().await.unwrap().len(), before.len());
+}
+
 async fn setup_root_and_branch_a(session: &SessionManager) -> (String, String) {
     let root = vec![ChatMessage::user("Root prompt"), ChatMessage::assistant("Root answer")];
     session.append_messages(&session.session_id, root).await.unwrap();

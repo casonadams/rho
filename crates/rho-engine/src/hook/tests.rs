@@ -101,139 +101,127 @@ fn test_parse_hook_output() {
     assert!(res.unwrap_err().contains("Failed to parse hook response"));
 }
 
+fn write_plain_script(path: &Path) {
+    crate::test_support::write_file(path, "#!/bin/sh\nexit 0\n");
+}
+
+fn install_plain_hook(root: &Path, event: &str) -> std::path::PathBuf {
+    let hook = root.join(".agents").join("hooks").join(event);
+    write_plain_script(&hook);
+    hook
+}
+
+#[cfg(unix)]
+fn set_unix_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
+fn write_executable(path: &Path) {
+    write_plain_script(path);
+    set_unix_mode(path, 0o755);
+}
+
+#[cfg(unix)]
+fn install_hook(root: &Path, event: &str) -> std::path::PathBuf {
+    let hook = install_plain_hook(root, event);
+    set_unix_mode(&hook, 0o755);
+    hook
+}
+
+fn first_hook(event: &str, dirs: &[&Path]) -> Option<std::path::PathBuf> {
+    collect_hooks(event, &[], dirs).into_iter().next()
+}
+
+fn assert_no_hook_found(setup: impl FnOnce(&Path)) {
+    let project = tempfile::tempdir().unwrap();
+    setup(project.path());
+    assert_eq!(first_hook("tool_call", &[project.path()]), None);
+}
+
+#[cfg(unix)]
 #[test]
 fn test_find_hook_project_agents_directory() {
     let project = tempfile::tempdir().unwrap();
-    let hooks_dir = project.path().join(".agents").join("hooks");
-    std::fs::create_dir_all(&hooks_dir).unwrap();
-    let hook_file = hooks_dir.join("on_tool_call");
-    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    let hook_file = project.path().join(".agents").join("hooks").join("on_tool_call");
+    write_executable(&hook_file);
 
-    let found = find_hook_in_paths("tool_call", project.path(), None);
+    let found = collect_hooks("tool_call", &[], &[project.path()]).into_iter().next();
     assert_eq!(found, Some(hook_file));
 
     let claude_project = tempfile::tempdir().unwrap();
     let claude_file = claude_project.path().join(".claude/hooks/on_turn_start");
-    std::fs::create_dir_all(claude_file.parent().unwrap()).unwrap();
-    std::fs::write(&claude_file, "#!/bin/sh\nexit 0\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&claude_file, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    write_executable(&claude_file);
     assert_eq!(
-        find_hook_in_paths("turn_start", claude_project.path(), None),
+        collect_hooks("turn_start", &[], &[claude_project.path()])
+            .into_iter()
+            .next(),
         Some(claude_file)
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn test_find_hook_user_fallback() {
-    let project = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
+    let hook_file = install_hook(user.path(), "turn_start");
 
-    let user_hooks = user.path().join(".agents").join("hooks");
-    std::fs::create_dir_all(&user_hooks).unwrap();
-    let hook_file = user_hooks.join("turn_start");
-    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    let found = find_hook_in_paths("turn_start", project.path(), Some(user.path()));
-    assert_eq!(found, Some(hook_file));
+    let found = collect_hooks("turn_start", &[], &[user.path()]);
+    assert_eq!(found, vec![hook_file]);
 }
 
+#[cfg(unix)]
 #[test]
-fn test_find_hook_project_overrides_user() {
+fn test_project_hook_is_skipped_when_workspace_untrusted() {
     let project = tempfile::tempdir().unwrap();
+    install_hook(project.path(), "tool_call");
     let user = tempfile::tempdir().unwrap();
 
-    let project_hooks = project.path().join(".agents").join("hooks");
-    std::fs::create_dir_all(&project_hooks).unwrap();
-    let project_hook = project_hooks.join("on_tool_call");
-    std::fs::write(&project_hook, "#!/bin/sh\nexit 0\n").unwrap();
-
-    let user_hooks = user.path().join(".agents").join("hooks");
-    std::fs::create_dir_all(&user_hooks).unwrap();
-    let user_hook = user_hooks.join("on_tool_call");
-    std::fs::write(&user_hook, "#!/bin/sh\nexit 0\n").unwrap();
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&project_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-        std::fs::set_permissions(&user_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    let found = find_hook_in_paths("tool_call", project.path(), Some(user.path()));
-    assert_eq!(found, Some(project_hook));
+    assert_eq!(first_hook("tool_call", &[user.path()]), None);
 }
 
 #[test]
 fn test_find_hook_ignores_legacy_rho_directory() {
-    let project = tempfile::tempdir().unwrap();
-    let legacy_hooks = project.path().join(".rho").join("hooks");
-    std::fs::create_dir_all(&legacy_hooks).unwrap();
-    let hook_file = legacy_hooks.join("on_tool_call");
-    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    let found = find_hook_in_paths("tool_call", project.path(), None);
-    assert_eq!(found, None);
+    assert_no_hook_found(|root| {
+        let hook_file = root.join(".rho/hooks/on_tool_call");
+        write_plain_script(&hook_file);
+        #[cfg(unix)]
+        set_unix_mode(&hook_file, 0o755);
+    });
 }
 
 #[cfg(unix)]
 #[test]
 fn test_find_hook_requires_executable_bit_on_unix() {
-    use std::os::unix::fs::PermissionsExt;
-    let project = tempfile::tempdir().unwrap();
-    let hooks_dir = project.path().join(".agents").join("hooks");
-    std::fs::create_dir_all(&hooks_dir).unwrap();
-    let hook_file = hooks_dir.join("on_tool_call");
-    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o644)).unwrap();
-
-    let found = find_hook_in_paths("tool_call", project.path(), None);
-    assert_eq!(found, None);
+    assert_no_hook_found(|root| {
+        let hook_file = install_plain_hook(root, "tool_call");
+        set_unix_mode(&hook_file, 0o644);
+    });
 }
 
 #[cfg(unix)]
 #[test]
-fn test_find_all_hooks_is_additive_with_hook_dirs() {
-    use std::os::unix::fs::PermissionsExt;
+fn test_hook_precedence_user_then_project_then_configured_dirs() {
     let project = tempfile::tempdir().unwrap();
-    let project_hooks = project.path().join(".agents").join("hooks");
-    std::fs::create_dir_all(&project_hooks).unwrap();
-    let project_hook = project_hooks.join("turn_end");
-    std::fs::write(&project_hook, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::set_permissions(&project_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let project_hook = project.path().join(".agents").join("hooks").join("turn_end");
+    write_executable(&project_hook);
+
+    let user = tempfile::tempdir().unwrap();
+    let user_hook = user.path().join(".agents").join("hooks").join("turn_end");
+    write_executable(&user_hook);
+
+    let found = collect_hooks("turn_end", &[], &[user.path(), project.path()]);
+    assert_eq!(found, vec![user_hook.clone(), project_hook.clone()]);
 
     let extra_dir = tempfile::tempdir().unwrap();
     let extra_hook = extra_dir.path().join("turn_end");
-    std::fs::write(&extra_hook, "#!/bin/sh\nexit 0\n").unwrap();
-    std::fs::set_permissions(&extra_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    write_executable(&extra_hook);
 
-    let hook = LifecycleHook::new(
-        project.path().to_path_buf(),
-        "s1",
-        Arc::new(crate::engine::eval::presenter::NoopPresenter),
-    )
-    .with_hook_dirs(vec![extra_dir.path().to_path_buf()]);
-
-    let all = hook.find_all_hooks("turn_end");
-    assert_eq!(all.len(), 2, "both extra hook-dir and project hook are found");
-    assert_eq!(all[0], extra_hook);
-    assert_eq!(all[1], project_hook);
+    let all = collect_hooks(
+        "turn_end",
+        &[extra_dir.path().to_path_buf()],
+        &[user.path(), project.path()],
+    );
+    assert_eq!(all, vec![extra_hook, user_hook, project_hook]);
 }

@@ -5,6 +5,7 @@ pub(crate) mod shortcut;
 use dispatch::{IdleInputResult, process_raw_input};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use super::types::{FrameOrUi, next_frame_or_ui, wait_quota};
 use super::{EditorResources, IdleContext, LiveIo};
 use crate::error::Result;
 use crate::repl::ReplSession;
@@ -45,36 +46,19 @@ enum IdleTick {
     Ui(crate::ui::interactive::UiEvent),
 }
 
+impl From<FrameOrUi> for IdleTick {
+    fn from(tick: FrameOrUi) -> Self {
+        match tick {
+            FrameOrUi::Frame => IdleTick::Frame,
+            FrameOrUi::Ui(event) => IdleTick::Ui(event),
+        }
+    }
+}
+
 enum IdleSource {
     Tick(IdleTick),
     Input(Option<std::io::Result<Event>>),
-    CollabCommand(rho_harness_core::collab::CollabIncomingCommand),
-    CollabPeer(rho_harness_core::collab::CollabPeerEvent),
     BackgroundNotification(String),
-}
-
-async fn wait_quota(rx: &mut tokio::sync::watch::Receiver<u64>) {
-    if rx.changed().await.is_err() {
-        std::future::pending::<()>().await;
-    }
-}
-
-async fn wait_collab_cmd(
-    collab: Option<&std::sync::Arc<rho_harness_core::collab::CollabHostServer>>,
-) -> Option<rho_harness_core::collab::CollabIncomingCommand> {
-    match collab {
-        Some(c) => c.recv_command().await,
-        None => std::future::pending().await,
-    }
-}
-
-async fn wait_collab_peer(
-    collab: Option<&std::sync::Arc<rho_harness_core::collab::CollabHostServer>>,
-) -> Option<rho_harness_core::collab::CollabPeerEvent> {
-    match collab {
-        Some(c) => c.recv_peer_event().await,
-        None => std::future::pending().await,
-    }
 }
 
 async fn wait_bg_notif(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Option<String> {
@@ -85,17 +69,13 @@ async fn next_idle_step(
     ui: &mut IdleUi,
     input: &mut super::TerminalInputReader,
     ui_events: &mut UiEventReceiver,
-    collab: Option<&std::sync::Arc<rho_harness_core::collab::CollabHostServer>>,
 ) -> IdleSource {
     tokio::select! {
         biased;
         event = input.recv() => IdleSource::Input(event),
         Some(notif) = wait_bg_notif(&mut ui.bg_rx) => IdleSource::BackgroundNotification(notif),
-        Some(cmd) = wait_collab_cmd(collab) => IdleSource::CollabCommand(cmd),
-        Some(pe) = wait_collab_peer(collab) => IdleSource::CollabPeer(pe),
         _ = wait_quota(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
-        _ = ui.frame.tick() => IdleSource::Tick(IdleTick::Frame),
-        Some(event) = ui_events.recv() => IdleSource::Tick(IdleTick::Ui(event)),
+        tick = next_frame_or_ui(&mut ui.frame, ui_events) => IdleSource::Tick(tick.into()),
     }
 }
 
@@ -193,23 +173,6 @@ fn map_input_result(res: IdleInputResult) -> IdleStepOutcome {
     }
 }
 
-fn handle_collab_idle_peer<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    batch: &mut LiveBatch,
-    session: &ReplSession,
-    engine: &crate::engine::AgentEngine,
-    pe: rho_harness_core::collab::CollabPeerEvent,
-) -> Result<IdleStepOutcome> {
-    let count = session.collab.as_ref().map(|c| c.peer_count_sync()).unwrap_or(0);
-    super::turn::collab::handle_collab_peer_event(&pe, session, Some(engine), count);
-    let f = controller.state_mut().footer_mut();
-    f.remote_active = true;
-    f.remote_peers = count;
-    f.extra_status = Some(format!("[Collab: {count}]"));
-    batch.flush(controller, true)?;
-    Ok(IdleStepOutcome::Continue)
-}
-
 fn handle_bg_notification(session: &mut crate::repl::ReplSession, notif: String) -> Result<IdleStepOutcome> {
     crate::engine::runner::turn::types::drain_background_notifications();
     session.renderer.print_notice("\n● Background job completed\n");
@@ -236,11 +199,6 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             let res = handle_input_source(controller, event, batch, resources, input, ctx).await?;
             Ok(map_input_result(res))
         }
-        IdleSource::CollabCommand(cmd) => {
-            let msg = super::turn::collab::handle_collab_idle_command(cmd, ctx.session);
-            Ok(msg.map_or(IdleStepOutcome::Continue, IdleStepOutcome::Message))
-        }
-        IdleSource::CollabPeer(pe) => handle_collab_idle_peer(controller, batch, ctx.session, ctx.engine, pe),
         IdleSource::BackgroundNotification(notif) => handle_bg_notification(ctx.session, notif),
     }
 }
@@ -257,8 +215,7 @@ async fn drive_idle_loop<B: TerminalBackend>(
         if ui.quota_rx.has_changed().is_err() {
             ui.quota_rx = ctx.engine.quota_subscribe();
         }
-        let collab = ctx.session.collab.as_ref();
-        let step = next_idle_step(&mut ui, input, ui_events, collab).await;
+        let step = next_idle_step(&mut ui, input, ui_events).await;
         match handle_idle_step_source(controller, &mut ui.batch, resources, input, ctx, step).await? {
             IdleStepOutcome::Message(msg) => return Ok(Some(msg)),
             IdleStepOutcome::Exit => return Ok(None),

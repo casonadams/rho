@@ -153,10 +153,6 @@ impl Presenter for RpcPresenter {
         ToolStreamPort::default()
     }
 
-    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
-        true
-    }
-
     fn print_turn_started(&self, prompt: &str) {
         self.emit(RpcEvent::TurnStart {
             turn_number: 1,

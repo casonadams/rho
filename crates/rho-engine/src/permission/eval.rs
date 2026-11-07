@@ -1,7 +1,7 @@
 use super::bash::analyze_bash_command;
 use super::path::{
-    extract_mcp_path, extract_mcp_targets, extract_tool_path, is_infrastructure_read, is_path_outside_working_dir,
-    is_protected_path, path_policy_values,
+    extract_mcp_path, extract_mcp_targets, extract_tool_path, is_credential_path, is_infrastructure_read,
+    is_path_outside_working_dir, is_protected_path, path_policy_values,
 };
 use super::policy::{PermissionState, Policy, PolicyRule, SurfaceDecision, SurfaceKind, decide_surface};
 use super::suggest::{match_input, suggested_rule};
@@ -123,8 +123,15 @@ fn generic_tool_component(rules: &[PolicyRule], req: &EvalRequest<'_>) -> Compon
     }
 }
 
-fn mcp_direct_components(rules: &[PolicyRule], tool: &str) -> Option<Component> {
-    let (server, tool_name) = tool.split_once('_')?;
+/// MCP wire names are `{server}_{tool}`; the server is the longest configured server prefix.
+fn mcp_direct_components(rules: &[PolicyRule], tool: &str, servers: &[String]) -> Option<Component> {
+    let (server, tool_name) = servers
+        .iter()
+        .filter_map(|server| {
+            let name = tool.strip_prefix(server.as_str())?.strip_prefix('_')?;
+            Some((server.as_str(), name))
+        })
+        .max_by_key(|(server, _)| server.len())?;
     let targets = vec![
         format!("{server}:{tool_name}"),
         format!("{server}:*"),
@@ -147,7 +154,7 @@ fn non_bash_components(rules: &[PolicyRule], req: EvalRequest<'_>) -> Vec<Compon
     let mut components = Vec::new();
     if req.tool == "mcp" {
         components.push(mcp_components(rules, req.args));
-    } else if let Some(mcp_comp) = mcp_direct_components(rules, req.tool) {
+    } else if let Some(mcp_comp) = mcp_direct_components(rules, req.tool, req.mcp_servers) {
         components.push(mcp_comp);
     } else {
         components.push(generic_tool_component(rules, &req));
@@ -162,18 +169,23 @@ fn non_bash_components(rules: &[PolicyRule], req: EvalRequest<'_>) -> Vec<Compon
 }
 
 fn path_component(rules: &[PolicyRule], token: &str, cwd: Option<&Path>) -> Component {
-    let vals = path_policy_values(token, cwd);
-    let dec = decide_surface(rules, ("path", &vals), SurfaceKind::Any);
-    let decision = if dec.matched_pattern.is_some() {
-        map_surface_decision("path", dec)
-    } else if is_path_outside_working_dir(token, cwd) || is_protected_path(token, cwd) {
-        Decision::Ask
+    let values = path_policy_values(token, cwd);
+    let value = values.last().cloned().unwrap_or_else(|| token.to_string());
+    let decision = if is_credential_path(token, cwd) {
+        Decision::Deny(format!("'{token}' holds credentials and cannot be accessed by tools"))
     } else {
-        Decision::Allow
+        let dec = decide_surface(rules, ("path", &values), SurfaceKind::Any);
+        if dec.matched_pattern.is_some() {
+            map_surface_decision("path", dec)
+        } else if is_path_outside_working_dir(token, cwd) || is_protected_path(token, cwd) {
+            Decision::Ask
+        } else {
+            Decision::Allow
+        }
     };
     Component {
         surface: "path".into(),
-        value: token.to_string(),
+        value,
         decision,
     }
 }

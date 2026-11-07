@@ -18,7 +18,7 @@ fn assemble_turn_output(
 ) -> TurnOutput {
     TurnOutput {
         tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
-        requests: response.requests.len(),
+        requests: response.requests,
         final_text: response.output,
         tool_calls_count,
         usage,
@@ -124,7 +124,11 @@ impl AgentEngine {
         Ok(metrics)
     }
 
-    pub(super) async fn finish_turn(&self, artifacts: TurnArtifacts) -> Result<TurnOutput> {
+    pub(super) async fn finish_turn(
+        &self,
+        artifacts: TurnArtifacts,
+        lifecycle_hook: &crate::hook::LifecycleHook,
+    ) -> Result<TurnOutput> {
         let TurnArtifacts {
             response,
             tool_calls_count,
@@ -144,13 +148,6 @@ impl AgentEngine {
         let (status, terminal_status) = determine_turn_status(&response);
         let metrics = self.finalize_turn_summary(&response, terminal_status).await?;
 
-        let lifecycle_hook = crate::hook::LifecycleHook::new(
-            self.base_dir.clone(),
-            self.session_manager.session_id.clone(),
-            std::sync::Arc::new(rho_harness_core::presentation::StructuredPresenter::recording(
-                Default::default(),
-            )),
-        );
         lifecycle_hook
             .notify_turn_end(&format!("{terminal_status:?}"), tool_calls_count)
             .await;

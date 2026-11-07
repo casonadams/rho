@@ -39,21 +39,10 @@ pub struct CachedItemRender {
 }
 
 impl CachedItemRender {
-    pub fn new(standard: Option<String>, alternate: Option<String>) -> Self {
-        Self { standard, alternate }
-    }
-
     pub fn standard(rendered: impl Into<String>) -> Self {
         Self {
             standard: Some(rendered.into()),
             alternate: None,
-        }
-    }
-
-    pub fn alternate(rendered: impl Into<String>) -> Self {
-        Self {
-            standard: None,
-            alternate: Some(rendered.into()),
         }
     }
 
@@ -83,12 +72,6 @@ impl TranscriptRenderCache {
         Self { items: Vec::new() }
     }
 
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            items: Vec::with_capacity(capacity),
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -101,12 +84,9 @@ impl TranscriptRenderCache {
         self.items.clear();
     }
 
+    #[cfg(test)]
     pub fn entry(&self, index: usize) -> Option<&CachedItemRender> {
         self.items.get(index)
-    }
-
-    pub fn entry_mut(&mut self, index: usize) -> Option<&mut CachedItemRender> {
-        self.items.get_mut(index)
     }
 
     pub fn push(&mut self, slot: RenderSlot, rendered: impl Into<String>) {

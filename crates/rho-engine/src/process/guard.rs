@@ -23,10 +23,6 @@ impl ProcessTreeGuard {
         self.pid
     }
 
-    pub fn child_mut(&mut self) -> Option<&mut Child> {
-        self.child.as_mut()
-    }
-
     pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
         let child = self
             .child
@@ -60,13 +56,6 @@ impl ProcessTreeGuard {
                 "child already reaped",
             ))
         }
-    }
-
-    pub fn disarm(mut self) -> Option<Child> {
-        if let Some(pid) = self.pid.take() {
-            untrack_pid(pid);
-        }
-        self.child.take()
     }
 }
 

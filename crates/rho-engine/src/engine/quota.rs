@@ -156,7 +156,7 @@ fn record_quota_result(quota: &QuotaTracker, key: &QuotaKey, display: Option<Str
     }
 }
 
-fn stored_oauth_account_id(cred: Option<&StoredCredential>) -> Option<String> {
+pub(crate) fn stored_oauth_account_id(cred: Option<&StoredCredential>) -> Option<String> {
     match cred {
         Some(StoredCredential::OAuth {
             account_id: Some(id), ..

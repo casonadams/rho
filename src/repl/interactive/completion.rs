@@ -20,9 +20,8 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
         "settings",
         "Configure runtime interface settings (thinking effort, display toggles)",
     ),
-    ("models", "Configure role models (default, smol, slow, judge, guard)"),
+    ("models", "Configure role models (default, smol, slow, guard)"),
     ("model", "Select model (opens selector UI) <provider/model>"),
-    ("route", "Toggle or inspect automatic model routing (/route [on|off])"),
     ("resume", "Resume a previous session (opens session selector)"),
     ("skill", "List, inspect, or invoke declarative skills"),
     ("mcp", "Inspect and manage Model Context Protocol servers"),
@@ -43,10 +42,6 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("logout", "Remove stored provider authentication <provider>"),
     ("reload", "Reload config, skills, prompt templates, and MCP tools"),
     ("export", "Export session (HTML default, or specify path: .html/.md)"),
-    (
-        "collab",
-        "Peer-to-peer live pairing and session sharing (start, link, peers, stop)",
-    ),
     ("exit", "Exit rho"),
     ("quit", "Exit rho"),
 ];
@@ -313,14 +308,8 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
     if let Some(argument) = prefix.strip_prefix("/model ") {
         return Some(complete_models(&set.models, argument, cursor));
     }
-    if let Some(argument) = prefix.strip_prefix("/route ") {
-        return Some(complete_route(argument, cursor));
-    }
     if let Some(argument) = prefix.strip_prefix("/thinking ") {
         return Some(complete_thinking(argument, cursor));
-    }
-    if let Some(argument) = prefix.strip_prefix("/collab ") {
-        return Some(complete_collab(argument, cursor));
     }
     complete_auth_args(set, prefix, cursor)
 }
@@ -414,54 +403,6 @@ fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
         .into_iter()
         .map(|(_, (level, desc))| Completion {
             value: format!("/thinking {level}"),
-            description: Some((*desc).to_string()),
-            replacement: 0..cursor,
-        })
-        .collect()
-}
-
-fn complete_route(argument: &str, cursor: usize) -> Vec<Completion> {
-    const ROUTE_OPTIONS: [(&str, &str); 2] = [
-        ("on", "Enable automatic model routing"),
-        ("off", "Disable automatic model routing"),
-    ];
-    ROUTE_OPTIONS
-        .into_iter()
-        .filter(|(val, _)| argument.is_empty() || val.starts_with(argument))
-        .map(|(val, desc)| Completion {
-            value: format!("/route {val}"),
-            description: Some(desc.to_string()),
-            replacement: 0..cursor,
-        })
-        .collect()
-}
-
-pub const COLLAB_SUBCOMMANDS: &[(&str, &str)] = &[
-    ("start", "Start host pairing session & generate shareable tickets"),
-    ("link", "Display active pairing tickets and copy link"),
-    ("peers", "Open peer management selector"),
-    ("kick", "Disconnect a collaborator by peer ID"),
-    ("rotate", "Rotate secret seed & invalidate previous tickets"),
-    ("stop", "Terminate active collaboration session"),
-];
-
-fn complete_collab(argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &(&str, &str))> = COLLAB_SUBCOMMANDS
-        .iter()
-        .filter_map(|sub| {
-            if argument.is_empty() {
-                Some((0, sub))
-            } else {
-                fuzzy_match(argument, sub.0).map(|score| (score, sub))
-            }
-        })
-        .collect();
-    scored.sort_by_key(|(score, sub)| (*score, sub.0));
-
-    scored
-        .into_iter()
-        .map(|(_, (sub, desc))| Completion {
-            value: format!("/collab {sub}"),
             description: Some((*desc).to_string()),
             replacement: 0..cursor,
         })

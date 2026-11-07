@@ -70,7 +70,11 @@ mod branch {
         let mock_response = format!("# Critical Context\nDiscovered secret: {secret}");
         let model = Arc::new(MockAdapter::text(&mock_response));
         let engine = test_engine("redact", Some(model)).await;
-        engine.session_manager.add_secrets(vec![secret.to_string()]).unwrap();
+        engine
+            .session_manager
+            .add_secrets_async(vec![secret.to_string()])
+            .await
+            .unwrap();
 
         let messages = vec![
             ChatMessage::user("Found an api key in branch"),
@@ -484,9 +488,6 @@ mod common {
         fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
         fn stream_port(&self) -> ToolStreamPort {
             ToolStreamPort::default()
-        }
-        async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
-            false
         }
     }
 }

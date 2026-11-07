@@ -1,6 +1,7 @@
-use super::http_client;
 use crate::auth::loopback::LoopbackServer;
 use crate::auth::pkce::PkceChallenge;
+use crate::auth::token_request::send_checked;
+use crate::http::CLIENT;
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
 use rho_harness_core::error::{AppError, Result};
 use serde::Deserialize;
@@ -87,25 +88,13 @@ async fn acquire_openrouter_headless_code(challenge: &str, callbacks: &dyn OAuth
 }
 
 async fn exchange_openrouter_key(code: &str, verifier: &str) -> Result<String> {
-    let client = http_client();
     let body = build_exchange_body(code, verifier);
-
-    let res = client
+    let request = CLIENT
         .post(OPENROUTER_KEYS_URL)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to exchange OpenRouter key: {e}")))?;
-
-    if !res.status().is_success() {
-        let status = res.status();
-        let err_body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!(
-            "OpenRouter key exchange failed ({status}): {err_body}"
-        )));
-    }
-
-    let text = res
+        .timeout(Duration::from_secs(15))
+        .json(&body);
+    let text = send_checked(request, "OpenRouter key exchange")
+        .await?
         .text()
         .await
         .map_err(|e| AppError::Auth(format!("Failed to read OpenRouter key response: {e}")))?;

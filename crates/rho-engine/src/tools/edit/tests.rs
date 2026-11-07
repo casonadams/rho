@@ -1,235 +1,156 @@
 use super::*;
+use crate::tools::types::ToolResult;
+use std::path::Path;
 
-#[tokio::test]
-async fn test_edit_unique_replacement() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("sample.txt");
-    tokio::fs::write(&file_path, "fn hello() {\n    println!(\"world\");\n}\n")
-        .await
-        .unwrap();
+fn fixture(label: &str) -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("edit-{label}-"))
+        .tempdir()
+        .unwrap()
+}
 
-    let tool = EditTool::new(&temp_dir);
-    let res = tool
+async fn edit_file(workspace: &Path, file: &Path, old_text: &str, new_text: &str) -> ToolResult {
+    EditTool::new(workspace)
         .execute(EditArgs {
-            path: file_path.to_str().unwrap().to_string(),
+            path: file.to_str().unwrap().to_string(),
             edits: vec![EditReplacement {
-                old_text: "println!(\"world\");".to_string(),
-                new_text: "println!(\"rust\");".to_string(),
+                old_text: old_text.to_string(),
+                new_text: new_text.to_string(),
             }],
-            patch: None,
         })
         .await
-        .unwrap();
+        .unwrap()
+}
 
-    assert!(!res.is_error);
-    assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [2] })));
-    let updated = tokio::fs::read_to_string(&file_path).await.unwrap();
-    assert_eq!(updated, "fn hello() {\n    println!(\"rust\");\n}\n");
+async fn read_disk(path: &Path) -> String {
+    tokio::fs::read_to_string(path).await.unwrap()
+}
 
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+struct SuccessCase {
+    initial: &'static str,
+    old_text: &'static str,
+    new_text: &'static str,
+    expected: &'static str,
+    line: Option<usize>,
+}
+
+const SUCCESS_CASES: &[SuccessCase] = &[
+    SuccessCase {
+        initial: "fn hello() {\n    println!(\"world\");\n}\n",
+        old_text: "println!(\"world\");",
+        new_text: "println!(\"rust\");",
+        expected: "fn hello() {\n    println!(\"rust\");\n}\n",
+        line: Some(2),
+    },
+    SuccessCase {
+        initial: "line 1\r\nline 2\r\nline 3\r\n",
+        old_text: "line 2\n",
+        new_text: "line 2 modified\n",
+        expected: "line 1\r\nline 2 modified\r\nline 3\r\n",
+        line: None,
+    },
+];
+
+const EXTERNAL_CASE: SuccessCase = SuccessCase {
+    initial: "initial external line\n",
+    old_text: "initial external line",
+    new_text: "modified external line",
+    expected: "modified external line\n",
+    line: None,
+};
+
+struct FailureCase {
+    name: &'static str,
+    initial: &'static str,
+    old_text: &'static str,
+    expected: &'static [&'static str],
+    unexpected: &'static [&'static str],
+}
+
+const FAILURE_CASES: &[FailureCase] = &[
+    FailureCase {
+        name: "duplicate match",
+        initial: "foo bar foo baz\n",
+        old_text: "foo",
+        expected: &["found 2 times", "Provide more surrounding context"],
+        unexpected: &[],
+    },
+    FailureCase {
+        name: "whitespace hint",
+        initial: "    fn calculate() {\n        let x = 1;\n    }\n",
+        old_text: "  fn calculate() {\n    let x = 1;\n  }",
+        expected: &["oldText not found", "different whitespace or indentation"],
+        unexpected: &[],
+    },
+    FailureCase {
+        name: "missing match",
+        initial: "hello world\n",
+        old_text: "not_present",
+        expected: &["oldText not found"],
+        unexpected: &["different whitespace or indentation"],
+    },
+];
+
+async fn assert_edit_applies(workspace: &Path, file: &Path, case: &SuccessCase) {
+    tokio::fs::write(file, case.initial).await.unwrap();
+
+    let res = edit_file(workspace, file, case.old_text, case.new_text).await;
+
+    assert!(!res.is_error, "{}", res.content);
+    if let Some(line) = case.line {
+        assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [line] })));
+    }
+    assert_eq!(read_disk(file).await, case.expected);
 }
 
 #[tokio::test]
-async fn test_edit_hashline_patch() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("sample.txt");
-    tokio::fs::write(&file_path, "line 1\nline 2\nline 3\n").await.unwrap();
-
-    let tool = EditTool::new(&temp_dir);
-    let patch = "PUT 2:\n+line 2 replaced\n";
-    let res = tool
-        .execute(EditArgs {
-            path: file_path.to_str().unwrap().to_string(),
-            edits: vec![],
-            patch: Some(patch.to_string()),
-        })
-        .await
-        .unwrap();
-
-    assert!(!res.is_error);
-    let updated = tokio::fs::read_to_string(&file_path).await.unwrap();
-    assert_eq!(updated, "line 1\nline 2 replaced\nline 3\n");
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+async fn test_edit_applies_replacements() {
+    for case in SUCCESS_CASES {
+        let dir = fixture("success");
+        assert_edit_applies(dir.path(), &dir.path().join("sample.txt"), case).await;
+    }
 }
 
 #[tokio::test]
-async fn test_edit_crlf_file_with_lf_old_text() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("crlf_sample.txt");
-    tokio::fs::write(&file_path, "line 1\r\nline 2\r\nline 3\r\n")
-        .await
-        .unwrap();
+async fn test_edit_failures_leave_file_unchanged() {
+    for case in FAILURE_CASES {
+        let dir = fixture("failure");
+        let file = dir.path().join("sample.txt");
+        tokio::fs::write(&file, case.initial).await.unwrap();
 
-    let tool = EditTool::new(&temp_dir);
-    // Send standard LF newlines in old_text and new_text
-    let res = tool
-        .execute(EditArgs {
-            path: file_path.to_str().unwrap().to_string(),
-            edits: vec![EditReplacement {
-                old_text: "line 2\n".to_string(),
-                new_text: "line 2 modified\n".to_string(),
-            }],
-            patch: None,
-        })
-        .await
-        .unwrap();
+        let res = edit_file(dir.path(), &file, case.old_text, "replacement").await;
 
-    assert!(!res.is_error);
-    let updated = tokio::fs::read_to_string(&file_path).await.unwrap();
-    // Verify file content was replaced and still maintains CRLF
-    assert_eq!(updated, "line 1\r\nline 2 modified\r\nline 3\r\n");
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
-}
-
-#[tokio::test]
-async fn test_edit_duplicate_match_fails_atomically() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("sample.txt");
-    let initial_content = "foo bar foo baz\n";
-    tokio::fs::write(&file_path, initial_content).await.unwrap();
-
-    let tool = EditTool::new(&temp_dir);
-    let res = tool
-        .execute(EditArgs {
-            path: file_path.to_str().unwrap().to_string(),
-            edits: vec![EditReplacement {
-                old_text: "foo".to_string(),
-                new_text: "qux".to_string(),
-            }],
-            patch: None,
-        })
-        .await
-        .unwrap();
-
-    assert!(res.is_error);
-    assert!(res.content.contains("found 2 times"));
-    assert!(res.content.contains("Provide more surrounding context"));
-    let disk = tokio::fs::read_to_string(&file_path).await.unwrap();
-    assert_eq!(disk, initial_content); // Unchanged
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
-}
-
-#[tokio::test]
-async fn test_edit_missing_match_shows_whitespace_hint() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("sample.txt");
-    let initial_content = "    fn calculate() {\n        let x = 1;\n    }\n";
-    tokio::fs::write(&file_path, initial_content).await.unwrap();
-
-    let tool = EditTool::new(&temp_dir);
-    let res = tool
-        .execute(EditArgs {
-            path: file_path.to_str().unwrap().to_string(),
-            edits: vec![EditReplacement {
-                old_text: "  fn calculate() {\n    let x = 1;\n  }".to_string(),
-                new_text: "  fn calculate() {\n    let x = 2;\n  }".to_string(),
-            }],
-            patch: None,
-        })
-        .await
-        .unwrap();
-
-    assert!(res.is_error);
-    assert!(res.content.contains("oldText not found"));
-    assert!(res.content.contains("different whitespace or indentation"));
-    let disk = tokio::fs::read_to_string(&file_path).await.unwrap();
-    assert_eq!(disk, initial_content);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
-}
-
-#[tokio::test]
-async fn test_edit_missing_match_fails_atomically() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("sample.txt");
-    let initial_content = "hello world\n";
-    tokio::fs::write(&file_path, initial_content).await.unwrap();
-
-    let tool = EditTool::new(&temp_dir);
-    let res = tool
-        .execute(EditArgs {
-            path: file_path.to_str().unwrap().to_string(),
-            edits: vec![EditReplacement {
-                old_text: "not_present".to_string(),
-                new_text: "replacement".to_string(),
-            }],
-            patch: None,
-        })
-        .await
-        .unwrap();
-
-    assert!(res.is_error);
-    assert!(res.content.contains("oldText not found"));
-    assert!(!res.content.contains("different whitespace or indentation"));
-    let disk = tokio::fs::read_to_string(&file_path).await.unwrap();
-    assert_eq!(disk, initial_content);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+        assert!(res.is_error, "{}", case.name);
+        for needle in case.expected {
+            assert!(res.content.contains(needle), "{}: missing {needle:?}", case.name);
+        }
+        for needle in case.unexpected {
+            assert!(!res.content.contains(needle), "{}: unexpected {needle:?}", case.name);
+        }
+        assert_eq!(read_disk(&file).await, case.initial, "{}", case.name);
+    }
 }
 
 #[tokio::test]
 async fn test_edit_rejects_directory() {
-    let temp_dir = std::env::temp_dir().join(format!("edit_test_{}", uuid::Uuid::new_v4()));
-    let sub = temp_dir.join("subdir");
+    let dir = fixture("dir");
+    let sub = dir.path().join("subdir");
     tokio::fs::create_dir_all(&sub).await.unwrap();
 
-    let tool = EditTool::new(&temp_dir);
-    let res = tool
-        .execute(EditArgs {
-            path: sub.to_str().unwrap().to_string(),
-            edits: vec![EditReplacement {
-                old_text: "a".to_string(),
-                new_text: "b".to_string(),
-            }],
-            patch: None,
-        })
-        .await
-        .unwrap();
+    let res = edit_file(dir.path(), &sub, "a", "b").await;
 
     assert!(res.is_error);
     assert!(res.content.contains("target path is a directory"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_edit_external_file_successfully() {
-    let temp_workspace = std::env::temp_dir().join(format!("edit_ws_{}", uuid::Uuid::new_v4()));
-    let external_dir = std::env::temp_dir().join(format!("edit_ext_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_workspace).await.unwrap();
-    tokio::fs::create_dir_all(&external_dir).await.unwrap();
-
-    let external_file = external_dir.join("external_edit.txt");
-    tokio::fs::write(&external_file, "initial external line\n")
-        .await
-        .unwrap();
-
-    let tool = EditTool::new(&temp_workspace);
-    let res = tool
-        .execute(EditArgs {
-            path: external_file.to_str().unwrap().to_string(),
-            edits: vec![EditReplacement {
-                old_text: "initial external line".to_string(),
-                new_text: "modified external line".to_string(),
-            }],
-            patch: None,
-        })
-        .await
-        .unwrap();
-
-    assert!(!res.is_error);
-    let updated = tokio::fs::read_to_string(&external_file).await.unwrap();
-    assert_eq!(updated, "modified external line\n");
-
-    let _ = tokio::fs::remove_dir_all(temp_workspace).await;
-    let _ = tokio::fs::remove_dir_all(external_dir).await;
+    let workspace = fixture("ws");
+    let external = fixture("ext");
+    assert_edit_applies(
+        workspace.path(),
+        &external.path().join("external_edit.txt"),
+        &EXTERNAL_CASE,
+    )
+    .await;
 }

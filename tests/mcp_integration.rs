@@ -1,16 +1,11 @@
 #![cfg(unix)]
 
+use crate::temp_dir;
 use rho_engine::mcp::load_mcp_tools;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-
-fn temp_workspace() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mcp_integration_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn write_mock_mcp_server(workspace: &std::path::Path) -> PathBuf {
     let server_script = workspace.join("mock_mcp_server.sh");
@@ -39,7 +34,7 @@ fn mcp_fs_config(script: &std::path::Path) -> Config {
 
 #[tokio::test]
 async fn test_mcp_server_discovery_and_tool_invocation_end_to_end() {
-    let workspace = temp_workspace();
+    let workspace = temp_dir("mcp_integration_test");
     let script = write_mock_mcp_server(&workspace);
     let config = mcp_fs_config(&script);
 

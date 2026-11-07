@@ -1,3 +1,4 @@
+use super::base_input;
 use crate::ui::interactive::layout::widget::RunningToolWidgetInput;
 use crate::ui::interactive::layout::{LayoutInput, layout, render_running_tool_widget};
 use crate::ui::interactive::state::RunningTool;
@@ -6,26 +7,14 @@ use crate::ui::theme::Theme;
 
 #[test]
 fn widget_lines_affect_height_and_cursor_row() {
-    let default_editor = EditorState::default();
-    let default_footer = FooterState::default();
     let widgets = vec![
         "● Todos (1/2)".to_string(),
         "├─ ✓ #1 Done".to_string(),
         "└─ ○ #2 Pending".to_string(),
     ];
     let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &default_footer,
-        system_message: None,
-        queued_messages: &[],
         widget_lines: &widgets,
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&EditorState::default(), &FooterState::default())
     });
 
     assert_eq!(layout.widget_lines.len(), 3);
@@ -134,18 +123,11 @@ fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
     let default_editor = EditorState::default();
     let default_footer = FooterState::default();
     let l = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &default_footer,
-        system_message: None,
-        queued_messages: &[],
         widget_lines: &widgets,
         terminal_width: 60,
         terminal_height: 20,
-        spinner_frame: 0,
         theme: Some(&theme),
-        focused: true,
+        ..base_input(&default_editor, &default_footer)
     });
 
     assert!(l.widget_lines.len() <= 15);

@@ -40,45 +40,6 @@ fn test_cli_parsing_update() {
 }
 
 #[test]
-fn test_cli_parsing_agent_commands() {
-    let serve_cli =
-        Cli::try_parse_from(["rho", "agent", "serve", "--cap", "propose", "--bind", "127.0.0.1:9090"]).unwrap();
-    assert_eq!(
-        serve_cli.command,
-        Some(Commands::Agent {
-            action: AgentCommands::Serve {
-                cap: "propose".into(),
-                relay: None,
-                bind: Some("127.0.0.1:9090".into()),
-            }
-        })
-    );
-
-    let run_cli = Cli::try_parse_from([
-        "rho",
-        "agent",
-        "run",
-        "rho-agent://test#secret",
-        "find bugs",
-        "--role",
-        "critic",
-    ])
-    .unwrap();
-    assert_eq!(
-        run_cli.command,
-        Some(Commands::Agent {
-            action: AgentCommands::Run {
-                ticket: "rho-agent://test#secret".into(),
-                prompt: "find bugs".into(),
-                context: None,
-                role: Some("critic".into()),
-                max_turns: None,
-            }
-        })
-    );
-}
-
-#[test]
 fn test_cli_parses_runtime_limits() {
     let cli = Cli::try_parse_from(["rho", "--max-output-tokens", "8192", "--max-turns", "12"]).unwrap();
     assert_eq!(cli.max_output_tokens, Some(8192));
@@ -118,12 +79,6 @@ fn test_cli_flags_smol_and_slow() {
     let cli_slow = Cli::try_parse_from(["rho", "--slow"]).unwrap();
     assert!(!cli_slow.smol);
     assert!(cli_slow.slow);
-
-    let cli_route = Cli::try_parse_from(["rho", "--route"]).unwrap();
-    assert!(cli_route.route);
-
-    let cli_auto_route = Cli::try_parse_from(["rho", "--auto-route"]).unwrap();
-    assert!(cli_auto_route.route);
 }
 
 #[test]
@@ -142,7 +97,6 @@ fn help_matches_documented_auth_sessions_limits_and_context() {
     for expected in [
         "openai",
         "chatgpt",
-        "copilot",
         "antigravity",
         "claude",
         "explicit login required",

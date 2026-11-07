@@ -1,5 +1,7 @@
+use super::selectors::test_support::DummyBackend;
 use super::*;
 use crate::ui::interactive::{EditorState, InteractiveState, ModalOption, ModalState};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[test]
 fn test_apply_input_edit() {
@@ -33,61 +35,41 @@ fn test_apply_input_edit() {
     apply_input_edit(&mut state, UiAction::Exit);
 }
 
-struct MockBackend;
-impl TerminalBackend for MockBackend {
-    fn set_raw_mode(&mut self, _: bool) -> std::io::Result<()> {
-        Ok(())
+fn paste_into_modal(modal: Option<ModalState>, text: &str) -> (bool, TerminalController<DummyBackend>) {
+    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+    if let Some(modal) = modal {
+        controller.state_mut().push_modal(modal);
     }
-    fn size(&self) -> std::io::Result<(u16, u16)> {
-        Ok((80, 24))
-    }
-    fn hide_cursor(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn show_cursor(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn move_up(&mut self, _: usize) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn move_down(&mut self, _: usize) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn move_to_column(&mut self, _: usize) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn clear_line(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn write_text(&mut self, _: &str) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
+    let handled = handle_modal_paste(&mut controller, text);
+    (handled, controller)
 }
 
 #[test]
-fn test_handle_modal_paste_input_mode() {
-    let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
-    assert!(!handle_modal_paste(&mut controller, "text"));
+fn test_handle_modal_paste_input_and_searchable_modes() {
+    let (handled, _) = paste_into_modal(None, "text");
+    assert!(!handled);
 
-    let mut modal = ModalState::new("Permission Required", "", vec![]);
-    modal.enter_input_mode("edit");
-    controller.state_mut().push_modal(modal);
-
-    assert!(handle_modal_paste(&mut controller, "cargo check"));
+    let mut input_modal = ModalState::new("Permission Required", "", vec![]);
+    input_modal.enter_input_mode("edit");
+    let (handled, controller) = paste_into_modal(Some(input_modal), "cargo check");
+    assert!(handled);
     assert_eq!(controller.state().active_modal().unwrap().input.text(), "cargo check");
+
+    let search_modal = ModalState::new("Select Model", "", vec![]).with_search(true);
+    let (handled, controller) = paste_into_modal(Some(search_modal), "claude");
+    assert!(handled);
+    assert_eq!(controller.state().active_modal().unwrap().filter_query, "claude");
 }
 
 #[test]
 fn test_handle_modal_paste_select_mode_with_input_option() {
-    let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
     let options = vec![
         ModalOption {
             label: "Allow".into(),
             description: None,
             input: None,
+            value: None,
         },
         ModalOption {
             label: "Edit".into(),
@@ -96,6 +78,7 @@ fn test_handle_modal_paste_select_mode_with_input_option() {
                 label: "edit".into(),
                 value: Some("cargo test".into()),
             }),
+            value: None,
         },
     ];
     let mut modal = ModalState::new("Permission Required", "", options);
@@ -108,90 +91,50 @@ fn test_handle_modal_paste_select_mode_with_input_option() {
     assert_eq!(active.input.text(), "cargo test --lib");
 }
 
-#[test]
-fn test_handle_modal_paste_searchable_mode() {
-    let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
-    let modal = ModalState::new("Select Model", "", vec![]).with_search(true);
-    controller.state_mut().push_modal(modal);
+fn selector_with_options(labels: &[&str]) -> TerminalController<DummyBackend> {
+    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+    let options = labels
+        .iter()
+        .map(|label| ModalOption {
+            label: (*label).into(),
+            description: None,
+            input: None,
+            value: None,
+        })
+        .collect();
+    controller
+        .state_mut()
+        .push_modal(ModalState::new("Test Modal", "", options));
+    controller
+}
 
-    assert!(handle_modal_paste(&mut controller, "claude"));
-    let active = controller.state().active_modal().unwrap();
-    assert_eq!(active.filter_query, "claude");
+fn press_nav(controller: &mut TerminalController<DummyBackend>, code: KeyCode, modifiers: KeyModifiers) -> bool {
+    handle_selector_nav(controller, &KeyEvent::new(code, modifiers)).unwrap()
 }
 
 #[test]
 fn test_handle_selector_nav_movement() {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
-    let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
-    let options = vec![
-        ModalOption {
-            label: "Opt 1".into(),
-            description: None,
-            input: None,
-        },
-        ModalOption {
-            label: "Opt 2".into(),
-            description: None,
-            input: None,
-        },
-        ModalOption {
-            label: "Opt 3".into(),
-            description: None,
-            input: None,
-        },
+    let mut controller = selector_with_options(&["Opt 1", "Opt 2", "Opt 3"]);
+    let steps = [
+        (KeyCode::Down, KeyModifiers::NONE, 1),
+        (KeyCode::Tab, KeyModifiers::NONE, 2),
+        (KeyCode::Up, KeyModifiers::NONE, 1),
+        (KeyCode::BackTab, KeyModifiers::NONE, 0),
+        (KeyCode::Tab, KeyModifiers::SHIFT, 0),
+        (KeyCode::Char('j'), KeyModifiers::NONE, 1),
+        (KeyCode::Char('k'), KeyModifiers::NONE, 0),
     ];
-    let modal = ModalState::new("Test Modal", "", options);
-    controller.state_mut().push_modal(modal);
-
-    let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &down).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
-
-    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &tab).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 2);
-
-    let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &up).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
-
-    let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &backtab).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
-
-    let shift_tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT);
-    assert!(handle_selector_nav(&mut controller, &shift_tab).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
-
-    let key_j = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &key_j).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
-
-    let key_k = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &key_k).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+    for (code, modifiers, expected) in steps {
+        assert!(press_nav(&mut controller, code, modifiers));
+        assert_eq!(controller.state().active_modal().unwrap().selected, expected);
+    }
 }
 
 #[test]
 fn test_handle_selector_nav_digits_and_unhandled() {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
-    let options = vec![
-        ModalOption {
-            label: "Opt 1".into(),
-            description: None,
-            input: None,
-        },
-        ModalOption {
-            label: "Opt 2".into(),
-            description: None,
-            input: None,
-        },
-    ];
-    let modal = ModalState::new("Test Modal", "", options);
-    controller.state_mut().push_modal(modal);
+    let mut controller = selector_with_options(&["Opt 1", "Opt 2"]);
 
     let key_2 = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
     assert!(handle_selector_nav(&mut controller, &key_2).unwrap());
@@ -210,28 +153,21 @@ fn test_handle_selector_nav_digits_and_unhandled() {
 
 #[test]
 fn test_handle_selector_nav_searchable_and_filter() {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
-    let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
     let modal = ModalState::new("Search Modal", "", vec![]).with_search(true);
     controller.state_mut().push_modal(modal);
 
-    let key_a = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &key_a).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().filter_query, "a");
+    let steps = [
+        (KeyCode::Char('a'), KeyModifiers::NONE, "a"),
+        (KeyCode::Char('b'), KeyModifiers::NONE, "ab"),
+        (KeyCode::Backspace, KeyModifiers::NONE, "a"),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL, ""),
+    ];
+    for (code, modifiers, expected) in steps {
+        assert!(press_nav(&mut controller, code, modifiers));
+        assert_eq!(controller.state().active_modal().unwrap().filter_query, expected);
+    }
 
-    let key_b = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &key_b).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().filter_query, "ab");
-
-    let backspace = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
-    assert!(handle_selector_nav(&mut controller, &backspace).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().filter_query, "a");
-
-    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    assert!(handle_selector_nav(&mut controller, &ctrl_c).unwrap());
-    assert_eq!(controller.state().active_modal().unwrap().filter_query, "");
-
-    assert!(handle_selector_nav(&mut controller, &ctrl_c).unwrap());
+    assert!(press_nav(&mut controller, KeyCode::Char('c'), KeyModifiers::CONTROL));
     assert!(controller.state().active_modal().is_none());
 }

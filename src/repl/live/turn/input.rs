@@ -21,7 +21,6 @@ pub(super) struct TurnInputContext<'a, B: TerminalBackend> {
     pub batch: &'a mut LiveBatch,
     pub steering: &'a crate::repl::coordinator::SharedSteeringQueue,
     pub session: &'a mut crate::repl::ReplSession,
-    pub model_switch: &'a std::sync::Arc<rho_engine::engine::runner::SharedModelSwitch>,
     pub shared_auth: Option<std::sync::Arc<tokio::sync::Mutex<crate::auth::AuthStore>>>,
 }
 

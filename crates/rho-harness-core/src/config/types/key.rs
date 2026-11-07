@@ -32,154 +32,100 @@ pub(crate) enum ConfigKey {
     SearchEngine,
     WebSearchEnabled,
     WebFetchEnabled,
-    WebFetchMultimodal,
     McpEnabled,
     PermissionEnabled,
-    JudgeModel,
     GuardModel,
     SmolModel,
     SlowModel,
-    PlanModel,
-    CommitModel,
-    AdvisorModel,
-    ModelsRouting,
 }
+
+const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
+    (ConfigKey::Model, "model", &["default_model", "models.default"]),
+    (ConfigKey::Provider, "provider", &["default_provider", "model_provider"]),
+    (ConfigKey::MaxOutputTokens, "max_output_tokens", &[]),
+    (ConfigKey::MaxTurns, "max_turns", &[]),
+    (ConfigKey::ContextLimit, "context_limit", &[]),
+    (ConfigKey::ContextWindowMessages, "context_window_messages", &[]),
+    (ConfigKey::CompactionMaxBytes, "compaction_max_bytes", &[]),
+    (ConfigKey::SearchMinIntervalMs, "search_min_interval_ms", &[]),
+    (ConfigKey::SearchTimeoutSec, "search_timeout_sec", &[]),
+    (ConfigKey::FetchTimeoutSec, "fetch_timeout_sec", &[]),
+    (ConfigKey::FetchLimit, "fetch_limit", &[]),
+    (ConfigKey::FetchMaxBytes, "fetch_max_bytes", &[]),
+    (ConfigKey::OutputMaxBytes, "output_max_bytes", &[]),
+    (ConfigKey::AllowPrivateNetwork, "allow_private_network", &[]),
+    (ConfigKey::Region, "region", &[]),
+    (ConfigKey::SteeringMode, "steering_mode", &[]),
+    (ConfigKey::FollowUpMode, "follow_up_mode", &[]),
+    (ConfigKey::ReserveTokens, "reserve_tokens", &[]),
+    (ConfigKey::KeepRecentTokens, "keep_recent_tokens", &[]),
+    (
+        ConfigKey::ThinkingLevel,
+        "thinking_level",
+        &["thinking", "default_thinking", "default_thinking_level"],
+    ),
+    (
+        ConfigKey::SessionRetentionDays,
+        "session_retention_days",
+        &["retention_days"],
+    ),
+    (ConfigKey::BlockStyle, "ui.block_style", &["block_style"]),
+    (
+        ConfigKey::AgentBlockOutput,
+        "ui.agent_block_output",
+        &["agent_block_output", "agent_box", "ui.agent_box"],
+    ),
+    (
+        ConfigKey::HideThinking,
+        "ui.hide_thinking",
+        &["hide_thinking", "thinking_hidden", "ui.thinking_hidden"],
+    ),
+    (
+        ConfigKey::ToolsExpanded,
+        "ui.tools_expanded",
+        &["tools_expanded", "expand_tools", "ui.expand_tools"],
+    ),
+    (
+        ConfigKey::Cursor,
+        "ui.cursor",
+        &[
+            "cursor",
+            "cursor_style",
+            "ui.cursor_style",
+            "cursor_mode",
+            "ui.cursor_mode",
+        ],
+    ),
+    (ConfigKey::ShowLabel, "show_label", &[]),
+    (
+        ConfigKey::SearchEngine,
+        "tools.web.search.default",
+        &["tools.web.search", "search_engine", "search_provider"],
+    ),
+    (ConfigKey::WebSearchEnabled, "tools.web.search.enabled", &["web_search"]),
+    (ConfigKey::WebFetchEnabled, "tools.web.fetch.enabled", &["web_fetch"]),
+    (ConfigKey::McpEnabled, "mcp.enabled", &["mcp"]),
+    (ConfigKey::PermissionEnabled, "permission.enabled", &["permission"]),
+    (ConfigKey::GuardModel, "models.guard", &["guard_model", "guard"]),
+    (ConfigKey::SmolModel, "models.smol", &["smol_model", "smol"]),
+    (ConfigKey::SlowModel, "models.slow", &["slow_model", "slow"]),
+];
 
 impl FromStr for ConfigKey {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        if let Some(key) = parse_runtime_key(value) {
-            return Ok(key);
-        }
-        if let Some(key) = parse_feature_key(value) {
-            return Ok(key);
-        }
-        Err(format!("unknown configuration key: {value}"))
-    }
-}
-
-fn parse_runtime_key(value: &str) -> Option<ConfigKey> {
-    match value {
-        "model" | "default_model" | "models.default" => Some(ConfigKey::Model),
-        "provider" | "default_provider" | "model_provider" => Some(ConfigKey::Provider),
-        "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Some(ConfigKey::ThinkingLevel),
-        "max_output_tokens" => Some(ConfigKey::MaxOutputTokens),
-        "max_turns" => Some(ConfigKey::MaxTurns),
-        "context_limit" => Some(ConfigKey::ContextLimit),
-        "context_window_messages" => Some(ConfigKey::ContextWindowMessages),
-        "compaction_max_bytes" => Some(ConfigKey::CompactionMaxBytes),
-        "search_min_interval_ms" => Some(ConfigKey::SearchMinIntervalMs),
-        "search_timeout_sec" => Some(ConfigKey::SearchTimeoutSec),
-        "fetch_timeout_sec" => Some(ConfigKey::FetchTimeoutSec),
-        "fetch_limit" => Some(ConfigKey::FetchLimit),
-        "fetch_max_bytes" => Some(ConfigKey::FetchMaxBytes),
-        "output_max_bytes" => Some(ConfigKey::OutputMaxBytes),
-        "allow_private_network" => Some(ConfigKey::AllowPrivateNetwork),
-        "region" => Some(ConfigKey::Region),
-        "steering_mode" => Some(ConfigKey::SteeringMode),
-        "follow_up_mode" => Some(ConfigKey::FollowUpMode),
-        "reserve_tokens" => Some(ConfigKey::ReserveTokens),
-        "keep_recent_tokens" => Some(ConfigKey::KeepRecentTokens),
-        "session_retention_days" | "retention_days" => Some(ConfigKey::SessionRetentionDays),
-        _ => None,
-    }
-}
-
-fn parse_feature_key(value: &str) -> Option<ConfigKey> {
-    match value {
-        "block_style" | "ui.block_style" => Some(ConfigKey::BlockStyle),
-        "agent_block_output" | "ui.agent_block_output" | "agent_box" | "ui.agent_box" => {
-            Some(ConfigKey::AgentBlockOutput)
-        }
-        "hide_thinking" | "ui.hide_thinking" | "thinking_hidden" | "ui.thinking_hidden" => {
-            Some(ConfigKey::HideThinking)
-        }
-        "tools_expanded" | "ui.tools_expanded" | "expand_tools" | "ui.expand_tools" => Some(ConfigKey::ToolsExpanded),
-        "cursor" | "ui.cursor" | "cursor_style" | "ui.cursor_style" | "cursor_mode" | "ui.cursor_mode" => {
-            Some(ConfigKey::Cursor)
-        }
-        "show_label" => Some(ConfigKey::ShowLabel),
-        "tools.web.search.default" | "tools.web.search" | "search_engine" | "search_provider" => {
-            Some(ConfigKey::SearchEngine)
-        }
-        "tools.web.search.enabled" | "web_search" => Some(ConfigKey::WebSearchEnabled),
-        "tools.web.fetch.enabled" | "web_fetch" => Some(ConfigKey::WebFetchEnabled),
-        "tools.web.fetch.multimodal" | "web_fetch_multimodal" => Some(ConfigKey::WebFetchMultimodal),
-        "mcp.enabled" | "mcp" => Some(ConfigKey::McpEnabled),
-        "permission.enabled" | "permission" => Some(ConfigKey::PermissionEnabled),
-        "models.judge" | "judge_model" | "judge" => Some(ConfigKey::JudgeModel),
-        "models.guard" | "guard_model" | "guard" => Some(ConfigKey::GuardModel),
-        "models.smol" | "smol_model" | "smol" => Some(ConfigKey::SmolModel),
-        "models.slow" | "slow_model" | "slow" => Some(ConfigKey::SlowModel),
-        "models.plan" | "plan_model" | "plan" => Some(ConfigKey::PlanModel),
-        "models.commit" | "commit_model" | "commit" => Some(ConfigKey::CommitModel),
-        "models.advisor" | "advisor_model" | "advisor" => Some(ConfigKey::AdvisorModel),
-        "models.routing" | "models_routing" | "routing" => Some(ConfigKey::ModelsRouting),
-        _ => None,
+        KEY_NAMES
+            .iter()
+            .find(|(_, name, aliases)| *name == value || aliases.contains(&value))
+            .map(|(key, _, _)| *key)
+            .ok_or_else(|| format!("unknown configuration key: {value}"))
     }
 }
 
 impl ConfigKey {
-    pub(crate) const fn as_str(self) -> &'static str {
-        if let Some(name) = self.runtime_key_name() {
-            name
-        } else {
-            self.feature_key_name()
-        }
-    }
-
-    const fn runtime_key_name(self) -> Option<&'static str> {
-        match self {
-            Self::Model => Some("model"),
-            Self::Provider => Some("provider"),
-            Self::MaxOutputTokens => Some("max_output_tokens"),
-            Self::MaxTurns => Some("max_turns"),
-            Self::ContextLimit => Some("context_limit"),
-            Self::ContextWindowMessages => Some("context_window_messages"),
-            Self::CompactionMaxBytes => Some("compaction_max_bytes"),
-            Self::SearchMinIntervalMs => Some("search_min_interval_ms"),
-            Self::SearchTimeoutSec => Some("search_timeout_sec"),
-            Self::FetchTimeoutSec => Some("fetch_timeout_sec"),
-            Self::FetchLimit => Some("fetch_limit"),
-            Self::FetchMaxBytes => Some("fetch_max_bytes"),
-            Self::OutputMaxBytes => Some("output_max_bytes"),
-            Self::AllowPrivateNetwork => Some("allow_private_network"),
-            Self::Region => Some("region"),
-            Self::SteeringMode => Some("steering_mode"),
-            Self::FollowUpMode => Some("follow_up_mode"),
-            Self::ReserveTokens => Some("reserve_tokens"),
-            Self::KeepRecentTokens => Some("keep_recent_tokens"),
-            Self::ThinkingLevel => Some("thinking_level"),
-            Self::SessionRetentionDays => Some("session_retention_days"),
-            _ => None,
-        }
-    }
-
-    const fn feature_key_name(self) -> &'static str {
-        match self {
-            Self::BlockStyle => "ui.block_style",
-            Self::AgentBlockOutput => "ui.agent_block_output",
-            Self::HideThinking => "ui.hide_thinking",
-            Self::ToolsExpanded => "ui.tools_expanded",
-            Self::Cursor => "ui.cursor",
-            Self::ShowLabel => "show_label",
-            Self::SearchEngine => "tools.web.search.default",
-            Self::WebSearchEnabled => "tools.web.search.enabled",
-            Self::WebFetchEnabled => "tools.web.fetch.enabled",
-            Self::WebFetchMultimodal => "tools.web.fetch.multimodal",
-            Self::McpEnabled => "mcp.enabled",
-            Self::PermissionEnabled => "permission.enabled",
-            Self::JudgeModel => "models.judge",
-            Self::GuardModel => "models.guard",
-            Self::SmolModel => "models.smol",
-            Self::SlowModel => "models.slow",
-            Self::PlanModel => "models.plan",
-            Self::CommitModel => "models.commit",
-            Self::AdvisorModel => "models.advisor",
-            Self::ModelsRouting => "models.routing",
-            _ => "",
-        }
+    pub(crate) fn as_str(self) -> &'static str {
+        KEY_NAMES[self as usize].1
     }
 }
 
@@ -187,7 +133,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 41] = [
+    const ALL_KEYS: [ConfigKey; 35] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -218,17 +164,11 @@ mod tests {
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,
         ConfigKey::WebFetchEnabled,
-        ConfigKey::WebFetchMultimodal,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
-        ConfigKey::JudgeModel,
         ConfigKey::GuardModel,
         ConfigKey::SmolModel,
         ConfigKey::SlowModel,
-        ConfigKey::PlanModel,
-        ConfigKey::CommitModel,
-        ConfigKey::AdvisorModel,
-        ConfigKey::ModelsRouting,
     ];
 
     #[test]
@@ -269,8 +209,6 @@ mod tests {
             ("permission", ConfigKey::PermissionEnabled),
             ("guard", ConfigKey::GuardModel),
             ("guard_model", ConfigKey::GuardModel),
-            ("models_routing", ConfigKey::ModelsRouting),
-            ("routing", ConfigKey::ModelsRouting),
         ];
         for (alias, expected) in aliases {
             assert_eq!(ConfigKey::from_str(alias), Ok(expected));
@@ -283,7 +221,11 @@ mod tests {
     }
 
     #[test]
-    fn feature_key_name_fallback_for_runtime_keys() {
-        assert_eq!(ConfigKey::Model.feature_key_name(), "");
+    fn names_are_indexed_by_discriminant() {
+        assert_eq!(KEY_NAMES.len(), ALL_KEYS.len());
+        for (index, key) in ALL_KEYS.into_iter().enumerate() {
+            assert_eq!(key as usize, index);
+            assert_eq!(key.as_str(), KEY_NAMES[index].1);
+        }
     }
 }

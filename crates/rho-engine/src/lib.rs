@@ -20,7 +20,6 @@
 //!
 //! See `ARCHITECTURE.md` at the repository root for the execution loops.
 
-pub mod agent_mesh;
 pub mod antigravity;
 pub mod auth;
 pub mod chatgpt;
@@ -28,14 +27,16 @@ pub mod claude;
 pub mod engine;
 pub mod gemini;
 pub mod hook;
-pub mod lsp;
+pub(crate) mod http;
 pub mod mcp;
 pub mod ollama;
 pub mod permission;
 pub mod process;
 pub mod provider;
+pub(crate) mod quota;
 pub mod repeat;
-pub mod routing;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod tools;
 
 pub fn install_crypto_provider() {

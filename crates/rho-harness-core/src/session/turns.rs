@@ -130,10 +130,10 @@ impl SessionManager {
         }
 
         let retained = messages[..cutoff_idx].to_vec();
+        let count = retained.len();
+        self.state.lock().await.integrity.check_canonical_batch(&retained)?;
         self.clear_messages(&self.session_id).await?;
-        if !retained.is_empty() {
-            self.append_messages(&self.session_id, retained.clone()).await?;
-        }
-        Ok(retained.len())
+        self.append_messages(&self.session_id, retained).await?;
+        Ok(count)
     }
 }

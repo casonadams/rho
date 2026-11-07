@@ -16,9 +16,6 @@ mod tests;
 pub use completer::RhoCompleter;
 #[cfg(test)]
 pub(crate) use line_mode::submitted_input_rows;
-pub use live::turn::collab::{
-    CollabPresenter, build_usage_update, handle_collab_idle_command, handle_collab_peer_event,
-};
 pub use prompt::SimplePrompt;
 
 use crate::auth::AuthStore;
@@ -34,7 +31,6 @@ pub struct ReplSession {
     pub renderer: TerminalRenderer,
     pub resume_id: Option<String>,
     pub cli: Option<crate::config::cli::Cli>,
-    pub collab: Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>>,
 }
 
 impl ReplSession {
@@ -47,7 +43,6 @@ impl ReplSession {
             renderer,
             resume_id,
             cli: None,
-            collab: None,
         }
     }
 

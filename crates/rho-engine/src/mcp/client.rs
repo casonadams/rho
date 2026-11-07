@@ -27,17 +27,6 @@ pub struct McpResourceDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpResourceContents {
-    pub uri: String,
-    #[serde(default, rename = "mimeType")]
-    pub mime_type: Option<String>,
-    #[serde(default)]
-    pub text: Option<String>,
-    #[serde(default)]
-    pub blob: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpPromptArgument {
     pub name: String,
     #[serde(default)]
@@ -53,19 +42,6 @@ pub struct McpPromptDefinition {
     pub description: Option<String>,
     #[serde(default)]
     pub arguments: Vec<McpPromptArgument>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpPromptMessage {
-    pub role: String,
-    pub content: McpContent,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpRoot {
-    pub uri: String,
-    #[serde(default)]
-    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,28 +178,8 @@ impl McpClient {
         self.paginate_list("resources/list", "resources").await
     }
 
-    pub async fn read_resource(&self, uri: &str) -> Result<Vec<McpResourceContents>> {
-        let params = serde_json::json!({ "uri": uri });
-        let response = self.transport.request("resources/read", Some(params)).await?;
-
-        let contents_val = response.get("contents").cloned().unwrap_or(Value::Array(Vec::new()));
-        serde_json::from_value(contents_val)
-            .map_err(|e| AppError::Mcp(format!("Failed to parse resource contents: {e}")))
-    }
-
     pub async fn list_prompts(&self) -> Result<Vec<McpPromptDefinition>> {
         self.paginate_list("prompts/list", "prompts").await
-    }
-
-    pub async fn get_prompt(&self, name: &str, arguments: Option<Value>) -> Result<Vec<McpPromptMessage>> {
-        let mut params = serde_json::json!({ "name": name });
-        if let Some(args) = arguments {
-            params["arguments"] = args;
-        }
-        let response = self.transport.request("prompts/get", Some(params)).await?;
-
-        let messages_val = response.get("messages").cloned().unwrap_or(Value::Array(Vec::new()));
-        serde_json::from_value(messages_val).map_err(|e| AppError::Mcp(format!("Failed to parse prompt messages: {e}")))
     }
 }
 

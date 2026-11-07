@@ -11,7 +11,6 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /help                       Show this reference\n\
   /settings                   Interactive runtime interface settings\n\
   /model [<model>]            Inspect or switch the model (<provider>/<model>)\n\
-  /route [on|off]             Toggle or inspect automatic model routing\n\
   /resume [id]                Resume a prior session\n\
   /skill [name]               List or inspect skills\n\
   /mcp                        List configured MCP servers\n\
@@ -27,7 +26,6 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /logout [provider]          Remove stored provider auth\n\
   /reload                     Re-read config, skills, and MCP tools; keep history\n\
   /export [html|md] [path]    Export the active branch as a readable artifact\n\
-  /collab [cmd]               Peer-to-peer live pairing (start, link, peers, kick, stop)\n\
   /exit                       Exit rho (alias: /quit)\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\

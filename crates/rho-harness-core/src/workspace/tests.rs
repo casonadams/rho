@@ -1,24 +1,28 @@
 use super::*;
 
-#[test]
-fn excludes_configured_paths_from_mutations() {
-    let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
-    let excluded = root.join(".rho");
-    std::fs::create_dir_all(&excluded).unwrap();
-    let workspace = Workspace::with_exclusions(&root, [&excluded]);
-    assert!(!workspace.can_mutate(".rho/config.toml"));
-    assert!(workspace.can_mutate("src/lib.rs"));
-    std::fs::remove_dir_all(root).unwrap();
+fn temp_root() -> PathBuf {
+    crate::test_support::created_temp_dir().canonicalize().unwrap()
 }
 
 #[test]
-fn resolves_relative_paths_from_fixed_root() {
-    let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let canonical_root = root.canonicalize().unwrap();
+fn resolves_paths_from_fixed_root() {
+    let root = temp_root();
     let workspace = Workspace::new(&root);
-    assert_eq!(workspace.resolve("src/lib.rs"), Some(canonical_root.join("src/lib.rs")));
-    assert_eq!(workspace.resolve(" "), None);
+    let cases = [
+        ("src/lib.rs", Some(root.join("src/lib.rs"))),
+        (" ", None),
+        ("\"src/lib.rs\"", Some(root.join("src/lib.rs"))),
+        (
+            "\"/no_such_root_dir/keys\"",
+            Some(PathBuf::from("/no_such_root_dir/keys")),
+        ),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(workspace.resolve(input), expected, "{input:?}");
+    }
+    let resolved = workspace.resolve("../outside.txt").unwrap();
+    assert_eq!(resolved, root.parent().unwrap().join("outside.txt"));
+    assert!(!resolved.starts_with(workspace.root()));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -32,28 +36,14 @@ fn resolves_home_paths_when_env_present() {
     }
 }
 
+#[cfg(unix)]
 #[test]
-fn protects_git_directory() {
-    let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(root.join(".git")).unwrap();
-    std::fs::create_dir_all(root.join("subdir")).unwrap();
+fn new_file_under_symlinked_parent_resolves_to_link_target() {
+    let root = temp_root();
+    let outside = temp_root();
+    std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
     let workspace = Workspace::new(&root);
-    for path in [".git/config", "subdir/../.git/config"] {
-        assert!(workspace.is_protected(path));
-        assert!(!workspace.can_mutate(path));
-    }
-    assert!(workspace.is_protected(&root.join(".git/config").display().to_string()));
-    assert!(workspace.is_protected("/external/repo/.git/config"));
-    assert!(!workspace.can_mutate("/external/repo/.git/config"));
+    assert_eq!(workspace.resolve("link/new.txt"), Some(outside.join("new.txt")));
     std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn rejects_escape_outside_workspace() {
-    let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let workspace = Workspace::new(&root);
-    assert!(!workspace.is_within("../outside.txt"));
-    assert!(workspace.can_mutate("../outside.txt"));
-    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(outside).unwrap();
 }

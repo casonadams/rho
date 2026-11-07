@@ -45,14 +45,10 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
             if crate::engine::compactor::is_context_overflow_message(&msg) {
                 Err(LlmCallError::ContextOverflow(msg))
             } else {
-                eprintln!("Warning: Compaction LLM call failed, falling back to deterministic summary: {e}");
                 Err(LlmCallError::Other)
             }
         }
-        Err(_) => {
-            eprintln!("Warning: Compaction LLM call timed out after 60s, falling back to deterministic summary");
-            Err(LlmCallError::Other)
-        }
+        Err(_) => Err(LlmCallError::Other),
     }
 }
 
@@ -81,10 +77,7 @@ where
     );
     let (text, _) = run_agent_completion(model, &full_prompt).await?;
     let cleaned = strip_json_fences(&text);
-    serde_json::from_str(cleaned).map_err(|e| {
-        eprintln!("Warning: Extraction failed: {e}");
-        LlmCallError::Other
-    })
+    serde_json::from_str(cleaned).map_err(|_| LlmCallError::Other)
 }
 
 fn truncate_oldest_round(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {

@@ -82,10 +82,6 @@ impl LiveBatch {
                 changed = true;
             }
         }
-        if let Some(extra) = drained.extra_status.take() {
-            controller.state_mut().footer_mut().extra_status = extra;
-            changed = true;
-        }
         if let Some(system_msg) = drained.system_message.take() {
             if let Some(msg) = system_msg {
                 controller.set_system_message(msg);
@@ -197,10 +193,12 @@ pub fn drain_ui_events<B: crate::ui::interactive::TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::interactive::tool_fixture;
     use crate::ui::interactive::{
         Activity, InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, OptionLayout,
         TerminalBackend,
     };
+    use crate::ui::interactive::{OutputEvent, TranscriptItem};
     use std::io;
     use tokio::sync::{mpsc, oneshot};
 
@@ -293,5 +291,129 @@ mod tests {
         drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
         assert!(modal.is_none());
         assert!(controller.state().active_modal().is_none());
+    }
+
+    fn queue(batch: &mut LiveBatch, events: Vec<UiEvent>) {
+        for event in events {
+            let _ = batch.ui.push(event);
+        }
+    }
+
+    fn flush_events(events: Vec<UiEvent>, redraw: bool) -> (TerminalController<MockBackend>, LiveBatch) {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        queue(&mut batch, events);
+        batch.flush(&mut controller, redraw).unwrap();
+        (controller, batch)
+    }
+
+    #[test]
+    fn flush_without_pending_work_keeps_activity_idle() {
+        for redraw in [false, true] {
+            let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+            let mut batch = LiveBatch::new();
+            batch.flush(&mut controller, redraw).unwrap();
+            assert_eq!(controller.state().footer().activity, Activity::Idle);
+        }
+    }
+
+    #[test]
+    fn flush_applies_activity_per_batch_kind() {
+        type Step = (Activity, Activity);
+        let cases: [(bool, Vec<Step>); 2] = [
+            (true, vec![(Activity::Idle, Activity::Working)]),
+            (
+                false,
+                vec![
+                    (Activity::Thinking, Activity::Thinking),
+                    (Activity::Idle, Activity::Idle),
+                ],
+            ),
+        ];
+        for (turn, steps) in cases {
+            let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+            let mut batch = if turn { LiveBatch::turn() } else { LiveBatch::new() };
+            for (event, expected) in steps {
+                queue(&mut batch, vec![UiEvent::Activity(event)]);
+                batch.flush(&mut controller, false).unwrap();
+                assert_eq!(controller.state().footer().activity, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn flush_sets_and_clears_system_message() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        queue(&mut batch, vec![UiEvent::SystemMessage(Some("syncing".into()))]);
+        batch.flush(&mut controller, false).unwrap();
+        assert_eq!(controller.state().system_message(), Some("syncing"));
+        queue(&mut batch, vec![UiEvent::SystemMessage(None)]);
+        batch.flush(&mut controller, false).unwrap();
+        assert_eq!(controller.state().system_message(), None);
+    }
+
+    #[test]
+    fn flush_runs_tool_start_chunks_and_end_without_transcript() {
+        let (controller, _) = flush_events(
+            vec![
+                UiEvent::ToolStart(crate::ui::interactive::ToolStartRequest {
+                    name: "bash".into(),
+                    args_summary: "cargo test".into(),
+                    preview: None,
+                }),
+                UiEvent::ToolChunk {
+                    chunk: "line one".into(),
+                },
+                UiEvent::ToolEnd,
+            ],
+            false,
+        );
+        assert!(controller.state().footer().running_tool.is_none());
+    }
+
+    #[test]
+    fn flush_drains_tool_end_alongside_tool_transcript() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        controller
+            .start_tool(crate::ui::interactive::ToolStartRequest {
+                name: "bash".into(),
+                args_summary: "cargo test".into(),
+                preview: None,
+            })
+            .unwrap();
+        let mut batch = LiveBatch::new();
+        queue(
+            &mut batch,
+            vec![
+                UiEvent::ToolEnd,
+                UiEvent::Transcript(tool_fixture("read", serde_json::json!({}), "ok")),
+            ],
+        );
+        batch.flush(&mut controller, false).unwrap();
+        assert!(batch.ui.is_empty());
+    }
+
+    #[test]
+    fn flush_writes_text_and_stream_outputs_and_transcript_items() {
+        let (_, batch) = flush_events(
+            vec![
+                UiEvent::Output(OutputEvent::Text("hello\n".into())),
+                UiEvent::Output(OutputEvent::StreamText("partial".into())),
+                UiEvent::Transcript(TranscriptItem::Notice("note".into())),
+                UiEvent::Transcript(TranscriptItem::AssistantText("answer".into())),
+            ],
+            false,
+        );
+        assert!(batch.ui.is_empty());
+    }
+
+    #[test]
+    fn flush_applies_running_tool_update_with_redraw_request() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        queue(&mut batch, vec![UiEvent::RunningTool(Some("grep".into()))]);
+        batch.flush(&mut controller, true).unwrap();
+        assert_eq!(controller.state().footer().running_tool.as_deref(), Some("grep"));
     }
 }

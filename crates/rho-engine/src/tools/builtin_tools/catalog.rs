@@ -7,7 +7,7 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::{LspArgs, SubagentArgs};
+use rho_harness_core::args::SubagentArgs;
 
 pub static PROMPT_READ: &str = "\
 Read file contents with offset and limit safeguards.
@@ -89,18 +89,6 @@ Usage:
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
 - Subagents run up to max_turns (default 10) and return a concise summary to the parent.";
-
-pub static PROMPT_LSP: &str = "\
-Query Language Server Protocol for diagnostics, definitions, references, document symbols, and renames.
-
-Usage:
-- operation: 'diagnostics', 'definition', 'references', 'symbols', 'rename', or 'detect'.
-- Use 'diagnostics' to get compiler diagnostics and errors for a file or the workspace without invoking slow external builds.
-- Use 'definition' to locate where a symbol is defined (requires path, line, character).
-- Use 'references' to find all usages of a symbol across the workspace (requires path, line, character).
-- Use 'symbols' to outline functions, structs, and symbols in a document (requires path).
-- Use 'rename' to preview workspace-wide edits for renaming a symbol (requires path, line, character, new_name).
-- Use 'detect' to check which language server is configured or auto-detected.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {
@@ -237,20 +225,6 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         ],
         schema: generated_schema::<SubagentArgs>,
     },
-    BuiltinToolDeclaration {
-        name: "lsp",
-        capability: BuiltinToolKind::ReadOnly,
-        description: "Language Server Protocol tool for querying diagnostics, symbol definitions, references, document symbols, and renames.",
-        prompt: PROMPT_LSP,
-        prompt_snippet: Some(
-            "Query Language Server Protocol for diagnostics, definitions, references, document symbols, and renames",
-        ),
-        prompt_guidelines: &[
-            "Use lsp for diagnostics and symbol definitions instead of running cargo check or tsc via bash",
-            "Use lsp with operation 'detect' to check available language servers for the workspace",
-        ],
-        schema: generated_schema::<LspArgs>,
-    },
 ];
 
 #[cfg(test)]
@@ -267,13 +241,5 @@ mod tests {
         let sub_props = sub.schema()["properties"].clone();
         assert!(sub_props.get("prompt").is_some());
         assert!(sub_props.get("role").is_some());
-
-        let lsp = DECLARATIONS
-            .iter()
-            .find(|d| d.name == "lsp")
-            .expect("lsp declaration must exist");
-        assert_eq!(lsp.capability, BuiltinToolKind::ReadOnly);
-        let lsp_props = lsp.schema()["properties"].clone();
-        assert!(lsp_props.get("operation").is_some());
     }
 }

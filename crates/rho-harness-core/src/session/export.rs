@@ -1,7 +1,9 @@
 //! Render a session branch as a shareable Markdown or HTML artifact.
 
 use super::tree::SessionTree;
+use crate::error::Result;
 use crate::model::{AssistantContent, ChatMessage, UserContent};
+use std::path::Path;
 
 enum Block {
     Text { role: &'static str, text: String },
@@ -128,6 +130,30 @@ pub fn render_html(tree: &SessionTree, session_id: &str) -> String {
         count,
         body
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    Markdown,
+    Html,
+}
+
+impl ExportFormat {
+    pub fn from_extension(ext: &str) -> Self {
+        if ext == "html" { Self::Html } else { Self::Markdown }
+    }
+}
+
+pub async fn write_export(path: &Path, tree: &SessionTree, session_id: &str, format: ExportFormat) -> Result<()> {
+    let content = match format {
+        ExportFormat::Html => render_html(tree, session_id),
+        ExportFormat::Markdown => render_markdown(tree, session_id),
+    };
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(path, content).await?;
+    Ok(())
 }
 
 fn escape_html(value: &str) -> String {

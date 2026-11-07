@@ -1,8 +1,4 @@
 use std::collections::VecDeque;
-use std::{
-    io::{self, Write},
-    sync::{Arc, Mutex},
-};
 
 use super::*;
 use crate::ui::interactive::{Activity, InteractiveState, UiAction};
@@ -160,20 +156,6 @@ async fn pending_batch_interaction_barriers() {
     assert!(matches!(request.await.unwrap(), Err(UiPortError::Closed)));
 }
 
-#[derive(Clone)]
-struct SharedWriter(Arc<Mutex<Vec<u8>>>);
-
-impl Write for SharedWriter {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 #[tokio::test]
 async fn channel_preserves_output_and_activity_order() {
     let (ui, mut receiver) = InteractiveUi::channel();
@@ -239,27 +221,4 @@ async fn dropping_responder_reports_a_closed_request() {
     drop(responder);
 
     assert!(matches!(request.await.unwrap(), Err(UiPortError::Closed)));
-}
-
-#[tokio::test]
-async fn writer_transport_is_line_oriented_and_rejects_interactions() {
-    let bytes = Arc::new(Mutex::new(Vec::new()));
-    let ui = InteractiveUi::writer(SharedWriter(Arc::clone(&bytes)));
-
-    ui.output(OutputEvent::Text("plain output\n".into())).unwrap();
-    ui.set_activity(Activity::Thinking).unwrap();
-    let response = ui
-        .request(InteractionPrompt {
-            title: String::new(),
-            body: String::new(),
-            options: Vec::new(),
-            initial_selection: 0,
-            allow_custom: false,
-            initial_text: None,
-            option_layout: Default::default(),
-        })
-        .await;
-
-    assert_eq!(*bytes.lock().unwrap(), b"plain output\n");
-    assert!(matches!(response, Err(UiPortError::Unavailable)));
 }

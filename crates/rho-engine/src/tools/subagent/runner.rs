@@ -106,11 +106,6 @@ impl SubagentRunner {
         }
     }
 
-    #[must_use]
-    pub fn tool_names(&self) -> Vec<&str> {
-        self.tools.iter().map(|t| t.name()).collect()
-    }
-
     pub async fn run(&self, prompt: &str, context_slice: Option<&str>) -> ToolResult {
         if prompt.trim().is_empty() {
             return ToolResult::error("subagent prompt cannot be empty");
@@ -288,6 +283,7 @@ pub(crate) fn synthesize_budget_exhausted_result(max_turns: usize, history: &[Ch
 mod tests {
     use super::*;
     use crate::provider::adapter::MockAdapter;
+    use rho_harness_core::model::ToolFunction;
 
     #[test]
     fn test_prompt_formatting() {
@@ -315,5 +311,75 @@ mod tests {
         let res = runner.run("investigate directory", None).await;
         assert!(!res.is_error);
         assert_eq!(res.content, "Scout findings summary");
+    }
+
+    #[test]
+    fn collect_history_findings_splits_assistant_text_from_tool_output() {
+        let long_output = "x".repeat(500);
+        let history = vec![
+            ChatMessage::System {
+                content: "ignored".to_string(),
+            },
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![
+                    AssistantContent::text("  found the module  "),
+                    AssistantContent::text("   "),
+                    AssistantContent::ToolCall(ToolCall::new(
+                        "call-0",
+                        ToolFunction::new("grep", serde_json::json!({})),
+                    )),
+                ],
+            },
+            ChatMessage::User {
+                content: vec![
+                    UserContent::text("ignored user text"),
+                    UserContent::ToolResult(DomainToolResult::new("call-1", "read", long_output)),
+                    UserContent::ToolResult(DomainToolResult::new("call-2", "grep", "   ")),
+                ],
+            },
+        ];
+
+        let (texts, tools) = collect_history_findings(&history);
+
+        assert_eq!(texts, vec!["found the module".to_string()]);
+        assert_eq!(tools.len(), 1);
+        assert!(tools[0].starts_with("Tool read: "));
+        assert_eq!(tools[0].len(), "Tool read: ".len() + 200);
+    }
+
+    #[test]
+    fn budget_exhausted_result_reports_text_then_tools_then_nothing() {
+        let text_history = vec![ChatMessage::Assistant {
+            id: None,
+            content: vec![AssistantContent::text("partial answer")],
+        }];
+        let text_result = synthesize_budget_exhausted_result(3, &text_history);
+        assert!(!text_result.is_error);
+        assert_eq!(
+            text_result.content,
+            "Subagent reached turn limit of 3. Gathered findings:\n\npartial answer"
+        );
+
+        let tool_history = vec![ChatMessage::User {
+            content: vec![UserContent::ToolResult(DomainToolResult::new(
+                "call-1",
+                "read",
+                "file body",
+            ))],
+        }];
+        let tool_result = synthesize_budget_exhausted_result(4, &tool_history);
+        assert!(!tool_result.is_error);
+        assert_eq!(
+            tool_result.content,
+            "Subagent reached turn limit of 4 during exploration. Discovered:\n\nTool read: file body"
+        );
+
+        let empty_result = synthesize_budget_exhausted_result(5, &[]);
+        assert!(empty_result.is_error);
+        assert_eq!(
+            empty_result.content,
+            "Subagent reached turn limit of 5 without producing output"
+        );
     }
 }

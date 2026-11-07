@@ -1,3 +1,4 @@
+use super::base_input;
 use crate::ui::interactive::layout::{LayoutInput, layout};
 use crate::ui::interactive::{Activity, EditorState, FooterState, QueueKind, QueuedMessage};
 use unicode_width::UnicodeWidthStr;
@@ -13,18 +14,7 @@ fn footer_contains_available_status_and_queue_count() {
         ..FooterState::default()
     };
     let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&default_editor, &footer)
     });
 
     assert!(layout.footer_lines[0].ends_with("80% quota"));
@@ -38,18 +28,10 @@ fn test_status_layout(
     width: usize,
 ) -> crate::ui::interactive::layout::InteractiveLayout {
     layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer,
-        system_message: None,
         queued_messages: queued,
         widget_lines: widgets,
         terminal_width: width,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&EditorState::default(), footer)
     })
 }
 
@@ -90,10 +72,7 @@ fn narrow_layout_never_exceeds_terminal_width() {
     let layout = test_status_layout(&footer, &[], &[], 5);
 
     assert!(layout.footer_lines[0].width() <= 5 && layout.footer_lines[1].width() <= 5);
-    assert_eq!(
-        crate::ui::interactive::layout::text::visible_width(&layout.top_divider),
-        5
-    );
+    assert_eq!(crate::ui::block::visible_width(&layout.top_divider), 5);
 }
 
 #[test]

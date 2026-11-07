@@ -3,7 +3,7 @@ use crate::tools::engine_tool::EngineTool;
 use crate::tools::types::{ToolResult, generated_schema};
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
-use rho_harness_core::workspace::Workspace;
+use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -61,16 +61,8 @@ impl WriteTool {
         }
     }
 
-    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, _exclusions: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: AsRef<Path>,
-    {
-        Self::new(base_dir)
-    }
-
     pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
-        let clean_path = args.path.trim().trim_matches('"').trim_matches('\'');
+        let clean_path = clean_path_arg(&args.path);
         if clean_path.is_empty() {
             return Ok(ToolResult::error("Empty file path provided for write tool"));
         }

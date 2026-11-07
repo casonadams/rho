@@ -100,8 +100,4 @@ impl Presenter for TerminalRenderer {
     fn print_block(&self, display: &rho_harness_core::presentation::BlockDisplay) {
         TerminalRenderer::print_block(self, display);
     }
-
-    fn set_extra_status(&self, status: Option<String>) {
-        TerminalRenderer::set_extra_status(self, status);
-    }
 }

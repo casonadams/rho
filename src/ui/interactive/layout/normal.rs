@@ -40,12 +40,7 @@ fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset
                 ""
             };
             let activity = active_activity_status(input.footer, input.spinner_frame);
-            let remote = if input.footer.remote_active {
-                Some(input.footer.remote_peers)
-            } else {
-                None
-            };
-            top_divider(width, label, activity, remote, style, reset)
+            top_divider(width, label, activity, style, reset)
         }
     }
 }
@@ -213,7 +208,7 @@ fn push_footer_lines(
 ) -> Vec<String> {
     let visible = ft_lines[..ft_lines.len().min(budget_count)].to_vec();
     for fl in &visible {
-        let text = super::text::truncate_to_width(fl, width);
+        let text = crate::ui::interactive::footer::truncate_to_width(fl, width);
         lines.push(format!("{style}{text}{style:#}"));
     }
     visible

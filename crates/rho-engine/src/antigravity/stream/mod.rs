@@ -11,7 +11,6 @@ use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, usage_f
 
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::SseLineDecoder;
-use futures::StreamExt;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::Value;
@@ -160,42 +159,8 @@ impl SseParser {
     }
 }
 
-pub fn unfold_antigravity_stream(
-    response: reqwest::Response,
-) -> impl futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send + 'static {
-    futures::stream::unfold((response.bytes_stream(), SseParser::new(), false), next_stream_batch)
-        .map(futures::stream::iter)
-        .flatten()
-}
-
-type StreamState<S> = (S, SseParser, bool);
-
-async fn next_stream_batch<B, S>(
-    (mut byte_stream, mut parser, finished): StreamState<S>,
-) -> Option<(Vec<Result<ModelStreamEvent, AppError>>, StreamState<S>)>
-where
-    B: AsRef<[u8]>,
-    S: futures::Stream<Item = reqwest::Result<B>> + Unpin,
-{
-    if finished {
-        return None;
+impl crate::provider::sse::SseStreamParser for SseParser {
+    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+        SseParser::feed(self, bytes)
     }
-    while let Some(chunk) = byte_stream.next().await {
-        match chunk {
-            Ok(bytes) => {
-                let events = parser.feed(bytes.as_ref());
-                if !events.is_empty() {
-                    let has_term = events
-                        .iter()
-                        .any(|e| matches!(e, Ok(ModelStreamEvent::Finish(_)) | Err(_)));
-                    return Some((events, (byte_stream, parser, has_term)));
-                }
-            }
-            Err(e) => {
-                let err = AppError::Provider(format!("Antigravity stream transport failed: {e}"));
-                return Some((vec![Err(err)], (byte_stream, parser, true)));
-            }
-        }
-    }
-    None
 }

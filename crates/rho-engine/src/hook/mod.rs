@@ -36,18 +36,12 @@ pub struct LifecycleHook {
 
 impl LifecycleHook {
     pub fn new(working_dir: PathBuf, session_id: impl Into<String>, presenter: Arc<dyn Presenter>) -> Self {
-        let mut hook_dirs = Vec::new();
-        if let Ok(env_dir) = std::env::var("RHO_HOOK_DIR") {
-            for dir in std::env::split_paths(&env_dir) {
-                hook_dirs.push(dir);
-            }
-        }
         Self {
             working_dir,
             session_id: session_id.into(),
             turn: AtomicUsize::new(1),
             presenter,
-            hook_dirs,
+            hook_dirs: Vec::new(),
         }
     }
 
@@ -56,25 +50,17 @@ impl LifecycleHook {
         self
     }
 
+    pub fn presenter(&self) -> &Arc<dyn Presenter> {
+        &self.presenter
+    }
+
     pub fn find_all_hooks(&self, name: &str) -> Vec<PathBuf> {
-        let mut hooks = Vec::new();
-        for dir in &self.hook_dirs {
-            if let Some(h) = find_hook_in_dir(dir, name) {
-                hooks.push(h);
-            }
+        let home = rho_harness_core::config::dirs_fallback();
+        let mut roots = vec![home.as_path()];
+        if crate::mcp::trust::project_trusted_by_env() {
+            roots.push(self.working_dir.as_path());
         }
-        let user_home = rho_harness_core::config::dirs_fallback();
-        let user_dir = if self.working_dir != user_home {
-            Some(user_home.as_path())
-        } else {
-            None
-        };
-        for h in find_hooks_in_paths(name, &self.working_dir, user_dir) {
-            if !hooks.contains(&h) {
-                hooks.push(h);
-            }
-        }
-        hooks
+        collect_hooks(name, &self.hook_dirs, &roots)
     }
 
     pub fn find_hook(&self, name: &str) -> Option<PathBuf> {
@@ -193,32 +179,19 @@ impl LifecycleHook {
     }
 }
 
-pub fn find_hooks_in_paths(name: &str, project_dir: &Path, user_dir: Option<&Path>) -> Vec<PathBuf> {
+fn collect_hooks(name: &str, hook_dirs: &[PathBuf], roots: &[&Path]) -> Vec<PathBuf> {
+    let dirs = hook_dirs.iter().cloned().chain(
+        roots
+            .iter()
+            .flat_map(|root| [root.join(".agents").join("hooks"), root.join(".claude").join("hooks")]),
+    );
     let mut hooks = Vec::new();
-    let project_candidates = [
-        project_dir.join(".agents").join("hooks"),
-        project_dir.join(".claude").join("hooks"),
-    ];
-    for dir in &project_candidates {
-        if let Some(hook) = find_hook_in_dir(dir, name) {
+    for hook in dirs.filter_map(|dir| find_hook_in_dir(&dir, name)) {
+        if !hooks.contains(&hook) {
             hooks.push(hook);
         }
     }
-
-    if let Some(user) = user_dir {
-        let user_candidates = [user.join(".agents").join("hooks"), user.join(".claude").join("hooks")];
-        for dir in &user_candidates {
-            if let Some(hook) = find_hook_in_dir(dir, name) {
-                hooks.push(hook);
-            }
-        }
-    }
-
     hooks
-}
-
-pub fn find_hook_in_paths(name: &str, project_dir: &Path, user_dir: Option<&Path>) -> Option<PathBuf> {
-    find_hooks_in_paths(name, project_dir, user_dir).into_iter().next()
 }
 
 fn find_hook_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {

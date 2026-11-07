@@ -34,11 +34,7 @@ pub trait Presenter: Send + Sync {
         None
     }
     fn dismiss_interaction(&self) {}
-    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
-        false
-    }
     fn print_turn_started(&self, _prompt: &str) {}
     fn print_turn_completed(&self, _status: &str) {}
     fn print_block(&self, _display: &BlockDisplay) {}
-    fn set_extra_status(&self, _status: Option<String>) {}
 }

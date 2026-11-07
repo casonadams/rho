@@ -25,10 +25,6 @@ toml.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"] }
 uuid = { workspace = true, features = ["v4"] }
 tiktoken-rs.workspace = true
-ring.workspace = true
-base64.workspace = true
-iroh.workspace = true
-strip-ansi-escapes.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -149,24 +149,24 @@ fn parses_models_table() {
 [models]
 default = "anthropic/claude-3-7-sonnet"
 guard = "local/qwen2.5-coder:7b"
-plan = "openai/o3-mini"
 "#;
     let file: FileConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
     assert_eq!(file.models.guard.as_deref(), Some("local/qwen2.5-coder:7b"));
-    assert_eq!(file.models.plan.as_deref(), Some("openai/o3-mini"));
 
     let mut config = Config::default();
     super::super::merge::merge_file(&mut config, file);
     assert_eq!(config.provider, "anthropic");
     assert_eq!(config.model, "claude-3-7-sonnet");
     assert_eq!(config.guard_model(), Some("local/qwen2.5-coder:7b"));
-    assert_eq!(config.models.get("plan").map(String::as_str), Some("openai/o3-mini"));
 }
 
 #[test]
-fn parses_tools_web_config_with_enabled_flags() {
-    let toml_str = r#"
+fn parses_tools_web_config() {
+    let cases = [
+        ("model = \"claude\"\n", (true, "brave", true, None)),
+        (
+            r#"
 [tools.web.search]
 enabled = false
 default = "duckduckgo"
@@ -174,28 +174,21 @@ fallback = ["yahoo"]
 
 [tools.web.fetch]
 enabled = false
-multimodal = false
-"#;
-    let file: FileConfig = toml::from_str(toml_str).unwrap();
-    let mut config = Config::default();
-    super::super::merge::merge_file(&mut config, file);
-    assert!(!config.tools.web.search.enabled);
-    assert_eq!(config.tools.web.search.default, "duckduckgo");
-    assert_eq!(config.tools.web.search.fallback, vec!["yahoo".to_string()]);
-    assert!(!config.tools.web.fetch.enabled);
-    assert!(!config.tools.web.fetch.multimodal);
-}
-
-#[test]
-fn parses_tools_web_config_omitted_defaults_to_true() {
-    let toml_str = "model = \"claude\"\n";
-    let file: FileConfig = toml::from_str(toml_str).unwrap();
-    let mut config = Config::default();
-    super::super::merge::merge_file(&mut config, file);
-    assert!(config.tools.web.search.enabled);
-    assert_eq!(config.tools.web.search.default, "brave");
-    assert!(config.tools.web.fetch.enabled);
-    assert!(config.tools.web.fetch.multimodal);
+"#,
+            (false, "duckduckgo", false, Some(vec!["yahoo"])),
+        ),
+    ];
+    for (toml_str, (search_enabled, search_default, fetch_enabled, fallback)) in cases {
+        let file: FileConfig = toml::from_str(toml_str).unwrap();
+        let mut config = Config::default();
+        super::super::merge::merge_file(&mut config, file);
+        assert_eq!(config.tools.web.search.enabled, search_enabled);
+        assert_eq!(config.tools.web.search.default, search_default);
+        assert_eq!(config.tools.web.fetch.enabled, fetch_enabled);
+        if let Some(fallback) = fallback {
+            assert_eq!(config.tools.web.search.fallback, fallback);
+        }
+    }
 }
 
 #[test]

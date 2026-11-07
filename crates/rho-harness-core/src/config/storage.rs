@@ -107,27 +107,12 @@ impl super::Config {
         Self::set_file_value_async(config_dir, "permission.enabled", &enabled.to_string()).await
     }
 
-    pub fn add_mcp_server(target: &Path, name: &str, server: McpServerConfig) -> Result<()> {
-        let path = if target.is_dir() {
-            super::mcp::global_mcp_path(target)
-        } else {
-            target.to_path_buf()
-        };
-        super::mcp::write_mcp_server_json(&path, name, &server)
+    pub fn add_mcp_server(config_dir: &Path, name: &str, server: McpServerConfig) -> Result<()> {
+        super::mcp::write_mcp_server_json(&config_dir.join("mcp.json"), name, &server)
     }
 
-    pub fn remove_mcp_server(target: &Path, name: &str) -> Result<McpServerConfig> {
-        let path = if target.is_dir() {
-            let global = super::mcp::global_mcp_path(target);
-            if global.is_file() {
-                global
-            } else {
-                target.join("mcp.json")
-            }
-        } else {
-            target.to_path_buf()
-        };
-        super::mcp::remove_mcp_server_json(&path, name)
+    pub fn remove_mcp_server(config_dir: &Path, name: &str) -> Result<McpServerConfig> {
+        super::mcp::remove_mcp_server_json(&config_dir.join("mcp.json"), name)
     }
 }
 
@@ -142,13 +127,9 @@ fn parse_optional_model(value: &str) -> Option<String> {
 fn apply_named_role_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> bool {
     let opt = parse_optional_model(value);
     match key {
-        ConfigKey::JudgeModel => file_config.models.judge = opt,
         ConfigKey::GuardModel => file_config.models.guard = opt,
         ConfigKey::SmolModel => file_config.models.smol = opt,
         ConfigKey::SlowModel => file_config.models.slow = opt,
-        ConfigKey::PlanModel => file_config.models.plan = opt,
-        ConfigKey::CommitModel => file_config.models.commit = opt,
-        ConfigKey::AdvisorModel => file_config.models.advisor = opt,
         _ => return false,
     }
     true
@@ -159,9 +140,6 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         return Ok(true);
     }
     match key {
-        ConfigKey::ModelsRouting => {
-            file_config.models.routing = Some(parse_bool(key.as_str(), value)?);
-        }
         ConfigKey::Model => {
             file_config.models.default = Some(value.to_string());
         }
@@ -228,7 +206,8 @@ fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) ->
         ConfigKey::SearchEngine => {
             if !crate::config::validate::is_valid_search_engine_name(value) {
                 return Err(AppError::Config(format!(
-                    "Unknown search engine '{value}'. Supported engines: brave, duckduckgo, yahoo, firecrawl, exa, gemini"
+                    "Unknown search engine '{value}'. Supported engines: {}",
+                    crate::config::SUPPORTED_SEARCH_ENGINES
                 )));
             }
             let tools = file_config.tools.get_or_insert_with(Default::default);
@@ -247,12 +226,6 @@ fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) ->
             let web = tools.web.get_or_insert_with(Default::default);
             let fetch = web.fetch.get_or_insert_with(Default::default);
             fetch.enabled = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::WebFetchMultimodal => {
-            let tools = file_config.tools.get_or_insert_with(Default::default);
-            let web = tools.web.get_or_insert_with(Default::default);
-            let fetch = web.fetch.get_or_insert_with(Default::default);
-            fetch.multimodal = Some(parse_bool(key.as_str(), value)?);
         }
         ConfigKey::McpEnabled => {
             let mcp = file_config.mcp.get_or_insert_with(Default::default);

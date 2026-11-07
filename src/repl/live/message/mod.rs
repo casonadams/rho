@@ -6,6 +6,8 @@ mod session_ops;
 pub(crate) mod types;
 
 pub(super) use prompt::resolve_effective_prompt;
+#[cfg(test)]
+pub(crate) use session_ops::handle_session_diagnostics;
 pub(super) use types::LiveCommandContext;
 
 use commands::{handle_auth_command, handle_engine_command};

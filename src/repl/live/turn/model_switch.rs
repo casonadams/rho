@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::auth::AuthStore;
 use rho_engine::engine::builder::create_engine_model;
-use rho_engine::engine::runner::{ActiveModelSwitch, SharedModelSwitch};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 
@@ -19,7 +18,6 @@ pub(crate) struct TurnModelSwitchInput<'a, 'b, B: TerminalBackend> {
     pub auth_store: &'b AuthStore,
     pub renderer: &'b TerminalRenderer,
     pub controller: &'b mut TerminalController<B>,
-    pub model_switch: &'b Arc<SharedModelSwitch>,
     pub batch: &'b mut LiveBatch,
     pub shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
 }
@@ -45,25 +43,15 @@ async fn update_config_model(
     }
 }
 
-async fn switch_engine_handle(
-    input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>,
-    model: &str,
-    provider: &str,
-) {
-    match create_engine_model(input.config, input.auth_store, input.shared_auth.clone()) {
-        Ok(handle) => {
-            input
-                .model_switch
-                .switch_to(ActiveModelSwitch::new(model, provider, handle));
-            input
-                .controller
-                .set_system_message(format!("[Next step will use model: {model} ({provider})]"));
-        }
-        Err(err) => {
-            input
-                .renderer
-                .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
-        }
+async fn validate_engine_model(input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>) {
+    let shared_auth = input
+        .shared_auth
+        .clone()
+        .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(input.auth_store.clone())));
+    if let Err(err) = create_engine_model(input.config, input.auth_store, shared_auth) {
+        input
+            .renderer
+            .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
     }
 }
 
@@ -76,7 +64,7 @@ pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(
         input.save_as_default,
     );
     update_config_model(&mut input, &model, &provider, save_as_default).await;
-    switch_engine_handle(&mut input, &model, &provider).await;
+    validate_engine_model(&mut input).await;
     input.controller.state_mut().footer_mut().provider = provider;
     input.controller.state_mut().footer_mut().model = model;
     input.batch.flush(input.controller, true)?;
@@ -113,7 +101,6 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
         auth_store: &ctx.session.auth_store,
         renderer: &ctx.session.renderer,
         controller: ctx.controller,
-        model_switch: ctx.model_switch,
         batch: ctx.batch,
         shared_auth: ctx.shared_auth.clone(),
     })
@@ -145,7 +132,6 @@ async fn apply_thinking_cycle<B: TerminalBackend>(
         auth_store: &ctx.session.auth_store,
         renderer: &ctx.session.renderer,
         controller: ctx.controller,
-        model_switch: ctx.model_switch,
         batch: ctx.batch,
         shared_auth: ctx.shared_auth.clone(),
     })

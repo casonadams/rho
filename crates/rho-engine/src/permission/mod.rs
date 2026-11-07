@@ -13,7 +13,7 @@ pub mod policy;
 pub mod prompt;
 pub mod suggest;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod types;
 
 pub use eval::{ask_drafts, decide_tool_call};

@@ -7,13 +7,12 @@ and declarative skills in `rho`.
 
 ## Providers & Authentication
 
-`rho` supports 14+ AI providers via subscription OAuth, API keys, and local
+`rho` supports 13+ AI providers via subscription OAuth, API keys, and local
 inference:
 
 | Provider       | Auth Type          | Configuration / Login                             |
 | :------------- | :----------------- | :------------------------------------------------ |
 | `chatgpt`      | Subscription OAuth | `rho login chatgpt` (OAuth PKCE)                  |
-| `copilot`      | Subscription OAuth | `rho login copilot` (GitHub device login)         |
 | `antigravity`  | Google OAuth       | `rho login antigravity` (OAuth PKCE)              |
 | `claude`       | Subscription OAuth | `rho login claude` (OAuth PKCE)                   |
 | `openrouter`   | OAuth or API Key   | `OPENROUTER_API_KEY` or `rho login openrouter`    |
@@ -38,7 +37,7 @@ Credentials and tokens are stored securely in `~/.config/rho/auth.json` (or
 ### Custom OpenAI-Compatible Endpoints
 
 Connect any OpenAI-compatible provider at runtime without rebuilding. Add an
-entry to `~/.config/rho/config.toml` or project `.rho/config.toml`:
+entry to `~/.config/rho/config.toml` (providers are not read from project files):
 
 ```toml
 [providers.custom_endpoint]
@@ -71,7 +70,8 @@ lowest):
 2. **Environment Variables** (`RHO_MODEL`, `RHO_PROVIDER`, `AI_MODEL`, `AI_PROVIDER`, `AI_THINKING_LEVEL`,
    `AI_MAX_OUTPUT_TOKENS`, `AI_MAX_TURNS`, `AI_CONTEXT_WINDOW_MESSAGES`,
    `AI_COMPACTION_MAX_BYTES`, `RHO_HOME`)
-3. **Project Configuration** (`.rho/config.toml`)
+3. **Project Configuration** (`.rho/config.toml`): model and UI preferences only. `permission`, `providers`,
+   `allow_private_network`, and MCP servers are read from the global file alone, so a cloned repository cannot change them.
 4. **Global Configuration** (`~/.config/rho/config.toml`)
 
 ```text
@@ -118,9 +118,6 @@ default = "anthropic/claude-3-7-sonnet"
 # Dedicated local guard model for automated shell security classification
 guard = "ollama/qwen2.5-coder:7b"
 
-# Dynamic model routing across capability tiers:
-routing = true
-judge = "ollama/clef-flash"
 smol = "ollama/qwen2.5-coder:7b"
 slow = "openai/o3-mini"
 ```
@@ -213,8 +210,6 @@ fallback = ["duckduckgo", "yahoo"]
 [tools.web.fetch]
 # Enable or disable the built-in web_fetch tool (default: true)
 enabled = true
-# Enable or disable Gemini multimodal analysis fallback for images, charts, and scanned PDFs (default: true)
-multimodal = true
 [mcp]
 # Enable or disable MCP subsystem (default: true)
 enabled = true
@@ -225,12 +220,9 @@ enabled = true
 ```
 
 Supported search engine identifiers:
-- `brave`: Scrapes Brave search results (or uses `BRAVE_API_KEY`).
+- `brave`: Scrapes Brave search results (no API key required).
 - `duckduckgo` (aliases: `ddg`, `ddg_lite`): Queries DuckDuckGo Lite (no API key required).
 - `yahoo`: Scrapes Yahoo search results (no API key required).
-- `firecrawl`: Queries Firecrawl search API (requires `FIRECRAWL_API_KEY`).
-- `exa`: Queries Exa neural/semantic search API (requires `EXA_API_KEY`).
-- `gemini` (alias: `google`): Queries Google Search Grounding via Gemini API (requires `GEMINI_API_KEY`).
 Searches evaluate engines sequentially in order. Once an engine returns results, search terminates immediately. Subsequent engines in the fallback list are only queried if the earlier engine errors or returns zero results.
 
 To restrict searches to a single trusted engine and disable all fallbacks/scrapers:
@@ -242,16 +234,6 @@ fallback = []
 ```
 
 When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from LLM dynamic registration and model tool catalogs. Tool toggles and default search engine selection can be changed interactively without leaving the session via `/settings` -> **Tools & Permissions**.
-
-### Specialized Web Fetch Extractors
-
-`web_fetch` includes specialized URL interceptors and extractors:
-- **GitHub (`github.com`)**: Intercepts issues, pull requests (with unified diffs), commits, raw file blobs, and directory trees, rendering them as clean, token-efficient Markdown without HTML boilerplate. Set `GITHUB_TOKEN` or `GH_TOKEN` in your environment for authenticated requests with a 5,000 req/hr quota.
-- **YouTube (`youtube.com`, `youtu.be`)**: Intercepts video URLs (`watch`, `shorts`, `embed`), extracting video details (title, channel, duration, views) and timed-text closed captions formatted into clean dialogue transcripts with timestamps (`[MM:SS] text`).
-
-- **Multimodal Visual Analysis & PDF Fallback**: Intercepts direct image URLs (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.gif`) and generates structured Markdown summaries, OCR transcriptions, and GFM data tables using Gemini 2.5 Flash. When native text extraction of scanned or complex PDFs fails or produces low-confidence text (< 50 characters on documents $\ge$ 10 KB), `web_fetch` automatically falls back to Gemini multimodal extraction. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY` (or `rho login gemini`). Set `format = "multimodal"` or `format = "image"` in tool arguments to force multimodal analysis on any document or image.
-Pass `format = "html"` to bypass specialized extraction and perform raw HTML scraping.
-
 
 ## System Instructions (`AGENTS.md`)
 

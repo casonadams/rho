@@ -1,9 +1,6 @@
-pub mod hashline;
 pub mod normalize;
 #[cfg(test)]
 mod tests;
-
-pub use hashline::{HashlineOp, HashlinePatch, apply_hashline_patch, compute_content_tag, parse_hashline_patch};
 
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::EngineTool;
@@ -12,7 +9,7 @@ pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_
 pub use rho_harness_core::args::EditArgs;
 pub use rho_harness_core::args::EditReplacement;
 use rho_harness_core::error::AppError;
-use rho_harness_core::workspace::Workspace;
+use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
 
 pub struct EditTool {
@@ -129,14 +126,6 @@ impl EditTool {
         }
     }
 
-    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, _exclusions: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: AsRef<Path>,
-    {
-        Self::new(base_dir)
-    }
-
     fn validate_edit_target(&self, clean_path: &str) -> std::result::Result<(Workspace, PathBuf), ToolResult> {
         if clean_path.is_empty() {
             return Err(ToolResult::error("Empty file path provided for edit tool"));
@@ -149,7 +138,7 @@ impl EditTool {
     }
 
     pub async fn execute(&self, args: EditArgs) -> Result<ToolResult, AppError> {
-        let clean_path = args.path.trim().trim_matches('"').trim_matches('\'');
+        let clean_path = clean_path_arg(&args.path);
         let (workspace, path) = match self.validate_edit_target(clean_path) {
             Ok(v) => v,
             Err(e) => return Ok(e),
@@ -158,17 +147,6 @@ impl EditTool {
             Ok(c) => c,
             Err(e) => return Ok(e),
         };
-        if let Some(ref patch_text) = args.patch {
-            let patch = match parse_hashline_patch(patch_text) {
-                Ok(p) => p,
-                Err(e) => return Ok(ToolResult::error(format!("Malformed hashline patch: {e}"))),
-            };
-            let (updated, lines) = match apply_hashline_patch(&content, &patch) {
-                Ok(v) => v,
-                Err(e) => return Ok(ToolResult::error(format!("Failed to apply hashline patch: {e}"))),
-            };
-            return write_edit_result(&path, clean_path, updated, lines, patch.ops.len()).await;
-        }
         if args.edits.is_empty() {
             return Ok(ToolResult::error("No edits provided in edit tool call"));
         }

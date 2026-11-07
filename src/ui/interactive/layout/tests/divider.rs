@@ -1,29 +1,25 @@
-use crate::ui::interactive::layout::{LayoutInput, layout};
-use crate::ui::interactive::{Activity, EditorState, FooterState};
+use super::base_input;
+use crate::ui::block::visible_width;
+use crate::ui::interactive::layout::{InteractiveLayout, LayoutInput, layout};
+use crate::ui::interactive::{Activity, EditorState, FooterState, ModalMode, ModalState};
 
-fn layout_for_thinking(level: Option<&str>) -> crate::ui::interactive::layout::InteractiveLayout {
-    let footer = FooterState {
-        thinking_level: level.map(ToString::to_string),
-        ..FooterState::default()
-    };
+fn render(editor: &EditorState, footer: &FooterState, modal: Option<&ModalState>, width: usize) -> InteractiveLayout {
     layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 10,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        modal,
+        terminal_width: width,
+        ..base_input(editor, footer)
     })
 }
 
+fn footer_with_thinking(level: Option<&str>) -> FooterState {
+    FooterState {
+        thinking_level: level.map(ToString::to_string),
+        ..FooterState::default()
+    }
+}
+
 #[test]
-fn thinking_borders_change_color_with_thinking_level() {
+fn border_colors_follow_thinking_level_and_bash_mode() {
     let levels = [
         (None, "\u{1b}[2m"),
         (Some("off"), "\u{1b}[2m"),
@@ -36,31 +32,14 @@ fn thinking_borders_change_color_with_thinking_level() {
     ];
 
     for (level, expected_style) in levels {
-        let layout = layout_for_thinking(level);
+        let layout = render(&EditorState::default(), &footer_with_thinking(level), None, 10);
         assert!(layout.top_divider.starts_with(expected_style));
         assert!(layout.bottom_divider.starts_with(expected_style));
     }
-}
 
-#[test]
-fn bash_mode_border_turns_amber() {
     let mut editor = EditorState::default();
     editor.set_text("!cargo check");
-    let footer = FooterState::default();
-    let layout = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 10,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+    let layout = render(&editor, &FooterState::default(), None, 10);
 
     assert!(layout.top_divider.starts_with("\u{1b}[33m"));
     assert!(layout.bottom_divider.starts_with("\u{1b}[33m"));
@@ -68,27 +47,13 @@ fn bash_mode_border_turns_amber() {
 
 #[test]
 fn top_divider_shows_name_and_version_when_label_enabled() {
-    let editor = EditorState::default();
     let footer = FooterState {
         show_label: true,
         ..FooterState::default()
     };
-    let layout = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 25,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+    let layout = render(&EditorState::default(), &footer, None, 25);
 
-    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
+    let stripped = visible_width(&layout.top_divider);
     assert_eq!(stripped, 25, "divider must stay exactly one terminal row wide");
     let label = concat!("rho ", env!("CARGO_PKG_VERSION"));
     assert!(layout.top_divider.contains(label));
@@ -96,79 +61,21 @@ fn top_divider_shows_name_and_version_when_label_enabled() {
 }
 
 #[test]
-fn top_divider_shows_nothing_by_default() {
-    let editor = EditorState::default();
-    let footer = FooterState::default();
-    let layout = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 25,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
-    assert_eq!(stripped, 25);
+fn top_divider_without_label_is_plain_dashes() {
+    for width in [25, 6] {
+        let layout = render(&EditorState::default(), &FooterState::default(), None, width);
+        assert_eq!(visible_width(&layout.top_divider), width);
+        assert!(!layout.top_divider.contains("rho"));
+    }
+    let layout = render(&EditorState::default(), &FooterState::default(), None, 25);
     assert_eq!(layout.top_divider.matches('─').count(), 25);
-    assert!(!layout.top_divider.contains("rho"));
-}
-
-#[test]
-fn top_divider_falls_back_to_plain_dashes_when_narrow() {
-    let editor = EditorState::default();
-    let footer = FooterState::default();
-    let layout = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 6,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(!layout.top_divider.contains("rho"));
-}
-
-fn modal_layout_with_mode(
-    modal: &crate::ui::interactive::ModalState,
-) -> crate::ui::interactive::layout::InteractiveLayout {
-    layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: Some(modal),
-        autocomplete: None,
-        footer: &FooterState::default(),
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    })
 }
 
 #[test]
 fn modal_top_divider_reflects_active_input_mode() {
-    let mut modal = crate::ui::interactive::ModalState::new("Permission Required", "body", vec![]);
-    assert!(
-        modal_layout_with_mode(&modal)
-            .top_divider
-            .contains("Permission Required")
-    );
+    let mut modal = ModalState::new("Permission Required", "body", vec![]);
+    let layout = render(&EditorState::default(), &FooterState::default(), Some(&modal), 80);
+    assert!(layout.top_divider.contains("Permission Required"));
     let modes = [
         ("edit", "edit"),
         ("args", "edit"),
@@ -176,10 +83,10 @@ fn modal_top_divider_reflects_active_input_mode() {
         ("pattern", "pattern"),
     ];
     for (mode_label, expected_title) in modes {
-        modal.mode = crate::ui::interactive::ModalMode::Input {
+        modal.mode = ModalMode::Input {
             prompt_label: mode_label.to_string(),
         };
-        let l = modal_layout_with_mode(&modal);
+        let l = render(&EditorState::default(), &FooterState::default(), Some(&modal), 80);
         assert!(l.top_divider.contains(expected_title) && !l.top_divider.contains("Permission Required"));
     }
 }
@@ -187,25 +94,12 @@ fn modal_top_divider_reflects_active_input_mode() {
 #[test]
 fn top_divider_busy_renders_spinner_and_activity_matching_thinking_color() {
     let footer = FooterState {
-        activity: crate::ui::interactive::Activity::Working,
+        activity: Activity::Working,
         thinking_level: Some("medium".into()),
         show_label: true,
         ..FooterState::default()
     };
-    let layout = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 60,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+    let layout = render(&EditorState::default(), &footer, None, 60);
 
     assert!(layout.top_divider.starts_with("\x1b[36m"));
     assert!(layout.top_divider.contains("working"));
@@ -214,187 +108,34 @@ fn top_divider_busy_renders_spinner_and_activity_matching_thinking_color() {
     let label = concat!("rho ", env!("CARGO_PKG_VERSION"));
     assert!(layout.top_divider.contains(label));
     assert!(layout.top_divider.contains("───"));
-    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
+    let stripped = visible_width(&layout.top_divider);
     assert_eq!(stripped, 60, "busy divider must match terminal width");
 }
 
 #[test]
-fn top_divider_busy_drops_version_badge_when_width_is_tight() {
-    let footer = FooterState {
-        activity: crate::ui::interactive::Activity::Working,
-        show_label: true,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 20,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(layout.top_divider.contains("working"));
-    assert!(layout.top_divider.contains('\u{280b}'));
-    assert!(layout.top_divider.contains("── \u{280b} working "));
-    assert!(!layout.top_divider.contains("rho"));
-    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
-    assert_eq!(stripped, 20);
-}
-
-#[test]
-fn top_divider_busy_gracefully_degrades_on_very_narrow_widths() {
-    let footer = FooterState {
-        activity: crate::ui::interactive::Activity::Working,
-        show_label: true,
-        ..FooterState::default()
-    };
-    let narrow = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 10,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(narrow.top_divider.contains('\u{280b}'));
-    assert!(!narrow.top_divider.contains("working"));
-    assert_eq!(crate::ui::interactive::footer::visible_width(&narrow.top_divider), 10);
-
-    let tiny = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 5,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert_eq!(crate::ui::interactive::footer::visible_width(&tiny.top_divider), 5);
-    assert!(!tiny.top_divider.contains('\u{280b}'));
-}
-
-#[test]
-fn top_divider_busy_on_tight_terminal_shows_spinner_only() {
-    let footer = FooterState {
-        activity: crate::ui::interactive::Activity::Working,
-        show_label: true,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 7,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(layout.top_divider.contains("── \u{280b} ──"));
-    assert!(!layout.top_divider.contains("working"));
-    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 7);
-}
-
-#[test]
-fn top_divider_shows_remote_idle_with_zero_peers() {
-    let footer = FooterState {
-        remote_active: true,
-        remote_peers: 0,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 30,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(layout.top_divider.contains("── remote "));
-    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 30);
-}
-
-#[test]
-fn top_divider_shows_remote_idle_with_peers() {
-    let footer = FooterState {
-        remote_active: true,
-        remote_peers: 2,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 35,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(layout.top_divider.contains("── remote (2) "));
-    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 35);
-}
-
-#[test]
-fn top_divider_shows_remote_when_busy() {
+fn top_divider_busy_degrades_with_width() {
     let footer = FooterState {
         activity: Activity::Working,
-        remote_active: true,
-        remote_peers: 1,
+        show_label: true,
         ..FooterState::default()
     };
-    let layout = layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 40,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(layout.top_divider.contains("working • remote (1)"));
-    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 40);
+    let cases: [(usize, &[&str], &[&str]); 4] = [
+        (20, &["working", "\u{280b}", "── \u{280b} working "], &["rho"]),
+        (10, &["\u{280b}"], &["working"]),
+        (7, &["── \u{280b} ──"], &["working"]),
+        (5, &[], &["\u{280b}"]),
+    ];
+    for (width, present, absent) in cases {
+        let layout = render(&EditorState::default(), &footer, None, width);
+        for needle in present {
+            assert!(layout.top_divider.contains(needle), "width {width} missing {needle:?}");
+        }
+        for needle in absent {
+            assert!(
+                !layout.top_divider.contains(needle),
+                "width {width} unexpectedly has {needle:?}"
+            );
+        }
+        assert_eq!(visible_width(&layout.top_divider), width);
+    }
 }

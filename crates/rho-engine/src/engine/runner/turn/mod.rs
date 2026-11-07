@@ -8,8 +8,8 @@ pub mod types;
 
 pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, prune_historical_tool_outputs};
 pub use types::{
-    ActiveModelSwitch, CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus,
-    SharedModelSwitch, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails,
+    CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, SteeringQueueProvider, TurnOutput,
+    TurnRequest, UsageDetails,
 };
 
 use std::sync::Arc;
@@ -27,7 +27,7 @@ impl AgentEngine {
         &self,
         res: StreamRunResult,
         sink: &Arc<TerminalApprovalSink>,
-        _presenter: &dyn Presenter,
+        lifecycle: &crate::hook::LifecycleHook,
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
@@ -41,12 +41,15 @@ impl AgentEngine {
                 sink.flush_display();
                 let prompt_response = state.final_response.unwrap_or_default();
                 let out = self
-                    .finish_turn(crate::engine::runner::sink::TurnArtifacts {
-                        response: prompt_response,
-                        tool_calls_count: state.total_tool_calls,
-                        completed_tools: sink.completed(),
-                        generation_elapsed_ms: elapsed,
-                    })
+                    .finish_turn(
+                        crate::engine::runner::sink::TurnArtifacts {
+                            response: prompt_response,
+                            tool_calls_count: state.total_tool_calls,
+                            completed_tools: sink.completed(),
+                            generation_elapsed_ms: elapsed,
+                        },
+                        lifecycle,
+                    )
                     .await?;
                 Ok(Some(out))
             }
@@ -61,12 +64,15 @@ impl AgentEngine {
                     crate::engine::metrics::types::StructuralUsage::default(),
                 );
                 let mut out = self
-                    .finish_turn(crate::engine::runner::sink::TurnArtifacts {
-                        response: prompt_response,
-                        tool_calls_count: state.total_tool_calls,
-                        completed_tools: sink.completed(),
-                        generation_elapsed_ms: elapsed,
-                    })
+                    .finish_turn(
+                        crate::engine::runner::sink::TurnArtifacts {
+                            response: prompt_response,
+                            tool_calls_count: state.total_tool_calls,
+                            completed_tools: sink.completed(),
+                            generation_elapsed_ms: elapsed,
+                        },
+                        lifecycle,
+                    )
                     .await?;
                 out.status = crate::engine::runner::turn::types::RunStatus::ContentFiltered;
                 Ok(Some(out))
@@ -79,29 +85,32 @@ impl AgentEngine {
         sink: &Arc<TerminalApprovalSink>,
         preamble: &str,
         request: &TurnRequest<'_>,
-        presenter: &Arc<dyn Presenter>,
+        lifecycle: &Arc<crate::hook::LifecycleHook>,
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
-        let (runner, active_model) = self
-            .prepare_step_runner(sink, preamble, request, presenter, loop_state)
+        let presenter = lifecycle.presenter();
+        let runner = self
+            .prepare_step_runner(sink, preamble, request, lifecycle, loop_state)
             .await?;
         let stream_res = self
-            .run_turn_stream(runner, sink, presenter.as_ref(), &active_model, loop_state)
+            .run_turn_stream(runner, sink, presenter.as_ref(), loop_state)
             .await?;
-        self.handle_stream_run_result(stream_res, sink, presenter.as_ref(), loop_state)
+        self.handle_stream_run_result(stream_res, sink, lifecycle, loop_state)
             .await
     }
 
-    pub async fn run_turn(&self, mut request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
-        self.apply_model_routing(&mut request, presenter.as_ref()).await;
+    pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
+        let oauth_secrets = self.auth_store.lock().await.oauth_secret_values();
+        self.session_manager.add_secrets_async(oauth_secrets).await?;
         let mut prep = match self.prepare_turn(request.prompt, &presenter).await? {
             prepare::PreparedTurnOutcome::Compacted(out) => return Ok(*out),
             prepare::PreparedTurnOutcome::Ready(prep) => prep,
         };
+        let lifecycle = self.lifecycle_hook(presenter.clone());
         let _in_flight_guard = self.usage.in_flight_guard();
         loop {
             if let Some(out) = self
-                .execute_turn_step(&prep.sink, &prep.preamble, &request, &presenter, &mut prep.loop_state)
+                .execute_turn_step(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
                 .await?
             {
                 return Ok(out);

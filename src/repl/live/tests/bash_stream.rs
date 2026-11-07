@@ -85,3 +85,23 @@ async fn test_user_bash_runner_streaming_updates_output_over_time() {
     let redraws = f.redraw_count.load(std::sync::atomic::Ordering::SeqCst);
     assert!((3..=15).contains(&redraws));
 }
+
+#[tokio::test]
+async fn test_user_bash_runner_returns_when_background_job_holds_output_pipes() {
+    let mut f = setup_bash_stream_fixture();
+    let mut live_io = super::super::LiveIo {
+        controller: &mut f.controller,
+        events: &mut f.events_rx,
+        input: &mut f.input_reader,
+    };
+
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        super::super::bash_runner::run_user_bash("sleep 30 & echo started", &f.renderer, &mut live_io),
+    )
+    .await
+    .expect("user bash must not wait on a backgrounded grandchild")
+    .unwrap();
+
+    assert!(res.output.contains("started"));
+}

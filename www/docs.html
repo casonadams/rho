@@ -233,23 +233,15 @@ rho update</code></pre>
       </p>
 
       <ul>
-        <li><strong><code>read</code></strong>: Safe file inspection with line numbers, chunk offsets, limit bounds, image sniffing, and universal Virtual File System (VFS) schemes:
-          <ul>
-            <li><code>diff://staged</code>: Git staged diff changes.</li>
-            <li><code>diff://workdir</code>: Working directory unstaged diff changes.</li>
-            <li><code>conflict://&lt;path&gt;</code>: Structured three-way merge conflict blocks (ours, theirs, ancestor).</li>
-            <li><code>pr://&lt;number&gt;</code>: GitHub PR metadata, descriptions, comments, and unified patch review.</li>
-          </ul>
-        </li>
+        <li><strong><code>read</code></strong>: Safe file inspection with line numbers, chunk offsets, limit bounds, and image sniffing.</li>
         <li><strong><code>write</code></strong>: Creates or overwrites files with automatic missing directory creation.</li>
         <li><strong><code>edit</code></strong>: Targeted, exact text replacements verifying strict single-match semantics.</li>
         <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization.</li>
         <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching.</li>
         <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines.</li>
         <li><strong><code>subagent</code></strong>: Spawns isolated subagents with specialized roles (<code>scout</code>, <code>critic</code>, <code>planner</code>, <code>general</code>) to perform focused discovery and review without parent context bloat.</li>
-        <li><strong><code>lsp</code></strong>: Query Language Server Protocol servers for compiler diagnostics, symbol definitions, cross-file references, document symbols, and rename diff previews without invoking slow external builds.</li>
         <li><strong><code>web_search</code></strong>: Live web searching with domain filters and structured summaries.</li>
-        <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, feeds, or images from URLs. Includes specialized extractors for GitHub, YouTube transcripts, and Gemini multimodal analysis for visual charts, diagrams, and scanned PDFs.</li>
+        <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs.</li>
       </ul>
 
       <h2 id="providers">Providers, Authentication &amp; Rolling Quotas</h2>
@@ -258,7 +250,7 @@ rho update</code></pre>
       </p>
 
       <ul>
-        <li><strong>Subscription OAuth</strong>: <code>chatgpt</code>, <code>copilot</code>, <code>antigravity</code>, <code>claude</code>, <code>openrouter</code>.</li>
+        <li><strong>Subscription OAuth</strong>: <code>chatgpt</code>, <code>antigravity</code>, <code>claude</code>, <code>openrouter</code>.</li>
         <li><strong>API Key Providers</strong>: <code>anthropic</code>, <code>openai</code>, <code>deepseek</code>, <code>gemini</code>, <code>groq</code>, <code>xai</code>, <code>mistral</code>, <code>cohere</code>, <code>ollama-cloud</code>.</li>
         <li><strong>Local Models</strong>: <code>local</code> (runs Ollama locally via <code>OLLAMA_HOST</code>).</li>
         <li><strong>Live Rolling Quotas</strong>: Interactive footer displays 5-hour and weekly remaining cooldowns for Antigravity and ChatGPT (e.g. <code>95% 4h23m 89% 3d21h</code>) and monthly quota for Ollama Cloud.</li>
@@ -314,29 +306,17 @@ bash_error_border = "red"        # Failed bash commands
 # Web tools and search provider configuration (persisted automatically via /settings -> Tools & Permissions)
 [tools.web.search]
 enabled = true                  # Enable or disable built-in web_search
-default = "brave"                # "brave", "duckduckgo", "yahoo", "firecrawl", "exa", or "gemini"
+default = "brave"                # "brave", "duckduckgo", or "yahoo"
 fallback = ["duckduckgo", "yahoo"] # Fallback engines attempted only on failure/empty
 
 [tools.web.fetch]
 enabled = true                  # Enable or disable built-in web_fetch
-multimodal = true               # Enable or disable Gemini multimodal analysis fallback
 [mcp]
 enabled = true                  # Enable or disable MCP subsystem
 
 [permission]
 enabled = true                  # Enable or disable mutation guardrails</code></pre>
       </div>
-
-      <h3>Specialized Web Fetch Extractors</h3>
-      <p>
-        When fetching URLs, <code>web_fetch</code> automatically intercepts recognized GitHub and YouTube resources to deliver clean, token-efficient Markdown:
-      </p>
-      <ul>
-        <li><strong>GitHub (<code>github.com</code>)</strong>: Formats issues, pull requests (with unified diffs), commits, raw file blobs, and directory trees directly via REST APIs and raw endpoints without HTML chrome. Set <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> for authenticated API access (5,000 req/hr).</li>
-        <li><strong>YouTube (<code>youtube.com</code>, <code>youtu.be</code>)</strong>: Extracts video details (title, channel, duration, views) and timed-text closed captions formatted into clean dialogue transcripts with timestamps (<code>[MM:SS] text</code>).</li>
-        <li><strong>Multimodal Analysis &amp; PDF Fallback</strong>: Analyzes images, charts, and diagrams (PNG, JPEG, WebP, SVG) via Gemini 2.5 Flash into structured Markdown and tables. Automatically falls back to Gemini OCR when native extraction of scanned or complex PDFs fails or yields low confidence. Set <code>GEMINI_API_KEY</code> or <code>GOOGLE_API_KEY</code> to enable.</li>
-      </ul>
-      <p>Pass <code>format = "html"</code> to bypass specialized extractors and retrieve raw HTML.</p>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
       <p>
@@ -509,10 +489,6 @@ rho config models.guard none</code></pre>
               <td>Open interactive model and provider switcher modal (<kbd class="kbd">Ctrl+L</kbd>)</td>
             </tr>
             <tr>
-              <td><code>/route</code></td>
-              <td>Toggle or inspect automatic model tier routing (<code>/route [on|off]</code>)</td>
-            </tr>
-            <tr>
               <td><code>/thinking</code></td>
               <td>Set reasoning effort level (<kbd class="kbd">Shift+Tab</kbd>)</td>
             </tr>
@@ -541,10 +517,6 @@ rho config models.guard none</code></pre>
               <td>View session turn DAG tree and branch navigation (<kbd class="kbd">Ctrl+O</kbd>)</td>
             </tr>
             <tr>
-              <td><code>/collab</code></td>
-              <td>Start P2P live pairing session or manage active collaborators (<code>/collab [start|stop|link|peers|kick|rotate]</code>)</td>
-            </tr>
-            <tr>
               <td><code>/exit</code></td>
               <td>Exit the interactive session cleanly (<kbd class="kbd">Ctrl+D</kbd>)</td>
             </tr>
@@ -553,77 +525,6 @@ rho config models.guard none</code></pre>
       </div>
 
       <img src="assets/modal-model.svg" alt="rho model selector modal with fuzzy search" class="doc-screenshot" width="960" height="620">
-
-      <h2 id="collab-mode">Collab: Zero-Infrastructure P2P Live Pairing</h2>
-      <p>
-        <code>rho</code> includes zero-infrastructure, end-to-end encrypted terminal-to-terminal collaboration powered by <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh</a>. Pair with teammates or secondary devices directly from the terminal without central servers, cloud accounts, or third-party relays.
-      </p>
-
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>Starting a Collab Session (Host)</span>
-          <button class="copy-btn" data-copy="/collab">Copy</button>
-        </div>
-        <pre><code>/collab</code></pre>
-      </div>
-
-      <p>
-        The host generates ephemeral Ed25519 node identities and cryptographic capability links:
-      </p>
-      <ul>
-        <li><strong>Co-Pilot (Full Capability):</strong> Interactive pairing with prompt submissions, steering, <kbd class="kbd">Esc</kbd> turn interrupts, and shared tool confirmations.</li>
-        <li><strong>Spectator (View-Only):</strong> One-way derived key (HKDF-SHA256) allowing guests to follow thoughts, streaming tokens, and diffs without mutation capabilities.</li>
-      </ul>
-
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>Joining as Guest</span>
-          <button class="copy-btn" data-copy="rho join &quot;rho://...&quot;">Copy</button>
-        </div>
-        <pre><code>rho join "rho://&lt;node_id&gt;?relay=&lt;relay_url&gt;#&lt;secret&gt;"</code></pre>
-      </div>
-
-      <p>
-        In interactive terminals, <code>rho join</code> launches directly into the full-screen terminal interface mirroring the host's layout:
-      </p>
-      <ul>
-        <li><strong>Interactive TUI &amp; History Hydration:</strong> Mounts on an alternate screen with live token streaming, styled tool cards, thinking toggles, and instant transcript hydration from the host's session history (falling back to sequential stdout for non-TTY pipelines).</li>
-        <li><strong>Co-Pilot Input:</strong> Full prompt bar editing with cursor navigation, multiline support, <kbd class="kbd">Enter</kbd> submissions, <kbd class="kbd">Esc</kbd> turn aborts, and <kbd class="kbd">Ctrl+C</kbd> draft clearing.</li>
-        <li><strong>Spectator Mode:</strong> Locked prompt bar indicating <code>[View Only - Read Mode]</code> with quick quit keys (<kbd class="kbd">q</kbd>, <kbd class="kbd">Esc</kbd>, <kbd class="kbd">Ctrl+C</kbd>).</li>
-        <li><strong>Shared Tool Approvals:</strong> If a command requires authorization, the confirmation modal appears simultaneously on both host and co-pilot screens. Either peer can approve (<kbd class="kbd">y</kbd>) or deny (<kbd class="kbd">n</kbd>) to continue execution.</li>
-        <li><strong>Peer Attribution &amp; Prompt Synchronization:</strong> Machine hostnames are securely exchanged during handshake. Submitting a prompt renders formatted user prompt cards on all screens simultaneously, with author attribution notices displayed on the host.</li>
-        <li><strong>Live Footer Metrics &amp; Activity:</strong> The guest footer continuously mirrors the active model, provider, token counts, velocity, context percent, and quota, transitioning seamlessly between working and idle states with turn execution.</li>
-      </ul>
-
-      <h2 id="agent-mesh">Sovereign Agent Mesh: Peer-to-Peer Task Delegation</h2>
-      <p>
-        <code>rho agent</code> enables secure, distributed subagent execution across autonomous machines over end-to-end encrypted <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh</a> QUIC streams (ALPN <code>rho/agent/task/v1</code>).
-      </p>
-
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>Starting an Agent Worker Node</span>
-          <button class="copy-btn" data-copy="rho agent serve --cap read_only">Copy</button>
-        </div>
-        <pre><code>rho agent serve --cap read_only</code></pre>
-      </div>
-
-      <p>
-        The worker generates cryptographic capability tickets (<code>rho-agent://</code>) enforcing strict execution invariants:
-      </p>
-      <ul>
-        <li><strong><code>read_only</code>:</strong> Allows non-mutating discovery tools (<code>read</code>, <code>fd</code>, <code>rg</code>, <code>lsp</code>, <code>web_search</code>, <code>web_fetch</code>). The worker strictly refuses to invoke mutating tools (<code>write</code>, <code>edit</code>, <code>bash</code>) even if prompted by the model.</li>
-        <li><strong><code>propose</code>:</strong> Allows inspecting code and generating diffs/edits, but prohibits arbitrary shell execution (<code>bash</code>).</li>
-        <li><strong><code>full</code>:</strong> Full access within the local sandbox environment.</li>
-      </ul>
-
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>Delegating a Task to a Remote Worker</span>
-          <button class="copy-btn" data-copy="rho agent run &quot;rho-agent://...&quot; &quot;Locate all struct definitions&quot; --role scout">Copy</button>
-        </div>
-        <pre><code>rho agent run "rho-agent://&lt;node_id&gt;?cap=read_only#&lt;secret&gt;" "Locate all struct definitions" --role scout</code></pre>
-      </div>
 
       <h2 id="rpc-mode">Headless &amp; IDE RPC Server Mode</h2>
       <p>
@@ -845,7 +746,7 @@ fi</code></pre>
 
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
       <p>
-        MCP servers are tool providers configured via standard JSON in <code>~/.config/mcp/mcp.json</code> or <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes (with lazy on-demand startup and automatic 10-minute idle process reaping) and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
+        MCP servers are tool providers configured via standard JSON in <code>~/.config/mcp/mcp.json</code> or <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes (with lazy on-demand startup and automatic 10-minute idle process reaping) and remote <code>streamable-http</code> (with static request headers and SSE streaming). All exposed tools are automatically namespaced:
       </p>
 
       <div class="code-block-wrapper">
@@ -855,7 +756,6 @@ fi</code></pre>
         <pre><code># Inspect, test, and manage MCP servers
 rho mcp list
 rho mcp test filesystem
-rho mcp login remote-jira
 rho mcp add db "https://mcp.db.example.com/mcp"
 
 # In the interactive REPL:
@@ -895,7 +795,7 @@ rho mcp add db "https://mcp.db.example.com/mcp"
       </div>
 
       <p>
-        When configured MCP servers expose more tools than the deferral threshold (<code>defer_threshold</code>, default 4), <code>rho</code> automatically defers tool schemas behind <code>tool_search</code> to minimize prompt token overhead. The model searches on-demand and dynamically activates matching tools with full schemas for subsequent turns, or can optionally specify <code>execute</code> to run matching tools in the same turn without extra latency.
+        When configured MCP servers expose more tools than the deferral threshold (<code>defer_threshold</code>, default 4), <code>rho</code> automatically defers tool schemas behind <code>tool_search</code> to minimize prompt token overhead. The model searches on-demand and dynamically activates matching tools with full schemas for subsequent turns. Calling an activated tool goes through the normal permission checks.
       </p>
 
       <!-- Sequential Documentation Pagination -->
@@ -943,7 +843,6 @@ rho mcp add db "https://mcp.db.example.com/mcp"
             <span class="footer-col-title">Resources</span>
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev (π)</a>
-            <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh (P2P Networking)</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>

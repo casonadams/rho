@@ -9,7 +9,6 @@ const PROVIDER_DEFS: &[(&str, &str)] = &[
     ("antigravity", "Google Cloud Code Assist (OAuth)"),
     ("chatgpt", "ChatGPT Plus/Pro subscription (OAuth)"),
     ("claude", "Claude Pro/Max subscription (OAuth)"),
-    ("copilot", "GitHub Copilot subscription (OAuth)"),
     ("openrouter", "OpenRouter universal gateway (OAuth / Key)"),
     ("anthropic", "Anthropic Claude models (API Key)"),
     ("openai", "OpenAI GPT & reasoning models (API Key)"),

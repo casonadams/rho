@@ -14,7 +14,6 @@ workspace = true
 rho-harness-core.workspace = true
 async-trait.workspace = true
 futures.workspace = true
-rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 schemars = "1.0"
@@ -24,7 +23,6 @@ chrono.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 image.workspace = true
-http.workspace = true
 sha2 = "0.11"
 base64.workspace = true
 reqwest.workspace = true
@@ -45,19 +43,12 @@ ignore = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 memchr = "2"
-streaming-iterator = "0.1"
 toml.workspace = true
 toml_edit.workspace = true
-iroh.workspace = true
-
-[features]
-default = []
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.17"
-
-[target.'cfg(unix)'.dev-dependencies]
-libc = "0.2"
+tokio = { workspace = true, features = ["test-util"] }

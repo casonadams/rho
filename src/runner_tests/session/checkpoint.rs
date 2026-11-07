@@ -164,3 +164,39 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
     assert_requests_contain_probe(&resumed_model.requests(), "checkpoint-probe-missing-3f9b");
     assert_retry_session_state(&resumed, &dir, &id).await;
 }
+
+#[tokio::test]
+async fn second_budget_exhaustion_keeps_the_first_checkpoint() {
+    let (id, dir) = setup_budget_exhausted_checkpoint().await;
+    let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
+    let resumed_model = Arc::new(MockAdapter::default());
+    resumed_model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-3",
+        ToolFunction::new("read", serde_json::json!({"path":"missing-c"})),
+    )))]);
+    resumed_model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+        "call-4",
+        ToolFunction::new("read", serde_json::json!({"path":"missing-d"})),
+    )))]);
+    let resumed = test_engine_with_session(
+        resumed_model,
+        Config {
+            max_turns: 2,
+            permission: crate::config::PermissionConfig { enabled: false },
+            ..Config::default()
+        },
+        Some(resumed_store),
+    );
+    resumed
+        .run_turn(request("please continue"), presenter(&TerminalRenderer::default()))
+        .await
+        .unwrap_err();
+
+    let checkpoint = resumed.session_manager.load_checkpoint().await.unwrap().unwrap();
+    let encoded = serde_json::to_string(&checkpoint).unwrap();
+    assert_eq!(encoded.matches("inspect the repository").count(), 1);
+    assert_eq!(encoded.matches("please continue").count(), 1);
+    for probe in ["missing-a", "missing-b", "missing-c", "missing-d"] {
+        assert_eq!(encoded.matches(probe).count(), 2, "{probe}");
+    }
+}

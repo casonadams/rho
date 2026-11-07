@@ -1,8 +1,9 @@
 use tokio::sync::mpsc;
 
 use super::handlers::{
-    handle_abort_cmd, handle_config_update_cmd, handle_prompt_cmd, handle_remote_auth_cmd, handle_resume_or_fork_cmd,
-    handle_session_lifecycle_cmd, handle_state_command, handle_steer_command, handle_tool_response_cmd,
+    handle_abort_cmd, handle_config_update_cmd, handle_node_session_auth_cmd, handle_prompt_cmd,
+    handle_resume_or_fork_cmd, handle_session_lifecycle_cmd, handle_state_command, handle_steer_command,
+    handle_tool_response_cmd,
 };
 use super::types::{NextRpcItem, RpcDaemonContext, RpcLoopAction};
 use crate::error::Result;
@@ -61,7 +62,7 @@ pub(crate) async fn dispatch_rpc<W: tokio::io::AsyncWrite + Unpin>(
         return handle_exit_cmd(req_id, ctx).await;
     }
     if handle_turn_control_cmd(&cmd, req_id.clone(), ctx).await?
-        || handle_remote_auth_cmd(&cmd, req_id.clone(), ctx).await?
+        || handle_node_session_auth_cmd(&cmd, req_id.clone(), ctx).await?
         || handle_session_lifecycle_cmd(&cmd, req_id.clone(), ctx).await?
         || handle_resume_or_fork_cmd(&cmd, req_id.clone(), ctx).await?
     {

@@ -1,6 +1,16 @@
 use super::super::Config;
 use super::super::types::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
 
+macro_rules! merge_copied_fields {
+    ($config:expr, $file:expr, $($field:ident),+ $(,)?) => {
+        $(
+            if let Some(value) = $file.$field {
+                $config.$field = value;
+            }
+        )+
+    };
+}
+
 fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref default_spec) = file.models.default {
         let (p, m) = crate::provider::parse_model_spec(default_spec);
@@ -15,36 +25,17 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
         config.model = m;
         config.default_provider = Some(provider);
         config.default_model = Some(default_spec.clone());
-    } else {
-        config.provider = "local".to_string();
-        config.model = "qwen2.5-coder:7b".to_string();
-        config.default_provider = Some("local".to_string());
-        config.default_model = Some("local/qwen2.5-coder:7b".to_string());
     }
 
-    if let Some(ref guard) = file.models.guard {
-        config.models.insert("guard".to_string(), guard.clone());
-    }
-    if let Some(ref judge) = file.models.judge {
-        config.models.insert("judge".to_string(), judge.clone());
-    }
-    if let Some(ref smol) = file.models.smol {
-        config.models.insert("smol".to_string(), smol.clone());
-    }
-    if let Some(ref slow) = file.models.slow {
-        config.models.insert("slow".to_string(), slow.clone());
-    }
-    if let Some(ref commit) = file.models.commit {
-        config.models.insert("commit".to_string(), commit.clone());
-    }
-    if let Some(ref plan) = file.models.plan {
-        config.models.insert("plan".to_string(), plan.clone());
-    }
-    if let Some(ref advisor) = file.models.advisor {
-        config.models.insert("advisor".to_string(), advisor.clone());
-    }
-    if let Some(routing) = file.models.routing {
-        config.routing = routing;
+    let overrides = [
+        ("guard", &file.models.guard),
+        ("smol", &file.models.smol),
+        ("slow", &file.models.slow),
+    ];
+    for (name, model) in overrides {
+        if let Some(model) = model {
+            config.models.insert(name.to_string(), model.clone());
+        }
     }
     if let Some(ref t) = file.thinking_level {
         config.thinking_level = (t != "off").then(|| t.clone());
@@ -64,51 +55,31 @@ fn merge_token_limits(config: &mut Config, file: &FileConfig) {
 }
 
 fn merge_context_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(v) = file.context_window_messages {
-        config.context_window_messages = v;
-    }
-    if let Some(v) = file.compaction_max_bytes {
-        config.compaction_max_bytes = v;
-    }
-    if let Some(tokens) = file.context_injection_max_tokens {
-        config.context_injection_max_tokens = tokens;
-    }
+    merge_copied_fields!(
+        config,
+        file,
+        context_window_messages,
+        compaction_max_bytes,
+        context_injection_max_tokens
+    );
 }
 
 fn merge_reserve_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(v) = file.reserve_tokens {
-        config.reserve_tokens = v;
-    }
-    if let Some(v) = file.keep_recent_tokens {
-        config.keep_recent_tokens = v;
-    }
+    merge_copied_fields!(config, file, reserve_tokens, keep_recent_tokens);
 }
 
 fn merge_search_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(s) = file.search_min_interval_ms {
-        config.search_min_interval_ms = s;
-    }
-    if let Some(s) = file.search_timeout_sec {
-        config.search_timeout_sec = s;
-    }
-    if let Some(f) = file.fetch_timeout_sec {
-        config.fetch_timeout_sec = f;
-    }
+    merge_copied_fields!(
+        config,
+        file,
+        search_min_interval_ms,
+        search_timeout_sec,
+        fetch_timeout_sec
+    );
 }
 
 fn merge_fetch_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(l) = file.fetch_limit {
-        config.fetch_limit = l;
-    }
-    if let Some(b) = file.fetch_max_bytes {
-        config.fetch_max_bytes = b;
-    }
-    if let Some(o) = file.output_max_bytes {
-        config.output_max_bytes = o;
-    }
-    if let Some(p) = file.allow_private_network {
-        config.allow_private_network = p;
-    }
+    merge_copied_fields!(config, file, fetch_limit, fetch_max_bytes, output_max_bytes);
 }
 
 fn merge_modes(config: &mut Config, file: &FileConfig) {
@@ -132,11 +103,22 @@ fn merge_retention(config: &mut Config, file: &FileConfig) {
     }
 }
 
-fn merge_permission_and_providers(config: &mut Config, file: FileConfig) {
-    if let Some(permission) = file.permission {
-        config.permission = permission;
+fn merge_permission(config: &mut Config, file: &FileConfig) {
+    if let Some(permission) = &file.permission {
+        config.permission = permission.clone();
     }
-    config.providers = file.providers;
+}
+
+fn merge_providers(config: &mut Config, file: &FileConfig) {
+    for (name, provider) in &file.providers {
+        config.providers.insert(name.clone(), provider.clone());
+    }
+}
+
+fn merge_private_network(config: &mut Config, file: &FileConfig) {
+    if let Some(p) = file.allow_private_network {
+        config.allow_private_network = p;
+    }
 }
 
 fn merge_ui_settings(config: &mut Config, file: &FileConfig) {
@@ -160,9 +142,6 @@ fn merge_web_search_settings(config: &mut Config, search: &WebSearchConfigFile) 
 fn merge_web_fetch_settings(config: &mut Config, fetch: &WebFetchConfigFile) {
     if let Some(enabled) = fetch.enabled {
         config.tools.web.fetch.enabled = enabled;
-    }
-    if let Some(multimodal) = fetch.multimodal {
-        config.tools.web.fetch.multimodal = multimodal;
     }
 }
 
@@ -190,17 +169,26 @@ fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
+/// Applies a workspace's `.rho/config.toml`: model and UI preferences only.
+/// Security-relevant keys (permission, providers, private-network access, MCP)
+/// are read from the user config alone, so a cloned repo cannot set them.
+pub(crate) fn merge_project_file(config: &mut Config, file: &FileConfig) {
+    merge_model_and_provider(config, file);
+    merge_token_limits(config, file);
+    merge_context_settings(config, file);
+    merge_reserve_settings(config, file);
+    merge_search_settings(config, file);
+    merge_fetch_settings(config, file);
+    merge_modes(config, file);
+    merge_retention(config, file);
+    merge_ui_settings(config, file);
+    merge_tools_settings(config, file);
+}
+
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
-    merge_model_and_provider(config, &file);
-    merge_token_limits(config, &file);
-    merge_context_settings(config, &file);
-    merge_reserve_settings(config, &file);
-    merge_search_settings(config, &file);
-    merge_fetch_settings(config, &file);
-    merge_modes(config, &file);
-    merge_retention(config, &file);
-    merge_permission_and_providers(config, file.clone());
+    merge_project_file(config, &file);
+    merge_private_network(config, &file);
+    merge_permission(config, &file);
+    merge_providers(config, &file);
     merge_mcp_settings(config, &file);
-    merge_ui_settings(config, &file);
-    merge_tools_settings(config, &file);
 }

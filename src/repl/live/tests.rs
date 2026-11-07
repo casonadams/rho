@@ -13,4 +13,5 @@ mod modal_navigation;
 mod modals;
 mod permission_flow;
 mod selection_lifecycle;
+mod session_commands;
 mod suspend;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::claude::test_util::{login_body, message_marks};
 use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use rho_harness_core::model::{
     AssistantContent, ChatMessage, ImageContent, Reasoning, ToolCall, ToolFunction, UserContent,
@@ -33,7 +34,7 @@ fn tools_are_sorted_alphabetically_by_name() {
         dummy_tool("edit"),
     ];
     let req = sample_request_with_tools(tools);
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    let body = build_request_body("claude-sonnet-4-6", None, &req, ClaudeAuth::Login).unwrap();
     let body_tools = body["tools"].as_array().expect("tools array present");
 
     assert_eq!(body_tools.len(), 4);
@@ -46,23 +47,22 @@ fn tools_are_sorted_alphabetically_by_name() {
 #[test]
 fn single_user_turn_no_cache_control_on_user_message() {
     let req = sample_request_with_tools(vec![dummy_tool("bash")]);
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
-
-    let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 1);
-    assert!(messages[0]["content"][0].get("cache_control").is_none());
+    assert_eq!(message_marks(&login_body("claude-sonnet-4-6", None, &req)), [false]);
 }
 
 #[test]
 fn single_user_turn_cache_control_on_system_and_tools() {
     let req = sample_request_with_tools(vec![dummy_tool("bash")]);
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    let body = login_body("claude-sonnet-4-6", None, &req);
 
-    let system = body["system"].as_array().unwrap();
-    assert_eq!(system.last().unwrap()["cache_control"]["type"], "ephemeral");
-
-    let tools = body["tools"].as_array().unwrap();
-    assert_eq!(tools.last().unwrap()["cache_control"]["type"], "ephemeral");
+    assert_eq!(
+        body["system"].as_array().unwrap().last().unwrap()["cache_control"]["type"],
+        "ephemeral"
+    );
+    assert_eq!(
+        body["tools"].as_array().unwrap().last().unwrap()["cache_control"]["type"],
+        "ephemeral"
+    );
 }
 
 #[test]
@@ -84,16 +84,10 @@ fn cache_breakpoints_capped_at_four_in_deep_conversation() {
             ))],
         },
     ];
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    let body = login_body("claude-sonnet-4-6", None, &req);
 
-    let total = count_cache_breakpoints(&body);
-    assert_eq!(total, 4);
-
-    let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 5);
-
-    assert_eq!(messages[1]["content"][0]["cache_control"]["type"], "ephemeral");
-    assert_eq!(messages[4]["content"][0]["cache_control"]["type"], "ephemeral");
+    assert_eq!(count_cache_breakpoints(&body), 4);
+    assert_eq!(message_marks(&body), [false, true, false, false, true]);
 }
 
 #[test]
@@ -105,15 +99,29 @@ fn empty_tools_assigns_three_breakpoints_in_multi_turn() {
         ChatMessage::assistant("Turn 1 response"),
         ChatMessage::user("Turn 2 prompt"),
     ];
-    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    let body = login_body("claude-sonnet-4-6", None, &req);
 
     assert!(body.get("tools").is_none());
-    let total = count_cache_breakpoints(&body);
-    assert_eq!(total, 3);
+    assert_eq!(count_cache_breakpoints(&body), 3);
+    assert_eq!(message_marks(&body), [false, true, true]);
+}
 
-    let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages[1]["content"][0]["cache_control"]["type"], "ephemeral");
-    assert_eq!(messages[2]["content"][0]["cache_control"]["type"], "ephemeral");
+#[test]
+fn login_requests_lead_with_claude_code_identity() {
+    let req = sample_request_with_tools(Vec::new());
+    let body = build_request_body("claude-sonnet-4-6", None, &req, ClaudeAuth::Login).unwrap();
+    assert_eq!(
+        body["system"][0]["text"],
+        "You are Claude Code, Anthropic's official CLI for Claude."
+    );
+}
+
+#[test]
+fn api_key_requests_omit_claude_code_identity() {
+    let req = sample_request_with_tools(vec![dummy_tool("bash")]);
+    let body = build_request_body("claude-sonnet-4-6", None, &req, ClaudeAuth::ApiKey).unwrap();
+    assert!(!body.to_string().contains("You are Claude Code"));
+    assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
 }
 
 #[test]

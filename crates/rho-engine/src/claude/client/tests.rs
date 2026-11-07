@@ -1,6 +1,7 @@
 use super::*;
-use crate::claude::http::{claude_headers, friendly_error};
+use crate::claude::http::{ClaudeAuth, claude_headers, friendly_error};
 use crate::claude::request::{build_request_body, normalize_model_alias, resolve_thinking_budget};
+use crate::claude::test_util::{login_body, message_marks};
 use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
 use std::sync::Arc;
@@ -83,7 +84,7 @@ fn test_thinking_budget_resolution() {
 #[test]
 fn test_build_request_body_with_thinking_omits_temperature() {
     let req = sample_request();
-    let body = build_request_body("claude-sonnet-4-5", Some("medium"), &req).unwrap();
+    let body = build_request_body("claude-sonnet-4-5", Some("medium"), &req, ClaudeAuth::Login).unwrap();
     let actual = (
         body["model"].as_str(),
         body["system"][0]["text"].as_str(),
@@ -105,17 +106,6 @@ fn test_build_request_body_with_thinking_omits_temperature() {
     );
     assert!(body["system"][0].get("cache_control").is_none());
     assert!(body.get("temperature").is_none() && body["max_tokens"].as_u64().unwrap() >= 8192);
-}
-
-#[test]
-fn test_build_request_body_without_thinking_includes_temperature() {
-    let req = sample_request();
-    let body = build_request_body("claude-haiku-4-5", None, &req).unwrap();
-
-    assert_eq!(body["model"], "claude-haiku-4-5");
-    assert!(body.get("thinking").is_none());
-    assert_eq!(body["temperature"], 0.7);
-    assert_eq!(body["max_tokens"], 8192);
 }
 
 fn request_with_tool_and_history() -> ModelCompletionRequest {
@@ -151,7 +141,7 @@ fn request_with_tool_and_history() -> ModelCompletionRequest {
 #[test]
 fn test_build_request_body_converts_messages_and_tools() {
     let req = request_with_tool_and_history();
-    let body = build_request_body("default", None, &req).unwrap();
+    let body = build_request_body("default", None, &req, ClaudeAuth::Login).unwrap();
     let messages = body["messages"].as_array().unwrap();
     let roles = (
         messages.len(),
@@ -177,7 +167,7 @@ fn test_build_request_body_converts_messages_and_tools() {
 #[test]
 fn test_build_request_body_marks_cache_breakpoints() {
     let req = request_with_tool_and_history();
-    let body = build_request_body("default", None, &req).unwrap();
+    let body = build_request_body("default", None, &req, ClaudeAuth::Login).unwrap();
 
     assert!(body["system"][0].get("cache_control").is_none());
     assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
@@ -190,13 +180,8 @@ fn test_build_request_body_marks_cache_breakpoints() {
 
 #[test]
 fn test_build_request_body_marks_conversation_tail_without_tools() {
-    let req = sample_request();
-    let body = build_request_body("default", None, &req).unwrap();
-
-    let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 1);
-    let last_part = messages[0]["content"].as_array().unwrap().last().unwrap();
-    assert_eq!(last_part["cache_control"]["type"], "ephemeral");
+    let body = login_body("default", None, &sample_request());
+    assert_eq!(message_marks(&body), [true]);
 }
 
 #[test]
@@ -208,19 +193,18 @@ fn test_build_request_body_marks_penultimate_turn_and_tail_in_multi_turn() {
         ChatMessage::assistant("second"),
         ChatMessage::user("third"),
     ];
-    let body = build_request_body("default", None, &req).unwrap();
-    let messages = body["messages"].as_array().unwrap();
-    assert_eq!(messages.len(), 3);
-    assert!(messages[0]["content"][0].get("cache_control").is_none());
-    assert_eq!(messages[1]["content"][0]["cache_control"]["type"], "ephemeral");
-    assert_eq!(messages[2]["content"][0]["cache_control"]["type"], "ephemeral");
+    assert_eq!(message_marks(&login_body("default", None, &req)), [false, true, true]);
+}
+
+fn assert_pinned_api_version(headers: &reqwest::header::HeaderMap) {
+    assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
 }
 
 #[test]
 fn test_claude_headers_contains_required_fields() {
-    let headers = claude_headers("test-token-xyz");
+    let headers = claude_headers(ClaudeAuth::Login, "test-token-xyz");
+    assert_pinned_api_version(&headers);
     assert_eq!(headers.get("authorization").unwrap(), "Bearer test-token-xyz");
-    assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
     assert_eq!(
         headers.get("anthropic-beta").unwrap(),
         "claude-code-20250219,oauth-2025-04-20"
@@ -231,6 +215,16 @@ fn test_claude_headers_contains_required_fields() {
     );
     assert_eq!(headers.get("x-app").unwrap(), "cli");
     assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.280");
+}
+
+#[test]
+fn test_api_key_headers_use_x_api_key_without_oauth_identity() {
+    let headers = claude_headers(ClaudeAuth::ApiKey, "sk-ant-api03-test");
+    assert_eq!(headers.get("x-api-key").unwrap(), "sk-ant-api03-test");
+    assert_pinned_api_version(&headers);
+    for name in ["authorization", "anthropic-beta", "x-app", "user-agent"] {
+        assert!(headers.get(name).is_none(), "{name}");
+    }
 }
 
 #[test]
@@ -360,13 +354,13 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
     let preamble_turn1 = ctx.build_system_prompt();
     let mut req1 = sample_request();
     req1.preamble = Some(preamble_turn1.clone());
-    let body1 = build_request_body("claude-sonnet-4-5", None, &req1).unwrap();
+    let body1 = build_request_body("claude-sonnet-4-5", None, &req1, ClaudeAuth::Login).unwrap();
 
     ctx.git_status = Some("## main...origin/main [ahead 1] | M src/lib.rs | ?? new_file.rs".to_string());
     let preamble_turn2 = ctx.build_system_prompt();
     let mut req2 = sample_request();
     req2.preamble = Some(preamble_turn2.clone());
-    let body2 = build_request_body("claude-sonnet-4-5", None, &req2).unwrap();
+    let body2 = build_request_body("claude-sonnet-4-5", None, &req2, ClaudeAuth::Login).unwrap();
 
     assert_eq!(preamble_turn1, preamble_turn2);
     assert_eq!(body1["system"], body2["system"]);
@@ -377,45 +371,65 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
 }
 
 #[test]
-fn test_opus_5_5_adaptive_thinking_defaults_to_medium() {
-    let req = sample_request();
-    let body = build_request_body("claude-opus-5-5", None, &req).unwrap();
-
-    assert_eq!(body["model"], "claude-opus-5-5");
-    assert_eq!(body["thinking"]["type"], "adaptive");
-    assert_eq!(body["thinking"]["display"], "summarized");
-    assert_eq!(body["output_config"]["effort"], "medium");
-    assert!(body.get("temperature").is_none());
-}
-
-#[test]
-fn test_opus_5_5_adaptive_thinking_with_custom_effort() {
-    let req = sample_request();
-    let body = build_request_body("claude-opus-5-5", Some("high"), &req).unwrap();
-
-    assert_eq!(body["model"], "claude-opus-5-5");
-    assert_eq!(body["thinking"]["type"], "adaptive");
-    assert_eq!(body["thinking"]["display"], "summarized");
-    assert_eq!(body["output_config"]["effort"], "high");
-    assert!(body.get("temperature").is_none());
-}
-
-#[test]
-fn test_opus_5_5_thinking_off_uses_low_effort_without_disabled_type() {
-    let req = sample_request();
-    let body = build_request_body("claude-opus-5-5", Some("off"), &req).unwrap();
-
-    assert_eq!(body["model"], "claude-opus-5-5");
-    assert!(body.get("thinking").is_none());
-    assert_eq!(body["output_config"]["effort"], "low");
-}
-
-#[test]
-fn test_sonnet_5_thinking_off_attaches_disabled_type() {
-    let req = sample_request();
-    let body = build_request_body("claude-sonnet-5", Some("off"), &req).unwrap();
-
-    assert_eq!(body["model"], "claude-sonnet-5");
-    assert_eq!(body["thinking"]["type"], "disabled");
-    assert_eq!(body["temperature"], 0.7);
+fn test_thinking_level_request_shapes() {
+    use serde_json::{Value, json};
+    type Check = (&'static str, Option<Value>);
+    let cases: [(&str, Option<&str>, Vec<Check>); 5] = [
+        (
+            "claude-haiku-4-5",
+            None,
+            vec![
+                ("/model", Some(json!("claude-haiku-4-5"))),
+                ("/thinking", None),
+                ("/temperature", Some(json!(0.7))),
+                ("/max_tokens", Some(json!(8192))),
+            ],
+        ),
+        (
+            "claude-opus-5-5",
+            None,
+            vec![
+                ("/model", Some(json!("claude-opus-5-5"))),
+                ("/thinking/type", Some(json!("adaptive"))),
+                ("/thinking/display", Some(json!("summarized"))),
+                ("/output_config/effort", Some(json!("medium"))),
+                ("/temperature", None),
+            ],
+        ),
+        (
+            "claude-opus-5-5",
+            Some("high"),
+            vec![
+                ("/model", Some(json!("claude-opus-5-5"))),
+                ("/thinking/type", Some(json!("adaptive"))),
+                ("/thinking/display", Some(json!("summarized"))),
+                ("/output_config/effort", Some(json!("high"))),
+                ("/temperature", None),
+            ],
+        ),
+        (
+            "claude-opus-5-5",
+            Some("off"),
+            vec![
+                ("/model", Some(json!("claude-opus-5-5"))),
+                ("/thinking", None),
+                ("/output_config/effort", Some(json!("low"))),
+            ],
+        ),
+        (
+            "claude-sonnet-5",
+            Some("off"),
+            vec![
+                ("/model", Some(json!("claude-sonnet-5"))),
+                ("/thinking/type", Some(json!("disabled"))),
+                ("/temperature", Some(json!(0.7))),
+            ],
+        ),
+    ];
+    for (model, level, checks) in cases {
+        let body = login_body(model, level, &sample_request());
+        for (pointer, expected) in checks {
+            assert_eq!(body.pointer(pointer), expected.as_ref(), "{model} {level:?} {pointer}");
+        }
+    }
 }

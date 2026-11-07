@@ -1,6 +1,6 @@
 use super::super::helpers::{presenter, request, test_engine};
 use crate::config::Config;
-use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig, map_completion_error, redact_text};
+use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig, redact_text};
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
@@ -25,14 +25,6 @@ async fn provider_stream_failures_do_not_expose_upstream_details() {
     let persisted = std::fs::read_to_string(&engine.session_manager.file_path).unwrap();
     assert!(!persisted.contains("credential-sentinel"));
     assert!(!persisted.contains("Bearer"));
-}
-
-#[test]
-fn provider_error_mapping_redacts_sensitive_bodies() {
-    let error = rho_harness_core::error::AppError::Provider(redact_text("authorization: Bearer credential-sentinel"));
-    let mapped = map_completion_error(error).to_string();
-    assert!(!mapped.contains("credential-sentinel"));
-    assert!(!mapped.contains("Bearer"));
 }
 
 fn collect_displayed_events(

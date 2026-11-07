@@ -36,9 +36,6 @@ impl Presenter for NoopPresenter {
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::default()
     }
-    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
-        false
-    }
 }
 
 pub fn presenter() -> Arc<dyn Presenter> {

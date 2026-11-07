@@ -109,7 +109,6 @@ async fn switch_modal_model<B: TerminalBackend>(
         auth_store: &lp.session.auth_store,
         renderer: &lp.session.renderer,
         controller: lp.controller,
-        model_switch: &lp.model_switch,
         batch: &mut lp.batch,
         shared_auth: Some(lp.engine.shared_auth_store()),
     })
@@ -128,7 +127,6 @@ async fn dispatch_regular_key<B: TerminalBackend>(
         batch: &mut lp.batch,
         steering: &lp.steering,
         session: lp.session,
-        model_switch: &lp.model_switch,
         shared_auth: Some(lp.engine.shared_auth_store()),
     };
     if let TurnKeyResult::Cancelled = handle_turn_key(key, &mut ctx).await? {

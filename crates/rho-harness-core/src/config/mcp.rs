@@ -3,6 +3,7 @@ use super::types::{
     default_idle_timeout_seconds, dirs_fallback,
 };
 use crate::error::{AppError, Result};
+use crate::fs::write_atomic;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -205,36 +206,6 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
     })
 }
 
-pub fn global_mcp_path(config_dir: &Path) -> PathBuf {
-    let candidates = [
-        dirs_fallback().join(".config").join("mcp").join("mcp.json"),
-        dirs_fallback().join(".agents").join("mcp.json"),
-        dirs_fallback().join(".claude").join("mcp.json"),
-        dirs_fallback().join(".claude.json"),
-        config_dir.join("mcp.json"),
-    ];
-    for path in &candidates {
-        if path.is_file() {
-            return path.clone();
-        }
-    }
-    candidates[0].clone()
-}
-
-pub fn local_mcp_path(workspace_dir: &Path) -> PathBuf {
-    let candidates = [
-        workspace_dir.join(".agents").join("mcp.json"),
-        workspace_dir.join(".claude").join("mcp.json"),
-        workspace_dir.join(".mcp.json"),
-    ];
-    for path in &candidates {
-        if path.is_file() {
-            return path.clone();
-        }
-    }
-    candidates[0].clone()
-}
-
 fn load_first_mcp_candidate(candidates: &[PathBuf]) -> Result<Option<McpConfig>> {
     for path in candidates {
         if path.is_file() {
@@ -264,36 +235,47 @@ pub fn load_project_mcp_config(workspace_dir: &Path) -> Result<Option<McpConfig>
     ])
 }
 
-pub fn write_mcp_server_json(target_path: &Path, name: &str, server: &McpServerConfig) -> Result<()> {
-    let mut servers = if target_path.is_file() {
-        let content = std::fs::read_to_string(target_path)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", target_path.display())))?;
-        let root: Value = serde_json::from_str(&content)
-            .map_err(|e| AppError::Config(format!("Failed to parse {}: {e}", target_path.display())))?;
-        if let Some(mcp_servers) = root.get("mcpServers").and_then(|v| v.as_object()) {
-            mcp_servers.clone()
-        } else if let Some(obj) = root.as_object() {
-            obj.clone()
-        } else {
-            serde_json::Map::new()
-        }
-    } else {
-        serde_json::Map::new()
+fn read_mcp_root(path: &Path) -> Result<serde_json::Map<String, Value>> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(serde_json::Map::new()),
+        Err(e) => return Err(AppError::Config(format!("Failed to read {}: {e}", path.display()))),
     };
+    if content.trim().is_empty() {
+        return Ok(serde_json::Map::new());
+    }
+    match serde_json::from_str(&content) {
+        Ok(Value::Object(root)) => Ok(root),
+        Ok(_) => Err(AppError::Config(format!(
+            "{} must contain a JSON object",
+            path.display()
+        ))),
+        Err(e) => Err(AppError::Config(format!("Failed to parse {}: {e}", path.display()))),
+    }
+}
 
+fn write_mcp_root(path: &Path, root: &serde_json::Map<String, Value>) -> Result<()> {
+    let mut bytes = serde_json::to_vec_pretty(root).map_err(|e| AppError::Config(e.to_string()))?;
+    bytes.push(b'\n');
+    write_atomic(path, &bytes, 0o600).map_err(|e| AppError::Config(format!("Failed to write {}: {e}", path.display())))
+}
+
+fn mcp_servers_entry<'a>(
+    root: &'a mut serde_json::Map<String, Value>,
+    path: &Path,
+) -> Result<&'a mut serde_json::Map<String, Value>> {
+    root.entry("mcpServers")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| AppError::Config(format!("'mcpServers' in {} must be a JSON object", path.display())))
+}
+
+pub fn write_mcp_server_json(target_path: &Path, name: &str, server: &McpServerConfig) -> Result<()> {
     let server_val = serde_json::to_value(server)
         .map_err(|e| AppError::Config(format!("Failed to serialize MCP server config: {e}")))?;
-    servers.insert(name.to_string(), server_val);
-
-    let mut root = serde_json::Map::new();
-    root.insert("mcpServers".to_string(), Value::Object(servers));
-
-    if let Some(parent) = target_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let pretty = serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| AppError::Config(e.to_string()))?;
-    std::fs::write(target_path, format!("{pretty}\n"))
-        .map_err(|e| AppError::Config(format!("Failed to write {}: {e}", target_path.display())))
+    let mut root = read_mcp_root(target_path)?;
+    mcp_servers_entry(&mut root, target_path)?.insert(name.to_string(), server_val);
+    write_mcp_root(target_path, &root)
 }
 
 pub fn remove_mcp_server_json(target_path: &Path, name: &str) -> Result<McpServerConfig> {
@@ -303,37 +285,23 @@ pub fn remove_mcp_server_json(target_path: &Path, name: &str) -> Result<McpServe
             target_path.display()
         )));
     }
-    let content = std::fs::read_to_string(target_path)
-        .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", target_path.display())))?;
-    let root: Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Config(format!("Failed to parse {}: {e}", target_path.display())))?;
-
-    let mut servers = if let Some(mcp_servers) = root.get("mcpServers").and_then(|v| v.as_object()) {
-        mcp_servers.clone()
-    } else if let Some(obj) = root.as_object() {
-        obj.clone()
-    } else {
-        return Err(AppError::Config(format!("MCP server '{name}' is not configured")));
-    };
-
-    let removed = servers.remove(name).ok_or_else(|| {
-        AppError::Config(format!(
-            "MCP server '{name}' is not configured in {}",
-            target_path.display()
-        ))
-    })?;
+    let mut root = read_mcp_root(target_path)?;
+    let removed = root
+        .get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+        .and_then(|servers| servers.remove(name))
+        .ok_or_else(|| {
+            AppError::Config(format!(
+                "MCP server '{name}' is not configured in {}",
+                target_path.display()
+            ))
+        })?;
     let parsed_server = parse_single_server_json(
         removed
             .as_object()
             .ok_or_else(|| AppError::Config(format!("Invalid MCP server entry for '{name}'")))?,
     );
-
-    let mut new_root = serde_json::Map::new();
-    new_root.insert("mcpServers".to_string(), Value::Object(servers));
-    let pretty = serde_json::to_string_pretty(&Value::Object(new_root)).map_err(|e| AppError::Config(e.to_string()))?;
-    std::fs::write(target_path, format!("{pretty}\n"))
-        .map_err(|e| AppError::Config(format!("Failed to write {}: {e}", target_path.display())))?;
-
+    write_mcp_root(target_path, &root)?;
     Ok(parsed_server)
 }
 
@@ -432,79 +400,124 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
+    fn temp_mcp_file(content: Option<&str>) -> PathBuf {
+        let path = crate::test_support::created_temp_dir().join("mcp.json");
+        if let Some(content) = content {
+            std::fs::write(&path, content).unwrap();
+        }
+        path
+    }
+
+    fn read_root(path: &Path) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    enum ServerEdit {
+        Write(&'static str),
+        Remove(&'static str),
+    }
+
+    const SERVER_EDIT_CASES: &[(&str, &str, ServerEdit, &[&str])] = &[
+        (
+            "write_preserves_other_keys",
+            r#"{"numStartups": 3, "mcpServers": {"old": {"command": "x"}}}"#,
+            ServerEdit::Write("new"),
+            &["new", "old"],
+        ),
+        (
+            "write_adds_servers_key_instead_of_using_root_as_map",
+            r#"{"numStartups": 3}"#,
+            ServerEdit::Write("new"),
+            &["new"],
+        ),
+        (
+            "remove_preserves_other_keys",
+            r#"{"numStartups": 3, "mcpServers": {"a": {"command": "x"}, "b": {"command": "y"}}}"#,
+            ServerEdit::Remove("a"),
+            &["b"],
+        ),
+    ];
+
     #[test]
-    fn test_mcp_config_default_is_enabled() {
-        let config = McpConfig::default();
-        assert!(config.enabled);
+    fn write_and_remove_mcp_server_preserve_other_keys() {
+        for (name, initial, edit, expected) in SERVER_EDIT_CASES {
+            let path = temp_mcp_file(Some(*initial));
+            match edit {
+                ServerEdit::Write(server) => {
+                    write_mcp_server_json(&path, server, &McpServerConfig::stdio("echo", vec![])).unwrap();
+                }
+                ServerEdit::Remove(server) => {
+                    remove_mcp_server_json(&path, server).unwrap();
+                }
+            }
+            let root = read_root(&path);
+            assert_eq!(root["numStartups"], 3, "{name}");
+            let mut names: Vec<&str> = root["mcpServers"]
+                .as_object()
+                .map(|servers| servers.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            names.sort_unstable();
+            assert_eq!(names, *expected, "{name}");
+            for server in *expected {
+                assert!(root["mcpServers"][*server].is_object(), "{name}");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_mcp_server_replaces_permissive_file_with_private_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_mcp_file(Some("{}"));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_mcp_server_json(&path, "new", &McpServerConfig::stdio("echo", vec![])).unwrap();
+
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    fn project_with_mcp_files(files: &[(&str, &str)]) -> std::path::PathBuf {
+        let dir = crate::test_support::created_temp_dir();
+        for (relative, server) in files {
+            let path = dir.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                path,
+                format!(r#"{{"mcpServers": {{"{server}": {{"command": "echo"}}}}}}"#),
+            )
+            .unwrap();
+        }
+        dir
     }
 
     #[test]
     fn test_project_mcp_precedence_agents_over_root() {
-        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
-        let agents_dir = temp_dir.join(".agents");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-
-        std::fs::write(
-            agents_dir.join("mcp.json"),
-            r#"{"mcpServers": {"agents_srv": {"command": "echo"}}}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            temp_dir.join(".mcp.json"),
-            r#"{"mcpServers": {"root_srv": {"command": "echo"}}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(local_mcp_path(&temp_dir), agents_dir.join("mcp.json"));
-        let config = load_project_mcp_config(&temp_dir).unwrap().unwrap();
+        let dir = project_with_mcp_files(&[(".agents/mcp.json", "agents_srv"), (".mcp.json", "root_srv")]);
+        let config = load_project_mcp_config(&dir).unwrap().unwrap();
         assert!(config.servers.contains_key("agents_srv"));
         assert!(!config.servers.contains_key("root_srv"));
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_project_mcp_fallback_to_root() {
-        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(temp_dir.join(".claude")).unwrap();
-        std::fs::write(
-            temp_dir.join(".mcp.json"),
-            r#"{"mcpServers": {"root_srv": {"command": "echo"}}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".mcp.json"));
-        let config = load_project_mcp_config(&temp_dir).unwrap().unwrap();
+        let dir = project_with_mcp_files(&[(".mcp.json", "root_srv")]);
+        let config = load_project_mcp_config(&dir).unwrap().unwrap();
         assert!(config.servers.contains_key("root_srv"));
 
-        std::fs::write(
-            temp_dir.join(".claude/mcp.json"),
-            r#"{"mcpServers": {"claude_srv": {"command": "echo"}}}"#,
-        )
-        .unwrap();
-        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".claude/mcp.json"));
-        let config_claude = load_project_mcp_config(&temp_dir).unwrap().unwrap();
+        let claude = project_with_mcp_files(&[(".claude/mcp.json", "claude_srv"), (".mcp.json", "root_srv")]);
+        let config_claude = load_project_mcp_config(&claude).unwrap().unwrap();
         assert!(config_claude.servers.contains_key("claude_srv"));
 
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&claude);
     }
 
     #[test]
     fn test_project_mcp_ignores_legacy_rho() {
-        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
-        let rho_dir = temp_dir.join(".rho");
-        std::fs::create_dir_all(&rho_dir).unwrap();
-        std::fs::write(
-            rho_dir.join("mcp.json"),
-            r#"{"mcpServers": {"rho_srv": {"command": "echo"}}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".agents").join("mcp.json"));
-        let config = load_project_mcp_config(&temp_dir).unwrap();
-        assert!(config.is_none());
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
+        let dir = project_with_mcp_files(&[(".rho/mcp.json", "rho_srv")]);
+        assert!(load_project_mcp_config(&dir).unwrap().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -561,11 +574,5 @@ mod tests {
 
         let all_direct = &parsed.servers["all_direct"];
         assert_eq!(all_direct.direct_tools, Some(McpDirectTools::All(true)));
-    }
-
-    #[test]
-    fn test_local_mcp_path_defaults_to_agents() {
-        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
-        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".agents").join("mcp.json"));
     }
 }

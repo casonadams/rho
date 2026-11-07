@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use crate::temp_dir;
 use rho::config::Config;
 use rho::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho::engine::runner::TurnRequest;
@@ -7,14 +8,7 @@ use rho::presentation::{RecordingSink, StructuredPresenter, UiEnvelope, UiEvent}
 use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::json;
-use std::path::PathBuf;
 use std::sync::Arc;
-
-fn temp_workspace() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("headless_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn setup_headless_model(path: &str) -> Arc<MockAdapter> {
     let model = Arc::new(MockAdapter::default());
@@ -39,14 +33,14 @@ fn assert_headless_tool_events(events: &[UiEvent], file_path: &str) {
 
 #[tokio::test]
 async fn headless_presentation_records_deterministic_event_sequence() {
-    let workspace = temp_workspace();
+    let workspace = temp_dir("headless_test");
     let file_path = workspace.join("sample.txt");
     std::fs::write(&file_path, "headless content").unwrap();
 
     let path_str = file_path.to_str().unwrap();
     let model = setup_headless_model(path_str);
     let config = Config::default();
-    let built_in_tools = rho_engine::tools::build_all_builtin_tools(&workspace, &config).ok();
+    let built_in_tools = rho_engine::tools::build_builtin_tools(&workspace, &config, None).ok();
     let engine = mock_engine(
         model,
         MockEngineConfig {
@@ -110,7 +104,7 @@ fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engin
 
 #[tokio::test]
 async fn headless_run_turn_stops_on_proactive_compaction() {
-    let workspace = temp_workspace();
+    let workspace = temp_dir("headless_test");
     let engine = proactive_compaction_engine(&workspace);
     let sid = engine.session_manager.session_id.clone();
     let msgs = vec![

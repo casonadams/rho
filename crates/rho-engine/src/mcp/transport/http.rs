@@ -1,21 +1,18 @@
 use super::super::types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+use crate::http::CLIENT;
+use crate::provider::sse::SseLineDecoder;
 use futures::StreamExt;
 use rho_harness_core::config::McpTransportKind;
 use rho_harness_core::error::{AppError, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
 pub const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MCP_PROTOCOL_VERSION_HEADER: &str = "2025-11-25";
-
-static SHARED_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::install_crypto_provider();
-    reqwest::Client::builder().no_proxy().build().unwrap_or_default()
-});
 
 pub struct HttpTransport {
     url: String,
@@ -56,6 +53,18 @@ fn process_sse_line(line: &str, data_lines: &mut Vec<String>, target_id: i64) ->
     }
 }
 
+fn scan_sse_chunk(
+    decoder: &mut SseLineDecoder,
+    data_lines: &mut Vec<String>,
+    chunk: &[u8],
+    target_id: i64,
+) -> Option<Result<Value>> {
+    decoder
+        .decode_raw_lines(chunk)
+        .iter()
+        .find_map(|line| process_sse_line(line, data_lines, target_id))
+}
+
 impl HttpTransport {
     pub fn new(
         url: impl Into<String>,
@@ -79,10 +88,6 @@ impl HttpTransport {
 
     pub fn kind(&self) -> McpTransportKind {
         self.kind
-    }
-
-    fn client(&self) -> &'static reqwest::Client {
-        &SHARED_HTTP_CLIENT
     }
 
     async fn build_request_headers(&self) -> reqwest::header::HeaderMap {
@@ -129,20 +134,13 @@ impl HttpTransport {
 
     async fn parse_sse_response(&self, res: reqwest::Response, target_id: i64) -> Result<Value> {
         let mut stream = res.bytes_stream();
-        let mut buffer = String::new();
+        let mut decoder = SseLineDecoder::new();
         let mut data_lines = Vec::new();
 
         while let Some(chunk_res) = stream.next().await {
             let chunk = chunk_res.map_err(|e| AppError::Mcp(format!("SSE stream error: {e}")))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-            while let Some(pos) = buffer.find('\n') {
-                let line = buffer[..pos].trim_end_matches('\r').to_string();
-                buffer.drain(..=pos);
-
-                if let Some(res) = process_sse_line(&line, &mut data_lines, target_id) {
-                    return res;
-                }
+            if let Some(res) = scan_sse_chunk(&mut decoder, &mut data_lines, &chunk, target_id) {
+                return res;
             }
         }
 
@@ -157,8 +155,7 @@ impl HttpTransport {
         let headers = self.build_request_headers().await;
 
         let post_fut = async {
-            let res = self
-                .client()
+            let res = CLIENT
                 .post(&self.url)
                 .headers(headers)
                 .json(&req_payload)
@@ -227,8 +224,7 @@ impl HttpTransport {
         let notif_payload = JsonRpcNotification::new(method, params);
         let headers = self.build_request_headers().await;
 
-        let _ = self
-            .client()
+        let _ = CLIENT
             .post(&self.url)
             .headers(headers)
             .json(&notif_payload)
@@ -389,5 +385,16 @@ mod tests {
 
         let rpc_err = transport.request("ping", None).await.unwrap_err();
         assert!(rpc_err.to_string().contains("MCP error from ping"));
+    }
+
+    #[test]
+    fn sse_chunk_split_inside_multibyte_character_decodes_intact() {
+        let event = "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"héllo\"}\n\n".as_bytes();
+        let split = event.iter().position(|b| *b == 0xC3).unwrap() + 1;
+        let mut decoder = SseLineDecoder::new();
+        let mut data_lines = Vec::new();
+        assert!(scan_sse_chunk(&mut decoder, &mut data_lines, &event[..split], 7).is_none());
+        let result = scan_sse_chunk(&mut decoder, &mut data_lines, &event[split..], 7);
+        assert_eq!(result.unwrap().unwrap(), serde_json::json!("héllo"));
     }
 }

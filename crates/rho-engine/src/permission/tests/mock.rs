@@ -30,7 +30,6 @@ impl Presenter for MockHookPresenter {
     fn print_session_status(&self, _display: &SessionStatus) {}
     fn print_notice(&self, _text: &str) {}
     fn print_block(&self, _display: &BlockDisplay) {}
-    fn set_extra_status(&self, _status: Option<String>) {}
     fn print_user_block(&self, _input: &str) {}
     fn print_token(&self, _token: &str) {}
     fn print_thinking_token(&self, _token: &str) {}

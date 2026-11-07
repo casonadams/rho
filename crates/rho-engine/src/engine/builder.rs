@@ -93,7 +93,7 @@ fn try_provider_default(
     let default_model = default_model_for_provider(&config.provider);
     let mut trial = config.clone();
     trial.model = default_model.to_string();
-    let m = create_engine_model(&trial, auth_store, Some(shared_auth.clone())).ok()?;
+    let m = create_engine_model(&trial, auth_store, shared_auth.clone()).ok()?;
     *config = trial;
     Some(m)
 }
@@ -108,7 +108,7 @@ fn try_configured_providers(
         let mut trial = config.clone();
         trial.provider = p;
         trial.model = default_model.to_string();
-        if let Ok(m) = create_engine_model(&trial, auth_store, Some(shared_auth.clone())) {
+        if let Ok(m) = create_engine_model(&trial, auth_store, shared_auth.clone()) {
             *config = trial;
             return Some(m);
         }
@@ -121,7 +121,7 @@ fn resolve_model_or_fallback(
     auth_store: &AuthStore,
     shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
 ) -> Result<ModelHandle> {
-    if let Ok(m) = create_engine_model(config, auth_store, Some(shared_auth.clone())) {
+    if let Ok(m) = create_engine_model(config, auth_store, shared_auth.clone()) {
         return Ok(m);
     }
     let is_provider_without_model =
@@ -137,7 +137,7 @@ fn resolve_model_or_fallback(
     {
         return Ok(m);
     }
-    create_engine_model(config, auth_store, Some(shared_auth))
+    create_engine_model(config, auth_store, shared_auth)
 }
 
 async fn build_engine_tools(
@@ -157,8 +157,7 @@ async fn build_engine_tools(
     let mut tools = match tools_opt {
         Some(t) => t,
         None => {
-            let mut t =
-                crate::tools::builtin_tools::build_builtin_tools_with_model(base_dir, config, Some(model.clone()))?;
+            let mut t = crate::tools::builtin_tools::build_builtin_tools(base_dir, config, Some(model.clone()))?;
             t.extend(mcp_tools);
             t
         }
@@ -176,7 +175,7 @@ impl AgentEngineBuilder {
                 SessionManager::new_with_secrets_async(
                     &self.config.sessions_dir,
                     self.resume_id.as_deref(),
-                    self.auth_store.secret_values(),
+                    self.auth_store.resolved_secret_values().await,
                 )
                 .await?
             }
@@ -275,7 +274,7 @@ fn resolve_provider_and_model(config: &Config) -> (String, String) {
 pub fn create_engine_model(
     config: &Config,
     auth_store: &AuthStore,
-    shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
+    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
 ) -> Result<ModelHandle> {
     let (provider_name, actual_model) = resolve_provider_and_model(config);
     if let Ok(provider_id) = ProviderId::from_str(&provider_name) {
@@ -289,7 +288,7 @@ pub fn create_engine_model(
             auth_store,
         );
     }
-    crate::provider::ProviderFactory::create_model(config, &config.model, auth_store)
+    crate::provider::ProviderFactory::create_model(config, &config.model, auth_store, shared_auth)
 }
 
 fn default_model_for_provider(provider: &str) -> &'static str {

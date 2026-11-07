@@ -2,16 +2,14 @@ pub mod format;
 pub mod images;
 #[cfg(test)]
 mod tests;
-pub mod vfs;
 
 pub use format::{format_content, is_binary, number_lines};
 pub use rho_harness_core::args::ReadArgs;
-pub use vfs::{parse_vfs_uri, resolve_vfs};
 
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::types::{ToolResult, generated_schema};
 use rho_harness_core::error::AppError;
-use rho_harness_core::workspace::Workspace;
+use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
 
 pub struct ReadTool {
@@ -80,27 +78,13 @@ impl ReadTool {
     }
 
     pub async fn execute(&self, mut args: ReadArgs) -> Result<ToolResult, AppError> {
-        let clean_path = args.path.trim().trim_matches('"').trim_matches('\'');
+        let clean_path = clean_path_arg(&args.path);
         if clean_path.is_empty() {
             return Ok(ToolResult::error("Empty file path provided for read tool"));
         }
 
         if is_skill_first_read(clean_path, &self.base_dir, args.offset) {
             args.limit = None;
-        }
-
-        if let Some(vfs_uri) = parse_vfs_uri(clean_path) {
-            match resolve_vfs(&self.base_dir, &vfs_uri) {
-                Ok(content) => {
-                    return Ok(format_content(
-                        &content,
-                        clean_path,
-                        &args,
-                        self.artifact_dir.as_deref(),
-                    ));
-                }
-                Err(err) => return Ok(ToolResult::error(err)),
-            }
         }
 
         let raw_bytes = match resolve_and_read_bytes(&self.base_dir, clean_path).await {

@@ -35,7 +35,7 @@ impl CompletionCall {
 pub struct PromptResponse {
     pub output: String,
     pub usage: StructuralUsage,
-    pub requests: Vec<crate::provider::adapter::ModelCompletionRequest>,
+    pub requests: usize,
     pub completion_calls: Vec<CompletionCall>,
 }
 
@@ -44,7 +44,7 @@ impl PromptResponse {
         Self {
             output: output.into(),
             usage: usage.into(),
-            requests: Vec::new(),
+            requests: 0,
             completion_calls: Vec::new(),
         }
     }
@@ -56,10 +56,6 @@ impl PromptResponse {
 
     pub fn output(&self) -> String {
         self.output.clone()
-    }
-
-    pub fn requests(&self) -> Vec<crate::provider::adapter::ModelCompletionRequest> {
-        self.requests.clone()
     }
 }
 

@@ -1,13 +1,13 @@
 //! OpenAI / ChatGPT PKCE OAuth login and token refresh flow.
 
-use super::http_client;
 use super::jwt::extract_chatgpt_account_id;
-use crate::auth::loopback::{CallbackParams, LoopbackServer};
-use crate::auth::pkce::{PkceChallenge, generate_state};
+use super::{AuthorizationGrant, LoginPrompt, loopback_login};
+use crate::auth::pkce::AuthorizeRequest;
+use crate::auth::token_request::send_for_json;
+use crate::http::CLIENT;
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
-use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::error::Result;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::time::Duration;
 
 const OPENAI_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -23,40 +23,23 @@ pub(crate) struct TokenResponse {
     pub(crate) expires_in: Option<i64>,
 }
 
-pub(crate) fn validate_callback(callback: CallbackParams) -> Result<String> {
-    if let Some(err) = callback.error {
-        let desc = callback.error_description.unwrap_or_default();
-        return Err(AppError::Auth(format!("OAuth failed: {err} {desc}")));
-    }
-    callback
-        .code
-        .ok_or_else(|| AppError::Auth("No authorization code received from callback".to_string()))
+async fn post_openai_token_form(form: &[(&str, &str)], operation: &str) -> Result<TokenResponse> {
+    let request = CLIENT
+        .post(OPENAI_TOKEN_URL)
+        .timeout(Duration::from_secs(15))
+        .form(form);
+    send_for_json(request, operation).await
 }
 
 async fn exchange_openai_code(code: &str, verifier: &str) -> Result<TokenResponse> {
-    let client = http_client();
-    let mut form = HashMap::new();
-    form.insert("grant_type", "authorization_code");
-    form.insert("client_id", OPENAI_CLIENT_ID);
-    form.insert("code", code);
-    form.insert("code_verifier", verifier);
-    form.insert("redirect_uri", OPENAI_REDIRECT_URI);
-
-    let res = client
-        .post(OPENAI_TOKEN_URL)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to exchange OAuth token: {e}")))?;
-
-    if !res.status().is_success() {
-        let err_body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!("Token exchange failed: {err_body}")));
-    }
-
-    res.json()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse token response: {e}")))
+    let form = [
+        ("grant_type", "authorization_code"),
+        ("client_id", OPENAI_CLIENT_ID),
+        ("code", code),
+        ("code_verifier", verifier),
+        ("redirect_uri", OPENAI_REDIRECT_URI),
+    ];
+    post_openai_token_form(&form, "OpenAI token exchange").await
 }
 
 pub(crate) fn build_openai_credential(token_data: TokenResponse) -> StoredCredential {
@@ -76,69 +59,51 @@ pub(crate) fn build_openai_credential(token_data: TokenResponse) -> StoredCreden
 }
 
 pub fn build_openai_auth_url(challenge: &str, state: &str) -> String {
-    format!(
-        "{OPENAI_AUTH_URL}?response_type=code&client_id={OPENAI_CLIENT_ID}&redirect_uri={OPENAI_REDIRECT_URI}\
-         &scope={OPENAI_SCOPE}&code_challenge={challenge}&code_challenge_method=S256&state={state}\
-         &id_token_add_organizations=true&codex_cli_simplified_flow=true&originator=rho"
-    )
+    AuthorizeRequest {
+        endpoint: OPENAI_AUTH_URL,
+        client_id: OPENAI_CLIENT_ID,
+        redirect_uri: OPENAI_REDIRECT_URI,
+        scope: OPENAI_SCOPE,
+        challenge,
+        state,
+        extra: &[
+            ("id_token_add_organizations", "true"),
+            ("codex_cli_simplified_flow", "true"),
+            ("originator", "rho"),
+        ],
+    }
+    .to_url()
 }
 
-async fn prompt_openai_login(callbacks: &dyn OAuthLoginCallbacks, challenge: &str) -> Result<LoopbackServer> {
-    let server = LoopbackServer::bind_port(1455).await.map_err(|e| {
-        AppError::Auth(format!(
-            "Failed to start OAuth callback listener on port 1455: {e}.\n\
-             Ensure no other process is using port 1455 and try again."
-        ))
-    })?;
-    let state = generate_state();
-    let auth_url = build_openai_auth_url(challenge, &state);
-    callbacks
-        .on_auth_url(&auth_url, Some("A browser window will open. Complete login to finish."))
-        .await?;
-    callbacks.on_progress("Waiting for browser authorization...").await?;
-    Ok(server)
-}
+const OPENAI_LOGIN_PROMPT: LoginPrompt = LoginPrompt {
+    port: 1455,
+    callback_timeout: Duration::from_secs(120),
+    hint: "A browser window will open. Complete login to finish.",
+    progress: "Waiting for browser authorization...",
+};
 
-async fn acquire_openai_code(callbacks: &dyn OAuthLoginCallbacks, challenge: &str) -> Result<String> {
-    let server = prompt_openai_login(callbacks, challenge).await?;
-    let callback = server.wait_for_callback(Duration::from_secs(120)).await?;
-    validate_callback(callback)
-}
-
-pub async fn perform_openai_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
-    let pkce = PkceChallenge::generate();
-    let code = acquire_openai_code(callbacks, &pkce.challenge).await?;
-
-    callbacks
-        .on_progress("Exchanging authorization code for tokens...")
-        .await?;
-
-    let token = exchange_openai_code(&code, &pkce.verifier).await?;
+async fn redeem_openai_grant(grant: AuthorizationGrant) -> Result<StoredCredential> {
+    let token = exchange_openai_code(&grant.code, &grant.verifier).await?;
     Ok(build_openai_credential(token))
 }
 
+pub async fn perform_openai_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
+    loopback_login(
+        callbacks,
+        &OPENAI_LOGIN_PROMPT,
+        build_openai_auth_url,
+        redeem_openai_grant,
+    )
+    .await
+}
+
 async fn post_refresh_request(refresh_token: &str) -> Result<TokenResponse> {
-    let client = http_client();
-    let mut form = HashMap::new();
-    form.insert("grant_type", "refresh_token");
-    form.insert("client_id", OPENAI_CLIENT_ID);
-    form.insert("refresh_token", refresh_token);
-
-    let res = client
-        .post(OPENAI_TOKEN_URL)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| AppError::Auth(format!("Token refresh request failed: {e}")))?;
-
-    if !res.status().is_success() {
-        let err = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!("OAuth token refresh failed: {err}")));
-    }
-
-    res.json()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse refresh token response: {e}")))
+    let form = [
+        ("grant_type", "refresh_token"),
+        ("client_id", OPENAI_CLIENT_ID),
+        ("refresh_token", refresh_token),
+    ];
+    post_openai_token_form(&form, "OpenAI token refresh").await
 }
 
 pub async fn refresh_openai_token(refresh_token: &str) -> Result<StoredCredential> {

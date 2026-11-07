@@ -218,34 +218,40 @@ impl AgentEngine {
         runner
     }
 
+    pub(super) fn lifecycle_hook(&self, presenter: Arc<dyn Presenter>) -> Arc<crate::hook::LifecycleHook> {
+        Arc::new(
+            crate::hook::LifecycleHook::new(
+                self.base_dir.clone(),
+                self.session_manager.session_id.clone(),
+                presenter,
+            )
+            .with_hook_dirs(self.config.hook_dirs.clone()),
+        )
+    }
+
     pub(super) async fn prepare_step_runner<'a>(
         &self,
         sink: &Arc<TerminalApprovalSink>,
         preamble: &'a str,
         request: &TurnRequest<'_>,
-        presenter: &Arc<dyn Presenter>,
+        lifecycle_hook: &Arc<crate::hook::LifecycleHook>,
         loop_state: &'a TurnLoopState,
-    ) -> Result<(AgentRunner, String)> {
-        let active_model = request
-            .model_switch
-            .as_ref()
-            .and_then(|s| s.current_model())
-            .unwrap_or_else(|| self.config.model.clone());
-
+    ) -> Result<AgentRunner> {
+        let presenter = lifecycle_hook.presenter();
         let cwd = self.base_dir.clone();
-        let mut hook =
-            crate::hook::LifecycleHook::new(cwd.clone(), self.session_manager.session_id.clone(), presenter.clone());
-        if !self.config.hook_dirs.is_empty() {
-            hook = hook.with_hook_dirs(self.config.hook_dirs.clone());
-        }
-        let lifecycle_hook = Arc::new(hook);
         lifecycle_hook.notify_turn_start(&loop_state.current_prompt).await;
 
         let permission_hook = if self.config.permission.enabled {
-            let mut perm = crate::permission::PermissionHook::new(Some(cwd), presenter.clone());
+            let mcp_servers = if self.config.mcp.enabled {
+                self.config.mcp.servers.keys().cloned().collect()
+            } else {
+                Vec::new()
+            };
+            let mut perm =
+                crate::permission::PermissionHook::new(Some(cwd), presenter.clone()).with_mcp_servers(mcp_servers);
             let auth_store = self.auth_store.lock().await;
             if let Ok(Some(guard_model)) =
-                crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store)
+                crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store, self.auth_store.clone())
             {
                 perm = perm.with_guard(crate::permission::guard::GuardEvaluator::new(guard_model));
             }
@@ -269,36 +275,11 @@ impl AgentEngine {
                 request,
             )
             .await
-            .lifecycle(Some(lifecycle_hook))
+            .lifecycle(Some(lifecycle_hook.clone()))
             .permission(permission_hook)
             .cancellation(request.cancellation.cloned());
 
-        Ok((runner, active_model))
-    }
-
-    pub(crate) async fn apply_model_routing(&self, request: &mut TurnRequest<'_>, presenter: &dyn Presenter) {
-        if !self.config.routing {
-            return;
-        }
-        let Some(router) = crate::routing::ModelRouter::from_config(&self.config) else {
-            return;
-        };
-
-        let verdict = router.route_prompt(request.prompt).await;
-        if verdict.fallback {
-            return;
-        }
-
-        let confidence_str = verdict
-            .confidence
-            .map(|c| format!(" ({:.0}%)", c * 100.0))
-            .unwrap_or_default();
-        presenter.print_notice(&format!(
-            "Routed to {} tier: {}{}",
-            verdict.tier, verdict.model, confidence_str
-        ));
-
-        request.routed_model = Some(verdict.model);
+        Ok(runner)
     }
 }
 

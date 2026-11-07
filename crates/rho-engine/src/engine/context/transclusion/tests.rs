@@ -134,3 +134,14 @@ fn test_transclusion_git_internal_rejected() {
     let expanded = expand_transclusions(content, workspace.path());
     assert!(expanded.contains("<!-- Transclusion failed: path not permitted: .git/config -->"));
 }
+
+#[test]
+fn test_transclusion_credential_store_rejected() {
+    let _env = crate::permission::tests::ENV_LOCK.blocking_lock();
+    let Some(config_dir) = crate::permission::policy::config_dir() else {
+        return;
+    };
+    let workspace = tempfile::tempdir().unwrap();
+    let auth = config_dir.join("auth.json");
+    assert!(!is_confined_target(&auth, workspace.path()));
+}

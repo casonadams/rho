@@ -15,47 +15,12 @@ pub struct SessionSummary {
     pub preview: String,
 }
 
-pub fn list_sessions(sessions_dir: &Path) -> Result<Vec<String>> {
-    if !sessions_dir.exists() {
-        return Ok(Vec::new());
-    }
-    let mut ids = Vec::new();
-    for entry in std::fs::read_dir(sessions_dir)? {
-        if let Some(stem) = jsonl_stem(&entry?.path()) {
-            ids.push(stem);
-        }
-    }
-    ids.sort();
-    ids.reverse();
-    Ok(ids)
-}
-
 fn jsonl_stem(path: &Path) -> Option<String> {
     if path.extension().is_some_and(|v| v == "jsonl") {
         path.file_stem().and_then(|v| v.to_str()).map(str::to_string)
     } else {
         None
     }
-}
-
-async fn drain_session_ids_async(mut entries: tokio::fs::ReadDir) -> Result<Vec<String>> {
-    let mut ids = Vec::new();
-    while let Some(entry) = entries.next_entry().await? {
-        if let Some(stem) = jsonl_stem(&entry.path()) {
-            ids.push(stem);
-        }
-    }
-    ids.sort();
-    ids.reverse();
-    Ok(ids)
-}
-
-pub async fn list_sessions_async(sessions_dir: &Path) -> Result<Vec<String>> {
-    if !tokio::fs::try_exists(sessions_dir).await.unwrap_or(false) {
-        return Ok(Vec::new());
-    }
-    let entries = tokio::fs::read_dir(sessions_dir).await?;
-    drain_session_ids_async(entries).await
 }
 
 fn summarize_entry(entry: &std::fs::DirEntry) -> Option<SessionSummary> {
@@ -162,14 +127,6 @@ fn make_session_summary(stem: &str, state: StoreState, last_modified: DateTime<U
     }
 }
 
-pub fn delete_session(sessions_dir: &Path, session_id: &str) -> Result<()> {
-    let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
-    if file_path.exists() {
-        std::fs::remove_file(file_path)?;
-    }
-    Ok(())
-}
-
 pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Result<()> {
     let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
     if tokio::fs::try_exists(&file_path).await.unwrap_or(false) {
@@ -183,12 +140,6 @@ mod tests {
     use super::*;
     use crate::model::ChatMessage;
     use crate::session::SessionManager;
-
-    fn temp_test_dir(label: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("session_summary_test_{label}_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     #[test]
     fn test_jsonl_stem() {
@@ -213,18 +164,6 @@ mod tests {
     }
 
     #[test]
-    fn test_list_sessions_nonexistent_dir() {
-        let non_existent = Path::new("/tmp/does_not_exist_session_dir_xyz123");
-        assert_eq!(list_sessions(non_existent).unwrap(), Vec::<String>::new());
-    }
-
-    #[tokio::test]
-    async fn test_list_sessions_async_nonexistent_dir() {
-        let non_existent = Path::new("/tmp/does_not_exist_session_dir_xyz123");
-        assert_eq!(list_sessions_async(non_existent).await.unwrap(), Vec::<String>::new());
-    }
-
-    #[test]
     fn test_list_session_summaries_nonexistent_dir() {
         let non_existent = Path::new("/tmp/does_not_exist_session_dir_xyz123");
         assert_eq!(
@@ -244,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_and_summarize_sessions() {
-        let dir = temp_test_dir("list_and_summarize");
+        let dir = crate::test_support::created_temp_dir();
 
         let session_a = SessionManager::new(&dir, None).unwrap();
         let sid_a = session_a.session_id.clone();
@@ -268,16 +207,6 @@ mod tests {
 
         std::fs::write(dir.join("ignore.txt"), "not a session").unwrap();
 
-        let mut expected_ids = vec![sid_a.clone(), sid_b.clone(), sid_c.clone()];
-        expected_ids.sort();
-        expected_ids.reverse();
-
-        let listed = list_sessions(&dir).unwrap();
-        assert_eq!(listed, expected_ids);
-
-        let listed_async = list_sessions_async(&dir).await.unwrap();
-        assert_eq!(listed_async, expected_ids);
-
         let summaries = list_session_summaries(&dir).unwrap();
         assert_eq!(summaries.len(), 3);
         let alpha_summary = summaries.iter().find(|s| s.session_id == sid_a).unwrap();
@@ -295,15 +224,20 @@ mod tests {
         assert_eq!(alpha_async.name, Some("Alpha Session".to_string()));
         assert_eq!(alpha_async.preview, "first question");
 
-        delete_session(&dir, &sid_a).unwrap();
+        delete_session_async(&dir, &sid_a).await.unwrap();
         assert!(!dir.join(format!("{sid_a}.jsonl")).exists());
-        delete_session(&dir, &sid_a).unwrap();
+        delete_session_async(&dir, &sid_a).await.unwrap();
 
         delete_session_async(&dir, &sid_b).await.unwrap();
         assert!(!dir.join(format!("{sid_b}.jsonl")).exists());
         delete_session_async(&dir, &sid_b).await.unwrap();
 
-        let remaining = list_sessions(&dir).unwrap();
+        let remaining: Vec<String> = list_session_summaries_async(&dir)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|summary| summary.session_id)
+            .collect();
         assert_eq!(remaining, vec![sid_c]);
 
         let _ = std::fs::remove_dir_all(&dir);

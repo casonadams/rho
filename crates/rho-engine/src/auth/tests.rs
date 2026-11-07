@@ -33,24 +33,24 @@ fn stores_and_persists_oauth_credentials() {
     assert_eq!(reloaded.get_key_sync("chatgpt").unwrap().as_deref(), Some("acc_999"));
 }
 
-#[test]
-fn expands_dynamic_key_resolvers() {
+fn store_with(provider: &str, credential: StoredCredential) -> (tempfile::TempDir, AuthStore) {
+    let (dir, mut store) = crate::test_support::temp_auth_store();
+    store.set_credential(provider, credential).unwrap();
+    (dir, store)
+}
+
+#[tokio::test]
+async fn env_references_in_api_keys_are_expanded() {
     unsafe { std::env::set_var("RHO_ENV_TEST_KEY", "env_secret_123") };
-
-    let file = NamedTempFile::new().unwrap();
-    let path = file.path();
-
-    let mut store = AuthStore::load(path).unwrap();
-    store.set_key("custom", "$RHO_ENV_TEST_KEY").unwrap();
+    let (_file, store) = store_with("custom", StoredCredential::api_key("$RHO_ENV_TEST_KEY".to_string()));
 
     assert_eq!(store.get_key_sync("custom").unwrap().as_deref(), Some("env_secret_123"));
+    assert_eq!(store.resolved_secret_values().await, vec!["env_secret_123".to_string()]);
 }
 
 #[tokio::test]
 async fn force_refresh_returns_api_key_directly() {
-    let file = NamedTempFile::new().unwrap();
-    let mut store = AuthStore::load(file.path()).unwrap();
-    store.set_key("anthropic", "sk-ant-api03-test").unwrap();
+    let (_file, mut store) = store_with("anthropic", StoredCredential::api_key("sk-ant-api03-test".to_string()));
 
     let refreshed = store.force_refresh("anthropic").await.unwrap();
     assert_eq!(refreshed.as_deref(), Some("sk-ant-api03-test"));
@@ -58,13 +58,20 @@ async fn force_refresh_returns_api_key_directly() {
 
 #[tokio::test]
 async fn force_refresh_missing_refresh_token_fails() {
-    let file = NamedTempFile::new().unwrap();
-    let mut store = AuthStore::load(file.path()).unwrap();
-    let cred = StoredCredential::oauth("stale_token", None, Some(1799999999000));
-    store.set_credential("antigravity", cred).unwrap();
+    let (_file, mut store) = store_with(
+        "antigravity",
+        StoredCredential::oauth("stale_token", None, Some(1799999999000)),
+    );
 
     let err = store.force_refresh("antigravity").await.unwrap_err();
     assert!(err.to_string().contains("No refresh token") || err.to_string().contains("expired"));
+}
+
+#[tokio::test]
+async fn expired_oauth_token_that_cannot_refresh_is_an_error() {
+    let (_file, mut store) = store_with("antigravity", StoredCredential::oauth("stale_token", None, Some(1_000)));
+
+    assert!(store.get_key("antigravity").await.is_err());
 }
 
 #[test]

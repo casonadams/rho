@@ -3,36 +3,37 @@
 //! Supports OpenAI, DeepSeek, Groq, OpenRouter, Ollama (local and cloud),
 //! xAI, Mistral, Gemini (OpenAI compat endpoint), and custom proxies.
 
-use futures::Stream;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResultContent, UserContent};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::pin::Pin;
-use std::sync::LazyLock;
 
 use crate::engine::metrics::StructuralUsage;
+use crate::http::CLIENT;
 use crate::provider::adapter::{
-    FinishReason, ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent, ModelToolDefinition,
+    FinishReason, ModelAdapter, ModelCompletionRequest, ModelEventStream, ModelStreamEvent, ModelToolDefinition,
 };
-use crate::provider::sse::{SseLineDecoder, SseStreamParser, aggregate_stream_events, unfold_sse_stream};
+use crate::provider::sse::{SseLineDecoder, SseStreamParser, unfold_sse_stream};
 
-static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .expect("Failed to build HTTP client for OpenAI-compatible provider")
-});
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OpenAiClient {
     base_url: String,
     api_key: String,
     model: String,
     provider_name: String,
     extra_headers: HeaderMap,
+}
+
+impl std::fmt::Debug for OpenAiClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiClient")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("provider_name", &self.provider_name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl OpenAiClient {
@@ -401,36 +402,9 @@ impl ModelAdapter for OpenAiClient {
         &self.provider_name
     }
 
-    async fn complete(&self, req: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
-        let body = build_request_body(&req, &self.model, false);
-        let resp = HTTP_CLIENT
-            .post(self.endpoint_url())
-            .headers(self.build_headers())
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AppError::Provider(format!("Failed to connect to {}: {e}", self.provider_name)))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(AppError::Provider(format!(
-                "HTTP {status} from {}: {text}",
-                self.provider_name
-            )));
-        }
-
-        let stream = self.stream(req).await?;
-        let events = futures::StreamExt::collect::<Vec<_>>(stream).await;
-        aggregate_stream_events(events)
-    }
-
-    async fn stream(
-        &self,
-        req: ModelCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+    async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
         let body = build_request_body(&req, &self.model, true);
-        let resp = HTTP_CLIENT
+        let resp = CLIENT
             .post(self.endpoint_url())
             .headers(self.build_headers())
             .json(&body)
@@ -448,7 +422,7 @@ impl ModelAdapter for OpenAiClient {
         }
 
         let parser = OpenAiSseParser::new();
-        Ok(unfold_sse_stream(resp, parser))
+        Ok(unfold_sse_stream(resp.bytes_stream(), parser))
     }
 }
 
@@ -474,7 +448,7 @@ pub async fn discover_openai_models(
         format!("{base}/v1/models")
     };
 
-    let mut req = HTTP_CLIENT.get(&url);
+    let mut req = CLIENT.get(&url);
     if !api_key.trim().is_empty() {
         req = req.header(AUTHORIZATION, format!("Bearer {}", api_key.trim()));
     }

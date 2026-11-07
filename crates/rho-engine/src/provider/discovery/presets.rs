@@ -100,16 +100,6 @@ pub fn chatgpt_codex_models() -> Vec<DiscoveredModel> {
     build_presets(CHATGPT_CODEX_PRESETS)
 }
 
-const COPILOT_PRESETS: &[(&str, &str, &str, &str)] = &[
-    ("gpt-4o", "GPT-4o", "copilot", "128k ctx"),
-    ("claude-3.5-sonnet", "Claude 3.5 Sonnet", "copilot", "200k ctx"),
-    ("o1", "o1", "copilot", "200k ctx"),
-];
-
-pub fn copilot_models() -> Vec<DiscoveredModel> {
-    build_presets(COPILOT_PRESETS)
-}
-
 const ANTHROPIC_PRESETS: &[(&str, &str, &str, &str)] = &[
     (
         "claude-opus-5-5",

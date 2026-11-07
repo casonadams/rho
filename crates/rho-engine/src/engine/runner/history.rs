@@ -16,10 +16,6 @@ pub fn display_events(event: &super::turn::runner::StreamEvent) -> Vec<DisplayEv
     }
 }
 
-pub fn budget_history(_error: &AppError) -> Option<(usize, Vec<ChatMessage>)> {
-    None
-}
-
 pub fn checkpoint_messages(
     visible_history: &[ChatMessage],
     full_history: &[ChatMessage],
@@ -52,27 +48,6 @@ pub fn sanitize_request_id(id: &str) -> String {
         .to_string()
 }
 
-pub fn streaming_error_provider_headers(_error: &AppError) -> Option<&http::HeaderMap> {
-    None
-}
-
-pub fn streaming_error_provider_status(_error: &AppError) -> Option<http::StatusCode> {
-    None
-}
-
-pub fn streaming_error_provider_request_id(_error: &AppError) -> Option<&str> {
-    None
-}
-
-pub fn extract_retry_after(error: &AppError) -> Option<std::time::Duration> {
-    let msg = error.to_string();
-    if msg.to_lowercase().contains("rate limit") {
-        Some(std::time::Duration::from_secs(1))
-    } else {
-        None
-    }
-}
-
 pub fn is_transient_network_error(error: &AppError) -> bool {
     let msg = error.to_string();
     let lower = msg.to_ascii_lowercase();
@@ -101,18 +76,6 @@ pub fn is_transient_network_error(error: &AppError) -> bool {
         "handshake",
     ];
     PATTERNS.iter().any(|&p| lower.contains(p))
-}
-
-pub fn map_streaming_error(error: AppError) -> AppError {
-    error
-}
-
-pub fn map_prompt_error(error: AppError) -> AppError {
-    error
-}
-
-pub fn map_completion_error(error: AppError) -> AppError {
-    error
 }
 
 pub fn is_content_filter_error(error: &AppError) -> bool {

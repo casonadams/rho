@@ -15,7 +15,9 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InputAction, TerminalBackend, TerminalController, map_key};
 
 type UiEvents = UnboundedReceiver<crate::ui::interactive::UiEvent>;
-type ChunkRx = UnboundedReceiver<String>;
+type ChunkRx = tokio::sync::mpsc::Receiver<String>;
+
+const OUTPUT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
 
 struct StreamBuffers {
     chunk_rx: ChunkRx,
@@ -204,13 +206,27 @@ impl<B: TerminalBackend> BashStreamState<'_, '_, B> {
     }
 
     async fn finish(mut self, exit_code: Option<i32>) -> Result<UserBashResult> {
-        self.running.drain_tasks().await;
+        self.drain_pipe_output().await;
         let snapshot = finalize_run(
             &mut self.stream.chunk_rx,
             &mut self.stream.accumulator,
             self.run.renderer,
         );
         self.run.emit_result(&snapshot, self.outcome(exit_code))
+    }
+
+    async fn drain_pipe_output(&mut self) {
+        let drain = self.running.drain_tasks_within(OUTPUT_DRAIN_GRACE);
+        tokio::pin!(drain);
+        loop {
+            tokio::select! {
+                () = &mut drain => return,
+                Some(chunk) = self.stream.chunk_rx.recv() => {
+                    self.stream.accumulator.append(chunk.as_bytes());
+                    self.run.renderer.tool_chunk(&chunk);
+                }
+            }
+        }
     }
 
     async fn handle_step(&mut self, step: StreamStep) -> Result<bool> {

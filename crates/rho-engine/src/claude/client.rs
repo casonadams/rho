@@ -3,10 +3,11 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::http::{DEFAULT_ENDPOINT, MESSAGES_PATH, claude_headers, http_client};
+use super::http::{ClaudeAuth, DEFAULT_ENDPOINT, MESSAGES_PATH, claude_headers};
 use super::request::build_request_body;
 use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
+use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
 
 #[cfg(test)]
@@ -15,6 +16,7 @@ mod tests;
 #[derive(Clone)]
 pub struct ClaudeClient {
     token_provider: Arc<dyn TokenProvider>,
+    auth: ClaudeAuth,
     pub(crate) model: String,
     pub(crate) thinking_level: Option<String>,
     pub(crate) endpoint: Option<String>,
@@ -22,10 +24,11 @@ pub struct ClaudeClient {
 
 impl std::fmt::Debug for ClaudeClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClaudeClient")
-            .field("model", &self.model)
-            .field("thinking_level", &self.thinking_level)
-            .finish()
+        write!(
+            f,
+            "ClaudeClient {{ model: {:?}, auth: {:?}, thinking_level: {:?} }}",
+            self.model, self.auth, self.thinking_level
+        )
     }
 }
 
@@ -34,17 +37,20 @@ impl ClaudeClient {
         &self.model
     }
     pub fn new(token: impl Into<String>, model: impl Into<String>) -> Self {
+        Self::with_token_provider(Arc::new(StaticTokenProvider::new(token)), model)
+    }
+
+    pub fn with_api_key(key: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
-            token_provider: Arc::new(StaticTokenProvider::new(token)),
-            model: model.into(),
-            thinking_level: None,
-            endpoint: None,
+            auth: ClaudeAuth::ApiKey,
+            ..Self::new(key, model)
         }
     }
 
     pub fn with_token_provider(token_provider: Arc<dyn TokenProvider>, model: impl Into<String>) -> Self {
         Self {
             token_provider,
+            auth: ClaudeAuth::Login,
             model: model.into(),
             thinking_level: None,
             endpoint: None,
@@ -78,23 +84,9 @@ impl ClaudeClient {
         token: &str,
         request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        let body = build_request_body(&self.model, self.thinking_level.as_deref(), request)
+        let body = build_request_body(&self.model, self.thinking_level.as_deref(), request, self.auth)
             .map_err(|e| (None, e.to_string()))?;
-        let headers = claude_headers(token);
-        let response = http_client()
-            .post(self.target_url())
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| (None, e.to_string()))?;
-
-        let status = response.status();
-        if status.is_success() {
-            return Ok(response);
-        }
-        let text = response.text().await.unwrap_or_default();
-        Err((Some(status.as_u16()), text))
+        post_json_checked(&self.target_url(), claude_headers(self.auth, token), &body, None).await
     }
 
     async fn refresh_and_retry(

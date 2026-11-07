@@ -1,7 +1,7 @@
 use super::format::{SessionRecord, append_durable_record};
 use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use super::{SessionManager, session_error};
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use crate::model::ChatMessage;
 use chrono::Utc;
 
@@ -73,11 +73,5 @@ impl SessionManager {
 
     pub async fn active_messages(&self) -> Result<Vec<ChatMessage>> {
         Ok(self.state.lock().await.messages.clone())
-    }
-
-    pub fn remember_memory_error(&self, error: &AppError) {
-        if let Ok(mut current) = self.memory_error.lock() {
-            *current = Some(error.to_string());
-        }
     }
 }

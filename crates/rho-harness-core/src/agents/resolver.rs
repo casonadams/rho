@@ -33,12 +33,6 @@ pub async fn resolved_agents_for_paths_async(
     .unwrap_or_default()
 }
 
-pub fn resolved_agents_for_paths(paths: AgentResolutionPaths<'_>) -> Vec<ResolvedAgent> {
-    let mut resolved: Vec<ResolvedAgent> = Vec::new();
-    collect_agents(paths, &mut resolved);
-    resolved
-}
-
 fn collect_agents(paths: AgentResolutionPaths<'_>, resolved: &mut Vec<ResolvedAgent>) {
     let mut search_dirs = Vec::new();
     if let Some(home) = paths.home_dir {

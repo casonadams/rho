@@ -89,12 +89,6 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn set_extra_status(&self, status: Option<String>) {
-        if let Some(ui) = &self.ui {
-            let _ = ui.set_extra_status(status);
-        }
-    }
-
     pub fn set_width(&self, width: usize) {
         self.width.store(width, Ordering::Relaxed);
         if let Ok(mut md) = self.markdown.lock() {

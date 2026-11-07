@@ -1,18 +1,13 @@
 pub mod adapter;
 mod builders;
-pub mod capabilities;
 pub mod discovery;
-mod extras;
 pub mod openai;
 pub mod sse;
 pub mod store;
-pub mod systemone;
 
 pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 
-pub use capabilities::supports_tool_result_images;
 pub use discovery::DiscoveredModel;
-pub use extras::provider_request_extras;
 pub use openai::OpenAiClient;
 pub use store::ModelStore;
 
@@ -36,7 +31,7 @@ pub struct ModelRequest<'a> {
     pub model: &'a str,
     /// rho's `thinking_level`; Antigravity uses it to pick the runtime variant.
     pub thinking_level: Option<&'a str>,
-    pub shared_auth: Option<std::sync::Arc<tokio::sync::Mutex<AuthStore>>>,
+    pub shared_auth: std::sync::Arc<tokio::sync::Mutex<AuthStore>>,
 }
 
 pub struct ProviderFactory;
@@ -62,53 +57,40 @@ pub fn resolve_guard_model(config: &Config) -> Option<(ProviderId, String)> {
     Some((provider_id, model))
 }
 
-pub fn resolve_judge_model(config: &Config) -> Option<(String, String)> {
-    let spec = config.judge_model()?.trim();
-    if spec.is_empty() || spec.eq_ignore_ascii_case("none") {
-        return None;
-    }
-
-    if spec.starts_with("http://") || spec.starts_with("https://") {
-        return Some((spec.to_string(), "clef-flash".to_string()));
-    }
-
-    let (provider, model) = rho_harness_core::provider::parse_model_spec(spec);
-    let model_name = if model.is_empty() {
-        "clef-flash".to_string()
-    } else {
-        model
-    };
-
-    let base_url = if let Some(provider_spec) = config.providers.get(&provider.to_ascii_lowercase()) {
-        provider_spec.base_url.clone()
-    } else {
-        std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string())
-    };
-
-    Some((base_url, model_name))
-}
-
 impl ProviderFactory {
-    pub fn guard_model_request<'a>(provider: ProviderId, model: &'a str) -> ModelRequest<'a> {
+    pub fn guard_model_request<'a>(
+        provider: ProviderId,
+        model: &'a str,
+        shared_auth: std::sync::Arc<tokio::sync::Mutex<AuthStore>>,
+    ) -> ModelRequest<'a> {
         // Guard models never think to guarantee fast and deterministic evaluation.
         ModelRequest {
             provider,
             model,
             thinking_level: None,
-            shared_auth: None,
+            shared_auth,
         }
     }
 
-    pub fn create_guard_model(config: &Config, auth_store: &AuthStore) -> Result<Option<ModelHandle>> {
+    pub fn create_guard_model(
+        config: &Config,
+        auth_store: &AuthStore,
+        shared_auth: std::sync::Arc<tokio::sync::Mutex<AuthStore>>,
+    ) -> Result<Option<ModelHandle>> {
         let Some((provider, model)) = resolve_guard_model(config) else {
             return Ok(None);
         };
-        let request = Self::guard_model_request(provider, &model);
+        let request = Self::guard_model_request(provider, &model, shared_auth);
         let handle = Self::create_model_for(request, auth_store)?;
         Ok(Some(handle))
     }
 
-    pub fn create_model(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
+    pub fn create_model(
+        config: &Config,
+        model: &str,
+        auth_store: &AuthStore,
+        shared_auth: std::sync::Arc<tokio::sync::Mutex<AuthStore>>,
+    ) -> Result<ModelHandle> {
         let (spec_provider, spec_model) = rho_harness_core::provider::parse_model_spec(model);
         let (provider_name, actual_model) = if !spec_provider.is_empty() {
             (spec_provider, spec_model)
@@ -129,7 +111,7 @@ impl ProviderFactory {
                     provider: provider_id,
                     model: &actual_model,
                     thinking_level: config.thinking_level.as_deref(),
-                    shared_auth: None,
+                    shared_auth,
                 },
                 auth_store,
             );
@@ -207,7 +189,7 @@ impl ProviderFactory {
         }
         if provider == ProviderId::ClaudeCode {
             let _ = resolve_provider_key(provider, auth_store)?;
-            return Ok(build_claude_code_model(&request, auth_store));
+            return Ok(build_claude_code_model(&request));
         }
         let key = resolve_provider_key(provider, auth_store)?;
         if provider == ProviderId::ChatGpt {

@@ -12,13 +12,9 @@ fn build_help_options() -> Vec<ModalOption> {
         ),
         ModalOption::new(
             format!("{:<15}", "/models"),
-            Some("Configure role models (default, smol, slow, judge, guard)"),
+            Some("Configure role models (default, smol, slow, guard)"),
         ),
         ModalOption::new(format!("{:<15}", "/model"), Some("Inspect or switch the active model")),
-        ModalOption::new(
-            format!("{:<15}", "/route"),
-            Some("Toggle or inspect automatic model routing"),
-        ),
         ModalOption::new(format!("{:<15}", "/resume"), Some("Resume a prior session")),
         ModalOption::new(
             format!("{:<15}", "/session"),
@@ -63,10 +59,6 @@ fn build_help_options() -> Vec<ModalOption> {
         ModalOption::new(
             format!("{:<15}", "/export"),
             Some("Export active branch as HTML or Markdown"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/collab"),
-            Some("Peer-to-peer live pairing & session sharing"),
         ),
         ModalOption::new(format!("{:<15}", "/exit"), Some("Exit rho (alias: /quit)")),
         ModalOption::new(format!("{:<15}", "Tab"), Some("Complete slash commands & skill names")),

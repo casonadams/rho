@@ -20,22 +20,6 @@ fn completion_reports_replacement_spans_for_commands_and_arguments() {
     let model = completions.complete("/model gpt-4o suffix", 13);
     assert_eq!(model[0].value, "/model gpt-4o");
     assert_eq!(model[0].replacement, 0..13);
-
-    let collab_cmd = completions.complete("/col", 4);
-    assert!(collab_cmd.iter().any(|c| c.value == "/collab"));
-
-    let collab_args = completions.complete("/collab ", 8);
-    assert!(collab_args.iter().any(|c| c.value == "/collab start"));
-    assert!(collab_args.iter().any(|c| c.value == "/collab link"));
-    assert!(collab_args.iter().any(|c| c.value == "/collab peers"));
-    assert!(collab_args.iter().any(|c| c.value == "/collab stop"));
-
-    let route_cmd = completions.complete("/rou", 4);
-    assert!(route_cmd.iter().any(|c| c.value == "/route"));
-
-    let route_args = completions.complete("/route ", 7);
-    assert!(route_args.iter().any(|c| c.value == "/route on"));
-    assert!(route_args.iter().any(|c| c.value == "/route off"));
 }
 
 #[test]

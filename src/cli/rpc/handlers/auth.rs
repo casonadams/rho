@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::super::types::RpcDaemonContext;
 use super::config::handle_node_info_cmd;
-use super::session::handle_create_session_cmd;
+use super::session::{handle_create_session_cmd, write_command_result};
 use crate::error::Result;
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcResponse};
@@ -13,25 +13,25 @@ pub(crate) async fn handle_oauth_login_result(
     auth_store: &Arc<tokio::sync::RwLock<crate::auth::AuthStore>>,
     event_tx: &tokio::sync::mpsc::UnboundedSender<RpcEvent>,
 ) {
-    match result {
+    let saved = match result {
         Ok(cred) => {
             let mut store = auth_store.write().await;
-            let _ = store.set_credential_async(&provider, cred).await;
-            let _ = store.save_async().await;
-            let _ = event_tx.send(RpcEvent::AuthComplete {
-                provider,
-                success: true,
-                error: None,
-            });
+            match store.set_credential_async(&provider, cred).await {
+                Ok(_) => store.save_async().await,
+                Err(e) => Err(e),
+            }
         }
-        Err(e) => {
-            let _ = event_tx.send(RpcEvent::AuthComplete {
-                provider,
-                success: false,
-                error: Some(e.to_string()),
-            });
-        }
-    }
+        Err(e) => Err(e),
+    };
+    let (success, error) = match saved {
+        Ok(()) => (true, None),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    let _ = event_tx.send(RpcEvent::AuthComplete {
+        provider,
+        success,
+        error,
+    });
 }
 
 pub(crate) async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -93,23 +93,14 @@ pub(crate) async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let mut store = ctx.auth_store.write().await;
-    match store.set_api_key_async(&provider, api_key).await {
-        Ok(_) => {
-            let _ = store.save_async().await;
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "set_api_key", None))
-                .await?;
-        }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "set_api_key", &e.to_string()))
-                .await?;
-        }
-    }
-    Ok(())
+    let saved = match store.set_api_key_async(&provider, api_key).await {
+        Ok(_) => store.save_async().await,
+        Err(e) => Err(e),
+    };
+    write_command_result(ctx.writer, req_id, "set_api_key", saved.map(|()| None)).await
 }
 
-pub(crate) async fn handle_remote_auth_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_node_session_auth_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: &RpcCommand,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,

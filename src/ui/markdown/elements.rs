@@ -1,4 +1,4 @@
-//! Inline-element rendering (pulldown-cmark) and mermaid diagram blocks.
+//! Inline-element rendering (pulldown-cmark).
 
 use crate::ui::theme::Theme;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};

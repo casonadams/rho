@@ -8,6 +8,13 @@ fn assert_mode(path: &std::path::Path, expected: u32) {
 }
 
 #[cfg(unix)]
+fn write_with_mode(path: &std::path::Path, contents: &str, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, contents).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
 #[test]
 fn session_storage_is_private() {
     use std::os::unix::fs::PermissionsExt;
@@ -30,13 +37,10 @@ fn session_storage_is_private() {
 #[cfg(unix)]
 #[test]
 fn session_storage_protects_bad_file_permissions() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
     let bad_path = dir.join("bad.jsonl");
-    std::fs::write(&bad_path, "{}\n").unwrap();
-    std::fs::set_permissions(&bad_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    write_with_mode(&bad_path, "{}\n", 0o644);
     assert!(SessionManager::new(&dir, Some("bad")).is_err());
     assert_mode(&bad_path, 0o600);
 }

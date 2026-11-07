@@ -385,64 +385,6 @@ pub fn extract_invoked_tool_names(messages: &[rho_harness_core::model::ChatMessa
     names
 }
 
-fn resolve_executable_tool<'a>(
-    matches: &'a [DeferredMcpTool],
-    target_tool: Option<&str>,
-    query: &str,
-) -> Result<&'a DeferredMcpTool, String> {
-    if matches.is_empty() {
-        return Err("No tools matched the query to execute.".to_string());
-    }
-
-    if let Some(target) = target_tool {
-        let trimmed = target.trim();
-        if !trimmed.is_empty() {
-            return matches
-                .iter()
-                .find(|m| m.wire_name == trimmed || m.name == trimmed)
-                .ok_or_else(|| {
-                    let available: Vec<&str> = matches.iter().map(|m| m.wire_name.as_str()).collect();
-                    format!(
-                        "Target tool '{trimmed}' not found among search matches: [{}].",
-                        available.join(", ")
-                    )
-                });
-        }
-    }
-
-    if matches.len() == 1 {
-        return Ok(&matches[0]);
-    }
-
-    let q_trimmed = query.trim();
-    if let Some(exact) = matches.iter().find(|m| m.name == q_trimmed || m.wire_name == q_trimmed) {
-        return Ok(exact);
-    }
-
-    let available: Vec<&str> = matches.iter().map(|m| m.wire_name.as_str()).collect();
-    Err(format!(
-        "Multiple tools matched; specify 'tool' in 'execute'. Candidates: [{}].",
-        available.join(", ")
-    ))
-}
-
-async fn maybe_execute_tool(
-    matches: &[DeferredMcpTool],
-    exec_val: Option<&serde_json::Map<String, serde_json::Value>>,
-    query: &str,
-) -> Option<String> {
-    let exec = exec_val?;
-    let target_tool = exec.get("tool").and_then(|t| t.as_str());
-    let call_args = exec.get("arguments").cloned().unwrap_or(serde_json::json!({}));
-    match resolve_executable_tool(matches, target_tool, query) {
-        Ok(tool) => {
-            let res = tool.execute_call(call_args).await;
-            Some(format!("\n\nExecuted `{}`:\n{res}", tool.wire_name))
-        }
-        Err(err) => Some(format!("\n\n[Execution Error] {err}")),
-    }
-}
-
 pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicToolActivator) -> Arc<dyn EngineTool> {
     let summary = catalog.catalog_summary();
     let description = format!(
@@ -450,7 +392,7 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
          Some tools are not loaded upfront; for external services, databases, or APIs, always use 'tool_search' \
          to discover specialized MCP tools instead of CLI commands in bash. \
          Keywords match tool names, descriptions, parameters; exact matches win. \
-         To execute immediately, provide 'execute'. Deferred tools: {summary}"
+         Loaded tools are called directly on later turns. Deferred tools: {summary}"
     );
 
     let schema = serde_json::json!({
@@ -463,20 +405,6 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
             "limit": {
                 "type": "integer",
                 "description": "Maximum number of matching tools to load (default: 5)"
-            },
-            "execute": {
-                "type": "object",
-                "properties": {
-                    "tool": {
-                        "type": "string",
-                        "description": "Tool name or wire name to execute immediately (optional if only one tool matches or query is exact)"
-                    },
-                    "arguments": {
-                        "type": "object",
-                        "description": "Arguments to pass to the tool call"
-                    }
-                },
-                "description": "Optional: immediately execute a matching tool in the same turn"
             }
         },
         "required": ["query"]
@@ -494,12 +422,7 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
                 .unwrap_or(5);
             let matches = catalog.search(query, limit);
             activator.activate_tools(&matches).await;
-            let mut output = catalog.format_search_results(query, &matches);
-            if let Some(exec_result) =
-                maybe_execute_tool(&matches, args.get("execute").and_then(|e| e.as_object()), query).await
-            {
-                output.push_str(&exec_result);
-            }
+            let output = catalog.format_search_results(query, &matches);
             Ok(ToolResult::success(output))
         }
     }))
@@ -658,7 +581,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_tool_search_dynamic_tool_execution() {
+    async fn test_tool_search_only_activates_tools() {
         let registry = Arc::new(tokio::sync::RwLock::new(Vec::new()));
         let names = Arc::new(std::sync::RwLock::new(Vec::new()));
         let activator = DynamicToolActivator::new();
@@ -667,18 +590,18 @@ mod tests {
         let catalog = ToolSearchCatalog::new(sample_tools());
         let tool = build_tool_search_tool(catalog, activator.clone());
 
-        let result = tool.execute(serde_json::json!({"query": "forecast"})).await.unwrap();
-        assert!(result.content.contains("weather_get_forecast"));
-        assert!(activator.is_activated("weather_get_forecast"));
+        assert!(tool.parameters()["properties"].get("execute").is_none());
 
-        let err_result = tool
-            .execute(serde_json::json!({"query": "forecast", "execute": {"tool": "nonexistent"}}))
+        let result = tool
+            .execute(serde_json::json!({
+                "query": "forecast",
+                "execute": {"tool": "weather_get_forecast", "arguments": {"city": "Paris"}}
+            }))
             .await
             .unwrap();
-        assert!(
-            err_result
-                .content
-                .contains("[Execution Error] Target tool 'nonexistent' not found")
-        );
+        assert!(result.content.contains("weather_get_forecast"));
+        assert!(!result.content.contains("Executed"));
+        assert!(!result.content.contains("Error"));
+        assert!(activator.is_activated("weather_get_forecast"));
     }
 }

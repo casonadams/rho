@@ -2,62 +2,6 @@ use super::*;
 use crate::tools::truncate::DEFAULT_MAX_BYTES as MAX_BASH_BYTES;
 
 #[test]
-fn test_is_read_only_command_positive() {
-    let read_only = [
-        "ls -la",
-        "cat Cargo.toml && ls -la",
-        "git status",
-        "git diff",
-        "cargo check",
-        "cargo test",
-        "rg 'fn main' src/",
-        "git branch --show-current",
-        "git config --get user.name",
-        "git rev-parse HEAD",
-        "git remote -v",
-        "jq . package.json",
-        "sort file.txt | uniq",
-        "python3 --version",
-        "node -v",
-        "npm test",
-        "go version",
-        "rtk git status",
-        "rtk git diff",
-        "rtk cargo check",
-        "rtk read Cargo.toml",
-        "rtk gain",
-        "rtk stats",
-    ];
-    for cmd in read_only {
-        assert!(is_read_only_command(cmd), "expected {cmd} to be read-only");
-    }
-}
-
-#[test]
-fn test_is_read_only_command_mutating() {
-    let mutating = [
-        "rm -rf target",
-        "echo 'foo' > file.txt",
-        "git commit -m 'test'",
-        "npm install",
-        "cargo run",
-        "env sh -c 'touch marker'",
-        "git branch new-branch",
-        "git config user.name model",
-        "npm publish",
-        "python script.py",
-        "git remote add origin https://...",
-        "rtk git commit -m 'test'",
-        "rtk git push",
-        "rtk npm install",
-        "rtk cargo run",
-    ];
-    for cmd in mutating {
-        assert!(!is_read_only_command(cmd), "expected {cmd} to not be read-only");
-    }
-}
-
-#[test]
 fn test_output_accumulator_creates_temp_file_when_truncated() {
     let mut acc = OutputAccumulator::new();
     let chunk = vec![b'x'; MAX_BASH_BYTES + 500];
@@ -417,4 +361,23 @@ async fn test_bash_collapses_consecutive_identical_lines() {
 
     assert!(!res.is_error);
     assert!(res.content.contains("repeat\n[... 9 identical lines collapsed]"));
+}
+
+#[test]
+fn test_output_accumulator_caps_full_log_size() {
+    let mut acc = OutputAccumulator::new().with_log_limit(64);
+    for _ in 0..20 {
+        acc.append(b"0123456789abcdef\n");
+    }
+    acc.finish();
+
+    let path = acc.snapshot().full_output_path.unwrap();
+    let content = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        content.len() <= 64 + "\n[log truncated at 64 bytes]\n".len(),
+        "{}",
+        content.len()
+    );
+    assert!(content.contains("[log truncated at 64 bytes]"));
 }

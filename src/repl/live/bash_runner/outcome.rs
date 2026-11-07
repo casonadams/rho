@@ -1,6 +1,6 @@
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 
 use crate::ui::TerminalRenderer;
 
@@ -17,7 +17,7 @@ pub struct BashOutcome {
 }
 
 pub fn finalize_run(
-    chunk_rx: &mut UnboundedReceiver<String>,
+    chunk_rx: &mut Receiver<String>,
     accumulator: &mut OutputAccumulator,
     renderer: &TerminalRenderer,
 ) -> OutputSnapshot {

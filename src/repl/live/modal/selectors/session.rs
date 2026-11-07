@@ -4,38 +4,38 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::super::ModalKeyResult;
 use crate::error::Result;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::session_picker::{resume_modal, resume_options};
+use crate::ui::interactive::{TerminalBackend, TerminalController};
 use crate::ui::render::formatters::format_relative_time;
+use rho_harness_core::session::SessionSummary;
 
-pub fn open_session_selector<B: TerminalBackend>(sessions_dir: &Path, controller: &mut TerminalController<B>) {
-    let _ = rho_harness_core::session::prune_empty_sessions(sessions_dir, None);
-    let summaries = rho_harness_core::session::list_session_summaries(sessions_dir).unwrap_or_default();
-    let mut options = Vec::new();
-
-    for item in summaries {
-        if item.turn_count == 0 && item.name.is_none() {
-            continue;
-        }
-        let display_title = item.name.unwrap_or_else(|| item.session_id.clone());
-        let relative_time = format_relative_time(item.last_modified);
-        let desc = format!("{}\t{} turns\t{}", item.session_id, item.turn_count, item.preview);
-        let label = format!("{display_title} ({relative_time})");
-        options.push(ModalOption::new(label, Some(desc)));
-    }
-
+pub async fn open_session_selector<B: TerminalBackend>(
+    sessions_dir: &Path,
+    active_session_id: &str,
+    controller: &mut TerminalController<B>,
+) {
+    let _ = rho_harness_core::session::prune_empty_sessions_async(sessions_dir, Some(active_session_id)).await;
+    let summaries = rho_harness_core::session::list_session_summaries_async(sessions_dir)
+        .await
+        .unwrap_or_default();
+    let options = resume_options(&summaries, session_row);
     let subtitle = if options.is_empty() {
         "No previous sessions to resume"
     } else {
         ""
     };
-    let modal = ModalState::new("Resume Session", subtitle, options).with_search(true);
-    controller.state_mut().push_modal(modal);
+    controller.state_mut().push_modal(resume_modal(options, subtitle));
+}
+
+fn session_row(item: &SessionSummary) -> (String, String) {
+    let display_title = item.name.clone().unwrap_or_else(|| item.session_id.clone());
+    let relative_time = format_relative_time(item.last_modified);
+    let desc = format!("{}\t{} turns\t{}", item.session_id, item.turn_count, item.preview);
+    (format!("{display_title} ({relative_time})"), desc)
 }
 
 fn selected_session_id<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
-    let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let desc = opt.description.clone().unwrap_or_default();
-    Some(desc.split('\t').next().unwrap_or(&desc).trim().to_string())
+    controller.state().active_modal()?.selected_option()?.value.clone()
 }
 
 fn delete_selected_session<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
@@ -43,10 +43,9 @@ fn delete_selected_session<B: TerminalBackend>(controller: &mut TerminalControll
         return Ok(ModalKeyResult::Handled);
     };
     if let Some(modal) = controller.state_mut().active_modal_mut() {
-        modal.all_options.retain(|o| {
-            let opt_desc = o.description.as_deref().unwrap_or("");
-            opt_desc.split('\t').next().unwrap_or(opt_desc).trim() != session_id
-        });
+        modal
+            .all_options
+            .retain(|o| o.value.as_deref() != Some(session_id.as_str()));
         let q = modal.filter_query.clone();
         modal.set_filter(&q);
     }
@@ -62,8 +61,33 @@ pub fn handle_session_key<B: TerminalBackend>(
         return delete_selected_session(controller);
     }
     crate::repl::live::modal::dispatch_simple_selector(controller, key, |opt| {
-        let desc = opt.description.as_deref().unwrap_or("");
-        let session_id = desc.split('\t').next().unwrap_or(desc).trim().to_string();
+        let session_id = opt.value.clone().unwrap_or_default();
         Some(ModalKeyResult::SessionSelected { session_id })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_session_selector;
+    use crate::ui::interactive::InteractiveState;
+    use crate::ui::interactive::TerminalController;
+    use crate::ui::interactive::controller::tests::fake::FakeTerminal;
+    use rho_harness_core::session::{SessionEventKind, SessionManager};
+
+    #[tokio::test]
+    async fn opening_selector_keeps_the_active_header_only_session() {
+        let dir = std::env::temp_dir().join(format!("rho_selector_prune_{}", uuid::Uuid::new_v4()));
+        let session = SessionManager::new_async(&dir, None).await.unwrap();
+        let (backend, _, _) = FakeTerminal::new(80);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+        open_session_selector(&dir, &session.session_id, &mut controller).await;
+
+        assert!(session.file_path.exists());
+        session
+            .append_event(SessionEventKind::UserMessage, serde_json::json!({}))
+            .await
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

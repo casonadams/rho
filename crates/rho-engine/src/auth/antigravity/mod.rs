@@ -8,8 +8,7 @@ mod client;
 #[cfg(test)]
 mod tests;
 
-use super::loopback::{CallbackParams, LoopbackServer};
-use super::pkce::{PkceChallenge, generate_state};
+use super::oauth::{AuthorizationGrant, LoginPrompt, loopback_login};
 use crate::antigravity::load_project_id;
 use client::{
     CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GoogleTokenResponse, REDIRECT_PORT, REDIRECT_URI_ENCODED,
@@ -33,20 +32,6 @@ pub fn stable_project_id(seed: &str) -> String {
     )
 }
 
-fn validate_oauth_callback(callback: CallbackParams, state: &str) -> Result<String> {
-    if let Some(err) = callback.error {
-        let desc = callback.error_description.unwrap_or_default();
-        return Err(AppError::Auth(format!("OAuth failed: {err} {desc}")));
-    }
-    let code = callback
-        .code
-        .ok_or_else(|| AppError::Auth("No authorization code received from callback".to_string()))?;
-    if callback.state.as_deref() != Some(state) {
-        return Err(AppError::Auth("OAuth state mismatch".to_string()));
-    }
-    Ok(code)
-}
-
 async fn build_antigravity_credential(token: GoogleTokenResponse) -> StoredCredential {
     let expires_at_ms = token
         .expires_in
@@ -68,40 +53,32 @@ async fn build_antigravity_credential(token: GoogleTokenResponse) -> StoredCrede
     cred
 }
 
-async fn wait_and_exchange_code(
-    (server, state, verifier): (LoopbackServer, &str, &str),
-    callbacks: &dyn OAuthLoginCallbacks,
-) -> Result<GoogleTokenResponse> {
-    let callback = server.wait_for_callback(CALLBACK_TIMEOUT).await?;
-    let code = validate_oauth_callback(callback, state)?;
-    callbacks
-        .on_progress("Exchanging authorization code for tokens...")
-        .await?;
-    exchange_code(&code, verifier).await
+fn build_google_auth_url(challenge: &str, state: &str) -> String {
+    format!(
+        "{GOOGLE_AUTH_URL}?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={REDIRECT_URI_ENCODED}&scope={SCOPES}&code_challenge={challenge}&code_challenge_method=S256&state={state}&access_type=offline&prompt=consent"
+    )
 }
 
-async fn prompt_user_auth(callbacks: &dyn OAuthLoginCallbacks, challenge: &str, state: &str) -> Result<LoopbackServer> {
-    let server = LoopbackServer::bind_port(REDIRECT_PORT).await.map_err(|e| {
-        AppError::Auth(format!(
-            "Failed to bind OAuth callback listener on port {REDIRECT_PORT}: {e}"
-        ))
-    })?;
-    let auth_url = format!(
-        "{GOOGLE_AUTH_URL}?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={REDIRECT_URI_ENCODED}&scope={SCOPES}&code_challenge={challenge}&code_challenge_method=S256&state={state}&access_type=offline&prompt=consent"
-    );
-    callbacks
-        .on_auth_url(&auth_url, Some("Complete Google sign-in to finish."))
-        .await?;
-    callbacks.on_progress("Waiting for Google authorization...").await?;
-    Ok(server)
+const GOOGLE_LOGIN_PROMPT: LoginPrompt = LoginPrompt {
+    port: REDIRECT_PORT,
+    callback_timeout: CALLBACK_TIMEOUT,
+    hint: "Complete Google sign-in to finish.",
+    progress: "Waiting for Google authorization...",
+};
+
+async fn redeem_google_grant(grant: AuthorizationGrant) -> Result<StoredCredential> {
+    let token = exchange_code(&grant.code, &grant.verifier).await?;
+    Ok(build_antigravity_credential(token).await)
 }
 
 pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
-    let pkce = PkceChallenge::generate();
-    let state = generate_state();
-    let server = prompt_user_auth(callbacks, &pkce.challenge, &state).await?;
-    let token = wait_and_exchange_code((server, &state, &pkce.verifier), callbacks).await?;
-    Ok(build_antigravity_credential(token).await)
+    loopback_login(
+        callbacks,
+        &GOOGLE_LOGIN_PROMPT,
+        build_google_auth_url,
+        redeem_google_grant,
+    )
+    .await
 }
 
 fn construct_refreshed_credential(

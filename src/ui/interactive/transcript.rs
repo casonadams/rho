@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::ui::interactive::layout::wrap_words_to_width;
+use crate::ui::interactive::layout::wrap_to_width;
 use crate::ui::render::format_thinking_block;
 use crate::ui::theme::{BlockStyle, Theme};
 
@@ -26,6 +26,18 @@ pub struct WelcomeItem {
 }
 
 pub type ToolItem = rho_harness_core::presentation::ToolLine;
+
+#[cfg(test)]
+pub(crate) fn tool_fixture(name: &str, arguments: serde_json::Value, output: &str) -> TranscriptItem {
+    TranscriptItem::Tool(ToolItem {
+        name: name.into(),
+        arguments,
+        is_error: false,
+        output: output.into(),
+        output_summary: output.into(),
+        duration_ms: Some(10),
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranscriptItem {
@@ -174,7 +186,7 @@ fn append_welcome_section(out: &mut String, title: &str, items: &[String], width
     }
     let text = items.join(", ");
     let max_w = width.saturating_sub(4).max(20);
-    let wrapped = wrap_words_to_width(&text, max_w);
+    let wrapped = wrap_to_width(&text, max_w);
     out.push_str(&format!("{dim}[{title}]{dim:#}\n"));
     for line in wrapped {
         out.push_str(&format!("  {line}\n"));

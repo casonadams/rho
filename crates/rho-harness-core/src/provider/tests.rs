@@ -6,7 +6,6 @@ fn oauth_providers_list_is_exact() {
         ProviderId::OAUTH_PROVIDERS,
         [
             ProviderId::ChatGpt,
-            ProviderId::Copilot,
             ProviderId::Antigravity,
             ProviderId::ClaudeCode,
             ProviderId::OpenRouter,
@@ -34,7 +33,6 @@ fn api_key_providers_list_excludes_local_and_pure_oauth() {
     for excluded in [
         ProviderId::Local,
         ProviderId::ChatGpt,
-        ProviderId::Copilot,
         ProviderId::Antigravity,
         ProviderId::ClaudeCode,
     ] {
@@ -43,39 +41,21 @@ fn api_key_providers_list_excludes_local_and_pure_oauth() {
 }
 
 #[test]
-fn supports_oauth_capabilities() {
+fn oauth_and_api_key_capabilities() {
     let cases = [
-        (ProviderId::OpenRouter, true),
-        (ProviderId::ChatGpt, true),
-        (ProviderId::Copilot, true),
-        (ProviderId::Antigravity, true),
-        (ProviderId::ClaudeCode, true),
-        (ProviderId::Anthropic, false),
-        (ProviderId::OpenAi, false),
-        (ProviderId::Gemini, false),
-        (ProviderId::Local, false),
+        (ProviderId::OpenRouter, true, true),
+        (ProviderId::ChatGpt, true, false),
+        (ProviderId::Antigravity, true, false),
+        (ProviderId::ClaudeCode, true, false),
+        (ProviderId::Anthropic, false, true),
+        (ProviderId::OpenAi, false, true),
+        (ProviderId::DeepSeek, false, true),
+        (ProviderId::Gemini, false, true),
+        (ProviderId::Local, false, false),
     ];
-    for (p, expected) in cases {
-        assert_eq!(p.supports_oauth(), expected);
-    }
-}
-
-#[test]
-fn supports_api_key_capabilities() {
-    let cases = [
-        (ProviderId::OpenRouter, true),
-        (ProviderId::Anthropic, true),
-        (ProviderId::OpenAi, true),
-        (ProviderId::DeepSeek, true),
-        (ProviderId::Gemini, true),
-        (ProviderId::ChatGpt, false),
-        (ProviderId::Copilot, false),
-        (ProviderId::Antigravity, false),
-        (ProviderId::ClaudeCode, false),
-        (ProviderId::Local, false),
-    ];
-    for (p, expected) in cases {
-        assert_eq!(p.supports_api_key(), expected);
+    for (p, oauth, api_key) in cases {
+        assert_eq!(p.supports_oauth(), oauth, "{p:?} oauth");
+        assert_eq!(p.supports_api_key(), api_key, "{p:?} api key");
     }
 }
 
@@ -121,7 +101,7 @@ fn api_key_environment_variables() {
 
 #[test]
 fn all_variants_are_unique_and_represented() {
-    assert_eq!(ProviderId::ALL.len(), 15);
+    assert_eq!(ProviderId::ALL.len(), 14);
     for provider in ProviderId::ALL {
         let parsed = ProviderId::from_str(provider.as_str()).expect("canonical string must parse");
         assert_eq!(parsed, provider);

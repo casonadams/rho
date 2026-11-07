@@ -1,13 +1,10 @@
 use super::*;
 use crate::auth::AuthStore;
 use crate::mcp::load_mcp_tools;
+use crate::test_support::temp_dir;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-
-fn temp_dir(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("engine_{label}_{}", uuid::Uuid::new_v4()))
-}
 
 fn test_config(label: &str) -> (Config, PathBuf) {
     let dir = temp_dir(label);
@@ -127,30 +124,54 @@ async fn assert_rebuilt_storage(
     );
 }
 
-#[tokio::test]
-async fn rebuild_preserves_session_history_and_reattaches_tools() {
+struct BuiltinEngine {
+    engine: AgentEngine,
+    config: Config,
+    auth_store: AuthStore,
+    tool_count: usize,
+    dir: PathBuf,
+}
+
+async fn builtin_engine(label: &str) -> BuiltinEngine {
     with_dummy_provider_key();
-    let (config, dir) = test_config("continuity");
+    let (config, dir) = test_config(label);
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
-    let tools = crate::tools::build_builtin_tools(&base_dir, &config).unwrap();
-
+    let tools = crate::tools::build_builtin_tools(&base_dir, &config, None).unwrap();
+    let tool_count = tools.len();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
-        .base_dir(base_dir.clone())
-        .tools(tools.clone())
+        .base_dir(base_dir)
+        .tools(tools)
         .build()
         .await
         .unwrap();
-    assert_eq!(engine.tool_names().len(), tools.len());
+    assert_eq!(engine.tool_names().len(), tool_count);
+    BuiltinEngine {
+        engine,
+        config,
+        auth_store,
+        tool_count,
+        dir,
+    }
+}
 
+#[tokio::test]
+async fn rebuild_preserves_session_history_and_reattaches_tools() {
+    let BuiltinEngine {
+        engine,
+        config,
+        auth_store,
+        tool_count,
+        dir,
+    } = builtin_engine("continuity").await;
     let session_id = engine.session_manager.session_id.clone();
     let (history_before, jsonl_before) = seed_test_engine_history(&engine).await;
 
     let mut new_config = config.clone();
     new_config.max_turns = 7;
-    let rebuilt = engine.rebuild(new_config, auth_store.clone()).await.unwrap();
+    let rebuilt = engine.rebuild(new_config, auth_store).await.unwrap();
 
-    assert_rebuilt_meta(&rebuilt, &session_id, tools.len());
+    assert_rebuilt_meta(&rebuilt, &session_id, tool_count);
     assert_rebuilt_storage(&rebuilt, &session_id, &history_before, &jsonl_before).await;
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -504,22 +525,16 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
 
 #[tokio::test]
 async fn switch_model_updates_model_and_preserves_tools() {
-    with_dummy_provider_key();
-    let (config, dir) = test_config("switch_model");
-    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let base_dir = std::env::temp_dir();
-    let tools = crate::tools::build_builtin_tools(&base_dir, &config).unwrap();
-    let initial_tools_count = tools.len();
-
-    let mut engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
-        .base_dir(base_dir.clone())
-        .tools(tools)
-        .build()
-        .await
-        .unwrap();
+    let BuiltinEngine {
+        mut engine,
+        config,
+        tool_count,
+        dir,
+        ..
+    } = builtin_engine("switch_model").await;
 
     assert_eq!(engine.config.model, config.model);
-    assert_eq!(engine.tool_names().len(), initial_tools_count);
+    assert_eq!(engine.tool_names().len(), tool_count);
 
     engine
         .switch_model("claude-3-5-haiku-20241022", "anthropic")
@@ -528,7 +543,7 @@ async fn switch_model_updates_model_and_preserves_tools() {
 
     assert_eq!(engine.config.model, "claude-3-5-haiku-20241022");
     assert_eq!(engine.config.provider, "anthropic");
-    assert_eq!(engine.tool_names().len(), initial_tools_count);
+    assert_eq!(engine.tool_names().len(), tool_count);
     assert_eq!(engine.context_limit(), Some(200_000));
 
     std::fs::remove_dir_all(dir).unwrap();
@@ -568,9 +583,6 @@ impl rho_harness_core::presentation::presenter::Presenter for RetryTestPresenter
     fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
     fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
         rho_harness_core::presentation::ToolStreamPort::default()
-    }
-    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
-        false
     }
 }
 

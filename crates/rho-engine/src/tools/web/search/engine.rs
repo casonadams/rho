@@ -1,12 +1,10 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 use crate::tools::web::search::query::{matches_domain_filters, normalize_domain_filters};
 use crate::tools::web::search::result::{SearchResult, deduplicate_results};
-use crate::tools::web::search::{brave, ddg_lite, exa, firecrawl, gemini, yahoo};
+use crate::tools::web::search::{brave, ddg_lite, yahoo};
 use rho_harness_core::args::WebSearchRecency;
+use rho_harness_core::config::SUPPORTED_SEARCH_ENGINES;
 use rho_harness_core::error::AppError;
 use url::Url;
 
@@ -15,9 +13,6 @@ pub enum EngineKind {
     Brave,
     DuckDuckGoLite,
     Yahoo,
-    Firecrawl,
-    Exa,
-    Gemini,
 }
 
 impl EngineKind {
@@ -26,9 +21,6 @@ impl EngineKind {
             Self::Brave => "Brave",
             Self::DuckDuckGoLite => "DuckDuckGo Lite",
             Self::Yahoo => "Yahoo",
-            Self::Firecrawl => "Firecrawl",
-            Self::Exa => "Exa",
-            Self::Gemini => "Gemini",
         }
     }
 }
@@ -39,9 +31,6 @@ impl std::fmt::Display for EngineKind {
             Self::Brave => write!(f, "brave"),
             Self::DuckDuckGoLite => write!(f, "duckduckgo"),
             Self::Yahoo => write!(f, "yahoo"),
-            Self::Firecrawl => write!(f, "firecrawl"),
-            Self::Exa => write!(f, "exa"),
-            Self::Gemini => write!(f, "gemini"),
         }
     }
 }
@@ -54,11 +43,8 @@ impl std::str::FromStr for EngineKind {
             "brave" => Ok(Self::Brave),
             "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" => Ok(Self::DuckDuckGoLite),
             "yahoo" => Ok(Self::Yahoo),
-            "firecrawl" => Ok(Self::Firecrawl),
-            "exa" => Ok(Self::Exa),
-            "gemini" | "google" => Ok(Self::Gemini),
             other => Err(AppError::Config(format!(
-                "Unknown search engine '{other}'. Supported engines: brave, duckduckgo, yahoo, firecrawl, exa, gemini"
+                "Unknown search engine '{other}'. Supported engines: {SUPPORTED_SEARCH_ENGINES}"
             ))),
         }
     }
@@ -103,28 +89,11 @@ pub struct MultiEngineParams<'a> {
     pub engines: &'a [EngineKind],
 }
 
-pub async fn search_single_engine(
-    engine: EngineKind,
-    req: &EngineRequest<'_>,
-    allowed: &[String],
-    blocked: &[String],
-) -> Result<Vec<SearchResult>, AppError> {
-    dispatch_engine_call(engine, req, allowed, blocked).await
-}
-
-fn dispatch_engine_call<'a>(
-    engine: EngineKind,
-    req: &'a EngineRequest<'_>,
-    allowed: &'a [String],
-    blocked: &'a [String],
-) -> Pin<Box<dyn Future<Output = Result<Vec<SearchResult>, AppError>> + Send + 'a>> {
+async fn dispatch_engine_call(engine: EngineKind, req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     match engine {
-        EngineKind::Brave => Box::pin(brave::search_brave(req)),
-        EngineKind::DuckDuckGoLite => Box::pin(ddg_lite::search_ddg_lite(req)),
-        EngineKind::Yahoo => Box::pin(yahoo::search_yahoo(req)),
-        EngineKind::Firecrawl => Box::pin(firecrawl::search_firecrawl(req)),
-        EngineKind::Exa => Box::pin(exa::search_exa(req, allowed, blocked)),
-        EngineKind::Gemini => Box::pin(gemini::search_gemini(req)),
+        EngineKind::Brave => brave::search_brave(req).await,
+        EngineKind::DuckDuckGoLite => ddg_lite::search_ddg_lite(req).await,
+        EngineKind::Yahoo => yahoo::search_yahoo(req).await,
     }
 }
 
@@ -144,7 +113,7 @@ async fn query_engine_filtered(
     blocked: &[String],
 ) -> Vec<SearchResult> {
     limiter.acquire().await;
-    if let Ok(results) = search_single_engine(engine, req, allowed, blocked).await {
+    if let Ok(results) = dispatch_engine_call(engine, req).await {
         results
             .into_iter()
             .map(|mut r| {
@@ -204,70 +173,25 @@ mod tests {
             ("ddg", EngineKind::DuckDuckGoLite),
             ("ddg_lite", EngineKind::DuckDuckGoLite),
             ("yahoo", EngineKind::Yahoo),
-            ("firecrawl", EngineKind::Firecrawl),
-            ("exa", EngineKind::Exa),
-            ("gemini", EngineKind::Gemini),
-            ("google", EngineKind::Gemini),
         ];
         for (input, expected) in cases {
             assert_eq!(input.parse::<EngineKind>().unwrap(), expected);
         }
         assert!("unknown".parse::<EngineKind>().is_err());
+        assert!("exa".parse::<EngineKind>().is_err());
+        assert!("gemini".parse::<EngineKind>().is_err());
     }
 
     #[test]
-    fn test_engine_kind_display() {
+    fn test_engine_kind_display_and_name() {
         let cases = [
-            (EngineKind::Brave, "brave"),
-            (EngineKind::DuckDuckGoLite, "duckduckgo"),
-            (EngineKind::Yahoo, "yahoo"),
-            (EngineKind::Firecrawl, "firecrawl"),
-            (EngineKind::Exa, "exa"),
-            (EngineKind::Gemini, "gemini"),
+            (EngineKind::Brave, "brave", "Brave"),
+            (EngineKind::DuckDuckGoLite, "duckduckgo", "DuckDuckGo Lite"),
+            (EngineKind::Yahoo, "yahoo", "Yahoo"),
         ];
-        for (engine, expected) in cases {
-            assert_eq!(engine.to_string(), expected);
-        }
-    }
-
-    #[test]
-    fn test_engine_kind_name() {
-        let cases = [
-            (EngineKind::Brave, "Brave"),
-            (EngineKind::DuckDuckGoLite, "DuckDuckGo Lite"),
-            (EngineKind::Yahoo, "Yahoo"),
-            (EngineKind::Firecrawl, "Firecrawl"),
-            (EngineKind::Exa, "Exa"),
-            (EngineKind::Gemini, "Gemini"),
-        ];
-        for (engine, expected) in cases {
-            assert_eq!(engine.name(), expected);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_dispatch_engine_call_all_variants() {
-        let http = HttpClient::new(true).unwrap();
-        let req = EngineRequest {
-            http: &http,
-            timeout_sec: 1,
-            region: "us-en",
-            query: "test",
-            recency: None,
-        };
-        let allowed = vec![];
-        let blocked = vec![];
-
-        for engine in [
-            EngineKind::Brave,
-            EngineKind::DuckDuckGoLite,
-            EngineKind::Yahoo,
-            EngineKind::Firecrawl,
-            EngineKind::Exa,
-            EngineKind::Gemini,
-        ] {
-            let fut = dispatch_engine_call(engine, &req, &allowed, &blocked);
-            drop(fut);
+        for (engine, display, name) in cases {
+            assert_eq!(engine.to_string(), display);
+            assert_eq!(engine.name(), name);
         }
     }
 

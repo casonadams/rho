@@ -55,18 +55,15 @@ fn test_parse_agent_files_variants() {
     let _ = std::fs::remove_dir_all(tmp);
 }
 
-#[test]
-fn test_agent_resolution_precedence() {
+#[tokio::test]
+async fn test_agent_resolution_precedence() {
     let p = std::env::temp_dir().join(format!("agent_res_{}", uuid::Uuid::new_v4()));
 
     write_agent(&p.join("home/.claude/agents"), "u", "---\ndescription: u\n---\n");
     write_agent(&p.join("prj/.claude/agents"), "s", "---\ndescription: old\n---\n");
     write_agent(&p.join("prj/.agents/agents"), "s", "---\ndescription: new\n---\n");
 
-    let res = resolved_agents_for_paths(AgentResolutionPaths {
-        project_dir: Some(&p.join("prj")),
-        home_dir: Some(&p.join("home")),
-    });
+    let res = resolved_agents_for_paths_async(Some(p.join("prj")), Some(p.join("home"))).await;
 
     let map: std::collections::BTreeMap<_, _> = res
         .into_iter()

@@ -43,60 +43,53 @@ impl ModelAdapter for TestModel {
 }
 
 #[tokio::test]
-async fn test_subagent_tool_depth_limit() {
-    let tool = SubagentTool::new(None, 1, Vec::new());
-    let args = json!({
-        "prompt": "search codebase"
-    });
-    let result = tool.execute(args).await.unwrap();
-    assert!(result.is_error);
-    assert!(result.content.contains("Maximum subagent recursion depth"));
-}
-
-#[tokio::test]
-async fn test_subagent_tool_missing_model() {
-    let tool = SubagentTool::new(None, 0, Vec::new());
-    let args = json!({
-        "prompt": "search codebase"
-    });
-    let result = tool.execute(args).await.unwrap();
-    assert!(result.is_error);
-    assert!(result.content.contains("No model handle configured"));
-}
-
-#[tokio::test]
-async fn test_subagent_tool_invalid_args() {
-    let tool = SubagentTool::new(None, 0, Vec::new());
-    let args = json!({
-        "prompt": 12345
-    });
-    let result = tool.execute(args).await.unwrap();
-    assert!(result.is_error);
-    assert!(result.content.contains("failed to parse subagent arguments"));
+async fn test_subagent_tool_rejects_bad_requests() {
+    let tool = SubagentTool::new(None, Vec::new());
+    let cases = [
+        (json!({ "prompt": "search codebase" }), "No model handle configured"),
+        (json!({ "prompt": 12345 }), "failed to parse subagent arguments"),
+    ];
+    for (args, expected) in cases {
+        let result = tool.execute(args).await.unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains(expected), "{expected}");
+    }
 }
 
 #[tokio::test]
 async fn test_subagent_tool_success() {
-    let model = Arc::new(TestModel {
-        answer: "Scout completed: identified 4 services".into(),
-    });
-    let tool = SubagentTool::new(Some(model), 0, Vec::new());
-    let args = json!({
-        "role": "scout",
-        "prompt": "Find all service definitions",
-        "context_slice": "Check crates/rho-engine"
-    });
-    let result = tool.execute(args).await.unwrap();
-    assert!(!result.is_error);
-    assert_eq!(result.content, "Scout completed: identified 4 services");
+    let cases = [
+        (
+            "Scout completed: identified 4 services",
+            json!({
+                "role": "scout",
+                "prompt": "Find all service definitions",
+                "context_slice": "Check crates/rho-engine"
+            }),
+        ),
+        (
+            "Scout report: zero defects found",
+            json!({
+                "role": "critic",
+                "prompt": "verify invariant AC-001",
+                "context_slice": "spec details"
+            }),
+        ),
+    ];
+    for (answer, args) in cases {
+        let model = Arc::new(TestModel { answer: answer.into() });
+        let tool: Arc<dyn EngineTool> = Arc::new(SubagentTool::new(Some(model), Vec::new()));
+        let result = tool.execute(args).await.unwrap();
+        assert!(!result.is_error);
+        assert_eq!(result.content, answer);
+    }
 }
 
 #[test]
 fn test_subagent_tool_metadata() {
-    let tool = SubagentTool::new(None, 0, Vec::new());
+    let tool = SubagentTool::new(None, Vec::new());
     assert_eq!(tool.name(), "subagent");
     assert!(!tool.description().is_empty());
-    assert_eq!(tool.depth(), 0);
     let params = tool.parameters();
     assert!(params.is_object());
 }
@@ -120,42 +113,23 @@ fn test_role_tool_filtering() {
         dummy_tool("web_search"),
     ];
 
-    let model = Arc::new(TestModel { answer: "ok".into() });
+    let names = |role: SubagentRole| -> Vec<String> {
+        runner::filter_tools_for_role(&all_tools, role)
+            .iter()
+            .map(|t| t.name().to_string())
+            .collect()
+    };
 
-    let scout = SubagentRunner::new(model.clone(), SubagentRole::Scout, &all_tools, 5);
-    assert_eq!(scout.tool_names(), vec!["fd", "read", "rg", "web_fetch", "web_search"]);
-    assert!(!scout.tool_names().contains(&"write"));
-    assert!(!scout.tool_names().contains(&"bash"));
+    let scout = names(SubagentRole::Scout);
+    assert_eq!(scout, vec!["fd", "read", "rg", "web_fetch", "web_search"]);
+    assert!(!scout.iter().any(|n| n == "write" || n == "bash"));
 
-    let critic = SubagentRunner::new(model.clone(), SubagentRole::Critic, &all_tools, 5);
-    assert_eq!(critic.tool_names(), vec!["fd", "read", "rg"]);
-    assert!(!critic.tool_names().contains(&"write"));
-
-    let planner = SubagentRunner::new(model.clone(), SubagentRole::Planner, &all_tools, 5);
-    assert_eq!(planner.tool_names(), vec!["fd", "read", "rg"]);
-    assert!(!planner.tool_names().contains(&"write"));
-
-    let general = SubagentRunner::new(model, SubagentRole::General, &all_tools, 5);
+    assert_eq!(names(SubagentRole::Critic), vec!["fd", "read", "rg"]);
+    assert_eq!(names(SubagentRole::Planner), vec!["fd", "read", "rg"]);
     assert_eq!(
-        general.tool_names(),
+        names(SubagentRole::General),
         vec!["bash", "edit", "fd", "read", "rg", "web_fetch", "web_search", "write"]
     );
-}
-
-#[tokio::test]
-async fn test_subagent_as_dynamic_tool() {
-    let model = Arc::new(TestModel {
-        answer: "Scout report: zero defects found".into(),
-    });
-    let subagent = Arc::new(SubagentTool::new(Some(model), 0, Vec::new()));
-    let args = json!({
-        "role": "critic",
-        "prompt": "verify invariant AC-001",
-        "context_slice": "spec details"
-    });
-    let res = subagent.execute(args).await.unwrap();
-    assert!(!res.is_error);
-    assert_eq!(res.content, "Scout report: zero defects found");
 }
 
 #[tokio::test]
@@ -176,7 +150,7 @@ async fn test_subagent_custom_agent_execution() {
         system_prompt: "You are a code reviewer.".to_string(),
     };
 
-    let subagent = Arc::new(SubagentTool::new(Some(model.clone()), 0, Vec::new()).with_agents(vec![custom_agent]));
+    let subagent = Arc::new(SubagentTool::new(Some(model.clone()), Vec::new()).with_agents(vec![custom_agent]));
 
     assert!(subagent.description().contains("code-reviewer"));
 

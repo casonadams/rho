@@ -1,6 +1,7 @@
 //! Google OAuth token exchange and user info endpoints.
 
-use super::super::http::http_client;
+use crate::auth::token_request::post_form_json;
+use crate::http::CLIENT;
 use rho_harness_core::error::{AppError, Result};
 use serde::Deserialize;
 use std::time::Duration;
@@ -47,7 +48,7 @@ async fn parse_google_token_response(res: reqwest::Response) -> Result<GoogleTok
 }
 
 pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTokenResponse> {
-    let client = http_client();
+    let client = &CLIENT;
     let redirect_uri = format!("http://localhost:{REDIRECT_PORT}{REDIRECT_PATH}");
     let form = [
         ("client_id", GOOGLE_CLIENT_ID),
@@ -59,6 +60,7 @@ pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTo
     ];
     let res = client
         .post(GOOGLE_TOKEN_URL)
+        .timeout(Duration::from_secs(15))
         .form(&form)
         .send()
         .await
@@ -67,9 +69,10 @@ pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTo
 }
 
 pub(super) async fn fetch_user_email(access_token: &str) -> Option<String> {
-    let client = http_client();
+    let client = &CLIENT;
     let res = client
         .get(GOOGLE_USERINFO_URL)
+        .timeout(Duration::from_secs(15))
         .bearer_auth(access_token)
         .send()
         .await
@@ -82,24 +85,18 @@ pub(super) async fn fetch_user_email(access_token: &str) -> Option<String> {
 }
 
 pub(super) async fn refresh_google_token(refresh: &str) -> Result<GoogleTokenResponse> {
-    let client = http_client();
     let form = [
         ("client_id", GOOGLE_CLIENT_ID),
         ("client_secret", GOOGLE_CLIENT_SECRET),
         ("refresh_token", refresh),
         ("grant_type", "refresh_token"),
     ];
-    let res = client
-        .post(GOOGLE_TOKEN_URL)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| AppError::Auth(format!("Antigravity token refresh failed: {e}")))?;
-    if !res.status().is_success() {
-        let body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!("Antigravity token refresh failed: {body}")));
-    }
-    res.json()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse refresh response: {e}")))
+    post_form_json(
+        GOOGLE_TOKEN_URL,
+        &form,
+        &[],
+        Duration::from_secs(15),
+        "Antigravity token refresh",
+    )
+    .await
 }

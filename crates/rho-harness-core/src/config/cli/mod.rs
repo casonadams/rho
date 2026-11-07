@@ -1,6 +1,8 @@
 use clap::Parser;
 use std::path::PathBuf;
 
+const PATH_LIST_SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
+
 #[cfg(test)]
 mod alignment_tests;
 pub mod help;
@@ -8,7 +10,7 @@ mod subcommands;
 #[cfg(test)]
 mod tests;
 
-pub use subcommands::{AgentCommands, CollabCommands, Commands, McpCommands};
+pub use subcommands::{Commands, McpCommands};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -35,10 +37,6 @@ pub struct Cli {
     #[arg(long = "slow", default_value_t = false)]
     pub slow: bool,
 
-    /// Enable automatic model tier routing per prompt
-    #[arg(long = "route", alias = "auto-route", default_value_t = false)]
-    pub route: bool,
-
     /// AI provider: API-key, local, or subscription identity (optional/legacy when model includes provider)
     #[arg(long = "provider")]
     pub provider: Option<String>,
@@ -60,7 +58,7 @@ pub struct Cli {
     pub name: Option<String>,
 
     /// Additional directory to load lifecycle hooks from (repeatable, additive)
-    #[arg(long = "hook-dir", env = "RHO_HOOK_DIR")]
+    #[arg(long = "hook-dir", env = "RHO_HOOK_DIR", value_delimiter = PATH_LIST_SEPARATOR)]
     pub hook_dir: Vec<PathBuf>,
 
     /// Export session to HTML or Markdown file and exit

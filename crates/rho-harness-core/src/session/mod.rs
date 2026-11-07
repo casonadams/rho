@@ -10,6 +10,7 @@ mod event;
 pub mod export;
 pub mod format;
 mod fs;
+mod lock;
 mod memory;
 pub mod prune;
 mod secrets;
@@ -32,20 +33,14 @@ pub use compaction::{
 
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
-pub use cwd::{last_session_for_cwd, last_session_for_cwd_async, record_session_for_cwd, record_session_for_cwd_async};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
-pub(crate) use format::{create_session_file, create_session_file_async, load_file, load_file_async};
+pub(crate) use format::{create_session_file, load_file};
 pub(crate) use fs::{
-    new_session_id, session_error, set_private_directory_permissions, set_private_directory_permissions_async,
-    set_private_file_permissions, set_private_file_permissions_async, validate_session_id,
+    new_session_id, run_blocking, session_error, set_private_directory_permissions, set_private_file_permissions,
+    validate_session_id,
 };
-pub use prune::{
-    prune_empty_sessions, prune_empty_sessions_async, prune_expired_sessions, prune_expired_sessions_async,
-};
-pub use summary::{
-    SessionSummary, delete_session, delete_session_async, list_session_summaries, list_session_summaries_async,
-    list_sessions, list_sessions_async,
-};
+pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
+pub use summary::{SessionSummary, delete_session_async, list_session_summaries, list_session_summaries_async};
 pub use tree::{SessionTree, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
 use validation::CanonicalHistory;
@@ -53,7 +48,7 @@ use validation::CanonicalHistory;
 use crate::error::Result;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SessionManager {
@@ -61,7 +56,7 @@ pub struct SessionManager {
     pub file_path: PathBuf,
     pub(crate) state: Arc<tokio::sync::Mutex<StoreState>>,
     pub(crate) secrets: Arc<SecretGuard>,
-    pub(crate) memory_error: Arc<Mutex<Option<String>>>,
+    pub(crate) _session_lock: Arc<lock::SessionLock>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -101,20 +96,16 @@ fn load_or_create_state(path: &Path, session_id: &str, resume: bool) -> Result<S
     }
 }
 
-async fn record_cwd_if_present_async(sessions_dir: &Path, session_id: &str) {
+fn record_cwd_if_present(sessions_dir: &Path, session_id: &str) {
     if let Ok(cwd) = std::env::current_dir() {
-        let _ = SessionManager::record_session_for_cwd_async(sessions_dir, &cwd, session_id).await;
+        let _ = SessionManager::record_session_for_cwd(sessions_dir, &cwd, session_id);
     }
 }
 
-async fn load_or_create_state_async(path: &Path, session_id: &str, resume: bool) -> Result<StoreState> {
-    if resume {
-        set_private_file_permissions_async(path).await?;
-        load_file_async(path, session_id).await
-    } else {
-        create_session_file_async(path, session_id).await?;
-        Ok(empty_store_state())
-    }
+fn session_paths(sessions_dir: &Path, resume_id: Option<&str>) -> Result<(String, PathBuf)> {
+    let session_id = prepare_session_id(resume_id)?;
+    let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
+    Ok((session_id, file_path))
 }
 
 impl SessionManager {
@@ -129,19 +120,11 @@ impl SessionManager {
     pub fn new_with_secrets(sessions_dir: &Path, resume_id: Option<&str>, secrets: Vec<String>) -> Result<Self> {
         std::fs::create_dir_all(sessions_dir)?;
         set_private_directory_permissions(sessions_dir)?;
-        let session_id = prepare_session_id(resume_id)?;
-        let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
+        let (session_id, file_path) = session_paths(sessions_dir, resume_id)?;
         let state = load_or_create_state(&file_path, &session_id, resume_id.is_some())?;
-        if let Ok(cwd) = std::env::current_dir() {
-            let _ = Self::record_session_for_cwd(sessions_dir, &cwd, &session_id);
-        }
-        Ok(Self {
-            session_id,
-            file_path,
-            state: Arc::new(tokio::sync::Mutex::new(state)),
-            secrets: Arc::new(SecretGuard::new(secrets)),
-            memory_error: Arc::new(Mutex::new(None)),
-        })
+        let session_lock = lock::acquire(&file_path)?;
+        record_cwd_if_present(sessions_dir, &session_id);
+        Ok(Self::assemble(session_id, file_path, state, secrets, session_lock))
     }
 
     pub async fn new_with_secrets_async(
@@ -149,27 +132,29 @@ impl SessionManager {
         resume_id: Option<&str>,
         secrets: Vec<String>,
     ) -> Result<Self> {
-        tokio::fs::create_dir_all(sessions_dir).await?;
-        set_private_directory_permissions_async(sessions_dir).await?;
-        let session_id = prepare_session_id(resume_id)?;
-        let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
-        let state = load_or_create_state_async(&file_path, &session_id, resume_id.is_some()).await?;
-        record_cwd_if_present_async(sessions_dir, &session_id).await;
-        Ok(Self {
+        let sessions_dir = sessions_dir.to_path_buf();
+        let resume_id = resume_id.map(str::to_owned);
+        run_blocking(move || Self::new_with_secrets(&sessions_dir, resume_id.as_deref(), secrets)).await
+    }
+
+    fn assemble(
+        session_id: String,
+        file_path: PathBuf,
+        state: StoreState,
+        secrets: Vec<String>,
+        session_lock: Arc<lock::SessionLock>,
+    ) -> Self {
+        Self {
             session_id,
             file_path,
             state: Arc::new(tokio::sync::Mutex::new(state)),
             secrets: Arc::new(SecretGuard::new(secrets)),
-            memory_error: Arc::new(Mutex::new(None)),
-        })
+            _session_lock: session_lock,
+        }
     }
 
     pub fn record_session_for_cwd(sessions_dir: &Path, cwd: &Path, session_id: &str) -> Result<()> {
         cwd::record_session_for_cwd(sessions_dir, cwd, session_id)
-    }
-
-    pub async fn record_session_for_cwd_async(sessions_dir: &Path, cwd: &Path, session_id: &str) -> Result<()> {
-        cwd::record_session_for_cwd_async(sessions_dir, cwd, session_id).await
     }
 
     pub fn last_session_for_cwd(sessions_dir: &Path, cwd: &Path) -> Result<Option<String>> {
@@ -178,15 +163,6 @@ impl SessionManager {
 
     pub async fn last_session_for_cwd_async(sessions_dir: &Path, cwd: &Path) -> Result<Option<String>> {
         cwd::last_session_for_cwd_async(sessions_dir, cwd).await
-    }
-
-    pub fn take_memory_error(&self) -> Option<String> {
-        self.memory_error.lock().ok().and_then(|mut error| error.take())
-    }
-
-    pub fn add_secrets(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
-        let persisted = std::fs::read_to_string(&self.file_path)?;
-        self.secrets.add(secrets, &persisted)
     }
 
     pub async fn add_secrets_async(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
@@ -198,14 +174,6 @@ impl SessionManager {
         self.secrets.redact(value)
     }
 
-    pub fn list_sessions(sessions_dir: &Path) -> Result<Vec<String>> {
-        summary::list_sessions(sessions_dir)
-    }
-
-    pub async fn list_sessions_async(sessions_dir: &Path) -> Result<Vec<String>> {
-        summary::list_sessions_async(sessions_dir).await
-    }
-
     pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
         summary::list_session_summaries(sessions_dir)
     }
@@ -214,28 +182,12 @@ impl SessionManager {
         summary::list_session_summaries_async(sessions_dir).await
     }
 
-    pub fn auto_prune(&self, retention_days: u32) -> Result<usize> {
-        let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
-        let _ = prune_empty_sessions(sessions_dir, Some(&self.session_id));
-        prune_expired_sessions(sessions_dir, &self.session_id, retention_days)
-    }
-
-    pub async fn auto_prune_async(&self, retention_days: u32) -> Result<usize> {
-        let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
-        let _ = prune_empty_sessions_async(sessions_dir, Some(&self.session_id)).await;
-        prune_expired_sessions_async(sessions_dir, &self.session_id, retention_days).await
-    }
-
     pub fn spawn_auto_prune(&self, retention_days: u32) {
         let active_id = self.session_id.clone();
         let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
         tokio::spawn(async move {
             let _ = prune_expired_sessions_async(&sessions_dir, &active_id, retention_days).await;
         });
-    }
-
-    pub fn delete_session(sessions_dir: &Path, session_id: &str) -> Result<()> {
-        summary::delete_session(sessions_dir, session_id)
     }
 
     pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Result<()> {

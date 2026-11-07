@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::temp_auth_store;
 use rho_harness_core::config::ProviderConfig;
 use std::collections::BTreeMap;
 
@@ -20,129 +21,105 @@ fn spec(base_url: &str, key_env: Option<&str>) -> ProviderConfig {
     }
 }
 
+fn shared_auth(auth_store: &AuthStore) -> std::sync::Arc<tokio::sync::Mutex<AuthStore>> {
+    std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone()))
+}
+
+fn create_model_for_config(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
+    ProviderFactory::create_model(config, model, auth_store, shared_auth(auth_store))
+}
+
 #[test]
-fn custom_provider_builds_generic_client_from_config() {
-    unsafe {
-        std::env::set_var("ACME_API_KEY", "generic-env-secret");
-    }
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = config_with_provider("acme", spec("https://api.acme.dev/v1", None), false);
+fn custom_provider_builds_client_from_each_source() {
+    let cases = [
+        (
+            config_with_provider("acme", spec("https://api.acme.dev/v1", None), false),
+            "acme-large",
+            Some(("ACME_API_KEY", "generic-env-secret")),
+            None,
+            "acme",
+        ),
+        (
+            config_with_provider(
+                "acme",
+                spec("https://api.acme.dev/v1", Some("RHO_TEST_CUSTOM_PROVIDER_KEY")),
+                false,
+            ),
+            "acme",
+            Some(("RHO_TEST_CUSTOM_PROVIDER_KEY", "env-secret")),
+            None,
+            "acme",
+        ),
+        (
+            config_with_provider("acme", spec("https://api.acme.dev/v1", None), false),
+            "acme",
+            None,
+            Some(("acme", "stored-secret")),
+            "acme",
+        ),
+        (
+            config_with_provider(
+                "custom_llm",
+                spec("http://127.0.0.1:8080/v1", Some("LOCAL_API_KEY")),
+                true,
+            ),
+            "custom_llm",
+            Some(("LOCAL_API_KEY", "local-key")),
+            None,
+            "custom_llm",
+        ),
+        // A [providers.groq] entry would be rejected by config validation, so an
+        // empty map proves the enum arm handled it.
+        (
+            Config {
+                provider: "groq".to_string(),
+                ..Default::default()
+            },
+            "llama-3.3-70b",
+            None,
+            Some(("groq", "gsk-test")),
+            "groq",
+        ),
+    ];
+    for (config, model, env, stored_key, expected) in cases {
+        if let Some((var, value)) = env {
+            unsafe {
+                std::env::set_var(var, value);
+            }
+        }
+        let (_dir, mut auth_store) = temp_auth_store();
+        if let Some((provider, key)) = stored_key {
+            auth_store.set_key(provider, key).unwrap();
+        }
 
-    let handle = ProviderFactory::create_model(&config, "acme-large", &auth_store).unwrap();
-    assert_eq!(handle.provider_name(), "acme");
+        let handle = create_model_for_config(&config, model, &auth_store).unwrap();
+        assert_eq!(handle.provider_name(), expected);
 
-    std::fs::remove_dir_all(dir).unwrap();
-    unsafe {
-        std::env::remove_var("ACME_API_KEY");
+        if let Some((var, _)) = env {
+            unsafe {
+                std::env::remove_var(var);
+            }
+        }
     }
 }
 
 #[test]
-fn custom_provider_resolves_key_from_key_env() {
-    unsafe {
-        std::env::set_var("RHO_TEST_CUSTOM_PROVIDER_KEY", "env-secret");
-    }
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = config_with_provider(
-        "acme",
-        spec("https://api.acme.dev/v1", Some("RHO_TEST_CUSTOM_PROVIDER_KEY")),
-        false,
-    );
-
-    let handle = ProviderFactory::create_model(&config, "acme", &auth_store).unwrap();
-    assert_eq!(handle.provider_name(), "acme");
-
-    std::fs::remove_dir_all(dir).unwrap();
-    unsafe {
-        std::env::remove_var("RHO_TEST_CUSTOM_PROVIDER_KEY");
-    }
-}
-
-#[test]
-fn custom_provider_resolves_key_from_auth_store() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    auth_store.set_key("acme", "stored-secret").unwrap();
-    let config = config_with_provider("acme", spec("https://api.acme.dev/v1", None), false);
-
-    ProviderFactory::create_model(&config, "acme", &auth_store).unwrap();
-
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn custom_provider_rejects_private_base_url_by_default() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = config_with_provider("custom_llm", spec("http://127.0.0.1:8080/v1", None), false);
-
-    let error = ProviderFactory::create_model(&config, "custom_llm", &auth_store).unwrap_err();
-    assert!(error.to_string().contains("blocked"), "{error}");
-
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn custom_provider_allows_private_base_url_when_enabled() {
-    unsafe {
-        std::env::set_var("LOCAL_API_KEY", "local-key");
-    }
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = config_with_provider(
-        "custom_llm",
-        spec("http://127.0.0.1:8080/v1", Some("LOCAL_API_KEY")),
-        true,
-    );
-
-    ProviderFactory::create_model(&config, "custom_llm", &auth_store).unwrap();
-
-    std::fs::remove_dir_all(dir).unwrap();
-    unsafe {
-        std::env::remove_var("LOCAL_API_KEY");
-    }
-}
-
-#[test]
-fn unknown_provider_without_config_errors_with_guidance() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = Config::default();
-    let config = Config {
+fn custom_provider_errors_name_the_failing_config() {
+    let (_dir, auth_store) = temp_auth_store();
+    let private = config_with_provider("custom_llm", spec("http://127.0.0.1:8080/v1", None), false);
+    let unknown = Config {
         provider: "mystery".to_string(),
         providers: BTreeMap::new(),
-        ..config
-    };
-
-    let error = ProviderFactory::create_model(&config, "mystery", &auth_store).unwrap_err();
-    assert!(error.to_string().contains("[providers.mystery]"));
-
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn well_known_provider_still_routes_to_dedicated_arms() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    auth_store.set_key("groq", "gsk-test").unwrap();
-    let config = Config {
-        provider: "groq".to_string(),
         ..Default::default()
     };
-    // A [providers.groq] entry would be rejected by config validation, so an
-    // empty map proves the enum arm handled it.
-    ProviderFactory::create_model(&config, "llama-3.3-70b", &auth_store).unwrap();
-
-    std::fs::remove_dir_all(dir).unwrap();
+    let cases = [
+        (&private, "custom_llm", "blocked"),
+        (&unknown, "mystery", "[providers.mystery]"),
+    ];
+    for (config, model, needle) in cases {
+        let error = create_model_for_config(config, model, &auth_store).unwrap_err();
+        assert!(error.to_string().contains(needle), "{error}");
+    }
 }
 
 #[test]
@@ -246,7 +223,7 @@ fn claude_provider_builds_model_handle() {
         provider: ProviderId::ClaudeCode,
         model: "claude-sonnet-4-6",
         thinking_level: Some("high"),
-        shared_auth: None,
+        shared_auth: shared_auth(&auth_store),
     };
     let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
     assert_eq!(handle.provider_name(), "claude-code");
@@ -256,22 +233,19 @@ fn claude_provider_builds_model_handle() {
 
 #[test]
 fn claude_provider_fails_without_credentials() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-
+    let dir = tempfile::tempdir().unwrap();
+    let auth_store = AuthStore::load(dir.path().join("auth.json")).unwrap();
     let request = ModelRequest {
         provider: ProviderId::ClaudeCode,
         model: "claude-sonnet-4-6",
         thinking_level: None,
-        shared_auth: None,
+        shared_auth: shared_auth(&auth_store),
     };
-    let result = ProviderFactory::create_model_for(request, &auth_store);
-    assert!(result.is_err());
-    let err = result.err().unwrap().to_string();
+    let Err(err) = ProviderFactory::create_model_for(request, &auth_store) else {
+        panic!("missing credentials must fail");
+    };
+    let err = err.to_string();
     assert!(err.contains("Missing API key for provider 'claude'") || err.contains("Run 'rho login claude'"));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -279,56 +253,40 @@ fn resolve_guard_model_tests() {
     let mut config = Config::default();
     assert_eq!(resolve_guard_model(&config), None);
 
-    config.set_guard_model(Some("none"));
+    config.models.insert("guard".to_string(), "none".to_string());
     assert_eq!(resolve_guard_model(&config), None);
 
-    config.set_guard_model(Some("local/qwen2.5-coder:7b"));
+    config
+        .models
+        .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
     assert_eq!(
         resolve_guard_model(&config),
         Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
     );
 
-    config.set_guard_model(Some("ollama/qwen2.5-coder:7b"));
+    config
+        .models
+        .insert("guard".to_string(), "ollama/qwen2.5-coder:7b".to_string());
     assert_eq!(
         resolve_guard_model(&config),
         Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
     );
 
-    config.set_guard_model(Some("anthropic/claude-3-5-haiku"));
+    config
+        .models
+        .insert("guard".to_string(), "anthropic/claude-3-5-haiku".to_string());
     assert_eq!(
         resolve_guard_model(&config),
         Some((ProviderId::Anthropic, "claude-3-5-haiku".to_string()))
     );
 
-    config.set_guard_model(Some("qwen2.5-coder:7b"));
+    config
+        .models
+        .insert("guard".to_string(), "qwen2.5-coder:7b".to_string());
     assert_eq!(
         resolve_guard_model(&config),
         Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
     );
-}
-
-#[test]
-fn verify_resolve_judge_model_cases() {
-    let mut c = Config::default();
-    assert!(resolve_judge_model(&c).is_none());
-
-    c.set_judge_model(Some("none"));
-    assert!(resolve_judge_model(&c).is_none());
-
-    c.set_judge_model(Some("clef-flash"));
-    let (url1, name1) = resolve_judge_model(&c).unwrap();
-    assert_eq!(name1, "clef-flash");
-    assert!(url1.contains("11434"));
-
-    c.set_judge_model(Some("ollama/clef-flash"));
-    let (url2, name2) = resolve_judge_model(&c).unwrap();
-    assert_eq!(name2, "clef-flash");
-    assert!(url2.contains("11434"));
-
-    c.set_judge_model(Some("http://192.168.1.50:11434"));
-    let (url3, name3) = resolve_judge_model(&c).unwrap();
-    assert_eq!(name3, "clef-flash");
-    assert_eq!(url3, "http://192.168.1.50:11434");
 }
 
 #[test]
@@ -337,10 +295,12 @@ fn test_guard_model_thinking_is_none() {
         thinking_level: Some("high".to_string()),
         ..Default::default()
     };
-    config.set_guard_model(Some("local/qwen2.5-coder:7b"));
+    config
+        .models
+        .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
 
     let (provider, model) = resolve_guard_model(&config).expect("guard model should resolve");
-    let req = ProviderFactory::guard_model_request(provider, &model);
+    let req = ProviderFactory::guard_model_request(provider, &model, shared_auth(&AuthStore::default()));
     assert_eq!(req.thinking_level, None);
     assert_eq!(req.provider, ProviderId::Local);
     assert_eq!(req.model, "qwen2.5-coder:7b");
@@ -349,10 +309,17 @@ fn test_guard_model_thinking_is_none() {
     std::fs::create_dir_all(&dir).unwrap();
     let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
 
-    let handle = ProviderFactory::create_guard_model(&config, &auth_store).unwrap();
+    let handle = ProviderFactory::create_guard_model(&config, &auth_store, shared_auth(&auth_store)).unwrap();
     assert!(handle.is_some());
 
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn guard_model_request_shares_the_engine_auth_store() {
+    let shared = shared_auth(&AuthStore::default());
+    let req = ProviderFactory::guard_model_request(ProviderId::Local, "qwen2.5-coder:7b", shared.clone());
+    assert!(std::sync::Arc::ptr_eq(&req.shared_auth, &shared));
 }
 
 #[test]
@@ -366,7 +333,9 @@ fn test_factory_creates_model_from_spec() {
         provider: "anthropic".to_string(),
         ..Default::default()
     };
-    let handle = ProviderFactory::create_model(&config, "local/qwen2.5-coder:7b", &auth_store).unwrap();
+    let handle =
+        ProviderFactory::create_model(&config, "local/qwen2.5-coder:7b", &auth_store, shared_auth(&auth_store))
+            .unwrap();
     assert_eq!(handle.provider_name(), "ollama-local");
 
     // 2. Bare model fallback to config.provider
@@ -374,7 +343,8 @@ fn test_factory_creates_model_from_spec() {
         provider: "local".to_string(),
         ..Default::default()
     };
-    let handle = ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store).unwrap();
+    let handle =
+        ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store, shared_auth(&auth_store)).unwrap();
     assert_eq!(handle.provider_name(), "ollama-local");
 
     // 3. Bare model without config.provider infers or falls back to local
@@ -382,7 +352,8 @@ fn test_factory_creates_model_from_spec() {
         provider: String::new(),
         ..Default::default()
     };
-    let handle = ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store).unwrap();
+    let handle =
+        ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store, shared_auth(&auth_store)).unwrap();
     assert_eq!(handle.provider_name(), "ollama-local");
 
     // 4. create_engine_model with canonical model spec
@@ -391,7 +362,7 @@ fn test_factory_creates_model_from_spec() {
         model: "local/qwen2.5-coder:7b".to_string(),
         ..Default::default()
     };
-    let handle = crate::engine::builder::create_engine_model(&config, &auth_store, None).unwrap();
+    let handle = crate::engine::builder::create_engine_model(&config, &auth_store, shared_auth(&auth_store)).unwrap();
     assert_eq!(handle.provider_name(), "ollama-local");
 
     // 5. Direct create_model_for with canonical model spec strips provider prefix
@@ -399,7 +370,7 @@ fn test_factory_creates_model_from_spec() {
         provider: ProviderId::Local,
         model: "local/qwen2.5-coder:7b",
         thinking_level: None,
-        shared_auth: None,
+        shared_auth: shared_auth(&auth_store),
     };
     let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
     assert_eq!(handle.provider_name(), "ollama-local");
@@ -430,4 +401,57 @@ fn test_factory_creates_model_from_spec() {
         "gpt-6-sol"
     );
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn openai_complete_sends_exactly_one_request() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let body = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counter = accepted.clone();
+    let server = tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            counter.fetch_add(1, Ordering::SeqCst);
+            let mut buf = [0u8; 8192];
+            let _ = socket.read(&mut buf).await;
+            let _ = socket.write_all(response.as_bytes()).await;
+        }
+    });
+
+    let client = OpenAiClient::new(format!("http://{addr}"), "key", "gpt-test", "test");
+    let completion = client
+        .complete(ModelCompletionRequest {
+            prompt: "hi".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    server.abort();
+
+    assert_eq!(completion.content, "hi");
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn openai_client_debug_redacts_api_key_and_extra_headers() {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-api-token",
+        reqwest::header::HeaderValue::from_static("header-secret"),
+    );
+    let client =
+        OpenAiClient::new("https://api.example.com/v1", "sk-super-secret", "gpt-test", "example").with_headers(headers);
+    let debug = format!("{client:?}");
+    assert!(!debug.contains("sk-super-secret"), "{debug}");
+    assert!(!debug.contains("header-secret"), "{debug}");
+    assert!(debug.contains("gpt-test"));
 }

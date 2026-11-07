@@ -29,7 +29,7 @@ fn assert_descriptions_valid(options: &[(&str, &str)]) {
 fn oauth_provider_options_are_filtered_and_concise() {
     let options = oauth_provider_options();
     let ids: Vec<&str> = options.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, vec!["antigravity", "chatgpt", "claude", "copilot", "openrouter"]);
+    assert_eq!(ids, vec!["antigravity", "chatgpt", "claude", "openrouter"]);
     assert_descriptions_valid(&options);
 }
 
@@ -46,7 +46,7 @@ fn api_key_provider_options_are_filtered_and_concise() {
     );
 
     let options = api_key_provider_options(&config);
-    for excluded in ["local", "chatgpt", "copilot", "antigravity", "claude"] {
+    for excluded in ["local", "chatgpt", "antigravity", "claude"] {
         assert!(!options.iter().any(|(id, _)| id == excluded));
     }
     assert!(options.iter().any(|(id, _)| id == "openrouter") && options.iter().any(|(id, _)| id == "custom-llm"));
@@ -104,32 +104,38 @@ async fn login_provider_key_stdin_without_provider_fails() {
 fn test_provider_login_name_mappings() {
     use rho_harness_core::provider::ProviderId;
 
-    assert_eq!(super::provider_login_name(ProviderId::ChatGpt), "ChatGPT");
-    assert_eq!(super::provider_login_name(ProviderId::Copilot), "GitHub Copilot");
-    assert_eq!(
-        super::provider_login_name(ProviderId::Antigravity),
-        "Google Antigravity"
-    );
-    assert_eq!(
-        super::provider_login_name(ProviderId::ClaudeCode),
-        "Claude (Subscription)"
-    );
-    assert_eq!(super::provider_login_name(ProviderId::OpenRouter), "OpenRouter");
-    assert_eq!(super::provider_login_name(ProviderId::OpenAi), "openai");
-    assert_eq!(super::provider_login_name(ProviderId::Local), "local");
+    let cases = [
+        (ProviderId::ChatGpt, "ChatGPT"),
+        (ProviderId::Antigravity, "Google Antigravity"),
+        (ProviderId::ClaudeCode, "Claude (Subscription)"),
+        (ProviderId::OpenRouter, "OpenRouter"),
+        (ProviderId::OpenAi, "openai"),
+        (ProviderId::Local, "local"),
+    ];
+    for (id, expected) in cases {
+        assert_eq!(super::provider_login_name(id), expected);
+    }
 }
 
 #[test]
-fn test_is_default_oauth_provider_checks() {
+fn default_oauth_provider_checks() {
     use rho_harness_core::provider::ProviderId;
 
-    assert!(super::is_default_oauth_provider(ProviderId::ChatGpt));
-    assert!(super::is_default_oauth_provider(ProviderId::Copilot));
-    assert!(super::is_default_oauth_provider(ProviderId::Antigravity));
-    assert!(super::is_default_oauth_provider(ProviderId::ClaudeCode));
-    assert!(!super::is_default_oauth_provider(ProviderId::OpenAi));
-    assert!(!super::is_default_oauth_provider(ProviderId::OpenRouter));
-    assert!(!super::is_default_oauth_provider(ProviderId::Groq));
+    let cases = [
+        (ProviderId::ChatGpt, true),
+        (ProviderId::Antigravity, true),
+        (ProviderId::ClaudeCode, true),
+        (ProviderId::OpenAi, false),
+        (ProviderId::OpenRouter, false),
+        (ProviderId::Groq, false),
+        (ProviderId::Local, false),
+    ];
+    for (id, expected) in cases {
+        assert_eq!(super::is_default_oauth_provider(id), expected);
+        if id != ProviderId::OpenRouter {
+            assert_eq!(super::should_default_oauth(id).unwrap(), expected);
+        }
+    }
 }
 
 #[tokio::test]
@@ -185,19 +191,6 @@ fn test_logout_provider_named_and_empty_list() {
     assert!(auth_store.get_key_sync("openrouter").unwrap().is_some());
     assert!(super::logout_provider(Some("openrouter"), &config, &mut auth_store).is_ok());
     assert!(auth_store.get_key_sync("openrouter").unwrap().is_none());
-}
-
-#[test]
-fn test_should_default_oauth_mappings() {
-    use rho_harness_core::provider::ProviderId;
-
-    assert!(super::should_default_oauth(ProviderId::ChatGpt).unwrap());
-    assert!(super::should_default_oauth(ProviderId::Copilot).unwrap());
-    assert!(super::should_default_oauth(ProviderId::Antigravity).unwrap());
-    assert!(super::should_default_oauth(ProviderId::ClaudeCode).unwrap());
-    assert!(!super::should_default_oauth(ProviderId::OpenAi).unwrap());
-    assert!(!super::should_default_oauth(ProviderId::Groq).unwrap());
-    assert!(!super::should_default_oauth(ProviderId::Local).unwrap());
 }
 
 #[tokio::test]

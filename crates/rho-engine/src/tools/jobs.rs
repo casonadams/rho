@@ -1,6 +1,9 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
+
+pub const MAX_FINISHED_JOBS: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobStatus {
@@ -16,15 +19,35 @@ pub struct BackgroundJobInfo {
     pub started_at: Instant,
     pub status: JobStatus,
     pub consumed: bool,
+    pub log_path: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct Registry {
+    jobs: HashMap<String, BackgroundJobInfo>,
+    finished: VecDeque<String>,
 }
 
 #[derive(Clone, Default)]
 pub struct JobManager {
-    jobs: Arc<Mutex<HashMap<String, BackgroundJobInfo>>>,
+    registry: Arc<Mutex<Registry>>,
     notify: Arc<tokio::sync::Notify>,
 }
 
 static GLOBAL_JOB_MANAGER: std::sync::LazyLock<JobManager> = std::sync::LazyLock::new(JobManager::default);
+
+fn evict_finished(registry: &mut Registry) {
+    while registry.finished.len() > MAX_FINISHED_JOBS {
+        let Some(id) = registry.finished.pop_front() else {
+            break;
+        };
+        if let Some(job) = registry.jobs.remove(&id)
+            && let Some(path) = job.log_path
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
 
 impl JobManager {
     pub fn global() -> &'static Self {
@@ -35,9 +58,12 @@ impl JobManager {
         Self::default()
     }
 
+    fn lock(&self) -> MutexGuard<'_, Registry> {
+        self.registry.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     pub fn register(&self, id: String, command: String) {
-        let mut guard = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        guard.insert(
+        self.lock().jobs.insert(
             id.clone(),
             BackgroundJobInfo {
                 id,
@@ -45,51 +71,53 @@ impl JobManager {
                 started_at: Instant::now(),
                 status: JobStatus::Running,
                 consumed: false,
+                log_path: None,
             },
         );
     }
 
-    fn mutate_job<F>(&self, id: &str, f: F)
-    where
-        F: FnOnce(&mut BackgroundJobInfo),
-    {
-        let mut guard = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(job) = guard.get_mut(id) {
-            f(job);
+    pub fn attach_log(&self, id: &str, path: PathBuf) {
+        if let Some(job) = self.lock().jobs.get_mut(id) {
+            job.log_path = Some(path);
         }
     }
 
     pub fn update_status(&self, id: &str, status: JobStatus) {
-        self.mutate_job(id, |job| {
-            job.status = status;
-            job.consumed = false;
-        });
+        {
+            let mut registry = self.lock();
+            let Registry { jobs, finished } = &mut *registry;
+            if let Some(job) = jobs.get_mut(id) {
+                let finishing = job.status == JobStatus::Running && status != JobStatus::Running;
+                job.status = status;
+                job.consumed = false;
+                if finishing {
+                    finished.push_back(id.to_string());
+                }
+            }
+            evict_finished(&mut registry);
+        }
         self.notify.notify_waiters();
     }
 
     pub fn mark_consumed(&self, id: &str) {
-        self.mutate_job(id, |job| job.consumed = true);
+        if let Some(job) = self.lock().jobs.get_mut(id) {
+            job.consumed = true;
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<BackgroundJobInfo> {
-        let guard = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        guard.get(id).cloned()
+        self.lock().jobs.get(id).cloned()
     }
 
     pub fn list(&self) -> Vec<BackgroundJobInfo> {
-        let mut res = Vec::new();
-        if let Ok(guard) = self.jobs.lock() {
-            res.extend(guard.values().cloned());
-            res.sort_by_key(|j| j.started_at);
-        }
+        let mut res: Vec<BackgroundJobInfo> = self.lock().jobs.values().cloned().collect();
+        res.sort_by_key(|j| j.started_at);
         res
     }
 
     pub fn running_count(&self) -> usize {
-        let Ok(guard) = self.jobs.lock() else {
-            return 0;
-        };
-        guard
+        self.lock()
+            .jobs
             .values()
             .filter(|j| matches!(j.status, JobStatus::Running))
             .count()
@@ -127,5 +155,24 @@ mod tests {
         mgr.mark_consumed("j1");
         assert!(mgr.get("j1").unwrap().consumed);
         assert!(!mgr.list().is_empty());
+    }
+
+    #[test]
+    fn finished_jobs_are_bounded_and_evict_their_logs() {
+        let mgr = JobManager::new();
+        let dir = tempfile::tempdir().unwrap();
+        let first_log = dir.path().join("first.log");
+        std::fs::write(&first_log, "output").unwrap();
+        mgr.register("job-0".into(), "cmd".into());
+        mgr.attach_log("job-0", first_log.clone());
+        mgr.update_status("job-0", done(0, "ok"));
+        for i in 1..=MAX_FINISHED_JOBS {
+            let id = format!("job-{i}");
+            mgr.register(id.clone(), "cmd".into());
+            mgr.update_status(&id, done(0, "ok"));
+        }
+        assert!(mgr.get("job-0").is_none());
+        assert!(!first_log.exists());
+        assert_eq!(mgr.list().len(), MAX_FINISHED_JOBS);
     }
 }

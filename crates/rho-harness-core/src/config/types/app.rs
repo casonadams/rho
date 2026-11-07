@@ -44,8 +44,6 @@ pub struct Config {
     pub models: BTreeMap<String, String>,
     #[serde(default)]
     pub session_retention_days: Option<u32>,
-    #[serde(default)]
-    pub routing: bool,
     #[serde(skip)]
     pub migration_warnings: Vec<String>,
     pub providers: BTreeMap<String, ProviderConfig>,
@@ -92,7 +90,6 @@ macro_rules! default_config_literal {
             default_model: None,
             default_provider: None,
             models: BTreeMap::new(),
-            routing: false,
             session_retention_days: Some(5),
             migration_warnings: Vec::new(),
             providers: BTreeMap::new(),
@@ -133,16 +130,11 @@ pub struct WebToolsConfig {
 pub struct WebFetchConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_true")]
-    pub multimodal: bool,
 }
 
 impl Default for WebFetchConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            multimodal: true,
-        }
+        Self { enabled: true }
     }
 }
 
@@ -191,42 +183,8 @@ impl Config {
             .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
     }
 
-    fn set_named_model(&mut self, name: &str, model: Option<&str>) {
-        match model
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
-        {
-            Some(m) => {
-                self.models.insert(name.to_string(), m.to_string());
-            }
-            None => {
-                self.models.remove(name);
-            }
-        }
-    }
-
-    pub fn judge_model(&self) -> Option<&str> {
-        self.resolve_named_model("judge")
-    }
-
-    pub fn set_judge_model(&mut self, judge: Option<&str>) {
-        self.set_named_model("judge", judge);
-    }
-
-    pub fn smol_model(&self) -> Option<&str> {
-        self.resolve_named_model("smol")
-    }
-
-    pub fn slow_model(&self) -> Option<&str> {
-        self.resolve_named_model("slow")
-    }
-
     pub fn guard_model(&self) -> Option<&str> {
         self.resolve_named_model("guard")
-    }
-
-    pub fn set_guard_model(&mut self, guard: Option<&str>) {
-        self.set_named_model("guard", guard);
     }
 
     pub fn canonical_model_spec(&self) -> String {

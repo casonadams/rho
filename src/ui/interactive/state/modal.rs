@@ -10,6 +10,7 @@ pub struct ModalOption {
     /// Inline input shown at the bottom of the same modal when this option
     /// is chosen; the submitted text travels back with the selection.
     pub input: Option<InteractionInput>,
+    pub value: Option<String>,
 }
 
 impl ModalOption {
@@ -18,7 +19,13 @@ impl ModalOption {
             label: label.into(),
             description: description.map(Into::into),
             input: None,
+            value: None,
         }
+    }
+
+    pub fn with_value(mut self, value: impl Into<String>) -> Self {
+        self.value = Some(value.into());
+        self
     }
 }
 
@@ -28,6 +35,7 @@ impl From<String> for ModalOption {
             label,
             description: None,
             input: None,
+            value: None,
         }
     }
 }
@@ -38,6 +46,7 @@ impl From<&str> for ModalOption {
             label: label.to_string(),
             description: None,
             input: None,
+            value: None,
         }
     }
 }
@@ -48,6 +57,7 @@ impl From<InteractionOption> for ModalOption {
             label: opt.label,
             description: opt.description,
             input: opt.input,
+            value: None,
         }
     }
 }

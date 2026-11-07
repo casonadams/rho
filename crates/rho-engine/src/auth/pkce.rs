@@ -36,6 +36,35 @@ pub fn generate_state() -> String {
     URL_SAFE_NO_PAD.encode(random_bytes)
 }
 
+/// Parameters every PKCE authorization-code request carries; `extra` holds provider-specific ones.
+pub struct AuthorizeRequest<'a> {
+    pub endpoint: &'a str,
+    pub client_id: &'a str,
+    pub redirect_uri: &'a str,
+    pub scope: &'a str,
+    pub challenge: &'a str,
+    pub state: &'a str,
+    pub extra: &'a [(&'a str, &'a str)],
+}
+
+impl AuthorizeRequest<'_> {
+    pub fn to_url(&self) -> String {
+        let mut url = url::Url::parse(self.endpoint).expect("valid authorize url");
+        let mut query = url.query_pairs_mut();
+        query
+            .append_pair("response_type", "code")
+            .append_pair("client_id", self.client_id)
+            .append_pair("redirect_uri", self.redirect_uri)
+            .append_pair("scope", self.scope)
+            .append_pair("code_challenge", self.challenge)
+            .append_pair("code_challenge_method", "S256")
+            .append_pair("state", self.state)
+            .extend_pairs(self.extra);
+        drop(query);
+        url.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

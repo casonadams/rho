@@ -63,7 +63,7 @@ Everything needed to run model turns and tools:
   (readline-style fallback). `coordinator/` decouples UI event pumping from
   turn execution.
 - `ui/` — markdown rendering (streaming, tables, syntax highlighting), the
-  interactive controller (transcript cache, redraw batching, keymaps), and
+  interactive controller (transcript cache, redraw batching), and
   terminal paint primitives.
 
 ## The Three Execution Loops
@@ -71,9 +71,9 @@ Everything needed to run model turns and tools:
 ### 1. TUI Event Loop (`src/repl/live/`, `src/ui/interactive/`)
 
 ```
-input ──▶ keymap ──▶ controller state ──▶ layout ──▶ paint
-   ▲                                            │
-   └──────────── events (batched) ◀─────────────┘
+input ──▶ controller state ──▶ layout ──▶ paint
+   ▲                                 │
+   └──── events (batched) ◀──────────┘
 ```
 
 - `events/` funnels terminal input and engine output through a batched

@@ -4,6 +4,9 @@ pub fn is_confined_target(canonical: &Path, base_dir: &Path) -> bool {
     if canonical.components().any(|c| c.as_os_str() == ".git") {
         return false;
     }
+    if crate::permission::path::is_credential_file(canonical) {
+        return false;
+    }
     let canonical_base = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
     let repo_root = super::super::instructions::find_repo_root(base_dir).and_then(|r| r.canonicalize().ok());
 

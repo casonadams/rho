@@ -151,29 +151,6 @@ fn render_transcript_assistant_text_emits_osc133_zones() {
 }
 
 #[test]
-fn render_transcript_assistant_mermaid_clips_to_render_width() {
-    let theme = Theme::default();
-    let diagram =
-        "```mermaid\ngraph LR\n  A[Build] --> B[Test] --> C[Package] --> D[Deploy Stage] --> E[Deploy Prod]\n```";
-    let item = TranscriptItem::AssistantText(diagram.into());
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 50,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
-    let widest = rendered
-        .lines()
-        .filter(|line| line.contains("\u{250c}") || line.contains("\u{2502}"))
-        .map(crate::ui::interactive::footer::visible_width)
-        .max()
-        .unwrap_or(0);
-    assert!(widest > 0, "diagram boxes must be present");
-    assert!(widest <= 50, "diagram exceeded render width: {widest}");
-}
-
-#[test]
 fn render_transcript_assistant_text_wraps_on_word_boundaries() {
     let theme = Theme::default();
     let text = "This is a long response from the assistant explaining the architecture in detail.";

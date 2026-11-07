@@ -1,6 +1,5 @@
 pub mod accumulator;
 pub mod normalize;
-pub mod read_only;
 pub mod runner;
 pub mod sanitize;
 pub mod shell;
@@ -8,7 +7,6 @@ pub mod shell;
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::types::{ToolResult, generated_schema};
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
-pub use read_only::is_read_only_command;
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
 pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming};

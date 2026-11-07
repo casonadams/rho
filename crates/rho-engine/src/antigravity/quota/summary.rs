@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use super::{combine_windows, format_quota_window};
+use crate::quota::{combine_windows, format_quota_window};
 
 pub fn parse_quota_summary(value: &Value, target_model: &str, now: DateTime<Utc>) -> Option<String> {
     let buckets = extract_summary_buckets(value, target_model)?;

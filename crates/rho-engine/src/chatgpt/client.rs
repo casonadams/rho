@@ -1,31 +1,21 @@
 //! ChatGPT (Codex) Responses API client implementation.
 
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 use crate::engine::compactor::llm::ModelHandle;
-use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
-use futures::Stream;
+use crate::http::post_json_checked;
+use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
+use crate::provider::sse::open_sse_stream;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 use serde_json::{Value, json};
-use std::pin::Pin;
 
 pub const DEFAULT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub const RESPONSES_PATH: &str = "/responses";
 pub const PROVIDER_NAME: &str = "chatgpt";
-
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::install_crypto_provider();
-    reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(300))
-        .build()
-        .unwrap_or_default()
-});
 
 #[derive(Clone)]
 pub struct ChatGptClient {
@@ -168,21 +158,7 @@ impl ChatGptClient {
         request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let body = self.build_request(request).map_err(|e| (None, e.to_string()))?;
-        let headers = self.headers(token);
-        let response = CLIENT
-            .post(self.target_url())
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| (None, e.to_string()))?;
-
-        let status = response.status();
-        if status.is_success() {
-            return Ok(response);
-        }
-        let text = response.text().await.unwrap_or_default();
-        Err((Some(status.as_u16()), text))
+        post_json_checked(&self.target_url(), self.headers(token), &body, None).await
     }
 
     async fn retry_post_stream(
@@ -282,21 +258,12 @@ impl ModelAdapter for ChatGptClient {
         "chatgpt"
     }
 
-    async fn complete(&self, req: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
-        let stream = self.stream(req).await?;
-        let events = futures::StreamExt::collect::<Vec<_>>(stream).await;
-        crate::provider::sse::aggregate_stream_events(events)
-    }
-
-    async fn stream(
-        &self,
-        req: ModelCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
-        let response = self
-            .open_stream(&req)
-            .await
-            .map_err(|(status, body)| AppError::Provider(friendly_error(status, &body)))?;
-        Ok(Box::pin(crate::chatgpt::stream::unfold_chatgpt_stream(response)))
+    async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
+        open_sse_stream(
+            self.open_stream(&req).await,
+            friendly_error,
+            crate::chatgpt::stream::SseParser::new(),
+        )
     }
 }
 
@@ -305,38 +272,7 @@ pub fn into_handle(client: ChatGptClient) -> ModelHandle {
 }
 
 pub fn friendly_error(status: Option<u16>, body: &str) -> String {
-    let message = serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()) {
-                Some(msg.to_string())
-            } else if let Some(msg) = v.get("message").and_then(|m| m.as_str()) {
-                Some(msg.to_string())
-            } else {
-                v.get("error").and_then(|e| e.as_str()).map(|err| err.to_string())
-            }
-        })
-        .unwrap_or_else(|| {
-            let s: String = body.chars().take(300).collect();
-            if s.trim().is_empty() {
-                "unknown error".to_string()
-            } else {
-                s
-            }
-        });
-
-    match status {
-        Some(401) => "ChatGPT OAuth session expired or credentials are invalid. Run 'rho login chatgpt'.".to_string(),
-        Some(429) => format!("ChatGPT rate limit or usage limit reached. Wait a bit and retry. Backend: {message}"),
-        Some(403) => format!("ChatGPT access denied. Backend: {message}"),
-        Some(400) => format!("ChatGPT request invalid. Backend: {message}"),
-        Some(503) | Some(502) => "ChatGPT service is temporarily unavailable. Wait a bit and retry.".to_string(),
-        Some(other) => format!("ChatGPT API error ({other}): {message}"),
-        None => {
-            let clean = message.strip_prefix("ChatGPT request failed: ").unwrap_or(&message);
-            format!("ChatGPT request failed: {clean}")
-        }
-    }
+    crate::http::friendly_oauth_error("ChatGPT", "chatgpt", status, body)
 }
 
 #[cfg(test)]

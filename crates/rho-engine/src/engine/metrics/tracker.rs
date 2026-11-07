@@ -85,7 +85,7 @@ impl RunTracker {
             status: outcome.status,
             usage,
             completion_calls: calls,
-            requests: outcome.response.requests().len(),
+            requests: outcome.response.requests,
         })
     }
 

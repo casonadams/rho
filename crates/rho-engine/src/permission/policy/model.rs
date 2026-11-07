@@ -49,16 +49,6 @@ pub struct Policy {
     pub rules: Vec<PolicyRule>,
 }
 
-impl Policy {
-    pub fn load_with_cwd(cwd: Option<&std::path::Path>) -> (Self, bool) {
-        super::io::load_policy(cwd)
-    }
-
-    pub fn evaluate(&self, req: crate::permission::EvalRequest<'_>) -> crate::permission::Decision {
-        crate::permission::decide_tool_call(self, req)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceKind {
     First,

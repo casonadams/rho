@@ -6,6 +6,8 @@ mod tests;
 
 pub use contents::convert_messages;
 
+use super::http::ClaudeAuth;
+
 pub fn is_core_claude_tool(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -261,6 +263,7 @@ pub fn build_request_body(
     model: &str,
     thinking_level: Option<&str>,
     request: &ModelCompletionRequest,
+    auth: ClaudeAuth,
 ) -> Result<Value, AppError> {
     let normalized_model = normalize_model_alias(model);
     let thinking_budget = resolve_thinking_budget(thinking_level);
@@ -282,10 +285,13 @@ pub fn build_request_body(
         thinking_budget,
         request.temperature,
     );
-    let mut system_blocks = vec![json!({
-        "type": "text",
-        "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-    })];
+    let mut system_blocks = Vec::new();
+    if auth == ClaudeAuth::Login {
+        system_blocks.push(json!({
+            "type": "text",
+            "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+        }));
+    }
     if let Some(system) = system_prompt(request) {
         let sanitized = sanitize_system_prompt(&system);
         system_blocks.push(json!({
@@ -296,7 +302,9 @@ pub fn build_request_body(
     if let Some(last_block) = system_blocks.last_mut() {
         last_block["cache_control"] = json!({ "type": "ephemeral" });
     }
-    body["system"] = json!(system_blocks);
+    if !system_blocks.is_empty() {
+        body["system"] = json!(system_blocks);
+    }
     attach_tools_and_choice(&mut body, request, normalized_model);
     mark_cache_breakpoints(&mut body);
     Ok(body)

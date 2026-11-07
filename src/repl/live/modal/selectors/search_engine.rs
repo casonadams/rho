@@ -6,18 +6,9 @@ use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
 const ENGINE_DEFS: &[(&str, &str)] = &[
-    ("brave", "Brave Search (Fast index; requires BRAVE_API_KEY)"),
+    ("brave", "Brave Search (Free scraper, no API key)"),
     ("duckduckgo", "DuckDuckGo Lite (Free scraper, no API key)"),
     ("yahoo", "Yahoo Search (Free scraper, no API key)"),
-    (
-        "firecrawl",
-        "Firecrawl Search (Web scraping API; requires FIRECRAWL_API_KEY)",
-    ),
-    ("exa", "Exa Search (Neural/semantic search; requires EXA_API_KEY)"),
-    (
-        "gemini",
-        "Gemini Grounded Search (Google Search Grounding; requires GEMINI_API_KEY)",
-    ),
 ];
 
 fn format_engine_option(id: &str, desc: &str, active_engine: &str) -> ModalOption {
@@ -56,56 +47,10 @@ pub fn handle_search_engine_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{DummyBackend, assert_selector_opens_and_selects, create_test_session};
     use super::*;
-    use crate::repl::ReplSession;
-    use crate::ui::interactive::{InteractiveState, TerminalBackend, TerminalController};
+    use crate::ui::interactive::{InteractiveState, TerminalController};
     use crossterm::event::{KeyCode, KeyModifiers};
-    use std::io;
-
-    struct DummyBackend;
-
-    impl TerminalBackend for DummyBackend {
-        fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _text: &str) -> io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    fn create_test_session() -> ReplSession {
-        let temp = tempfile::tempdir().unwrap();
-        let config = rho_harness_core::config::Config {
-            config_dir: temp.path().to_path_buf(),
-            sessions_dir: temp.path().join("sessions"),
-            ..Default::default()
-        };
-        ReplSession::new(config, rho_engine::auth::AuthStore::default(), None)
-    }
 
     #[test]
     fn format_engine_option_aligns_and_marks_active() {
@@ -120,23 +65,16 @@ mod tests {
 
     #[test]
     fn open_and_select_search_engine_modal() {
-        let session = create_test_session();
-        let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
-
-        open_search_engine_selector(&session, &mut controller);
-        assert_eq!(controller.state().active_modal().unwrap().title, "Select Search Engine");
-        assert_eq!(controller.state().active_modal().unwrap().options.len(), 6);
-        assert_eq!(controller.state().active_modal().unwrap().selected, 0);
-
-        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-        let res = handle_search_engine_key(&mut controller, key).unwrap();
-        assert_eq!(
-            res,
+        assert_selector_opens_and_selects(
+            open_search_engine_selector,
+            handle_search_engine_key,
+            "Select Search Engine",
+            3,
             ModalKeyResult::SearchEngineSelected {
-                engine: "brave".to_string()
-            }
+                engine: "brave".to_string(),
+            },
+            true,
         );
-        assert!(controller.state().active_modal().is_none());
     }
 
     #[test]

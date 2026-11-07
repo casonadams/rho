@@ -11,7 +11,6 @@ export const CURATED_EXTENSIONS = [
     version: "v1.0.2",
     runtime: "Node.js (npx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
-    cratesUrl: null,
     snippet: `{
   "mcpServers": {
     "filesystem": {
@@ -34,7 +33,6 @@ export const CURATED_EXTENSIONS = [
     version: "v0.6.1",
     runtime: "Node.js (npx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
-    cratesUrl: null,
     snippet: `{
   "mcpServers": {
     "github": {
@@ -58,7 +56,6 @@ export const CURATED_EXTENSIONS = [
     version: "v0.1.0",
     runtime: "Node.js (npx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/playwright",
-    cratesUrl: null,
     snippet: `{
   "mcpServers": {
     "playwright": {
@@ -81,7 +78,6 @@ export const CURATED_EXTENSIONS = [
     version: "v0.1.0",
     runtime: "Python (uvx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
-    cratesUrl: null,
     snippet: `{
   "mcpServers": {
     "sqlite": {
@@ -104,7 +100,6 @@ export const CURATED_EXTENSIONS = [
     version: "Recipe",
     runtime: "POSIX Shell",
     repoUrl: "https://github.com/casonadams/rho/tree/main/examples/hooks",
-    cratesUrl: null,
     snippet: `#!/bin/sh
 # .agents/hooks/on_tool_call
 read -r EVENT
@@ -125,7 +120,6 @@ fi`,
     version: "Recipe",
     runtime: "Python 3",
     repoUrl: "https://github.com/casonadams/rho/tree/main/examples/hooks",
-    cratesUrl: null,
     snippet: `#!/usr/bin/env python3
 # .agents/hooks/on_tool_result
 import sys, json
@@ -147,7 +141,6 @@ print('{"action":"continue"}')`,
     version: "Recipe",
     runtime: "Python 3",
     repoUrl: "https://github.com/rtk-ai/rtk",
-    cratesUrl: null,
     snippet: `#!/usr/bin/env python3
 # .agents/hooks/on_tool_call
 import json, subprocess, sys
@@ -173,5 +166,3 @@ except Exception:
     isOfficial: true
   }
 ];
-
-export const CURATED_PLUGINS = CURATED_EXTENSIONS;

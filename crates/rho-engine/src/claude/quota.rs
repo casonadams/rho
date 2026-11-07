@@ -3,39 +3,22 @@
 #[cfg(test)]
 mod tests;
 
+use crate::http::{CLIENT, send_json_if_ok};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const USAGE_ENDPOINT: &str = "https://api.anthropic.com/api/oauth/usage";
 
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::install_crypto_provider();
-    reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(8))
-        .build()
-        .unwrap_or_default()
-});
-
 pub async fn fetch_quota(token: &str, target_model: Option<&str>) -> Option<String> {
-    let response = CLIENT
+    let request = CLIENT
         .get(USAGE_ENDPOINT)
+        .timeout(Duration::from_secs(8))
         .header("Authorization", format!("Bearer {token}"))
         .header("Content-Type", "application/json")
         .header("anthropic-beta", "oauth-2025-04-20")
-        .header("User-Agent", super::http::USER_AGENT)
-        .send()
-        .await
-        .ok()?;
-
-    if !response.status().is_success() {
-        return None;
-    }
-
-    let response = response.json::<Value>().await.ok()?;
-
+        .header("User-Agent", crate::auth::claude::USER_AGENT);
+    let response = send_json_if_ok(request).await?;
     parse_quota(&response, target_model, Utc::now())
 }
 
@@ -55,42 +38,18 @@ pub fn parse_quota(value: &Value, target_model: Option<&str>, now: DateTime<Utc>
 
     let weekly = secondary.and_then(|w| format_window(w, now));
 
-    crate::antigravity::quota::combine_windows(five_hour, weekly)
+    crate::quota::combine_windows(five_hour, weekly)
 }
 
 fn format_window(window: &Value, now: DateTime<Utc>) -> Option<String> {
-    if window.is_null() {
-        return None;
-    }
-    let fraction = extract_remaining_fraction(window)?;
-    let reset_time = parse_reset_time(window.get("resets_at").or_else(|| window.get("reset_at")));
-    Some(crate::antigravity::quota::format_quota_window(
-        fraction, reset_time, now,
-    ))
+    crate::quota::format_window(window, &WINDOW, now)
 }
 
-fn extract_remaining_fraction(window: &Value) -> Option<f64> {
-    if let Some(u) = window.get("utilization").and_then(Value::as_f64) {
-        return Some((100.0 - u).max(0.0) / 100.0);
-    }
-    if let Some(r) = window.get("remaining_percent").and_then(Value::as_f64) {
-        return Some(r / 100.0);
-    }
-    if let Some(p) = window.get("percent_left").and_then(Value::as_f64) {
-        return Some(p / 100.0);
-    }
-    None
-}
-
-fn parse_reset_time(value: Option<&Value>) -> Option<DateTime<Utc>> {
-    let val = value?;
-    if let Some(s) = val.as_str() {
-        DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.with_timezone(&Utc))
-    } else if let Some(ts) = val.as_i64() {
-        DateTime::from_timestamp(ts, 0)
-    } else if let Some(ts_f) = val.as_f64() {
-        DateTime::from_timestamp(ts_f as i64, 0)
-    } else {
-        None
-    }
-}
+const WINDOW: crate::quota::WindowSpec = crate::quota::WindowSpec {
+    percent: &[
+        crate::quota::Percent::Used("utilization"),
+        crate::quota::Percent::Remaining("remaining_percent"),
+        crate::quota::Percent::Remaining("percent_left"),
+    ],
+    reset: &["resets_at", "reset_at"],
+};

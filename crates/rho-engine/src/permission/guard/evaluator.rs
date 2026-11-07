@@ -7,20 +7,13 @@ use std::time::Duration;
 #[derive(Clone)]
 pub struct GuardEvaluator {
     model: ModelHandle,
-    timeout: Duration,
 }
+
+const GUARD_TIMEOUT: Duration = Duration::from_secs(10);
 
 impl GuardEvaluator {
     pub fn new(model: ModelHandle) -> Self {
-        Self {
-            model,
-            timeout: Duration::from_secs(10),
-        }
-    }
-
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
+        Self { model }
     }
 
     pub async fn evaluate(&self, command: &str) -> GuardVerdict {
@@ -29,13 +22,6 @@ impl GuardEvaluator {
         }
 
         let eval_prompt = format!("<command_to_evaluate>\n{command}\n</command_to_evaluate>");
-        if self.timeout.is_zero() {
-            return GuardVerdict {
-                safe: false,
-                action: None,
-                reason: "Guard model evaluation timed out after 0s. Approval required.".to_string(),
-            };
-        }
 
         let req = crate::provider::adapter::ModelCompletionRequest {
             preamble: Some(GUARD_SYSTEM_PROMPT.to_string()),
@@ -46,7 +32,7 @@ impl GuardEvaluator {
             temperature: Some(0.0),
         };
 
-        match tokio::time::timeout(self.timeout, self.model.complete(req)).await {
+        match tokio::time::timeout(GUARD_TIMEOUT, self.model.complete(req)).await {
             Ok(Ok(response)) => parse_guard_output(&response.content),
             Ok(Err(err)) => GuardVerdict {
                 safe: false,
@@ -56,7 +42,7 @@ impl GuardEvaluator {
             Err(_) => GuardVerdict {
                 safe: false,
                 action: None,
-                reason: format!("Guard model evaluation timed out after {:?}", self.timeout),
+                reason: format!("Guard model evaluation timed out after {:?}", GUARD_TIMEOUT),
             },
         }
     }
@@ -98,16 +84,5 @@ mod tests {
         let verdict = evaluator.evaluate("git push origin main").await;
         assert!(!verdict.safe);
         assert_eq!(verdict.reason, "Git push modifies remote state");
-    }
-
-    #[tokio::test]
-    async fn evaluate_handles_model_timeout_fail_closed() {
-        let mock = Arc::new(MockAdapter::text(
-            r#"{"safe": true, "reason": "Should not arrive before timeout"}"#,
-        ));
-        let evaluator = GuardEvaluator::new(mock).with_timeout(Duration::from_millis(0));
-        let verdict = evaluator.evaluate("cargo build").await;
-        assert!(!verdict.safe);
-        assert!(verdict.reason.contains("timed out"));
     }
 }

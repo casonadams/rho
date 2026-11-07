@@ -1,8 +1,8 @@
-//! Shared Antigravity HTTP plumbing: Cloud Code Assist endpoints, static
-//! client, request headers, error mapping, and the metadata POST helper.
+//! Shared Antigravity HTTP plumbing: Cloud Code Assist endpoints, request
+//! headers, error mapping, and the metadata POST helper.
 
+use crate::http::CLIENT;
 use reqwest::header::{HeaderMap, HeaderValue};
-use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const DEFAULT_ENDPOINT: &str = "https://daily-cloudcode-pa.googleapis.com";
@@ -13,19 +13,6 @@ pub const ENDPOINT_CANDIDATES: [&str; 3] = [
 ];
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
-
-static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::install_crypto_provider();
-    reqwest::Client::builder()
-        .no_proxy()
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .unwrap_or_default()
-});
-
-pub fn http_client() -> &'static reqwest::Client {
-    &HTTP_CLIENT
-}
 
 /// Headers Cloud Code Assist expects on every call (pi-antigravity parity).
 pub fn antigravity_headers(token: &str) -> HeaderMap {
@@ -150,7 +137,7 @@ pub(crate) async fn post_metadata_candidates(
     body: serde_json::Value,
 ) -> Option<serde_json::Value> {
     for endpoint in endpoints {
-        let response = http_client()
+        let response = CLIENT
             .post(format!("{endpoint}{path}"))
             .headers(antigravity_headers(token))
             .json(&body)

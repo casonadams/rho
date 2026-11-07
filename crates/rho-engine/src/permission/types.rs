@@ -13,6 +13,7 @@ pub struct EvalRequest<'a> {
     pub tool: &'a str,
     pub args: &'a Value,
     pub working_dir: Option<&'a Path>,
+    pub mcp_servers: &'a [String],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

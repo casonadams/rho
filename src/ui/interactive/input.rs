@@ -1,6 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use super::keymap::{KeyAction, KeybindingMap};
 use super::{QueueKind, UiAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,9 +18,6 @@ pub enum InputAction {
     ToggleExpandTools,
     MessageCopy,
     DequeueQueued,
-    SessionNew,
-    SessionTree,
-    SessionResume,
     HistoryPrevious,
     HistoryNext,
     Complete,
@@ -29,96 +25,196 @@ pub enum InputAction {
     Ignore,
 }
 
+const CTRL_SHIFT: KeyModifiers =
+    KeyModifiers::from_bits_retain(KeyModifiers::CONTROL.bits() | KeyModifiers::SHIFT.bits());
+
+static BINDINGS: &[(KeyCode, KeyModifiers, InputAction)] = &[
+    (KeyCode::Esc, KeyModifiers::NONE, InputAction::Cancel),
+    (KeyCode::Char('c'), KeyModifiers::CONTROL, InputAction::Clear),
+    (KeyCode::Char('d'), KeyModifiers::CONTROL, InputAction::EndOfInput),
+    (KeyCode::Char('z'), KeyModifiers::CONTROL, InputAction::Suspend),
+    (KeyCode::Char('g'), KeyModifiers::CONTROL, InputAction::ExternalEditor),
+    (
+        KeyCode::Char('v'),
+        KeyModifiers::CONTROL,
+        InputAction::ClipboardPasteImage,
+    ),
+    (KeyCode::Char('l'), KeyModifiers::CONTROL, InputAction::ModelSelect),
+    (
+        KeyCode::Char('p'),
+        KeyModifiers::CONTROL,
+        InputAction::ModelCycleForward,
+    ),
+    (KeyCode::Char('p'), KeyModifiers::ALT, InputAction::ModelCycleBackward),
+    (KeyCode::Char('p'), CTRL_SHIFT, InputAction::ModelCycleBackward),
+    (KeyCode::Char('t'), KeyModifiers::CONTROL, InputAction::ThinkingToggle),
+    (
+        KeyCode::Char('o'),
+        KeyModifiers::CONTROL,
+        InputAction::ToggleExpandTools,
+    ),
+    (KeyCode::Char('x'), KeyModifiers::CONTROL, InputAction::MessageCopy),
+    (
+        KeyCode::Enter,
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
+    ),
+    (KeyCode::Up, KeyModifiers::ALT, InputAction::DequeueQueued),
+    (KeyCode::Up, KeyModifiers::NONE, InputAction::HistoryPrevious),
+    (KeyCode::Down, KeyModifiers::NONE, InputAction::HistoryNext),
+    (KeyCode::Left, KeyModifiers::NONE, InputAction::Edit(UiAction::MoveLeft)),
+    (
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveLeft),
+    ),
+    (
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        InputAction::Edit(UiAction::MoveRight),
+    ),
+    (
+        KeyCode::Char('f'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveRight),
+    ),
+    (
+        KeyCode::Left,
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::MoveWordLeft),
+    ),
+    (
+        KeyCode::Left,
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveWordLeft),
+    ),
+    (
+        KeyCode::Char('b'),
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::MoveWordLeft),
+    ),
+    (
+        KeyCode::Right,
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::MoveWordRight),
+    ),
+    (
+        KeyCode::Right,
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveWordRight),
+    ),
+    (
+        KeyCode::Char('f'),
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::MoveWordRight),
+    ),
+    (
+        KeyCode::Home,
+        KeyModifiers::NONE,
+        InputAction::Edit(UiAction::MoveToStart),
+    ),
+    (
+        KeyCode::Home,
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveToStart),
+    ),
+    (
+        KeyCode::Char('a'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveToStart),
+    ),
+    (KeyCode::End, KeyModifiers::NONE, InputAction::Edit(UiAction::MoveToEnd)),
+    (
+        KeyCode::End,
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveToEnd),
+    ),
+    (
+        KeyCode::Char('e'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::MoveToEnd),
+    ),
+    (
+        KeyCode::Backspace,
+        KeyModifiers::NONE,
+        InputAction::Edit(UiAction::Backspace),
+    ),
+    (KeyCode::Delete, KeyModifiers::NONE, InputAction::Edit(UiAction::Delete)),
+    (
+        KeyCode::Char('w'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::DeleteWordBackward),
+    ),
+    (
+        KeyCode::Backspace,
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::DeleteWordBackward),
+    ),
+    (
+        KeyCode::Char('d'),
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::DeleteWordForward),
+    ),
+    (
+        KeyCode::Delete,
+        KeyModifiers::ALT,
+        InputAction::Edit(UiAction::DeleteWordForward),
+    ),
+    (
+        KeyCode::Char('u'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::DeleteToLineStart),
+    ),
+    (
+        KeyCode::Char('k'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::DeleteToLineEnd),
+    ),
+    (
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::Yank),
+    ),
+    (
+        KeyCode::Char('-'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::Undo),
+    ),
+    (
+        KeyCode::Enter,
+        KeyModifiers::SHIFT,
+        InputAction::Edit(UiAction::InsertNewline),
+    ),
+    (
+        KeyCode::Enter,
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::InsertNewline),
+    ),
+    (
+        KeyCode::Char('j'),
+        KeyModifiers::CONTROL,
+        InputAction::Edit(UiAction::InsertNewline),
+    ),
+    (
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        InputAction::Edit(UiAction::Submit(QueueKind::Steering)),
+    ),
+    (KeyCode::Tab, KeyModifiers::NONE, InputAction::Complete),
+];
+
+fn is_shift_tab(event: &KeyEvent) -> bool {
+    event.code == KeyCode::BackTab || (event.code == KeyCode::Tab && event.modifiers.contains(KeyModifiers::SHIFT))
+}
+
+fn bound_action(key: KeyCode, mods: KeyModifiers) -> Option<InputAction> {
+    BINDINGS
+        .iter()
+        .find(|(code, modifiers, _)| *code == key && *modifiers == mods)
+        .map(|(_, _, action)| action.clone())
+}
+
 pub fn map_key(event: KeyEvent) -> InputAction {
-    let bindings = super::keymap::default_keybindings();
-    map_key_with_bindings(event, &bindings)
-}
-
-fn map_app_session_action(action: KeyAction) -> Option<InputAction> {
-    Some(match action {
-        KeyAction::AppSessionNew => InputAction::SessionNew,
-        KeyAction::AppSessionTree => InputAction::SessionTree,
-        KeyAction::AppSessionResume => InputAction::SessionResume,
-        KeyAction::AppSessionFork => InputAction::Ignore,
-        _ => return None,
-    })
-}
-
-fn map_app_model_action(action: KeyAction) -> Option<InputAction> {
-    Some(match action {
-        KeyAction::AppModelSelect => InputAction::ModelSelect,
-        KeyAction::AppModelCycleForward => InputAction::ModelCycleForward,
-        KeyAction::AppModelCycleBackward => InputAction::ModelCycleBackward,
-        KeyAction::AppThinkingCycle => InputAction::ThinkingCycle,
-        KeyAction::AppThinkingToggle => InputAction::ThinkingToggle,
-        KeyAction::AppToolsExpand => InputAction::ToggleExpandTools,
-        _ => return None,
-    })
-}
-
-fn map_app_general_action(action: KeyAction) -> Option<InputAction> {
-    Some(match action {
-        KeyAction::AppInterrupt => InputAction::Cancel,
-        KeyAction::AppClear => InputAction::Clear,
-        KeyAction::AppExit => InputAction::EndOfInput,
-        KeyAction::AppSuspend => InputAction::Suspend,
-        KeyAction::AppEditorExternal => InputAction::ExternalEditor,
-        KeyAction::AppClipboardPasteImage => InputAction::ClipboardPasteImage,
-        KeyAction::AppMessageCopy => InputAction::MessageCopy,
-        KeyAction::AppMessageFollowUp => InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
-        KeyAction::AppMessageDequeue => InputAction::DequeueQueued,
-        _ => return None,
-    })
-}
-
-fn map_app_action(action: KeyAction) -> Option<InputAction> {
-    map_app_session_action(action)
-        .or_else(|| map_app_model_action(action))
-        .or_else(|| map_app_general_action(action))
-}
-
-fn map_tui_cursor_action(action: KeyAction) -> Option<InputAction> {
-    Some(match action {
-        KeyAction::TuiEditorCursorUp | KeyAction::TuiSelectUp => InputAction::HistoryPrevious,
-        KeyAction::TuiEditorCursorDown | KeyAction::TuiSelectDown => InputAction::HistoryNext,
-        KeyAction::TuiEditorCursorLeft => InputAction::Edit(UiAction::MoveLeft),
-        KeyAction::TuiEditorCursorRight => InputAction::Edit(UiAction::MoveRight),
-        KeyAction::TuiEditorCursorWordLeft => InputAction::Edit(UiAction::MoveWordLeft),
-        KeyAction::TuiEditorCursorWordRight => InputAction::Edit(UiAction::MoveWordRight),
-        KeyAction::TuiEditorCursorLineStart => InputAction::Edit(UiAction::MoveToStart),
-        KeyAction::TuiEditorCursorLineEnd => InputAction::Edit(UiAction::MoveToEnd),
-        _ => return None,
-    })
-}
-
-fn map_tui_edit_action(action: KeyAction) -> Option<InputAction> {
-    Some(match action {
-        KeyAction::TuiEditorDeleteCharBackward => InputAction::Edit(UiAction::Backspace),
-        KeyAction::TuiEditorDeleteCharForward => InputAction::Edit(UiAction::Delete),
-        KeyAction::TuiEditorDeleteWordBackward => InputAction::Edit(UiAction::DeleteWordBackward),
-        KeyAction::TuiEditorDeleteWordForward => InputAction::Edit(UiAction::DeleteWordForward),
-        KeyAction::TuiEditorDeleteToLineStart => InputAction::Edit(UiAction::DeleteToLineStart),
-        KeyAction::TuiEditorDeleteToLineEnd => InputAction::Edit(UiAction::DeleteToLineEnd),
-        KeyAction::TuiEditorYank => InputAction::Edit(UiAction::Yank),
-        KeyAction::TuiEditorUndo => InputAction::Edit(UiAction::Undo),
-        KeyAction::TuiInputNewLine => InputAction::Edit(UiAction::InsertNewline),
-        KeyAction::TuiInputSubmit | KeyAction::TuiSelectConfirm => {
-            InputAction::Edit(UiAction::Submit(QueueKind::Steering))
-        }
-        KeyAction::TuiInputTab => InputAction::Complete,
-        KeyAction::TuiSelectCancel => InputAction::Cancel,
-        _ => return None,
-    })
-}
-
-fn map_bound_action(action: KeyAction) -> InputAction {
-    map_app_action(action)
-        .or_else(|| map_tui_cursor_action(action))
-        .or_else(|| map_tui_edit_action(action))
-        .unwrap_or(InputAction::Ignore)
-}
-
-pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> InputAction {
     if event.kind == KeyEventKind::Release {
         return InputAction::Ignore;
     }
@@ -127,8 +223,16 @@ pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> Input
         return InputAction::Edit(UiAction::InsertNewline);
     }
 
-    if let Some(action) = bindings.get_action(&event) {
-        return map_bound_action(action);
+    if is_shift_tab(&event) {
+        return InputAction::ThinkingCycle;
+    }
+
+    let key = match event.code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        other => other,
+    };
+    if let Some(action) = bound_action(key, event.modifiers) {
+        return action;
     }
 
     match (event.code, event.modifiers) {
@@ -142,45 +246,26 @@ pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> Input
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::interactive::{QueueKind, UiAction};
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, modifiers)
     }
 
     #[test]
-    fn enter_variants_preserve_submission_intent() {
-        let cases = [
-            (
-                key(KeyCode::Enter, KeyModifiers::NONE),
-                InputAction::Edit(UiAction::Submit(QueueKind::Steering)),
-            ),
-            (
-                key(KeyCode::Enter, KeyModifiers::ALT),
-                InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
-            ),
-            (
-                key(KeyCode::Enter, KeyModifiers::SHIFT),
-                InputAction::Edit(UiAction::InsertNewline),
-            ),
-            (
-                key(KeyCode::Enter, KeyModifiers::CONTROL),
-                InputAction::Edit(UiAction::InsertNewline),
-            ),
-        ];
-
-        for (event, expected) in cases {
-            assert_eq!(map_key(event), expected);
+    fn every_bound_chord_maps_to_its_action() {
+        for (code, modifiers, expected) in BINDINGS {
+            assert_eq!(map_key(key(*code, *modifiers)), *expected);
         }
     }
 
     #[test]
-    fn raw_ctrl_j_inserts_a_newline() {
-        assert_eq!(
-            map_key(key(KeyCode::Char('j'), KeyModifiers::CONTROL)),
-            InputAction::Edit(UiAction::InsertNewline)
-        );
+    fn shift_tab_variants_cycle_thinking() {
+        for event in [
+            key(KeyCode::BackTab, KeyModifiers::NONE),
+            key(KeyCode::Tab, KeyModifiers::SHIFT),
+        ] {
+            assert_eq!(map_key(event), InputAction::ThinkingCycle);
+        }
     }
 
     #[test]
@@ -189,95 +274,5 @@ mod tests {
             map_key(key(KeyCode::Char('\n'), KeyModifiers::NONE)),
             InputAction::Edit(UiAction::InsertNewline)
         );
-    }
-
-    #[test]
-    fn editor_navigation_and_control_keys_are_mapped() {
-        let cases = [
-            (
-                key(KeyCode::Left, KeyModifiers::NONE),
-                InputAction::Edit(UiAction::MoveLeft),
-            ),
-            (
-                key(KeyCode::Right, KeyModifiers::NONE),
-                InputAction::Edit(UiAction::MoveRight),
-            ),
-            (key(KeyCode::Up, KeyModifiers::ALT), InputAction::DequeueQueued),
-            (key(KeyCode::Up, KeyModifiers::NONE), InputAction::HistoryPrevious),
-            (key(KeyCode::Down, KeyModifiers::NONE), InputAction::HistoryNext),
-            (key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete),
-            (key(KeyCode::Esc, KeyModifiers::NONE), InputAction::Cancel),
-            (key(KeyCode::Char('d'), KeyModifiers::CONTROL), InputAction::EndOfInput),
-            (key(KeyCode::Char('c'), KeyModifiers::CONTROL), InputAction::Clear),
-            (key(KeyCode::Char('l'), KeyModifiers::CONTROL), InputAction::ModelSelect),
-            (
-                key(KeyCode::Char('p'), KeyModifiers::CONTROL),
-                InputAction::ModelCycleForward,
-            ),
-            (key(KeyCode::Tab, KeyModifiers::SHIFT), InputAction::ThinkingCycle),
-            (
-                key(KeyCode::Char('t'), KeyModifiers::CONTROL),
-                InputAction::ThinkingToggle,
-            ),
-            (key(KeyCode::Char('x'), KeyModifiers::CONTROL), InputAction::MessageCopy),
-            (
-                key(KeyCode::Char('v'), KeyModifiers::CONTROL),
-                InputAction::ClipboardPasteImage,
-            ),
-            (key(KeyCode::Char('z'), KeyModifiers::CONTROL), InputAction::Suspend),
-            (
-                key(KeyCode::Char('w'), KeyModifiers::CONTROL),
-                InputAction::Edit(UiAction::DeleteWordBackward),
-            ),
-            (
-                key(KeyCode::Char('k'), KeyModifiers::CONTROL),
-                InputAction::Edit(UiAction::DeleteToLineEnd),
-            ),
-            (
-                key(KeyCode::Char('y'), KeyModifiers::CONTROL),
-                InputAction::Edit(UiAction::Yank),
-            ),
-            (
-                key(KeyCode::Char('-'), KeyModifiers::CONTROL),
-                InputAction::Edit(UiAction::Undo),
-            ),
-        ];
-
-        for (event, expected) in cases {
-            assert_eq!(map_key(event), expected);
-        }
-    }
-
-    #[test]
-    fn app_actions_are_fully_mapped() {
-        let cases = [
-            (KeyAction::AppInterrupt, InputAction::Cancel),
-            (KeyAction::AppClear, InputAction::Clear),
-            (KeyAction::AppExit, InputAction::EndOfInput),
-            (KeyAction::AppSuspend, InputAction::Suspend),
-            (KeyAction::AppEditorExternal, InputAction::ExternalEditor),
-            (KeyAction::AppClipboardPasteImage, InputAction::ClipboardPasteImage),
-            (KeyAction::AppModelSelect, InputAction::ModelSelect),
-            (KeyAction::AppModelCycleForward, InputAction::ModelCycleForward),
-            (KeyAction::AppModelCycleBackward, InputAction::ModelCycleBackward),
-            (KeyAction::AppThinkingCycle, InputAction::ThinkingCycle),
-            (KeyAction::AppThinkingToggle, InputAction::ThinkingToggle),
-            (KeyAction::AppToolsExpand, InputAction::ToggleExpandTools),
-            (KeyAction::AppMessageCopy, InputAction::MessageCopy),
-            (
-                KeyAction::AppMessageFollowUp,
-                InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
-            ),
-            (KeyAction::AppMessageDequeue, InputAction::DequeueQueued),
-            (KeyAction::AppSessionNew, InputAction::SessionNew),
-            (KeyAction::AppSessionTree, InputAction::SessionTree),
-            (KeyAction::AppSessionResume, InputAction::SessionResume),
-            (KeyAction::AppSessionFork, InputAction::Ignore),
-        ];
-
-        for (action, expected) in cases {
-            assert_eq!(map_bound_action(action), expected);
-        }
-        assert_eq!(map_app_action(KeyAction::TuiSelectConfirm), None);
     }
 }

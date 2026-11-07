@@ -3,43 +3,6 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use crate::engine::runner::{PendingMessageQueue, SteeringQueueProvider};
-use crate::ui::interactive::QueuedMessage;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CoordinatorInput {
-    Prompt(QueuedMessage),
-    Command(String),
-    Cancel,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ActiveQueueResult<E> {
-    Completed {
-        delivered: Vec<QueuedMessage>,
-        deferred_commands: Vec<String>,
-    },
-    Failed {
-        error: E,
-        delivered: Vec<QueuedMessage>,
-        restored: Vec<QueuedMessage>,
-        deferred_commands: Vec<String>,
-    },
-    Cancelled {
-        delivered: Vec<QueuedMessage>,
-        restored: Vec<QueuedMessage>,
-        deferred_commands: Vec<String>,
-        cancellation_error: Option<E>,
-    },
-}
-
-#[async_trait]
-pub trait ActivePromptRunner: Send + Sync {
-    type Error: Send;
-
-    async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
-    async fn steer(&self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
-    async fn cancel_active(&self) -> Result<(), Self::Error>;
-}
 
 #[derive(Clone, Default)]
 pub struct SharedSteeringQueue {
@@ -81,5 +44,33 @@ impl SteeringQueueProvider for SharedSteeringQueue {
             self.consumed.lock().unwrap().extend(drained.clone());
         }
         drained
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SharedSteeringQueue;
+    use crate::engine::runner::{QueueMode, SteeringQueueProvider};
+
+    #[tokio::test]
+    async fn shared_steering_queue_records_and_drains_consumed_prompts() {
+        let queue = SharedSteeringQueue::new(QueueMode::All);
+        queue.enqueue("first steer".to_string());
+        queue.enqueue("second steer".to_string());
+
+        assert!(queue.consumed().is_empty());
+
+        let polled = queue.poll_steering().await;
+        assert_eq!(polled, vec!["first steer", "second steer"]);
+        assert_eq!(queue.consumed(), vec!["first steer", "second steer"]);
+
+        let taken = queue.take_consumed();
+        assert_eq!(taken, vec!["first steer", "second steer"]);
+        assert!(queue.consumed().is_empty());
+
+        queue.enqueue("third steer".to_string());
+        queue.clear();
+        let polled_after_clear = queue.poll_steering().await;
+        assert!(polled_after_clear.is_empty());
     }
 }

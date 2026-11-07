@@ -1,20 +1,19 @@
 use super::client::{AUTHORIZE_URL, CLIENT_ID, REDIRECT_URI, SCOPES};
+use crate::auth::pkce::AuthorizeRequest;
 use rho_harness_core::auth::OAuthLoginCallbacks;
 use rho_harness_core::error::{AppError, Result};
-use url::Url;
 
 pub fn build_authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> String {
-    let mut url = Url::parse(AUTHORIZE_URL).expect("valid authorize url");
-    url.query_pairs_mut()
-        .append_pair("code", "true")
-        .append_pair("client_id", CLIENT_ID)
-        .append_pair("response_type", "code")
-        .append_pair("redirect_uri", redirect_uri)
-        .append_pair("scope", SCOPES)
-        .append_pair("code_challenge", challenge)
-        .append_pair("code_challenge_method", "S256")
-        .append_pair("state", state);
-    url.to_string()
+    AuthorizeRequest {
+        endpoint: AUTHORIZE_URL,
+        client_id: CLIENT_ID,
+        redirect_uri,
+        scope: SCOPES,
+        challenge,
+        state,
+        extra: &[("code", "true")],
+    }
+    .to_url()
 }
 
 fn parse_query_code_state(query: &str) -> (Option<String>, Option<String>) {

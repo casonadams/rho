@@ -38,8 +38,7 @@ rho --resume-picker
 `rho` includes 10 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
-  safeguards. Supports universal virtual file system schemes (`diff://staged`,
-  `diff://workdir`, `conflict://`, `pr://<number>`), image sniffing, and downscaling.
+  safeguards. Supports image sniffing and downscaling.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
 - **`edit`**: Apply targeted, exact text replacements to files.
@@ -52,13 +51,9 @@ rho --resume-picker
 - **`subagent`**: Spawn isolated subagents with specialized roles (`scout`, `critic`,
   `planner`, `general`) to perform focused research, trade-off analysis, or code review
   without parent context bloat.
-- **`lsp`**: Query Language Server Protocol servers for compiler diagnostics,
-  symbol definitions, cross-file references, document symbols, and rename diff previews
-  without invoking slow external shell build commands.
-- **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo, Firecrawl).
+- **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
-  from web URLs. Includes specialized extractors for GitHub (issues, PRs with
-  diffs, commits, raw code, directory trees) and YouTube (metadata and timed dialogue transcripts).
+  from web URLs.
 
 Web tools, search providers, MCP, and permissions can be configured in `config.toml` or interactively toggled via `/settings` under **Tools & Permissions**.
 
@@ -69,7 +64,7 @@ Web tools, search providers, MCP, and permissions can be configured in `config.t
 Comprehensive guides are organized in [`docs/`](docs/):
 
 - **[Providers, Configuration & Skills](docs/configuration.md)**
-  - Authentication for 14+ providers (ChatGPT, Claude, Copilot, Antigravity,
+  - Authentication for 13+ providers (ChatGPT, Claude, Antigravity,
     Anthropic, Gemini, DeepSeek, Local Ollama, and more).
   - Custom OpenAI-compatible endpoints with private network protection.
   - Hierarchical instruction loading (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`).
@@ -83,12 +78,10 @@ Comprehensive guides are organized in [`docs/`](docs/):
     turns.
   - Universal native theme that adopts your terminal's 16-color palette, with
     SGR-dim secondary text, terminal-detected card fills, or configurable outline borders.
-  - Fenced Mermaid diagram rendering (Flowcharts with subgraphs, Sequence, State, Class, ER).
 
 - **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**
   - Comprehensive keybinding reference organized by session flow, queueing,
     model controls, and editor navigation.
-  - Custom keybinding configuration (`~/.config/rho/keybindings.toml`).
 
 - **[Permissions, Privacy & Safety](docs/permissions.md)**
   - Strict zero-telemetry policy: rho collects nothing, no analytics, no phone-home pings.
@@ -98,24 +91,10 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Fail-closed execution in headless automation and on guard model errors or timeouts.
 
 - **[MCP Servers & Lifecycle Hooks](docs/mcp-and-hooks.md)**
-  - Full Model Context Protocol (MCP) support: `stdio` and `streamable-http` transports with OAuth 2.1 PKCE authorization.
+  - Full Model Context Protocol (MCP) support: `stdio` and `streamable-http` transports with static request headers.
   - Ecosystem interoperability with `~/.agents/mcp.json`, project `.agents/mcp.json`, and `.mcp.json`.
   - Context budget tool gating (`direct` vs `gateway` vs `auto`), `/mcp` TUI modal, and `rho mcp` management suite.
   - One-shot lifecycle hooks in `.agents/hooks/` for deterministic policy enforcement, tool gating, argument rewriting, and turn control without background daemons.
-
-- **Collab (Peer-to-Peer Live Pairing)**
-  - Share active sessions terminal-to-terminal over end-to-end encrypted QUIC powered by [Iroh](https://iroh.computer).
-  - Capability-based cryptographic isolation: full interactive co-pilot vs. read-only spectator.
-  - REPL slash commands: `/collab start`, `/collab peers`, `/collab kick <id>`, `/collab rotate`, `/collab stop`.
-  - Collaborators join instantly with zero server setup via `rho join <ticket>`.
-  - Full interactive TUI for guests: alternate-screen rendering, markdown token streaming, styled tool cards, and snapshot transcript hydration.
-  - Shared interactive tool approval synchronization across terminals via in-TUI confirmation modals.
-
-- **Sovereign Agent Mesh (Peer-to-Peer Task Delegation)**
-  - Delegate autonomous subagent tasks across sovereign peer nodes over end-to-end encrypted Iroh QUIC streams.
-  - Cryptographic capability tickets (`rho-agent://`) enforcing strict sandbox invariants: `read_only` (read/lsp/search only), `propose` (file diffs/edits without shell), or `full` access.
-  - Start a worker node with `rho agent serve --cap <read_only|propose|full>`.
-  - Delegate tasks from any terminal with `rho agent run <ticket> "<prompt>"`.
 
 ---
 
@@ -145,4 +124,3 @@ cargo fmt --all -- --check
 ## Acknowledgments
 
 - Special thanks to [pi.dev](https://pi.dev) for inspiring aspects of rho's design and ergonomics.
-- Powered by [Iroh](https://iroh.computer) for direct, zero-infrastructure peer-to-peer QUIC networking and NAT traversal.

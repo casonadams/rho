@@ -1,85 +1,102 @@
 //! Dynamic key expansion: environment variables, shell commands (!command), and escapes.
 
 use rho_harness_core::error::{AppError, Result};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+const SECRET_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 pub fn resolve_secret_value(raw: &str) -> Result<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Ok(String::new());
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("$$") {
-        return Ok(format!("${rest}"));
-    }
-    if let Some(rest) = trimmed.strip_prefix("$!") {
-        return Ok(format!("!{rest}"));
-    }
-
-    if let Some(cmd) = trimmed.strip_prefix('!') {
-        return execute_command(cmd);
-    }
-
-    if trimmed.starts_with('$') {
-        return expand_env(trimmed);
-    }
-
-    Ok(trimmed.to_string())
+    classify_secret(raw)?
+        .literal()
+        .or_else(|cmd| execute_command_with_timeout(cmd, SECRET_COMMAND_TIMEOUT))
 }
 
 pub async fn resolve_secret_value_async(raw: &str) -> Result<String> {
+    match classify_secret(raw)?.literal() {
+        Ok(value) => Ok(value),
+        Err(cmd) => execute_command_async_with_timeout(cmd, SECRET_COMMAND_TIMEOUT).await,
+    }
+}
+
+enum SecretSource<'a> {
+    Value(String),
+    Command(&'a str),
+}
+
+impl<'a> SecretSource<'a> {
+    /// The resolved value, or the shell command that still has to run to produce it.
+    fn literal(self) -> std::result::Result<String, &'a str> {
+        match self {
+            SecretSource::Value(value) => Ok(value),
+            SecretSource::Command(cmd) => Err(cmd),
+        }
+    }
+}
+
+fn classify_secret(raw: &str) -> Result<SecretSource<'_>> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Ok(String::new());
+        return Ok(SecretSource::Value(String::new()));
     }
 
     if let Some(rest) = trimmed.strip_prefix("$$") {
-        return Ok(format!("${rest}"));
+        return Ok(SecretSource::Value(format!("${rest}")));
     }
     if let Some(rest) = trimmed.strip_prefix("$!") {
-        return Ok(format!("!{rest}"));
+        return Ok(SecretSource::Value(format!("!{rest}")));
     }
 
     if let Some(cmd) = trimmed.strip_prefix('!') {
-        return execute_command_async(cmd).await;
+        return Ok(SecretSource::Command(cmd));
     }
 
     if trimmed.starts_with('$') {
-        return expand_env(trimmed);
+        return expand_env(trimmed).map(SecretSource::Value);
     }
 
-    Ok(trimmed.to_string())
+    Ok(SecretSource::Value(trimmed.to_string()))
 }
 
-fn execute_command(cmd: &str) -> Result<String> {
+fn shell_command(cmd: &str) -> Command {
     #[cfg(unix)]
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .output()
-        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
-
+    let mut command = Command::new("sh");
+    #[cfg(unix)]
+    command.arg("-c").arg(cmd);
     #[cfg(not(unix))]
-    let output = Command::new("cmd")
-        .arg("/C")
-        .arg(cmd)
-        .output()
-        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
+    let mut command = Command::new("cmd");
+    #[cfg(not(unix))]
+    command.arg("/C").arg(cmd);
+    command
+}
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Auth(format!(
-            "Auth command '{cmd}' failed (exit code {:?}): {}",
-            output.status.code(),
-            stderr.trim()
-        )));
-    }
+fn timed_out(cmd: &str, timeout: Duration) -> AppError {
+    AppError::Auth(format!(
+        "Auth command '{cmd}' timed out after {}ms",
+        timeout.as_millis()
+    ))
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Err(AppError::Auth(format!("Auth command '{cmd}' returned empty output")));
+fn execute_command_with_timeout(cmd: &str, timeout: Duration) -> Result<String> {
+    let io_error = |e: std::io::Error| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}"));
+    let mut child = shell_command(cmd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(io_error)?;
+    let deadline = Instant::now() + timeout;
+    while child.try_wait().map_err(io_error)?.is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(timed_out(cmd, timeout));
+        }
+        std::thread::sleep(POLL_INTERVAL);
     }
-    Ok(stdout)
+    let output = child.wait_with_output().map_err(io_error)?;
+    validate_command_output(output, cmd)
 }
 
 fn validate_command_output(output: std::process::Output, cmd: &str) -> Result<String> {
@@ -99,24 +116,13 @@ fn validate_command_output(output: std::process::Output, cmd: &str) -> Result<St
     Ok(stdout)
 }
 
-async fn run_raw_cmd_async(cmd: &str) -> Result<std::process::Output> {
-    #[cfg(unix)]
-    let mut c = tokio::process::Command::new("sh");
-    #[cfg(unix)]
-    c.arg("-c").arg(cmd);
-
-    #[cfg(not(unix))]
-    let mut c = tokio::process::Command::new("cmd");
-    #[cfg(not(unix))]
-    c.arg("/C").arg(cmd);
-
-    c.output()
+async fn execute_command_async_with_timeout(cmd: &str, timeout: Duration) -> Result<String> {
+    let mut command = tokio::process::Command::from(shell_command(cmd));
+    command.kill_on_drop(true);
+    let output = tokio::time::timeout(timeout, command.output())
         .await
-        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))
-}
-
-async fn execute_command_async(cmd: &str) -> Result<String> {
-    let output = run_raw_cmd_async(cmd).await?;
+        .map_err(|_| timed_out(cmd, timeout))?
+        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
     validate_command_output(output, cmd)
 }
 
@@ -200,5 +206,12 @@ mod tests {
             resolve_secret_value("!echo hello_from_shell").unwrap(),
             "hello_from_shell"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn times_out_hung_secret_commands() {
+        let err = execute_command_with_timeout("sleep 5", Duration::from_millis(50)).unwrap_err();
+        assert!(err.to_string().contains("timed out"));
     }
 }

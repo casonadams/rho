@@ -2,22 +2,25 @@ use std::path::Path;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
 use super::{ProcessTreeGuard, isolate_group};
 
-fn handle_utf8_slice(data: &[u8], leftover: &mut Vec<u8>, tx: &UnboundedSender<String>) -> bool {
+const OUTPUT_CHANNEL_CAPACITY: usize = 256;
+
+async fn handle_utf8_slice(data: &[u8], leftover: &mut Vec<u8>, tx: &Sender<String>) -> bool {
     match std::str::from_utf8(data) {
         Ok(valid) => {
             leftover.clear();
-            tx.send(valid.to_string()).is_ok()
+            tx.send(valid.to_string()).await.is_ok()
         }
         Err(err) => {
             let valid_up_to = err.valid_up_to();
             if valid_up_to > 0
                 && tx
                     .send(String::from_utf8_lossy(&data[..valid_up_to]).to_string())
+                    .await
                     .is_err()
             {
                 return false;
@@ -26,7 +29,7 @@ fn handle_utf8_slice(data: &[u8], leftover: &mut Vec<u8>, tx: &UnboundedSender<S
                 let start = valid_up_to + error_len;
                 leftover.clear();
                 leftover.extend_from_slice(&data[start..]);
-                tx.send("\u{FFFD}".to_string()).is_ok()
+                tx.send("\u{FFFD}".to_string()).await.is_ok()
             } else {
                 *leftover = data[valid_up_to..].to_vec();
                 true
@@ -35,31 +38,31 @@ fn handle_utf8_slice(data: &[u8], leftover: &mut Vec<u8>, tx: &UnboundedSender<S
     }
 }
 
-fn process_read_buffer(buf: &[u8], leftover: &mut Vec<u8>, tx: &UnboundedSender<String>) -> bool {
+async fn process_read_buffer(buf: &[u8], leftover: &mut Vec<u8>, tx: &Sender<String>) -> bool {
     if leftover.is_empty() {
-        handle_utf8_slice(buf, leftover, tx)
+        handle_utf8_slice(buf, leftover, tx).await
     } else {
         leftover.extend_from_slice(buf);
         let data = std::mem::take(leftover);
-        handle_utf8_slice(&data, leftover, tx)
+        handle_utf8_slice(&data, leftover, tx).await
     }
 }
 
 fn spawn_reader_task<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     mut reader: R,
-    tx: UnboundedSender<String>,
+    tx: Sender<String>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut buf = [0u8; 4096];
         let mut leftover = Vec::new();
         while let Ok(n) = reader.read(&mut buf).await {
-            if n == 0 || !process_read_buffer(&buf[..n], &mut leftover, &tx) {
+            if n == 0 || !process_read_buffer(&buf[..n], &mut leftover, &tx).await {
                 break;
             }
         }
         if !leftover.is_empty() {
             let s = String::from_utf8_lossy(&leftover).to_string();
-            let _ = tx.send(s);
+            let _ = tx.send(s).await;
         }
     })
 }
@@ -93,12 +96,12 @@ pub struct StreamingCommand {
 }
 
 impl StreamingCommand {
-    pub fn spawn(mut command: Command) -> std::io::Result<(Self, UnboundedReceiver<String>)> {
+    pub fn spawn(mut command: Command) -> std::io::Result<(Self, Receiver<String>)> {
         let mut child = command.spawn()?;
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
         let guard = ProcessTreeGuard::new(child);
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(OUTPUT_CHANNEL_CAPACITY);
         let stdout_task = spawn_reader_task(stdout, tx.clone());
         let stderr_task = spawn_reader_task(stderr, tx);
         Ok((
@@ -126,11 +129,9 @@ impl StreamingCommand {
         let _ = (&mut self.stderr_task).await;
     }
 
-    pub fn guard(&self) -> &ProcessTreeGuard {
-        &self.guard
-    }
-
-    pub fn guard_mut(&mut self) -> &mut ProcessTreeGuard {
-        &mut self.guard
+    pub async fn drain_tasks_within(&mut self, grace: std::time::Duration) {
+        if tokio::time::timeout(grace, self.drain_tasks()).await.is_err() {
+            self.cancel().await;
+        }
     }
 }

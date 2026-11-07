@@ -7,11 +7,8 @@ mod tree;
 
 use super::{SessionEventKind, SessionManager};
 use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
-use std::path::PathBuf;
 
-pub(crate) fn temp_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("session_test_{}", uuid::Uuid::new_v4()))
-}
+pub(crate) use crate::test_support::temp_dir;
 
 fn make_tool_calls(ids: &[&str]) -> Vec<AssistantContent> {
     ids.iter()

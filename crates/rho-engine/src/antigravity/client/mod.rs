@@ -1,6 +1,7 @@
 //! Antigravity streaming client: endpoint/model fallback routing and SSE streaming.
 
 use super::request::{self, Effort, RequestTarget};
+use crate::http::CLIENT;
 use crate::provider::adapter::ModelCompletionRequest;
 
 pub mod completion;
@@ -13,7 +14,7 @@ mod tests;
 
 pub use discovery::{discover_models, is_selectable_runtime_model, load_project_id};
 pub(crate) use http::post_metadata_candidates;
-pub use http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, http_client, resolve_endpoints};
+pub use http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, resolve_endpoints};
 pub use token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 
 /// One (endpoint, project, runtime-model) routing combination for a stream POST.
@@ -183,7 +184,7 @@ impl AntigravityClient {
                 reqwest::header::HeaderValue::from_static("interleaved-thinking-2025-05-14"),
             );
         }
-        let response = http_client()
+        let response = CLIENT
             .post(Self::streaming_endpoint(target.endpoint.base_url))
             .headers(headers)
             .body(body.to_string())

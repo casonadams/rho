@@ -38,7 +38,8 @@ pub fn is_private_host(host: &str) -> bool {
 }
 
 pub fn is_private_ipv4(v4: std::net::Ipv4Addr) -> bool {
-    v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.octets()[0] == 0
+    let [a, b, ..] = v4.octets();
+    v4.is_loopback() || v4.is_private() || v4.is_link_local() || a == 0 || (a == 100 && (64..128).contains(&b))
 }
 
 pub fn is_private_ipv6(v6: std::net::Ipv6Addr) -> bool {
@@ -111,6 +112,8 @@ mod tests {
             "fc00::1",
             "fd12:3456:789a::1",
             "fe80::1",
+            "100.64.0.1",
+            "100.127.255.254",
         ];
         for host in private {
             assert!(is_private_host(host));
@@ -119,7 +122,7 @@ mod tests {
 
     #[test]
     fn classifies_public_hosts() {
-        for host in ["example.com", "93.184.216.34", "2606:4700:4700::1111"] {
+        for host in ["example.com", "93.184.216.34", "2606:4700:4700::1111", "100.128.0.1"] {
             assert!(!is_private_host(host));
         }
     }

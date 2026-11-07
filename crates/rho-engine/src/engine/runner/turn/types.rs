@@ -20,7 +20,6 @@ pub struct CancellationSignal {
 #[derive(Default)]
 struct CancellationSignalInner {
     cancelled: AtomicBool,
-    interrupted: AtomicBool,
     notify: tokio::sync::Notify,
 }
 
@@ -35,15 +34,6 @@ impl CancellationSignal {
     }
     pub fn is_cancelled(&self) -> bool {
         self.inner.cancelled.load(Ordering::Relaxed)
-    }
-    pub fn interrupt_stream(&self) {
-        self.set_flag(&self.inner.interrupted);
-    }
-    pub fn is_interrupted(&self) -> bool {
-        self.inner.interrupted.load(Ordering::Relaxed)
-    }
-    pub fn reset_interrupted(&self) {
-        self.inner.interrupted.store(false, Ordering::Relaxed);
     }
     pub async fn wait_cancelled(&self) {
         while !self.is_cancelled() {
@@ -91,8 +81,6 @@ pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,
     pub steering: Option<std::sync::Arc<dyn SteeringQueueProvider>>,
-    pub model_switch: Option<std::sync::Arc<SharedModelSwitch>>,
-    pub routed_model: Option<String>,
 }
 
 impl<'a> TurnRequest<'a> {
@@ -101,8 +89,6 @@ impl<'a> TurnRequest<'a> {
             prompt,
             cancellation: None,
             steering: None,
-            model_switch: None,
-            routed_model: None,
         }
     }
 
@@ -114,91 +100,6 @@ impl<'a> TurnRequest<'a> {
     pub fn with_steering(mut self, steering: std::sync::Arc<dyn SteeringQueueProvider>) -> Self {
         self.steering = Some(steering);
         self
-    }
-
-    pub fn with_model_switch(mut self, model_switch: std::sync::Arc<SharedModelSwitch>) -> Self {
-        self.model_switch = Some(model_switch);
-        self
-    }
-
-    pub fn with_routed_model(mut self, model: String) -> Self {
-        self.routed_model = Some(model);
-        self
-    }
-}
-
-#[derive(Clone, Default)]
-pub struct SharedModelSwitch {
-    inner: std::sync::Arc<std::sync::RwLock<Option<ActiveModelSwitch>>>,
-}
-
-impl std::fmt::Debug for SharedModelSwitch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SharedModelSwitch")
-            .field("current_model", &self.current_model())
-            .field("current_provider", &self.current_provider())
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub struct ActiveModelSwitch {
-    pub model: String,
-    pub provider: String,
-    pub handle: crate::engine::compactor::llm::ModelHandle,
-}
-
-impl ActiveModelSwitch {
-    pub fn new(
-        model: impl Into<String>,
-        provider: impl Into<String>,
-        handle: crate::engine::compactor::llm::ModelHandle,
-    ) -> Self {
-        Self {
-            model: model.into(),
-            provider: provider.into(),
-            handle,
-        }
-    }
-}
-
-impl SharedModelSwitch {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn switch_to(&self, switch: ActiveModelSwitch) {
-        if let Ok(mut lock) = self.inner.write() {
-            *lock = Some(switch);
-        }
-    }
-
-    pub fn get_handle(&self) -> Option<crate::engine::compactor::llm::ModelHandle> {
-        self.inner
-            .read()
-            .ok()
-            .and_then(|lock| lock.as_ref().map(|s| s.handle.clone()))
-    }
-
-    pub fn current_model(&self) -> Option<String> {
-        self.inner
-            .read()
-            .ok()
-            .and_then(|lock| lock.as_ref().map(|s| s.model.clone()))
-    }
-
-    pub fn current_provider(&self) -> Option<String> {
-        self.inner
-            .read()
-            .ok()
-            .and_then(|lock| lock.as_ref().map(|s| s.provider.clone()))
-    }
-
-    pub fn take_switched(&self) -> Option<(String, String)> {
-        self.inner
-            .read()
-            .ok()
-            .and_then(|lock| lock.as_ref().map(|s| (s.model.clone(), s.provider.clone())))
     }
 }
 

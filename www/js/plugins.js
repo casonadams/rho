@@ -70,15 +70,10 @@ export function renderExtensionCard(item) {
 
       <div class="extension-links" style="margin-top: 1rem;">
         ${item.repoUrl ? `<a href="${escapeHtml(item.repoUrl)}" target="_blank" rel="noopener">Source</a>` : ""}
-        ${item.cratesUrl ? `<a href="${escapeHtml(item.cratesUrl)}" target="_blank" rel="noopener">Crates.io</a>` : ""}
       </div>
     </article>
   `;
 }
-
-export const loadAllPlugins = loadAllExtensions;
-export const filterPlugins = filterExtensions;
-export const renderPluginCard = renderExtensionCard;
 
 function escapeHtml(str) {
   if (!str) return "";

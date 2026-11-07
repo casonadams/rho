@@ -1,6 +1,5 @@
 //! Core `MarkdownRenderer` state machine with spacing normalization.
 
-use super::diagram::MermaidBlockTracker;
 use super::highlight::CodeHighlighter;
 use super::line::{CodeFenceTracker, needs_preceding_blank_line, render_line, should_buffer_line};
 use super::stream::{InlineStreamTracker, StreamWordWrapper};
@@ -11,7 +10,6 @@ use crate::ui::theme::Theme;
 pub struct MarkdownRenderer {
     code_fence: CodeFenceTracker,
     code_highlighter: Option<CodeHighlighter<'static>>,
-    mermaid: MermaidBlockTracker,
     current_line: String,
     emitted_on_current_line: bool,
     table_lines: Vec<String>,
@@ -29,7 +27,6 @@ impl MarkdownRenderer {
     /// Terminal width available to rendered blocks; `0` leaves content unclipped.
     pub fn set_width(&mut self, width: usize) {
         self.width = width;
-        self.mermaid.set_width(width);
         self.stream_wrapper.set_width(width);
     }
 
@@ -86,11 +83,7 @@ impl MarkdownRenderer {
             let inline = self.stream_tracker.render_inline_token(remaining, theme);
             return self.stream_wrapper.process_chunk(&inline);
         }
-        if self.code_fence.in_code_block
-            || self.mermaid.in_block()
-            || !self.table_lines.is_empty()
-            || should_buffer_line(&self.current_line)
-        {
+        if self.code_fence.in_code_block || !self.table_lines.is_empty() || should_buffer_line(&self.current_line) {
             return String::new();
         }
         self.emitted_on_current_line = true;
@@ -128,24 +121,10 @@ impl MarkdownRenderer {
             let rendered = render_markdown_table(&std::mem::take(&mut self.table_lines), theme);
             self.spacing.append_block(out, &rendered);
         }
-        if let Some(rendered) = self.mermaid.flush_rendered(theme) {
-            self.spacing.append_block(out, &rendered);
-        }
     }
 
-    fn try_buffer_block(&mut self, out: &mut String, line: &str, theme: &Theme) -> bool {
-        let trimmed = line.trim();
-        if let Some(opt_rendered) = self.mermaid.try_render_fence(trimmed, theme) {
-            if let Some(rendered) = opt_rendered {
-                self.spacing.append_block(out, &rendered);
-            }
-            return true;
-        }
-        if self.mermaid.in_block() {
-            self.mermaid.push_line(line);
-            return true;
-        }
-        if is_table_line(trimmed) {
+    fn try_buffer_table_line(&mut self, line: &str) -> bool {
+        if is_table_line(line.trim()) {
             self.table_lines.push(line.to_string());
             return true;
         }
@@ -212,7 +191,7 @@ impl MarkdownRenderer {
     }
 
     fn process_line(&mut self, out: &mut String, line: &str, theme: &Theme) {
-        if self.try_buffer_block(out, line, theme) {
+        if self.try_buffer_table_line(line) {
             return;
         }
 

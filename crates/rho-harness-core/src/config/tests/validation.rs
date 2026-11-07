@@ -74,28 +74,28 @@ fn rejects_zero_context_and_compaction_bytes() {
 }
 
 #[test]
-fn rejects_invalid_search_engines() {
-    let mut cfg = Config::default();
-    cfg.tools.web.search.default = "nonexistent_engine".to_string();
-    assert!(cfg.validate().is_err());
-
-    let mut cfg = Config::default();
-    cfg.tools.web.search.fallback = vec!["brave".to_string(), "unknown_engine".to_string()];
-    assert!(cfg.validate().is_err());
+fn search_engine_validation_accepts_and_rejects() {
+    let cases = [
+        ("nonexistent_engine", None, false),
+        ("brave", Some(vec!["brave", "unknown_engine"]), false),
+        ("brave", Some(vec!["duckduckgo", "ddg_lite", "yahoo"]), true),
+    ];
+    for (default, fallback, valid) in cases {
+        let mut cfg = Config::default();
+        cfg.tools.web.search.default = default.to_string();
+        if let Some(fallback) = &fallback {
+            cfg.tools.web.search.fallback = fallback.iter().map(|engine| engine.to_string()).collect();
+        }
+        assert_eq!(cfg.validate().is_ok(), valid, "{default} {fallback:?}");
+    }
 }
 
 #[test]
-fn accepts_valid_search_engines() {
-    let mut cfg = Config::default();
-    cfg.tools.web.search.default = "brave".to_string();
-    cfg.tools.web.search.fallback = vec![
-        "duckduckgo".to_string(),
-        "ddg_lite".to_string(),
-        "yahoo".to_string(),
-        "firecrawl".to_string(),
-        "exa".to_string(),
-        "gemini".to_string(),
-        "google".to_string(),
-    ];
-    assert!(cfg.validate().is_ok());
+fn rejects_removed_search_engines() {
+    for engine in ["firecrawl", "exa", "gemini", "google"] {
+        let mut cfg = Config::default();
+        cfg.tools.web.search.default = engine.to_string();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.to_string().contains("Supported engines: brave, duckduckgo, yahoo"));
+    }
 }

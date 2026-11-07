@@ -356,14 +356,6 @@ pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, sessio
         }
         let hook = Arc::clone(hook);
         let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(session_id, messages).await });
-        match futures::FutureExt::catch_unwind(fut).await {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                eprintln!("Warning: Demotion hook error: {err}");
-            }
-            Err(_) => {
-                eprintln!("Warning: Demotion hook panicked during execution");
-            }
-        }
+        let _ = futures::FutureExt::catch_unwind(fut).await;
     }
 }

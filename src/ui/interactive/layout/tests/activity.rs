@@ -1,38 +1,42 @@
-use crate::ui::interactive::layout::{LayoutInput, layout};
+use super::base_input;
+use crate::ui::interactive::layout::{InteractiveLayout, LayoutInput, layout};
 use crate::ui::interactive::{Activity, EditorState, FooterState, ModalOption, ModalState};
 
-fn test_layout(
-    editor: &EditorState,
-    footer: &FooterState,
-    modal: Option<&ModalState>,
-) -> crate::ui::interactive::layout::InteractiveLayout {
-    layout(LayoutInput {
-        editor,
-        modal,
-        autocomplete: None,
-        footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    })
-}
-
-#[test]
-fn busy_activity_renders_working_line_above_the_editor() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Working,
+fn busy_footer(activity: Activity) -> FooterState {
+    FooterState {
+        activity,
         model: "model".into(),
         context: None,
         quota: None,
         ..FooterState::default()
-    };
-    let layout = test_layout(&default_editor, &footer, None);
+    }
+}
+
+fn test_layout(footer: &FooterState, modal: Option<&ModalState>, focused: bool) -> InteractiveLayout {
+    layout(LayoutInput {
+        modal,
+        focused,
+        ..base_input(&EditorState::default(), footer)
+    })
+}
+
+fn permission_modal() -> ModalState {
+    ModalState::new(
+        "Permission Required",
+        "tool   bash\nscope  cargo test",
+        vec![ModalOption::from("Allow")],
+    )
+}
+
+fn assert_modal_hides_working(layout: &InteractiveLayout) {
+    assert!(layout.top_divider.contains("Permission Required"));
+    assert!(!layout.top_divider.contains("working"));
+    assert!(!layout.lines.iter().any(|l| l.contains("working")));
+}
+
+#[test]
+fn busy_activity_renders_working_line_above_the_editor() {
+    let layout = test_layout(&busy_footer(Activity::Working), None, true);
 
     assert!(
         layout.working_line.starts_with(" \x1b[36m\u{280b}")
@@ -46,88 +50,22 @@ fn busy_activity_renders_working_line_above_the_editor() {
 }
 
 #[test]
-fn thinking_activity_also_renders_the_working_line() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Thinking,
-        model: "model".into(),
-        context: None,
-        quota: None,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+fn thinking_and_compacting_activities_render_their_labels() {
+    for (activity, label, absent) in [
+        (Activity::Thinking, "working", None),
+        (Activity::Compacting, "compacting", Some("working")),
+    ] {
+        let layout = test_layout(&busy_footer(activity), None, true);
 
-    assert!(layout.working_line.contains('\u{280b}'));
-    assert!(layout.working_line.contains("working"));
-}
-
-#[test]
-fn compacting_activity_renders_compacting_label() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Compacting,
-        model: "model".into(),
-        context: None,
-        quota: None,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
-
-    assert!(layout.working_line.contains('\u{280b}'));
-    assert!(layout.working_line.contains("compacting"));
-    assert!(!layout.working_line.contains("working"));
+        assert!(layout.working_line.contains('\u{280b}'));
+        assert!(layout.working_line.contains(label));
+        assert!(absent.is_none_or(|word| !layout.working_line.contains(word)));
+    }
 }
 
 #[test]
 fn idle_activity_renders_no_working_line() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Idle,
-        model: "model".into(),
-        context: None,
-        quota: None,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+    let layout = test_layout(&busy_footer(Activity::Idle), None, true);
 
     assert_eq!(layout.working_line, "");
     assert_eq!(layout.height(), 6);
@@ -135,13 +73,8 @@ fn idle_activity_renders_no_working_line() {
 
 #[test]
 fn busy_activity_does_not_change_layout_height_or_cursor_row() {
-    let default_editor = EditorState::default();
-    let idle = test_layout(&default_editor, &FooterState::default(), None);
-    let busy_footer = FooterState {
-        activity: Activity::Working,
-        ..FooterState::default()
-    };
-    let busy = test_layout(&default_editor, &busy_footer, None);
+    let idle = test_layout(&FooterState::default(), None, true);
+    let busy = test_layout(&busy_footer(Activity::Working), None, true);
 
     assert_eq!(busy.height(), idle.height());
     assert_eq!(busy.cursor_row(), idle.cursor_row());
@@ -151,50 +84,15 @@ fn busy_activity_does_not_change_layout_height_or_cursor_row() {
 
 #[test]
 fn busy_activity_under_modal_suppresses_spinner_and_shows_modal_title() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Working,
-        model: "model".into(),
-        context: None,
-        quota: None,
-        ..FooterState::default()
-    };
-    let modal = ModalState::new(
-        "Permission Required",
-        "tool   bash\nscope  cargo test",
-        vec![ModalOption::from("Allow")],
-    );
-    let layout = test_layout(&default_editor, &footer, Some(&modal));
+    let modal = permission_modal();
+    let layout = test_layout(&busy_footer(Activity::Working), Some(&modal), true);
 
-    assert!(layout.top_divider.contains("Permission Required"));
-    assert!(!layout.top_divider.contains("working"));
-    assert!(!layout.lines.iter().any(|l| l.contains("working")));
+    assert_modal_hides_working(&layout);
 }
 
 #[test]
 fn busy_activity_retains_working_line_when_unfocused() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Working,
-        model: "model".into(),
-        context: None,
-        quota: None,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: false,
-    });
+    let layout = test_layout(&busy_footer(Activity::Working), None, false);
 
     assert!(!layout.working_line.is_empty());
     assert!(layout.working_line.contains("working"));
@@ -204,36 +102,9 @@ fn busy_activity_retains_working_line_when_unfocused() {
 
 #[test]
 fn busy_activity_under_modal_suppresses_spinner_when_unfocused() {
-    let default_editor = EditorState::default();
-    let footer = FooterState {
-        activity: Activity::Working,
-        model: "model".into(),
-        context: None,
-        quota: None,
-        ..FooterState::default()
-    };
-    let modal = ModalState::new(
-        "Permission Required",
-        "tool   bash\nscope  cargo test",
-        vec![ModalOption::from("Allow")],
-    );
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: Some(&modal),
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: false,
-    });
+    let modal = permission_modal();
+    let layout = test_layout(&busy_footer(Activity::Working), Some(&modal), false);
 
-    assert!(layout.top_divider.contains("Permission Required"));
-    assert!(!layout.top_divider.contains("working"));
-    assert!(!layout.lines.iter().any(|l| l.contains("working")));
+    assert_modal_hides_working(&layout);
     assert!(!layout.cursor_visible);
 }

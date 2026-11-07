@@ -6,7 +6,6 @@ use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveState, QueueKind, RunningTool, TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
-use rho_engine::engine::runner::SteeringQueueProvider;
 
 struct MockTerminal;
 
@@ -60,7 +59,6 @@ struct TurnTestFixture {
     batch: super::LiveBatch,
     steering: SharedSteeringQueue,
     session: crate::repl::ReplSession,
-    model_switch: std::sync::Arc<rho_engine::engine::runner::SharedModelSwitch>,
 }
 
 impl TurnTestFixture {
@@ -77,7 +75,6 @@ impl TurnTestFixture {
             crate::auth::AuthStore::default(),
             None,
         );
-        let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
         Self {
             _temp: temp,
             controller,
@@ -86,7 +83,6 @@ impl TurnTestFixture {
             batch,
             steering,
             session,
-            model_switch,
         }
     }
 
@@ -98,10 +94,61 @@ impl TurnTestFixture {
             batch: &mut self.batch,
             steering: &self.steering,
             session: &mut self.session,
-            model_switch: &self.model_switch,
             shared_auth: None,
         }
     }
+}
+
+struct LoopFixture {
+    _temp: tempfile::TempDir,
+    engine: crate::engine::AgentEngine,
+    base: TurnTestFixture,
+    tx: tokio::sync::mpsc::UnboundedSender<crate::ui::interactive::UiEvent>,
+    ui_events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+    cancellation: crate::engine::runner::CancellationSignal,
+    input_reader: crate::repl::input_reader::TerminalInputReader,
+}
+
+impl LoopFixture {
+    async fn new(initial_text: &str) -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, _, engine) = create_harness_engine(temp.path()).await;
+        let (tx, ui_events) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            _temp: temp,
+            engine,
+            base: TurnTestFixture::new(initial_text),
+            tx,
+            ui_events,
+            cancellation: crate::engine::runner::CancellationSignal::default(),
+            input_reader: crate::repl::input_reader::TerminalInputReader::spawn_dummy(),
+        }
+    }
+
+    fn context(&mut self) -> super::TurnContext<'_, MockTerminal> {
+        let steering = std::sync::Arc::new(self.base.steering.clone());
+        super::TurnContext {
+            loop_ctx: super::runner::TurnLoop::new(
+                &mut self.base.session,
+                &self.engine,
+                &mut self.base.controller,
+                steering,
+            ),
+            input_reader: &mut self.input_reader,
+            resources: super::event::TurnInputResources {
+                history: &mut self.base.history,
+                completions: &self.base.completions,
+                ui_events: &mut self.ui_events,
+                cancellation: &self.cancellation,
+            },
+        }
+    }
+}
+
+async fn dispatch(ctx: &mut super::TurnContext<'_, MockTerminal>, event: crossterm::event::Event) -> bool {
+    super::event::dispatch_turn_input(&mut ctx.loop_ctx, &mut ctx.resources, event)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -218,7 +265,6 @@ fn model_switch_fixture() -> (
     rho_harness_core::config::Config,
     crate::auth::AuthStore,
     TerminalRenderer,
-    std::sync::Arc<rho_engine::engine::runner::SharedModelSwitch>,
 ) {
     (
         TerminalController::new(MockTerminal, InteractiveState::default()).unwrap(),
@@ -226,13 +272,12 @@ fn model_switch_fixture() -> (
         rho_harness_core::config::Config::default(),
         crate::auth::AuthStore::default(),
         TerminalRenderer::default(),
-        std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new()),
     )
 }
 
 #[tokio::test]
-async fn test_apply_turn_model_switch_updates_model_switch_and_footer() {
-    let (mut controller, mut batch, mut config, auth_store, renderer, model_switch) = model_switch_fixture();
+async fn test_apply_turn_model_switch_updates_config_and_footer() {
+    let (mut controller, mut batch, mut config, auth_store, renderer) = model_switch_fixture();
     let input = super::TurnModelSwitchInput {
         model: "llama3.2",
         provider: "local",
@@ -241,19 +286,12 @@ async fn test_apply_turn_model_switch_updates_model_switch_and_footer() {
         auth_store: &auth_store,
         renderer: &renderer,
         controller: &mut controller,
-        model_switch: &model_switch,
         batch: &mut batch,
         shared_auth: None,
     };
     super::apply_turn_model_switch(input).await.unwrap();
     assert_eq!((config.model.as_str(), config.provider.as_str()), ("llama3.2", "local"));
-    assert_eq!(
-        (
-            model_switch.current_model().as_deref(),
-            controller.state().footer().model.as_str()
-        ),
-        (Some("llama3.2"), "llama3.2")
-    );
+    assert_eq!(controller.state().footer().model.as_str(), "llama3.2");
 }
 
 #[tokio::test]
@@ -400,9 +438,7 @@ async fn test_turn_cancellation_during_thinking_preserves_partial_thinking_in_tr
     let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
         crate::engine::runner::QueueMode::OneAtATime,
     ));
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-    let mut loop_ctx =
-        super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering, model_switch);
+    let mut loop_ctx = super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering);
 
     loop_ctx.session.renderer.finish_thinking("partial ponderings");
 
@@ -431,200 +467,87 @@ async fn test_turn_with_active_modal_advances_spinner() {
 
 #[tokio::test]
 async fn test_turn_finish_active_turn_handles_compacted_notice() {
-    let mut h = ActiveTurnHarness::new().await;
-    let out = crate::engine::runner::TurnOutput {
-        final_text: String::new(),
-        tool_calls_count: 0,
-        tool_failures_count: 0,
-        requests: 0,
-        usage: None,
-        status: crate::engine::runner::RunStatus::Compacted,
-        metrics: rho_engine::engine::metrics::RunMetrics::default(),
-    };
-    let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
-        h.engine.config.steering_mode,
-    ));
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-    let mut loop_ctx =
-        super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering, model_switch);
-    super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
-    assert_eq!(h.controller.state().footer().activity, Activity::Idle);
+    assert_finish_turn_goes_idle(crate::engine::runner::RunStatus::Compacted).await;
 }
 
 #[tokio::test]
 async fn test_turn_paste_routes_to_active_modal() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, _, engine) = create_harness_engine(temp.path()).await;
-    let mut f = TurnTestFixture::new("background text");
+    let mut f = LoopFixture::new("background text").await;
     let mut modal = crate::ui::interactive::ModalState::new("Permission Required", "", vec![]);
     modal.enter_input_mode("edit");
-    f.controller.state_mut().push_modal(modal);
+    f.base.controller.state_mut().push_modal(modal);
 
-    let steering = std::sync::Arc::new(f.steering.clone());
-    let mut lp = super::runner::TurnLoop::new(
-        &mut f.session,
-        &engine,
-        &mut f.controller,
-        steering,
-        f.model_switch.clone(),
-    );
-    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
-    let cancellation = crate::engine::runner::CancellationSignal::default();
-    let mut res = super::event::TurnInputResources {
-        history: &mut f.history,
-        completions: &f.completions,
-        ui_events: &mut ui_events,
-        cancellation: &cancellation,
-    };
-
-    let handled = super::event::dispatch_turn_input(
-        &mut lp,
-        &mut res,
-        crossterm::event::Event::Paste("pasted command".to_string()),
-    )
-    .await
-    .unwrap();
+    let mut ctx = f.context();
+    let handled = dispatch(&mut ctx, crossterm::event::Event::Paste("pasted command".to_string())).await;
     assert!(!handled);
     assert_eq!(
-        f.controller.state().active_modal().unwrap().input.text(),
+        ctx.loop_ctx.controller.state().active_modal().unwrap().input.text(),
         "pasted command"
     );
-    f.controller.state_mut().pop_modal();
-    assert_eq!(f.controller.state().editor().text(), "background text");
+    ctx.loop_ctx.controller.state_mut().pop_modal();
+    assert_eq!(ctx.loop_ctx.controller.state().editor().text(), "background text");
 }
 
 #[tokio::test]
 async fn test_turn_focus_events_toggle_focused_state() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, _, engine) = create_harness_engine(temp.path()).await;
-    let mut f = TurnTestFixture::new("text");
-    assert!(f.controller.focused());
+    let mut f = LoopFixture::new("text").await;
+    assert!(f.base.controller.focused());
 
-    let steering = std::sync::Arc::new(f.steering.clone());
-    let mut lp = super::runner::TurnLoop::new(
-        &mut f.session,
-        &engine,
-        &mut f.controller,
-        steering,
-        f.model_switch.clone(),
-    );
-    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
-    let cancellation = crate::engine::runner::CancellationSignal::default();
-    let mut res = super::event::TurnInputResources {
-        history: &mut f.history,
-        completions: &f.completions,
-        ui_events: &mut ui_events,
-        cancellation: &cancellation,
-    };
-
-    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
-        .await
-        .unwrap();
-    assert!(!lp.controller.focused());
-    let unfocused_layout = lp.controller.rendered().unwrap();
+    let mut ctx = f.context();
+    dispatch(&mut ctx, crossterm::event::Event::FocusLost).await;
+    assert!(!ctx.loop_ctx.controller.focused());
+    let unfocused_layout = ctx.loop_ctx.controller.rendered().unwrap();
     assert!(unfocused_layout.working_line.contains("working"));
     assert!(unfocused_layout.lines.iter().any(|l| l.contains("working")));
     assert!(!unfocused_layout.cursor_visible);
 
-    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusGained)
-        .await
-        .unwrap();
-    assert!(lp.controller.focused());
-    let focused_layout = lp.controller.rendered().unwrap();
+    dispatch(&mut ctx, crossterm::event::Event::FocusGained).await;
+    assert!(ctx.loop_ctx.controller.focused());
+    let focused_layout = ctx.loop_ctx.controller.rendered().unwrap();
     assert!(focused_layout.working_line.contains("working"));
     assert!(focused_layout.cursor_visible);
 }
 
 #[tokio::test]
 async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_line() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, _, engine) = create_harness_engine(temp.path()).await;
-    let mut f = TurnTestFixture::new("text");
-    let steering = std::sync::Arc::new(f.steering.clone());
-    let mut lp = super::runner::TurnLoop::new(
-        &mut f.session,
-        &engine,
-        &mut f.controller,
-        steering,
-        f.model_switch.clone(),
-    );
-    assert_eq!(lp.controller.state().footer().activity, Activity::Working);
-
-    let (tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
-    let cancellation = crate::engine::runner::CancellationSignal::default();
-    let mut res = super::event::TurnInputResources {
-        history: &mut f.history,
-        completions: &f.completions,
-        ui_events: &mut ui_events,
-        cancellation: &cancellation,
-    };
-
-    tx.send(crate::ui::interactive::UiEvent::Activity(Activity::Idle))
+    let mut f = LoopFixture::new("text").await;
+    f.tx.send(crate::ui::interactive::UiEvent::Activity(Activity::Idle))
         .unwrap();
-    lp.drain_ui_batch(res.ui_events, false).unwrap();
-    assert_eq!(lp.controller.state().footer().activity, Activity::Working);
 
-    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
-        .await
-        .unwrap();
-    assert!(!lp.controller.focused());
-    let unfocused_layout = lp.controller.rendered().unwrap();
+    let mut ctx = f.context();
+    assert_eq!(ctx.loop_ctx.controller.state().footer().activity, Activity::Working);
+    ctx.loop_ctx.drain_ui_batch(ctx.resources.ui_events, false).unwrap();
+    assert_eq!(ctx.loop_ctx.controller.state().footer().activity, Activity::Working);
+
+    dispatch(&mut ctx, crossterm::event::Event::FocusLost).await;
+    assert!(!ctx.loop_ctx.controller.focused());
+    let unfocused_layout = ctx.loop_ctx.controller.rendered().unwrap();
     assert!(unfocused_layout.working_line.contains("working"));
     assert!(!unfocused_layout.cursor_visible);
 }
 
 #[tokio::test]
 async fn test_turn_resize_and_editor_paste_events() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, _, engine) = create_harness_engine(temp.path()).await;
-    let mut f = TurnTestFixture::new("initial text");
-    let steering = std::sync::Arc::new(f.steering.clone());
-    let mut lp = super::runner::TurnLoop::new(
-        &mut f.session,
-        &engine,
-        &mut f.controller,
-        steering,
-        f.model_switch.clone(),
-    );
-    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
-    let cancellation = crate::engine::runner::CancellationSignal::default();
-    let mut res = super::event::TurnInputResources {
-        history: &mut f.history,
-        completions: &f.completions,
-        ui_events: &mut ui_events,
-        cancellation: &cancellation,
-    };
+    let mut f = LoopFixture::new("initial text").await;
+    let mut ctx = f.context();
 
-    let handled = super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::Resize(100, 30))
-        .await
-        .unwrap();
+    let handled = dispatch(&mut ctx, crossterm::event::Event::Resize(100, 30)).await;
     assert!(!handled);
-    assert_eq!(lp.controller.width(), 100);
+    assert_eq!(ctx.loop_ctx.controller.width(), 100);
 
-    let handled = super::event::dispatch_turn_input(
-        &mut lp,
-        &mut res,
-        crossterm::event::Event::Paste(" appended".to_string()),
-    )
-    .await
-    .unwrap();
+    let handled = dispatch(&mut ctx, crossterm::event::Event::Paste(" appended".to_string())).await;
     assert!(!handled);
-    assert_eq!(lp.controller.state().editor().text(), "initial text appended");
+    assert_eq!(ctx.loop_ctx.controller.state().editor().text(), "initial text appended");
 
-    lp.controller.state_mut().footer_mut().activity = Activity::Idle;
-    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
-        .await
-        .unwrap();
-    assert!(!lp.controller.focused());
-    assert_eq!(lp.controller.state().footer().activity, Activity::Working);
+    ctx.loop_ctx.controller.state_mut().footer_mut().activity = Activity::Idle;
+    dispatch(&mut ctx, crossterm::event::Event::FocusLost).await;
+    assert!(!ctx.loop_ctx.controller.focused());
+    assert_eq!(ctx.loop_ctx.controller.state().footer().activity, Activity::Working);
 
-    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
-        .await
-        .unwrap();
+    dispatch(&mut ctx, crossterm::event::Event::FocusLost).await;
 
-    let handled = super::event::dispatch_turn_input(
-        &mut lp,
-        &mut res,
+    let handled = dispatch(
+        &mut ctx,
         crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
             kind: crossterm::event::MouseEventKind::Moved,
             column: 0,
@@ -632,38 +555,14 @@ async fn test_turn_resize_and_editor_paste_events() {
             modifiers: crossterm::event::KeyModifiers::NONE,
         }),
     )
-    .await
-    .unwrap();
+    .await;
     assert!(!handled);
 }
 
 #[tokio::test]
 async fn test_turn_ui_transcript_event_flushes_immediately() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, _, engine) = create_harness_engine(temp.path()).await;
-    let mut f = TurnTestFixture::new("text");
-    let steering = std::sync::Arc::new(f.steering.clone());
-    let lp = super::runner::TurnLoop::new(
-        &mut f.session,
-        &engine,
-        &mut f.controller,
-        steering,
-        f.model_switch.clone(),
-    );
-    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
-    let cancellation = crate::engine::runner::CancellationSignal::default();
-    let res = super::event::TurnInputResources {
-        history: &mut f.history,
-        completions: &f.completions,
-        ui_events: &mut ui_events,
-        cancellation: &cancellation,
-    };
-    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
-    let mut ctx = super::TurnContext {
-        loop_ctx: lp,
-        input_reader: &mut input_reader,
-        resources: res,
-    };
+    let mut f = LoopFixture::new("text").await;
+    let mut ctx = f.context();
 
     let tool_item = rho_harness_core::presentation::ToolLine {
         name: "write".to_string(),
@@ -677,14 +576,13 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
         crate::ui::interactive::TranscriptItem::Tool(tool_item),
     ));
 
-    super::handle_turn_event(&mut ctx, None, event).await.unwrap();
+    super::handle_turn_event(&mut ctx, event).await.unwrap();
 
     assert_eq!(ctx.loop_ctx.controller.transcript().len(), 1);
     assert!(ctx.loop_ctx.batch.ui.is_empty());
 }
 
-#[tokio::test]
-async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
+async fn assert_finish_turn_goes_idle(status: crate::engine::runner::RunStatus) {
     let mut h = ActiveTurnHarness::new().await;
     let out = crate::engine::runner::TurnOutput {
         final_text: String::new(),
@@ -692,92 +590,32 @@ async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
         tool_failures_count: 0,
         requests: 0,
         usage: None,
-        status: crate::engine::runner::RunStatus::Completed,
+        status,
         metrics: rho_engine::engine::metrics::RunMetrics::default(),
     };
     let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
         h.engine.config.steering_mode,
     ));
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-    let mut loop_ctx =
-        super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering, model_switch);
+    let mut loop_ctx = super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering);
     super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
     assert_eq!(h.controller.state().footer().activity, Activity::Idle);
 }
 
 #[tokio::test]
+async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
+    assert_finish_turn_goes_idle(crate::engine::runner::RunStatus::Completed).await;
+}
+
+#[tokio::test]
 async fn test_turn_quota_periodic_and_updated_events_sync_footer() {
-    let temp = tempfile::tempdir().unwrap();
-    let (_, _, engine) = create_harness_engine(temp.path()).await;
-    let mut f = TurnTestFixture::new("text");
-    let steering = std::sync::Arc::new(f.steering.clone());
-    let lp = super::runner::TurnLoop::new(
-        &mut f.session,
-        &engine,
-        &mut f.controller,
-        steering,
-        f.model_switch.clone(),
-    );
-    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
-    let cancellation = crate::engine::runner::CancellationSignal::default();
-    let res = super::event::TurnInputResources {
-        history: &mut f.history,
-        completions: &f.completions,
-        ui_events: &mut ui_events,
-        cancellation: &cancellation,
-    };
-    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
-    let mut ctx = super::TurnContext {
-        loop_ctx: lp,
-        input_reader: &mut input_reader,
-        resources: res,
-    };
+    let mut f = LoopFixture::new("text").await;
+    let mut ctx = f.context();
 
-    let result = super::handle_turn_event(&mut ctx, None, super::TurnEvent::QuotaPeriodic).await;
+    let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaPeriodic).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 
-    let result = super::handle_turn_event(&mut ctx, None, super::TurnEvent::QuotaUpdated).await;
+    let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaUpdated).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
-
-    // Test collab peer event
-    let peer_ev = super::TurnEvent::CollabPeer(rho_harness_core::collab::CollabPeerEvent::Connected(
-        rho_harness_core::collab::CollabPeerInfo {
-            id: 1,
-            role: rho_harness_core::collab::CapabilityLevel::Full,
-            hostname: None,
-            connected_at: chrono::Utc::now(),
-        },
-    ));
-    let peer_res = super::handle_turn_event(&mut ctx, None, peer_ev).await;
-    assert!(peer_res.is_ok());
-    assert!(!peer_res.unwrap());
-
-    // Test collab steer command
-    let steer_ev = super::TurnEvent::CollabCommand(rho_harness_core::collab::CollabIncomingCommand {
-        peer_id: 1,
-        role: rho_harness_core::collab::CapabilityLevel::Full,
-        command: rho_harness_core::rpc::protocol::RpcCommand::Steer {
-            message: "steer msg".into(),
-        },
-    });
-    let steer_res = super::handle_turn_event(&mut ctx, None, steer_ev).await;
-    assert!(steer_res.is_ok());
-    assert!(!steer_res.unwrap());
-    assert_eq!(ctx.loop_ctx.steering.poll_steering().await, vec!["steer msg"]);
-
-    // Test collab busy prompt command
-    let busy_ev = super::TurnEvent::CollabCommand(rho_harness_core::collab::CollabIncomingCommand {
-        peer_id: 1,
-        role: rho_harness_core::collab::CapabilityLevel::Full,
-        command: rho_harness_core::rpc::protocol::RpcCommand::Prompt {
-            message: "busy msg".into(),
-            images: None,
-            streaming_behavior: None,
-        },
-    });
-    let busy_res = super::handle_turn_event(&mut ctx, None, busy_ev).await;
-    assert!(busy_res.is_ok());
-    assert!(!busy_res.unwrap());
 }

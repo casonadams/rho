@@ -3,6 +3,7 @@
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::ui::theme::Theme;
+use crate::ui::wrap::{WordWrap, push_line_into};
 
 const MIN_COLUMN_WIDTH: usize = 5;
 
@@ -70,75 +71,45 @@ fn constrain_column_widths(widths: &mut [usize], available: usize) {
 }
 
 struct CellWrapper {
-    width: usize,
     lines: Vec<String>,
     current: String,
-    current_width: usize,
-    pending_spaces: String,
-    pending_spaces_width: usize,
-    pending_word: String,
-    pending_word_width: usize,
+    word: WordWrap,
 }
 
 impl CellWrapper {
     fn new(width: usize) -> Self {
         Self {
-            width: width.max(1),
             lines: Vec::new(),
             current: String::new(),
-            current_width: 0,
-            pending_spaces: String::new(),
-            pending_spaces_width: 0,
-            pending_word: String::new(),
-            pending_word_width: 0,
+            word: WordWrap::new(width.max(1)),
         }
     }
 
     fn commit_word(&mut self) {
-        if self.pending_word.is_empty() && self.pending_word_width == 0 {
-            return;
-        }
-        let needed = self.pending_spaces_width + self.pending_word_width;
-        if self.current_width > 0 && self.current_width + needed > self.width {
-            self.lines.push(std::mem::take(&mut self.current));
-            self.current_width = 0;
-            self.pending_spaces.clear();
-            self.pending_spaces_width = 0;
-        }
-        if self.current_width > 0 || self.lines.is_empty() {
-            self.current.push_str(&self.pending_spaces);
-            self.current_width += self.pending_spaces_width;
-        }
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
-
-        self.current.push_str(&self.pending_word);
-        self.current_width += self.pending_word_width;
-        self.pending_word.clear();
-        self.pending_word_width = 0;
+        let keep_leading = self.lines.is_empty();
+        self.word
+            .commit(&mut self.current, keep_leading, push_line_into(&mut self.lines));
     }
 
     fn push_space(&mut self, character: char, character_width: usize) {
         self.commit_word();
-        self.pending_spaces.push(character);
-        self.pending_spaces_width += character_width;
+        self.word.push_space(character, character_width);
     }
 
     fn push_char(&mut self, character: char, character_width: usize) {
-        if self.pending_word_width + character_width > self.width {
-            if self.current_width > 0 {
-                self.lines.push(std::mem::take(&mut self.current));
-                self.current_width = 0;
-                self.pending_spaces.clear();
-                self.pending_spaces_width = 0;
+        if self.word.pending_word_width + character_width > self.word.width {
+            if self.word.current_width > 0 {
+                let lines = &mut self.lines;
+                self.word
+                    .break_line(&mut self.current, |current| lines.push(std::mem::take(current)));
+                self.word.clear_spaces();
             }
-            if self.pending_word_width + character_width > self.width && self.pending_word_width > 0 {
-                self.lines.push(std::mem::take(&mut self.pending_word));
-                self.pending_word_width = 0;
+            if self.word.pending_word_width + character_width > self.word.width && self.word.pending_word_width > 0 {
+                self.lines.push(std::mem::take(&mut self.word.pending_word));
+                self.word.pending_word_width = 0;
             }
         }
-        self.pending_word.push(character);
-        self.pending_word_width += character_width;
+        self.word.push_word_char(character, character_width);
     }
 
     fn finish(mut self) -> Vec<String> {

@@ -11,30 +11,12 @@ pub struct ModelsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slow: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub judge: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub commit: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub advisor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub routing: Option<bool>,
 }
 
 impl ModelsConfig {
     pub fn is_empty(&self) -> bool {
-        self.default.is_none()
-            && self.smol.is_none()
-            && self.slow.is_none()
-            && self.judge.is_none()
-            && self.guard.is_none()
-            && self.plan.is_none()
-            && self.commit.is_none()
-            && self.advisor.is_none()
-            && self.routing.is_none()
+        *self == Self::default()
     }
 }
 
@@ -110,8 +92,6 @@ pub struct WebSearchConfigFile {
 pub struct WebFetchConfigFile {
     #[serde(default)]
     pub enabled: Option<bool>,
-    #[serde(default)]
-    pub multimodal: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

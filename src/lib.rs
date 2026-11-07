@@ -6,7 +6,7 @@
 //!   modals, streaming transcript, autocomplete) and `line_mode` (readline
 //!   fallback) — coordinated through `coordinator`.
 //! - `ui`: markdown rendering, the interactive controller (transcript cache,
-//!   redraw batching, keymaps), and terminal paint primitives.
+//!   redraw batching), and terminal paint primitives.
 //! - `platform`: clipboard and terminal suspend helpers.
 //!
 //! The engine and domain live in `rho-engine` and `rho-harness-core`; this

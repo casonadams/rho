@@ -1,3 +1,4 @@
+use super::base_input;
 use crate::repl::interactive::Completion;
 use crate::ui::interactive::layout::autocomplete::{MAX_VISIBLE_ITEMS, render_autocomplete_dropdown};
 use crate::ui::interactive::layout::{LayoutInput, layout};
@@ -138,18 +139,9 @@ fn test_ac_layout(
     terminal_height: usize,
 ) -> crate::ui::interactive::layout::InteractiveLayout {
     layout(LayoutInput {
-        editor,
-        modal: None,
         autocomplete: Some(ac),
-        footer: &FooterState::default(),
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
         terminal_height,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(editor, &FooterState::default())
     })
 }
 

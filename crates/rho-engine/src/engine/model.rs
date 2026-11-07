@@ -20,7 +20,7 @@ pub(crate) fn resolve_context_limit(config: &Config) -> Option<usize> {
 impl AgentEngine {
     pub async fn build_model_handle(&self, config: &Config) -> Result<crate::engine::compactor::llm::ModelHandle> {
         let auth_store = self.auth_store.lock().await;
-        builder::create_engine_model(config, &auth_store, Some(self.auth_store.clone()))
+        builder::create_engine_model(config, &auth_store, self.auth_store.clone())
     }
 
     pub async fn switch_model(&mut self, model: &str, provider: &str) -> Result<()> {

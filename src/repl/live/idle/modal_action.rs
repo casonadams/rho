@@ -34,6 +34,22 @@ fn print_model_status(
     }
 }
 
+fn report_save<B: TerminalBackend>(
+    ctx: &mut ModalActionContext<'_, B>,
+    what: &str,
+    result: &crate::error::Result<()>,
+) -> bool {
+    match result {
+        Ok(()) => true,
+        Err(err) => {
+            ctx.session
+                .renderer
+                .print_notice(&format!("\nWarning: Could not save {what}: {err}\n"));
+            false
+        }
+    }
+}
+
 async fn handle_model_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     model: String,
@@ -43,16 +59,15 @@ async fn handle_model_selected(
 ) -> Result<bool> {
     ctx.session.config.model = model.clone();
     ctx.session.config.provider = provider.clone();
-    if save_as_default {
-        let _ = rho_harness_core::config::Config::save_default_model_async(
-            &ctx.session.config.config_dir,
-            &model,
-            &provider,
-        )
-        .await;
-    }
+    let saved = if save_as_default {
+        rho_harness_core::config::Config::save_default_model_async(&ctx.session.config.config_dir, &model, &provider)
+            .await
+    } else {
+        Ok(())
+    };
+    let saved_default = save_as_default && report_save(ctx, "default model", &saved);
     if ctx.controller.state().active_modal().is_none() {
-        print_model_status(ctx, &model, &provider, save_as_default);
+        print_model_status(ctx, &model, &provider, saved_default);
     }
     if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
         ctx.session
@@ -85,36 +100,56 @@ async fn handle_node_selected(ctx: &mut ModalActionContext<'_, impl TerminalBack
     Ok(true)
 }
 
+fn report_outcome<T, E>(
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
+    result: std::result::Result<T, E>,
+    success: String,
+    failure: impl FnOnce(&E) -> String,
+) -> Result<bool> {
+    let message = match result {
+        Ok(_) => success,
+        Err(err) => failure(&err),
+    };
+    ctx.session.renderer.print_status(&message);
+    ctx.controller.redraw()?;
+    Ok(true)
+}
+
 async fn handle_node_label_updated(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     node_id: String,
     label: String,
 ) -> Result<bool> {
     let label_opt = if label.is_empty() { None } else { Some(label.clone()) };
-    match ctx.engine.session_manager.set_node_label(&node_id, label_opt).await {
-        Ok(_) => ctx
-            .session
-            .renderer
-            .print_status(&format!("Checkpoint labeled: \"{label}\" ({node_id})")),
-        Err(err) => ctx
-            .session
-            .renderer
-            .print_status(&format!("Failed to label checkpoint: {err}")),
-    }
-    ctx.controller.redraw()?;
-    Ok(true)
+    let result = ctx.engine.session_manager.set_node_label(&node_id, label_opt).await;
+    report_outcome(
+        ctx,
+        result,
+        format!("Checkpoint labeled: \"{label}\" ({node_id})"),
+        |err| format!("Failed to label checkpoint: {err}"),
+    )
 }
 
 async fn handle_session_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     session_id: String,
 ) -> Result<bool> {
-    *ctx.engine = crate::platform::agent_engine(
+    match crate::platform::agent_engine(
         ctx.session.config.clone(),
         ctx.session.auth_store.clone(),
         Some(&session_id),
     )
-    .await?;
+    .await
+    {
+        Ok(engine) => *ctx.engine = engine,
+        Err(err) => {
+            ctx.session
+                .renderer
+                .print_status(&format!("Failed to resume session {session_id}: {err}"));
+            ctx.controller.redraw()?;
+            return Ok(true);
+        }
+    }
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
         let _ = hydrate_session_transcript(ctx.controller, &tree, ctx.history);
@@ -134,12 +169,14 @@ async fn save_or_print_thinking(
 ) {
     let display = level.unwrap_or("off");
     if save_as_default {
-        let _ =
+        let saved =
             rho_harness_core::config::Config::save_default_thinking_level_async(&ctx.session.config.config_dir, level)
                 .await;
-        ctx.session
-            .renderer
-            .print_status(&format!("Default thinking level: {display}"));
+        if report_save(ctx, "default thinking level", &saved) {
+            ctx.session
+                .renderer
+                .print_status(&format!("Default thinking level: {display}"));
+        }
     } else {
         ctx.session.renderer.print_status(&format!("Thinking: {display}"));
     }
@@ -167,12 +204,10 @@ async fn handle_session_deleted(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     session_id: String,
 ) -> Result<bool> {
-    let _ = rho_harness_core::session::delete_session_async(&ctx.session.config.sessions_dir, &session_id).await;
-    ctx.session
-        .renderer
-        .print_status(&format!("Deleted session {session_id}"));
-    ctx.controller.redraw()?;
-    Ok(true)
+    let result = rho_harness_core::session::delete_session_async(&ctx.session.config.sessions_dir, &session_id).await;
+    report_outcome(ctx, result, format!("Deleted session {session_id}"), |err| {
+        format!("Failed to delete session {session_id}: {err}")
+    })
 }
 
 async fn execute_suspended_login<B: TerminalBackend>(
@@ -196,12 +231,17 @@ async fn handle_login_result<B: TerminalBackend>(
     login_res: crate::error::Result<()>,
 ) -> Result<()> {
     match login_res {
-        Ok(()) => {
-            *ctx.engine = ctx
-                .engine
-                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-                .await?;
-        }
+        Ok(()) => match ctx
+            .engine
+            .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
+            .await
+        {
+            Ok(engine) => *ctx.engine = engine,
+            Err(err) => ctx
+                .session
+                .renderer
+                .print_notice(&format!("  Could not reload engine: {err}\n")),
+        },
         Err(crate::error::AppError::Cancelled(_)) => {}
         Err(err) => {
             ctx.session.renderer.print_notice(&format!("  Login failed: {err}\n"));
@@ -221,9 +261,10 @@ async fn handle_login_provider_selected(
     Ok(true)
 }
 
-fn open_help_modal(
+async fn open_help_modal(
     command: &str,
     session: &ReplSession,
+    active_session_id: &str,
     controller: &mut TerminalController<impl TerminalBackend>,
 ) -> bool {
     match command {
@@ -234,10 +275,12 @@ fn open_help_modal(
             controller,
         ),
         "/model" => super::super::modal::open_model_selector(session, controller),
-        "/resume" => super::super::modal::open_session_selector(&session.config.sessions_dir, controller),
+        "/resume" => {
+            super::super::modal::open_session_selector(&session.config.sessions_dir, active_session_id, controller)
+                .await
+        }
         "/mcp" => super::super::modal::open_mcp_selector(session, controller),
         "/login" => super::super::modal::open_login_selector(session, controller),
-        "/collab" => super::super::modal::open_collab_selector(session, controller),
         _ => return false,
     }
     true
@@ -252,7 +295,13 @@ async fn handle_help_command_selected(
             super::super::modal::open_tree_selector(&tree, ctx.controller);
         }
     } else {
-        open_help_modal(command, ctx.session, ctx.controller);
+        open_help_modal(
+            command,
+            ctx.session,
+            &ctx.engine.session_manager.session_id,
+            ctx.controller,
+        )
+        .await;
     }
     ctx.controller.redraw()?;
     Ok(true)
@@ -265,44 +314,51 @@ async fn handle_ui_setting_toggled(
     match res {
         ModalKeyResult::BlockStyleToggled { style } => {
             ctx.session.config.ui.block_style = Some(style.clone());
-            let _ = rho_harness_core::config::Config::save_ui_block_style_async(&ctx.session.config.config_dir, &style)
-                .await;
+            let saved =
+                rho_harness_core::config::Config::save_ui_block_style_async(&ctx.session.config.config_dir, &style)
+                    .await;
+            report_save(ctx, "block style", &saved);
             Ok(true)
         }
         ModalKeyResult::AgentBoxToggled { boxed } => {
             ctx.session.config.ui.agent_block_output = Some(boxed);
-            let _ =
+            let saved =
                 rho_harness_core::config::Config::save_ui_agent_box_async(&ctx.session.config.config_dir, boxed).await;
+            report_save(ctx, "agent box", &saved);
             Ok(true)
         }
         ModalKeyResult::ShowLabelToggled { shown } => {
             ctx.session.config.show_label = shown;
-            let _ =
+            let saved =
                 rho_harness_core::config::Config::save_show_label_async(&ctx.session.config.config_dir, shown).await;
+            report_save(ctx, "label display", &saved);
             update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
             ctx.controller.redraw()?;
             Ok(true)
         }
         ModalKeyResult::ThinkingOutputToggled { hidden } => {
             ctx.session.config.ui.hide_thinking = Some(hidden);
-            let _ =
+            let saved =
                 rho_harness_core::config::Config::save_ui_hide_thinking_async(&ctx.session.config.config_dir, hidden)
                     .await;
+            report_save(ctx, "thinking visibility", &saved);
             Ok(true)
         }
         ModalKeyResult::ToolOutputToggled { expanded } => {
             ctx.session.config.ui.tools_expanded = Some(expanded);
-            let _ = rho_harness_core::config::Config::save_ui_tools_expanded_async(
+            let saved = rho_harness_core::config::Config::save_ui_tools_expanded_async(
                 &ctx.session.config.config_dir,
                 expanded,
             )
             .await;
+            report_save(ctx, "tool output setting", &saved);
             Ok(true)
         }
         ModalKeyResult::CursorToggled { cursor } => {
             ctx.session.config.ui.cursor = Some(cursor.clone());
-            let _ =
+            let saved =
                 rho_harness_core::config::Config::save_ui_cursor_async(&ctx.session.config.config_dir, &cursor).await;
+            report_save(ctx, "cursor style", &saved);
             Ok(true)
         }
         ModalKeyResult::McpServerToggled { server } => {
@@ -312,15 +368,6 @@ async fn handle_ui_setting_toggled(
                 ctx.session
                     .renderer
                     .print_notice(&format!("\nMCP server '{server}' {status}.\n"));
-            }
-            Ok(true)
-        }
-        ModalKeyResult::CollabPeerKicked { peer_id } => {
-            if let Some(ref collab) = ctx.session.collab {
-                collab.kick_peer(peer_id).await;
-                ctx.session
-                    .renderer
-                    .print_status(&format!("Collaborator #{peer_id} kicked"));
             }
             Ok(true)
         }
@@ -334,9 +381,11 @@ async fn update_tool_toggle(
     enabled: bool,
     persist: impl std::future::Future<Output = crate::error::Result<()>>,
 ) -> Result<bool> {
-    let _ = persist.await;
-    let status = if enabled { "enabled" } else { "disabled" };
-    ctx.session.renderer.print_status(&format!("{name} {status}"));
+    let saved = persist.await;
+    if report_save(ctx, &format!("{name} setting"), &saved) {
+        let status = if enabled { "enabled" } else { "disabled" };
+        ctx.session.renderer.print_status(&format!("{name} {status}"));
+    }
     Ok(true)
 }
 
@@ -412,23 +461,11 @@ fn handle_modal_menu_open(
         ModalKeyResult::OpenGuardModelSelector => {
             super::super::modal::open_guard_model_selector(ctx.session, ctx.controller);
         }
-        ModalKeyResult::OpenJudgeModelSelector => {
-            super::super::modal::open_judge_model_selector(ctx.session, ctx.controller);
-        }
         ModalKeyResult::OpenSmolModelSelector => {
             super::super::modal::open_smol_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenSlowModelSelector => {
             super::super::modal::open_slow_model_selector(ctx.session, ctx.controller);
-        }
-        ModalKeyResult::OpenPlanModelSelector => {
-            super::super::modal::open_plan_model_selector(ctx.session, ctx.controller);
-        }
-        ModalKeyResult::OpenCommitModelSelector => {
-            super::super::modal::open_commit_model_selector(ctx.session, ctx.controller);
-        }
-        ModalKeyResult::OpenAdvisorModelSelector => {
-            super::super::modal::open_advisor_model_selector(ctx.session, ctx.controller);
         }
         ModalKeyResult::OpenToolsMenu => {
             super::super::modal::open_tools_selector(ctx.session, ctx.controller);
@@ -449,9 +486,10 @@ async fn handle_search_engine_selected(
     ctx.session.config.tools.web.search.default = engine.clone();
     ctx.engine.config.tools.web.search.default = engine.clone();
     super::super::modal::update_tools_search_engine(ctx.controller, &engine);
-    let _ = rho_harness_core::config::Config::save_default_search_engine_async(&ctx.session.config.config_dir, &engine)
-        .await;
-    if ctx.controller.state().active_modal().is_none() {
+    let saved =
+        rho_harness_core::config::Config::save_default_search_engine_async(&ctx.session.config.config_dir, &engine)
+            .await;
+    if report_save(ctx, "default search engine", &saved) && ctx.controller.state().active_modal().is_none() {
         ctx.session
             .renderer
             .print_status(&format!("Default search engine set to {engine}"));
@@ -484,13 +522,13 @@ async fn handle_role_model_selected(
 
     let config_key = format!("models.{role}");
     let save_val = spec.as_deref().unwrap_or("none");
-    let _ =
+    let saved =
         rho_harness_core::config::Config::set_file_value_async(&ctx.session.config.config_dir, &config_key, save_val)
             .await;
 
     let display = spec.as_deref().unwrap_or("None");
     super::super::modal::update_models_role_description(ctx.controller, role, display);
-    if ctx.controller.state().active_modal().is_none() {
+    if report_save(ctx, &format!("{role} model"), &saved) && ctx.controller.state().active_modal().is_none() {
         let title = format!("{}{}", role[..1].to_uppercase(), &role[1..]);
         ctx.session
             .renderer
@@ -527,23 +565,11 @@ async fn handle_selection_action(
         ModalKeyResult::GuardModelSelected { model, provider } => {
             handle_role_model_selected(ctx, "guard", model, provider).await
         }
-        ModalKeyResult::JudgeModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "judge", model, provider).await
-        }
         ModalKeyResult::SmolModelSelected { model, provider } => {
             handle_role_model_selected(ctx, "smol", model, provider).await
         }
         ModalKeyResult::SlowModelSelected { model, provider } => {
             handle_role_model_selected(ctx, "slow", model, provider).await
-        }
-        ModalKeyResult::PlanModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "plan", model, provider).await
-        }
-        ModalKeyResult::CommitModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "commit", model, provider).await
-        }
-        ModalKeyResult::AdvisorModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "advisor", model, provider).await
         }
         ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
             handle_thinking_selected(ctx, level, save_as_default).await

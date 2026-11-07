@@ -44,7 +44,7 @@ newlines grow the editor upward.
 ## Keyboard Controls & Navigation
 
 For the comprehensive reference categorized by lifecycle, prompt queueing,
-editor navigation, and custom keybinding configuration, see
+and editor navigation, see
 **[Keyboard Shortcuts & Controls](shortcuts.md)**.
 
 | Key                      | Action                                                                                                                |
@@ -69,19 +69,6 @@ editor navigation, and custom keybinding configuration, see
 | `Ctrl+Z`                 | Suspend process to background.                                                                                        |
 | `Tab`                    | Auto-complete slash commands, skill names, and file paths.                                                            |
 
-### Custom Keybindings
-
-Keybindings can be customized by adding a `keybindings.toml` (or
-`keybindings.json`) to `~/.config/rho/`:
-
-```toml
-[bindings]
-"app.interrupt" = ["escape"]
-"app.clear" = ["ctrl+c"]
-"app.model.select" = ["ctrl+l"]
-"app.thinking.cycle" = ["shift+tab"]
-```
-
 ### Message Queueing
 
 Messages submitted while the agent is busy are placed in an in-memory FIFO
@@ -99,7 +86,6 @@ autocomplete):
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
 | `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                    |
 | `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly.                                 |
-| `/route [on\|off]`           | Toggle or inspect automatic model tier routing (`smol`, `standard`, `slow`).                              |
 | `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                 |
@@ -117,7 +103,6 @@ autocomplete):
 | `/logout [provider]`        | Remove stored credentials for a provider.                                                                 |
 | `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                          |
 | `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.                                    |
-| `/collab`                   | Peer-to-peer live pairing (start, link, peers, kick, stop).                                              |
 | `/exit`                     | Exit rho (alias: `/quit`).                                                                                |
 
 ---
@@ -137,7 +122,6 @@ always matches your terminal emulator, in dark or light mode.
   palette. You can replace the solid background with an outline/border and
   customize border colors via the `[ui]` section in `~/.config/rho/config.toml`.
 - Code blocks are syntax highlighted and reduced to native ANSI-16 colors.
-- Diagrams use your terminal's ANSI foreground.
 
 ### Block Styling & Outline Borders
 
@@ -181,27 +165,6 @@ statuses.
 Because `rho` emits only native 16-color ANSI escape codes, pairing with
 [walh-shell](https://github.com/casonadams/walh-shell) mirrors the shell's
 active wallpaper palette and surfaces without any configuration.
-
-### Mermaid Diagram Rendering
-
-Fenced Mermaid diagram blocks (` ```mermaid `) render in the terminal as clean,
-compact Unicode box-drawing diagrams.
-
-- **Flowcharts (`graph TD` / `LR`, `flowchart`):** Rendered with true vertical
-  top-down flow (`TD`/`TB`), horizontal flow (`LR`), subgraphs, decision shapes,
-  and collision-free loop routing for cycles and feedback loops.
-- **Sequence Diagrams (`sequenceDiagram`):** Boxed participants, vertical
-  lifelines, solid message arrows (`->>`), dashed return arrows (`-->>`), and
-  centered message labels.
-- **State & Architecture Diagrams:** Native rendering for state machines
-  (`stateDiagram-v2`), class models (`classDiagram`), entity relationships
-  (`erDiagram`), and charts (`xychart-beta`).
-- **Adaptive Viewport Fitting:** Diagrams automatically adapt layout density to
-  fit your terminal viewport before safely clipping to the right margin,
-  preserving box alignment.
-- **Clean Fallback:** Rendered diagrams display directly without surrounding
-  fences. If a diagram contains syntax errors, it gracefully falls back to a
-  clean code block.
 
 ---
 
@@ -258,7 +221,7 @@ The interactive `/settings` modal allows reviewing and tweaking runtime preferen
 - **Tool Output**: Toggle default tool card expansion (`Expanded` / `Collapsed`).
 - **Version Banner**: Toggle version banner visibility at the start of transcripts (`Shown` / `Hidden`).
 - **Cursor Style**: Switch between `Hardware` and `Software` prompt cursors.
-- **Models**: Displays the active model with a drill-down indicator (e.g. `claude-3-7-sonnet  ›`). Pressing `Enter` opens the **Models** submenu to configure primary and specialized role models (`Default`, `Smol`, `Slow`, `Judge`, `Guard`, `Plan`, `Commit`, `Advisor`). Selecting a model updates the setting in-place across all menu levels while keeping you inside the menu.
+- **Models**: Displays the active model with a drill-down indicator (e.g. `claude-3-7-sonnet  ›`). Pressing `Enter` opens the **Models** submenu to configure primary and specialized role models (`Default`, `Smol`, `Slow`, `Guard`). Selecting a model updates the setting in-place across all menu levels while keeping you inside the menu.
 - **Tools & Permissions**: Interactive submenu (`Configure  ›`) to manage tool availability and search providers.
 
 Submenus and child pickers maintain a true modal stack: selecting an option updates the setting dynamically in-place, while `Esc` navigates back one level (`Select Model` → `Models` → `Settings` → REPL prompt).
@@ -269,24 +232,9 @@ Submenus and child pickers maintain a true modal stack: selecting an option upda
 
 Inside `/settings`, selecting **Tools & Permissions** opens an interactive submenu to manage tool availability and search providers:
 
-- **Search Engine**: Displays the current primary search provider (e.g. `brave`, `duckduckgo`). Pressing `Enter` opens the **Select Search Engine** modal listing all supported engines (`brave`, `duckduckgo`, `yahoo`, `firecrawl`, `exa`, `gemini`) with aligned descriptions, API key requirements, and active checkmarks (`✓`). Selecting an engine updates runtime state and persists to `[tools.web.search] default`.
+- **Search Engine**: Displays the current primary search provider (e.g. `brave`, `duckduckgo`). Pressing `Enter` opens the **Select Search Engine** modal listing all supported engines (`brave`, `duckduckgo`, `yahoo`) with aligned descriptions, API key requirements, and active checkmarks (`✓`). Selecting an engine updates runtime state and persists to `[tools.web.search] default`.
 - **Web Search**: Interactive `On` / `Off` toggle for the built-in `web_search` tool (`[tools.web.search] enabled`). When disabled, `web_search` is excluded from registration and model prompts.
 - **Web Fetch**: Interactive `On` / `Off` toggle for the built-in `web_fetch` tool (`[tools.web.fetch] enabled`).
 - **MCP**: Interactive `On` / `Off` toggle for the Model Context Protocol subsystem (`[mcp] enabled`).
 - **Permissions**: Interactive `On` / `Off` toggle for runtime mutation guardrails (`[permission] enabled`).
-
----
-
-## P2P Collaboration & Guest TUI
-
-Joining a pairing session with `rho join <ticket>` connects to the host session and launches the interactive terminal interface:
-
-- **TTY Detection & Alternate Screen**: When run in an interactive terminal, `rho join` boots into `TerminalController` on an alternate screen with live token streaming, styled tool cards, thinking toggles, and status footer metrics. Piped or non-interactive environments cleanly fall back to sequential line output.
-- **Snapshot Transcript Hydration**: Prior conversation turns are hydrated immediately upon handshake into the scrollable transcript.
-- **Co-Pilot Mode**: Provides an active prompt editor with cursor navigation, multiline editing, `Enter` prompt submissions, `Esc` generation aborts, and `Ctrl+C` draft clears.
-- **Spectator Mode**: Displays a locked `[View Only - Read Mode]` banner, suppresses text mutation, and allows quick exits via `q`, `Esc`, `Ctrl+C`, or `Ctrl+D`.
-- **Interactive Tool Approvals**: Dangerous tool executions broadcast approval requests to both screens; co-pilots can approve (`y` / `Enter`) or deny (`n` / `Esc`) via the interactive confirmation modal.
-- **Peer Identity & Hostname Attribution**: Machines exchange hostnames during cryptographic handshake. The host REPL logs collaborator hostnames in connection notices and prompt attribution badges (e.g. `● Collaborator prompt [macbook-air]: <prompt>`), falling back to `peer #<id>` when unconfigured.
-- **Turn & Prompt Synchronization**: Prompts submitted by either peer trigger formatted prompt cards in both host and guest transcripts via synchronized `TurnStart` events.
-- **Live Footer Metrics & Activity**: The guest footer continuously mirrors the active model, provider, token counts, velocity, context percent, and quota via `UsageUpdate`, switching between `Working` and `Idle` in sync with turn boundaries.
 

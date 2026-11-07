@@ -1,119 +1,93 @@
-use crate::permission::matcher::expand_home;
+use crate::permission::policy::{config_dir, protected_config_files};
+use rho_harness_core::workspace::{canonicalize_path, clean_path_arg, resolve_path};
 use serde_json::Value;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 pub const READ_ONLY_PATH_TOOLS: &[&str] = &["read", "grep", "find", "ls", "fd", "rg"];
 pub const PATH_BEARING_TOOLS: &[&str] = &["read", "grep", "find", "ls", "fd", "rg", "write", "edit"];
 pub const SAFE_SYSTEM_PATHS: &[&str] = &["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"];
 
+const CREDENTIAL_FILE: &str = "auth.json";
+const INFRASTRUCTURE_SUBDIRS: &[&str] = &["prompts", "skills"];
+const PROTECTED_DIR_NAMES: &[&str] = &[".git", ".rho"];
+
 pub fn is_safe_system_path(path: &str) -> bool {
     SAFE_SYSTEM_PATHS.contains(&path)
 }
 
-pub fn normalize_lexical(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            c => normalized.push(c),
-        }
-    }
-    normalized
+pub fn resolve_tool_path(raw: &str, cwd: Option<&Path>) -> Option<PathBuf> {
+    resolve_path(raw, cwd.unwrap_or(Path::new(".")))
 }
 
-pub fn canonical_path(path_str: &str, cwd: &Path) -> PathBuf {
-    let expanded = expand_home(path_str.trim());
-    let path = Path::new(&expanded);
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
+pub fn path_policy_values(raw: &str, cwd: Option<&Path>) -> Vec<String> {
+    let Some(absolute) = resolve_tool_path(raw, cwd) else {
+        return Vec::new();
     };
-    absolute.canonicalize().unwrap_or_else(|_| normalize_lexical(&absolute))
+    let mut values = vec![absolute.to_string_lossy().into_owned()];
+    if let Some(relative) = cwd.and_then(|cwd| relative_to(&absolute, cwd)) {
+        values.push(relative);
+    }
+    values
 }
 
-pub fn is_path_within_dir(path: &Path, directory: &Path) -> bool {
-    let norm_path = normalize_lexical(path);
-    let norm_dir = normalize_lexical(directory);
-    norm_path.starts_with(&norm_dir)
+fn relative_to(absolute: &Path, cwd: &Path) -> Option<String> {
+    let relative = absolute.strip_prefix(canonicalize_path(cwd)).ok()?;
+    (!relative.as_os_str().is_empty()).then(|| relative.to_string_lossy().into_owned())
 }
 
-pub fn is_path_outside_working_dir(path_str: &str, cwd: Option<&Path>) -> bool {
-    let trimmed = path_str.trim();
-    if is_safe_system_path(trimmed) {
+pub fn is_path_outside_working_dir(raw: &str, cwd: Option<&Path>) -> bool {
+    if is_safe_system_path(clean_path_arg(raw)) {
         return false;
     }
     let Some(cwd) = cwd else {
         return true;
     };
-    let canonical = canonical_path(trimmed, cwd);
-    let canonical_cwd = cwd.canonicalize().unwrap_or_else(|_| normalize_lexical(cwd));
-    !is_path_within_dir(&canonical, &canonical_cwd)
+    resolve_tool_path(raw, Some(cwd)).is_none_or(|absolute| !absolute.starts_with(canonicalize_path(cwd)))
 }
 
-pub fn is_protected_path(path_str: &str, cwd: Option<&Path>) -> bool {
-    let trimmed = path_str.trim();
-    if is_safe_system_path(trimmed) {
+pub fn is_protected_path(raw: &str, cwd: Option<&Path>) -> bool {
+    if is_safe_system_path(clean_path_arg(raw)) {
         return false;
     }
-    let base_cwd = cwd.unwrap_or(Path::new("."));
-    let canonical = canonical_path(trimmed, base_cwd);
-    let has_protected_dir = canonical
-        .components()
-        .any(|c| c.as_os_str() == ".git" || c.as_os_str() == ".rho");
-    if has_protected_dir {
-        return true;
-    }
-    canonical
+    let Some(absolute) = resolve_tool_path(raw, cwd) else {
+        return false;
+    };
+    let protected_dir = absolute.components().any(|component| {
+        PROTECTED_DIR_NAMES
+            .iter()
+            .any(|name| component.as_os_str().eq_ignore_ascii_case(name))
+    });
+    let env_file = absolute
         .file_name()
-        .and_then(|f| f.to_str())
-        .is_some_and(|name| name.starts_with(".env"))
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().starts_with(".env"));
+    protected_dir || env_file || is_config_file(&absolute, cwd)
 }
 
-pub fn is_infrastructure_read(tool: &str, path_str: &str, cwd: Option<&Path>) -> bool {
+fn is_config_file(absolute: &Path, cwd: Option<&Path>) -> bool {
+    protected_config_files(cwd)
+        .iter()
+        .any(|file| canonicalize_path(file) == absolute)
+}
+
+pub fn is_credential_path(raw: &str, cwd: Option<&Path>) -> bool {
+    resolve_tool_path(raw, cwd).is_some_and(|absolute| is_credential_file(&absolute))
+}
+
+pub fn is_credential_file(absolute: &Path) -> bool {
+    config_dir().is_some_and(|dir| canonicalize_path(&dir.join(CREDENTIAL_FILE)) == absolute)
+}
+
+pub fn is_infrastructure_read(tool: &str, raw: &str, cwd: Option<&Path>) -> bool {
     if !READ_ONLY_PATH_TOOLS.contains(&tool) {
         return false;
     }
-    let Some(config_dir) = crate::permission::policy::config_dir() else {
+    let (Some(dir), Some(absolute)) = (config_dir(), resolve_tool_path(raw, cwd)) else {
         return false;
     };
-    let base_cwd = cwd.unwrap_or(Path::new("."));
-    let target = canonical_path(path_str, base_cwd);
-    let infra = canonical_path(&config_dir.to_string_lossy(), base_cwd);
-    is_path_within_dir(&target, &infra)
-}
-
-pub fn path_policy_values(path_str: &str, cwd: Option<&Path>) -> Vec<String> {
-    let trimmed = path_str.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
-    }
-    let mut values = Vec::new();
-    let expanded = expand_home(trimmed);
-    values.push(expanded.clone());
-
-    if let Some(cwd) = cwd {
-        add_canonical_and_relative(&expanded, cwd, &mut values);
-    }
-    values
-}
-
-fn add_canonical_and_relative(expanded: &str, cwd: &Path, values: &mut Vec<String>) {
-    let canonical = canonical_path(expanded, cwd);
-    let canonical_str = canonical.to_string_lossy().to_string();
-    if !values.contains(&canonical_str) {
-        values.push(canonical_str);
-    }
-    let canonical_cwd = cwd.canonicalize().unwrap_or_else(|_| normalize_lexical(cwd));
-    if let Ok(relative) = canonical.strip_prefix(&canonical_cwd) {
-        let rel_str = relative.to_string_lossy().to_string();
-        if !rel_str.is_empty() && !values.contains(&rel_str) {
-            values.push(rel_str);
-        }
-    }
+    INFRASTRUCTURE_SUBDIRS
+        .iter()
+        .any(|sub| absolute.starts_with(canonicalize_path(&dir.join(sub))))
 }
 
 pub fn extract_tool_path(tool: &str, args: &Value) -> Option<String> {

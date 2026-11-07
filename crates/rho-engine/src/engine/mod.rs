@@ -5,7 +5,7 @@
 //! `metrics`, `runtime`, and `eval` (deterministic mock harness).
 
 pub use crate::repeat;
-pub use crate::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook};
+pub use crate::repeat::REPEATED_CALL_MESSAGE;
 use std::path::Path;
 pub use tracking::{SessionUsageTotals, SpeedTracker};
 pub mod builder;
@@ -15,7 +15,7 @@ pub mod context;
 mod display;
 pub mod metrics;
 mod model;
-mod quota;
+pub(crate) mod quota;
 pub mod runner;
 pub mod stream_rules;
 pub mod tracking;

@@ -1,5 +1,5 @@
 use super::types::ModalOptionsLayout;
-use crate::ui::interactive::layout::text::visible_width;
+use crate::ui::block::visible_width;
 use crate::ui::interactive::{ModalOption, ModalState};
 
 fn horizontal_item_width(opt: &ModalOption, is_selected: bool) -> usize {

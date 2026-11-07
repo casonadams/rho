@@ -259,7 +259,6 @@ fn test_preset_provider_models_mappings() {
 
     assert!(preset_provider_models(ProviderId::ChatGpt).is_some());
     assert!(preset_provider_models(ProviderId::ClaudeCode).is_some());
-    assert!(preset_provider_models(ProviderId::Copilot).is_some());
     assert!(preset_provider_models(ProviderId::OpenAi).is_none());
 }
 

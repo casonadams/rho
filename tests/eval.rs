@@ -1,7 +1,7 @@
 //! Behavioural evaluation suite for the agent runtime.
 
 use rho::engine::eval::harness::{EvalHarness, normalize_requests};
-use rho::engine::eval::mock::{MockEngineConfig, mock_engine, mock_engine_with_session, temp_dir};
+use rho::engine::eval::mock::{MockEngineConfig, mock_engine, temp_dir};
 use rho::engine::eval::types::{EvalFailure, EvalScenario};
 use rho::engine::runner::TurnRequest;
 use std::path::Path;
@@ -19,7 +19,7 @@ fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<Arc<dyn EngineTool>>> 
         sessions_dir: dir.join("sessions"),
         ..rho::config::Config::default()
     };
-    rho_engine::tools::build_all_builtin_tools(dir, &config).ok()
+    rho_engine::tools::build_builtin_tools(dir, &config, None).ok()
 }
 
 use rho::presentation::StructuredPresenter;
@@ -198,7 +198,7 @@ async fn run_follow_up_turns(engine: &rho::engine::AgentEngine) {
 async fn run_resumed_session(dir: &Path, sid: &str) -> usize {
     let resumed_store = SessionManager::new(&dir.join("sessions"), Some(sid)).unwrap();
     let resumed_model = Arc::new(MockAdapter::text("resumed"));
-    let resumed = mock_engine_with_session(
+    let resumed = mock_engine(
         resumed_model.clone(),
         MockEngineConfig {
             base_dir: dir,

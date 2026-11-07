@@ -9,7 +9,6 @@ use crate::repl::live::turn::{TurnModelSwitchInput, apply_turn_model_switch};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{EditorState, FooterState, InteractiveState, LayoutInput, TerminalController, layout};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rho_engine::engine::runner::SharedModelSwitch;
 use rho_engine::provider::discovery::claude_preset_models;
 use rho_engine::provider::store::ModelStore;
 use rho_harness_core::auth::StoredCredential;
@@ -815,37 +814,64 @@ fn mcp_selector_cancels_on_esc() {
 // Session Modal Tests
 // =========================================================================
 
-#[tokio::test]
-async fn session_selector_modal_selection() {
-    let temp_dir = std::env::temp_dir().join(format!("test_sessions_{}", uuid::Uuid::new_v4()));
+async fn open_session_selector_for_test(
+    prefix: &str,
+) -> (std::path::PathBuf, String, TerminalController<HistoryTerminal>) {
+    let temp_dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
     let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
     manager.set_session_name("Test Session").await.unwrap();
     let session_id = manager.session_id.clone();
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    open_session_selector(&temp_dir, &mut controller);
-    assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
+    open_session_selector(&temp_dir, &session_id, &mut controller).await;
+    (temp_dir, session_id, controller)
+}
 
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let res = handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
-    assert_eq!(res, ModalKeyResult::SessionSelected { session_id });
-    assert!(controller.state().active_modal().is_none());
+async fn press_session_selector_key(
+    prefix: &str,
+    code: KeyCode,
+    modifiers: KeyModifiers,
+) -> (String, ModalKeyResult, TerminalController<HistoryTerminal>) {
+    let (temp_dir, session_id, mut controller) = open_session_selector_for_test(prefix).await;
+    assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
+    let res = handle_modal_key(&mut controller, KeyEvent::new(code, modifiers), &mut None).unwrap();
     let _ = std::fs::remove_dir_all(temp_dir);
+    (session_id, res, controller)
+}
+
+enum SessionKeyOutcome {
+    Selected,
+    Deleted,
 }
 
 #[tokio::test]
-async fn session_selector_modal_ctrl_d_deletes_session() {
-    let temp_dir = std::env::temp_dir().join(format!("test_sessions_del_{}", uuid::Uuid::new_v4()));
-    let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
-    manager.set_session_name("Test Session").await.unwrap();
-    let session_id = manager.session_id.clone();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    open_session_selector(&temp_dir, &mut controller);
-
-    let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
-    let res = handle_modal_key(&mut controller, ctrl_d, &mut None).unwrap();
-    assert_eq!(res, ModalKeyResult::SessionDeleted { session_id });
-    assert!(controller.state().active_modal().unwrap().options.is_empty());
-    let _ = std::fs::remove_dir_all(temp_dir);
+async fn session_selector_modal_key_outcomes() {
+    let cases = [
+        (
+            "test_sessions",
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            SessionKeyOutcome::Selected,
+        ),
+        (
+            "test_sessions_del",
+            KeyCode::Char('d'),
+            KeyModifiers::CONTROL,
+            SessionKeyOutcome::Deleted,
+        ),
+    ];
+    for (prefix, code, modifiers, outcome) in cases {
+        let (session_id, res, controller) = press_session_selector_key(prefix, code, modifiers).await;
+        match outcome {
+            SessionKeyOutcome::Selected => {
+                assert_eq!(res, ModalKeyResult::SessionSelected { session_id });
+                assert!(controller.state().active_modal().is_none());
+            }
+            SessionKeyOutcome::Deleted => {
+                assert_eq!(res, ModalKeyResult::SessionDeleted { session_id });
+                assert!(controller.state().active_modal().unwrap().options.is_empty());
+            }
+        }
+    }
 }
 
 // =========================================================================
@@ -1066,22 +1092,13 @@ fn guard_model_selector_lifecycle() {
     }
 }
 
-fn assert_model_switch_state(config: &Config, switch: &SharedModelSwitch, m: &str, p: &str) {
-    assert_eq!((config.model.as_str(), config.provider.as_str()), (m, p));
-    assert_eq!(
-        (switch.current_model().as_deref(), switch.current_provider().as_deref()),
-        (Some(m), Some(p))
-    );
-}
-
 #[tokio::test]
-async fn turn_model_switch_applies_claude_model_and_creates_handle() {
+async fn turn_model_switch_applies_claude_model_to_config() {
     let (_dir, session) = setup_claude_session();
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let mut batch = crate::repl::live::batch::LiveBatch::new();
     let mut config = session.config.clone();
     let renderer = TerminalRenderer::default();
-    let model_switch = std::sync::Arc::new(SharedModelSwitch::new());
 
     let input = TurnModelSwitchInput {
         model: "claude-opus-4-6",
@@ -1091,13 +1108,15 @@ async fn turn_model_switch_applies_claude_model_and_creates_handle() {
         auth_store: &session.auth_store,
         renderer: &renderer,
         controller: &mut controller,
-        model_switch: &model_switch,
         batch: &mut batch,
         shared_auth: None,
     };
 
     apply_turn_model_switch(input).await.unwrap();
-    assert_model_switch_state(&config, &model_switch, "claude-opus-4-6", "claude");
+    assert_eq!(
+        (config.model.as_str(), config.provider.as_str()),
+        ("claude-opus-4-6", "claude")
+    );
 }
 
 #[test]
@@ -1169,24 +1188,4 @@ fn test_repl_model_selection_format() {
         }
         other => panic!("expected ModelSelected, got {other:?}"),
     }
-}
-
-#[test]
-fn collab_selector_modal_lifecycle() {
-    let session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-
-    super::super::modal::open_collab_selector(&session, &mut controller);
-    let modal = controller.state().active_modal().unwrap();
-    assert_eq!(modal.title, "Active Collaborators");
-    assert_eq!(modal.options.len(), 1);
-    assert_eq!(modal.options[0].label, "none");
-
-    let res = send_modal_key(&mut controller, KeyCode::Esc);
-    assert_eq!(res, ModalKeyResult::Handled);
-    assert!(controller.state().active_modal().is_none());
 }

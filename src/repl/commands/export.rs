@@ -1,6 +1,6 @@
 use super::types::{CommandResult, SlashCommandContext};
 use rho_harness_core::error::Result;
-use std::path::Path;
+use rho_harness_core::session::export::{ExportFormat, write_export};
 
 pub(crate) fn parse_export_target<'a>(parts: &'a [&'a str]) -> Option<(&'static str, Option<&'a str>)> {
     let arg = match parts.get(1).copied() {
@@ -17,13 +17,6 @@ pub(crate) fn parse_export_target<'a>(parts: &'a [&'a str]) -> Option<(&'static 
     }
 }
 
-pub(crate) async fn write_export(path: &Path, content: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    tokio::fs::write(path, content).await.map_err(Into::into)
-}
-
 pub(crate) async fn handle_export(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     let (Some(session_id), Some(session_manager)) = (ctx.session_id, ctx.session_manager) else {
         ctx.renderer.print_notice("  [Export requires an active session]\n");
@@ -36,16 +29,10 @@ pub(crate) async fn handle_export(ctx: &mut SlashCommandContext<'_>, parts: &[&s
     };
 
     let tree = session_manager.load_tree().await?;
-    let content = if ext == "html" {
-        rho_harness_core::session::export::render_html(&tree, session_id)
-    } else {
-        rho_harness_core::session::export::render_markdown(&tree, session_id)
-    };
-
     let path = path_override
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| ctx.config.sessions_dir.join(format!("{session_id}.{ext}")));
-    write_export(&path, &content).await?;
+    write_export(&path, &tree, session_id, ExportFormat::from_extension(ext)).await?;
     ctx.renderer
         .print_notice(&format!("  [Exported session to {}]\n", path.display()));
     Ok(Some(CommandResult::Continue))

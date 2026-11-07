@@ -5,6 +5,7 @@ use tokio::sync::{RwLock, mpsc};
 use super::handlers::config::{handle_config_update_cmd, handle_node_info_cmd, handle_state_command};
 use super::handlers::session::{extract_chat_messages, handle_create_session_cmd, handle_get_tree_cmd};
 use super::handlers::turn::{handle_tool_response_cmd, parse_tool_decision};
+use super::handlers::{handle_node_session_auth_cmd, handle_resume_or_fork_cmd};
 use super::types::RpcDaemonContext;
 use crate::auth::AuthStore;
 use crate::config::Config;
@@ -160,12 +161,31 @@ async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
+type ClientReader = JsonLinesReader<tokio::io::BufReader<tokio::io::DuplexStream>>;
+
+fn rpc_fixture(
+    prefix: &str,
+) -> (
+    ClientReader,
+    JsonLinesWriter<tokio::io::DuplexStream>,
+    std::path::PathBuf,
+) {
+    let (client_io, server_io) = duplex(4096);
+    let temp_dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
+    (
+        JsonLinesReader::new(tokio::io::BufReader::new(client_io)),
+        JsonLinesWriter::new(server_io),
+        temp_dir,
+    )
+}
+
+async fn read_response(reader: &mut ClientReader) -> RpcResponse {
+    reader.read_message::<RpcResponse>().await.unwrap().unwrap()
+}
+
 #[tokio::test]
 async fn test_rpc_state_command_and_get_tree() {
-    let (client_io, server_io) = duplex(4096);
-    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-    let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_tree_test_{}", uuid::Uuid::new_v4()));
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_tree_test");
     let mut active_turn = None;
     let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
 
@@ -186,17 +206,17 @@ async fn test_rpc_state_command_and_get_tree() {
     .await
     .unwrap();
 
-    let resp1: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let resp1 = read_response(&mut client_reader).await;
     assert_eq!(resp1.id, Some("req-state".to_string()));
     let state_data = resp1.data.unwrap();
     assert!(state_data.get("active_workspace").is_some());
     assert!(state_data.get("total_input_tokens").is_some());
     assert!(state_data.get("context_window").is_some());
 
-    let _resp2: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
-    let _resp3: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let _resp2 = read_response(&mut client_reader).await;
+    let _resp3 = read_response(&mut client_reader).await;
 
-    let resp4: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let resp4 = read_response(&mut client_reader).await;
     assert_eq!(resp4.id, Some("req-create".to_string()));
     let create_data = resp4.data.unwrap();
     assert!(create_data.get("active_workspace").is_some());
@@ -207,10 +227,7 @@ async fn test_rpc_state_command_and_get_tree() {
 
 #[tokio::test]
 async fn test_rpc_config_update_handlers() {
-    let (client_io, server_io) = duplex(4096);
-    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-    let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_cfg_test_{}", uuid::Uuid::new_v4()));
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_cfg_test");
     let mut active_turn = None;
     let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
 
@@ -260,19 +277,19 @@ async fn test_rpc_config_update_handlers() {
         .await
         .unwrap();
 
-    let resp_thinking: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let resp_thinking = read_response(&mut client_reader).await;
     assert_eq!(resp_thinking.id, Some("req-thinking".to_string()));
     assert!(resp_thinking.success);
 
-    let resp_model_ok: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let resp_model_ok = read_response(&mut client_reader).await;
     assert_eq!(resp_model_ok.id, Some("req-model-success".to_string()));
     assert!(resp_model_ok.success);
 
-    let resp_model_err: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let resp_model_err = read_response(&mut client_reader).await;
     assert_eq!(resp_model_err.id, Some("req-model-failure".to_string()));
     assert!(!resp_model_err.success);
 
-    let resp_compact: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+    let resp_compact = read_response(&mut client_reader).await;
     assert_eq!(resp_compact.id, Some("req-compact".to_string()));
 
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -451,105 +468,198 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
-#[tokio::test]
-async fn test_handle_remote_auth_cmd_login_and_input() {
-    use super::handlers::handle_remote_auth_cmd;
-    use rho_harness_core::rpc::protocol::RpcCommand;
+enum RpcHandler {
+    NodeSessionAuth,
+    ResumeOrFork,
+}
 
-    let (client_io, server_io) = duplex(4096);
-    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-    let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_auth_test_login_{}", uuid::Uuid::new_v4()));
-    let mut active_turn = None;
-    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+enum RpcExpect {
+    Unhandled,
+    Reply {
+        command: Option<&'static str>,
+        check: fn(&RpcResponse),
+    },
+}
 
-    let res = handle_remote_auth_cmd(
-        &RpcCommand::AuthLogin {
-            provider: "invalid_prov_xyz".to_string(),
-        },
-        Some("req-login-fail".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+struct RpcStep {
+    handler: RpcHandler,
+    cmd: RpcCommand,
+    id: &'static str,
+    expect: RpcExpect,
+}
+
+fn expect_ok(resp: &RpcResponse) {
+    assert!(resp.success);
+}
+
+fn expect_failure(resp: &RpcResponse) {
     assert!(!resp.success);
-    assert!(resp.error.unwrap().contains("Unknown provider"));
+}
 
-    let res = handle_remote_auth_cmd(
-        &RpcCommand::AuthLogin {
-            provider: "openai".to_string(),
-        },
-        Some("req-login-ok".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+fn expect_unknown_provider(resp: &RpcResponse) {
+    assert!(!resp.success);
+    assert!(resp.error.as_deref().unwrap().contains("Unknown provider"));
+}
+
+fn expect_input_unresolved(resp: &RpcResponse) {
     assert!(resp.success);
+    assert_eq!(resp.data.as_ref().unwrap()["resolved"], false);
+}
 
-    let res = handle_remote_auth_cmd(
-        &RpcCommand::AuthInput {
-            interaction_id: "nonexistent".to_string(),
-            secret_value: Some("sec".to_string()),
-            selected_option: None,
-        },
-        Some("req-input".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.data.unwrap()["resolved"], false);
-
-    let res = handle_remote_auth_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
-    assert!(!res.unwrap());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
+async fn run_rpc_step(
+    ctx: &mut RpcDaemonContext<'_, tokio::io::DuplexStream>,
+    reader: &mut ClientReader,
+    step: RpcStep,
+) -> Option<RpcResponse> {
+    let req_id = Some(step.id.to_string());
+    let handled = match step.handler {
+        RpcHandler::NodeSessionAuth => handle_node_session_auth_cmd(&step.cmd, req_id, ctx).await,
+        RpcHandler::ResumeOrFork => handle_resume_or_fork_cmd(&step.cmd, req_id, ctx).await,
+    }
+    .unwrap();
+    match step.expect {
+        RpcExpect::Unhandled => {
+            assert!(!handled);
+            None
+        }
+        RpcExpect::Reply { command, check } => {
+            assert!(handled);
+            let resp = read_response(reader).await;
+            if let Some(command) = command {
+                assert_eq!(resp.command, command);
+            }
+            check(&resp);
+            Some(resp)
+        }
+    }
 }
 
 #[tokio::test]
-async fn test_handle_remote_auth_cmd_keys_and_session() {
-    use super::handlers::handle_remote_auth_cmd;
-    use rho_harness_core::rpc::protocol::RpcCommand;
-
-    let (client_io, server_io) = duplex(4096);
-    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-    let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_auth_test_keys_{}", uuid::Uuid::new_v4()));
+async fn test_handle_node_session_auth_and_resume_cmds() {
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_auth_fork_test");
     let mut active_turn = None;
     let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
 
-    let res = handle_remote_auth_cmd(&RpcCommand::GetNodeInfo, Some("req-info".to_string()), &mut ctx).await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "get_node_info");
-
-    let res = handle_remote_auth_cmd(
-        &RpcCommand::CreateSession { workspace: None },
-        Some("req-create".to_string()),
+    let fork = run_rpc_step(
         &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "create_session");
-
-    let res = handle_remote_auth_cmd(
-        &RpcCommand::SetApiKey {
-            provider: "anthropic".to_string(),
-            api_key: "sk-ant-testkey".to_string(),
+        &mut client_reader,
+        RpcStep {
+            handler: RpcHandler::ResumeOrFork,
+            cmd: RpcCommand::ForkSession { node_id: None },
+            id: "req-fork",
+            expect: RpcExpect::Reply {
+                command: Some("fork_session"),
+                check: expect_ok,
+            },
         },
-        Some("req-key-ok".to_string()),
-        &mut ctx,
     )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
+    .await
+    .unwrap();
+    let forked_sid = fork.data.unwrap()["session_id"].as_str().unwrap().to_string();
+
+    let steps = [
+        RpcStep {
+            handler: RpcHandler::ResumeOrFork,
+            cmd: RpcCommand::ResumeSession { session_id: forked_sid },
+            id: "req-resume",
+            expect: RpcExpect::Reply {
+                command: Some("resume_session"),
+                check: expect_ok,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::ResumeOrFork,
+            cmd: RpcCommand::ResumeSession {
+                session_id: "nonexistent-session-id-12345".to_string(),
+            },
+            id: "req-resume-fail",
+            expect: RpcExpect::Reply {
+                command: Some("resume_session"),
+                check: expect_failure,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::AuthLogin {
+                provider: "invalid_prov_xyz".to_string(),
+            },
+            id: "req-login-fail",
+            expect: RpcExpect::Reply {
+                command: None,
+                check: expect_unknown_provider,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::AuthLogin {
+                provider: "openai".to_string(),
+            },
+            id: "req-login-ok",
+            expect: RpcExpect::Reply {
+                command: None,
+                check: expect_ok,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::AuthInput {
+                interaction_id: "nonexistent".to_string(),
+                secret_value: Some("sec".to_string()),
+                selected_option: None,
+            },
+            id: "req-input",
+            expect: RpcExpect::Reply {
+                command: None,
+                check: expect_input_unresolved,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::GetState,
+            id: "req-state",
+            expect: RpcExpect::Unhandled,
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::GetNodeInfo,
+            id: "req-info",
+            expect: RpcExpect::Reply {
+                command: Some("get_node_info"),
+                check: expect_ok,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::CreateSession { workspace: None },
+            id: "req-create",
+            expect: RpcExpect::Reply {
+                command: Some("create_session"),
+                check: expect_ok,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::NodeSessionAuth,
+            cmd: RpcCommand::SetApiKey {
+                provider: "anthropic".to_string(),
+                api_key: "sk-ant-testkey".to_string(),
+            },
+            id: "req-key-ok",
+            expect: RpcExpect::Reply {
+                command: None,
+                check: expect_ok,
+            },
+        },
+        RpcStep {
+            handler: RpcHandler::ResumeOrFork,
+            cmd: RpcCommand::GetState,
+            id: "req-state",
+            expect: RpcExpect::Unhandled,
+        },
+    ];
+    for step in steps {
+        run_rpc_step(&mut ctx, &mut client_reader, step).await;
+    }
+
     assert!(ctx.auth_store.read().await.get_credential("anthropic").is_some());
 
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -560,107 +670,41 @@ async fn test_handle_session_lifecycle_cmd_variants() {
     use super::handlers::handle_session_lifecycle_cmd;
     use rho_harness_core::rpc::protocol::RpcCommand;
 
-    let (client_io, server_io) = duplex(4096);
-    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-    let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_lifecycle_test_{}", uuid::Uuid::new_v4()));
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_lifecycle_test");
     let mut active_turn = None;
     let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
 
-    let res = handle_session_lifecycle_cmd(&RpcCommand::GetTree, Some("req-tree".to_string()), &mut ctx).await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "get_tree");
-
-    let res = handle_session_lifecycle_cmd(
-        &RpcCommand::SetNodeLabel {
-            node_id: "root-1".to_string(),
-            label: Some("test label".to_string()),
-        },
-        Some("req-label".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "set_node_label");
-
-    let res = handle_session_lifecycle_cmd(
-        &RpcCommand::SwitchBranch {
-            node_id: "nonexistent-node-xyz".to_string(),
-        },
-        Some("req-switch".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "switch_branch");
-
-    let res = handle_session_lifecycle_cmd(&RpcCommand::ListSessions, Some("req-list".to_string()), &mut ctx).await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "list_sessions");
+    let steps = [
+        (RpcCommand::GetTree, "req-tree", "get_tree"),
+        (
+            RpcCommand::SetNodeLabel {
+                node_id: "root-1".to_string(),
+                label: Some("test label".to_string()),
+            },
+            "req-label",
+            "set_node_label",
+        ),
+        (
+            RpcCommand::SwitchBranch {
+                node_id: "nonexistent-node-xyz".to_string(),
+            },
+            "req-switch",
+            "switch_branch",
+        ),
+        (RpcCommand::ListSessions, "req-list", "list_sessions"),
+    ];
+    for (cmd, req_id, command) in steps {
+        assert!(
+            handle_session_lifecycle_cmd(&cmd, Some(req_id.to_string()), &mut ctx)
+                .await
+                .unwrap()
+        );
+        let resp = read_response(&mut client_reader).await;
+        assert!(resp.success);
+        assert_eq!(resp.command, command);
+    }
 
     let res = handle_session_lifecycle_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
-    assert!(!res.unwrap());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[tokio::test]
-async fn test_handle_resume_or_fork_cmd_variants() {
-    use super::handlers::handle_resume_or_fork_cmd;
-    use rho_harness_core::rpc::protocol::RpcCommand;
-
-    let (client_io, server_io) = duplex(4096);
-    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-    let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_fork_test_{}", uuid::Uuid::new_v4()));
-    let mut active_turn = None;
-    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
-
-    let res = handle_resume_or_fork_cmd(
-        &RpcCommand::ForkSession { node_id: None },
-        Some("req-fork".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "fork_session");
-    let forked_sid = resp.data.unwrap()["session_id"].as_str().unwrap().to_string();
-
-    let res = handle_resume_or_fork_cmd(
-        &RpcCommand::ResumeSession { session_id: forked_sid },
-        Some("req-resume".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.command, "resume_session");
-
-    let res = handle_resume_or_fork_cmd(
-        &RpcCommand::ResumeSession {
-            session_id: "nonexistent-session-id-12345".to_string(),
-        },
-        Some("req-resume-fail".to_string()),
-        &mut ctx,
-    )
-    .await;
-    assert!(res.unwrap());
-    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert!(!resp.success);
-    assert_eq!(resp.command, "resume_session");
-
-    let res = handle_resume_or_fork_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
     assert!(!res.unwrap());
 
     let _ = std::fs::remove_dir_all(&temp_dir);

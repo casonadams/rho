@@ -1,6 +1,7 @@
+use crate::auth::token_request::post_form_json;
+use crate::http::CLIENT;
 use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -12,19 +13,6 @@ pub const SCOPES: &str = "user:profile user:inference user:sessions:claude_code 
 pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(60);
 pub const USER_AGENT: &str = "claude-cli/2.1.280";
 pub const ANTHROPIC_BETA: &str = "claude-code-20250219,oauth-2025-04-20";
-
-static CLAUDE_AUTH_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    crate::install_crypto_provider();
-    reqwest::Client::builder()
-        .no_proxy()
-        .timeout(TOKEN_TIMEOUT)
-        .build()
-        .unwrap_or_default()
-});
-
-fn claude_auth_client() -> &'static reqwest::Client {
-    &CLAUDE_AUTH_CLIENT
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ClaudeTokenResponse {
@@ -106,8 +94,9 @@ pub async fn exchange_code_with_redirect(
     if let Some(s) = effective_state {
         form.push(("state", s));
     }
-    let res = claude_auth_client()
+    let res = CLIENT
         .post(TOKEN_URL)
+        .timeout(TOKEN_TIMEOUT)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .form(&form)
         .send()
@@ -123,30 +112,20 @@ pub async fn refresh_token(refresh: &str) -> Result<ClaudeTokenResponse> {
         ("client_id", CLIENT_ID),
         ("refresh_token", refresh),
     ];
-    let res = claude_auth_client()
-        .post(TOKEN_URL)
-        .header(reqwest::header::USER_AGENT, USER_AGENT)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| AppError::Auth(format!("Claude token refresh network error: {e}")))?;
-
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!(
-            "Claude token refresh failed ({status}): {body}"
-        )));
-    }
-
-    res.json::<ClaudeTokenResponse>()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse Claude refresh response: {e}")))
+    post_form_json(
+        TOKEN_URL,
+        &form,
+        &[("User-Agent", USER_AGENT)],
+        TOKEN_TIMEOUT,
+        "Claude token refresh",
+    )
+    .await
 }
 
 pub async fn fetch_profile(access_token: &str) -> Option<ClaudeProfileResponse> {
-    let res = claude_auth_client()
+    let res = CLIENT
         .get(PROFILE_URL)
+        .timeout(TOKEN_TIMEOUT)
         .bearer_auth(access_token)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .header("anthropic-beta", ANTHROPIC_BETA)

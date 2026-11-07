@@ -1,17 +1,8 @@
 use super::common::HistoryTerminal;
-use crate::ui::interactive::{InteractiveState, TerminalController};
+use crate::ui::interactive::{InteractiveState, TerminalController, tool_fixture};
 
 fn tool_event(name: &str, output: &str) -> crate::ui::interactive::UiEvent {
-    crate::ui::interactive::UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Tool(
-        crate::ui::interactive::ToolItem {
-            name: name.into(),
-            arguments: serde_json::json!({}),
-            is_error: false,
-            output: output.into(),
-            output_summary: "ok".into(),
-            duration_ms: Some(1),
-        },
-    ))
+    crate::ui::interactive::UiEvent::Transcript(tool_fixture(name, serde_json::json!({}), output))
 }
 
 #[test]

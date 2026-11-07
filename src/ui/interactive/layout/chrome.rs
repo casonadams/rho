@@ -1,4 +1,5 @@
-use super::text::{SPINNER_FRAMES as FRAMES, truncate_to_width};
+use super::text::SPINNER_FRAMES as FRAMES;
+use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::{Activity, FooterState, QueueKind, QueuedMessage};
 
 pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'static str) {
@@ -14,25 +15,8 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
     }
 }
 
-fn format_act_tag(act: Option<(&str, char)>, remote: Option<usize>) -> Option<String> {
-    match (act, remote) {
-        (Some((act_label, spinner)), Some(peers)) => {
-            if peers == 0 {
-                Some(format!("── {spinner} {act_label} • remote "))
-            } else {
-                Some(format!("── {spinner} {act_label} • remote ({peers}) "))
-            }
-        }
-        (Some((act_label, spinner)), None) => Some(format!("── {spinner} {act_label} ")),
-        (None, Some(peers)) => {
-            if peers == 0 {
-                Some("── remote ".to_string())
-            } else {
-                Some(format!("── remote ({peers}) "))
-            }
-        }
-        (None, None) => None,
-    }
+fn format_act_tag(act: Option<(&str, char)>) -> Option<String> {
+    act.map(|(act_label, spinner)| format!("── {spinner} {act_label} "))
 }
 
 fn tagged_top_divider(width: usize, label: &str, tag: &str, spinner: Option<char>, style: &str, reset: &str) -> String {
@@ -78,16 +62,9 @@ pub fn active_activity_status(footer: &FooterState, spinner_frame: usize) -> Opt
     }
 }
 
-pub fn top_divider(
-    width: usize,
-    label: &str,
-    activity: Option<(&str, char)>,
-    remote: Option<usize>,
-    style: &str,
-    reset: &str,
-) -> String {
+pub fn top_divider(width: usize, label: &str, activity: Option<(&str, char)>, style: &str, reset: &str) -> String {
     let spinner = activity.map(|(_, sp)| sp);
-    if let Some(tag) = format_act_tag(activity, remote) {
+    if let Some(tag) = format_act_tag(activity) {
         tagged_top_divider(width, label, &tag, spinner, style, reset)
     } else {
         idle_top_divider(width, label, style, reset)

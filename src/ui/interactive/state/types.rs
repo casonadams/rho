@@ -52,12 +52,9 @@ pub struct FooterState {
     pub total_cache_write_tokens: u64,
     pub total_cost: Option<f64>,
     pub tokens_per_second: Option<f64>,
-    pub extra_status: Option<String>,
     pub hidden_status_count: usize,
     pub context: Option<String>,
     pub show_label: bool,
-    pub remote_active: bool,
-    pub remote_peers: usize,
 }
 
 type IdentityKey<'a> = (
@@ -83,7 +80,7 @@ type MetricsKey<'a> = (
     Option<u64>,
 );
 
-type UiKey<'a> = (Option<&'a str>, usize, Option<&'a str>, bool, bool, usize);
+type UiKey<'a> = (usize, Option<&'a str>, bool);
 
 impl FooterState {
     fn identity_key(&self) -> IdentityKey<'_> {
@@ -114,14 +111,7 @@ impl FooterState {
     }
 
     fn ui_key(&self) -> UiKey<'_> {
-        (
-            self.extra_status.as_deref(),
-            self.hidden_status_count,
-            self.context.as_deref(),
-            self.show_label,
-            self.remote_active,
-            self.remote_peers,
-        )
+        (self.hidden_status_count, self.context.as_deref(), self.show_label)
     }
 }
 

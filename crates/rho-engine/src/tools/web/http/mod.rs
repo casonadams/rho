@@ -4,7 +4,7 @@ mod dns;
 mod tests;
 
 use body::{ReadLimitedParams, read_limited};
-use dns::assert_public_dns;
+use dns::PublicDns;
 use reqwest::Client;
 use rho_harness_core::error::{AppError, Result};
 pub use rho_harness_core::net::{
@@ -25,6 +25,7 @@ static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     crate::install_crypto_provider();
     Client::builder()
         .no_proxy()
+        .dns_resolver(PublicDns)
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= 10 {
@@ -76,9 +77,6 @@ impl HttpClient {
 
     async fn send_request(&self, request: &HttpRequest<'_>, accept_headers: bool) -> Result<reqwest::Response> {
         let valid_url = self.validate_url(request.url)?;
-        if !self.allow_private_network {
-            assert_public_dns(&valid_url).await?;
-        }
         let ua = request.user_agent.unwrap_or(DEFAULT_USER_AGENT);
         let mut req = self
             .client

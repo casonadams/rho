@@ -45,10 +45,6 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
     }
 }
 
-pub fn mock_engine_with_session(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -> AgentEngine {
-    mock_engine(model, config)
-}
-
 fn resolve_mock_session_manager(config: &MockEngineConfig<'_>) -> SessionManager {
     match config.session_manager.clone() {
         Some(mgr) => mgr,

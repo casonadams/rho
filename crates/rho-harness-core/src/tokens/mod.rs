@@ -62,34 +62,34 @@ pub fn context_window_size_for_provider(model: &str, provider: &str) -> usize {
 
 pub fn context_window_size(model: &str) -> usize {
     let lower = model.to_lowercase();
-    for &(patterns, window) in MODEL_CONTEXT_WINDOWS {
-        if patterns.iter().any(|&p| lower.contains(p)) {
-            return window;
+    let tokens = model_tokens(&lower);
+    MODEL_CONTEXT_WINDOWS
+        .iter()
+        .find(|(patterns, _)| patterns.iter().any(|pattern| contains_token_sequence(&tokens, pattern)))
+        .map_or(128_000, |&(_, window)| window)
+}
+
+fn model_tokens(lower: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    for word in lower.split(|c: char| !c.is_ascii_alphanumeric()) {
+        let bytes = word.as_bytes();
+        let mut start = 0;
+        for i in 1..bytes.len() {
+            if bytes[i].is_ascii_digit() != bytes[i - 1].is_ascii_digit() {
+                tokens.push(&word[start..i]);
+                start = i;
+            }
+        }
+        if start < word.len() {
+            tokens.push(&word[start..]);
         }
     }
-    128_000
+    tokens
 }
 
-/// Auto-compaction triggers only when context tokens exceed the window minus
-/// the reserve kept for the model's response.
-pub fn should_compact(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
-    let effective_reserve = if reserve_tokens == 0 {
-        (context_window as f64 * 0.045).round() as usize
-    } else {
-        reserve_tokens
-    };
-    context_tokens > context_window.saturating_sub(effective_reserve)
-}
-
-pub fn is_in_lead_band(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
-    let effective_reserve = if reserve_tokens == 0 {
-        (context_window as f64 * 0.045).round() as usize
-    } else {
-        reserve_tokens
-    };
-    let threshold = context_window.saturating_sub(effective_reserve);
-    let lead_threshold = (threshold as f64 * 0.85).round() as usize;
-    context_tokens >= lead_threshold && context_tokens <= threshold
+fn contains_token_sequence(tokens: &[&str], pattern: &str) -> bool {
+    let needle = model_tokens(pattern);
+    !needle.is_empty() && tokens.windows(needle.len()).any(|window| window == needle.as_slice())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -126,10 +126,14 @@ pub fn calculate_context_tokens(
 static CL100K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::cl100k_base().ok());
 static O200K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::o200k_base().ok());
 
-const O200K_SUBSTRINGS: &[&str] = &["gpt-4o", "gpt-5", "gpt-6", "luna", "terra", "sol"];
+const O200K_PATTERNS: &[&str] = &["gpt-4o", "gpt-5", "gpt-6", "luna", "terra", "sol"];
 
 fn is_o200k_model(lower: &str) -> bool {
-    if O200K_SUBSTRINGS.iter().any(|&sub| lower.contains(sub)) {
+    let tokens = model_tokens(lower);
+    if O200K_PATTERNS
+        .iter()
+        .any(|pattern| contains_token_sequence(&tokens, pattern))
+    {
         return true;
     }
     lower
@@ -217,11 +221,6 @@ fn estimate_user_content_tokens(item: &UserContent, tokenizer: ModelTokenizer) -
     }
 }
 
-#[cfg(test)]
-fn estimate_assistant_content_tokens(item: &AssistantContent, model: &str) -> usize {
-    estimate_assistant_content_tokens_with(item, ModelTokenizer::for_model(model))
-}
-
 fn estimate_assistant_content_tokens_with(item: &AssistantContent, tokenizer: ModelTokenizer) -> usize {
     match item {
         AssistantContent::Text(text) => tokenizer.count(&text.text),
@@ -292,19 +291,4 @@ pub fn estimate_messages_tokens(messages: &[ChatMessage], model: &str) -> usize 
         .iter()
         .map(|msg| estimate_message_tokens_with(msg, tokenizer))
         .sum()
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct BpeTokenCounter {
-    model: String,
-}
-
-impl BpeTokenCounter {
-    pub fn new(model: impl Into<String>) -> Self {
-        Self { model: model.into() }
-    }
-
-    pub fn count(&self, message: &ChatMessage) -> usize {
-        estimate_message_tokens(message, &self.model)
-    }
 }

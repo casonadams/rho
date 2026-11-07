@@ -161,20 +161,37 @@ fn resume_terminal<B: TerminalBackend>(
     Ok(())
 }
 
+struct EditorDraft(std::path::PathBuf);
+
+impl Drop for EditorDraft {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 async fn open_external_editor<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     input: &mut crate::repl::input_reader::TerminalInputReader,
 ) -> Result<()> {
     let current_text = controller.state().editor().text().to_string();
-    let temp_file = std::env::temp_dir().join(format!("rho_draft_{}.md", uuid::Uuid::new_v4()));
-    let _ = tokio::fs::write(&temp_file, &current_text).await;
+    let draft = EditorDraft(std::env::temp_dir().join(format!("rho_draft_{}.md", uuid::Uuid::new_v4())));
+    rho_harness_core::fs::write_atomic_async(&draft.0, current_text.into_bytes(), 0o600).await?;
     let editor = resolve_editor_command();
+    let mut parts = editor.split_whitespace();
+    let program = parts.next().unwrap_or("nano");
+    let mut command = tokio::process::Command::new(program);
+    command.args(parts).arg(&draft.0);
     let paused = input.pause()?;
     controller.suspend()?;
-    let _status = tokio::process::Command::new(&editor).arg(&temp_file).status().await;
+    let status = command.status().await;
     resume_terminal(controller, paused)?;
-    apply_edited_text(controller, &temp_file).await;
-    let _ = tokio::fs::remove_file(temp_file).await;
+    match status {
+        Ok(_) => apply_edited_text(controller, &draft.0).await,
+        Err(err) => {
+            controller.set_system_message(format!("Could not start editor '{editor}': {err}"));
+            controller.redraw()?;
+        }
+    }
     Ok(())
 }
 

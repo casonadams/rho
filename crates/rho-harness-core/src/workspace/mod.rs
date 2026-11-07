@@ -1,32 +1,19 @@
 #[cfg(test)]
 mod tests;
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Resolves tool paths against the engine's fixed workspace root.
 #[derive(Debug, Clone)]
 pub struct Workspace {
     root: PathBuf,
-    excluded: Vec<PathBuf>,
 }
 
 impl Workspace {
     pub fn new(root: impl AsRef<Path>) -> Self {
-        Self::with_exclusions(root, std::iter::empty::<&Path>())
-    }
-
-    pub fn with_exclusions<I, P>(root: impl AsRef<Path>, exclusions: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: AsRef<Path>,
-    {
-        let root_path = root.as_ref();
-        let root = canonicalize_path(root_path);
-        let excluded = exclusions
-            .into_iter()
-            .map(|path| canonicalize_path(path.as_ref()))
-            .collect();
-        Self { root, excluded }
+        Self {
+            root: canonicalize_path(root.as_ref()),
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -34,52 +21,7 @@ impl Workspace {
     }
 
     pub fn resolve(&self, raw_path: &str) -> Option<PathBuf> {
-        let clean = raw_path.trim().trim_matches(['\'', '"']);
-        if clean.is_empty() {
-            return None;
-        }
-        if clean == "~" {
-            return std::env::var("HOME").ok().map(PathBuf::from);
-        }
-        if let Some(rest) = clean.strip_prefix("~/") {
-            return std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(rest));
-        }
-        let path = Path::new(clean);
-        Some(if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            self.root.join(path)
-        })
-    }
-
-    /// Uses normalized canonical paths so targets that do not exist yet are checked safely.
-    pub fn is_within(&self, raw_path: &str) -> bool {
-        let Some(candidate) = self.resolve(raw_path) else {
-            return false;
-        };
-        canonicalize_path(&candidate).starts_with(&self.root)
-    }
-
-    pub fn is_protected(&self, raw_path: &str) -> bool {
-        let Some(candidate) = self.resolve(raw_path) else {
-            return false;
-        };
-        let canonical = canonicalize_path(&candidate);
-        canonical.components().any(|c| c.as_os_str() == ".git")
-    }
-
-    pub fn is_excluded(&self, raw_path: &str) -> bool {
-        let Some(candidate) = self.resolve(raw_path) else {
-            return false;
-        };
-        let canonical = canonicalize_path(&candidate);
-        self.excluded
-            .iter()
-            .any(|path| canonical == *path || canonical.starts_with(path))
-    }
-
-    pub fn can_mutate(&self, raw_path: &str) -> bool {
-        !self.is_protected(raw_path) && !self.is_excluded(raw_path)
+        resolve_path(raw_path, &self.root)
     }
 
     pub fn list_files(&self, max_files: usize) -> Vec<String> {
@@ -89,6 +31,62 @@ impl Workspace {
     pub async fn list_files_async(&self, max_files: usize) -> Vec<String> {
         list_relative_files_async(&self.root, max_files).await
     }
+}
+
+pub fn clean_path_arg(raw: &str) -> &str {
+    raw.trim().trim_matches(['\'', '"'])
+}
+
+pub fn expand_home(path: &str) -> String {
+    let Ok(home) = std::env::var("HOME") else {
+        return path.to_string();
+    };
+    if path == "~" || path == "$HOME" {
+        return home;
+    }
+    match path.strip_prefix("~/").or_else(|| path.strip_prefix("$HOME/")) {
+        Some(rest) => format!("{home}/{rest}"),
+        None => path.to_string(),
+    }
+}
+
+pub fn resolve_path(raw: &str, base: &Path) -> Option<PathBuf> {
+    let clean = clean_path_arg(raw);
+    if clean.is_empty() {
+        return None;
+    }
+    let expanded = expand_home(clean);
+    let path = Path::new(&expanded);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+    Some(canonicalize_path(&absolute))
+}
+
+pub fn canonicalize_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().map_or_else(|_| path.to_path_buf(), |dir| dir.join(path))
+    };
+    let mut resolved = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            other => {
+                resolved.push(other);
+                if let Ok(real) = resolved.canonicalize() {
+                    resolved = real;
+                }
+            }
+        }
+    }
+    resolved
 }
 
 fn is_ignored_directory_or_file(name: &str) -> bool {
@@ -206,26 +204,4 @@ pub fn list_relative_files(root: &Path, max_files: usize) -> Vec<String> {
     }
     files.sort();
     files
-}
-
-fn canonicalize_path(path: &Path) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
-        return canonical;
-    }
-    let mut non_existing = Vec::new();
-    let mut current = path;
-    while let Some(parent) = current.parent() {
-        if let Some(file_name) = current.file_name() {
-            non_existing.push(file_name);
-        }
-        if let Ok(canonical_parent) = parent.canonicalize() {
-            let mut resolved = canonical_parent;
-            for component in non_existing.into_iter().rev() {
-                resolved.push(component);
-            }
-            return resolved;
-        }
-        current = parent;
-    }
-    path.to_path_buf()
 }

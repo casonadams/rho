@@ -2,10 +2,9 @@
 
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::fs::{write_atomic, write_atomic_async};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -71,48 +70,22 @@ fn parse_credentials_map(raw_map: HashMap<String, RawStoredEntry>) -> HashMap<St
     credentials
 }
 
+fn encode_credentials(credentials: &HashMap<String, StoredCredential>) -> Result<Vec<u8>> {
+    serde_json::to_vec_pretty(credentials).map_err(|e| AppError::Auth(format!("Failed to serialize auth store: {e}")))
+}
+
+fn write_error(path: &Path, error: std::io::Error) -> AppError {
+    AppError::Auth(format!("Failed to write auth file {}: {error}", path.display()))
+}
+
 pub(super) fn save_credentials(path: &Path, credentials: &HashMap<String, StoredCredential>) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let json = serde_json::to_string_pretty(credentials)
-        .map_err(|e| AppError::Auth(format!("Failed to serialize auth store: {e}")))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?;
-        file.write_all(json.as_bytes())?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
-        file.write_all(json.as_bytes())?;
-    }
-
-    Ok(())
+    let json = encode_credentials(credentials)?;
+    write_atomic(path, &json, 0o600).map_err(|e| write_error(path, e))
 }
 
 pub(super) async fn save_credentials_async(path: &Path, credentials: &HashMap<String, StoredCredential>) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        let _ = tokio::fs::create_dir_all(parent).await;
-    }
-    let json = serde_json::to_string_pretty(credentials)
-        .map_err(|e| AppError::Auth(format!("Failed to serialize auth store: {e}")))?;
-
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).await?;
-    tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await?;
-    Ok(())
+    let json = encode_credentials(credentials)?;
+    write_atomic_async(path, json, 0o600)
+        .await
+        .map_err(|e| write_error(path, e))
 }

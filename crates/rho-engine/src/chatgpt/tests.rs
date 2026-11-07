@@ -1,89 +1,44 @@
 use super::*;
+use crate::test_support::assert_quota_cases;
 use chrono::TimeZone;
 
+const PRIMARY_AND_SECONDARY: &str = r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0,"reset_at":1788452580},"secondary_window":{"remaining_percent":89.0,"reset_at":"2026-09-07T09:00:00Z"}}}"#;
+const ALTERNATE_KEYS: &str = r#"{"rate_limits":{"five_hour":{"used_percent":5.0,"reset_at":1788452580},"weekly":{"percent_left":89.0,"reset_at":"2026-09-07T09:00:00Z"}}}"#;
+const PRIMARY_ONLY: &str = r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0,"reset_at":1788452580}}}"#;
+const EXPIRED_OR_MISSING_RESET: &str = r#"{"rate_limit":{"primary_window":{"remaining_percent":100.0,"reset_at":1788430000},"secondary_window":{"remaining_percent":90.0}}}"#;
+
+const CASES: &[(&str, &str, Option<&str>, Option<&str>)] = &[
+    (
+        "formats_5h_then_weekly",
+        PRIMARY_AND_SECONDARY,
+        None,
+        Some("95% 4h23m 89% 3d21h"),
+    ),
+    (
+        "supports_used_percent_and_alternate_keys",
+        ALTERNATE_KEYS,
+        None,
+        Some("95% 4h23m 89% 3d21h"),
+    ),
+    (
+        "single_window_when_only_primary_present",
+        PRIMARY_ONLY,
+        None,
+        Some("95% 4h23m"),
+    ),
+    (
+        "expired_or_missing_reset_omits_countdown",
+        EXPIRED_OR_MISSING_RESET,
+        None,
+        Some("100% 90%"),
+    ),
+    ("missing_rate_limit_returns_none", r#"{"other":{}}"#, None, None),
+];
+
 #[test]
-fn parse_quota_formats_5h_then_weekly() {
+fn parse_quota_cases() {
     let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
-    let json = serde_json::json!({
-        "rate_limit": {
-            "primary_window": {
-                "remaining_percent": 95.0,
-                "reset_at": 1788452580
-            },
-            "secondary_window": {
-                "remaining_percent": 89.0,
-                "reset_at": "2026-09-07T09:00:00Z"
-            }
-        }
-    });
-
-    let display = parse_quota(&json, now);
-    assert_eq!(display, Some("95% 4h23m 89% 3d21h".to_string()));
-}
-
-#[test]
-fn parse_quota_supports_used_percent_and_alternate_keys() {
-    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
-    let json = serde_json::json!({
-        "rate_limits": {
-            "five_hour": {
-                "used_percent": 5.0,
-                "reset_at": 1788452580
-            },
-            "weekly": {
-                "percent_left": 89.0,
-                "reset_at": "2026-09-07T09:00:00Z"
-            }
-        }
-    });
-
-    let display = parse_quota(&json, now);
-    assert_eq!(display, Some("95% 4h23m 89% 3d21h".to_string()));
-}
-
-#[test]
-fn parse_quota_single_window_when_only_primary_present() {
-    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
-    let json = serde_json::json!({
-        "rate_limit": {
-            "primary_window": {
-                "remaining_percent": 95.0,
-                "reset_at": 1788452580
-            }
-        }
-    });
-
-    let display = parse_quota(&json, now);
-    assert_eq!(display, Some("95% 4h23m".to_string()));
-}
-
-#[test]
-fn parse_quota_expired_or_missing_reset_omits_countdown() {
-    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
-    let json = serde_json::json!({
-        "rate_limit": {
-            "primary_window": {
-                "remaining_percent": 100.0,
-                "reset_at": 1788430000
-            },
-            "secondary_window": {
-                "remaining_percent": 90.0
-            }
-        }
-    });
-
-    let display = parse_quota(&json, now);
-    assert_eq!(display, Some("100% 90%".to_string()));
-}
-
-#[test]
-fn parse_quota_missing_rate_limit_returns_none() {
-    let now = Utc::now();
-    let json = serde_json::json!({
-        "other": {}
-    });
-
-    assert_eq!(parse_quota(&json, now), None);
+    assert_quota_cases(CASES, now, |value, _, now| parse_quota(value, now));
 }
 
 #[test]

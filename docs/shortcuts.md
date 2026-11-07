@@ -108,9 +108,8 @@ commands:
 
 | Command     | Action                           | Details                                                                       |
 | :---------- | :------------------------------- | :---------------------------------------------------------------------------- |
-| `/settings` | **Runtime Settings**             | Interactive settings modal preserving stack hierarchy: switch role models (default, smol, slow, judge, guard), configure thinking, styling, and tools in-place. |
+| `/settings` | **Runtime Settings**             | Interactive settings modal preserving stack hierarchy: switch role models (default, smol, slow, guard), configure thinking, styling, and tools in-place. |
 | `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers.             |
-| `/route`    | **Model Routing**                | Toggle or inspect automatic model tier routing (`/route [on\|off]`).           |
 | `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). |
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |
@@ -120,48 +119,7 @@ commands:
 | `/clone`    | **Clone Session**                | Duplicates active branch into a new session file.                             |
 | `/name`     | **Name Session**                 | Assigns a human-readable display name to the session.                         |
 | `/clear`    | **New Session**                  | Starts a fresh session while preserving past transcripts.                     |
-| `/login`    | **Provider Auth**                | Configure OAuth or verify API keys for 14+ providers.                         |
+| `/login`    | **Provider Auth**                | Configure OAuth or verify API keys for 13+ providers.                         |
 | `/mcp`      | **MCP Servers**                  | Inspect configured MCP servers and capabilities.                              |
 | `/export`   | **Export Transcript**            | Generates an HTML or Markdown transcript file.                                |
-| `/collab`   | **P2P Live Pairing**             | Start pairing session, view tickets, manage peers, or kick collaborators.    |
 | `/exit`     | **Exit rho**                     | Shuts down the interactive REPL.                                              |
-
----
-
-## Custom Keybindings
-
-You can remap default shortcuts or define custom combinations by creating
-`~/.config/rho/keybindings.toml` (or `~/.config/rho/keybindings.json`).
-
-### Configuration Example
-
-```toml
-[bindings]
-"app.interrupt" = ["escape"]
-"app.clear" = ["ctrl+c"]
-"app.model.select" = ["ctrl+l", "ctrl+m"]
-"app.thinking.cycle" = ["shift+tab"]
-"app.tools.expand" = ["ctrl+o"]
-"app.message.copy" = ["ctrl+x"]
-"app.message.followUp" = ["alt+enter"]
-```
-
-### Supported Action Identifiers
-
-| Action ID                  | Default Key             | Description                         |
-| :------------------------- | :---------------------- | :---------------------------------- |
-| `app.interrupt`            | `escape`                | Cancel active execution / operation |
-| `app.clear`                | `ctrl+c`                | Clear current prompt draft          |
-| `app.exit`                 | `ctrl+d`                | Exit rho when prompt is empty       |
-| `app.suspend`              | `ctrl+z`                | Suspend process to background       |
-| `app.editor.external`      | `ctrl+g`                | Open input in external editor       |
-| `app.clipboard.pasteImage` | `ctrl+v`                | Paste image from clipboard          |
-| `app.model.select`         | `ctrl+l`                | Open model selector modal           |
-| `app.model.cycleForward`   | `ctrl+p`                | Cycle model forward                 |
-| `app.model.cycleBackward`  | `shift+ctrl+p`, `alt+p` | Cycle model backward                |
-| `app.thinking.cycle`       | `shift+tab`             | Cycle thinking effort level         |
-| `app.thinking.toggle`      | `ctrl+t`                | Toggle thinking visibility          |
-| `app.tools.expand`         | `ctrl+o`                | Toggle tool card expansion          |
-| `app.message.copy`         | `ctrl+x`                | Copy last assistant message         |
-| `app.message.followUp`     | `alt+enter`             | Queue prompt as follow-up           |
-| `app.message.dequeue`      | `alt+up`                | Dequeue last queued message         |

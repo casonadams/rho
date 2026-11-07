@@ -12,7 +12,7 @@ pub mod widget;
 use crate::ui::interactive::{AutocompleteState, EditorState, FooterState, ModalState, QueuedMessage};
 
 pub use modal::modal_body_max_scroll;
-pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width, wrap_words_to_width};
+pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
 
 use normal::render_normal_layout;

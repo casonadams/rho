@@ -15,7 +15,6 @@ pub fn oauth_provider_options() -> Vec<(&'static str, &'static str)> {
         ("antigravity", "Google Cloud Code Assist"),
         ("chatgpt", "ChatGPT Plus/Pro subscription"),
         ("claude", "Claude Pro/Max subscription"),
-        ("copilot", "GitHub Copilot subscription"),
         ("openrouter", "OpenRouter account (OAuth PKCE)"),
     ]
 }
@@ -87,16 +86,14 @@ fn prompt_select_from_list(prompt: &str, items: &[String]) -> Result<usize> {
 }
 
 pub fn prompt_select_auth_method() -> Result<AuthMethod> {
-    let options = vec![
-        "API key (Anthropic, OpenAI, Gemini, etc.)".to_string(),
-        "OAuth / Subscription (ChatGPT, Claude, Copilot, Antigravity, OpenRouter)".to_string(),
-    ];
-    let idx = prompt_select_from_list("Select authentication method:", &options)?;
-    if idx == 0 {
-        Ok(AuthMethod::ApiKey)
-    } else {
-        Ok(AuthMethod::OAuth)
-    }
+    prompt_auth_choice(
+        "Select authentication method:",
+        [
+            "API key (Anthropic, OpenAI, Gemini, etc.)",
+            "OAuth / Subscription (ChatGPT, Claude, Antigravity, OpenRouter)",
+        ],
+        [AuthMethod::ApiKey, AuthMethod::OAuth],
+    )
 }
 
 pub fn prompt_select_oauth_provider() -> Result<String> {
@@ -113,17 +110,21 @@ pub fn prompt_select_api_key_provider(config: &Config) -> Result<String> {
     Ok(options[idx].0.to_string())
 }
 
+fn prompt_auth_choice(prompt: &str, options: [&str; 2], methods: [AuthMethod; 2]) -> Result<AuthMethod> {
+    let items: Vec<String> = options.iter().map(|option| option.to_string()).collect();
+    let idx = prompt_select_from_list(prompt, &items)?;
+    Ok(methods[idx])
+}
+
 pub fn prompt_auth_method(provider_label: &str) -> Result<AuthMethod> {
-    let options = vec![
-        "OAuth (sign in with browser to generate API key)".to_string(),
-        "API key (enter manually)".to_string(),
-    ];
-    let idx = prompt_select_from_list(&format!("Select authentication method for {provider_label}:"), &options)?;
-    if idx == 0 {
-        Ok(AuthMethod::OAuth)
-    } else {
-        Ok(AuthMethod::ApiKey)
-    }
+    prompt_auth_choice(
+        &format!("Select authentication method for {provider_label}:"),
+        [
+            "OAuth (sign in with browser to generate API key)",
+            "API key (enter manually)",
+        ],
+        [AuthMethod::OAuth, AuthMethod::ApiKey],
+    )
 }
 
 pub fn resolve_provider_name(requested: Option<&str>, configured: &str) -> String {

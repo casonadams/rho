@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use crate::temp_dir;
 use rho::config::{Config, PermissionConfig};
 use rho::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho::engine::runner::TurnRequest;
@@ -10,19 +11,13 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-fn temp_workspace() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("perm_test_{}", uuid::Uuid::new_v4()));
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
 struct PermFixture {
     engine: rho::engine::AgentEngine,
     presenter: Arc<StructuredPresenter>,
 }
 
 fn make_perm_engine(workspace: &std::path::Path, model: Arc<MockAdapter>, config: Config) -> PermFixture {
-    let built_in_tools = rho_engine::tools::build_builtin_tools(workspace, &config).ok();
+    let built_in_tools = rho_engine::tools::build_builtin_tools(workspace, &config, None).ok();
     let engine = mock_engine(
         model,
         MockEngineConfig {
@@ -79,72 +74,59 @@ fn isolate_perm_env() -> EnvGuard {
     EnvGuard { _lock: lock, prev, dir }
 }
 
-#[tokio::test]
-async fn permission_explicit_allow_runs_silently_in_headless() {
+async fn run_headless_turn(
+    rules: Option<&str>,
+    cmd: &str,
+    final_text: &'static str,
+    prompt: &str,
+) -> rho_harness_core::error::Result<rho_engine::engine::runner::TurnOutput> {
     let _env = isolate_perm_env();
-    let ws = temp_workspace();
-
-    let perm_dir = ws.join(".agents").join("permissions");
-    std::fs::create_dir_all(&perm_dir).unwrap();
-    std::fs::write(
-        perm_dir.join("rules.toml"),
-        "[permission.bash]\n\"echo *\" = \"allow\"\n",
-    )
-    .unwrap();
-
-    let model = make_perm_model("echo hello_headless", "done echoing");
+    let ws = temp_dir("perm_test");
+    if let Some(rules) = rules {
+        let perm_dir = ws.join(".agents").join("permissions");
+        std::fs::create_dir_all(&perm_dir).unwrap();
+        std::fs::write(perm_dir.join("rules.toml"), rules).unwrap();
+    }
     let config = Config {
         permission: PermissionConfig { enabled: true },
         ..Config::default()
     };
-    let fix = make_perm_engine(&ws, model, config);
+    let fix = make_perm_engine(&ws, make_perm_model(cmd, final_text), config);
+    let result = fix.engine.run_turn(TurnRequest::new(prompt), fix.presenter).await;
+    let _ = std::fs::remove_dir_all(&ws);
+    result
+}
 
-    let output = fix
-        .engine
-        .run_turn(TurnRequest::new("run echo"), fix.presenter)
-        .await
-        .unwrap();
+#[tokio::test]
+async fn permission_explicit_allow_runs_silently_in_headless() {
+    let output = run_headless_turn(
+        Some("[permission.bash]\n\"echo *\" = \"allow\"\n"),
+        "echo hello_headless",
+        "done echoing",
+        "run echo",
+    )
+    .await
+    .unwrap();
 
     assert_eq!(output.final_text, "done echoing");
-    let _ = std::fs::remove_dir_all(&ws);
 }
 
 #[tokio::test]
 async fn permission_explicit_deny_halts_with_error_in_headless() {
-    let _env = isolate_perm_env();
-    let ws = temp_workspace();
-
-    let perm_dir = ws.join(".agents").join("permissions");
-    std::fs::create_dir_all(&perm_dir).unwrap();
-    std::fs::write(perm_dir.join("rules.toml"), "[permission.bash]\n\"rm *\" = \"deny\"\n").unwrap();
-
-    let model = make_perm_model("rm -rf /tmp/foo", "done removing");
-    let config = Config {
-        permission: PermissionConfig { enabled: true },
-        ..Config::default()
-    };
-    let fix = make_perm_engine(&ws, model, config);
-
-    let result = fix.engine.run_turn(TurnRequest::new("remove foo"), fix.presenter).await;
+    let result = run_headless_turn(
+        Some("[permission.bash]\n\"rm *\" = \"deny\"\n"),
+        "rm -rf /tmp/foo",
+        "done removing",
+        "remove foo",
+    )
+    .await;
 
     assert!(result.is_ok() || result.is_err());
-    let _ = std::fs::remove_dir_all(&ws);
 }
 
 #[tokio::test]
 async fn permission_ask_denies_cleanly_in_headless_mode() {
-    let _env = isolate_perm_env();
-    let ws = temp_workspace();
-
-    let model = make_perm_model("touch /tmp/unmatched_file", "should not reach here");
-    let config = Config {
-        permission: PermissionConfig { enabled: true },
-        ..Config::default()
-    };
-    let fix = make_perm_engine(&ws, model, config);
-
-    let result = fix.engine.run_turn(TurnRequest::new("touch file"), fix.presenter).await;
+    let result = run_headless_turn(None, "touch /tmp/unmatched_file", "should not reach here", "touch file").await;
 
     assert!(result.is_ok() || result.is_err());
-    let _ = std::fs::remove_dir_all(&ws);
 }

@@ -1,27 +1,38 @@
-use rho_harness_core::error::{AppError, Result};
-use rho_harness_core::net::{is_private_host, is_private_ip};
-use url::Url;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+use rho_harness_core::net::is_private_ip;
+use std::net::SocketAddr;
 
-pub async fn assert_public_dns(url: &Url) -> Result<()> {
-    let port = url.port_or_known_default().unwrap_or(80);
-    let Some(host) = url.host_str() else {
-        return Ok(());
-    };
-    if is_private_host(host) {
-        return Err(AppError::Tool(format!(
-            "Access to private/local network host '{host}' is blocked for security"
-        )));
-    }
-    let addrs = tokio::net::lookup_host(format!("{host}:{port}"))
+pub struct PublicDns;
+
+pub async fn public_addrs(host: &str) -> Result<Vec<SocketAddr>, String> {
+    let addrs = tokio::net::lookup_host((host, 0))
         .await
-        .map_err(|e| AppError::Tool(format!("DNS lookup failed for {host}: {e}")))?;
-    for addr in addrs {
-        if is_private_ip(addr.ip()) {
-            return Err(AppError::Tool(format!(
-                "Host '{host}' resolved to blocked private network address '{}'",
-                addr.ip()
-            )));
-        }
+        .map_err(|e| format!("DNS lookup failed for {host}: {e}"))?;
+    let public: Vec<SocketAddr> = addrs.filter(|addr| !is_private_ip(addr.ip())).collect();
+    if public.is_empty() {
+        return Err(format!(
+            "Host '{host}' resolves only to blocked private network addresses"
+        ));
     }
-    Ok(())
+    Ok(public)
+}
+
+impl Resolve for PublicDns {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addrs = public_addrs(&host).await?;
+            Ok(Box::new(addrs.into_iter()) as Addrs)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn resolver_rejects_hosts_resolving_only_to_private_addresses() {
+        assert!(public_addrs("localhost").await.is_err());
+    }
 }

@@ -34,7 +34,7 @@ pub fn test_engine_with_session(
         .as_ref()
         .map(|session| session.file_path.parent().unwrap().to_path_buf())
         .unwrap_or_else(|| std::env::temp_dir().join(format!("runner_test_{}", uuid::Uuid::new_v4())));
-    rho_engine::engine::eval::mock::mock_engine_with_session(
+    rho_engine::engine::eval::mock::mock_engine(
         model as Arc<dyn ModelAdapter>,
         rho_engine::engine::eval::mock::MockEngineConfig {
             base_dir: &base_dir,
@@ -49,12 +49,13 @@ pub fn test_engine_with_session(
 }
 
 pub fn builtin_tools_for(base_dir: &std::path::Path) -> Option<Vec<Arc<dyn EngineTool>>> {
-    rho_engine::tools::build_all_builtin_tools(
+    rho_engine::tools::build_builtin_tools(
         base_dir,
         &Config {
             sessions_dir: base_dir.join("sessions"),
             ..Config::default()
         },
+        None,
     )
     .ok()
 }

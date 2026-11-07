@@ -3,7 +3,8 @@ use super::lines::{
     format_footer_lines, format_model_details, format_percent_value, format_stats_line, format_top_line,
 };
 use super::path::abbreviate_home;
-use super::text::{fit_right_aligned, format_tokens, sanitize_status_text};
+use super::text::{fit_right_aligned, format_tokens, sanitize_status_text, truncate_to_width};
+use crate::ui::block::visible_width;
 use crate::ui::interactive::Activity;
 use std::path::Path;
 
@@ -200,4 +201,10 @@ fn format_percent_value_formats_whole_number() {
     assert_eq!(format_percent_value(0.0), "0%");
     assert_eq!(format_percent_value(1.2), "1%");
     assert_eq!(format_percent_value(100.0), "100%");
+}
+
+#[test]
+fn truncate_to_width_counts_only_visible_columns() {
+    assert_eq!(truncate_to_width("\x1b[31mred\x1b[0m text", 5), "\x1b[31mred\x1b[0m t");
+    assert_eq!(visible_width(&truncate_to_width("\x1b[2Kabcdef", 3)), 3);
 }

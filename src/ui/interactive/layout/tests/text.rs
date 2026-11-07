@@ -1,4 +1,4 @@
-use crate::ui::interactive::layout::{truncate_to_visual_lines, wrap_to_width, wrap_words_to_width};
+use crate::ui::interactive::layout::{truncate_to_visual_lines, wrap_to_width};
 
 #[test]
 fn truncate_to_visual_lines_preserves_short_content() {
@@ -17,16 +17,16 @@ fn truncate_to_visual_lines_skips_earlier_lines_when_exceeding_limit() {
 }
 
 #[test]
-fn wrap_words_to_width_breaks_on_word_boundaries() {
+fn wrap_to_width_breaks_on_word_boundaries() {
     let text = "alpha beta gamma delta epsilon";
-    let wrapped = wrap_words_to_width(text, 16);
+    let wrapped = wrap_to_width(text, 16);
     assert_eq!(wrapped, vec!["alpha beta gamma", "delta epsilon"]);
 }
 
 #[test]
-fn wrap_words_to_width_splits_oversized_words() {
+fn wrap_to_width_splits_oversized_words() {
     let text = "short supercalifragilisticexpialidocious end";
-    let wrapped = wrap_words_to_width(text, 10);
+    let wrapped = wrap_to_width(text, 10);
     assert_eq!(
         wrapped,
         vec!["short", "supercalif", "ragilistic", "expialidoc", "ious end",]
@@ -34,9 +34,9 @@ fn wrap_words_to_width_splits_oversized_words() {
 }
 
 #[test]
-fn wrap_words_to_width_handles_empty_and_whitespace_lines() {
+fn wrap_to_width_handles_empty_and_whitespace_lines() {
     let text = "first\n\n   \nsecond";
-    let wrapped = wrap_words_to_width(text, 20);
+    let wrapped = wrap_to_width(text, 20);
     assert_eq!(wrapped, vec!["first", "", "", "second"]);
 }
 
@@ -72,4 +72,16 @@ fn wrap_to_width_strips_carriage_returns() {
     for line in &wrapped {
         assert!(!line.contains('\r'));
     }
+}
+
+#[test]
+fn wrap_keeps_visible_text_after_non_sgr_escape_sequences() {
+    let wrapped = wrap_to_width("\x1b[2Kkeep this text", 80);
+    assert_eq!(crate::ui::block::strip_ansi(&wrapped.join("\n")), "keep this text");
+}
+
+#[test]
+fn wrap_applies_only_sgr_codes_to_active_style() {
+    let wrapped = wrap_to_width("\x1b[2K\x1b[31mred", 80);
+    assert_eq!(wrapped, vec!["\x1b[2K\x1b[31mred"]);
 }

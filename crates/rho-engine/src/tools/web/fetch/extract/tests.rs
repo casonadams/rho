@@ -255,13 +255,3 @@ fn test_extract_override_document_and_fallback_formats() {
     .unwrap();
     assert_eq!(unknown_format, "plain text fallback");
 }
-
-#[test]
-fn test_is_pdf_request() {
-    assert!(is_pdf_request("https://example.com/doc.pdf", None));
-    assert!(is_pdf_request("https://example.com/doc.PDF", None));
-    assert!(is_pdf_request("https://example.com/doc.pdf?download=true", None));
-    assert!(is_pdf_request("https://example.com/api", Some("pdf")));
-    assert!(!is_pdf_request("https://example.com/doc.html", None));
-    assert!(!is_pdf_request("https://example.com/api", Some("json")));
-}

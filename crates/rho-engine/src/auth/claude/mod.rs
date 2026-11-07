@@ -5,7 +5,7 @@ pub mod local;
 mod tests;
 
 pub use client::{
-    AUTHORIZE_URL, CLIENT_ID, ClaudeProfileAccount, ClaudeProfileOrganization, ClaudeProfileResponse,
+    ANTHROPIC_BETA, AUTHORIZE_URL, CLIENT_ID, ClaudeProfileAccount, ClaudeProfileOrganization, ClaudeProfileResponse,
     ClaudeTokenResponse, PROFILE_URL, REDIRECT_URI, SCOPES, TOKEN_TIMEOUT, USER_AGENT, exchange_code,
     exchange_code_with_redirect, fetch_profile, refresh_token,
 };

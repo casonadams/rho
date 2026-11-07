@@ -3,6 +3,8 @@ use super::model::{Policy, ScopeRules};
 use super::parse::parse_scope_from_str;
 use std::path::{Path, PathBuf};
 
+const PROTECTED_CONFIG_FILES: [&str; 3] = ["permission.toml", "config.toml", "auth.json"];
+
 pub fn config_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("RHO_HOME") {
         return Some(PathBuf::from(dir));
@@ -16,12 +18,6 @@ pub fn config_path() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("permission.toml"))
 }
 
-pub fn config_is_healthy() -> bool {
-    let cwd = std::env::current_dir().ok();
-    let (_, healthy) = load_policy(cwd.as_deref());
-    healthy
-}
-
 pub fn read_scope_file(path: &Path) -> Result<ScopeRules, String> {
     if !path.exists() {
         return Ok(ScopeRules::default());
@@ -30,34 +26,40 @@ pub fn read_scope_file(path: &Path) -> Result<ScopeRules, String> {
     parse_scope_from_str(&raw)
 }
 
-pub fn project_config_path(cwd: Option<&Path>) -> Option<PathBuf> {
-    let cwd = cwd?;
-    let dot_rho = cwd.join(".rho/permission.toml");
-    if dot_rho.exists() {
-        return Some(dot_rho);
-    }
-    let dot_config = cwd.join(".config/rho/permission.toml");
-    if dot_config.exists() {
-        return Some(dot_config);
-    }
-    None
+pub fn project_policy_candidates(cwd: &Path) -> [PathBuf; 2] {
+    [
+        cwd.join(".rho/permission.toml"),
+        cwd.join(".config/rho/permission.toml"),
+    ]
 }
 
-pub fn target_config_path(_cwd: Option<&Path>) -> Option<PathBuf> {
+pub fn project_config_path(cwd: Option<&Path>) -> Option<PathBuf> {
+    project_policy_candidates(cwd?).into_iter().find(|path| path.exists())
+}
+
+pub fn protected_config_files(cwd: Option<&Path>) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = config_dir()
+        .map(|dir| PROTECTED_CONFIG_FILES.iter().map(|name| dir.join(name)).collect())
+        .unwrap_or_default();
+    if let Some(cwd) = cwd {
+        files.extend(project_policy_candidates(cwd));
+    }
+    files
+}
+
+pub fn target_config_path() -> Option<PathBuf> {
     config_path()
 }
 
-pub fn load_policy(cwd: Option<&Path>) -> (Policy, bool) {
+pub fn load_policy(cwd: Option<&Path>) -> Policy {
     let global_path = config_path();
     let global = global_path.as_deref().map(read_scope_file);
     let project_path = project_config_path(cwd);
     let project = project_path.as_deref().map(read_scope_file);
 
-    let healthy = global.as_ref().is_none_or(Result::is_ok) && project.as_ref().is_none_or(Result::is_ok);
     let global_scope = global.and_then(Result::ok);
     let project_scope = project.and_then(Result::ok);
-    let policy = build_policy(global_scope, project_scope);
-    (policy, healthy)
+    build_policy(global_scope, project_scope)
 }
 
 pub fn save_allow_rule(path: &Path, tool: &str, pattern: &str) -> Result<(), String> {

@@ -16,8 +16,8 @@ fn apply_selected_completion<B: TerminalBackend>(
     let state = controller.state_mut();
     let editor = state.editor_mut();
     let text = editor.text();
-    let start = replacement.start.min(text.len());
-    let end = replacement.end.min(text.len()).max(start);
+    let start = floor_char_boundary(text, replacement.start);
+    let end = floor_char_boundary(text, replacement.end).max(start);
 
     let mut new_text = String::new();
     new_text.push_str(&text[..start]);
@@ -29,6 +29,14 @@ fn apply_selected_completion<B: TerminalBackend>(
     let new_cursor = new_text.len();
     new_text.push_str(&text[end..]);
     editor.set_text_with_cursor(new_text, new_cursor);
+}
+
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 fn handle_accept_key<B: TerminalBackend>(
@@ -239,6 +247,17 @@ mod tests {
         let res = press_key(controller, completions, KeyCode::Tab);
         assert!(matches!(res, AutocompleteKeyResult::Handled));
         assert_eq!(controller.state().editor().text(), expected_text);
+    }
+
+    #[test]
+    fn apply_selected_completion_clamps_ranges_to_char_boundaries() {
+        let mut controller = init_autocomplete_controller("héllo", &sample_skill_completions(&[]));
+        apply_selected_completion(&mut controller, "/plan", &(2..4));
+        assert_eq!(controller.state().editor().text(), "h/plan lo");
+
+        let mut controller = init_autocomplete_controller("héllo", &sample_skill_completions(&[]));
+        apply_selected_completion(&mut controller, "/plan", &(1..2));
+        assert_eq!(controller.state().editor().text(), "h/plan éllo");
     }
 
     #[test]

@@ -7,44 +7,10 @@ struct PruneContext<'a> {
     cutoff: SystemTime,
 }
 
-pub fn prune_expired_sessions(sessions_dir: &Path, active_session_id: &str, retention_days: u32) -> Result<usize> {
-    if retention_days == 0 || !sessions_dir.exists() {
-        return Ok(0);
-    }
-    let Some(cutoff) = SystemTime::now().checked_sub(Duration::from_secs(retention_days as u64 * 86_400)) else {
-        return Ok(0);
-    };
-
-    let ctx = PruneContext {
-        active_session_id,
-        cutoff,
-    };
-    let mut count = 0;
-    for entry in std::fs::read_dir(sessions_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if ctx.should_prune(&path, entry.metadata().ok()) && std::fs::remove_file(&path).is_ok() {
-            count += 1;
-        }
-    }
-    Ok(count)
-}
-
-pub fn prune_empty_sessions(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
-    if !sessions_dir.exists() {
-        return Ok(0);
-    }
-    let mut count = 0;
-    for entry in std::fs::read_dir(sessions_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if should_prune_empty_session(&path, active_session_id, entry.metadata().ok())
-            && std::fs::remove_file(&path).is_ok()
-        {
-            count += 1;
-        }
-    }
-    Ok(count)
+fn is_session_candidate(path: &Path, meta: &std::fs::Metadata, active_session_id: Option<&str>) -> bool {
+    meta.is_file()
+        && path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        && active_session_id.is_none_or(|active| path.file_stem().and_then(|stem| stem.to_str()) != Some(active))
 }
 
 fn should_prune_empty_session(
@@ -52,27 +18,16 @@ fn should_prune_empty_session(
     active_session_id: Option<&str>,
     metadata: Option<std::fs::Metadata>,
 ) -> bool {
-    let Some(meta) = metadata else {
+    let Some(meta) = metadata.filter(|meta| is_session_candidate(path, meta, active_session_id)) else {
         return false;
     };
-    if !meta.is_file() {
-        return false;
-    }
-    if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-        return false;
-    }
-    if let Some(active) = active_session_id
-        && path.file_stem().and_then(|stem| stem.to_str()) == Some(active)
-    {
-        return false;
-    }
     if meta.len() > 300 {
         return false;
     }
     let Ok(content) = std::fs::read_to_string(path) else {
         return false;
     };
-    !content.contains("\"turn_node\"") && !content.contains("\"session_named\"")
+    !content.contains("\"tree_node\"") && !content.contains("\"session_named\"")
 }
 
 pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
@@ -144,41 +99,10 @@ pub async fn prune_expired_sessions_async(
 }
 
 impl PruneContext<'_> {
-    fn should_prune(&self, path: &Path, metadata: Option<std::fs::Metadata>) -> bool {
-        let Some(meta) = metadata else {
-            return false;
-        };
-        if !meta.is_file() {
-            return false;
-        }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-            return false;
-        }
-        if path.file_stem().and_then(|stem| stem.to_str()) == Some(self.active_session_id) {
-            return false;
-        }
-        let Ok(modified) = meta.modified() else {
-            return false;
-        };
-        if modified >= self.cutoff {
-            return false;
-        }
-        !is_named_session_file(path)
-    }
-
     async fn should_prune_async(&self, path: &Path, metadata: Option<std::fs::Metadata>) -> bool {
-        let Some(meta) = metadata else {
+        let Some(meta) = metadata.filter(|meta| is_session_candidate(path, meta, Some(self.active_session_id))) else {
             return false;
         };
-        if !meta.is_file() {
-            return false;
-        }
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-            return false;
-        }
-        if path.file_stem().and_then(|stem| stem.to_str()) == Some(self.active_session_id) {
-            return false;
-        }
         let Ok(modified) = meta.modified() else {
             return false;
         };
@@ -187,23 +111,6 @@ impl PruneContext<'_> {
         }
         !is_named_session_file_async(path).await
     }
-}
-
-fn is_named_session_file(path: &Path) -> bool {
-    use std::io::{BufRead, BufReader};
-    let Ok(file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let Ok(line) = line else {
-            break;
-        };
-        if line.contains("\"session_named\"") {
-            return true;
-        }
-    }
-    false
 }
 
 async fn is_named_session_file_async(path: &Path) -> bool {

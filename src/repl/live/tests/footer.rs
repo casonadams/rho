@@ -1,5 +1,6 @@
 use super::common::HistoryTerminal;
 use crate::engine::builder::AgentEngineBuilder;
+use crate::repl::live::modal::selectors::test_support::test_config;
 use crate::repl::live::navigation::update_footer;
 use crate::repl::live::turn::sync_turn_footer;
 use crate::ui::interactive::{Activity, InteractiveState, RunningTool, TerminalController};
@@ -11,8 +12,7 @@ async fn test_engine_for_footer() -> (crate::engine::AgentEngine, tempfile::Temp
     let config = Config {
         provider: "local".to_string(),
         model: "llama3.2".to_string(),
-        sessions_dir: temp.path().join("sessions"),
-        ..Default::default()
+        ..test_config(temp.path())
     };
     let engine = AgentEngineBuilder::new(config, AuthStore::default())
         .build()

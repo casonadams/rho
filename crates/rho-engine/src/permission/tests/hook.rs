@@ -367,3 +367,29 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
     assert!(!res.is_error);
     assert_eq!(std::fs::read_to_string(&ext_file).unwrap(), "after edit\n");
 }
+
+#[tokio::test]
+async fn test_always_allow_save_failure_denies_instead_of_running() {
+    let _guard = super::ENV_LOCK.lock().await;
+    let dir = tempdir().unwrap();
+    let blocker = dir.path().join("not-a-dir");
+    std::fs::write(&blocker, "").unwrap();
+    unsafe {
+        std::env::set_var("RHO_HOME", &blocker);
+    }
+
+    let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
+    let hook = PermissionHook::new(Some(dir.path().to_path_buf()), presenter.clone());
+    let verdict = hook
+        .check_permission("bash", &json!({"command": "touch never_run"}))
+        .await;
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    assert!(
+        matches!(&verdict, PermissionAction::Deny(msg) if msg.contains("Failed to save always-allow rule")),
+        "{verdict:?}"
+    );
+    assert!(!dir.path().join("never_run").exists());
+}

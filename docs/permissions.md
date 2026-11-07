@@ -75,7 +75,7 @@ Permissions can be disabled per invocation via the command line:
 rho --no-permission
 ```
 
-Or disabled permanently in `~/.config/rho/config.toml` or `.rho/config.toml`:
+Or disabled permanently in `~/.config/rho/config.toml` (a project `.rho/config.toml` cannot change this):
 
 ```toml
 [permission]

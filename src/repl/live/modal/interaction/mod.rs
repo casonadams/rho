@@ -22,6 +22,7 @@ fn build_interaction_state(prompt: InteractionPrompt) -> ModalState {
             label: o.label,
             description: o.description,
             input: o.input,
+            value: None,
         })
         .collect::<Vec<_>>();
     let is_empty = options.is_empty();

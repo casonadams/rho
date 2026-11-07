@@ -11,11 +11,10 @@ use crossterm::event::KeyEvent;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
-    open_advisor_model_selector, open_collab_selector, open_commit_model_selector, open_guard_model_selector,
-    open_help_selector, open_judge_model_selector, open_login_selector, open_mcp_selector, open_model_selector,
-    open_model_selector_with_default, open_models_selector, open_plan_model_selector, open_search_engine_selector,
-    open_session_selector, open_slow_model_selector, open_smol_model_selector, open_tools_selector,
-    update_models_role_description, update_tools_search_engine,
+    open_guard_model_selector, open_help_selector, open_login_selector, open_mcp_selector, open_model_selector,
+    open_model_selector_with_default, open_models_selector, open_search_engine_selector, open_session_selector,
+    open_slow_model_selector, open_smol_model_selector, open_tools_selector, update_models_role_description,
+    update_tools_search_engine,
 };
 pub use settings::{open_settings_selector, update_settings_model_description};
 pub use tree::open_tree_selector;
@@ -62,10 +61,6 @@ pub enum ModalKeyResult {
     OpenGuardModelSelector,
     OpenSmolModelSelector,
     OpenSlowModelSelector,
-    OpenJudgeModelSelector,
-    OpenPlanModelSelector,
-    OpenCommitModelSelector,
-    OpenAdvisorModelSelector,
     GuardModelSelected {
         model: String,
         provider: String,
@@ -75,22 +70,6 @@ pub enum ModalKeyResult {
         provider: String,
     },
     SlowModelSelected {
-        model: String,
-        provider: String,
-    },
-    JudgeModelSelected {
-        model: String,
-        provider: String,
-    },
-    PlanModelSelected {
-        model: String,
-        provider: String,
-    },
-    CommitModelSelected {
-        model: String,
-        provider: String,
-    },
-    AdvisorModelSelected {
         model: String,
         provider: String,
     },
@@ -128,9 +107,6 @@ pub enum ModalKeyResult {
     },
     CursorToggled {
         cursor: String,
-    },
-    CollabPeerKicked {
-        peer_id: usize,
     },
 }
 
@@ -378,12 +354,8 @@ pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalControlle
 fn map_role_guard_selection(role: &str, res: ModalKeyResult) -> ModalKeyResult {
     match res {
         ModalKeyResult::GuardModelSelected { model, provider } => match role {
-            "Judge" => ModalKeyResult::JudgeModelSelected { model, provider },
             "Smol" => ModalKeyResult::SmolModelSelected { model, provider },
             "Slow" => ModalKeyResult::SlowModelSelected { model, provider },
-            "Plan" => ModalKeyResult::PlanModelSelected { model, provider },
-            "Commit" => ModalKeyResult::CommitModelSelected { model, provider },
-            "Advisor" => ModalKeyResult::AdvisorModelSelected { model, provider },
             _ => ModalKeyResult::GuardModelSelected { model, provider },
         },
         other => other,
@@ -420,7 +392,6 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Tools & Permissions" => selectors::handle_tools_key(controller, key),
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
         "Login Provider" => selectors::handle_login_key(controller, key),
-        "Active Collaborators" => selectors::handle_collab_key(controller, key),
         "Models" => selectors::handle_models_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }

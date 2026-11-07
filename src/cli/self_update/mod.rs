@@ -68,6 +68,7 @@ impl GitHubClient {
         }
     }
 
+    #[cfg(test)]
     pub fn with_base_url(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),

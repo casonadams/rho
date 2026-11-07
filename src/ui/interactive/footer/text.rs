@@ -1,3 +1,4 @@
+use crate::ui::block::{leading_escape, visible_width};
 use unicode_width::UnicodeWidthChar;
 
 pub fn format_tokens(count: u64) -> String {
@@ -35,10 +36,6 @@ pub fn sanitize_status_text(text: &str) -> String {
     result
 }
 
-pub fn visible_width(content: &str) -> usize {
-    crate::ui::block::visible_width(content)
-}
-
 pub fn truncate_to_width(value: &str, width: usize) -> String {
     if visible_width(value) <= width {
         return value.to_string();
@@ -46,13 +43,20 @@ pub fn truncate_to_width(value: &str, width: usize) -> String {
 
     let mut result = String::new();
     let mut used = 0;
-    for character in value.chars() {
+    let mut rest = value;
+    while let Some(character) = rest.chars().next() {
+        if let Some((seq, _)) = leading_escape(rest) {
+            result.push_str(seq);
+            rest = &rest[seq.len()..];
+            continue;
+        }
         let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
         if used + character_width > width {
             break;
         }
         result.push(character);
         used += character_width;
+        rest = &rest[character.len_utf8()..];
     }
     result
 }

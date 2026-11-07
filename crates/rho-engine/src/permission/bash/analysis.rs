@@ -136,9 +136,16 @@ fn is_duration(text: &str) -> bool {
 }
 
 pub(crate) fn collect_arg_paths(words: &[Token], path_tokens: &mut Vec<String>) {
-    for word in words.iter().skip(1) {
-        if word.kind == TokenKind::Word && is_path_token(&word.text) && !path_tokens.contains(&word.text) {
-            path_tokens.push(word.text.clone());
+    for word in words.iter().skip(1).filter(|word| word.kind == TokenKind::Word) {
+        let candidate = if is_path_token(&word.text) {
+            Some(word.text.as_str())
+        } else {
+            option_path_value(&word.text)
+        };
+        if let Some(path) = candidate
+            && !path_tokens.contains(&path.to_string())
+        {
+            path_tokens.push(path.to_string());
         }
     }
 }
@@ -156,12 +163,31 @@ fn is_path_token(token: &str) -> bool {
 const STARTS_WITH_MARKERS: &[&str] = &["/", "~/", "."];
 
 fn reject_non_path(token: &str) -> bool {
-    token.is_empty()
-        || token.starts_with('-')
-        || is_assignment(token)
-        || is_url(token)
-        || is_scoped_package(token)
-        || token.chars().all(|c| c == '/')
+    token.is_empty() || token.starts_with('-') || is_assignment(token) || is_url(token) || is_scoped_package(token)
+}
+
+fn option_path_value(token: &str) -> Option<&str> {
+    if !token.starts_with('-') {
+        return None;
+    }
+    let value = match token.split_once('=') {
+        Some((_, value)) => value,
+        None => token.find('/').map_or("", |index| &token[index..]),
+    };
+    is_path_token(value).then_some(value)
+}
+
+fn has_shell_expansion(raw: &str) -> bool {
+    raw.contains(['$', '`']) || is_named_tilde(raw) || has_brace_expansion(raw)
+}
+
+fn is_named_tilde(raw: &str) -> bool {
+    raw.strip_prefix('~')
+        .is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'))
+}
+
+fn has_brace_expansion(raw: &str) -> bool {
+    raw.contains('{') && raw.contains('}') && (raw.contains(',') || raw.contains(".."))
 }
 
 fn is_url(token: &str) -> bool {
@@ -295,12 +321,13 @@ struct Segment {
 struct SegmentAnalysis {
     command: Option<String>,
     path_tokens: Vec<String>,
+    suspicious: bool,
 }
 
 struct AnalysisCollector {
     commands: Vec<String>,
     path_tokens: Vec<String>,
-    has_dangling: bool,
+    suspicious: bool,
 }
 
 impl AnalysisCollector {
@@ -308,15 +335,18 @@ impl AnalysisCollector {
         Self {
             commands: Vec::new(),
             path_tokens: Vec::new(),
-            has_dangling: false,
+            suspicious: false,
         }
     }
 
     fn record_segment(&mut self, segment: Segment) {
         if segment.dangling {
-            self.has_dangling = true;
+            self.suspicious = true;
         }
         let analysis = analyze_segment(segment);
+        if analysis.suspicious {
+            self.suspicious = true;
+        }
         if let Some(cmd) = analysis.command {
             self.commands.push(cmd);
         }
@@ -335,7 +365,7 @@ pub fn analyze_bash_command(command: &str) -> BashAnalysis {
         collector.record_segment(segment);
     }
 
-    let suspicious = token_res.suspicious || collector.commands.is_empty() || collector.has_dangling;
+    let suspicious = token_res.suspicious || collector.commands.is_empty() || collector.suspicious;
     BashAnalysis {
         commands: collector.commands,
         path_tokens: collector.path_tokens,
@@ -381,6 +411,12 @@ fn check_trailing_hard(tokens: &[Token], last_sep: Option<&str>) -> bool {
 fn analyze_segment(segment: Segment) -> SegmentAnalysis {
     let mut words = segment.tokens;
     let mut path_tokens = Vec::new();
+    let suspicious = words
+        .first()
+        .is_some_and(|t| t.kind == TokenKind::Word && is_assignment(&t.raw))
+        || words
+            .iter()
+            .any(|t| t.kind == TokenKind::Word && has_shell_expansion(&t.raw));
 
     extract_redirect_targets(&words, &mut path_tokens);
     strip_assignments(&mut words, &mut path_tokens);
@@ -390,6 +426,7 @@ fn analyze_segment(segment: Segment) -> SegmentAnalysis {
         return SegmentAnalysis {
             command: None,
             path_tokens,
+            suspicious,
         };
     }
 
@@ -399,5 +436,6 @@ fn analyze_segment(segment: Segment) -> SegmentAnalysis {
     SegmentAnalysis {
         command: Some(command),
         path_tokens,
+        suspicious,
     }
 }

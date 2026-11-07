@@ -8,6 +8,8 @@ mod storage;
 mod types;
 mod validate;
 
+pub use validate::SUPPORTED_SEARCH_ENGINES;
+
 #[cfg(test)]
 mod tests;
 
@@ -18,12 +20,13 @@ pub use types::{
 };
 
 use crate::error::{AppError, Result};
+use std::path::Path;
 use types::FileConfig;
 
 impl Config {
     pub fn load(cli: Option<&cli::Cli>) -> Result<Self> {
-        let _ = dotenvy::dotenv();
         let mut config = Config::default();
+        let _ = dotenvy::from_path(config.config_dir.join(".env"));
 
         let config_file = config.config_dir.join("config.toml");
         if config_file.exists() {
@@ -42,17 +45,16 @@ impl Config {
         if let Ok(cwd) = std::env::current_dir()
             && cwd != types::dirs_fallback()
         {
-            let project_config_file = cwd.join(".rho").join("config.toml");
-            if project_config_file.exists()
-                && let Ok(content) = std::fs::read_to_string(&project_config_file)
-                && let Ok(project_file_cfg) = toml::from_str::<FileConfig>(&content)
-            {
-                merge::merge_file(&mut config, project_file_cfg);
-            }
-
-            if let Ok(Some(project_mcp)) = mcp::load_project_mcp_config(&cwd) {
-                config.mcp.enabled = config.mcp.enabled && project_mcp.enabled;
-                config.mcp.servers.extend(project_mcp.servers);
+            merge_project_config(&mut config, &cwd);
+            match mcp::load_project_mcp_config(&cwd) {
+                Ok(Some(project_mcp)) => {
+                    config.mcp.enabled = config.mcp.enabled && project_mcp.enabled;
+                    config.mcp.servers.extend(project_mcp.servers);
+                }
+                Ok(None) => {}
+                Err(e) => config
+                    .migration_warnings
+                    .push(format!("Ignoring project MCP config in {}: {e}", cwd.display())),
             }
         }
 
@@ -72,5 +74,21 @@ impl Config {
         tokio::fs::create_dir_all(&self.config_dir).await?;
         tokio::fs::create_dir_all(&self.sessions_dir).await?;
         Ok(())
+    }
+}
+
+fn merge_project_config(config: &mut Config, workspace: &Path) {
+    let path = workspace.join(".rho").join("config.toml");
+    if !path.exists() {
+        return;
+    }
+    let parsed = std::fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|content| toml::from_str::<FileConfig>(&content).map_err(|e| e.to_string()));
+    match parsed {
+        Ok(file) => merge::merge_project_file(config, &file),
+        Err(e) => config
+            .migration_warnings
+            .push(format!("Ignoring project config {}: {e}", path.display())),
     }
 }

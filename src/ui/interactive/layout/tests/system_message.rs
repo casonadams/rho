@@ -1,21 +1,12 @@
+use super::base_input;
 use crate::ui::interactive::layout::{LayoutInput, layout};
 use crate::ui::interactive::{Activity, EditorState, FooterState, InteractiveLayout};
 
 fn layout_with(system_message: Option<&str>, footer: &FooterState) -> InteractiveLayout {
     let editor = EditorState::default();
     layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: None,
-        footer,
         system_message,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&editor, footer)
     })
 }
 

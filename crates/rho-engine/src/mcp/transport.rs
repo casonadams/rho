@@ -23,10 +23,6 @@ pub struct McpTransport {
 }
 
 impl McpTransport {
-    pub fn new(stdin: ChildStdin, stdout: ChildStdout, handle: McpChildHandle) -> Arc<Self> {
-        Self::new_stdio(stdin, stdout, handle, None)
-    }
-
     pub fn new_stdio(
         stdin: ChildStdin,
         stdout: ChildStdout,

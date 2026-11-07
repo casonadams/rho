@@ -132,33 +132,6 @@ fn test_calculate_context_tokens() {
 }
 
 #[test]
-fn test_should_compact_thresholds() {
-    let window = 200_000;
-    let cases = [
-        (50_000, 16_384, false),
-        (183_616, 16_384, false),
-        (183_617, 16_384, true),
-        (195_000, 16_384, true),
-        (180_000, 20_000, false),
-        (180_001, 20_000, true),
-    ];
-    for (tokens, reserve, expected) in cases {
-        assert_eq!(should_compact(tokens, window, reserve), expected);
-    }
-}
-
-#[test]
-fn test_is_in_lead_band() {
-    let window = 200_000;
-    let reserve = 20_000;
-    assert!(!is_in_lead_band(100_000, window, reserve));
-    assert!(is_in_lead_band(153_000, window, reserve));
-    assert!(is_in_lead_band(170_000, window, reserve));
-    assert!(is_in_lead_band(180_000, window, reserve));
-    assert!(!is_in_lead_band(180_001, window, reserve));
-}
-
-#[test]
 fn test_find_token_cut_point_and_tool_pair_preservation() {
     let messages = vec![
         ChatMessage::user("User message 1"),
@@ -239,42 +212,6 @@ fn context_window_size_for_gpt_6_reasoning_models_is_372k() {
 }
 
 #[test]
-fn test_bpe_token_counter_matches_estimate_message_tokens() {
-    let model = "gpt-4";
-    let counter = BpeTokenCounter::new(model);
-
-    let messages = [
-        ChatMessage::system("System instructions for testing"),
-        ChatMessage::user("Hello user prompt"),
-        ChatMessage::assistant("Hello assistant response"),
-        ChatMessage::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(ToolCall::new(
-                "call-1",
-                ToolFunction::new("read", serde_json::json!({"path": "file.txt"})),
-            ))],
-        },
-        ChatMessage::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: "call-1".to_string(),
-                provider: None,
-                name: "read".to_string(),
-                content: vec![ToolResultContent::Text(TextContent::new("file contents"))],
-            })],
-        },
-    ];
-
-    for msg in &messages {
-        let expected = estimate_message_tokens(msg, model);
-        assert_eq!(counter.count(msg), expected);
-    }
-
-    let default_counter = BpeTokenCounter::default();
-    let text_msg = ChatMessage::user("Another test message");
-    assert_eq!(default_counter.count(&text_msg), estimate_message_tokens(&text_msg, ""));
-}
-
-#[test]
 fn test_estimate_assistant_tool_call_compact_json() {
     let pretty_call = AssistantContent::ToolCall(ToolCall::new(
         "call-1",
@@ -287,8 +224,9 @@ fn test_estimate_assistant_tool_call_compact_json() {
         "call-1",
         ToolFunction::new("write", serde_json::json!({"path": "hello.rs", "content": "world"})),
     ));
-    let tokens_pretty = estimate_assistant_content_tokens(&pretty_call, "gpt-4");
-    let tokens_compact = estimate_assistant_content_tokens(&compact_call, "gpt-4");
+    let tokenizer = ModelTokenizer::for_model("gpt-4");
+    let tokens_pretty = estimate_assistant_content_tokens_with(&pretty_call, tokenizer);
+    let tokens_compact = estimate_assistant_content_tokens_with(&compact_call, tokenizer);
     assert_eq!(tokens_pretty, tokens_compact);
 
     let invalid_json_call = AssistantContent::ToolCall(ToolCall::new(
@@ -298,17 +236,17 @@ fn test_estimate_assistant_tool_call_compact_json() {
             serde_json::Value::String("not valid json\nwith newlines".to_string()),
         ),
     ));
-    assert!(estimate_assistant_content_tokens(&invalid_json_call, "gpt-4") > 0);
+    assert!(estimate_assistant_content_tokens_with(&invalid_json_call, tokenizer) > 0);
 
     let text_assistant = AssistantContent::text("hello world");
-    assert!(estimate_assistant_content_tokens(&text_assistant, "gpt-4") > 0);
+    assert!(estimate_assistant_content_tokens_with(&text_assistant, tokenizer) > 0);
 
     let image_assistant = AssistantContent::Image(ImageContent {
         data: "dummy".to_string(),
         media_type: None,
     });
     assert_eq!(
-        estimate_assistant_content_tokens(&image_assistant, "gpt-4"),
+        estimate_assistant_content_tokens_with(&image_assistant, tokenizer),
         ESTIMATED_IMAGE_TOKENS
     );
 
@@ -326,7 +264,7 @@ fn test_estimate_assistant_tool_call_compact_json() {
             crate::model::ReasoningContent::Encrypted("encrypted".to_string()),
         ],
     });
-    assert!(estimate_assistant_content_tokens(&reasoning_assistant, "gpt-4") > 0);
+    assert!(estimate_assistant_content_tokens_with(&reasoning_assistant, tokenizer) > 0);
 }
 
 #[test]
@@ -513,4 +451,24 @@ fn test_message_token_cache_bounded() {
     cache.get_or_compute(&m1, "gpt-4o");
     assert_eq!(cache.misses(), misses_before + 1);
     assert_eq!(cache.len(), 3);
+}
+
+#[test]
+fn context_window_matches_model_id_tokens_not_substrings() {
+    assert_eq!(context_window_size("terraform-plan"), 128_000);
+    assert_eq!(context_window_size("console-mini"), 128_000);
+    assert_eq!(context_window_size("solar-pro"), 128_000);
+    assert_eq!(context_window_size("luna"), 372_000);
+    assert_eq!(context_window_size("gpt-6.1-sol"), 372_000);
+    assert_eq!(context_window_size("gpt-6-terra-mini"), 372_000);
+    assert_eq!(context_window_size("qwen2.5-coder:7b"), 128_000);
+    assert_eq!(context_window_size("gemini-2.5-pro-preview"), 2_000_000);
+}
+
+#[test]
+fn o200k_tokenizer_selection_uses_model_id_tokens() {
+    assert!(is_o200k_model("gpt-4o-mini"));
+    assert!(is_o200k_model("gpt-6-terra"));
+    assert!(!is_o200k_model("terraform-plan"));
+    assert!(!is_o200k_model("console-mini"));
 }

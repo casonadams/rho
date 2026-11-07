@@ -244,7 +244,7 @@ async fn test_idle_shortcut_ui_toggles() {
 }
 
 #[tokio::test]
-async fn test_idle_shortcut_selectors_and_session_actions() {
+async fn test_idle_shortcut_model_selector() {
     let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
     let mut last_escape_time = None;
     let mut batch = LiveBatch::new();
@@ -260,41 +260,6 @@ async fn test_idle_shortcut_selectors_and_session_actions() {
         .unwrap();
     assert_eq!(controller.state().active_modal().unwrap().title, "Select Model");
     controller.state_mut().pop_modal();
-
-    let ctx = IdleShortcutContext {
-        controller: &mut controller,
-        session: &mut session,
-        engine: &mut engine,
-        last_escape_time: &mut last_escape_time,
-    };
-    handle_shortcut_action(InputAction::SessionResume, ctx, &mut batch)
-        .await
-        .unwrap();
-    assert!(controller.state().active_modal().is_some());
-    controller.state_mut().pop_modal();
-
-    let ctx = IdleShortcutContext {
-        controller: &mut controller,
-        session: &mut session,
-        engine: &mut engine,
-        last_escape_time: &mut last_escape_time,
-    };
-    handle_shortcut_action(InputAction::SessionTree, ctx, &mut batch)
-        .await
-        .unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().title, "Conversation Tree");
-    controller.state_mut().pop_modal();
-
-    let ctx = IdleShortcutContext {
-        controller: &mut controller,
-        session: &mut session,
-        engine: &mut engine,
-        last_escape_time: &mut last_escape_time,
-    };
-    handle_shortcut_action(InputAction::SessionNew, ctx, &mut batch)
-        .await
-        .unwrap();
-    assert!(controller.transcript().is_empty());
 }
 
 #[tokio::test]

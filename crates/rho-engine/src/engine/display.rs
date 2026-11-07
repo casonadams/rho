@@ -7,7 +7,6 @@ fn is_openai_prompt_cached(provider: &str) -> bool {
     prov.eq_ignore_ascii_case("chatgpt")
         || prov.eq_ignore_ascii_case("openai")
         || prov.eq_ignore_ascii_case("openai-chatgpt")
-        || prov.eq_ignore_ascii_case("copilot")
         || prov.eq_ignore_ascii_case("ollama-cloud")
         || prov.eq_ignore_ascii_case("openrouter")
         || prov.eq_ignore_ascii_case("deepseek")

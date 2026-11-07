@@ -182,8 +182,7 @@ mod tests {
 
     #[test]
     fn aggregate_gemini_usage_empty_returns_zeroes() {
-        let dir = std::env::temp_dir().join(format!("gemini_test_empty_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_support::temp_dir("gemini-empty");
         let cost = aggregate_gemini_usage(
             &dir,
             None,
@@ -197,8 +196,7 @@ mod tests {
 
     #[test]
     fn aggregate_gemini_usage_includes_current_session_and_skips_matching_id() {
-        let dir = std::env::temp_dir().join(format!("gemini_test_agg_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_support::temp_dir("gemini-agg");
         let now = Utc.with_ymd_and_hms(2026, 9, 18, 12, 0, 0).unwrap();
 
         // Write a past session from earlier today

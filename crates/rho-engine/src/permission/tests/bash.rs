@@ -87,12 +87,44 @@ fn bash_commands_split_on_operators() {
     );
 }
 
-#[test]
-fn dynamic_execution_is_detected() {
-    for command in ["echo $(whoami)", "echo `whoami`", "diff <(ls) <(ls -a)", "tee >(gzip)"] {
+fn assert_all_suspicious(commands: &[&str]) {
+    for &command in commands {
         assert!(analyze_bash_command(command).suspicious, "{command}");
     }
+}
+
+#[test]
+fn dynamic_execution_is_detected() {
+    assert_all_suspicious(&["echo $(whoami)", "echo `whoami`", "diff <(ls) <(ls -a)", "tee >(gzip)"]);
     assert!(!analyze_bash_command("git status --porcelain").suspicious);
+}
+
+#[test]
+fn leading_env_assignment_marks_command_suspicious() {
+    let analysis = analyze_bash_command("GIT_PAGER='sh -c id' git log");
+    assert_eq!(analysis.commands, vec!["git log"]);
+    assert!(analysis.suspicious);
+    assert!(!analyze_bash_command("git log").suspicious);
+}
+
+#[test]
+fn filesystem_root_and_option_values_are_path_tokens() {
+    assert!(analyze_bash_command("rm -rf /").path_tokens.contains(&"/".to_string()));
+    assert_eq!(
+        analyze_bash_command("tool --output=/etc/passwd").path_tokens,
+        vec!["/etc/passwd"]
+    );
+    assert_eq!(
+        analyze_bash_command("cc -I/usr/include").path_tokens,
+        vec!["/usr/include"]
+    );
+}
+
+#[test]
+fn expansions_and_brace_lists_are_suspicious() {
+    assert_all_suspicious(&["cat ${HOME}/x", "cat $TMPDIR/x", "cat ~root/x", "cat {/etc/passwd,x}"]);
+    assert!(!analyze_bash_command("cat ~/x").suspicious);
+    assert!(!analyze_bash_command("find . -exec wc {} +").suspicious);
 }
 
 #[test]

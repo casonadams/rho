@@ -15,11 +15,6 @@ impl<B: TerminalBackend> TerminalController<B> {
         &self.cache
     }
 
-    pub fn clear_transcript(&mut self) {
-        self.transcript.clear();
-        self.cache.clear();
-    }
-
     pub fn set_transcript(&mut self, items: Vec<TranscriptItem>) -> io::Result<()> {
         self.transcript = items;
         self.cache.clear();

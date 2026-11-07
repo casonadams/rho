@@ -33,55 +33,46 @@ impl AuthStore {
     }
 
     pub fn get_key_sync(&self, provider: &str) -> Result<Option<String>> {
-        if let Some(cred) = self.credentials.get(provider) {
-            return match cred {
-                StoredCredential::ApiKey { key, .. } => resolve_secret_value(key).map(Some),
-                StoredCredential::OAuth { access_token, .. } => Ok(Some(access_token.clone())),
-            };
+        match self.credentials.get(provider) {
+            Some(StoredCredential::ApiKey { key, .. }) => resolve_secret_value(key).map(Some),
+            Some(oauth) => Ok(Some(oauth.raw_secret().to_string())),
+            None => resolve_env_key(provider),
         }
-
-        resolve_env_key(provider)
     }
 
     pub async fn get_key(&mut self, provider: &str) -> Result<Option<String>> {
-        if let Some(cred) = self.credentials.get(provider) {
-            return match cred {
-                StoredCredential::ApiKey { key, .. } => resolve_secret_value_async(key).await.map(Some),
-                StoredCredential::OAuth { .. } => {
-                    // Check if token needs refresh (within 60 seconds of expiring)
-                    if cred.is_expired(60)
-                        && let Ok(provider_id) = ProviderId::from_str(provider)
-                        && let Ok(refreshed) = refresh_oauth_token(provider_id, cred).await
-                    {
-                        let access = refreshed.raw_secret().to_string();
-                        self.credentials.insert(provider.to_string(), refreshed);
-                        let _ = self.save_async().await;
-                        return Ok(Some(access));
-                    }
-                    Ok(Some(cred.raw_secret().to_string()))
-                }
-            };
-        }
+        self.resolve_key(provider, false).await
+    }
 
-        resolve_env_key(provider)
+    async fn resolve_key(&mut self, provider: &str, force_refresh: bool) -> Result<Option<String>> {
+        let Some(cred) = self.credentials.get(provider) else {
+            return resolve_env_key(provider);
+        };
+        match cred {
+            StoredCredential::ApiKey { key, .. } => resolve_secret_value_async(key).await.map(Some),
+            StoredCredential::OAuth { .. } if force_refresh || cred.is_expired(60) => {
+                self.refresh_stored(provider).await.map(Some)
+            }
+            StoredCredential::OAuth { .. } => Ok(Some(cred.raw_secret().to_string())),
+        }
+    }
+
+    async fn refresh_stored(&mut self, provider: &str) -> Result<String> {
+        let provider_id = ProviderId::from_str(provider)
+            .map_err(|e| AppError::Auth(format!("Unknown provider '{provider}': {e}")))?;
+        let cred = self
+            .credentials
+            .get(provider)
+            .ok_or_else(|| AppError::Auth(format!("No credential found for provider '{provider}'")))?;
+        let refreshed = refresh_oauth_token(provider_id, cred).await?;
+        let access = refreshed.raw_secret().to_string();
+        self.credentials.insert(provider.to_string(), refreshed);
+        self.save_async().await?;
+        Ok(access)
     }
 
     pub async fn force_refresh(&mut self, provider: &str) -> Result<Option<String>> {
-        if let Some(cred) = self.credentials.get(provider) {
-            match cred {
-                StoredCredential::OAuth { .. } => {
-                    let provider_id = ProviderId::from_str(provider)
-                        .map_err(|e| AppError::Auth(format!("Unknown provider '{provider}': {e}")))?;
-                    let refreshed = refresh_oauth_token(provider_id, cred).await?;
-                    let access = refreshed.raw_secret().to_string();
-                    self.credentials.insert(provider.to_string(), refreshed);
-                    self.save_async().await?;
-                    return Ok(Some(access));
-                }
-                StoredCredential::ApiKey { key, .. } => return resolve_secret_value(key).map(Some),
-            }
-        }
-        self.get_key(provider).await
+        self.resolve_key(provider, true).await
     }
 
     pub fn get_credential(&self, provider: &str) -> Option<&StoredCredential> {
@@ -149,8 +140,30 @@ impl AuthStore {
         list
     }
 
-    pub fn secret_values(&self) -> Vec<String> {
-        self.credentials.values().map(|c| c.raw_secret().to_string()).collect()
+    pub async fn resolved_secret_values(&self) -> Vec<String> {
+        let mut values = Vec::new();
+        for cred in self.credentials.values() {
+            match cred {
+                StoredCredential::ApiKey { key, .. } => values.extend(resolve_secret_value_async(key).await.ok()),
+                StoredCredential::OAuth { .. } => values.push(cred.raw_secret().to_string()),
+            }
+        }
+        values
+    }
+
+    pub fn oauth_secret_values(&self) -> Vec<String> {
+        self.credentials
+            .values()
+            .filter_map(|cred| match cred {
+                StoredCredential::OAuth {
+                    access_token,
+                    refresh_token,
+                    ..
+                } => Some(std::iter::once(access_token.clone()).chain(refresh_token.clone())),
+                StoredCredential::ApiKey { .. } => None,
+            })
+            .flatten()
+            .collect()
     }
 
     fn save(&self) -> Result<()> {

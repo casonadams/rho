@@ -1,6 +1,7 @@
 //! Modal layout tests: bounds/truncation, cursor placement, expansion,
 //! hints, horizontal option rendering, and body scrolling.
 
+use super::base_input;
 use crate::ui::interactive::layout::{LayoutInput, layout};
 use crate::ui::interactive::{EditorState, FooterState, ModalOption, ModalState};
 
@@ -20,20 +21,16 @@ fn sample_permission_modal(n: usize) -> ModalState {
     )
 }
 
-fn modal_test_layout(modal: &ModalState, terminal_height: usize) -> crate::ui::interactive::layout::InteractiveLayout {
+fn modal_test_layout(
+    modal: &ModalState,
+    terminal_width: usize,
+    terminal_height: usize,
+) -> crate::ui::interactive::layout::InteractiveLayout {
     layout(LayoutInput {
-        editor: &EditorState::default(),
         modal: Some(modal),
-        autocomplete: None,
-        footer: &FooterState::default(),
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
+        terminal_width,
         terminal_height,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&EditorState::default(), &FooterState::default())
     })
 }
 
@@ -49,7 +46,7 @@ fn parse_omitted_count(line: &str) -> usize {
 #[test]
 fn modal_body_truncation_on_small_terminal() {
     let modal = sample_permission_modal(30);
-    let layout = modal_test_layout(&modal, 15);
+    let layout = modal_test_layout(&modal, 80, 15);
 
     assert!(layout.lines.len() <= 15);
     let allow_idx = layout.lines.iter().position(|l| l.contains("Allow")).unwrap();
@@ -69,8 +66,6 @@ fn modal_body_truncation_on_small_terminal() {
 
 #[test]
 fn modal_body_truncation_minimal_omitted_lines() {
-    let default_editor = EditorState::default();
-    let default_footer = FooterState::default();
     let body = (1..=9).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
     let modal = ModalState::new(
         "Permission",
@@ -78,38 +73,21 @@ fn modal_body_truncation_minimal_omitted_lines() {
         vec![ModalOption::from("Allow"), ModalOption::from("Deny")],
     );
 
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: Some(&modal),
-        autocomplete: None,
-        footer: &default_footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 15,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+    let layout = modal_test_layout(&modal, 80, 15);
 
     assert!(layout.lines.len() <= 15);
     assert!(layout.lines.iter().any(|l| l.contains("2 lines omitted")));
 }
 
 #[test]
-fn modal_body_fits_minimal_on_terminal_height_8() {
+fn modal_body_adapts_to_minimal_terminal_heights() {
     let modal = sample_permission_modal(30);
-    let layout_8 = modal_test_layout(&modal, 8);
+    let layout_8 = modal_test_layout(&modal, 80, 8);
     assert!(layout_8.lines.len() <= 8);
     assert!(layout_8.lines.iter().any(|l| l.contains("Allow")));
     assert!(layout_8.lines.iter().any(|l| l.contains("Deny")));
-}
 
-#[test]
-fn modal_body_suppressed_on_minimal_terminal_height_6() {
-    let modal = sample_permission_modal(30);
-    let layout_6 = modal_test_layout(&modal, 6);
+    let layout_6 = modal_test_layout(&modal, 80, 6);
     assert!(layout_6.lines.len() <= 6);
     assert!(layout_6.lines.iter().any(|l| l.contains("Allow")));
     assert!(layout_6.bottom_divider.contains("─".repeat(80).as_str()));
@@ -148,18 +126,9 @@ fn modal_region_rows_fit_terminal_width_with_long_draft() {
     for width in [80, 60, 45] {
         let (modal, editor) = searchable_model_modal_with_draft(&draft);
         let rendered = layout(LayoutInput {
-            editor: &editor,
             modal: Some(&modal),
-            autocomplete: None,
-            footer: &FooterState::default(),
-            system_message: None,
-            queued_messages: &[],
-            widget_lines: &[],
             terminal_width: width,
-            terminal_height: 24,
-            spinner_frame: 0,
-            theme: None,
-            focused: true,
+            ..base_input(&editor, &FooterState::default())
         });
         assert!(
             rendered.lines.iter().any(|l| l.contains("Draft: ")),
@@ -175,20 +144,7 @@ fn modal_search_row_truncates_long_filter_query() {
     for width in [80, 60, 45] {
         let mut modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]).with_search(true);
         modal.set_filter(&query);
-        let rendered = layout(LayoutInput {
-            editor: &EditorState::default(),
-            modal: Some(&modal),
-            autocomplete: None,
-            footer: &FooterState::default(),
-            system_message: None,
-            queued_messages: &[],
-            widget_lines: &[],
-            terminal_width: width,
-            terminal_height: 24,
-            spinner_frame: 0,
-            theme: None,
-            focused: true,
-        });
+        let rendered = modal_test_layout(&modal, width, 24);
         assert_region_lines_fit_terminal_width(&rendered.lines, width);
         assert!(
             rendered.lines.iter().any(|l| l.contains("\x1b[1m>\x1b[0m g")),
@@ -201,23 +157,6 @@ fn modal_search_row_truncates_long_filter_query() {
 // Cursor placement
 // ---------------------------------------------------------------------------
 
-fn modal_cursor_layout(modal: &ModalState) -> crate::ui::interactive::layout::InteractiveLayout {
-    layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: Some(modal),
-        autocomplete: None,
-        footer: &FooterState::default(),
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 15,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    })
-}
-
 fn assert_modal_cursor_valid(layout: &crate::ui::interactive::layout::InteractiveLayout, expected_content: &str) {
     assert!(layout.lines.len() <= 15 && layout.cursor_visible);
     assert!(layout.cursor_row < layout.lines.len() && layout.cursor.column <= 80);
@@ -225,7 +164,7 @@ fn assert_modal_cursor_valid(layout: &crate::ui::interactive::layout::Interactiv
 }
 
 #[test]
-fn modal_input_mode_cursor_with_body_truncation() {
+fn modal_cursor_with_body_truncation_in_input_and_search_modes() {
     let body = (1..=30)
         .map(|i| format!("long description line {i}"))
         .collect::<Vec<_>>()
@@ -236,9 +175,19 @@ fn modal_input_mode_cursor_with_body_truncation() {
     };
     modal.input.set_text("test reason");
 
-    let layout = modal_cursor_layout(&modal);
+    let layout = modal_test_layout(&modal, 80, 15);
     assert_modal_cursor_valid(&layout, "test reason");
     assert!(layout.top_divider.contains("Reason"));
+
+    let body = (1..=30)
+        .map(|i| format!("model detail line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let modal = ModalState::new("Select Model", &body, vec![ModalOption::from("model-1")]).with_search(true);
+
+    let layout = modal_test_layout(&modal, 80, 15);
+    assert_eq!(layout.cursor_row, 1);
+    assert_modal_cursor_valid(&layout, ">");
 }
 
 #[test]
@@ -255,20 +204,7 @@ fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
     modal.input.set_text("tests are flaky because they flake a lot");
 
     for width in [80, 60, 45] {
-        let rendered = layout(LayoutInput {
-            editor: &EditorState::default(),
-            modal: Some(&modal),
-            autocomplete: None,
-            footer: &FooterState::default(),
-            system_message: None,
-            queued_messages: &[],
-            widget_lines: &[],
-            terminal_width: width,
-            terminal_height: 24,
-            spinner_frame: 0,
-            theme: None,
-            focused: true,
-        });
+        let rendered = modal_test_layout(&modal, width, 24);
         assert_region_lines_fit_terminal_width(&rendered.lines, width);
         let prompt_row = rendered
             .lines
@@ -284,19 +220,6 @@ fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
             "input row must carry the prompt marker: {prompt_row:?}"
         );
     }
-}
-
-#[test]
-fn modal_searchable_cursor_with_body_truncation() {
-    let body = (1..=30)
-        .map(|i| format!("model detail line {i}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let modal = ModalState::new("Select Model", &body, vec![ModalOption::from("model-1")]).with_search(true);
-
-    let layout = modal_cursor_layout(&modal);
-    assert_eq!(layout.cursor_row, 1);
-    assert_modal_cursor_valid(&layout, ">");
 }
 
 // ---------------------------------------------------------------------------
@@ -334,46 +257,21 @@ fn test_calculate_content_space_vertical_layout() {
     assert_eq!(calculate_content_space(&modal, 8), (5, 3));
 }
 
-fn build_layout_with_modal(
-    modal: &ModalState,
-    terminal_height: usize,
-) -> crate::ui::interactive::layout::InteractiveLayout {
-    let ed = EditorState::default();
-    let ft = FooterState::default();
-    layout(LayoutInput {
-        editor: &ed,
-        modal: Some(modal),
-        autocomplete: None,
-        footer: &ft,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    })
-}
-
 #[test]
-fn test_modal_expands_beyond_8_lines_on_tall_terminal() {
+fn test_modal_expands_beyond_8_lines_and_pins_bottom_divider() {
     let body = (1..=25).map(|i| format!("arg_line_{i}")).collect::<Vec<_>>().join("\n");
     let mut modal = ModalState::new("Perm", &body, vec![ModalOption::from("Allow")]);
     modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
-    let rendered = build_layout_with_modal(&modal, 40);
+    let rendered = modal_test_layout(&modal, 80, 40);
     let visible_body = rendered.lines.iter().filter(|l| l.contains("arg_line_")).count();
     assert!(visible_body > 8);
     assert!(rendered.lines.len() <= 40);
-}
 
-#[test]
-fn test_modal_bottom_pinning_invariant() {
     for height in [15, 25, 40] {
         let body = (1..=20).map(|i| format!("arg_{i}")).collect::<Vec<_>>().join("\n");
         let mut modal = ModalState::new("Perm", &body, vec![ModalOption::from("Allow")]);
         modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
-        let rendered = build_layout_with_modal(&modal, height);
+        let rendered = modal_test_layout(&modal, 80, height);
         let bot_div_idx = rendered.lines.iter().rposition(|l| l.contains("────────")).unwrap();
         assert_eq!(bot_div_idx, rendered.lines.len() - 2);
     }
@@ -386,18 +284,9 @@ fn test_modal_bottom_pinning_invariant() {
 fn modal_hint_layout(theme: &crate::ui::theme::Theme) -> crate::ui::interactive::layout::InteractiveLayout {
     let modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]).with_search(true);
     layout(LayoutInput {
-        editor: &EditorState::default(),
         modal: Some(&modal),
-        autocomplete: None,
-        footer: &FooterState::default(),
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
         theme: Some(theme),
-        focused: true,
+        ..base_input(&EditorState::default(), &FooterState::default())
     })
 }
 
@@ -575,57 +464,28 @@ fn modal_preserves_widget_lines_when_budget_permits() {
     let modal = ModalState::new("Permission Required", "tool bash", vec![ModalOption::from("Allow")]);
     let widgets = vec!["● Todos (1/2)".to_string()];
     let layout = layout(LayoutInput {
-        editor: &default_editor,
         modal: Some(&modal),
-        autocomplete: None,
-        footer: &default_footer,
-        system_message: None,
-        queued_messages: &[],
         widget_lines: &widgets,
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&default_editor, &default_footer)
     });
 
     assert_eq!(layout.widget_lines, widgets);
 }
 
-fn render_test_modal(modal: &ModalState, width: usize) -> crate::ui::interactive::layout::InteractiveLayout {
-    layout(LayoutInput {
-        editor: &EditorState::default(),
-        modal: Some(modal),
-        autocomplete: None,
-        footer: &FooterState::default(),
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: width,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    })
-}
-
 #[test]
-fn modal_layout_renders_input_frame_style() {
+fn modal_frames_render_input_and_searchable_headers() {
     let modal = ModalState::new(
         "Permission Required",
         "tool   bash\nscope  cargo test",
         vec![ModalOption::from("Allow"), ModalOption::from("Deny with reason")],
     );
-    let layout = render_test_modal(&modal, 40);
+    let layout = modal_test_layout(&modal, 40, 24);
 
     assert!(layout.top_divider.contains("Permission Required") && !layout.cursor_visible);
     assert!(layout.bottom_divider.contains("─".repeat(40).as_str()));
     assert!(layout.editor_lines.iter().any(|l| l.contains("tool   bash")));
     assert!(layout.editor_lines.iter().any(|l| l.contains("Allow")));
-}
 
-#[test]
-fn searchable_modal_renders_with_unified_header_and_indicator() {
     let modal = ModalState::new(
         "Select Model",
         "",
@@ -636,7 +496,7 @@ fn searchable_modal_renders_with_unified_header_and_indicator() {
     )
     .with_search(true);
 
-    let layout = render_test_modal(&modal, 50);
+    let layout = modal_test_layout(&modal, 50, 24);
     assert!(layout.top_divider.contains("Select Model") && layout.cursor_visible);
     for token in ['>', '▸'] {
         assert!(layout.editor_lines.iter().any(|l| l.contains(token)));
@@ -657,18 +517,8 @@ fn modal_renders_docked_draft_when_editor_contains_text() {
     let modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]);
 
     let layout = layout(LayoutInput {
-        editor: &editor,
         modal: Some(&modal),
-        autocomplete: None,
-        footer: &default_footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
+        ..base_input(&editor, &default_footer)
     });
 
     assert!(layout.top_divider.contains("Select Model"));
@@ -683,24 +533,9 @@ fn modal_renders_docked_draft_when_editor_contains_text() {
 
 #[test]
 fn modal_without_draft_omits_docked_draft_line() {
-    let default_editor = EditorState::default();
-    let default_footer = FooterState::default();
     let modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]);
 
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: Some(&modal),
-        autocomplete: None,
-        footer: &default_footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    });
+    let layout = modal_test_layout(&modal, 80, 24);
 
     assert!(!layout.editor_lines.iter().any(|l| l.contains("Draft:")));
 }
@@ -728,59 +563,33 @@ fn sample_scrollable_modal(body_lines: usize, option_layout: crate::ui::interact
     modal
 }
 
-fn render_modal_layout(
-    modal: &ModalState,
-    terminal_height: usize,
-) -> crate::ui::interactive::layout::InteractiveLayout {
-    let ed = EditorState::default();
-    let ft = FooterState::default();
-    layout(LayoutInput {
-        editor: &ed,
-        modal: Some(modal),
-        autocomplete: None,
-        footer: &ft,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height,
-        spinner_frame: 0,
-        theme: None,
-        focused: true,
-    })
-}
-
 #[test]
-fn test_horizontal_modal_body_scroll_indicator_initial() {
-    let modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Horizontal);
-    let rendered = render_modal_layout(&modal, 15);
-    assert!(rendered.lines.iter().any(|l| l.contains("↑/↓ scroll (line 1/30)")));
-    assert!(rendered.lines.iter().any(|l| l.trim() == "command_arg_line_1"));
-}
-
-#[test]
-fn test_horizontal_modal_body_scroll_offset() {
-    let mut modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Horizontal);
-    modal.body_scroll = 5;
-    let rendered = render_modal_layout(&modal, 15);
-    assert!(rendered.lines.iter().any(|l| l.contains("↑/↓ scroll (line 6/30)")));
-    assert!(!rendered.lines.iter().any(|l| l.trim() == "command_arg_line_1"));
-    assert!(rendered.lines.iter().any(|l| l.trim() == "command_arg_line_6"));
-}
-
-#[test]
-fn test_horizontal_modal_body_scroll_clamped_at_end() {
-    let mut modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Horizontal);
-    modal.body_scroll = 500;
-    let rendered = render_modal_layout(&modal, 15);
-    assert!(rendered.lines.iter().any(|l| l.contains("↑/↓ scroll (line ")));
-    assert!(rendered.lines.iter().any(|l| l.trim() == "command_arg_line_30"));
+fn test_horizontal_modal_body_scroll_positions() {
+    for (body_scroll, indicator, visible, hidden) in [
+        (0, "↑/↓ scroll (line 1/30)", "command_arg_line_1", None),
+        (
+            5,
+            "↑/↓ scroll (line 6/30)",
+            "command_arg_line_6",
+            Some("command_arg_line_1"),
+        ),
+        (500, "↑/↓ scroll (line ", "command_arg_line_30", None),
+    ] {
+        let mut modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Horizontal);
+        modal.body_scroll = body_scroll;
+        let rendered = modal_test_layout(&modal, 80, 15);
+        assert!(rendered.lines.iter().any(|l| l.contains(indicator)));
+        assert!(rendered.lines.iter().any(|l| l.trim() == visible));
+        if let Some(hidden) = hidden {
+            assert!(!rendered.lines.iter().any(|l| l.trim() == hidden));
+        }
+    }
 }
 
 #[test]
 fn test_horizontal_modal_body_fits_no_scroll_indicator() {
     let modal = sample_scrollable_modal(3, crate::ui::interactive::OptionLayout::Horizontal);
-    let rendered = render_modal_layout(&modal, 20);
+    let rendered = modal_test_layout(&modal, 80, 20);
     assert!(!rendered.lines.iter().any(|l| l.contains("↑/↓ scroll")));
     assert!(!rendered.lines.iter().any(|l| l.contains("lines omitted")));
     for i in 1..=3 {
@@ -796,7 +605,7 @@ fn test_horizontal_modal_body_fits_no_scroll_indicator() {
 #[test]
 fn test_vertical_modal_retains_omitted_indicator() {
     let modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Vertical);
-    let rendered = render_modal_layout(&modal, 15);
+    let rendered = modal_test_layout(&modal, 80, 15);
     assert!(rendered.lines.iter().any(|l| l.contains("lines omitted")));
     assert!(!rendered.lines.iter().any(|l| l.contains("↑/↓ scroll")));
 }
@@ -818,35 +627,18 @@ fn test_unfocused_modal_suppresses_software_cursor() {
     };
 
     let focused = layout(LayoutInput {
-        editor: &ed,
         modal: Some(&modal),
-        autocomplete: None,
-        footer: &ft,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
         theme: Some(&software_theme),
-        focused: true,
+        ..base_input(&ed, &ft)
     });
     assert!(focused.cursor_visible);
     assert!(focused.lines.iter().any(|l| l.contains("\x1b[7m")));
 
     let unfocused = layout(LayoutInput {
-        editor: &ed,
         modal: Some(&modal),
-        autocomplete: None,
-        footer: &ft,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
         theme: Some(&software_theme),
         focused: false,
+        ..base_input(&ed, &ft)
     });
     assert!(!unfocused.cursor_visible);
     assert!(!unfocused.lines.iter().any(|l| l.contains("\x1b[7m")));

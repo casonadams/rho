@@ -1,10 +1,6 @@
+use crate::ui::wrap::WordWrap;
 use anstyle::Style;
-use regex::Regex;
-use std::sync::LazyLock;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
-pub static ANSI_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("valid ANSI escape pattern"));
 
 pub fn strip_ansi(content: &str) -> String {
     strip_ansi_escapes::strip_str(content)
@@ -16,24 +12,42 @@ pub fn visible_width(content: &str) -> usize {
 }
 
 pub fn apply_pending_ansi(pending_ansi: &mut String, active_ansi: &mut String) {
-    if pending_ansi.is_empty() {
-        return;
-    }
-    let mut rem = pending_ansi.as_str();
-    while let Some(start) = rem.find('\x1b') {
-        if let Some(end) = rem[start..].find('m') {
-            let seq = &rem[start..=start + end];
-            if seq == "\x1b[0m" || seq == "\x1b[m" {
-                active_ansi.clear();
-            } else {
-                active_ansi.push_str(seq);
-            }
-            rem = &rem[start + end + 1..];
+    let mut rest = pending_ansi.as_str();
+    while let Some(start) = rest.find('\x1b') {
+        let Some(len) = leading_sgr_len(&rest[start..]) else {
+            rest = &rest[start + 1..];
+            continue;
+        };
+        let seq = &rest[start..start + len];
+        if seq == "\x1b[0m" || seq == "\x1b[m" {
+            active_ansi.clear();
         } else {
-            break;
+            active_ansi.push_str(seq);
         }
+        rest = &rest[start + len..];
     }
     pending_ansi.clear();
+}
+
+fn leading_csi_len(text: &str) -> Option<usize> {
+    let body = text.strip_prefix("\x1b[")?.as_bytes();
+    let final_at = body.iter().position(|b| (0x40..=0x7e).contains(b))?;
+    body[..final_at]
+        .iter()
+        .all(|b| (0x20..=0x3f).contains(b))
+        .then_some(final_at + 3)
+}
+
+pub(crate) fn leading_sgr_len(text: &str) -> Option<usize> {
+    let body = text.strip_prefix("\x1b[")?.as_bytes();
+    let params = body.iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
+    (body.get(params) == Some(&b'm')).then_some(params + 3)
+}
+
+pub(crate) fn leading_escape(text: &str) -> Option<(&str, bool)> {
+    let len = leading_csi_len(text)?;
+    let seq = &text[..len];
+    Some((seq, leading_sgr_len(seq) == Some(len)))
 }
 
 fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>) {
@@ -73,81 +87,65 @@ fn sgr_resets_background(sequence: &str) -> bool {
 
 struct WrapState<'a> {
     lines: &'a mut Vec<String>,
-    width: usize,
     bg_code: String,
     current: String,
     active_sgr: String,
-    current_width: usize,
     offset: usize,
-    pending_spaces: String,
-    pending_spaces_width: usize,
-    pending_word: String,
-    pending_word_width: usize,
+    word: WordWrap,
+}
+
+fn reopen_sgr_break<'a>(lines: &'a mut Vec<String>, active_sgr: &'a str) -> impl FnMut(&mut String) + 'a {
+    move |current| {
+        lines.push(std::mem::take(current));
+        current.push_str(active_sgr);
+    }
 }
 
 impl WrapState<'_> {
     fn flush_line(&mut self) {
-        self.lines.push(std::mem::take(&mut self.current));
-        self.current.push_str(&self.active_sgr);
-        self.current_width = 0;
+        self.word
+            .break_line(&mut self.current, reopen_sgr_break(&mut *self.lines, &self.active_sgr));
     }
 
     fn commit_pending_word(&mut self) {
-        if self.pending_word.is_empty() && self.pending_word_width == 0 {
-            return;
-        }
-        let needed = self.pending_spaces_width + self.pending_word_width;
-        if self.current_width > 0 && self.current_width + needed > self.width {
-            self.flush_line();
-            self.pending_spaces.clear();
-            self.pending_spaces_width = 0;
-        }
-        if self.current_width > 0 || self.lines.is_empty() {
-            self.current.push_str(&self.pending_spaces);
-            self.current_width += self.pending_spaces_width;
-        }
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
-
-        self.current.push_str(&self.pending_word);
-        self.current_width += self.pending_word_width;
-        self.pending_word.clear();
-        self.pending_word_width = 0;
+        let keep_leading = self.lines.is_empty();
+        self.word.commit(
+            &mut self.current,
+            keep_leading,
+            reopen_sgr_break(&mut *self.lines, &self.active_sgr),
+        );
     }
 
     fn push_char(&mut self, character: char, character_width: usize) {
         if character == ' ' || character == '\t' {
             self.commit_pending_word();
-            self.pending_spaces.push(character);
-            self.pending_spaces_width += character_width;
+            self.word.push_space(character, character_width);
         } else {
-            let needed = self.pending_spaces_width + self.pending_word_width + character_width;
-            if self.current_width > 0 && self.current_width + needed > self.width {
+            let needed = self.word.pending_spaces_width + self.word.pending_word_width + character_width;
+            if self.word.current_width > 0 && self.word.current_width + needed > self.word.width {
                 self.flush_line();
-                self.pending_spaces.clear();
-                self.pending_spaces_width = 0;
+                self.word.clear_spaces();
             }
-            if self.pending_word_width + character_width > self.width && self.pending_word_width > 0 {
-                self.current.push_str(&self.pending_word);
+            if self.word.pending_word_width + character_width > self.word.width && self.word.pending_word_width > 0 {
+                self.current.push_str(&self.word.pending_word);
                 self.flush_line();
-                self.pending_word.clear();
-                self.pending_word_width = 0;
+                self.word.pending_word.clear();
+                self.word.pending_word_width = 0;
             }
-            self.pending_word.push(character);
-            self.pending_word_width += character_width;
+            self.word.push_word_char(character, character_width);
         }
     }
 
     fn process_sgr(&mut self, matched: &str) {
-        self.pending_word.push_str(matched);
+        self.word.pending_word.push_str(matched);
         if matched == "\x1b[0m" || matched == "\x1b[m" {
             self.active_sgr.clear();
             if !self.bg_code.is_empty() {
-                self.pending_word.push_str(&self.bg_code);
+                self.word.pending_word.push_str(&self.bg_code);
             }
         } else {
             if sgr_resets_background(matched) && !self.bg_code.is_empty() {
-                self.pending_word.push_str(&self.bg_code);
+                self.word.pending_word.push_str(&self.bg_code);
             }
             self.active_sgr.push_str(matched);
         }
@@ -163,23 +161,21 @@ pub(crate) fn wrap_styled_line(line: &str, width: usize, base_style: Style) -> V
     let mut lines = Vec::new();
     let mut state = WrapState {
         lines: &mut lines,
-        width,
         bg_code,
         current: String::new(),
         active_sgr: String::new(),
-        current_width: 0,
         offset: 0,
-        pending_spaces: String::new(),
-        pending_spaces_width: 0,
-        pending_word: String::new(),
-        pending_word_width: 0,
+        word: WordWrap::new(width),
     };
 
     while state.offset < line.len() {
-        if let Some(matched) = ANSI_PATTERN.find(&line[state.offset..])
-            && matched.start() == 0
-        {
-            state.process_sgr(matched.as_str());
+        if let Some((seq, is_sgr)) = leading_escape(&line[state.offset..]) {
+            if is_sgr {
+                state.process_sgr(seq);
+            } else {
+                state.word.pending_word.push_str(seq);
+                state.offset += seq.len();
+            }
             continue;
         }
         let Some(character) = line[state.offset..].chars().next() else {
@@ -242,16 +238,6 @@ impl BlockFormat {
             mode: BlockMode::Border,
             border_style,
         }
-    }
-
-    pub fn with_mode(mut self, mode: BlockMode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    pub fn with_border_style(mut self, border_style: Style) -> Self {
-        self.border_style = border_style;
-        self
     }
 
     pub fn with_vertical_padding(mut self) -> Self {

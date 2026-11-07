@@ -19,7 +19,6 @@ pub(super) struct TurnLoop<'a, B: TerminalBackend> {
     pub engine: &'a AgentEngine,
     pub controller: &'a mut TerminalController<B>,
     pub steering: Arc<SharedSteeringQueue>,
-    pub model_switch: Arc<rho_engine::engine::runner::SharedModelSwitch>,
     pub batch: LiveBatch,
     pub last_spinner: std::time::Instant,
 }
@@ -30,7 +29,6 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         engine: &'a AgentEngine,
         controller: &'a mut TerminalController<B>,
         steering: Arc<SharedSteeringQueue>,
-        model_switch: Arc<rho_engine::engine::runner::SharedModelSwitch>,
     ) -> Self {
         controller.state_mut().footer_mut().activity = Activity::Working;
         sync_turn_footer(controller, engine);
@@ -39,31 +37,26 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
             engine,
             controller,
             steering,
-            model_switch,
             batch: LiveBatch::turn(),
             last_spinner: std::time::Instant::now(),
         }
     }
 
     pub fn on_tick(&mut self) -> Result<()> {
-        let steering = reconcile_consumed_steering(self.controller, &self.steering);
-        let spinner = self.tick_spinner();
+        let (steering, spinner) = self.tick_steering_and_spinner();
         let expired = self.controller.check_system_message_expiration();
         let resized = self.controller.refresh_size()?;
         let footer = sync_turn_footer(self.controller, self.engine);
-        if let Some(ref collab) = self.session.collab {
-            let count = collab.peer_count_sync();
-            let f = self.controller.state_mut().footer_mut();
-            f.remote_active = true;
-            f.remote_peers = count;
-            f.extra_status = Some(format!("[Collab: {count}]"));
-        }
         self.batch
             .flush(self.controller, spinner || footer || expired || steering || resized)?;
+        self.promote_idle_activity();
+        Ok(())
+    }
+
+    fn promote_idle_activity(&mut self) {
         if matches!(self.controller.state().footer().activity, Activity::Idle) {
             self.controller.state_mut().footer_mut().activity = Activity::Working;
         }
-        Ok(())
     }
 
     fn tick_spinner(&mut self) -> bool {
@@ -73,6 +66,12 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         self.last_spinner = std::time::Instant::now();
         self.controller.advance_spinner();
         !matches!(self.controller.state().footer().activity, Activity::Idle)
+    }
+
+    fn tick_steering_and_spinner(&mut self) -> (bool, bool) {
+        let steering = reconcile_consumed_steering(self.controller, &self.steering);
+        let spinner = self.tick_spinner();
+        (steering, spinner)
     }
 
     pub fn handle_ui_event(
@@ -89,8 +88,7 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
         initial_dirty: bool,
     ) -> Result<()> {
-        let steering = reconcile_consumed_steering(self.controller, &self.steering);
-        let spinner = self.tick_spinner();
+        let (steering, spinner) = self.tick_steering_and_spinner();
         let mut dirty = initial_dirty;
         while let Ok(next) = ui_events.try_recv() {
             dirty |= self.batch.push_event(self.controller, next)?;
@@ -99,9 +97,7 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         if dirty || footer || steering || spinner {
             self.batch.flush(self.controller, footer || steering || spinner)?;
         }
-        if matches!(self.controller.state().footer().activity, Activity::Idle) {
-            self.controller.state_mut().footer_mut().activity = Activity::Working;
-        }
+        self.promote_idle_activity();
         Ok(())
     }
 }

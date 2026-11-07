@@ -11,9 +11,7 @@ use super::runner::{AgentRunner, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse};
-use crate::engine::runner::history::{
-    DisplayEvent, extract_retry_after, is_content_filter_error, is_transient_network_error,
-};
+use crate::engine::runner::history::{DisplayEvent, is_content_filter_error, is_transient_network_error};
 use crate::engine::runner::sink::TerminalApprovalSink;
 use crate::engine::tracking::UsageTracker;
 
@@ -23,7 +21,7 @@ pub(super) struct TurnStreamState {
     pub(super) final_response: Option<PromptResponse>,
     pub(super) streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
-    pub(super) content_emitted: bool,
+    pub(super) items_emitted: bool,
 }
 
 impl TurnStreamState {
@@ -34,7 +32,7 @@ impl TurnStreamState {
             final_response: None,
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
-            content_emitted: false,
+            items_emitted: false,
         }
     }
 }
@@ -53,7 +51,7 @@ enum StreamErrorAction {
     NetworkRetry,
 }
 
-fn record_streaming_text(text: &str, _model: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
+fn record_streaming_text(text: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
     if start.is_none() {
         *start = Some(Instant::now());
     }
@@ -65,18 +63,17 @@ fn handle_display_events(
     events: Vec<DisplayEvent>,
     sink: &Arc<TerminalApprovalSink>,
     usage: &UsageTracker,
-    model: &str,
     start: &mut Option<Instant>,
     tool_calls: &mut usize,
 ) {
     for event in events {
         match event {
             DisplayEvent::Text(text) => {
-                record_streaming_text(&text, model, usage, start);
+                record_streaming_text(&text, usage, start);
                 sink.emit_text(&text);
             }
             DisplayEvent::Reasoning(text) => {
-                record_streaming_text(&text, model, usage, start);
+                record_streaming_text(&text, usage, start);
                 sink.emit_reasoning(&text);
             }
             DisplayEvent::ToolCall { .. } => {
@@ -159,9 +156,7 @@ impl AgentEngine {
         event: StreamEvent,
         sink: &Arc<TerminalApprovalSink>,
         state: &mut TurnStreamState,
-        active_model: &str,
     ) {
-        state.content_emitted = true;
         match event {
             StreamEvent::Arguments { ref json, .. } => {
                 sink.flush_reasoning();
@@ -174,7 +169,6 @@ impl AgentEngine {
                     events,
                     sink,
                     &self.usage,
-                    active_model,
                     &mut state.model_call_start,
                     &mut state.total_tool_calls,
                 );
@@ -185,7 +179,6 @@ impl AgentEngine {
                     events,
                     sink,
                     &self.usage,
-                    active_model,
                     &mut state.model_call_start,
                     &mut state.total_tool_calls,
                 );
@@ -198,10 +191,9 @@ impl AgentEngine {
         item: MultiTurnStreamItem,
         sink: &Arc<TerminalApprovalSink>,
         state: &mut TurnStreamState,
-        active_model: &str,
     ) {
         if let MultiTurnStreamItem::StreamAssistantItem(content) = item {
-            self.process_assistant_stream_item(content, sink, state, active_model);
+            self.process_assistant_stream_item(content, sink, state);
         } else {
             handle_completion_stream_item(item, &self.usage, &self.run_tracker, sink, state);
         }
@@ -250,9 +242,9 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         sink: &Arc<TerminalApprovalSink>,
         retries: &mut usize,
-        content_emitted: bool,
+        items_emitted: bool,
     ) -> Result<StreamErrorAction> {
-        if content_emitted {
+        if items_emitted {
             return Err(AppError::Network("Connection lost during active turn".to_string()));
         }
         *retries += 1;
@@ -294,7 +286,7 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         sink: &Arc<TerminalApprovalSink>,
         loop_state: &mut TurnLoopState,
-        content_emitted: bool,
+        items_emitted: bool,
     ) -> Result<StreamErrorAction> {
         sink.finish_spinner();
         sink.flush_display();
@@ -310,28 +302,22 @@ impl AgentEngine {
         {
             return Ok(StreamErrorAction::Compacted);
         }
-        if let Some(mem_err) = self.session_manager.take_memory_error() {
-            let err = AppError::Session(mem_err);
-            self.record_failed_metrics(&err).await?;
-            return Err(err);
-        }
-        if let Some(duration) = extract_retry_after(&error)
-            && duration.as_secs() <= 30
+        if error.to_string().to_lowercase().contains("rate limit")
+            && !items_emitted
             && loop_state.rate_limit_retries < 2
         {
             return self
-                .retry_rate_limit(duration, presenter, sink, &mut loop_state.rate_limit_retries)
-                .await;
-        }
-        if is_transient_network_error(&error) && !content_emitted && loop_state.network_retries < 2 {
-            return self
-                .retry_network(
-                    &error,
+                .retry_rate_limit(
+                    std::time::Duration::from_secs(1),
                     presenter,
                     sink,
-                    &mut loop_state.network_retries,
-                    content_emitted,
+                    &mut loop_state.rate_limit_retries,
                 )
+                .await;
+        }
+        if is_transient_network_error(&error) && !items_emitted && loop_state.network_retries < 2 {
+            return self
+                .retry_network(&error, presenter, sink, &mut loop_state.network_retries, items_emitted)
                 .await;
         }
         self.handle_fatal_stream_error(error).await
@@ -342,20 +328,22 @@ impl AgentEngine {
         runner: AgentRunner,
         sink: &Arc<TerminalApprovalSink>,
         presenter: &dyn Presenter,
-        active_model: &str,
         loop_state: &mut TurnLoopState,
     ) -> Result<StreamRunResult> {
         let mut state = TurnStreamState::new();
         let mut stream = runner.stream();
         while let Some(item) = stream.next().await {
             match item {
-                Ok(item) => self.process_stream_item(item, sink, &mut state, active_model),
+                Ok(item) => {
+                    state.items_emitted = true;
+                    self.process_stream_item(item, sink, &mut state);
+                }
                 Err(err) => {
                     if is_content_filter_error(&err) {
                         return Ok(StreamRunResult::ContentFiltered(Box::new(state)));
                     }
                     let action = self
-                        .handle_stream_error(err, presenter, sink, loop_state, state.content_emitted)
+                        .handle_stream_error(err, presenter, sink, loop_state, state.items_emitted)
                         .await?;
                     match action {
                         StreamErrorAction::Compacted => return Ok(StreamRunResult::Compacted),
@@ -505,5 +493,57 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert_eq!(loop_state.network_retries, 0);
+    }
+
+    fn retry_fixture(
+        temp_dir: &tempfile::TempDir,
+    ) -> (
+        AgentEngine,
+        Arc<dyn Presenter>,
+        Arc<TerminalApprovalSink>,
+        TurnLoopState,
+    ) {
+        let engine = mock_engine(
+            Arc::new(MockAdapter::default()),
+            MockEngineConfig {
+                base_dir: temp_dir.path(),
+                app_config: rho_harness_core::config::Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
+        let sink = engine.create_approval_sink(&presenter);
+        let loop_state = TurnLoopState {
+            visible_history: Vec::new(),
+            checkpoint: None,
+            current_prompt: String::new(),
+            current_budget: 10,
+            overflow_recovered: false,
+            rate_limit_retries: 0,
+            network_retries: 0,
+        };
+        (engine, presenter, sink, loop_state)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_rate_limit_retry_depends_on_delivery() {
+        for (delivered, expect_retry) in [(false, true), (true, false)] {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let (engine, presenter, sink, mut loop_state) = retry_fixture(&temp_dir);
+            let rate_limited = AppError::Provider("rate limit exceeded".to_string());
+
+            let result = engine
+                .handle_stream_error(rate_limited, presenter.as_ref(), &sink, &mut loop_state, delivered)
+                .await;
+
+            if expect_retry {
+                assert!(matches!(result.unwrap(), StreamErrorAction::RateLimitRetry));
+                assert_eq!(loop_state.rate_limit_retries, 1);
+            } else {
+                assert!(result.is_err());
+                assert_eq!(loop_state.rate_limit_retries, 0);
+            }
+        }
     }
 }

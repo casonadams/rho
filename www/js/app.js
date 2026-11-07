@@ -40,7 +40,7 @@ function initGallery() {
     login: {
       src: "assets/modal-login.svg",
       alt: "rho login provider selector for OAuth and API keys",
-      caption: "Interactive provider login (<code>rho login</code>) supporting OAuth PKCE for Google Antigravity, ChatGPT, Claude, and Copilot."
+      caption: "Interactive provider login (<code>rho login</code>) supporting OAuth PKCE for Google Antigravity, ChatGPT, and Claude."
     }
   };
 
@@ -355,8 +355,8 @@ function initDocsHeadingAnchors() {
           anchor.textContent = originalText;
           anchor.style.color = "";
         }, 1500);
-      } catch (_) {
-        // Fallback to normal anchor jump
+      } catch (error) {
+        anchor.title = `Copy failed: ${error.message}`;
       }
     });
 

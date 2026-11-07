@@ -25,8 +25,6 @@ pub fn build_tools_options(session: &ReplSession) -> Vec<ModalOption> {
         ModalOption::new("Web Search        ", Some(web_search.to_string())),
         ModalOption::new("Web Fetch         ", Some(web_fetch.to_string())),
         ModalOption::new("MCP               ", Some(mcp.to_string())),
-        ModalOption::new("LSP Diagnostics   ", Some("On".to_string())),
-        ModalOption::new("Edit Mode         ", Some("Hashline".to_string())),
         ModalOption::new("Permissions       ", Some(permission.to_string())),
     ]
 }
@@ -53,17 +51,13 @@ pub fn update_tools_search_engine<B: TerminalBackend>(controller: &mut TerminalC
         .update_modal_option_desc("Tools & Permissions", 0, engine);
 }
 
-fn toggle_tool_state_description<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    index: usize,
-    default_on: bool,
-) {
+fn toggle_tool_state_description<B: TerminalBackend>(controller: &mut TerminalController<B>, index: usize) {
     let current = controller
         .state()
         .active_modal()
         .and_then(|m| m.options.get(index))
         .and_then(|o| o.description.as_deref())
-        .unwrap_or(if default_on { "On" } else { "Off" });
+        .unwrap_or("Off");
     let next = if current == "On" { "Off" } else { "On" };
     update_tools_option_description(controller, next, index);
 }
@@ -72,7 +66,7 @@ fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<
     match selected {
         0 => ModalKeyResult::OpenSearchEngineSelector,
         1 => {
-            toggle_tool_state_description(controller, 1, false);
+            toggle_tool_state_description(controller, 1);
             let enabled = controller
                 .state()
                 .active_modal()
@@ -82,7 +76,7 @@ fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<
             ModalKeyResult::WebSearchToggled { enabled }
         }
         2 => {
-            toggle_tool_state_description(controller, 2, false);
+            toggle_tool_state_description(controller, 2);
             let enabled = controller
                 .state()
                 .active_modal()
@@ -92,7 +86,7 @@ fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<
             ModalKeyResult::WebFetchToggled { enabled }
         }
         3 => {
-            toggle_tool_state_description(controller, 3, false);
+            toggle_tool_state_description(controller, 3);
             let enabled = controller
                 .state()
                 .active_modal()
@@ -102,26 +96,11 @@ fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<
             ModalKeyResult::McpToggled { enabled }
         }
         4 => {
-            toggle_tool_state_description(controller, 4, true);
-            ModalKeyResult::Handled
-        }
-        5 => {
-            let current = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.options.get(5))
-                .and_then(|o| o.description.as_deref())
-                .unwrap_or("Hashline");
-            let next = if current == "Hashline" { "Exact" } else { "Hashline" };
-            update_tools_option_description(controller, next, 5);
-            ModalKeyResult::Handled
-        }
-        6 => {
-            toggle_tool_state_description(controller, 6, false);
+            toggle_tool_state_description(controller, 4);
             let enabled = controller
                 .state()
                 .active_modal()
-                .and_then(|m| m.options.get(6))
+                .and_then(|m| m.options.get(4))
                 .and_then(|o| o.description.as_deref())
                 == Some("On");
             ModalKeyResult::PermissionToggled { enabled }
@@ -154,61 +133,16 @@ pub fn handle_tools_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{DummyBackend, create_test_session};
     use super::*;
-    use crate::ui::interactive::{InteractiveState, TerminalBackend, TerminalController};
+    use crate::ui::interactive::{InteractiveState, TerminalController};
     use crossterm::event::{KeyCode, KeyModifiers};
-    use std::io;
-
-    struct DummyBackend;
-
-    impl TerminalBackend for DummyBackend {
-        fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _text: &str) -> io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    fn create_test_session() -> ReplSession {
-        let temp = tempfile::tempdir().unwrap();
-        let config = rho_harness_core::config::Config {
-            config_dir: temp.path().to_path_buf(),
-            sessions_dir: temp.path().join("sessions"),
-            ..Default::default()
-        };
-        ReplSession::new(config, rho_engine::auth::AuthStore::default(), None)
-    }
 
     #[test]
     fn build_tools_options_has_all_entries() {
         let session = create_test_session();
         let options = build_tools_options(&session);
-        assert_eq!(options.len(), 7);
+        assert_eq!(options.len(), 5);
         assert_eq!(options[0].label, "Search Engine     ");
         assert_eq!(options[0].description.as_deref(), Some("brave"));
         assert_eq!(options[1].label, "Web Search        ");
@@ -217,12 +151,8 @@ mod tests {
         assert_eq!(options[2].description.as_deref(), Some("On"));
         assert_eq!(options[3].label, "MCP               ");
         assert_eq!(options[3].description.as_deref(), Some("On"));
-        assert_eq!(options[4].label, "LSP Diagnostics   ");
+        assert_eq!(options[4].label, "Permissions       ");
         assert_eq!(options[4].description.as_deref(), Some("On"));
-        assert_eq!(options[5].label, "Edit Mode         ");
-        assert_eq!(options[5].description.as_deref(), Some("Hashline"));
-        assert_eq!(options[6].label, "Permissions       ");
-        assert_eq!(options[6].description.as_deref(), Some("On"));
     }
 
     #[test]
@@ -259,21 +189,7 @@ mod tests {
         let res = handle_tools_key(&mut controller, space).unwrap();
         assert_eq!(res, ModalKeyResult::McpToggled { enabled: false });
 
-        // Move to 4: LSP Diagnostics (toggle Handled)
-        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-        let _ = handle_tools_key(&mut controller, down).unwrap();
-        let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
-        let res = handle_tools_key(&mut controller, space).unwrap();
-        assert_eq!(res, ModalKeyResult::Handled);
-
-        // Move to 5: Edit Mode (toggle Handled)
-        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-        let _ = handle_tools_key(&mut controller, down).unwrap();
-        let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
-        let res = handle_tools_key(&mut controller, space).unwrap();
-        assert_eq!(res, ModalKeyResult::Handled);
-
-        // Move to 6: Permissions -> PermissionToggled
+        // Move to 4: Permissions -> PermissionToggled
         let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
         let _ = handle_tools_key(&mut controller, down).unwrap();
         let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);

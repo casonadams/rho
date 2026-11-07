@@ -1,40 +1,21 @@
 use super::super::Config;
+use super::cli::resolve_model_with_provider;
 use crate::error::{AppError, Result};
+
+type EnvStep = fn(&mut Config, &dyn Fn(&str) -> Option<String>) -> Result<()>;
 
 pub(crate) fn apply_env_overrides(config: &mut Config) -> Result<()> {
     apply_env_overrides_with(config, |name| std::env::var(name).ok())
 }
 
-fn resolve_model_env(config: &mut Config, model_spec: &str, provider_env: Option<&str>) {
-    let (p, _) = crate::provider::parse_model_spec(model_spec);
-    if !p.is_empty() {
-        if let Some(prov) = provider_env {
-            let prov = prov.trim();
-            if !prov.is_empty() && prov != p {
-                let warning = format!("Warning: Provider '{prov}' overridden by provider in model spec '{p}'.");
-                eprintln!("{warning}");
-                config.migration_warnings.push(warning);
-            }
-        }
-        config.provider = p;
-    } else if let Some(prov) = provider_env {
-        config.provider = prov.trim().to_string();
-    } else if let Some(inferred) = crate::provider::infer_provider_for_model(model_spec) {
-        config.provider = inferred.to_string();
-    } else {
-        config.provider = "local".to_string();
-    }
-    config.model = model_spec.to_string();
-}
-
-fn apply_model_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) {
+fn apply_model_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     let model_env = get("RHO_MODEL").or_else(|| get("AI_MODEL")).or_else(|| get("MODEL"));
     let provider_env = get("RHO_PROVIDER").or_else(|| get("AI_PROVIDER"));
 
     if let Some(ref m) = model_env
         && !m.trim().is_empty()
     {
-        resolve_model_env(config, m.trim(), provider_env.as_deref());
+        resolve_model_with_provider(config, m.trim(), provider_env.as_deref());
     } else if let Some(ref p) = provider_env
         && !p.trim().is_empty()
     {
@@ -44,9 +25,10 @@ fn apply_model_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config,
     if let Some(val) = get("AI_THINKING_LEVEL") {
         config.thinking_level = (val != "off").then_some(val);
     }
+    Ok(())
 }
 
-fn apply_context_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
+fn apply_context_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     if let Some(val) = get("AI_CONTEXT_LIMIT") {
         config.context_limit = Some(parse_positive("AI_CONTEXT_LIMIT", &val)?);
     }
@@ -62,7 +44,7 @@ fn apply_context_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Confi
     Ok(())
 }
 
-fn apply_token_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
+fn apply_token_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     if let Some(val) = get("AI_KEEP_RECENT_TOKENS") {
         config.keep_recent_tokens = parse_positive("AI_KEEP_RECENT_TOKENS", &val)?;
     }
@@ -78,7 +60,7 @@ fn apply_token_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config,
     Ok(())
 }
 
-fn apply_retention_env_override<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
+fn apply_retention_env_override(config: &mut Config, get: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     let Some(val) = get("AI_SESSION_RETENTION_DAYS").or_else(|| get("RHO_SESSION_RETENTION_DAYS")) else {
         return Ok(());
     };
@@ -90,7 +72,7 @@ fn apply_retention_env_override<F: Fn(&str) -> Option<String>>(config: &mut Conf
     Ok(())
 }
 
-fn apply_runtime_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
+fn apply_runtime_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     if let Some(val) = get("WEB_REGION") {
         config.region = val;
     }
@@ -111,21 +93,25 @@ pub(crate) fn apply_env_overrides_with<F>(config: &mut Config, get: F) -> Result
 where
     F: Fn(&str) -> Option<String>,
 {
-    apply_model_env_overrides(config, &get);
-    apply_context_env_overrides(config, &get)?;
-    apply_token_env_overrides(config, &get)?;
-    apply_runtime_env_overrides(config, &get)?;
-    apply_ui_env_overrides(config, &get);
-    Ok(())
+    let steps: [EnvStep; 5] = [
+        apply_model_env_overrides,
+        apply_context_env_overrides,
+        apply_token_env_overrides,
+        apply_runtime_env_overrides,
+        apply_ui_env_overrides,
+    ];
+    let get: &dyn Fn(&str) -> Option<String> = &get;
+    steps.into_iter().try_for_each(|step| step(config, get))
 }
 
-fn apply_ui_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) {
+fn apply_ui_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     if let Some(val) = get("RHO_BLOCK_STYLE").or_else(|| get("RHO_UI_BLOCK_STYLE")) {
         config.ui.block_style = Some(val);
     }
     if let Some(val) = get("RHO_CURSOR").or_else(|| get("RHO_UI_CURSOR")) {
         config.ui.cursor = Some(val);
     }
+    Ok(())
 }
 
 fn parse_bool(name: &str, value: &str) -> Result<bool> {

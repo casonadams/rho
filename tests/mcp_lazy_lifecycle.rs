@@ -1,15 +1,8 @@
-use rho_engine::auth::AuthStore;
-use rho_engine::engine::builder::AgentEngineBuilder;
+use crate::{build_engine, mcp_config, temp_dir, write_script};
 use rho_engine::mcp::{McpCache, McpToolDefinition, compute_definition_hash};
-use rho_harness_core::config::{Config, McpConfig, McpLifecycleMode, McpServerConfig};
+use rho_harness_core::config::{McpLifecycleMode, McpServerConfig};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-
-fn temp_workspace() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mcp_lazy_lifecycle_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn write_mock_server_script(workspace: &Path) -> PathBuf {
     let script_name = format!("mock_lazy_mcp_{}.sh", uuid::Uuid::new_v4());
@@ -30,12 +23,7 @@ while IFS= read -r line; do
   esac
 done
 "#;
-    std::fs::write(&script_path, script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    write_script(&script_path, script);
     script_path
 }
 
@@ -52,7 +40,7 @@ fn count_processes(pattern: &str) -> usize {
 
 #[tokio::test]
 async fn test_cached_servers_launch_with_zero_child_processes() {
-    let workspace = temp_workspace();
+    let workspace = temp_dir("mcp_lazy_lifecycle_test");
     let script_path = write_mock_server_script(&workspace);
     let pattern = script_path.file_name().unwrap().to_str().unwrap();
 
@@ -76,25 +64,9 @@ async fn test_cached_servers_launch_with_zero_child_processes() {
     let mut servers = BTreeMap::new();
     servers.insert("mock_srv".to_string(), cfg);
 
-    let config = Config {
-        config_dir: workspace.clone(),
-        sessions_dir: workspace.join("sessions"),
-        auth_file: workspace.join("auth.json"),
-        mcp: McpConfig {
-            enabled: true,
-            defer_threshold: 10,
-            idle_timeout_seconds: 600,
-            servers,
-        },
-        ..Default::default()
-    };
+    let config = mcp_config(&workspace, servers);
 
-    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let engine = AgentEngineBuilder::new(config, auth_store)
-        .base_dir(workspace.clone())
-        .build()
-        .await
-        .unwrap();
+    let engine = build_engine(&workspace, config).await;
 
     assert!(engine.tool_names().contains(&"mock_srv_ping".to_string()));
     assert_eq!(count_processes(pattern), 0);

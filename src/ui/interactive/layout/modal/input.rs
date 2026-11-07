@@ -1,7 +1,9 @@
 use super::types::{InInputModalInput, ModalOptionsLayout};
 use super::vertical::render_modal_options;
+use crate::ui::block::visible_width;
+use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::editor::{render_editor_lines, window_editor, wrap_editor};
-use crate::ui::interactive::layout::text::{truncate_to_width, visible_width, wrap_to_width};
+use crate::ui::interactive::layout::text::wrap_to_width;
 use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
 
 fn input_prompt_width(modal: &ModalState) -> usize {

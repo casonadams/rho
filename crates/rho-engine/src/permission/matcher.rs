@@ -1,38 +1,46 @@
-use std::path::PathBuf;
+use rho_harness_core::workspace::canonicalize_path;
+use std::path::Path;
 
-pub fn home_dir() -> Option<PathBuf> {
-    std::env::var("HOME").ok().map(PathBuf::from)
-}
-
-pub fn expand_home(path: &str) -> String {
-    let Some(home) = home_dir() else {
-        return path.to_string();
-    };
-    let home_str = home.to_string_lossy();
-    if path == "~" || path == "$HOME" {
-        return home_str.to_string();
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        return format!("{home_str}/{rest}");
-    }
-    if let Some(rest) = path.strip_prefix("$HOME/") {
-        return format!("{home_str}/{rest}");
-    }
-    path.to_string()
-}
+pub use rho_harness_core::workspace::expand_home;
 
 pub fn wildcard_match(pattern: &str, text: &str) -> bool {
     let expanded_pattern = expand_home(pattern);
     let expanded_text = expand_home(text);
-    if let Some(prefix) = expanded_pattern.strip_suffix(" *") {
-        return match_prefix_args(prefix, &expanded_text);
+    if match_expanded(&expanded_pattern, &expanded_text) {
+        return true;
     }
-    if let Some(prefix) = expanded_pattern.strip_suffix("/*")
+    canonical_prefix_pattern(&expanded_pattern).is_some_and(|anchored| match_expanded(&anchored, &expanded_text))
+}
+
+fn match_expanded(pattern: &str, text: &str) -> bool {
+    if let Some(prefix) = pattern.strip_suffix(" *") {
+        return match_prefix_args(prefix, text);
+    }
+    if let Some(prefix) = pattern.strip_suffix("/*")
         && prefix.len() > 1
     {
-        return match_dir_subpaths(prefix, &expanded_text);
+        return match_dir_subpaths(prefix, text);
     }
-    generic_wildcard(&expanded_pattern, &expanded_text)
+    generic_wildcard(pattern, text)
+}
+
+/// Rewrites an absolute pattern's literal directory prefix to its symlink-free spelling,
+/// so rules written against `/tmp` also match canonical `/private/tmp` paths.
+fn canonical_prefix_pattern(pattern: &str) -> Option<String> {
+    if !pattern.starts_with('/') {
+        return None;
+    }
+    let literal_end = pattern.find(['*', '?']).unwrap_or(pattern.len());
+    let (literal, rest) = pattern.split_at(literal_end);
+    let dir_end = literal.rfind('/')? + 1;
+    let (dir, name) = literal.split_at(dir_end);
+    let mut anchored = canonicalize_path(Path::new(dir)).to_string_lossy().into_owned();
+    if !anchored.ends_with('/') {
+        anchored.push('/');
+    }
+    anchored.push_str(name);
+    anchored.push_str(rest);
+    (anchored != pattern).then_some(anchored)
 }
 
 fn match_prefix_args(prefix: &str, text: &str) -> bool {

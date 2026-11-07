@@ -1,33 +1,7 @@
 use super::super::{Config, FileConfig};
+use super::sample_cli;
 
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn sample_cli_model(model: &str) -> crate::config::cli::Cli {
-    crate::config::cli::Cli {
-        prompt: None,
-        model: Some(model.to_string()),
-        smol: false,
-        slow: false,
-        route: false,
-        provider: None,
-        max_output_tokens: None,
-        max_turns: None,
-        thinking: None,
-        name: None,
-        export: None,
-        resume: None,
-        r#continue: false,
-        resume_picker: false,
-        mode: "interactive".to_string(),
-        message: Vec::new(),
-        system_prompt: None,
-        append_system_prompt: None,
-        no_context_files: false,
-        no_permission: false,
-        command: None,
-        hook_dir: Vec::new(),
-    }
-}
 
 fn load_config_with_rho_home(dir: &std::path::Path) -> Config {
     let _guard = ENV_LOCK.lock().unwrap();
@@ -41,12 +15,17 @@ fn load_config_with_rho_home(dir: &std::path::Path) -> Config {
     config
 }
 
+fn config_dir_with(entries: &[(&str, &str)]) -> std::path::PathBuf {
+    let dir = crate::test_support::created_temp_dir();
+    for (key, value) in entries {
+        Config::set_file_value(&dir, key, value).unwrap();
+    }
+    dir
+}
+
 #[test]
 fn test_config_file_loads_model_provider_and_thinking_level() {
-    let dir = std::env::temp_dir().join(format!("rho_cfg_load_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    Config::set_file_value(&dir, "model", "gemini/gemini-2.0-flash").unwrap();
-    Config::set_file_value(&dir, "thinking_level", "high").unwrap();
+    let dir = config_dir_with(&[("model", "gemini/gemini-2.0-flash"), ("thinking_level", "high")]);
 
     let config = load_config_with_rho_home(&dir);
     let actual = (
@@ -124,10 +103,7 @@ fn test_set_file_value_persists_and_validates() {
 
 #[test]
 fn test_cli_overrides_config_file() {
-    let dir = std::env::temp_dir().join(format!("rho_precedence_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    Config::set_file_value(&dir, "model", "config-model").unwrap();
-    Config::set_file_value(&dir, "provider", "openai").unwrap();
+    let dir = config_dir_with(&[("model", "config-model"), ("provider", "openai")]);
 
     let config = load_config_with_rho_home(&dir);
     assert_eq!(
@@ -135,7 +111,7 @@ fn test_cli_overrides_config_file() {
         ("config-model", "openai")
     );
 
-    let cli = sample_cli_model("cli-model");
+    let cli = sample_cli("cli-model", None);
     let _guard = ENV_LOCK.lock().unwrap();
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
@@ -441,10 +417,8 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
 
 #[test]
 fn test_config_file_guard_model() {
-    let dir = std::env::temp_dir().join(format!("rho_cfg_guard_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = config_dir_with(&[("models.guard", "local/qwen2.5-coder:7b")]);
 
-    Config::set_file_value(&dir, "models.guard", "local/qwen2.5-coder:7b").unwrap();
     let config = load_config_with_rho_home(&dir);
     assert_eq!(config.guard_model(), Some("local/qwen2.5-coder:7b"));
 

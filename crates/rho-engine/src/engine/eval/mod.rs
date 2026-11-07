@@ -8,13 +8,10 @@
 //!   point and the verify/normalize helpers.
 //! - [`mock`] provides the `MockEngineConfig` / `mock_engine` helpers
 //!   used to construct a real `AgentEngine` backed by a mocked LLM.
-//! - [`context`] owns the bounded-history comparison machinery
-//!   (separate concern from the rest of the harness).
 //!
 //! The `#[test]`/`#[tokio::test]` suite lives with the host workspace tests
 //! (`rho/tests`) because it exercises real tools and the terminal renderer.
 
-pub mod context;
 pub mod presenter;
 
 pub mod harness;

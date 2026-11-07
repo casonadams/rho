@@ -18,7 +18,12 @@ fn test_private_host_detection() {
 #[test]
 fn blocks_private_urls_before_network_io() {
     let client = HttpClient::new(false).unwrap();
-    for url in ["http://127.0.0.1/", "http://[::1]/", "http://host.local/"] {
+    for url in [
+        "http://127.0.0.1/",
+        "http://[::1]/",
+        "http://host.local/",
+        "http://100.64.0.1/",
+    ] {
         assert!(client.validate_url(url).is_err(), "{url}");
     }
 }

@@ -7,6 +7,8 @@ pub mod http;
 pub mod quota;
 pub mod request;
 pub mod stream;
+#[cfg(test)]
+mod test_util;
 
 pub use client::{ClaudeClient, into_handle};
 pub use http::{DEFAULT_ENDPOINT, MESSAGES_PATH, PROVIDER_NAME, claude_headers, friendly_error};

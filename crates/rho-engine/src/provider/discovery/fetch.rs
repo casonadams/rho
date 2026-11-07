@@ -6,7 +6,7 @@ use super::presets::{
     anthropic_preset_models, antigravity_preset_models, default_presets_for, format_context_tokens,
     gemini_preset_models,
 };
-use crate::provider::builders::SHARED_HTTP_CLIENT;
+use crate::http::CLIENT;
 use rho_harness_core::error::Result;
 
 pub(crate) async fn discover_openai_compatible(
@@ -77,7 +77,7 @@ pub(crate) fn parse_ollama_show_response(body: &serde_json::Value) -> Option<usi
 
 async fn ollama_context_length(host: &str, model: &str) -> Option<usize> {
     let endpoint = format!("{}/api/show", host.trim_end_matches('/'));
-    let resp = SHARED_HTTP_CLIENT
+    let resp = CLIENT
         .post(&endpoint)
         .json(&serde_json::json!({ "model": model }))
         .send()

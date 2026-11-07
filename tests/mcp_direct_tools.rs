@@ -1,15 +1,10 @@
+use crate::temp_dir;
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::builder::AgentEngineBuilder;
 use rho_engine::mcp::{McpCache, McpToolDefinition, compute_definition_hash};
 use rho_harness_core::config::{Config, McpConfig, McpDirectTools, McpLifecycleMode, McpServerConfig};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-
-fn temp_workspace() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mcp_dt_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn write_mock_tools_script(workspace: &Path) -> PathBuf {
     let script_path = workspace.join("mock_tools.sh");
@@ -37,7 +32,7 @@ done
 
 #[tokio::test]
 async fn test_direct_tools_list_filters_and_search_keywords() {
-    let workspace = temp_workspace();
+    let workspace = temp_dir("mcp_dt_test");
     let script_path = write_mock_tools_script(&workspace);
 
     let mut cfg = McpServerConfig::stdio(script_path.to_str().unwrap(), Vec::new());

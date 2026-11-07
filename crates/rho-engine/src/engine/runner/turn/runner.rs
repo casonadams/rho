@@ -32,13 +32,46 @@ pub enum MultiTurnStreamItem {
     FinalResponse(PromptResponse),
 }
 
-struct ReceiverStream<T>(tokio::sync::mpsc::Receiver<T>);
+type TurnItem = Result<MultiTurnStreamItem, AppError>;
 
-impl<T> Stream for ReceiverStream<T> {
-    type Item = T;
+struct TurnStream {
+    rx: tokio::sync::mpsc::Receiver<TurnItem>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Stream for TurnStream {
+    type Item = TurnItem;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        self.0.poll_recv(cx)
+        self.rx.poll_recv(cx)
+    }
+}
+
+impl Drop for TurnStream {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+struct TurnEmitter {
+    tx: tokio::sync::mpsc::Sender<TurnItem>,
+    cancellation: Option<CancellationSignal>,
+}
+
+impl TurnEmitter {
+    fn ensure_live(&self) -> Result<(), AppError> {
+        if self.tx.is_closed() || self.cancellation.as_ref().is_some_and(CancellationSignal::is_cancelled) {
+            return Err(AppError::Cancelled("operator interrupt".to_string()));
+        }
+        Ok(())
+    }
+
+    async fn send(&self, item: MultiTurnStreamItem) -> Result<(), AppError> {
+        self.ensure_live()?;
+        self.tx
+            .send(Ok(item))
+            .await
+            .map_err(|_| AppError::Cancelled("operator interrupt".to_string()))
     }
 }
 
@@ -144,12 +177,17 @@ impl AgentRunner {
 
     pub fn stream(self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
-
-        tokio::spawn(async move {
-            run_agent_loop(self, tx).await;
+        let emitter = TurnEmitter {
+            tx,
+            cancellation: self.cancellation.clone(),
+        };
+        let task = tokio::spawn(async move {
+            if let Err(error) = run_agent_loop(self, &emitter).await {
+                let _ = emitter.tx.send(Err(error)).await;
+            }
         });
 
-        Box::pin(ReceiverStream(rx))
+        Box::pin(TurnStream { rx, task })
     }
 }
 
@@ -165,61 +203,53 @@ struct TurnStreamOutcome {
 async fn stream_single_event(
     event: ModelStreamEvent,
     outcome: &mut TurnStreamOutcome,
-    tx: &tokio::sync::mpsc::Sender<Result<MultiTurnStreamItem, AppError>>,
-) -> bool {
+    emitter: &TurnEmitter,
+) -> Result<(), AppError> {
     match event {
         ModelStreamEvent::Text(t) => {
             outcome.text.push_str(&t);
-            tx.send(Ok(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(t))))
+            emitter
+                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(t)))
                 .await
-                .is_ok()
         }
         ModelStreamEvent::Reasoning(r) => {
             outcome.reasoning.push_str(&r);
-            tx.send(Ok(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(r))))
+            emitter
+                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(r)))
                 .await
-                .is_ok()
         }
         ModelStreamEvent::ToolCall(tc) => {
             let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
-            let _ = tx
-                .send(Ok(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments {
+            emitter
+                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments {
                     id: tc.id.clone(),
                     json: args_str,
-                })))
-                .await;
-            let ok = tx
-                .send(Ok(MultiTurnStreamItem::ToolCall { tool_call: tc.clone() }))
-                .await
-                .is_ok();
+                }))
+                .await?;
+            emitter
+                .send(MultiTurnStreamItem::ToolCall { tool_call: tc.clone() })
+                .await?;
             outcome.tool_calls.push(tc);
-            ok
+            Ok(())
         }
         ModelStreamEvent::Usage(u) => {
             outcome.usage = outcome.usage.merge(&u);
-            true
+            Ok(())
         }
         ModelStreamEvent::Finish(f) => {
             outcome.finish_reason = Some(f);
-            true
+            Ok(())
         }
     }
 }
 
 async fn stream_turn(
     mut stream: Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>,
-    tx: &tokio::sync::mpsc::Sender<Result<MultiTurnStreamItem, AppError>>,
+    emitter: &TurnEmitter,
 ) -> Result<TurnStreamOutcome, AppError> {
     let mut outcome = TurnStreamOutcome::default();
     while let Some(res) = stream.next().await {
-        match res {
-            Ok(event) => {
-                if !stream_single_event(event, &mut outcome, tx).await {
-                    return Ok(outcome);
-                }
-            }
-            Err(e) => return Err(e),
-        }
+        stream_single_event(res?, &mut outcome, emitter).await?;
     }
     Ok(outcome)
 }
@@ -424,22 +454,16 @@ async fn drain_steering_to_context(
 async fn wait_for_background_events(
     notif_rx: &mut tokio::sync::broadcast::Receiver<String>,
     cancellation: Option<&CancellationSignal>,
-) -> Result<Option<String>, AppError> {
+) -> Result<(), AppError> {
     tokio::select! {
-        res = notif_rx.recv() => {
-            match res {
-                Ok(notif) => Ok(Some(notif)),
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => Ok(None),
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => Ok(None),
-            }
-        }
+        _ = notif_rx.recv() => Ok(()),
         _ = async {
             match cancellation {
                 Some(c) => c.wait_cancelled().await,
                 None => std::future::pending::<()>().await,
             }
         } => Err(AppError::Cancelled("operator interrupt".to_string())),
-        _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(None),
+        _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(()),
     }
 }
 
@@ -461,13 +485,10 @@ async fn wait_step(
         return Ok(WaitStepResult::EventDelivered);
     }
 
-    if let Some(notif) = wait_for_background_events(notif_rx, runner.cancellation.as_ref()).await? {
-        let msg = ChatMessage::user(notif);
-        ctx.current_messages.push(msg.clone());
-        ctx.new_turn_messages.push(msg);
+    wait_for_background_events(notif_rx, runner.cancellation.as_ref()).await?;
+    if drain_background_to_context(ctx) {
         return Ok(WaitStepResult::EventDelivered);
     }
-
     Ok(WaitStepResult::ContinueWaiting)
 }
 
@@ -490,16 +511,20 @@ async fn wait_for_background_jobs(runner: &AgentRunner, ctx: &mut RunnerStepCont
     Ok(drain_background_to_context(ctx))
 }
 
-async fn commit_turn_messages(session_manager: &SessionManager, new_messages: Vec<ChatMessage>, has_checkpoint: bool) {
+async fn commit_turn_messages(
+    session_manager: &SessionManager,
+    new_messages: Vec<ChatMessage>,
+    has_checkpoint: bool,
+) -> Result<(), AppError> {
     if new_messages.is_empty() {
-        return;
+        return Ok(());
     }
     if has_checkpoint {
-        let _ = session_manager.promote_checkpoint(new_messages).await;
+        session_manager.promote_checkpoint(new_messages).await
     } else {
-        let _ = session_manager
+        session_manager
             .append_messages(&session_manager.session_id, new_messages)
-            .await;
+            .await
     }
 }
 
@@ -507,7 +532,7 @@ struct RunnerStepContext<'a> {
     current_messages: &'a mut Vec<ChatMessage>,
     new_turn_messages: &'a mut Vec<ChatMessage>,
     repeat_tracker: &'a mut RepeatedCallTracker,
-    all_requests: &'a mut Vec<ModelCompletionRequest>,
+    request_count: &'a mut usize,
     all_completion_calls: &'a mut Vec<CompletionCall>,
     total_usage: &'a mut StructuralUsage,
 }
@@ -517,11 +542,18 @@ enum StepExecutionResult {
     Continue,
 }
 
+fn tool_result_contents(message: ChatMessage) -> Vec<rho_harness_core::model::UserContent> {
+    match message {
+        ChatMessage::User { content } => content,
+        ChatMessage::Assistant { .. } | ChatMessage::System { .. } => Vec::new(),
+    }
+}
+
 async fn dispatch_tool_calls(
     outcome_calls: &[ToolCall],
     runner: &AgentRunner,
     ctx: &mut RunnerStepContext<'_>,
-    tx: &tokio::sync::mpsc::Sender<Result<MultiTurnStreamItem, AppError>>,
+    emitter: &TurnEmitter,
 ) -> Result<(), AppError> {
     let mut exec_ctx = ToolExecutionContext {
         tools: &runner.tools,
@@ -531,15 +563,19 @@ async fn dispatch_tool_calls(
         permission: runner.permission.as_ref(),
     };
 
+    let mut results = Vec::with_capacity(outcome_calls.len());
     for call in outcome_calls {
+        emitter.ensure_live()?;
         let (res_msg, stop_reason) = execute_single_tool_call(call, &mut exec_ctx).await;
-        ctx.current_messages.push(res_msg.clone());
-        ctx.new_turn_messages.push(res_msg);
-        let _ = tx.send(Ok(MultiTurnStreamItem::ToolExecutionCommitted)).await;
+        results.extend(tool_result_contents(res_msg));
+        emitter.send(MultiTurnStreamItem::ToolExecutionCommitted).await?;
         if let Some(reason) = stop_reason {
             return Err(AppError::Cancelled(reason));
         }
     }
+    let batch = ChatMessage::User { content: results };
+    ctx.current_messages.push(batch.clone());
+    ctx.new_turn_messages.push(batch);
     Ok(())
 }
 
@@ -562,8 +598,9 @@ async fn execute_agent_step(
     turn: usize,
     tools_def: &[ModelToolDefinition],
     ctx: &mut RunnerStepContext<'_>,
-    tx: &tokio::sync::mpsc::Sender<Result<MultiTurnStreamItem, AppError>>,
+    emitter: &TurnEmitter,
 ) -> Result<StepExecutionResult, AppError> {
+    emitter.ensure_live()?;
     let req = ModelCompletionRequest {
         preamble: if runner.preamble.is_empty() {
             None
@@ -576,10 +613,10 @@ async fn execute_agent_step(
         max_tokens: None,
         temperature: None,
     };
-    ctx.all_requests.push(req.clone());
+    *ctx.request_count += 1;
 
     let stream = runner.model.stream(req).await?;
-    let outcome = stream_turn(stream, tx).await?;
+    let outcome = stream_turn(stream, emitter).await?;
     *ctx.total_usage = ctx.total_usage.merge(&outcome.usage);
 
     let completion_call = CompletionCall {
@@ -589,7 +626,9 @@ async fn execute_agent_step(
         provider_request_id: None,
     };
     ctx.all_completion_calls.push(completion_call.clone());
-    let _ = tx.send(Ok(MultiTurnStreamItem::CompletionCall(completion_call))).await;
+    emitter
+        .send(MultiTurnStreamItem::CompletionCall(completion_call))
+        .await?;
 
     let asst = build_assistant_message(&outcome);
     ctx.current_messages.push(asst.clone());
@@ -602,21 +641,22 @@ async fn execute_agent_step(
         let resp = PromptResponse {
             output: outcome.text,
             usage: *ctx.total_usage,
-            requests: ctx.all_requests.clone(),
+            requests: *ctx.request_count,
             completion_calls: ctx.all_completion_calls.clone(),
         };
         return Ok(StepExecutionResult::Complete(resp));
     }
 
-    dispatch_tool_calls(&outcome.tool_calls, runner, ctx, tx).await?;
+    dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await?;
     check_steering(runner.steering.as_ref(), ctx.current_messages, ctx.new_turn_messages).await;
     Ok(StepExecutionResult::Continue)
 }
 
-async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Result<MultiTurnStreamItem, AppError>>) {
-    let has_checkpoint = runner.session_manager.load_checkpoint().await.unwrap_or(None).is_some();
+async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
+    let pending = runner.session_manager.load_checkpoint().await?;
+    let has_checkpoint = pending.is_some();
     let initial_visible_history = if runner.history.is_empty() {
-        runner.session_manager.active_messages().await.unwrap_or_default()
+        runner.session_manager.active_messages().await?
     } else {
         runner.history.clone()
     };
@@ -632,7 +672,7 @@ async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Resul
     let mut turn = 0;
     let mut total_usage = StructuralUsage::default();
     let mut repeat_tracker = runner.repeat_tracker.clone();
-    let mut all_requests = Vec::new();
+    let mut request_count = 0;
     let mut all_completion_calls = Vec::new();
 
     let tools_def: Vec<ModelToolDefinition> = runner
@@ -651,30 +691,25 @@ async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Resul
             current_messages: &mut current_messages,
             new_turn_messages: &mut new_turn_messages,
             repeat_tracker: &mut repeat_tracker,
-            all_requests: &mut all_requests,
+            request_count: &mut request_count,
             all_completion_calls: &mut all_completion_calls,
             total_usage: &mut total_usage,
         };
-        match execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, &tx).await {
-            Ok(StepExecutionResult::Complete(resp)) => {
-                commit_turn_messages(&runner.session_manager, new_turn_messages, has_checkpoint).await;
-                let _ = tx.send(Ok(MultiTurnStreamItem::FinalResponse(resp))).await;
-                return;
-            }
-            Ok(StepExecutionResult::Continue) => {}
-            Err(e) => {
-                let _ = tx.send(Err(e)).await;
-                return;
-            }
+        if let StepExecutionResult::Complete(resp) =
+            execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await?
+        {
+            emitter.ensure_live()?;
+            commit_turn_messages(&runner.session_manager, new_turn_messages, has_checkpoint).await?;
+            return emitter.send(MultiTurnStreamItem::FinalResponse(resp)).await;
         }
     }
 
-    let _ = runner.session_manager.save_checkpoint(new_turn_messages).await;
-    let _ = tx
-        .send(Err(AppError::ModelBudgetExhausted {
-            max_turns: runner.budget,
-        }))
-        .await;
+    let mut checkpoint = pending.unwrap_or_default();
+    checkpoint.extend(new_turn_messages);
+    runner.session_manager.save_checkpoint(checkpoint).await?;
+    Err(AppError::ModelBudgetExhausted {
+        max_turns: runner.budget,
+    })
 }
 
 #[cfg(test)]
@@ -682,7 +717,7 @@ async fn run_agent_loop(runner: AgentRunner, tx: tokio::sync::mpsc::Sender<Resul
 struct TestStepBuffers {
     current_messages: Vec<ChatMessage>,
     new_turn_messages: Vec<ChatMessage>,
-    all_requests: Vec<ModelCompletionRequest>,
+    request_count: usize,
     all_completion_calls: Vec<CompletionCall>,
     total_usage: StructuralUsage,
 }
@@ -694,7 +729,7 @@ impl<'a> RunnerStepContext<'a> {
             current_messages: &mut buf.current_messages,
             new_turn_messages: &mut buf.new_turn_messages,
             repeat_tracker: tracker,
-            all_requests: &mut buf.all_requests,
+            request_count: &mut buf.request_count,
             all_completion_calls: &mut buf.all_completion_calls,
             total_usage: &mut buf.total_usage,
         }
@@ -702,7 +737,9 @@ impl<'a> RunnerStepContext<'a> {
 }
 
 #[cfg(test)]
-fn test_agent_env() -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
+fn test_agent_env(
+    model: Arc<crate::provider::adapter::MockAdapter>,
+) -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
     let temp = tempfile::tempdir().unwrap();
     let sm = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
     let cfg = crate::engine::runner::sink::TerminalSinkConfig {
@@ -712,8 +749,7 @@ fn test_agent_env() -> (AgentRunner, tempfile::TempDir, TestStepBuffers, Repeate
     let pres: Arc<dyn rho_harness_core::presentation::Presenter> =
         Arc::new(crate::engine::eval::presenter::NoopPresenter);
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
-    let mock = Arc::new(crate::provider::adapter::MockAdapter::new("m", "p"));
-    let runner = AgentRunner::new(mock, Vec::new(), sm, sink);
+    let runner = AgentRunner::new(model, Vec::new(), sm, sink);
     (
         runner,
         temp,
@@ -725,10 +761,15 @@ fn test_agent_env() -> (AgentRunner, tempfile::TempDir, TestStepBuffers, Repeate
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::adapter::MockAdapter;
+    use rho_harness_core::model::ToolFunction;
+
+    static BACKGROUND_QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[tokio::test]
     async fn test_wait_for_background_jobs_flow() {
-        let (runner, _temp, mut buf, mut tracker) = test_agent_env();
+        let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+        let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
         let sig = CancellationSignal::default();
         let runner = runner.cancellation(Some(sig.clone()));
         let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
@@ -756,5 +797,100 @@ mod tests {
         ));
         crate::tools::jobs::JobManager::global()
             .update_status("bg-2", crate::tools::jobs::JobStatus::Failed { error: "a".into() });
+    }
+
+    #[tokio::test]
+    async fn agent_loop_stops_calling_model_once_receiver_is_dropped() {
+        let model = Arc::new(MockAdapter::from_turns(vec![
+            vec![ModelStreamEvent::ToolCall(ToolCall::new(
+                "call-1",
+                ToolFunction::new("read", serde_json::json!({"path": "a.txt"})),
+            ))],
+            vec![ModelStreamEvent::Text("unreachable".to_string())],
+        ]));
+        let (runner, _temp, _, _) = test_agent_env(model.clone());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let emitter = TurnEmitter { tx, cancellation: None };
+        let consumer = async move {
+            let first = rx.recv().await;
+            assert!(matches!(
+                first,
+                Some(Ok(MultiTurnStreamItem::StreamAssistantItem(
+                    StreamEvent::Arguments { .. }
+                )))
+            ));
+            drop(rx);
+        };
+
+        let (result, ()) = tokio::join!(run_agent_loop(runner.clone(), &emitter), consumer);
+
+        assert!(matches!(result, Err(AppError::Cancelled(_))));
+        assert_eq!(model.requests().len(), 1);
+        assert!(runner.session_manager.active_messages().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_loop_does_not_call_model_after_cancellation() {
+        let model = Arc::new(MockAdapter::text("unreachable"));
+        let (runner, _temp, _, _) = test_agent_env(model.clone());
+        let cancellation = CancellationSignal::default();
+        cancellation.cancel();
+        let runner = runner.cancellation(Some(cancellation));
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let emitter = TurnEmitter {
+            tx,
+            cancellation: runner.cancellation.clone(),
+        };
+
+        let result = run_agent_loop(runner, &emitter).await;
+
+        assert!(matches!(result, Err(AppError::Cancelled(_))));
+        assert!(model.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_loop_reports_failed_commit_instead_of_completing() {
+        let model = Arc::new(MockAdapter::text("answer with sk-live-secret-42"));
+        let (runner, _temp, _, _) = test_agent_env(model);
+        runner
+            .session_manager
+            .add_secrets_async(["sk-live-secret-42".to_string()])
+            .await
+            .unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let emitter = TurnEmitter { tx, cancellation: None };
+
+        let result = run_agent_loop(runner, &emitter).await;
+        drop(emitter);
+
+        assert!(result.is_err());
+        while let Some(item) = rx.recv().await {
+            assert!(!matches!(item, Ok(MultiTurnStreamItem::FinalResponse(_))));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn background_notification_is_injected_once_when_woken() {
+        let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+        let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+        let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+        let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
+        let enqueue = tokio::spawn(async {
+            tokio::task::yield_now().await;
+            crate::engine::runner::turn::types::enqueue_background_notification("bg-once-7d1".to_string());
+        });
+
+        let step = wait_step(&runner, &mut notif_rx, &mut ctx).await.unwrap();
+        enqueue.await.unwrap();
+        drain_background_to_context(&mut ctx);
+
+        assert!(matches!(step, WaitStepResult::EventDelivered));
+        assert_eq!(
+            serde_json::to_string(&*ctx.current_messages)
+                .unwrap()
+                .matches("bg-once-7d1")
+                .count(),
+            1
+        );
     }
 }

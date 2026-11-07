@@ -1,9 +1,48 @@
 pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-#[path = "agent_mesh_integration.rs"]
-mod agent_mesh_integration;
-#[path = "collab_integration.rs"]
-mod collab_integration;
+pub(crate) fn temp_dir(name: &str) -> std::path::PathBuf {
+    tempfile::Builder::new().prefix(name).tempdir().unwrap().keep()
+}
+
+pub(crate) fn write_script(path: &std::path::Path, contents: &str) {
+    std::fs::write(path, contents).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+pub(crate) fn mcp_config(
+    workspace: &std::path::Path,
+    servers: std::collections::BTreeMap<String, rho_harness_core::config::McpServerConfig>,
+) -> rho_harness_core::config::Config {
+    rho_harness_core::config::Config {
+        mcp: rho_harness_core::config::McpConfig {
+            enabled: true,
+            defer_threshold: 10,
+            idle_timeout_seconds: 600,
+            servers,
+        },
+        config_dir: workspace.to_path_buf(),
+        sessions_dir: workspace.join("sessions"),
+        auth_file: workspace.join("auth.json"),
+        ..rho_harness_core::config::Config::default()
+    }
+}
+
+pub(crate) async fn build_engine(
+    workspace: &std::path::Path,
+    config: rho_harness_core::config::Config,
+) -> rho_engine::engine::AgentEngine {
+    let auth_store = rho_engine::auth::AuthStore::load(&config.auth_file).unwrap_or_default();
+    rho_engine::engine::builder::AgentEngineBuilder::new(config, auth_store)
+        .base_dir(workspace.to_path_buf())
+        .build()
+        .await
+        .unwrap()
+}
+
 #[path = "custom_provider.rs"]
 mod custom_provider;
 #[path = "eval.rs"]

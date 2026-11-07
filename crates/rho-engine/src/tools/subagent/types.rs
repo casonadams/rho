@@ -2,7 +2,6 @@ pub use rho_harness_core::args::subagent::{SubagentArgs, SubagentRole};
 
 pub const DEFAULT_SUBAGENT_MAX_TURNS: usize = 10;
 pub const MAX_SUBAGENT_TURNS: usize = 20;
-pub const MAX_SUBAGENT_DEPTH: usize = 1;
 
 #[must_use]
 pub fn clamp_max_turns(requested: Option<usize>) -> usize {

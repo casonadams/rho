@@ -1,5 +1,3 @@
-use crate::auth::AuthStore;
-use crate::cli::auth::TerminalOAuthCallbacks;
 use crate::config::Config;
 use crate::config::cli::McpCommands;
 use rho_engine::mcp::{McpClient, McpProcess, McpTransport};
@@ -7,18 +5,13 @@ use rho_harness_core::config::{McpExposureMode, McpServerConfig, McpTransportKin
 use std::sync::Arc;
 use std::time::Instant;
 
-pub async fn handle_mcp(
-    action: Option<McpCommands>,
-    config: &Config,
-    auth_store: &mut AuthStore,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_mcp(action: Option<McpCommands>, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     match action.unwrap_or(McpCommands::List) {
         McpCommands::List => {
             list_servers(config);
             Ok(())
         }
         McpCommands::Test { name } => test_server(&name, config).await,
-        McpCommands::Login { name } => login_server(&name, config, auth_store).await,
         McpCommands::Add { name, target, args } => add_server(&name, &target, &args, config),
         McpCommands::Remove { name } => remove_server(&name, config),
     }
@@ -149,24 +142,6 @@ async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-async fn login_server(
-    name: &str,
-    config: &Config,
-    auth_store: &mut AuthStore,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(server_cfg) = config.mcp.servers.get(name) else {
-        eprintln!("Error: MCP server '{name}' not found in configuration.");
-        return Ok(());
-    };
-
-    println!("Starting OAuth 2.1 login for MCP server '{name}'...");
-    let callbacks = TerminalOAuthCallbacks;
-    let cred = rho_engine::mcp::login_mcp_server(name, server_cfg, auth_store, &callbacks).await?;
-    println!("✓ Successfully authenticated MCP server '{name}'. Token stored in auth store.");
-    let _ = cred;
-    Ok(())
-}
-
 fn build_server_config(target: &str, args: &[String]) -> McpServerConfig {
     if target.starts_with("http://") || target.starts_with("https://") {
         McpServerConfig {
@@ -277,12 +252,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_test_server_and_login_missing() {
+    async fn test_handle_mcp_actions() {
         let config = Config::default();
-        let mut auth_store = AuthStore::default();
 
-        assert!(test_server("missing", &config).await.is_ok());
-        assert!(login_server("missing", &config, &mut auth_store).await.is_ok());
+        handle_mcp(None, &config).await.unwrap();
+        handle_mcp(Some(McpCommands::List), &config).await.unwrap();
+        handle_mcp(Some(McpCommands::Test { name: "missing".into() }), &config)
+            .await
+            .unwrap();
     }
 
     #[test]
@@ -295,30 +272,5 @@ mod tests {
         let stdio = build_server_config("echo", &["hello".into()]);
         assert_eq!(stdio.command, Some("echo".into()));
         assert_eq!(stdio.args, vec!["hello".to_string()]);
-    }
-
-    #[tokio::test]
-    async fn test_handle_mcp_actions() {
-        let config = Config::default();
-        let mut auth_store = AuthStore::default();
-
-        handle_mcp(None, &config, &mut auth_store).await.unwrap();
-        handle_mcp(Some(McpCommands::List), &config, &mut auth_store)
-            .await
-            .unwrap();
-        handle_mcp(
-            Some(McpCommands::Test { name: "missing".into() }),
-            &config,
-            &mut auth_store,
-        )
-        .await
-        .unwrap();
-        handle_mcp(
-            Some(McpCommands::Login { name: "missing".into() }),
-            &config,
-            &mut auth_store,
-        )
-        .await
-        .unwrap();
     }
 }

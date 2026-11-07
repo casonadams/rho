@@ -11,15 +11,6 @@ pub(crate) fn set_private_directory_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn set_private_directory_permissions_async(_path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o700)).await?;
-    }
-    Ok(())
-}
-
 pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
@@ -31,23 +22,22 @@ pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn set_private_file_permissions_async(_path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        if tokio::fs::try_exists(_path).await.unwrap_or(false) {
-            use std::os::unix::fs::PermissionsExt;
-            tokio::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o600)).await?;
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn new_session_id() -> String {
     format!(
         "{}_{}",
         Utc::now().format("%Y%m%d_%H%M%S"),
         &uuid::Uuid::new_v4().to_string()[..8]
     )
+}
+
+pub(crate) async fn run_blocking<T, F>(task: F) -> Result<T>
+where
+    F: FnOnce() -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|e| session_error(format!("session task failed: {e}")))?
 }
 
 pub(crate) fn validate_session_id(session_id: &str) -> Result<()> {
