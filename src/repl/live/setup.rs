@@ -5,24 +5,6 @@ use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{CrosstermBackend, InteractiveState, TerminalBackend, TerminalController, UiEvent};
-use crate::ui::render::WelcomeDisplay;
-
-pub(super) async fn init_live_engine(session: &mut ReplSession) -> Result<AgentEngine> {
-    let engine = crate::platform::agent_engine(
-        session.config.clone(),
-        session.auth_store.clone(),
-        session.resume_id.as_deref(),
-    )
-    .await?;
-    if let Some(ref cli) = session.cli
-        && let Some(ref name) = cli.name
-    {
-        let _ = engine.session_manager.set_session_name(name).await;
-    }
-    session.config = engine.config.clone();
-    engine.spawn_refresh_quota();
-    Ok(engine)
-}
 
 pub(super) fn init_live_state(session: &ReplSession, engine: &AgentEngine) -> InteractiveState {
     let mut state = InteractiveState::default();
@@ -52,27 +34,6 @@ pub(super) fn init_live_ui(
     let _ = controller.set_theme(session.renderer.theme.clone());
     session.renderer.set_width(controller.width());
     Ok((controller, ui_events))
-}
-
-pub(super) async fn display_welcome_banner(
-    session: &ReplSession,
-    engine: &AgentEngine,
-) -> Vec<crate::skills::ResolvedSkill> {
-    let skills = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref()).await;
-    let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
-    let tools = engine.tool_names();
-    let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
-    let agents = engine.instruction_files().await;
-    session.renderer.print_welcome(&WelcomeDisplay {
-        model: session.config.model.clone(),
-        provider: session.config.provider.clone(),
-        resumed: session.resume_id.is_some(),
-        agents,
-        tools,
-        skills: skill_names,
-        mcp,
-    });
-    skills
 }
 
 pub(super) async fn build_completions(

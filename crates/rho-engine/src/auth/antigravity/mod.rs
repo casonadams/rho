@@ -74,10 +74,11 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
 }
 
 async fn exchange_refresh_token(
+    token_url: &str,
     refresh: String,
     account: (Option<String>, Option<String>),
 ) -> Result<StoredCredential> {
-    let token = refresh_google_token(GOOGLE_TOKEN_URL, &refresh).await?;
+    let token = refresh_google_token(token_url, &refresh).await?;
     let refresh_token = token.refresh_token.or(Some(refresh));
     Ok(oauth_credential(
         token.access_token,
@@ -91,7 +92,7 @@ pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredC
     refresh_oauth_credential(
         credential,
         "Antigravity token has expired and has no refresh token. Re-run 'rho login antigravity'.",
-        exchange_refresh_token,
+        |refresh, account| exchange_refresh_token(GOOGLE_TOKEN_URL, refresh, account),
     )
     .await
 }

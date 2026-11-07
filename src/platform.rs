@@ -19,14 +19,6 @@ pub async fn active_tools(config: &Config, base_dir: &Path) -> Result<ToolAssemb
     Ok(ToolAssembly { tools })
 }
 
-pub async fn active_tools_with_auth(
-    config: &Config,
-    base_dir: &Path,
-    _auth_store: &rho_engine::auth::AuthStore,
-) -> Result<ToolAssembly> {
-    active_tools(config, base_dir).await
-}
-
 pub async fn agent_engine_in_dir(
     config: Config,
     auth_store: AuthStore,

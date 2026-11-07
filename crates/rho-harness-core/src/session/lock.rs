@@ -104,4 +104,41 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn external_handle(path: &std::path::Path) -> std::fs::File {
+        OpenOptions::new().read(true).append(true).open(path).unwrap()
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Keeper {
+        SharedManager,
+        ArcClone,
+    }
+
+    const KEEPERS: [Keeper; 2] = [Keeper::SharedManager, Keeper::ArcClone];
+
+    #[test]
+    fn session_lock_stays_held_while_a_keeper_lives() {
+        for keeper in KEEPERS {
+            let dir = std::env::temp_dir().join(format!("rho_session_lock_keeper_{}", uuid::Uuid::new_v4()));
+            let owner = SessionManager::new(&dir, None).unwrap();
+            let session_id = owner.session_id.clone();
+            let path = owner.file_path.clone();
+            let (manager, lock) = match keeper {
+                Keeper::SharedManager => (Some(SessionManager::new(&dir, Some(&session_id)).unwrap()), None),
+                Keeper::ArcClone => (None, Some(owner._session_lock.clone())),
+            };
+            let external = external_handle(&path);
+
+            drop(owner);
+            assert!(
+                matches!(external.try_lock(), Err(TryLockError::WouldBlock)),
+                "{keeper:?}"
+            );
+            drop(manager);
+            drop(lock);
+            assert!(external.try_lock().is_ok(), "{keeper:?}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
 }

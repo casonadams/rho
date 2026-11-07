@@ -28,7 +28,7 @@ pub use card::{
 pub(crate) use formatters::format_thinking_block;
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
-pub use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
+pub use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 pub use rpc_presenter::{PendingApprovals, RpcPresenter};
 
 pub fn format_duration(duration: std::time::Duration) -> String {

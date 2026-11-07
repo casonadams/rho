@@ -121,10 +121,11 @@ fn resolve_refreshed_ids(
 }
 
 async fn exchange_refresh_token(
+    token_url: &str,
     refresh: String,
     (account_id, account_email): (Option<String>, Option<String>),
 ) -> Result<StoredCredential> {
-    let mut token = refresh_token(TOKEN_URL, &refresh).await?;
+    let mut token = refresh_token(token_url, &refresh).await?;
     if token.refresh_token.is_none() {
         token.refresh_token = Some(refresh);
     }
@@ -141,7 +142,7 @@ pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredC
     refresh_oauth_credential(
         credential,
         "Claude OAuth token has expired and has no refresh token. Re-run 'rho login claude'.",
-        exchange_refresh_token,
+        |refresh, account| exchange_refresh_token(TOKEN_URL, refresh, account),
     )
     .await
 }

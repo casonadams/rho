@@ -103,3 +103,36 @@ impl ReplSession {
         }
     }
 }
+
+pub(crate) async fn init_engine(session: &mut ReplSession) -> Result<AgentEngine> {
+    let engine = crate::platform::agent_engine(
+        session.config.clone(),
+        session.auth_store.clone(),
+        session.resume_id.as_deref(),
+    )
+    .await?;
+    if let Some(name) = session.cli.as_ref().and_then(|cli| cli.name.as_deref()) {
+        let _ = engine.session_manager.set_session_name(name).await;
+    }
+    session.config = engine.config.clone();
+    engine.spawn_refresh_quota();
+    Ok(engine)
+}
+
+pub(crate) async fn print_welcome(session: &ReplSession, engine: &AgentEngine) -> Vec<crate::skills::ResolvedSkill> {
+    let skills = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref()).await;
+    let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
+    let tools = engine.tool_names();
+    let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
+    let agents = engine.instruction_files().await;
+    session.renderer.print_welcome(&crate::ui::render::WelcomeDisplay {
+        model: session.config.model.clone(),
+        provider: session.config.provider.clone(),
+        resumed: session.resume_id.is_some(),
+        agents,
+        tools,
+        skills: skill_names,
+        mcp,
+    });
+    skills
+}

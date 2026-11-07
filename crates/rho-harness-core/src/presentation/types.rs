@@ -111,13 +111,6 @@ fn default_style() -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolOutcome {
-    pub name: String,
-    pub is_error: bool,
-    pub output_summary: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UiEvent {
     Welcome { display: WelcomeDisplay },

@@ -12,5 +12,5 @@ pub use structured::{RecordingSink, StdoutNdjsonSink, StructuredOutputSink, Stru
 pub use summary::summarize_tool_output;
 pub use types::{
     BlockDisplay, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout,
-    SessionStatus, ToolLine, ToolOutcome, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
+    SessionStatus, ToolLine, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
 };

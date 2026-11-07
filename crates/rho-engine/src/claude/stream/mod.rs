@@ -25,6 +25,7 @@ pub struct SseParser {
     cache_creation_input_tokens: u64,
     cache_read_input_tokens: u64,
     reasoning_tokens: u64,
+    stop_reason: FinishReason,
     thinking_open: bool,
     thinking_text: String,
     thinking_signature: Option<String>,
@@ -126,10 +127,13 @@ impl SseParser {
             },
         };
         events.push(Ok(ModelStreamEvent::Usage(usage)));
-        events.push(Ok(ModelStreamEvent::Finish(FinishReason::Stop)));
+        events.push(Ok(ModelStreamEvent::Finish(self.stop_reason)));
     }
 
-    fn handle_message_delta(&mut self, _delta: wire::MessageDeltaPayload, usage: Option<wire::MessageDeltaUsage>) {
+    fn handle_message_delta(&mut self, delta: wire::MessageDeltaPayload, usage: Option<wire::MessageDeltaUsage>) {
+        if let Some(reason) = delta.stop_reason {
+            self.stop_reason = map_finish_reason(&reason);
+        }
         if let Some(usage) = usage {
             self.output_tokens = usage.output_tokens;
             if let Some(inp) = usage.input_tokens {

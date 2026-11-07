@@ -16,7 +16,7 @@ pub use types::*;
 use batch::drain_ui_events;
 use idle::read_idle_input;
 use navigation::update_footer;
-use setup::{build_completions, display_welcome_banner, init_live_engine, init_live_ui, maybe_hydrate_transcript};
+use setup::{build_completions, init_live_ui, maybe_hydrate_transcript};
 
 use super::ReplSession;
 use super::interactive::{CompletionSet, InteractiveHistory};
@@ -125,7 +125,7 @@ async fn build_live_environment(
     CompletionSet,
 )> {
     let (mut controller, mut ui_events) = init_live_ui(session, engine)?;
-    let skills = display_welcome_banner(session, engine).await;
+    let skills = crate::repl::print_welcome(session, engine).await;
     drain_ui_events(&mut controller, &mut ui_events, &mut None)?;
     let mut history = InteractiveHistory::with_file_async(1000, session.config.config_dir.join("history.txt"))
         .await
@@ -137,7 +137,7 @@ async fn build_live_environment(
 
 impl ReplSession {
     pub(super) async fn run_live(&mut self) -> Result<()> {
-        let mut engine = init_live_engine(self).await?;
+        let mut engine = crate::repl::init_engine(self).await?;
         let (mut controller, mut ui_events, mut history, completions) = build_live_environment(self, &engine).await?;
         let mut input = TerminalInputReader::spawn()?;
         let io = LiveIo {

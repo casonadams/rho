@@ -240,7 +240,9 @@ pub fn strip_markdown_decorations(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::wrap_cell;
+    use super::{render_markdown_table_at_width, wrap_cell};
+    use crate::ui::theme::Theme;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
     fn wrap_cell_breaks_words_at_the_column_width() {
@@ -255,5 +257,77 @@ mod tests {
         for (cell, width, expected) in cases {
             assert_eq!(wrap_cell(cell, width), expected, "cell {cell:?} at width {width}");
         }
+    }
+
+    struct Layout {
+        lines: &'static [&'static str],
+        width: usize,
+        starts_with: &'static str,
+        contains: &'static [&'static str],
+        absent: &'static [&'static str],
+    }
+
+    const LAYOUTS: [Layout; 3] = [
+        Layout {
+            lines: &["| Name | Role |", "| --- | --- |", "| rho | engineer |"],
+            width: 12,
+            starts_with: "\x1b[1mName | Role",
+            contains: &["rho", "engineer"],
+            absent: &["\u{256d}"],
+        },
+        Layout {
+            lines: &[
+                "| Name | Description |",
+                "| --- | --- |",
+                "| rho | a deliberately long table cell that wraps |",
+            ],
+            width: 36,
+            starts_with: "",
+            contains: &["\u{256d}", "\u{2570}"],
+            absent: &[],
+        },
+        Layout {
+            lines: &[
+                "| Item | Notes |",
+                "| --- | --- |",
+                "| Rust | fast reliable memory safe |",
+            ],
+            width: 28,
+            starts_with: "",
+            contains: &["reliable", "memory", "safe"],
+            absent: &["reli-"],
+        },
+    ];
+
+    #[test]
+    fn rendered_tables_respect_width_and_layout() {
+        let theme = Theme::default();
+        let ansi = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+        for layout in LAYOUTS {
+            let lines: Vec<String> = layout.lines.iter().map(|line| line.to_string()).collect();
+            let rendered = render_markdown_table_at_width(&lines, &theme, layout.width);
+            let plain = ansi.replace_all(&rendered, "");
+            assert!(rendered.starts_with(layout.starts_with), "{rendered:?}");
+            for item in layout.contains {
+                assert!(rendered.contains(item), "{item:?} missing from {rendered:?}");
+            }
+            for item in layout.absent {
+                assert!(!rendered.contains(item), "{item:?} found in {rendered:?}");
+            }
+            assert!(
+                plain.lines().all(|line| UnicodeWidthStr::width(line) <= layout.width),
+                "{plain:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tables_without_divider_fall_back_to_inline_text() {
+        let theme = Theme::default();
+        let lines = vec!["| a | b |".to_string(), "| c | d |".to_string()];
+        assert_eq!(
+            render_markdown_table_at_width(&lines, &theme, 40),
+            "| a | b |\n| c | d |\n"
+        );
     }
 }

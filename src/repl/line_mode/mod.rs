@@ -16,7 +16,7 @@ use crate::repl::commands::{SlashCommandContext, SlashCommandHandler};
 use crate::repl::completer::RhoCompleter;
 use crate::repl::prompt::SimplePrompt;
 use crate::ui::TerminalRenderer;
-use crate::ui::render::{SessionStatus, WelcomeDisplay};
+use crate::ui::render::SessionStatus;
 use dispatch::{DispatchOutcome, handle_command_result};
 use reedline::{
     ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
@@ -87,24 +87,6 @@ pub async fn build_line_editor_async(config: &Config, auth_store: &AuthStore) ->
         .with_edit_mode(edit_mode))
 }
 
-pub async fn print_line_mode_welcome(session: &ReplSession, engine: &AgentEngine) {
-    let skills = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref()).await;
-    let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
-    let tools = engine.tool_names();
-    let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
-    let agents = engine.instruction_files().await;
-
-    session.renderer.print_welcome(&WelcomeDisplay {
-        model: session.config.model.clone(),
-        provider: session.config.provider.clone(),
-        resumed: session.resume_id.is_some(),
-        agents,
-        tools,
-        skills: skill_names,
-        mcp,
-    });
-}
-
 async fn handle_turn_cancellation(engine: &AgentEngine, renderer: &TerminalRenderer) -> Result<()> {
     rho_engine::process::kill_all_tracked_processes();
     renderer.flush();
@@ -156,33 +138,19 @@ pub async fn run_agent_turn(
     }
 }
 
-async fn apply_cli_session_name(engine: &AgentEngine, cli: Option<&crate::config::cli::Cli>) {
-    if let Some(name) = cli.and_then(|c| c.name.as_deref()) {
-        let _ = engine.session_manager.set_session_name(name).await;
+trait LineSource: Sized {
+    async fn read_next(self) -> Result<(Self, std::io::Result<Signal>)>;
+}
+
+impl LineSource for Reedline {
+    async fn read_next(mut self) -> Result<(Self, std::io::Result<Signal>)> {
+        tokio::task::spawn_blocking(move || {
+            let sig = self.read_line(&SimplePrompt);
+            (self, sig)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Line editor task failed: {e}").into())
     }
-}
-
-async fn init_line_mode(session: &mut ReplSession) -> Result<AgentEngine> {
-    let engine = crate::platform::agent_engine(
-        session.config.clone(),
-        session.auth_store.clone(),
-        session.resume_id.as_deref(),
-    )
-    .await?;
-    apply_cli_session_name(&engine, session.cli.as_ref()).await;
-    session.config = engine.config.clone();
-    engine.spawn_refresh_quota();
-    print_line_mode_welcome(session, &engine).await;
-    Ok(engine)
-}
-
-async fn read_next_line(mut editor: reedline::Reedline) -> Result<(reedline::Reedline, std::io::Result<Signal>)> {
-    tokio::task::spawn_blocking(move || {
-        let sig = editor.read_line(&SimplePrompt);
-        (editor, sig)
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("Line editor task failed: {e}").into())
 }
 
 async fn handle_line_slash_command(
@@ -335,8 +303,8 @@ fn step_line_prompt(session: &ReplSession, engine: &AgentEngine, is_first: &mut 
     render_line_mode_prompt(session, engine);
 }
 
-async fn run_line_event_loop(
-    mut line_editor: Reedline,
+async fn run_line_event_loop<S: LineSource>(
+    mut line_editor: S,
     session: &mut ReplSession,
     mut engine: AgentEngine,
     stdin_is_tty: bool,
@@ -344,7 +312,7 @@ async fn run_line_event_loop(
     let mut is_first = true;
     loop {
         step_line_prompt(session, &engine, &mut is_first);
-        let (next_editor, sig) = read_next_line(line_editor).await?;
+        let (next_editor, sig) = line_editor.read_next().await?;
         line_editor = next_editor;
         if !handle_line_signal(sig, session, &mut engine, stdin_is_tty).await? {
             break;
@@ -354,7 +322,8 @@ async fn run_line_event_loop(
 }
 
 pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
-    let engine = init_line_mode(session).await?;
+    let engine = crate::repl::init_engine(session).await?;
+    crate::repl::print_welcome(session, &engine).await;
     let line_editor = build_line_editor_async(&session.config, &session.auth_store).await?;
     run_line_event_loop(line_editor, session, engine, stdin_is_tty).await
 }

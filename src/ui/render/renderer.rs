@@ -10,13 +10,12 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_headless_tool_card;
-use crate::ui::render::formatters::format_thinking_block;
 use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::render::thinking_stream::ThinkingStreamTracker;
 use crate::ui::theme::Theme;
+use rho_harness_core::presentation::ToolLine;
 use rho_harness_core::presentation::stream::ToolStreamPort;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
-use rho_harness_core::presentation::{ToolLine, ToolOutcome};
 
 pub use super::notices::CacheMissNotice;
 
@@ -201,19 +200,6 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_thinking(&self, thinking_text: &str) {
-        let trimmed = thinking_text.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string()));
-        } else {
-            let formatted = format_thinking_block(trimmed, &self.theme, self.width());
-            self.write_output(&formatted);
-        }
-    }
-
     pub fn start_spinner(&self, message: &str) -> RenderActivity {
         if let Some(ui) = &self.ui {
             let activity = if message.starts_with("thinking") {
@@ -280,18 +266,5 @@ impl TerminalRenderer {
         let header = self.theme.tool_header;
         let dim = self.theme.dimmed;
         self.write_output(&format!("\n{header}{name}{header:#} {dim}{summary}{dim:#}\n"));
-    }
-
-    pub fn print_tool_end(&self, outcome: ToolOutcome) {
-        if outcome.is_error {
-            let err = self.theme.tool_err;
-            self.write_output(&format!(
-                "{err}{} failed:{err:#} {}\n",
-                outcome.name, outcome.output_summary
-            ));
-        } else {
-            let ok = self.theme.tool_ok;
-            self.write_output(&format!("{ok}{}{ok:#}\n", outcome.name));
-        }
     }
 }

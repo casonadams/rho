@@ -90,3 +90,39 @@ async fn fetch_user_email_reads_email_only_from_successful_json() {
         );
     }
 }
+
+const REFRESH_CASES: [(&str, &str); 2] = [
+    (
+        r#"{"access_token":"ya29.refreshed","refresh_token":"1//rotated","expires_in":3599}"#,
+        "1//rotated",
+    ),
+    (
+        r#"{"access_token":"ya29.refreshed","expires_in":3599}"#,
+        "1//old-refresh",
+    ),
+];
+
+#[tokio::test]
+async fn exchange_refresh_token_keeps_account_and_previous_refresh_when_not_rotated() {
+    for (body, expected_refresh) in REFRESH_CASES {
+        let token_url = crate::test_support::serve_http(vec![("200 OK", body.to_string())]).await;
+        let account = (Some("project-1".to_string()), Some("dev@example.com".to_string()));
+        let cred = exchange_refresh_token(&token_url, "1//old-refresh".to_string(), account)
+            .await
+            .unwrap();
+        let StoredCredential::OAuth {
+            access_token,
+            refresh_token,
+            account_id,
+            account_email,
+            ..
+        } = cred
+        else {
+            panic!("expected OAuth credential");
+        };
+        assert_eq!(access_token, "ya29.refreshed");
+        assert_eq!(refresh_token.as_deref(), Some(expected_refresh));
+        assert_eq!(account_id.as_deref(), Some("project-1"));
+        assert_eq!(account_email.as_deref(), Some("dev@example.com"));
+    }
+}

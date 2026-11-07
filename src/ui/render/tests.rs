@@ -15,7 +15,7 @@ use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, clean_command_paths, format_tool_args_summary, read_summary_parts,
     to_relative_path,
 };
-use rho_harness_core::presentation::{BlockDisplay, SessionStatus, ToolLine};
+use rho_harness_core::presentation::{BlockDisplay, SessionStatus, ToolLine, WelcomeDisplay};
 
 fn assert_contains_all(s: &str, items: &[&str]) {
     for item in items {
@@ -598,6 +598,37 @@ fn print_compaction_and_cache_miss_notices() {
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("Compaction: 154k tokens billed (~$0.46)"));
     assert!(items[1].contains("Cache miss after 5m idle: 45k tokens re-billed (~$0.14)"));
+}
+
+#[test]
+fn print_welcome_emits_transcript_welcome_item() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.print_welcome(&WelcomeDisplay {
+        model: "claude-sonnet".to_string(),
+        provider: "anthropic".to_string(),
+        resumed: true,
+        agents: vec!["AGENTS.md".to_string()],
+        tools: vec!["read".to_string()],
+        skills: vec!["plan".to_string()],
+        mcp: vec!["github".to_string()],
+    });
+
+    let item = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event {
+            UiEvent::Transcript(TranscriptItem::Welcome(item)) => Some(item),
+            _ => None,
+        })
+        .expect("welcome item");
+    assert_eq!(item.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(item.model, "claude-sonnet");
+    assert_eq!(item.provider, "anthropic");
+    assert!(item.resumed);
+    assert_eq!(item.agents, ["AGENTS.md"]);
+    assert_eq!(item.tools, ["read"]);
+    assert_eq!(item.skills, ["plan"]);
+    assert_eq!(item.mcp, ["github"]);
 }
 
 #[test]

@@ -89,7 +89,9 @@ pub(super) enum ContentDeltaPayload {
 }
 
 #[derive(Deserialize)]
-pub(super) struct MessageDeltaPayload {}
+pub(super) struct MessageDeltaPayload {
+    pub stop_reason: Option<String>,
+}
 
 #[derive(Deserialize)]
 pub(super) struct MessageDeltaUsage {

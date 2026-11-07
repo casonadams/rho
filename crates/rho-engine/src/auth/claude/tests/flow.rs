@@ -148,6 +148,37 @@ async fn test_refresh_credential_api_key_errors() {
 }
 
 #[tokio::test]
+async fn exchange_refresh_token_keeps_account_and_previous_refresh_when_not_rotated() {
+    let cases = [
+        (
+            r#"{"access_token":"sk-ant-oat-2","refresh_token":"sk-ant-ort-2","expires_in":3600}"#,
+            "sk-ant-ort-2",
+        ),
+        (r#"{"access_token":"sk-ant-oat-2","expires_in":3600}"#, "sk-ant-ort-1"),
+    ];
+    for (body, expected_refresh) in cases {
+        let token_url = crate::test_support::serve_http(vec![("200 OK", body.to_string())]).await;
+        let account = (Some("acct-1".to_string()), Some("dev@example.com".to_string()));
+        let cred = exchange_refresh_token(&token_url, "sk-ant-ort-1".to_string(), account)
+            .await
+            .unwrap();
+        let StoredCredential::OAuth {
+            access_token,
+            refresh_token,
+            account_id,
+            account_email,
+            ..
+        } = cred
+        else {
+            panic!("expected OAuth credential");
+        };
+        assert_eq!(access_token, "sk-ant-oat-2");
+        assert_eq!(refresh_token.as_deref(), Some(expected_refresh));
+        assert_eq!(account_id.as_deref(), Some("acct-1"));
+        assert_eq!(account_email.as_deref(), Some("dev@example.com"));
+    }
+}
+#[tokio::test]
 async fn test_perform_login_accept_local_credentials() {
     let callbacks = MockCallbacks {
         prompt_response: String::new(),

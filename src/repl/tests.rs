@@ -90,3 +90,26 @@ async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
     }
     let _ = std::fs::remove_dir_all(home);
 }
+
+#[tokio::test]
+async fn init_engine_applies_cli_session_name() {
+    use crate::auth::AuthStore;
+    use crate::config::cli::Cli;
+    use clap::Parser;
+    use rho_harness_core::config::Config;
+
+    let temp = tempfile::tempdir().unwrap();
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        sessions_dir: temp.path().join("sessions"),
+        ..Default::default()
+    };
+    let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
+        .with_cli(Some(Cli::parse_from(["rho", "--name", "named-session"])));
+    let engine = super::init_engine(&mut session).await.unwrap();
+    assert_eq!(
+        engine.session_manager.cached_session_name().as_deref(),
+        Some("named-session")
+    );
+    super::print_welcome(&session, &engine).await;
+}

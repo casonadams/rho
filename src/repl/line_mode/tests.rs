@@ -413,3 +413,36 @@ async fn test_step_line_prompt() {
     super::step_line_prompt(&session, &engine, &mut is_first);
     assert!(!is_first);
 }
+
+struct ScriptedLines(std::collections::VecDeque<std::io::Result<reedline::Signal>>);
+
+impl super::LineSource for ScriptedLines {
+    async fn read_next(mut self) -> crate::error::Result<(Self, std::io::Result<reedline::Signal>)> {
+        let sig = self.0.pop_front().expect("line loop read past its script");
+        Ok((self, sig))
+    }
+}
+
+#[tokio::test]
+async fn run_line_event_loop_stops_on_exit_or_input_error() {
+    use reedline::Signal;
+    let scripts: [Vec<std::io::Result<Signal>>; 2] = [
+        vec![
+            Ok(Signal::Success("   ".to_string())),
+            Ok(Signal::CtrlC),
+            Ok(Signal::Success("/help".to_string())),
+            Ok(Signal::Success("/exit".to_string())),
+        ],
+        vec![
+            Ok(Signal::Success("/help".to_string())),
+            Err(std::io::Error::other("read error")),
+        ],
+    ];
+    let temp = tempfile::tempdir().unwrap();
+    for script in scripts {
+        let (mut session, engine) = setup_test_session(temp.path()).await;
+        super::run_line_event_loop(ScriptedLines(script.into()), &mut session, engine, false)
+            .await
+            .unwrap();
+    }
+}

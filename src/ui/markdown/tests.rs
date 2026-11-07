@@ -1,9 +1,7 @@
 use crate::ui::markdown::highlight::highlight_code_line;
 use crate::ui::markdown::renderer::MarkdownRenderer;
-use crate::ui::markdown::table::render_markdown_table_at_width;
 use crate::ui::markdown::{CodeHighlighter, render_inline_elements};
 use crate::ui::theme::Theme;
-use unicode_width::UnicodeWidthStr;
 
 #[test]
 fn test_bold_rendering() {
@@ -24,18 +22,6 @@ fn inline_code_complete_rendering() {
     let theme = Theme::default();
     let complete = render_inline_elements("Run `cargo test` now", &theme);
     assert!(complete.contains("cargo test") && !complete.contains('`') && complete.contains("\x1b[36m"));
-}
-
-#[test]
-fn inline_code_streamed_rendering() {
-    let theme = Theme::default();
-    let mut markdown = MarkdownRenderer::new();
-    let streamed = format!(
-        "{}{}",
-        markdown.render_token("Run `cargo", &theme),
-        markdown.render_token(" test` now", &theme)
-    );
-    assert!(streamed.contains("cargo") && streamed.contains(" test") && !streamed.contains('`'));
 }
 
 #[test]
@@ -216,91 +202,125 @@ fn test_stream_prose_word_by_word() {
     assert_eq!(flushed, "\n");
 }
 
+struct StreamCase {
+    chunks: &'static [&'static str],
+    held_chunks: usize,
+    table: bool,
+    contains: &'static [&'static str],
+    absent: &'static [&'static str],
+}
+
+const STREAM_CASES: [StreamCase; 11] = [
+    StreamCase {
+        chunks: &["Run `cargo", " test` now"],
+        held_chunks: 0,
+        table: false,
+        contains: &["cargo", " test"],
+        absent: &["`"],
+    },
+    StreamCase {
+        chunks: &["The response from the", " active task is complete.\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["The response from the", " active task is complete."],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["-", " cargo test --all-targets\n"],
+        held_chunks: 1,
+        table: false,
+        contains: &["cargo test --all-targets"],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["1", ".", " First step\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["1.", "First step"],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["10", ".", " Tenth step\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["10.", "Tenth step"],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["This is *", "*bold** text\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["bold", "\x1b[1m"],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["Math: 3 * ", "4 = 12\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["3 * 4 = 12"],
+        absent: &["\x1b[3m"],
+    },
+    StreamCase {
+        chunks: &["This is *ital", "ic* text\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["italic", "\x1b[3m"],
+        absent: &["*"],
+    },
+    StreamCase {
+        chunks: &["-", "-flag\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["--flag"],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["| Name ", "| Role |\n", "|---|---|\n", "| Alice | Engineer |\n\n"],
+        held_chunks: 3,
+        table: true,
+        contains: &["Alice", "Engineer"],
+        absent: &[],
+    },
+    StreamCase {
+        chunks: &["| Just a line with pipes | not a real table\n\n"],
+        held_chunks: 0,
+        table: false,
+        contains: &["Just a line with pipes"],
+        absent: &["\u{250c}", "\u{256d}"],
+    },
+];
+
 #[test]
-fn test_streamed_line_suffix_before_newline_is_not_dropped() {
+fn streamed_chunks_render_split_markdown() {
     let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let first = md.render_token("The response from the", &theme);
-    let second = md.render_token(" active task is complete.\n", &theme);
-
-    assert!(first.contains("The response from the"));
-    assert!(second.contains(" active task is complete."));
+    for case in STREAM_CASES {
+        let mut md = MarkdownRenderer::new();
+        let mut outputs: Vec<String> = case.chunks.iter().map(|chunk| md.render_token(chunk, &theme)).collect();
+        outputs.push(md.flush(&theme));
+        let out = outputs.concat();
+        for output in &outputs[..case.held_chunks] {
+            assert!(output.is_empty(), "chunk output {output:?} for {:?}", case.chunks);
+        }
+        if case.table {
+            assert_table_contains(&out, case.contains);
+        } else {
+            for item in case.contains {
+                assert!(out.contains(item), "{item:?} missing from {out:?}");
+            }
+        }
+        for item in case.absent {
+            assert!(!out.contains(item), "{item:?} found in {out:?}");
+        }
+    }
 }
 
 #[test]
-fn test_split_list_marker_does_not_drop_item_text() {
-    let theme = Theme::default();
+fn streamed_line_prefix_is_emitted_before_the_newline() {
     let mut md = MarkdownRenderer::new();
-
-    let marker = md.render_token("-", &theme);
-    let item = md.render_token(" cargo test --all-targets\n", &theme);
-
-    assert!(marker.is_empty());
-    assert!(item.contains("cargo test --all-targets"));
-}
-
-#[test]
-fn test_split_ordered_list_marker() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let t1 = md.render_token("1", &theme);
-    let t2 = md.render_token(".", &theme);
-    let t3 = md.render_token(" First step\n", &theme);
-    let flushed = md.flush(&theme);
-    let full = format!("{t1}{t2}{t3}{flushed}");
-    assert!(full.contains("1."));
-    assert!(full.contains("First step"));
-}
-
-#[test]
-fn test_multi_digit_ordered_list_marker() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let t1 = md.render_token("10", &theme);
-    let t2 = md.render_token(".", &theme);
-    let t3 = md.render_token(" Tenth step\n", &theme);
-    let flushed = md.flush(&theme);
-    let full = format!("{t1}{t2}{t3}{flushed}");
-    assert!(full.contains("10."));
-    assert!(full.contains("Tenth step"));
-}
-
-#[test]
-fn test_stream_split_bold_asterisks() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let t1 = md.render_token("This is *", &theme);
-    let t2 = md.render_token("*bold** text\n", &theme);
-    let full = format!("{t1}{t2}");
-    assert!(full.contains("bold"));
-    assert!(full.contains("\x1b[1m"));
-}
-
-#[test]
-fn test_stream_math_asterisks_does_not_toggle_italic() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let t1 = md.render_token("Math: 3 * ", &theme);
-    let t2 = md.render_token("4 = 12\n", &theme);
-    let full = format!("{t1}{t2}");
-    assert!(full.contains("3 * 4 = 12"));
-    assert!(!full.contains("\x1b[3m"));
-}
-
-#[test]
-fn test_unbuffered_transition_preserves_buffered_prefix() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let t1 = md.render_token("-", &theme);
-    let t2 = md.render_token("-flag\n", &theme);
-    let full = format!("{t1}{t2}");
-    assert!(full.contains("--flag"));
+    assert!(
+        md.render_token("The response from the", &Theme::default())
+            .contains("The response from the")
+    );
 }
 
 #[test]
@@ -349,62 +369,6 @@ fn test_table_rendering() {
     let chunk = "| Category | Details |\n|---|---|\n| Architecture | Linear Loop |\n\n";
     let out = md.render_token(chunk, &theme);
     assert_table_contains(&out, &["Category", "Details", "Architecture", "Linear Loop"]);
-}
-
-#[test]
-fn table_renderer_uses_rounded_borders_and_respects_width() {
-    let theme = Theme::default();
-    let lines = vec![
-        "| Name | Description |".to_string(),
-        "| --- | --- |".to_string(),
-        "| rho | a deliberately long table cell that wraps |".to_string(),
-    ];
-    let rendered = render_markdown_table_at_width(&lines, &theme, 36);
-    let ansi = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
-    let plain = ansi.replace_all(&rendered, "");
-    assert!(plain.contains('╭'));
-    assert!(plain.contains('╰'));
-    assert!(plain.lines().all(|line| UnicodeWidthStr::width(line) <= 36));
-}
-
-#[test]
-fn test_chunked_table_streaming() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let t1 = md.render_token("| Name ", &theme);
-    let t2 = md.render_token("| Role |\n", &theme);
-    let t3 = md.render_token("|---|---|\n", &theme);
-    assert!(t1.is_empty() && t2.is_empty() && t3.is_empty());
-
-    let t4 = md.render_token("| Alice | Engineer |\n\n", &theme);
-    assert_table_contains(&t4, &["Alice", "Engineer"]);
-}
-
-#[test]
-fn test_pipe_text_without_divider_falls_back_to_text() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let text = "| Just a line with pipes | not a real table\n\n";
-    let out = md.render_token(text, &theme);
-    assert!(out.contains("Just a line with pipes"));
-    assert!(!out.contains('┌') && !out.contains('╭'));
-}
-
-#[test]
-fn table_cell_wraps_on_word_boundaries() {
-    let theme = Theme::default();
-    let lines = vec![
-        "| Item | Notes |".to_string(),
-        "| --- | --- |".to_string(),
-        "| Rust | fast reliable memory safe |".to_string(),
-    ];
-    let rendered = render_markdown_table_at_width(&lines, &theme, 28);
-    for word in ["reliable", "memory", "safe"] {
-        assert!(rendered.contains(word));
-    }
-    assert!(!rendered.contains("reli-"));
 }
 
 #[test]

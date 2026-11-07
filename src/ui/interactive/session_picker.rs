@@ -14,10 +14,19 @@ pub fn prompt_session_picker(sessions_dir: &Path, theme: &Theme) -> Result<Optio
 
     let mut controller = TerminalController::stdout(crate::ui::interactive::InteractiveState::default())?;
     controller.set_theme(theme.clone())?;
-    controller.state_mut().push_modal(session_modal(&summaries));
-    controller.redraw()?;
+    run_picker(&mut controller, &summaries, || {
+        crossterm::event::read().map_err(Into::into)
+    })
+}
 
-    key_loop(&mut controller)
+fn run_picker<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    summaries: &[SessionSummary],
+    next_event: impl FnMut() -> Result<Event>,
+) -> Result<Option<String>> {
+    controller.state_mut().push_modal(session_modal(summaries));
+    controller.redraw()?;
+    run_event_loop(controller, next_event)
 }
 
 pub fn session_modal(summaries: &[SessionSummary]) -> ModalState {
@@ -159,10 +168,6 @@ where
             return Ok(outcome);
         }
     }
-}
-
-fn key_loop(controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>) -> Result<Option<String>> {
-    run_event_loop(controller, || crossterm::event::read().map_err(Into::into))
 }
 
 #[cfg(test)]
@@ -323,58 +328,51 @@ mod tests {
     }
 
     #[test]
-    fn run_event_loop_selects_session() {
+    fn picker_event_loop_outcomes() {
         use crate::ui::interactive::InteractiveState;
         use crate::ui::interactive::controller::tests::fake::FakeTerminal;
 
-        let (backend, _, _) = FakeTerminal::new(80);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-        controller.state_mut().push_modal(modal());
-
-        let mut events = vec![
-            Event::Resize(80, 24),
-            Event::FocusGained,
-            Event::Key(KeyEvent {
-                code: KeyCode::Down,
-                modifiers: KeyModifiers::NONE,
-                kind: crossterm::event::KeyEventKind::Release,
-                state: KeyEventState::NONE,
-            }),
-            Event::Key(key(KeyCode::Down, KeyModifiers::NONE)),
-            Event::Key(key(KeyCode::Enter, KeyModifiers::NONE)),
-        ]
-        .into_iter();
-
-        let result = run_event_loop(&mut controller, || Ok(events.next().unwrap())).unwrap();
-        assert_eq!(result, Some("bbb-222".to_string()));
+        let press = |code| Event::Key(key(code, KeyModifiers::NONE));
+        let release_down = Event::Key(KeyEvent {
+            code: KeyCode::Down,
+            modifiers: KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Release,
+            state: KeyEventState::NONE,
+        });
+        let cases: Vec<(bool, Vec<Event>, Option<&str>)> = vec![
+            (
+                true,
+                vec![
+                    Event::Resize(80, 24),
+                    Event::FocusGained,
+                    release_down,
+                    press(KeyCode::Down),
+                    press(KeyCode::Enter),
+                ],
+                Some("bbb-222"),
+            ),
+            (true, vec![press(KeyCode::Down), press(KeyCode::Enter)], Some("bbb-222")),
+            (true, vec![press(KeyCode::Esc)], None),
+            (false, vec![press(KeyCode::Enter)], None),
+        ];
+        for (picker, events, expected) in cases {
+            let (backend, _, _) = FakeTerminal::new(80);
+            let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+            let mut events = events.into_iter();
+            let next_event = || -> Result<Event> { Ok(events.next().unwrap()) };
+            let result = if picker {
+                run_picker(&mut controller, &summaries(), next_event)
+            } else {
+                run_event_loop(&mut controller, next_event)
+            };
+            assert_eq!(result.unwrap(), expected.map(str::to_string));
+        }
     }
 
     #[test]
-    fn run_event_loop_cancels() {
-        use crate::ui::interactive::InteractiveState;
-        use crate::ui::interactive::controller::tests::fake::FakeTerminal;
-
-        let (backend, _, _) = FakeTerminal::new(80);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-        controller.state_mut().push_modal(modal());
-
-        let mut events = vec![Event::Key(key(KeyCode::Esc, KeyModifiers::NONE))].into_iter();
-
-        let result = run_event_loop(&mut controller, || Ok(events.next().unwrap())).unwrap();
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn run_event_loop_exits_when_no_active_modal() {
-        use crate::ui::interactive::InteractiveState;
-        use crate::ui::interactive::controller::tests::fake::FakeTerminal;
-
-        let (backend, _, _) = FakeTerminal::new(80);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-
-        let mut events = vec![Event::Key(key(KeyCode::Enter, KeyModifiers::NONE))].into_iter();
-
-        let result = run_event_loop(&mut controller, || Ok(events.next().unwrap())).unwrap();
+    fn prompt_session_picker_without_sessions_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = prompt_session_picker(dir.path(), &Theme::default()).unwrap();
         assert_eq!(result, None);
     }
 }
