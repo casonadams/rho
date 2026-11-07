@@ -83,3 +83,41 @@ async fn structured_presenter_records_events_in_sequence() {
     assert_tool_events(&events);
     assert_turn_completed(&events);
 }
+
+#[test]
+fn welcome_status_and_tool_chunk_emit_events() {
+    let recording = RecordingSink::new();
+    let presenter = StructuredPresenter::recording(recording.clone());
+    let welcome = WelcomeDisplay {
+        model: "model-a".to_string(),
+        provider: "provider-a".to_string(),
+        resumed: false,
+        agents: Vec::new(),
+        tools: vec!["bash".to_string()],
+        skills: Vec::new(),
+        mcp: Vec::new(),
+    };
+    let status = SessionStatus {
+        model: "model-a".to_string(),
+        provider: "provider-a".to_string(),
+        context: "1k".to_string(),
+        quota: None,
+    };
+    presenter.print_welcome(&welcome);
+    presenter.print_session_status(&status);
+    StructuredStreamSink {
+        sink: presenter.sink().clone(),
+    }
+    .tool_chunk("out\n".to_string());
+    assert_eq!(
+        recording.events(),
+        vec![
+            UiEvent::Welcome { display: welcome },
+            UiEvent::SessionStatus { display: status },
+            UiEvent::ToolChunk {
+                name: String::new(),
+                chunk: "out\n".to_string(),
+            },
+        ]
+    );
+}

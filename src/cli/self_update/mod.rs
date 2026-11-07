@@ -54,14 +54,8 @@ pub struct GitHubClient {
     client: reqwest::Client,
 }
 
-impl Default for GitHubClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl GitHubClient {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             base_url: "https://api.github.com".to_string(),
             client: CLIENT.clone(),

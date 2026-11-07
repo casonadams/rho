@@ -49,22 +49,30 @@ async fn env_references_in_api_keys_are_expanded() {
 }
 
 #[tokio::test]
-async fn force_refresh_returns_api_key_directly() {
-    let (_file, mut store) = store_with("anthropic", StoredCredential::api_key("sk-ant-api03-test".to_string()));
-
-    let refreshed = store.force_refresh("anthropic").await.unwrap();
-    assert_eq!(refreshed.as_deref(), Some("sk-ant-api03-test"));
-}
-
-#[tokio::test]
-async fn force_refresh_missing_refresh_token_fails() {
-    let (_file, mut store) = store_with(
-        "antigravity",
-        StoredCredential::oauth("stale_token", None, Some(1799999999000)),
-    );
-
-    let err = store.force_refresh("antigravity").await.unwrap_err();
-    assert!(err.to_string().contains("No refresh token") || err.to_string().contains("expired"));
+async fn force_refresh_returns_api_keys_and_rejects_oauth_without_refresh_token() {
+    let cases = [
+        (
+            "anthropic",
+            StoredCredential::api_key("sk-ant-api03-test".to_string()),
+            Some("sk-ant-api03-test"),
+        ),
+        (
+            "antigravity",
+            StoredCredential::oauth("stale_token", None, Some(1799999999000)),
+            None,
+        ),
+    ];
+    for (provider, credential, expected_key) in cases {
+        let (_file, mut store) = store_with(provider, credential);
+        let result = AuthStore::force_refresh(&mut store, provider).await;
+        match expected_key {
+            Some(key) => assert_eq!(result.unwrap().as_deref(), Some(key)),
+            None => {
+                let message = result.unwrap_err().to_string();
+                assert!(message.contains("No refresh token") || message.contains("expired"));
+            }
+        }
+    }
 }
 
 #[tokio::test]

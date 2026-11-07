@@ -306,6 +306,7 @@ mod tests {
     struct TrackingPresenter {
         idle_count: Arc<AtomicUsize>,
         active_tools: Arc<AtomicUsize>,
+        thinking: Arc<Mutex<Vec<String>>>,
     }
 
     #[async_trait]
@@ -313,6 +314,9 @@ mod tests {
         fn write_output(&self, _text: &str) {}
         fn print_welcome(&self, _display: &WelcomeDisplay) {}
         fn print_session_status(&self, _display: &SessionStatus) {}
+        fn finish_thinking(&self, thinking_text: &str) {
+            self.thinking.lock().unwrap().push(thinking_text.to_string());
+        }
         fn print_notice(&self, _text: &str) {}
         fn print_user_block(&self, _input: &str) {}
         fn print_token(&self, _token: &str) {}
@@ -342,24 +346,29 @@ mod tests {
         }
     }
 
-    #[test]
-    fn tool_transitions_disarm_intermediate_spinners_without_emitting_idle() {
-        let temp = tempfile::tempdir().unwrap();
+    fn new_test_sink(temp: &tempfile::TempDir, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
         let session = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
-        let idle_count = Arc::new(AtomicUsize::new(0));
-        let active_tools = Arc::new(AtomicUsize::new(0));
-        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
-            idle_count: idle_count.clone(),
-            active_tools: active_tools.clone(),
-        });
-        let sink = TerminalApprovalSink::new(
-            &presenter,
+        TerminalApprovalSink::new(
+            presenter,
             TerminalSinkConfig {
                 model_label: "test".to_string(),
                 run_tracker: crate::engine::metrics::RunTracker::default(),
             },
             session,
-        );
+        )
+    }
+
+    #[test]
+    fn tool_transitions_disarm_intermediate_spinners_without_emitting_idle() {
+        let temp = tempfile::tempdir().unwrap();
+        let idle_count = Arc::new(AtomicUsize::new(0));
+        let active_tools = Arc::new(AtomicUsize::new(0));
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: idle_count.clone(),
+            active_tools: active_tools.clone(),
+            thinking: Arc::default(),
+        });
+        let sink = new_test_sink(&temp, &presenter);
 
         sink.resume_model_spinner();
         assert_eq!(idle_count.load(Ordering::SeqCst), 0);
@@ -378,5 +387,21 @@ mod tests {
 
         sink.finish_spinner();
         assert_eq!(idle_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn dropping_sink_flushes_buffered_reasoning() {
+        let temp = tempfile::tempdir().unwrap();
+        let thinking = Arc::new(Mutex::new(Vec::new()));
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: Arc::default(),
+            active_tools: Arc::default(),
+            thinking: thinking.clone(),
+        });
+        let sink = new_test_sink(&temp, &presenter);
+        sink.emit_reasoning("pondering");
+        assert!(thinking.lock().unwrap().is_empty());
+        drop(sink);
+        assert_eq!(*thinking.lock().unwrap(), vec!["pondering".to_string()]);
     }
 }
