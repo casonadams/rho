@@ -243,3 +243,43 @@ fn test_prompt_select_from() {
     assert!(output.contains("1. Option A"));
     assert!(output.contains("2. Option B"));
 }
+
+#[test]
+fn test_prompt_auth_choice_maps_selection_to_method() {
+    use super::provider::{AuthMethod, prompt_auth_choice};
+    use crate::error::AppError;
+
+    let cases = [
+        (Some(0), Some(AuthMethod::ApiKey)),
+        (Some(1), Some(AuthMethod::OAuth)),
+        (None, None),
+    ];
+    for (selected, expected) in cases {
+        let select = move |prompt: &str, items: &[String]| {
+            assert_eq!(prompt, "Pick:");
+            assert_eq!(items, ["first".to_string(), "second".to_string()]);
+            selected.ok_or_else(|| AppError::Cancelled("cancelled".to_string()))
+        };
+        let result = prompt_auth_choice(
+            select,
+            "Pick:",
+            ["first", "second"],
+            [AuthMethod::ApiKey, AuthMethod::OAuth],
+        );
+        match expected {
+            Some(method) => assert_eq!(result.unwrap(), method),
+            None => assert!(result.is_err()),
+        }
+    }
+}
+
+#[test]
+fn test_prompt_auth_fns_unavailable_without_terminal() {
+    use super::provider::{prompt_auth_method, prompt_select_auth_method};
+    use crate::error::AppError;
+
+    let results = [prompt_select_auth_method(), prompt_auth_method("Anthropic")];
+    for result in results {
+        assert!(matches!(result, Err(AppError::Cancelled(msg)) if msg == "Interactive selection unavailable"));
+    }
+}

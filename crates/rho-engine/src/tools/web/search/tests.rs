@@ -112,3 +112,25 @@ fn test_format_search_results() {
     assert!(formatted.contains("1. **Rust** (rust-lang.org)\n   URL: https://www.rust-lang.org/"));
     assert!(formatted.contains("2. **Docs** (docs.rs | documentation | Brave)\n   URL: https://docs.rs/tokio"));
 }
+
+#[tokio::test]
+async fn search_without_configured_engines_returns_no_results() {
+    let tool = WebSearchTool {
+        http: HttpClient::new(false).unwrap(),
+        rate_limiter: SearchRateLimiter::new(0),
+        config: WebSearchConfig {
+            region: "us-en".to_string(),
+            timeout_sec: 5,
+            engines: Vec::new(),
+        },
+    };
+    let results = tool
+        .search(SearchQueryParams {
+            query: "rust",
+            limit: 5,
+            recency: None,
+            domains: None,
+        })
+        .await;
+    assert!(results.is_empty());
+}

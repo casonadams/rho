@@ -178,6 +178,35 @@ async fn login_is_dispatched_without_collecting_credentials() {
 }
 
 #[tokio::test]
+async fn mcp_and_logout_commands_dispatch_by_renderer_mode() {
+    let cases = [
+        ("/mcp", true, CommandResult::OpenMcpSelector),
+        ("/mcp login", true, CommandResult::OpenMcpSelector),
+        ("/mcp", false, CommandResult::Continue),
+        ("/logout", false, CommandResult::Logout { provider: None }),
+        (
+            "/logout chatgpt",
+            true,
+            CommandResult::Logout {
+                provider: Some("chatgpt".to_string()),
+            },
+        ),
+    ];
+    for (line, interactive, expected) in cases {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let renderer = if interactive {
+            collecting_renderer().0
+        } else {
+            TerminalRenderer::default()
+        };
+        let mut context = test_context(&mut config, &mut auth, &renderer);
+        let res = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+        assert_eq!(res, Some(expected), "{line}");
+    }
+}
+
+#[tokio::test]
 async fn model_switch_is_emitted_and_updates_configuration() {
     let mut config = Config::default();
     let mut auth = AuthStore::default();

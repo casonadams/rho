@@ -264,34 +264,53 @@ fn model_switch_fixture() -> (
     super::LiveBatch,
     rho_harness_core::config::Config,
     crate::auth::AuthStore,
-    TerminalRenderer,
 ) {
     (
         TerminalController::new(MockTerminal, InteractiveState::default()).unwrap(),
         super::LiveBatch::new(),
         rho_harness_core::config::Config::default(),
         crate::auth::AuthStore::default(),
-        TerminalRenderer::default(),
     )
 }
 
 #[tokio::test]
 async fn test_apply_turn_model_switch_updates_config_and_footer() {
-    let (mut controller, mut batch, mut config, auth_store, renderer) = model_switch_fixture();
-    let input = super::TurnModelSwitchInput {
-        model: "llama3.2",
-        provider: "local",
-        save_as_default: false,
-        config: &mut config,
-        auth_store: &auth_store,
-        renderer: &renderer,
-        controller: &mut controller,
-        batch: &mut batch,
-        shared_auth: None,
-    };
-    super::apply_turn_model_switch(input).await.unwrap();
-    assert_eq!((config.model.as_str(), config.provider.as_str()), ("llama3.2", "local"));
-    assert_eq!(controller.state().footer().model.as_str(), "llama3.2");
+    let cases = [
+        ("local", false, false),
+        ("local", true, false),
+        ("no-such-provider", false, true),
+    ];
+    for (provider, shared, expect_warning) in cases {
+        let (mut controller, mut batch, mut config, auth_store) = model_switch_fixture();
+        let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let input = super::TurnModelSwitchInput {
+            model: "llama3.2",
+            provider,
+            save_as_default: false,
+            config: &mut config,
+            auth_store: &auth_store,
+            renderer: &renderer,
+            controller: &mut controller,
+            batch: &mut batch,
+            shared_auth: shared.then(|| std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone()))),
+        };
+        super::apply_turn_model_switch(input).await.unwrap();
+        assert_eq!(
+            (config.model.as_str(), config.provider.as_str()),
+            ("llama3.2", provider)
+        );
+        assert_eq!(controller.state().footer().model.as_str(), "llama3.2");
+        assert_eq!(controller.state().footer().provider.as_str(), provider);
+        let warned = std::iter::from_fn(|| ui_events.try_recv().ok()).any(|event| {
+            matches!(
+                event,
+                crate::ui::interactive::UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text))
+                    if text.contains("Could not switch model")
+            )
+        });
+        assert_eq!(warned, expect_warning);
+    }
 }
 
 #[tokio::test]
@@ -618,4 +637,37 @@ async fn test_turn_quota_periodic_and_updated_events_sync_footer() {
     let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaUpdated).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
+}
+
+#[tokio::test]
+async fn test_turn_loop_tick_retires_consumed_steering_from_queue() {
+    let mut f = LoopFixture::new("steer this tool").await;
+    let mut ctx = f.context();
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+    assert_eq!(ctx.loop_ctx.controller.state().queue().len(), 1);
+
+    crate::engine::runner::SteeringQueueProvider::poll_steering(&*ctx.loop_ctx.steering).await;
+    ctx.loop_ctx.on_tick().unwrap();
+    assert_eq!(ctx.loop_ctx.controller.state().queue().len(), 0);
+}
+
+#[tokio::test]
+async fn test_turn_loop_tick_refreshes_spinner_only_after_frame_interval() {
+    let cases = [(false, false), (true, true)];
+    for (elapsed, refreshed) in cases {
+        let mut f = LoopFixture::new("").await;
+        let mut ctx = f.context();
+        let before = if elapsed {
+            std::time::Instant::now() - crate::repl::live::batch::SPINNER_FRAME_INTERVAL
+        } else {
+            std::time::Instant::now()
+        };
+        ctx.loop_ctx.last_spinner = before;
+        ctx.loop_ctx.on_tick().unwrap();
+        assert_eq!(ctx.loop_ctx.last_spinner != before, refreshed);
+    }
 }

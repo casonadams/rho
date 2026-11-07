@@ -283,4 +283,37 @@ mod tests {
             assert!(line.len() <= 8);
         }
     }
+
+    #[test]
+    fn handle_newline_commits_the_word_and_drops_trailing_spaces() {
+        let cases = [
+            ("hello\nworld", "hello\nworld"),
+            ("ab  \ncd", "ab\ncd"),
+            ("ab\n", "ab\n"),
+            ("\n\n", "\n\n"),
+        ];
+        for (input, expected) in cases {
+            let mut wrapper = StreamWordWrapper::new(20);
+            let mut output = wrapper.process_chunk(input);
+            output.push_str(&wrapper.flush());
+            assert_eq!(output, expected, "input {input:?}");
+        }
+    }
+
+    #[test]
+    fn flush_resets_wrap_state_before_the_next_segment() {
+        let cases = [
+            ("\x1b[1mab", "cdefghij", "cdefg\nhij"),
+            ("ab ", "cd", "cd"),
+            ("abc", "de", "de"),
+        ];
+        for (first, second, expected) in cases {
+            let mut wrapper = StreamWordWrapper::new(5);
+            wrapper.process_chunk(first);
+            wrapper.flush();
+            let mut output = wrapper.process_chunk(second);
+            output.push_str(&wrapper.flush());
+            assert_eq!(output, expected, "segment {second:?}");
+        }
+    }
 }

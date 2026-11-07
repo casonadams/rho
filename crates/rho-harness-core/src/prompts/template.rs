@@ -26,18 +26,19 @@ impl PromptTemplate {
 
     pub fn expand(&self, args: &[&str]) -> String {
         let full_args = args.join(" ");
-        let mut result = self.body.clone();
+        let mut result = String::with_capacity(self.body.len());
+        let mut rest = self.body.as_str();
 
-        while let Some(start_idx) = result.find("${") {
-            if let Some(end_rel) = result[start_idx..].find('}') {
-                let end_idx = start_idx + end_rel;
-                let pattern = &result[start_idx + 2..end_idx];
-                let replacement = expand_braced_pattern(pattern, args, &full_args);
-                result.replace_range(start_idx..=end_idx, &replacement);
-            } else {
+        while let Some(start_idx) = rest.find("${") {
+            let Some(end_rel) = rest[start_idx..].find('}') else {
                 break;
-            }
+            };
+            let end_idx = start_idx + end_rel;
+            result.push_str(&rest[..start_idx]);
+            result.push_str(&expand_braced_pattern(&rest[start_idx + 2..end_idx], args, &full_args));
+            rest = &rest[end_idx + 1..];
         }
+        result.push_str(rest);
 
         for i in 1..=9 {
             let var = format!("${i}");
@@ -101,7 +102,7 @@ fn expand_positional_pattern(pattern: &str, args: &[&str], full_args: &str) -> S
 }
 
 fn expand_braced_pattern(pattern: &str, args: &[&str], full_args: &str) -> String {
-    if let Some(rest) = pattern.strip_prefix("@:") {
+    if let Some(rest) = pattern.strip_prefix("@:").filter(|rest| !rest.starts_with('-')) {
         expand_slice_pattern(rest, args)
     } else if let Some((k, d)) = pattern.split_once(":-") {
         expand_default_pattern(k, d, args, full_args)

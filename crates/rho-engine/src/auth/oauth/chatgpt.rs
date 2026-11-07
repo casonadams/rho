@@ -23,15 +23,12 @@ pub(crate) struct TokenResponse {
     pub(crate) expires_in: Option<i64>,
 }
 
-async fn post_openai_token_form(form: &[(&str, &str)], operation: &str) -> Result<TokenResponse> {
-    let request = CLIENT
-        .post(OPENAI_TOKEN_URL)
-        .timeout(Duration::from_secs(15))
-        .form(form);
+async fn post_openai_token_form(token_url: &str, form: &[(&str, &str)], operation: &str) -> Result<TokenResponse> {
+    let request = CLIENT.post(token_url).timeout(Duration::from_secs(15)).form(form);
     send_for_json(request, operation).await
 }
 
-async fn exchange_openai_code(code: &str, verifier: &str) -> Result<TokenResponse> {
+pub(crate) async fn exchange_openai_code(token_url: &str, code: &str, verifier: &str) -> Result<TokenResponse> {
     let form = [
         ("grant_type", "authorization_code"),
         ("client_id", OPENAI_CLIENT_ID),
@@ -39,7 +36,7 @@ async fn exchange_openai_code(code: &str, verifier: &str) -> Result<TokenRespons
         ("code_verifier", verifier),
         ("redirect_uri", OPENAI_REDIRECT_URI),
     ];
-    post_openai_token_form(&form, "OpenAI token exchange").await
+    post_openai_token_form(token_url, &form, "OpenAI token exchange").await
 }
 
 pub(crate) fn build_openai_credential(token_data: TokenResponse) -> StoredCredential {
@@ -83,7 +80,7 @@ const OPENAI_LOGIN_PROMPT: LoginPrompt = LoginPrompt {
 };
 
 async fn redeem_openai_grant(grant: AuthorizationGrant) -> Result<StoredCredential> {
-    let token = exchange_openai_code(&grant.code, &grant.verifier).await?;
+    let token = exchange_openai_code(OPENAI_TOKEN_URL, &grant.code, &grant.verifier).await?;
     Ok(build_openai_credential(token))
 }
 
@@ -97,17 +94,17 @@ pub async fn perform_openai_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Result<
     .await
 }
 
-async fn post_refresh_request(refresh_token: &str) -> Result<TokenResponse> {
+pub(crate) async fn post_refresh_request(token_url: &str, refresh_token: &str) -> Result<TokenResponse> {
     let form = [
         ("grant_type", "refresh_token"),
         ("client_id", OPENAI_CLIENT_ID),
         ("refresh_token", refresh_token),
     ];
-    post_openai_token_form(&form, "OpenAI token refresh").await
+    post_openai_token_form(token_url, &form, "OpenAI token refresh").await
 }
 
 pub async fn refresh_openai_token(refresh_token: &str) -> Result<StoredCredential> {
-    let mut token = post_refresh_request(refresh_token).await?;
+    let mut token = post_refresh_request(OPENAI_TOKEN_URL, refresh_token).await?;
     if token.refresh_token.is_none() {
         token.refresh_token = Some(refresh_token.to_string());
     }

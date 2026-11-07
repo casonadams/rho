@@ -54,3 +54,21 @@ pub(crate) fn validate_session_id(session_id: &str) -> Result<()> {
 pub(crate) fn session_error(message: impl Into<String>) -> AppError {
     AppError::Session(message.into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::run_blocking;
+
+    #[tokio::test]
+    async fn blocking_task_result_is_returned() {
+        assert_eq!(run_blocking(|| Ok(7)).await.unwrap(), 7);
+    }
+
+    #[tokio::test]
+    async fn blocking_task_panic_surfaces_as_session_error() {
+        let error = run_blocking(|| -> crate::error::Result<()> { panic!("worker failed") })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("session task failed"), "{error}");
+    }
+}

@@ -275,4 +275,52 @@ mod tests {
             InputAction::Edit(UiAction::InsertNewline)
         );
     }
+
+    #[test]
+    fn map_key_maps_keys_and_modifiers_to_actions() {
+        let cases = [
+            (
+                key(KeyCode::Char('Q'), KeyModifiers::NONE),
+                InputAction::Edit(UiAction::Insert('Q')),
+            ),
+            (
+                key(KeyCode::Char('T'), KeyModifiers::SHIFT),
+                InputAction::Edit(UiAction::Insert('T')),
+            ),
+            (key(KeyCode::Char('P'), CTRL_SHIFT), InputAction::ModelCycleBackward),
+            (
+                key(KeyCode::Char('P'), KeyModifiers::CONTROL),
+                InputAction::ModelCycleForward,
+            ),
+            (
+                key(KeyCode::Char('P'), KeyModifiers::ALT),
+                InputAction::ModelCycleBackward,
+            ),
+            (key(KeyCode::Char('x'), KeyModifiers::ALT), InputAction::Ignore),
+            (key(KeyCode::Char('?'), KeyModifiers::CONTROL), InputAction::Ignore),
+            (key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete),
+            (key(KeyCode::Tab, KeyModifiers::SHIFT), InputAction::ThinkingCycle),
+            (key(KeyCode::BackTab, KeyModifiers::SHIFT), InputAction::ThinkingCycle),
+            (
+                key(KeyCode::Enter, KeyModifiers::ALT),
+                InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
+            ),
+            (key(KeyCode::Up, KeyModifiers::SHIFT), InputAction::Ignore),
+            (key(KeyCode::F(1), KeyModifiers::NONE), InputAction::Ignore),
+            (
+                key(KeyCode::Char('\n'), KeyModifiers::NONE),
+                InputAction::Edit(UiAction::InsertNewline),
+            ),
+            (
+                KeyEvent {
+                    kind: KeyEventKind::Release,
+                    ..key(KeyCode::Esc, KeyModifiers::NONE)
+                },
+                InputAction::Ignore,
+            ),
+        ];
+        for (event, expected) in cases {
+            assert_eq!(map_key(event), expected);
+        }
+    }
 }

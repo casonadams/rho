@@ -455,3 +455,22 @@ fn openai_client_debug_redacts_api_key_and_extra_headers() {
     assert!(!debug.contains("header-secret"), "{debug}");
     assert!(debug.contains("gpt-test"));
 }
+
+#[test]
+fn gemini_and_chatgpt_builders_name_provider_and_model() {
+    let gemini = builders::build_gemini_model("gemini-2.5-pro", "gem-key".to_string()).unwrap();
+    assert_eq!(
+        (gemini.provider_name(), gemini.model_name()),
+        ("gemini", "gemini-2.5-pro")
+    );
+
+    let (_dir, auth_store) = temp_auth_store();
+    let request = ModelRequest {
+        provider: ProviderId::ChatGpt,
+        model: "gpt-5.4",
+        thinking_level: None,
+        shared_auth: shared_auth(&auth_store),
+    };
+    let chatgpt = builders::build_chatgpt_model(&request, &auth_store);
+    assert_eq!((chatgpt.provider_name(), chatgpt.model_name()), ("chatgpt", "gpt-5.4"));
+}

@@ -10,9 +10,9 @@ use std::time::Duration;
 
 pub const USAGE_ENDPOINT: &str = "https://api.anthropic.com/api/oauth/usage";
 
-pub async fn fetch_quota(token: &str, target_model: Option<&str>) -> Option<String> {
+pub async fn fetch_quota(usage_url: &str, token: &str, target_model: Option<&str>) -> Option<String> {
     let request = CLIENT
-        .get(USAGE_ENDPOINT)
+        .get(usage_url)
         .timeout(Duration::from_secs(8))
         .header("Authorization", format!("Bearer {token}"))
         .header("Content-Type", "application/json")

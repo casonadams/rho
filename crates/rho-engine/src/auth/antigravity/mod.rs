@@ -8,14 +8,14 @@ mod client;
 #[cfg(test)]
 mod tests;
 
-use super::oauth::{AuthorizationGrant, LoginPrompt, loopback_login};
+use super::oauth::{AuthorizationGrant, LoginPrompt, loopback_login, oauth_credential, refresh_oauth_credential};
 use crate::antigravity::load_project_id;
 use client::{
-    CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GoogleTokenResponse, REDIRECT_PORT, REDIRECT_URI_ENCODED,
-    SCOPES, exchange_code, fetch_user_email, refresh_google_token,
+    CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL, GoogleTokenResponse,
+    REDIRECT_PORT, REDIRECT_URI_ENCODED, SCOPES, exchange_code, fetch_user_email, refresh_google_token,
 };
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
-use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::error::Result;
 use sha2::{Digest, Sha256};
 
 /// Stable UUID-shaped fallback project id derived from a seed (account email).
@@ -33,24 +33,16 @@ pub fn stable_project_id(seed: &str) -> String {
 }
 
 async fn build_antigravity_credential(token: GoogleTokenResponse) -> StoredCredential {
-    let expires_at_ms = token
-        .expires_in
-        .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
-    let email = fetch_user_email(&token.access_token).await;
+    let email = fetch_user_email(GOOGLE_USERINFO_URL, &token.access_token).await;
     let project_id = load_project_id(&token.access_token)
         .await
         .unwrap_or_else(|| stable_project_id(email.as_deref().unwrap_or("antigravity-default")));
-    let mut cred = StoredCredential::oauth(token.access_token, token.refresh_token, expires_at_ms);
-    if let StoredCredential::OAuth {
-        account_id,
-        account_email,
-        ..
-    } = &mut cred
-    {
-        *account_id = Some(project_id);
-        *account_email = email;
-    }
-    cred
+    oauth_credential(
+        token.access_token,
+        token.refresh_token,
+        token.expires_in,
+        (Some(project_id), email),
+    )
 }
 
 fn build_google_auth_url(challenge: &str, state: &str) -> String {
@@ -67,7 +59,7 @@ const GOOGLE_LOGIN_PROMPT: LoginPrompt = LoginPrompt {
 };
 
 async fn redeem_google_grant(grant: AuthorizationGrant) -> Result<StoredCredential> {
-    let token = exchange_code(&grant.code, &grant.verifier).await?;
+    let token = exchange_code(GOOGLE_TOKEN_URL, &grant.code, &grant.verifier).await?;
     Ok(build_antigravity_credential(token).await)
 }
 
@@ -81,48 +73,25 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
     .await
 }
 
-fn construct_refreshed_credential(
-    token: GoogleTokenResponse,
-    refresh: &str,
-    (acc_id, acc_email): (Option<String>, Option<String>),
-) -> StoredCredential {
-    let expires_at_ms = token
-        .expires_in
-        .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
-    let mut cred = StoredCredential::oauth(
+async fn exchange_refresh_token(
+    refresh: String,
+    account: (Option<String>, Option<String>),
+) -> Result<StoredCredential> {
+    let token = refresh_google_token(GOOGLE_TOKEN_URL, &refresh).await?;
+    let refresh_token = token.refresh_token.or(Some(refresh));
+    Ok(oauth_credential(
         token.access_token,
-        token.refresh_token.or_else(|| Some(refresh.to_string())),
-        expires_at_ms,
-    );
-    if let StoredCredential::OAuth {
-        account_id,
-        account_email,
-        ..
-    } = &mut cred
-    {
-        *account_id = acc_id;
-        *account_email = acc_email;
-    }
-    cred
+        refresh_token,
+        token.expires_in,
+        account,
+    ))
 }
 
 pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredCredential> {
-    let StoredCredential::OAuth {
-        refresh_token: Some(refresh),
-        account_id,
-        account_email,
-        ..
-    } = credential
-    else {
-        return Err(AppError::Auth(
-            "Antigravity token has expired and has no refresh token. Re-run 'rho login antigravity'.".to_string(),
-        ));
-    };
-
-    let token = refresh_google_token(refresh).await?;
-    Ok(construct_refreshed_credential(
-        token,
-        refresh,
-        (account_id.clone(), account_email.clone()),
-    ))
+    refresh_oauth_credential(
+        credential,
+        "Antigravity token has expired and has no refresh token. Re-run 'rho login antigravity'.",
+        exchange_refresh_token,
+    )
+    .await
 }

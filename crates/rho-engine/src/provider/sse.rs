@@ -287,7 +287,8 @@ mod tests {
             }
         }
 
-        let idle_body = futures::stream::pending::<reqwest::Result<Vec<u8>>>();
+        let idle_body = futures::stream::iter(vec![Ok::<_, reqwest::Error>(b"keepalive".to_vec())])
+            .chain(futures::stream::pending());
         let mut events = unfold_sse_stream(idle_body, NoEvents);
         let first = tokio::time::timeout(Duration::from_secs(3600), events.next())
             .await

@@ -401,6 +401,10 @@ pub(crate) async fn process_raw_input<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repl::input_reader::TerminalInputReader;
+    use crate::ui::interactive::InteractiveState;
+    use crate::ui::interactive::controller::tests::fake::FakeTerminal;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn test_classify_event_focus_events() {
@@ -414,5 +418,63 @@ mod tests {
             classify_event(Event::Resize(80, 24)),
             RawInput::Resize(80, 24)
         ));
+    }
+
+    #[tokio::test]
+    async fn test_external_editor_applies_edits_and_reports_spawn_failures() {
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("fake-editor.sh");
+        std::fs::write(&script, "#!/bin/sh\nprintf 'edited draft\\n' > \"$1\"\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (backend, _, _) = FakeTerminal::new(80);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        let mut history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let completions = CompletionSet::from_sources(Default::default());
+        let mut input = TerminalInputReader::spawn_dummy();
+        controller.state_mut().editor_mut().set_text("draft content");
+
+        unsafe {
+            std::env::set_var("VISUAL", &script);
+        }
+        let mut resources = EditorResources {
+            history: &mut history,
+            completions: &completions,
+        };
+        handle_misc_action(
+            &mut controller,
+            &InputAction::ExternalEditor,
+            &mut batch,
+            &mut resources,
+            &mut input,
+        )
+        .await
+        .unwrap();
+        assert_eq!(controller.state().editor().text(), "edited draft");
+
+        unsafe {
+            std::env::set_var("VISUAL", "rho-missing-editor");
+        }
+        handle_misc_action(
+            &mut controller,
+            &InputAction::ExternalEditor,
+            &mut batch,
+            &mut resources,
+            &mut input,
+        )
+        .await
+        .unwrap();
+        assert_eq!(controller.state().editor().text(), "edited draft");
+        assert!(
+            controller
+                .state()
+                .system_message()
+                .is_some_and(|message| message.contains("Could not start editor 'rho-missing-editor'"))
+        );
+
+        unsafe {
+            std::env::remove_var("VISUAL");
+        }
     }
 }

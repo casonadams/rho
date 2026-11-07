@@ -346,4 +346,13 @@ mod tests {
         drop(tx);
         assert_eq!(wait_bg_notif(&mut rx).await, None);
     }
+
+    #[test]
+    fn test_idle_tick_from_frame_or_ui() {
+        assert!(matches!(IdleTick::from(FrameOrUi::Frame), IdleTick::Frame));
+        assert!(matches!(
+            IdleTick::from(FrameOrUi::Ui(UiEvent::ToolEnd)),
+            IdleTick::Ui(UiEvent::ToolEnd)
+        ));
+    }
 }

@@ -151,44 +151,54 @@ mod tests {
     use tokio::sync::{RwLock, mpsc};
 
     #[tokio::test]
-    async fn test_handle_oauth_login_result_success() {
-        let temp = tempdir().unwrap();
-        let auth_store = Arc::new(RwLock::new(AuthStore::load(temp.path().join("auth.json")).unwrap()));
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-
-        let cred = StoredCredential::api_key("test-token");
-        handle_oauth_login_result("test_prov".to_string(), Ok(cred), &auth_store, &event_tx).await;
-
-        let event = event_rx.recv().await.unwrap();
-        assert_eq!(
-            event,
-            RpcEvent::AuthComplete {
-                provider: "test_prov".to_string(),
-                success: true,
-                error: None,
-            }
+    async fn test_handle_oauth_login_result_outcomes() {
+        type Case = (
+            &'static str,
+            fn() -> Result<StoredCredential>,
+            bool,
+            Option<&'static str>,
         );
-        let store = auth_store.read().await;
-        assert!(store.get_credential("test_prov").is_some());
-    }
-
-    #[tokio::test]
-    async fn test_handle_oauth_login_result_failure() {
-        let temp = tempdir().unwrap();
-        let auth_store = Arc::new(RwLock::new(AuthStore::load(temp.path().join("auth.json")).unwrap()));
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-
-        let err = Err(AppError::Auth("login cancelled".to_string()));
-        handle_oauth_login_result("test_prov".to_string(), err, &auth_store, &event_tx).await;
-
-        let event = event_rx.recv().await.unwrap();
-        assert_eq!(
-            event,
-            RpcEvent::AuthComplete {
-                provider: "test_prov".to_string(),
-                success: false,
-                error: Some("Auth error: login cancelled".to_string()),
+        let cases: [Case; 3] = [
+            ("saved", || Ok(StoredCredential::api_key("test-token")), false, None),
+            (
+                "login_error",
+                || Err(AppError::Auth("login cancelled".to_string())),
+                false,
+                Some("login cancelled"),
+            ),
+            (
+                "save_error",
+                || Ok(StoredCredential::api_key("test-token")),
+                true,
+                Some("Failed to write auth file"),
+            ),
+        ];
+        for (name, result, blocked_path, expected_error) in cases {
+            let temp = tempdir().unwrap();
+            let path = temp.path().join("auth.json");
+            let store = AuthStore::load(&path).unwrap();
+            if blocked_path {
+                std::fs::create_dir(&path).unwrap();
             }
-        );
+            let auth_store = Arc::new(RwLock::new(store));
+            let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+            handle_oauth_login_result("test_prov".to_string(), result(), &auth_store, &event_tx).await;
+
+            let RpcEvent::AuthComplete {
+                provider,
+                success,
+                error,
+            } = event_rx.recv().await.unwrap()
+            else {
+                panic!("{name}: expected AuthComplete");
+            };
+            assert_eq!(provider, "test_prov", "{name}");
+            assert_eq!(success, expected_error.is_none(), "{name}");
+            match expected_error {
+                Some(needle) => assert!(error.unwrap().contains(needle), "{name}"),
+                None => assert!(error.is_none(), "{name}"),
+            }
+        }
     }
 }

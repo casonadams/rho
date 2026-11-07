@@ -164,30 +164,38 @@ mod tests {
 
     #[tokio::test]
     async fn append_after_torn_tail_keeps_session_loadable() {
-        let dir = std::env::temp_dir().join(format!("rho_torn_tail_{}", uuid::Uuid::new_v4()));
-        let first = SessionManager::new_async(&dir, None).await.unwrap();
-        let session_id = first.session_id.clone();
-        first
-            .append_event(SessionEventKind::UserMessage, serde_json::json!({"n": 1}))
-            .await
-            .unwrap();
-        let path = first.file_path.clone();
-        drop(first);
+        let tails = [
+            (
+                "partial_record",
+                br#"{"record_type":"audit_event","sequence":2,"sess"#.to_vec(),
+            ),
+            ("tail_spanning_chunks", vec![b'x'; 5000]),
+        ];
+        for (name, tail) in tails {
+            let dir = std::env::temp_dir().join(format!("rho_torn_tail_{}", uuid::Uuid::new_v4()));
+            let first = SessionManager::new_async(&dir, None).await.unwrap();
+            let session_id = first.session_id.clone();
+            first
+                .append_event(SessionEventKind::UserMessage, serde_json::json!({"n": 1}))
+                .await
+                .unwrap();
+            let path = first.file_path.clone();
+            drop(first);
 
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
-        file.write_all(br#"{"record_type":"audit_event","sequence":2,"sess"#)
-            .unwrap();
-        drop(file);
+            let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(&tail).unwrap();
+            drop(file);
 
-        let resumed = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
-        resumed
-            .append_event(SessionEventKind::UserMessage, serde_json::json!({"n": 2}))
-            .await
-            .unwrap();
-        drop(resumed);
+            let resumed = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
+            resumed
+                .append_event(SessionEventKind::UserMessage, serde_json::json!({"n": 2}))
+                .await
+                .unwrap();
+            drop(resumed);
 
-        let reloaded = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
-        assert_eq!(reloaded.load_events().await.unwrap().len(), 2);
-        let _ = std::fs::remove_dir_all(&dir);
+            let reloaded = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
+            assert_eq!(reloaded.load_events().await.unwrap().len(), 2, "{name}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }

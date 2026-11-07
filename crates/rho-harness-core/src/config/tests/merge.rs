@@ -525,3 +525,126 @@ fn malformed_project_config_is_reported_as_warning() {
     assert!(cfg.migration_warnings[0].contains("Ignoring project config"));
     assert_eq!(cfg.model, model_before);
 }
+
+#[test]
+fn file_settings_merge_into_every_section() {
+    let file: FileConfig = toml::from_str(
+        r#"
+context_window_messages = 7
+compaction_max_bytes = 2048
+context_injection_max_tokens = 512
+reserve_tokens = 900
+keep_recent_tokens = 1200
+search_timeout_sec = 9
+fetch_timeout_sec = 11
+fetch_limit = 3
+fetch_max_bytes = 4096
+output_max_bytes = 8192
+allow_private_network = true
+show_label = false
+region = "eu"
+
+[permission]
+enabled = false
+
+[providers.acme]
+base_url = "https://acme.example"
+
+[tools.web.search]
+enabled = false
+default = "yahoo"
+fallback = ["brave"]
+
+[tools.web.fetch]
+enabled = false
+
+[mcp]
+enabled = false
+defer_threshold = 4
+
+[mcp.servers.echo]
+command = "echo"
+"#,
+    )
+    .unwrap();
+    let mut cfg = Config::default();
+    merge::merge_file(&mut cfg, file);
+
+    let limits = (
+        cfg.context_window_messages,
+        cfg.compaction_max_bytes,
+        cfg.context_injection_max_tokens,
+        cfg.reserve_tokens,
+        cfg.keep_recent_tokens,
+        cfg.search_timeout_sec,
+        cfg.fetch_timeout_sec,
+        cfg.fetch_limit,
+        cfg.fetch_max_bytes,
+        cfg.output_max_bytes,
+    );
+    assert_eq!(limits, (7, 2048, 512, 900, 1200, 9, 11, 3, 4096, 8192));
+    assert!(cfg.allow_private_network);
+    assert!(!cfg.show_label);
+    assert_eq!(cfg.region, "eu");
+    assert!(!cfg.permission.enabled);
+    assert!(cfg.providers.contains_key("acme"));
+    assert!(!cfg.tools.web.search.enabled);
+    assert_eq!(cfg.tools.web.search.default, "yahoo");
+    assert_eq!(cfg.tools.web.search.fallback, vec!["brave".to_string()]);
+    assert!(!cfg.tools.web.fetch.enabled);
+    assert!(!cfg.mcp.enabled);
+    assert_eq!(cfg.mcp.defer_threshold, 4);
+    assert!(cfg.mcp.servers.contains_key("echo"));
+}
+
+type EnvCase = (&'static [(&'static str, &'static str)], usize, Option<u32>);
+
+#[test]
+fn token_and_retention_env_overrides_apply_or_reject() {
+    let defaults = Config::default();
+    let cases: &[EnvCase] = &[
+        (
+            &[("AI_KEEP_RECENT_TOKENS", "321")],
+            321,
+            defaults.session_retention_days,
+        ),
+        (
+            &[("AI_SESSION_RETENTION_DAYS", "off")],
+            defaults.keep_recent_tokens,
+            None,
+        ),
+        (
+            &[("RHO_SESSION_RETENTION_DAYS", "0")],
+            defaults.keep_recent_tokens,
+            None,
+        ),
+        (
+            &[("AI_SESSION_RETENTION_DAYS", "7")],
+            defaults.keep_recent_tokens,
+            Some(7),
+        ),
+    ];
+    for (env, keep_recent, retention) in cases {
+        let mut cfg = Config::default();
+        let environment: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
+        merge::apply_env_overrides_with(&mut cfg, |name| environment.get(name).map(|v| (*v).to_string())).unwrap();
+        assert_eq!(
+            (cfg.keep_recent_tokens, cfg.session_retention_days),
+            (*keep_recent, *retention),
+            "{env:?}"
+        );
+    }
+
+    let invalid: &[&[(&str, &str)]] = &[
+        &[("AI_KEEP_RECENT_TOKENS", "0")],
+        &[("AI_SESSION_RETENTION_DAYS", "soon")],
+    ];
+    for env in invalid {
+        let mut cfg = Config::default();
+        let environment: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
+        let error = merge::apply_env_overrides_with(&mut cfg, |name| environment.get(name).map(|v| (*v).to_string()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(env[0].0), "{error}");
+    }
+}

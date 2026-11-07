@@ -81,6 +81,13 @@ fn shutdown_stops_and_joins_a_paused_reader() {
     reader.stop_and_join().unwrap();
 }
 
+#[test]
+fn terminal_reader_spawns_and_joins_cleanly() {
+    let mut reader = TerminalInputReader::spawn().unwrap();
+    reader.stop_and_join().unwrap();
+    reader.stop_and_join().unwrap();
+}
+
 #[tokio::test]
 async fn drain_discards_buffered_events() {
     let (mut reader, source, _) = test_reader();

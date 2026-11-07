@@ -83,6 +83,7 @@ pub(crate) mod test_support {
         let session = create_test_session();
         let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
         open(&session, &mut controller);
+        controller.redraw().unwrap();
         controller
     }
 
@@ -103,5 +104,7 @@ pub(crate) mod test_support {
         let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(select(&mut controller, enter).unwrap(), expected);
         assert_eq!(controller.state().active_modal().is_none(), closes_modal);
+        controller.suspend().unwrap();
+        controller.resume().unwrap();
     }
 }

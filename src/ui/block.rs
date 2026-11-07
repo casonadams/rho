@@ -553,26 +553,55 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_pending_ansi() {
-        let mut pending = "\x1b[31m".to_string();
-        let mut active = String::new();
-        apply_pending_ansi(&mut pending, &mut active);
-        assert_eq!(active, "\x1b[31m");
-        assert!(pending.is_empty());
+    fn apply_pending_ansi_tracks_active_sgr() {
+        let cases = [
+            ("", "\x1b[31m", "\x1b[31m"),
+            ("\x1b[31m", "\x1b[0m", ""),
+            ("\x1b[31m", "\x1b[m", ""),
+            ("", "\x1b[1m\x1b[32m", "\x1b[1m\x1b[32m"),
+            ("", "\x1b[38;5;1m", "\x1b[38;5;1m"),
+            ("\x1b[1m", "no ansi here", "\x1b[1m"),
+            ("\x1b[1m", "\x1b[2K\x1b[32m", "\x1b[1m\x1b[32m"),
+            ("\x1b[1m", "\x1b[0m\x1b[4m", "\x1b[4m"),
+            ("", "\x1b", ""),
+        ];
+        for (initial, pending_text, expected) in cases {
+            let mut pending = pending_text.to_string();
+            let mut active = initial.to_string();
+            apply_pending_ansi(&mut pending, &mut active);
+            assert_eq!(active, expected, "pending {pending_text:?}");
+            assert!(pending.is_empty());
+        }
+    }
 
-        pending = "\x1b[0m".to_string();
-        apply_pending_ansi(&mut pending, &mut active);
-        assert_eq!(active, "");
-        assert!(pending.is_empty());
-
-        pending = "\x1b[1m\x1b[32m".to_string();
-        apply_pending_ansi(&mut pending, &mut active);
-        assert_eq!(active, "\x1b[1m\x1b[32m");
-        assert!(pending.is_empty());
-
-        pending = "no ansi here".to_string();
-        apply_pending_ansi(&mut pending, &mut active);
-        assert_eq!(active, "\x1b[1m\x1b[32m");
-        assert!(pending.is_empty());
+    #[test]
+    fn wrap_styled_line_wraps_words_and_reopens_background() {
+        let cases = [
+            ("", 5, Style::new(), vec![""]),
+            ("abc", 0, Style::new(), vec![""]),
+            ("abcdefghijkl", 5, Style::new(), vec!["abcde", "fghij", "kl"]),
+            ("abc defghij", 5, Style::new(), vec!["abc", "defgh", "ij"]),
+            ("abc defgh", 8, Style::new(), vec!["abc", "defgh"]),
+            ("abcdef  g", 3, Style::new(), vec!["abc", "def", "g"]),
+            ("  abc", 10, Style::new(), vec!["  abc"]),
+            ("a\rb", 10, Style::new(), vec!["ab"]),
+            ("\x1b[2Kx", 10, Style::new(), vec!["\x1b[2Kx"]),
+            ("\x1b[0mx", 10, Style::new(), vec!["\x1b[0mx"]),
+            ("\x1b[31mab", 10, background(), vec!["\x1b[31mab"]),
+            ("a\x1b[0mb", 10, background(), vec!["a\x1b[0m\x1b[40mb"]),
+            ("\x1b[0mx", 10, background(), vec!["\x1b[0m\x1b[40mx"]),
+            ("a\x1b[m b", 10, background(), vec!["a\x1b[m\x1b[40m b"]),
+            ("\x1b[49mx", 10, background(), vec!["\x1b[49m\x1b[40mx"]),
+            ("\x1b[38;5;1mx", 10, background(), vec!["\x1b[38;5;1mx"]),
+            ("\x1b[38;2;1;2;3mx", 10, background(), vec!["\x1b[38;2;1;2;3mx"]),
+            ("\x1b[38;5;1;49mx", 10, background(), vec!["\x1b[38;5;1;49m\x1b[40mx"]),
+        ];
+        for (line, width, style, expected) in cases {
+            assert_eq!(
+                wrap_styled_line(line, width, style),
+                expected,
+                "line {line:?} at width {width}"
+            );
+        }
     }
 }

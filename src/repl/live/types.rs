@@ -101,7 +101,7 @@ pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameOrUi, next_frame_or_ui};
+    use super::{FrameOrUi, next_frame_or_ui, wait_quota};
     use crate::ui::interactive::UiEvent;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -120,7 +120,7 @@ mod tests {
         expected: &'static [Expect],
     }
 
-    const SCENARIOS: [Scenario; 2] = [
+    const SCENARIOS: [Scenario; 3] = [
         Scenario {
             period: Duration::from_secs(60),
             settle: Some(Duration::from_millis(1)),
@@ -134,6 +134,13 @@ mod tests {
             queue_tool_end: false,
             sender_open: false,
             expected: &[Expect::Frame, Expect::Frame],
+        },
+        Scenario {
+            period: Duration::from_secs(60),
+            settle: Some(Duration::from_millis(1)),
+            queue_tool_end: true,
+            sender_open: false,
+            expected: &[Expect::Frame, Expect::ToolEnd],
         },
     ];
 
@@ -160,5 +167,16 @@ mod tests {
                 assert!(matches_expect(&next_frame_or_ui(&mut frame, &mut rx).await, *want));
             }
         }
+    }
+
+    #[tokio::test]
+    async fn wait_quota_resolves_on_change_and_stays_pending_after_sender_drop() {
+        let (tx, mut rx) = tokio::sync::watch::channel(0_u64);
+        tx.send(1).unwrap();
+        let changed = tokio::time::timeout(Duration::from_millis(100), wait_quota(&mut rx)).await;
+        assert!(changed.is_ok());
+        drop(tx);
+        let pending = tokio::time::timeout(Duration::from_millis(1), wait_quota(&mut rx)).await;
+        assert!(pending.is_err());
     }
 }

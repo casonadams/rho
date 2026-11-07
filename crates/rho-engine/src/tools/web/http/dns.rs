@@ -35,4 +35,14 @@ mod tests {
     async fn resolver_rejects_hosts_resolving_only_to_private_addresses() {
         assert!(public_addrs("localhost").await.is_err());
     }
+
+    #[tokio::test]
+    async fn resolve_yields_public_addresses_and_rejects_private_ones() {
+        let public: Name = "8.8.8.8".parse().unwrap();
+        let addrs: Vec<SocketAddr> = PublicDns.resolve(public).await.unwrap().collect();
+        assert_eq!(addrs, vec!["8.8.8.8:0".parse::<SocketAddr>().unwrap()]);
+
+        let private: Name = "10.1.2.3".parse().unwrap();
+        assert!(PublicDns.resolve(private).await.is_err());
+    }
 }

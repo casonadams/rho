@@ -222,3 +222,22 @@ async fn dropping_responder_reports_a_closed_request() {
 
     assert!(matches!(request.await.unwrap(), Err(UiPortError::Closed)));
 }
+
+#[test]
+fn tool_end_and_dismiss_interaction_send_their_events_in_order() {
+    let (ui, mut receiver) = InteractiveUi::channel();
+    ui.tool_end().unwrap();
+    ui.dismiss_interaction().unwrap();
+
+    assert!(matches!(receiver.try_recv(), Ok(UiEvent::ToolEnd)));
+    assert!(matches!(receiver.try_recv(), Ok(UiEvent::DismissInteraction)));
+}
+
+#[test]
+fn tool_end_and_dismiss_interaction_report_a_closed_channel() {
+    let (ui, receiver) = InteractiveUi::channel();
+    drop(receiver);
+
+    assert!(matches!(ui.tool_end(), Err(UiPortError::Closed)));
+    assert!(matches!(ui.dismiss_interaction(), Err(UiPortError::Closed)));
+}

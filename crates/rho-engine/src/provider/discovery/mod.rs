@@ -31,6 +31,18 @@ pub struct DiscoveredModel {
     pub context_tokens: Option<usize>,
 }
 
+impl DiscoveredModel {
+    pub fn new(id: &str, name: &str, provider: &str, description: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            name: name.to_string(),
+            provider: provider.to_string(),
+            description: description.to_string(),
+            context_tokens: None,
+        }
+    }
+}
+
 async fn discover_keyed_openai_compatible(
     name: &str,
     url: &str,

@@ -450,31 +450,3 @@ async fn test_misc_action_completion_and_dequeue() {
 
     assert_eq!(controller.state().editor().text(), "queued item 1\nqueued item 2");
 }
-
-#[tokio::test]
-async fn test_misc_action_external_editor() {
-    unsafe {
-        std::env::set_var("VISUAL", "true");
-    }
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, completions, mut batch, _, _, mut input, _) =
-        setup_idle_dispatch_harness(temp.path()).await;
-
-    controller.state_mut().editor_mut().set_text("draft content");
-    let mut resources = EditorResources {
-        history: &mut history,
-        completions: &completions,
-    };
-
-    assert!(
-        handle_misc_action(
-            &mut controller,
-            &InputAction::ExternalEditor,
-            &mut batch,
-            &mut resources,
-            &mut input
-        )
-        .await
-        .is_ok()
-    );
-}

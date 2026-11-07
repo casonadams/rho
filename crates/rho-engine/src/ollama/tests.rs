@@ -1,4 +1,5 @@
-use super::parse_quota;
+use super::{fetch_quota, parse_quota};
+use crate::test_support::serve_http;
 use serde_json::json;
 
 #[test]
@@ -31,4 +32,16 @@ fn parse_quota_clamps_and_requires_limits_monthly_usage() {
     assert_eq!(parse_quota(&json!({ "limits": { "monthly": {} } })), None);
     assert_eq!(parse_quota(&json!({ "limits": {} })), None);
     assert_eq!(parse_quota(&json!({})), None);
+}
+
+#[tokio::test]
+async fn fetch_quota_reads_cloud_usage_from_host() {
+    let host = serve_http(vec![(
+        "200 OK",
+        json!({"limits": {"monthly": {"usage": 0.25}}}).to_string(),
+    )])
+    .await;
+    assert_eq!(fetch_quota(&host, " key ").await.as_deref(), Some("25% used"));
+    let host = serve_http(vec![("200 OK", "not json".to_string())]).await;
+    assert_eq!(fetch_quota(&host, "key").await, None);
 }

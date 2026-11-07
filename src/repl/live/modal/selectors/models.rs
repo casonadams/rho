@@ -82,7 +82,7 @@ pub fn handle_models_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{assert_selector_opens_and_selects, create_test_session};
+    use super::super::test_support::{assert_selector_opens_and_selects, create_test_session, open_in_test_controller};
     use super::*;
 
     #[test]
@@ -101,6 +101,29 @@ mod tests {
                 "Guard Model         ",
             ]
         );
+    }
+
+    #[test]
+    fn update_models_role_description_updates_only_known_roles() {
+        let cases = [
+            ("default", Some(0)),
+            ("smol", Some(1)),
+            ("slow", Some(2)),
+            ("guard", Some(3)),
+            ("plan", None),
+        ];
+        for (role, idx) in cases {
+            let mut controller = open_in_test_controller(open_models_selector);
+            update_models_role_description(&mut controller, role, "model-x");
+            let options = &controller.state().active_modal().unwrap().options;
+            let updated: Vec<usize> = options
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.description.as_deref() == Some("model-x"))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(updated, idx.map_or(vec![], |i| vec![i]));
+        }
     }
 
     #[test]

@@ -47,7 +47,7 @@ async fn parse_google_token_response(res: reqwest::Response) -> Result<GoogleTok
     Ok(token)
 }
 
-pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTokenResponse> {
+pub(super) async fn exchange_code(token_url: &str, code: &str, verifier: &str) -> Result<GoogleTokenResponse> {
     let client = &CLIENT;
     let redirect_uri = format!("http://localhost:{REDIRECT_PORT}{REDIRECT_PATH}");
     let form = [
@@ -59,7 +59,7 @@ pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTo
         ("code_verifier", verifier),
     ];
     let res = client
-        .post(GOOGLE_TOKEN_URL)
+        .post(token_url)
         .timeout(Duration::from_secs(15))
         .form(&form)
         .send()
@@ -68,10 +68,10 @@ pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTo
     parse_google_token_response(res).await
 }
 
-pub(super) async fn fetch_user_email(access_token: &str) -> Option<String> {
+pub(super) async fn fetch_user_email(userinfo_url: &str, access_token: &str) -> Option<String> {
     let client = &CLIENT;
     let res = client
-        .get(GOOGLE_USERINFO_URL)
+        .get(userinfo_url)
         .timeout(Duration::from_secs(15))
         .bearer_auth(access_token)
         .send()
@@ -84,7 +84,7 @@ pub(super) async fn fetch_user_email(access_token: &str) -> Option<String> {
     value.get("email").and_then(|v| v.as_str()).map(String::from)
 }
 
-pub(super) async fn refresh_google_token(refresh: &str) -> Result<GoogleTokenResponse> {
+pub(super) async fn refresh_google_token(token_url: &str, refresh: &str) -> Result<GoogleTokenResponse> {
     let form = [
         ("client_id", GOOGLE_CLIENT_ID),
         ("client_secret", GOOGLE_CLIENT_SECRET),
@@ -92,7 +92,7 @@ pub(super) async fn refresh_google_token(refresh: &str) -> Result<GoogleTokenRes
         ("grant_type", "refresh_token"),
     ];
     post_form_json(
-        GOOGLE_TOKEN_URL,
+        token_url,
         &form,
         &[],
         Duration::from_secs(15),

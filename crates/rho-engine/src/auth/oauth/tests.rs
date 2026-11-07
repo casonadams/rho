@@ -1,4 +1,6 @@
 use super::*;
+use crate::auth::loopback::LoopbackServer;
+use crate::test_support::serve_http;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption, StoredCredential};
@@ -237,4 +239,189 @@ fn test_chatgpt_build_openai_credential() {
     assert_eq!(access_token, format!("header.{payload_b64}.sig"));
     assert_eq!(refresh_token.as_deref(), Some("rt_xyz"));
     assert!(expires_at_ms.is_some());
+}
+
+type CallbackQuery = fn(&str) -> String;
+
+struct LoopbackClient {
+    port: u16,
+    callback_query: CallbackQuery,
+}
+
+#[async_trait::async_trait]
+impl OAuthLoginCallbacks for LoopbackClient {
+    async fn on_auth_url(&self, url: &str, _instructions: Option<&str>) -> Result<()> {
+        let state = url::Url::parse(url)
+            .unwrap()
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .unwrap()
+            .1
+            .into_owned();
+        let request = format!(
+            "GET /callback?{} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            (self.callback_query)(&state)
+        );
+        let port = self.port;
+        tokio::spawn(async move {
+            let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut socket, request.as_bytes())
+                .await
+                .unwrap();
+        });
+        Ok(())
+    }
+    async fn on_device_code(&self, _info: &DeviceCodeInfo<'_>) -> Result<()> {
+        Ok(())
+    }
+    async fn on_prompt(&self, _message: &str, _secret: bool) -> Result<String> {
+        Ok(String::new())
+    }
+    async fn on_select(&self, _message: &str, _options: &[SelectOption]) -> Result<Option<String>> {
+        Ok(None)
+    }
+    async fn on_progress(&self, _message: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+fn test_auth_url(challenge: &str, state: &str) -> String {
+    format!("https://auth.example.test/authorize?code_challenge={challenge}&state={state}")
+}
+
+#[tokio::test]
+async fn loopback_login_redeems_only_callbacks_with_matching_state() {
+    fn valid(state: &str) -> String {
+        format!("code=auth-code-1&state={state}")
+    }
+    fn forged(_state: &str) -> String {
+        "code=auth-code-1&state=forged".to_string()
+    }
+    fn denied(_state: &str) -> String {
+        "error=access_denied&error_description=User%20denied".to_string()
+    }
+    let cases: [(CallbackQuery, Option<&str>); 3] = [
+        (valid, None),
+        (forged, Some("state mismatch")),
+        (denied, Some("access_denied")),
+    ];
+    for (index, (callback_query, expected_err)) in cases.into_iter().enumerate() {
+        let client = LoopbackClient {
+            port: 23_150 + index as u16,
+            callback_query,
+        };
+        let prompt = LoginPrompt {
+            port: client.port,
+            callback_timeout: Duration::from_secs(5),
+            hint: "Finish sign-in.",
+            progress: "Waiting for authorization...",
+        };
+        let result = loopback_login(&client, &prompt, test_auth_url, |grant| async move {
+            Ok::<_, AppError>((grant.code, grant.verifier))
+        })
+        .await;
+        match expected_err {
+            None => {
+                let (code, verifier) = result.unwrap();
+                assert_eq!(code, "auth-code-1");
+                assert!(verifier.len() >= 43, "PKCE verifier too short: {verifier}");
+            }
+            Some(expected) => {
+                let err = result.expect_err("callback must be rejected");
+                assert!(err.to_string().contains(expected), "{err} should contain {expected}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn bind_for_login_reports_busy_port_with_recovery_hint() {
+    let busy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = busy.local_addr().unwrap().port();
+    let err = LoopbackServer::bind_for_login(&DummyCallbacks, port, "https://auth.example.test", "hint", "progress")
+        .await
+        .err()
+        .expect("busy port must fail");
+    assert!(
+        err.to_string()
+            .contains(&format!("Ensure no other process is using port {port}"))
+    );
+}
+
+#[tokio::test]
+async fn exchange_openai_code_maps_token_payload() {
+    let token_url = serve_http(vec![(
+        "200 OK",
+        r#"{"access_token":"oai-access","refresh_token":"oai-refresh","expires_in":3600}"#.to_string(),
+    )])
+    .await;
+    let token = chatgpt::exchange_openai_code(&token_url, "code-1", "verifier-1")
+        .await
+        .unwrap();
+    assert_eq!(token.access_token, "oai-access");
+    assert_eq!(token.refresh_token.as_deref(), Some("oai-refresh"));
+    assert_eq!(token.expires_in, Some(3600));
+}
+
+#[tokio::test]
+async fn openai_token_requests_surface_failures_by_operation() {
+    let cases = [
+        (
+            "400 Bad Request",
+            r#"{"error":"invalid_grant"}"#,
+            "OpenAI token exchange failed (400",
+        ),
+        ("200 OK", "not json", "Failed to parse OpenAI token exchange response"),
+    ];
+    for (status, body, expected) in cases {
+        let token_url = serve_http(vec![(status, body.to_string())]).await;
+        let err = chatgpt::exchange_openai_code(&token_url, "code-1", "verifier-1")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains(expected), "{status}: {err}");
+    }
+    let token_url = serve_http(vec![("401 Unauthorized", r#"{"error":"revoked"}"#.to_string())]).await;
+    let err = chatgpt::post_refresh_request(&token_url, "oai-refresh-stale")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("OpenAI token refresh failed (401"), "{err}");
+}
+
+#[tokio::test]
+async fn post_refresh_request_returns_token_without_rotated_refresh() {
+    let token_url = serve_http(vec![(
+        "200 OK",
+        r#"{"access_token":"oai-new","expires_in":3600}"#.to_string(),
+    )])
+    .await;
+    let token = chatgpt::post_refresh_request(&token_url, "oai-refresh").await.unwrap();
+    assert_eq!(token.access_token, "oai-new");
+    assert_eq!(token.refresh_token, None);
+}
+
+#[tokio::test]
+async fn exchange_openrouter_key_returns_key_and_rejects_bad_responses() {
+    let keys_url = serve_http(vec![("200 OK", r#"{"key":"sk-or-v1-abc"}"#.to_string())]).await;
+    assert_eq!(
+        openrouter::exchange_openrouter_key(&keys_url, "code-1", "verifier-1")
+            .await
+            .unwrap(),
+        "sk-or-v1-abc"
+    );
+    let cases = [
+        (
+            "401 Unauthorized",
+            r#"{"error":"bad"}"#,
+            "OpenRouter key exchange failed (401",
+        ),
+        ("200 OK", r#"{"key":"   "}"#, "OpenRouter returned an empty API key"),
+        ("200 OK", "oops", "Failed to parse OpenRouter key response"),
+    ];
+    for (status, body, expected) in cases {
+        let keys_url = serve_http(vec![(status, body.to_string())]).await;
+        let err = openrouter::exchange_openrouter_key(&keys_url, "code-1", "verifier-1")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains(expected), "{status}: {err}");
+    }
 }

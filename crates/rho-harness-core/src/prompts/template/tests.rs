@@ -29,3 +29,30 @@ fn test_positional_and_slice_parameters() {
         "Args: one, two, slice: two three four from one two three four"
     );
 }
+
+#[test]
+fn expand_resolves_positional_default_and_slice_patterns() {
+    let cases: &[(&str, &[&str], &str)] = &[
+        ("${1}", &["a", "b"], "a"),
+        ("${3}", &["a"], ""),
+        ("${@}", &["a", "b"], "a b"),
+        ("${ARGUMENTS}", &["a", "b"], "a b"),
+        ("${2:-dflt}", &["a"], "dflt"),
+        ("${2:-dflt}", &["a", " ", "c"], "dflt"),
+        ("${ARGUMENTS:-none}", &[], "none"),
+        ("${ARGUMENTS:-none}", &["x", "y"], "x y"),
+        ("${2:-dflt}", &["a", "b"], "b"),
+        ("${@:2:1}", &["a", "b", "c"], "b"),
+        ("${@:5}", &["a"], ""),
+        ("$1$2 $ARGUMENTS", &["x", "y"], "xy x y"),
+        ("path ${HOME} end", &["a"], "path ${HOME} end"),
+        ("${HOME} ${1}", &["a"], "${HOME} a"),
+        ("${@:-none}", &[], "none"),
+        ("${@:-none}", &["x"], "x"),
+        ("open ${1", &["a"], "open ${1"),
+    ];
+    for (body, args, expected) in cases {
+        let tmpl = PromptTemplate::parse("t", body, "user");
+        assert_eq!(tmpl.expand(args), *expected, "{body}");
+    }
+}

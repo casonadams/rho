@@ -141,3 +141,20 @@ pub(crate) async fn discover_antigravity_models(token: &str, project_id: &str) -
     }
     Ok(presets)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::serve_http;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn ollama_context_length_reads_show_endpoint_and_rejects_failures() {
+        let show = json!({ "model_info": { "llama.context_length": 8192 } }).to_string();
+        let host = serve_http(vec![("200 OK", show)]).await;
+        assert_eq!(ollama_context_length(&format!("{host}/"), "llama3.2").await, Some(8192));
+
+        let host = serve_http(vec![("404 Not Found", "{}".to_string())]).await;
+        assert_eq!(ollama_context_length(&host, "missing").await, None);
+    }
+}

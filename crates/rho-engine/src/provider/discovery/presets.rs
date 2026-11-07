@@ -20,20 +20,10 @@ pub fn format_context_tokens(ctx: usize) -> String {
     }
 }
 
-fn make_preset(id: &str, name: &str, provider: &str, desc: &str) -> DiscoveredModel {
-    DiscoveredModel {
-        context_tokens: None,
-        id: id.to_string(),
-        name: name.to_string(),
-        provider: provider.to_string(),
-        description: desc.to_string(),
-    }
-}
-
 fn build_presets(table: &[(&str, &str, &str, &str)]) -> Vec<DiscoveredModel> {
     table
         .iter()
-        .map(|&(id, name, provider, desc)| make_preset(id, name, provider, desc))
+        .map(|&(id, name, provider, desc)| DiscoveredModel::new(id, name, provider, desc))
         .collect()
 }
 

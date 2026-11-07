@@ -19,23 +19,13 @@ fn test_model_recency_key_parsing() {
     }
 }
 
-fn make_discovered_gemini_model(id: &str, name: &str) -> DiscoveredModel {
-    DiscoveredModel {
-        id: id.into(),
-        name: name.into(),
-        provider: "gemini".into(),
-        description: "".into(),
-        context_tokens: None,
-    }
-}
-
 #[test]
 fn test_sort_models_newest_first_descending_and_stable() {
     let models = vec![
-        make_discovered_gemini_model("gemini-2.0-flash", "Gemini 2.0"),
-        make_discovered_gemini_model("gemini-4-argon", "Gemini 4 Argon"),
-        make_discovered_gemini_model("gemini-3.8-flash", "Gemini 3.8"),
-        make_discovered_gemini_model("gemini-2.0-pro", "Gemini 2.0 Pro"),
+        DiscoveredModel::new("gemini-2.0-flash", "Gemini 2.0", "gemini", ""),
+        DiscoveredModel::new("gemini-4-argon", "Gemini 4 Argon", "gemini", ""),
+        DiscoveredModel::new("gemini-3.8-flash", "Gemini 3.8", "gemini", ""),
+        DiscoveredModel::new("gemini-2.0-pro", "Gemini 2.0 Pro", "gemini", ""),
     ];
 
     let sorted = sort_models_newest_first(models);

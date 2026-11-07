@@ -187,61 +187,46 @@ async fn test_modal_action_guard_model_selected() {
 }
 
 #[tokio::test]
-async fn test_modal_action_search_engine_selected() {
+async fn test_modal_action_search_help_and_login_results() {
     let temp = tempfile::tempdir().unwrap();
     let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
         setup_modal_action_harness(temp.path()).await;
-
-    let ctx = ModalActionContext {
+    let mut tctx = ModalTestCtx {
         controller: &mut controller,
         history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
+        batch: &mut batch,
     };
+
     assert!(
-        apply_modal_key_result(
-            ModalKeyResult::SearchEngineSelected {
-                engine: "brave".to_string()
-            },
-            ctx,
-            &mut batch
-        )
+        tctx.dispatch(ModalKeyResult::SearchEngineSelected {
+            engine: "brave".to_string(),
+        })
         .await
-        .unwrap()
     );
-    assert_eq!(session.config.tools.web.search.default, "brave");
-    assert_eq!(engine.config.tools.web.search.default, "brave");
-}
+    assert_eq!(tctx.session.config.tools.web.search.default, "brave");
+    assert_eq!(tctx.engine.config.tools.web.search.default, "brave");
 
-#[tokio::test]
-async fn test_modal_action_help_commands() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
-
-    let commands = ["/settings", "/model", "/resume", "/tree", "/mcp", "/login", "/unknown"];
-    for cmd in commands {
-        let ctx = ModalActionContext {
-            controller: &mut controller,
-            history: &mut history,
-            session: &mut session,
-            engine: &mut engine,
-            input: &mut input,
-        };
+    for cmd in ["/settings", "/model", "/resume", "/tree", "/mcp", "/login", "/unknown"] {
         assert!(
-            apply_modal_key_result(
-                ModalKeyResult::HelpCommandSelected {
-                    command: cmd.to_string()
-                },
-                ctx,
-                &mut batch
-            )
+            tctx.dispatch(ModalKeyResult::HelpCommandSelected {
+                command: cmd.to_string(),
+            })
             .await
-            .unwrap()
         );
-        controller.state_mut().pop_modal();
+        tctx.controller.state_mut().pop_modal();
     }
+
+    let before = tctx.session.config.provider.clone();
+    assert!(
+        tctx.dispatch(ModalKeyResult::LoginProviderSelected {
+            provider: "local".to_string(),
+        })
+        .await
+    );
+    assert_eq!(tctx.session.config.provider, before);
 }
 
 #[tokio::test]
@@ -717,4 +702,95 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
         assert!(tctx.dispatch(res).await);
         assert_eq!(tctx.session.config.models.get(role).map(String::as_str), expected);
     }
+}
+
+#[tokio::test]
+async fn test_modal_action_ui_setting_toggles_update_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::BlockStyleToggled {
+            style: "bar".to_string()
+        })
+        .await
+    );
+    assert_eq!(tctx.session.config.ui.block_style.as_deref(), Some("bar"));
+    assert!(tctx.dispatch(ModalKeyResult::AgentBoxToggled { boxed: false }).await);
+    assert_eq!(tctx.session.config.ui.agent_block_output, Some(false));
+    assert!(tctx.dispatch(ModalKeyResult::ShowLabelToggled { shown: true }).await);
+    assert!(tctx.session.config.show_label);
+    assert!(
+        tctx.dispatch(ModalKeyResult::ThinkingOutputToggled { hidden: true })
+            .await
+    );
+    assert_eq!(tctx.session.config.ui.hide_thinking, Some(true));
+    assert!(
+        tctx.dispatch(ModalKeyResult::ToolOutputToggled { expanded: true })
+            .await
+    );
+    assert_eq!(tctx.session.config.ui.tools_expanded, Some(true));
+    assert!(
+        tctx.dispatch(ModalKeyResult::CursorToggled {
+            cursor: "block".to_string()
+        })
+        .await
+    );
+    assert_eq!(tctx.session.config.ui.cursor.as_deref(), Some("block"));
+    assert!(temp.path().join("config.toml").exists());
+}
+
+#[tokio::test]
+async fn test_modal_action_failed_saves_keep_in_memory_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+    let blocker = temp.path().join("not-a-dir");
+    std::fs::write(&blocker, "").unwrap();
+    session.config.config_dir = blocker.clone();
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::ModelSelected {
+            model: "claude-3-5-haiku-20241022".to_string(),
+            provider: "anthropic".to_string(),
+            save_as_default: true,
+        })
+        .await
+    );
+    assert_eq!(tctx.session.config.model, "claude-3-5-haiku-20241022");
+    assert!(
+        tctx.dispatch(ModalKeyResult::BlockStyleToggled {
+            style: "bar".to_string()
+        })
+        .await
+    );
+    assert_eq!(tctx.session.config.ui.block_style.as_deref(), Some("bar"));
+    assert!(tctx.dispatch(ModalKeyResult::WebSearchToggled { enabled: false }).await);
+    assert!(!tctx.session.config.tools.web.search.enabled);
+    assert!(
+        tctx.dispatch(ModalKeyResult::ThinkingLevelSelected {
+            level: Some("high".to_string()),
+            save_as_default: true,
+        })
+        .await
+    );
+    assert_eq!(tctx.session.config.thinking_level.as_deref(), Some("high"));
+    assert_eq!(std::fs::read_to_string(&blocker).unwrap(), "");
 }

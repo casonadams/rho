@@ -479,3 +479,16 @@ fn test_empty_tables_omitted() {
     assert!(serialized_provider.contains("[providers.custom]"));
     assert!(!serialized_provider.contains("[models]"));
 }
+
+#[test]
+fn mcp_server_added_to_config_dir_is_removed_exactly_once() {
+    let dir = crate::test_support::created_temp_dir();
+    Config::add_mcp_server(&dir, "echo", crate::config::McpServerConfig::stdio("echo", vec![])).unwrap();
+    let root: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("mcp.json")).unwrap()).unwrap();
+    assert_eq!(root["mcpServers"]["echo"]["command"], "echo");
+
+    let removed = Config::remove_mcp_server(&dir, "echo").unwrap();
+    assert_eq!(removed.command.as_deref(), Some("echo"));
+    assert!(Config::remove_mcp_server(&dir, "echo").is_err());
+}

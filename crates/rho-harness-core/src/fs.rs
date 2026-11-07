@@ -102,14 +102,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn creates_missing_parent_directories() {
+    #[tokio::test]
+    async fn writes_create_missing_parents_and_report_blocked_parent() {
         let dir = temp_dir();
-        let path = dir.join("nested").join("index.json");
+        let sync_path = dir.join("sync").join("index.json");
+        write_atomic(&sync_path, b"{}", 0o600).unwrap();
+        assert_eq!(std::fs::read(&sync_path).unwrap(), b"{}");
 
-        write_atomic(&path, b"{}", 0o600).unwrap();
+        let nested = dir.join("nested").join("index.json");
+        write_atomic_async(&nested, b"{}".to_vec(), 0o600).await.unwrap();
+        assert_eq!(std::fs::read(&nested).unwrap(), b"{}");
 
-        assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, b"file").unwrap();
+        let blocked = write_atomic_async(&blocker.join("child.json"), b"{}".to_vec(), 0o600).await;
+        assert!(blocked.is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

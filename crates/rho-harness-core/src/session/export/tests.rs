@@ -113,3 +113,30 @@ fn falls_back_to_session_id_when_unnamed() {
     let markdown = render_markdown(&tree, "abc-123");
     assert!(markdown.contains("# rho session: abc-123"), "{markdown}");
 }
+
+#[test]
+fn export_format_is_selected_by_extension() {
+    let cases = [
+        ("html", ExportFormat::Html),
+        ("md", ExportFormat::Markdown),
+        ("txt", ExportFormat::Markdown),
+    ];
+    for (ext, expected) in cases {
+        assert_eq!(ExportFormat::from_extension(ext), expected, "{ext}");
+    }
+}
+
+#[tokio::test]
+async fn write_export_creates_parents_and_renders_selected_format() {
+    let cases = [
+        ("out.html", ExportFormat::Html, "<!doctype html>"),
+        ("out.md", ExportFormat::Markdown, "# rho session: export demo"),
+    ];
+    let tree = tree_with_conversation();
+    for (file, format, prefix) in cases {
+        let path = crate::test_support::temp_dir().join("nested").join(file);
+        write_export(&path, &tree, "session-1", format).await.unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.starts_with(prefix), "{file}: {written}");
+    }
+}

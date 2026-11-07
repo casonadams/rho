@@ -98,24 +98,6 @@ fn try_provider_default(
     Some(m)
 }
 
-fn try_configured_providers(
-    config: &mut Config,
-    auth_store: &AuthStore,
-    shared_auth: &Arc<tokio::sync::Mutex<AuthStore>>,
-) -> Option<ModelHandle> {
-    for p in auth_store.list_configured_providers() {
-        let default_model = default_model_for_provider(&p);
-        let mut trial = config.clone();
-        trial.provider = p;
-        trial.model = default_model.to_string();
-        if let Ok(m) = create_engine_model(&trial, auth_store, shared_auth.clone()) {
-            *config = trial;
-            return Some(m);
-        }
-    }
-    None
-}
-
 fn resolve_model_or_fallback(
     config: &mut Config,
     auth_store: &AuthStore,
@@ -126,15 +108,7 @@ fn resolve_model_or_fallback(
     }
     let is_provider_without_model =
         config.default_model.is_none() && config.provider != "local" && config.model == "llama3.2";
-    if is_provider_without_model {
-        if let Some(m) = try_provider_default(config, auth_store, &shared_auth) {
-            return Ok(m);
-        }
-    } else if config.default_model.is_none()
-        && config.provider == "local"
-        && config.model == "llama3.2"
-        && let Some(m) = try_configured_providers(config, auth_store, &shared_auth)
-    {
+    if is_provider_without_model && let Some(m) = try_provider_default(config, auth_store, &shared_auth) {
         return Ok(m);
     }
     create_engine_model(config, auth_store, shared_auth)
@@ -293,4 +267,43 @@ pub fn create_engine_model(
 
 fn default_model_for_provider(provider: &str) -> &'static str {
     rho_harness_core::provider::default_model_for_provider(provider)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::temp_auth_store;
+    use rho_harness_core::auth::StoredCredential;
+
+    fn shared(store: &AuthStore) -> Arc<tokio::sync::Mutex<AuthStore>> {
+        Arc::new(tokio::sync::Mutex::new(store.clone()))
+    }
+
+    fn placeholder_config(provider: &str) -> Config {
+        Config {
+            provider: provider.to_string(),
+            model: "llama3.2".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn placeholder_model_falls_back_to_default_of_a_credentialed_provider() {
+        let (_dir, mut store) = temp_auth_store();
+        store
+            .set_credential("anthropic", StoredCredential::api_key("sk-ant-test".to_string()))
+            .unwrap();
+        let mut config = placeholder_config("openrouter");
+        assert!(resolve_model_or_fallback(&mut config, &store, shared(&store)).is_ok());
+        assert_eq!(config.model, "anthropic/claude-3.7-sonnet");
+        assert_eq!(config.provider, "openrouter");
+    }
+
+    #[test]
+    fn placeholder_model_without_any_credentials_keeps_original_config() {
+        let (_dir, store) = temp_auth_store();
+        let mut config = placeholder_config("openrouter");
+        assert!(resolve_model_or_fallback(&mut config, &store, shared(&store)).is_err());
+        assert_eq!(config.model, "llama3.2");
+    }
 }

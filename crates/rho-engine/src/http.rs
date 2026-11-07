@@ -76,3 +76,27 @@ fn backend_message(body: &str) -> String {
             }
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::serve_http;
+
+    #[tokio::test]
+    async fn send_json_if_ok_returns_json_only_for_success_responses() {
+        let cases = [
+            ("200 OK", r#"{"ok":true}"#, true),
+            ("500 Internal Server Error", r#"{"ok":true}"#, false),
+            ("200 OK", "not json", false),
+        ];
+        for (status, body, expect_json) in cases {
+            let url = serve_http(vec![(status, body.to_string())]).await;
+            let value = send_json_if_ok(CLIENT.get(&url)).await;
+            assert_eq!(
+                value.map(|v| v["ok"].clone()),
+                expect_json.then_some(serde_json::Value::Bool(true)),
+                "{status} {body}"
+            );
+        }
+    }
+}

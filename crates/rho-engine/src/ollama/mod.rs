@@ -10,9 +10,9 @@ use std::time::Duration;
 pub const CLOUD_HOST: &str = "https://ollama.com";
 
 /// Fetch the account usage summary from ollama.com and format it for the status line.
-pub async fn fetch_quota(api_key: &str) -> Option<String> {
+pub async fn fetch_quota(host: &str, api_key: &str) -> Option<String> {
     let response = CLIENT
-        .get(format!("{CLOUD_HOST}/api/usage"))
+        .get(format!("{host}/api/usage"))
         .timeout(Duration::from_secs(10))
         .bearer_auth(api_key.trim())
         .send()

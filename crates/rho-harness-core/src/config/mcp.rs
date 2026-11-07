@@ -575,4 +575,57 @@ mod tests {
         let all_direct = &parsed.servers["all_direct"];
         assert_eq!(all_direct.direct_tools, Some(McpDirectTools::All(true)));
     }
+
+    const SERVER_EDIT_FAILURES: &[(&str, Option<&str>, ServerEdit, &str)] = &[
+        (
+            "non_object_root",
+            Some("[1]"),
+            ServerEdit::Write("new"),
+            "must contain a JSON object",
+        ),
+        ("malformed_json", Some("{"), ServerEdit::Write("new"), "Failed to parse"),
+        (
+            "servers_not_object",
+            Some(r#"{"mcpServers": 3}"#),
+            ServerEdit::Write("new"),
+            "must be a JSON object",
+        ),
+        ("remove_missing_file", None, ServerEdit::Remove("a"), "does not exist"),
+        (
+            "remove_unknown_server",
+            Some("{}"),
+            ServerEdit::Remove("a"),
+            "is not configured",
+        ),
+        (
+            "remove_non_object_entry",
+            Some(r#"{"mcpServers": {"a": 3}}"#),
+            ServerEdit::Remove("a"),
+            "Invalid MCP server entry",
+        ),
+    ];
+
+    #[test]
+    fn server_edits_reject_invalid_files() {
+        for (name, initial, edit, expected) in SERVER_EDIT_FAILURES {
+            let path = temp_mcp_file(*initial);
+            let error = match edit {
+                ServerEdit::Write(server) => {
+                    write_mcp_server_json(&path, server, &McpServerConfig::stdio("echo", vec![])).unwrap_err()
+                }
+                ServerEdit::Remove(server) => remove_mcp_server_json(&path, server).unwrap_err(),
+            }
+            .to_string();
+            assert!(error.contains(expected), "{name}: {error}");
+        }
+    }
+
+    #[test]
+    fn server_write_reports_unreadable_config_path() {
+        let dir = crate::test_support::created_temp_dir();
+        let error = write_mcp_server_json(&dir, "new", &McpServerConfig::stdio("echo", vec![]))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Failed to read"), "{error}");
+    }
 }

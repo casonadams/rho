@@ -205,3 +205,61 @@ impl ModalState {
         self.selected = 0;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_constructors_populate_expected_fields() {
+        let input = InteractionInput {
+            label: "reason".into(),
+            value: Some("prefill".into()),
+        };
+        let cases = [
+            (
+                ModalOption::from(String::from("owned")),
+                ModalOption {
+                    label: "owned".into(),
+                    description: None,
+                    input: None,
+                    value: None,
+                },
+            ),
+            (
+                ModalOption::from("borrowed"),
+                ModalOption {
+                    label: "borrowed".into(),
+                    description: None,
+                    input: None,
+                    value: None,
+                },
+            ),
+            (
+                ModalOption::from(InteractionOption {
+                    label: "chosen".into(),
+                    description: Some("desc".into()),
+                    input: Some(input.clone()),
+                }),
+                ModalOption {
+                    label: "chosen".into(),
+                    description: Some("desc".into()),
+                    input: Some(input),
+                    value: None,
+                },
+            ),
+            (
+                ModalOption::new("valued", Some("d")).with_value("v"),
+                ModalOption {
+                    label: "valued".into(),
+                    description: Some("d".into()),
+                    input: None,
+                    value: Some("v".into()),
+                },
+            ),
+        ];
+        for (actual, expected) in cases {
+            assert_eq!(actual, expected);
+        }
+    }
+}

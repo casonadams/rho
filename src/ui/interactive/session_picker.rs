@@ -229,6 +229,31 @@ mod tests {
     }
 
     #[test]
+    fn picker_row_titles_fall_back_from_name_to_preview() {
+        let cases = [
+            (Some("First"), "first preview", "First"),
+            (None, "second preview", "second preview"),
+        ];
+        for (name, preview, title) in cases {
+            let summary = SessionSummary {
+                session_id: "ccc-333".into(),
+                name: name.map(str::to_string),
+                created_at: Utc::now(),
+                last_modified: Utc::now(),
+                turn_count: 4,
+                preview: preview.into(),
+            };
+            let (label, value) = picker_row(&summary);
+            assert!(
+                label.starts_with(&format!("{title} (ccc-333 | 4 turns | ")),
+                "label {label:?}"
+            );
+            assert!(label.ends_with(')'));
+            assert_eq!(value, "ccc-333");
+        }
+    }
+
+    #[test]
     fn picker_action_navigates() {
         let mut modal = modal();
         picker_action(&mut modal, &key(KeyCode::Down, KeyModifiers::NONE));

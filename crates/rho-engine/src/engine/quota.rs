@@ -33,15 +33,22 @@ impl AgentEngine {
                 do_refresh_ollama_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
             }
             "antigravity" => {
-                do_refresh_antigravity_quota(
+                do_refresh_auth_quota(
                     Arc::clone(&self.auth_store),
                     self.quota.clone(),
-                    self.config.model.clone(),
+                    AuthQuotaSource::Antigravity {
+                        model: self.config.model.clone(),
+                    },
                 )
                 .await;
             }
             "chatgpt" => {
-                do_refresh_chatgpt_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
+                do_refresh_auth_quota(
+                    Arc::clone(&self.auth_store),
+                    self.quota.clone(),
+                    AuthQuotaSource::ChatGpt,
+                )
+                .await;
             }
             "claude" => {
                 do_refresh_claude_quota(
@@ -78,14 +85,16 @@ impl AgentEngine {
                 });
             }
             "antigravity" => {
-                let model = self.config.model.clone();
+                let source = AuthQuotaSource::Antigravity {
+                    model: self.config.model.clone(),
+                };
                 tokio::spawn(async move {
-                    do_refresh_antigravity_quota(auth, quota, model).await;
+                    do_refresh_auth_quota(auth, quota, source).await;
                 });
             }
             "chatgpt" => {
                 tokio::spawn(async move {
-                    do_refresh_chatgpt_quota(auth, quota).await;
+                    do_refresh_auth_quota(auth, quota, AuthQuotaSource::ChatGpt).await;
                 });
             }
             "claude" => {
@@ -222,41 +231,123 @@ async fn resolve_antigravity_credentials(auth_store: &tokio::sync::Mutex<AuthSto
     Some((token, fallback_antigravity_project(current_id)))
 }
 
-async fn fetch_antigravity_quota_with_retry(
-    auth_store: &tokio::sync::Mutex<AuthStore>,
-    token: &str,
-    project_id: &str,
-    target_model: &str,
-) -> Option<String> {
-    if is_dummy_or_test_token(token) {
+async fn fetch_quota_with_auth_retry<Ctx, Usable, Fetch, FetchFut, Refresh, RefreshFut>(
+    initial: Ctx,
+    usable: Usable,
+    fetch: Fetch,
+    refresh: Refresh,
+) -> Option<String>
+where
+    Usable: Fn(&Ctx) -> bool,
+    Fetch: Fn(Ctx) -> FetchFut,
+    FetchFut: Future<Output = Option<String>>,
+    Refresh: FnOnce() -> RefreshFut,
+    RefreshFut: Future<Output = Option<Ctx>>,
+{
+    if !usable(&initial) {
         return None;
     }
-    if let Some(display) = crate::antigravity::fetch_quota(token, project_id, target_model).await {
+    if let Some(display) = fetch(initial).await {
         return Some(display);
     }
-    auth_store.lock().await.force_refresh("antigravity").await.ok()?;
-    let (fresh_token, fresh_project) = resolve_antigravity_credentials(auth_store).await?;
-    if is_dummy_or_test_token(&fresh_token) {
+    let fresh = refresh().await?;
+    if !usable(&fresh) {
         return None;
     }
-    crate::antigravity::fetch_quota(&fresh_token, &fresh_project, target_model).await
+    fetch(fresh).await
 }
 
-async fn do_refresh_antigravity_quota(
-    auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
-    quota: QuotaTracker,
-    target_model: String,
-) {
-    let key = QuotaKey::new("antigravity", Some(&target_model));
+async fn refresh_stored_key_quota<Fetch, Fut>(
+    auth_store: &tokio::sync::Mutex<AuthStore>,
+    quota: &QuotaTracker,
+    key: QuotaKey,
+    provider: &str,
+    fetch: Fetch,
+) where
+    Fetch: FnOnce(String) -> Fut,
+    Fut: Future<Output = Option<String>>,
+{
     if !quota.begin_fetch(&key) {
         return;
     }
-    let Some((token, project_id)) = resolve_antigravity_credentials(&auth_store).await else {
+    let token = auth_store.lock().await.get_key(provider).await.ok().flatten();
+    let Some(token) = token else {
         quota.record_failure(&key);
         return;
     };
-    let display = fetch_antigravity_quota_with_retry(&auth_store, &token, &project_id, &target_model).await;
-    record_quota_result(&quota, &key, display);
+    let display = fetch(token).await;
+    record_quota_result(quota, &key, display);
+}
+
+async fn refresh_quota_with_auth_retry<Ctx, Resolve, Usable, Fetch, FetchFut>(
+    auth_store: &tokio::sync::Mutex<AuthStore>,
+    quota: &QuotaTracker,
+    key: QuotaKey,
+    resolve: Resolve,
+    usable: Usable,
+    fetch: Fetch,
+) where
+    Resolve: AsyncFn(&tokio::sync::Mutex<AuthStore>) -> Option<Ctx>,
+    Usable: Fn(&Ctx) -> bool,
+    Fetch: Fn(Ctx) -> FetchFut,
+    FetchFut: Future<Output = Option<String>>,
+{
+    if !quota.begin_fetch(&key) {
+        return;
+    }
+    let Some(initial) = resolve(auth_store).await else {
+        quota.record_failure(&key);
+        return;
+    };
+    let provider = key.provider.as_str();
+    let resolve = &resolve;
+    let display = fetch_quota_with_auth_retry(initial, usable, fetch, || async move {
+        auth_store.lock().await.force_refresh(provider).await.ok()?;
+        resolve(auth_store).await
+    })
+    .await;
+    record_quota_result(quota, &key, display);
+}
+
+enum AuthQuotaSource {
+    Antigravity { model: String },
+    ChatGpt,
+}
+
+async fn do_refresh_auth_quota(
+    auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
+    quota: QuotaTracker,
+    source: AuthQuotaSource,
+) {
+    let store = &*auth_store;
+    match source {
+        AuthQuotaSource::Antigravity { model } => {
+            let key = QuotaKey::new("antigravity", Some(&model));
+            let model = model.as_str();
+            refresh_quota_with_auth_retry(
+                store,
+                &quota,
+                key,
+                resolve_antigravity_credentials,
+                |(token, _): &(String, String)| !is_dummy_or_test_token(token),
+                |(token, project_id)| async move { crate::antigravity::fetch_quota(&token, &project_id, model).await },
+            )
+            .await;
+        }
+        AuthQuotaSource::ChatGpt => {
+            refresh_quota_with_auth_retry(
+                store,
+                &quota,
+                QuotaKey::new("chatgpt", None::<String>),
+                resolve_chatgpt_credentials,
+                |(token, _): &(String, Option<String>)| !is_dummy_or_test_token(token),
+                |(token, account_id)| async move {
+                    crate::chatgpt::fetch_quota(crate::chatgpt::USAGE_ENDPOINT, &token, account_id.as_deref()).await
+                },
+            )
+            .await;
+        }
+    }
 }
 
 async fn resolve_chatgpt_credentials(auth_store: &tokio::sync::Mutex<AuthStore>) -> Option<(String, Option<String>)> {
@@ -267,86 +358,34 @@ async fn resolve_chatgpt_credentials(auth_store: &tokio::sync::Mutex<AuthStore>)
     Some((token, account_id))
 }
 
-async fn fetch_chatgpt_quota_with_retry(
-    auth_store: &tokio::sync::Mutex<AuthStore>,
-    token: &str,
-    account_id: Option<&str>,
-) -> Option<String> {
-    if is_dummy_or_test_token(token) {
-        return None;
-    }
-    if let Some(display) = crate::chatgpt::fetch_quota(token, account_id).await {
-        return Some(display);
-    }
-    auth_store.lock().await.force_refresh("chatgpt").await.ok()?;
-    let (fresh_token, fresh_account) = resolve_chatgpt_credentials(auth_store).await?;
-    if is_dummy_or_test_token(&fresh_token) {
-        return None;
-    }
-    crate::chatgpt::fetch_quota(&fresh_token, fresh_account.as_deref()).await
-}
-
-async fn do_refresh_chatgpt_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {
-    let key = QuotaKey::new("chatgpt", None::<String>);
-    if !quota.begin_fetch(&key) {
-        return;
-    }
-    let Some((token, account_id)) = resolve_chatgpt_credentials(&auth_store).await else {
-        quota.record_failure(&key);
-        return;
-    };
-    let display = fetch_chatgpt_quota_with_retry(&auth_store, &token, account_id.as_deref()).await;
-    record_quota_result(&quota, &key, display);
-}
-
-async fn fetch_claude_quota_with_retry(
-    auth_store: &tokio::sync::Mutex<AuthStore>,
-    token: &str,
-    target_model: &str,
-) -> Option<String> {
-    if is_dummy_or_test_token(token) {
-        return None;
-    }
-    if let Some(display) = crate::claude::quota::fetch_quota(token, Some(target_model)).await {
-        return Some(display);
-    }
-    let fresh_token = auth_store.lock().await.force_refresh("claude").await.ok()??;
-    if is_dummy_or_test_token(&fresh_token) {
-        return None;
-    }
-    crate::claude::quota::fetch_quota(&fresh_token, Some(target_model)).await
-}
-
 async fn do_refresh_claude_quota(
     auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
     quota: QuotaTracker,
     target_model: String,
 ) {
     let key = QuotaKey::new("claude", Some(&target_model));
-    if !quota.begin_fetch(&key) {
-        return;
-    }
-    let token = auth_store.lock().await.get_key("claude").await.ok().flatten();
-    let Some(token) = token else {
-        quota.record_failure(&key);
-        return;
-    };
-    let display = fetch_claude_quota_with_retry(&auth_store, &token, &target_model).await;
-    record_quota_result(&quota, &key, display);
+    let store = &*auth_store;
+    let model = target_model.as_str();
+    refresh_stored_key_quota(store, &quota, key, "claude", |token| async move {
+        fetch_quota_with_auth_retry(
+            token,
+            |token: &String| !is_dummy_or_test_token(token),
+            |token| async move {
+                crate::claude::quota::fetch_quota(crate::claude::quota::USAGE_ENDPOINT, &token, Some(model)).await
+            },
+            || async move { store.lock().await.force_refresh("claude").await.ok().flatten() },
+        )
+        .await
+    })
+    .await;
 }
 
 async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {
     let key = QuotaKey::new("ollama-cloud", None::<String>);
-    if !quota.begin_fetch(&key) {
-        return;
-    }
-    let token = auth_store.lock().await.get_key("ollama-cloud").await.ok().flatten();
-    let Some(token) = token else {
-        quota.record_failure(&key);
-        return;
-    };
-    let display = crate::ollama::fetch_quota(&token).await;
-    record_quota_result(&quota, &key, display);
+    refresh_stored_key_quota(&auth_store, &quota, key, "ollama-cloud", |token| async move {
+        crate::ollama::fetch_quota(crate::ollama::CLOUD_HOST, &token).await
+    })
+    .await;
 }
 
 async fn do_refresh_gemini_quota(
@@ -508,99 +547,97 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn do_refresh_antigravity_quota_branches() {
+    async fn run_refresh_branches<Refresh, Fut>(
+        provider: &str,
+        key: QuotaKey,
+        refresh: Refresh,
+        invalid: Option<StoredCredential>,
+    ) where
+        Refresh: Fn(Arc<tokio::sync::Mutex<AuthStore>>, QuotaTracker) -> Fut,
+        Fut: Future<Output = ()>,
+    {
         let temp = tempfile::tempdir().unwrap();
         let store = Arc::new(tokio::sync::Mutex::new(
             AuthStore::load(temp.path().join("auth.json")).unwrap(),
         ));
         let quota = QuotaTracker::default();
-        let key = QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
 
         quota.begin_fetch(&key);
-        do_refresh_antigravity_quota(Arc::clone(&store), quota.clone(), "gemini-2.5-pro".into()).await;
+        refresh(Arc::clone(&store), quota.clone()).await;
         quota.record_failure(&key);
 
-        do_refresh_antigravity_quota(Arc::clone(&store), quota.clone(), "gemini-2.5-pro".into()).await;
+        refresh(Arc::clone(&store), quota.clone()).await;
         assert_eq!(quota.display_for(&key), None);
 
-        quota.invalidate(&key);
-        let cred = StoredCredential::OAuth {
+        if let Some(invalid) = invalid {
+            quota.invalidate(&key);
+            store.lock().await.set_credential(provider, invalid).unwrap();
+            refresh(store, quota.clone()).await;
+            assert_eq!(quota.display_for(&key), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn do_refresh_antigravity_quota_branches() {
+        let invalid = StoredCredential::OAuth {
             access_token: "invalid-token".into(),
             refresh_token: None,
             expires_at_ms: None,
             account_id: Some("custom-proj".into()),
             account_email: None,
         };
-        store.lock().await.set_credential("antigravity", cred).unwrap();
-        do_refresh_antigravity_quota(store, quota.clone(), "gemini-2.5-pro".into()).await;
-        assert_eq!(quota.display_for(&key), None);
+        run_refresh_branches(
+            "antigravity",
+            QuotaKey::new("antigravity", Some("gemini-2.5-pro")),
+            |store, quota| {
+                do_refresh_auth_quota(
+                    store,
+                    quota,
+                    AuthQuotaSource::Antigravity {
+                        model: "gemini-2.5-pro".into(),
+                    },
+                )
+            },
+            Some(invalid),
+        )
+        .await;
     }
 
     #[tokio::test]
-    async fn do_refresh_chatgpt_quota_branches() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = Arc::new(tokio::sync::Mutex::new(
-            AuthStore::load(temp.path().join("auth.json")).unwrap(),
-        ));
-        let quota = QuotaTracker::default();
-        let key = QuotaKey::new("chatgpt", None::<String>);
+    async fn do_refresh_chatgpt_and_claude_quota_branches() {
+        run_refresh_branches(
+            "chatgpt",
+            QuotaKey::new("chatgpt", None::<String>),
+            |store, quota| do_refresh_auth_quota(store, quota, AuthQuotaSource::ChatGpt),
+            Some(StoredCredential::api_key("invalid-token")),
+        )
+        .await;
+        run_refresh_branches(
+            "claude",
+            QuotaKey::new("claude", Some("claude-sonnet-4-6")),
+            |store, quota| do_refresh_claude_quota(store, quota, "claude-sonnet-4-6".into()),
+            Some(StoredCredential::api_key("invalid-token")),
+        )
+        .await;
+    }
 
+    #[tokio::test]
+    async fn do_refresh_ollama_quota_branches() {
+        run_refresh_branches(
+            "ollama-cloud",
+            QuotaKey::new("ollama-cloud", None::<String>),
+            do_refresh_ollama_quota,
+            None,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn do_refresh_gemini_quota_branches() {
+        let temp = tempfile::tempdir().unwrap();
+        let quota = QuotaTracker::default();
+        let key = QuotaKey::new("gemini", Some("gemini-2.5-flash"));
         quota.begin_fetch(&key);
-        do_refresh_chatgpt_quota(Arc::clone(&store), quota.clone()).await;
-        quota.record_failure(&key);
-
-        do_refresh_chatgpt_quota(Arc::clone(&store), quota.clone()).await;
-        assert_eq!(quota.display_for(&key), None);
-
-        quota.invalidate(&key);
-        let cred = StoredCredential::api_key("invalid-token");
-        store.lock().await.set_credential("chatgpt", cred).unwrap();
-        do_refresh_chatgpt_quota(store, quota.clone()).await;
-        assert_eq!(quota.display_for(&key), None);
-    }
-
-    #[tokio::test]
-    async fn do_refresh_claude_quota_branches() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = Arc::new(tokio::sync::Mutex::new(
-            AuthStore::load(temp.path().join("auth.json")).unwrap(),
-        ));
-        let quota = QuotaTracker::default();
-        let key = QuotaKey::new("claude", Some("claude-sonnet-4-6"));
-
-        quota.begin_fetch(&key);
-        do_refresh_claude_quota(Arc::clone(&store), quota.clone(), "claude-sonnet-4-6".into()).await;
-        quota.record_failure(&key);
-
-        do_refresh_claude_quota(Arc::clone(&store), quota.clone(), "claude-sonnet-4-6".into()).await;
-        assert_eq!(quota.display_for(&key), None);
-
-        quota.invalidate(&key);
-        let cred = StoredCredential::api_key("invalid-token");
-        store.lock().await.set_credential("claude", cred).unwrap();
-        do_refresh_claude_quota(store, quota.clone(), "claude-sonnet-4-6".into()).await;
-        assert_eq!(quota.display_for(&key), None);
-    }
-
-    #[tokio::test]
-    async fn do_refresh_ollama_and_gemini_quota_branches() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = Arc::new(tokio::sync::Mutex::new(
-            AuthStore::load(temp.path().join("auth.json")).unwrap(),
-        ));
-        let quota = QuotaTracker::default();
-        let ollama_key = QuotaKey::new("ollama-cloud", None::<String>);
-
-        quota.begin_fetch(&ollama_key);
-        do_refresh_ollama_quota(Arc::clone(&store), quota.clone()).await;
-        quota.record_failure(&ollama_key);
-
-        do_refresh_ollama_quota(store, quota.clone()).await;
-        assert_eq!(quota.display_for(&ollama_key), None);
-
-        let gemini_key = QuotaKey::new("gemini", Some("gemini-2.5-flash"));
-        quota.begin_fetch(&gemini_key);
         do_refresh_gemini_quota(
             temp.path(),
             None,

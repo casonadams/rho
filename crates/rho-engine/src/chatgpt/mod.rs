@@ -16,9 +16,9 @@ use std::time::Duration;
 pub const USAGE_ENDPOINT: &str = "https://chatgpt.com/backend-api/wham/usage";
 
 /// Fetch account usage from chatgpt.com backend and format the status string.
-pub async fn fetch_quota(token: &str, account_id: Option<&str>) -> Option<String> {
+pub async fn fetch_quota(usage_url: &str, token: &str, account_id: Option<&str>) -> Option<String> {
     let mut req = CLIENT
-        .get(USAGE_ENDPOINT)
+        .get(usage_url)
         .timeout(Duration::from_secs(8))
         .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/json")

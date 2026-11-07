@@ -55,10 +55,6 @@ pub struct ClaudeProfileOrganization {
     pub name: Option<String>,
 }
 
-pub async fn exchange_code(code: &str, verifier: &str) -> Result<ClaudeTokenResponse> {
-    exchange_code_with_redirect(code, verifier, REDIRECT_URI, None).await
-}
-
 async fn parse_claude_token_response(res: reqwest::Response) -> Result<ClaudeTokenResponse> {
     if !res.status().is_success() {
         let status = res.status();
@@ -73,6 +69,7 @@ async fn parse_claude_token_response(res: reqwest::Response) -> Result<ClaudeTok
 }
 
 pub async fn exchange_code_with_redirect(
+    token_url: &str,
     code: &str,
     verifier: &str,
     redirect_uri: &str,
@@ -95,7 +92,7 @@ pub async fn exchange_code_with_redirect(
         form.push(("state", s));
     }
     let res = CLIENT
-        .post(TOKEN_URL)
+        .post(token_url)
         .timeout(TOKEN_TIMEOUT)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
         .form(&form)
@@ -106,14 +103,14 @@ pub async fn exchange_code_with_redirect(
     parse_claude_token_response(res).await
 }
 
-pub async fn refresh_token(refresh: &str) -> Result<ClaudeTokenResponse> {
+pub async fn refresh_token(token_url: &str, refresh: &str) -> Result<ClaudeTokenResponse> {
     let form = [
         ("grant_type", "refresh_token"),
         ("client_id", CLIENT_ID),
         ("refresh_token", refresh),
     ];
     post_form_json(
-        TOKEN_URL,
+        token_url,
         &form,
         &[("User-Agent", USER_AGENT)],
         TOKEN_TIMEOUT,
@@ -122,9 +119,9 @@ pub async fn refresh_token(refresh: &str) -> Result<ClaudeTokenResponse> {
     .await
 }
 
-pub async fn fetch_profile(access_token: &str) -> Option<ClaudeProfileResponse> {
+pub async fn fetch_profile(profile_url: &str, access_token: &str) -> Option<ClaudeProfileResponse> {
     let res = CLIENT
-        .get(PROFILE_URL)
+        .get(profile_url)
         .timeout(TOKEN_TIMEOUT)
         .bearer_auth(access_token)
         .header(reqwest::header::USER_AGENT, USER_AGENT)

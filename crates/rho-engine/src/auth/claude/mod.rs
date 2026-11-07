@@ -4,38 +4,19 @@ pub mod local;
 #[cfg(test)]
 mod tests;
 
+use client::TOKEN_URL;
 pub use client::{
     ANTHROPIC_BETA, AUTHORIZE_URL, CLIENT_ID, ClaudeProfileAccount, ClaudeProfileOrganization, ClaudeProfileResponse,
-    ClaudeTokenResponse, PROFILE_URL, REDIRECT_URI, SCOPES, TOKEN_TIMEOUT, USER_AGENT, exchange_code,
-    exchange_code_with_redirect, fetch_profile, refresh_token,
+    ClaudeTokenResponse, PROFILE_URL, REDIRECT_URI, SCOPES, TOKEN_TIMEOUT, USER_AGENT, exchange_code_with_redirect,
+    fetch_profile, refresh_token,
 };
 pub use flow::{acquire_auth_code, build_authorize_url, parse_auth_code_and_state};
 pub use local::{detect_local_claude_credentials, detect_local_claude_credentials_async};
 
+use super::oauth::{oauth_credential, refresh_oauth_credential};
 use crate::auth::pkce::{PkceChallenge, generate_state};
 use rho_harness_core::auth::{OAuthLoginCallbacks, SelectOption, StoredCredential};
-use rho_harness_core::error::{AppError, Result};
-
-fn make_oauth_cred(
-    token: ClaudeTokenResponse,
-    account_id: Option<String>,
-    account_email: Option<String>,
-) -> StoredCredential {
-    let expires_at_ms = token
-        .expires_in
-        .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
-    let mut cred = StoredCredential::oauth(token.access_token, token.refresh_token, expires_at_ms);
-    if let StoredCredential::OAuth {
-        account_id: ref mut id_slot,
-        account_email: ref mut email_slot,
-        ..
-    } = cred
-    {
-        *id_slot = account_id;
-        *email_slot = account_email;
-    }
-    cred
-}
+use rho_harness_core::error::Result;
 
 async fn try_import_local_credentials(callbacks: &dyn OAuthLoginCallbacks) -> Result<Option<StoredCredential>> {
     let local_cred = detect_local_claude_credentials_async().await;
@@ -94,10 +75,15 @@ async fn exchange_and_resolve_profile(
     redirect_uri: &str,
     state: Option<&str>,
 ) -> Result<StoredCredential> {
-    let token = exchange_code_with_redirect(code, verifier, redirect_uri, state).await?;
-    let profile = fetch_profile(&token.access_token).await;
+    let token = exchange_code_with_redirect(TOKEN_URL, code, verifier, redirect_uri, state).await?;
+    let profile = fetch_profile(PROFILE_URL, &token.access_token).await;
     let (account_id, account_email) = resolve_account_ids(&token, &profile);
-    Ok(make_oauth_cred(token, account_id, account_email))
+    Ok(oauth_credential(
+        token.access_token,
+        token.refresh_token,
+        token.expires_in,
+        (account_id, account_email),
+    ))
 }
 
 pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
@@ -134,24 +120,28 @@ fn resolve_refreshed_ids(
     (new_account_id, new_email)
 }
 
-pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredCredential> {
-    let StoredCredential::OAuth {
-        refresh_token: Some(refresh),
-        account_id,
-        account_email,
-        ..
-    } = credential
-    else {
-        return Err(AppError::Auth(
-            "Claude OAuth token has expired and has no refresh token. Re-run 'rho login claude'.".to_string(),
-        ));
-    };
-
-    let mut token = refresh_token(refresh).await?;
+async fn exchange_refresh_token(
+    refresh: String,
+    (account_id, account_email): (Option<String>, Option<String>),
+) -> Result<StoredCredential> {
+    let mut token = refresh_token(TOKEN_URL, &refresh).await?;
     if token.refresh_token.is_none() {
-        token.refresh_token = Some(refresh.clone());
+        token.refresh_token = Some(refresh);
     }
-    let (new_account_id, new_email) = resolve_refreshed_ids(&token, (account_id.clone(), account_email.clone()));
+    let (new_account_id, new_email) = resolve_refreshed_ids(&token, (account_id, account_email));
+    Ok(oauth_credential(
+        token.access_token,
+        token.refresh_token,
+        token.expires_in,
+        (new_account_id, new_email),
+    ))
+}
 
-    Ok(make_oauth_cred(token, new_account_id, new_email))
+pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredCredential> {
+    refresh_oauth_credential(
+        credential,
+        "Claude OAuth token has expired and has no refresh token. Re-run 'rho login claude'.",
+        exchange_refresh_token,
+    )
+    .await
 }

@@ -199,3 +199,169 @@ pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
     let custom = config.providers.clone();
     tokio::spawn(refresh_discovered_models(config_dir, auth, custom));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rho_engine::provider::discovery::DiscoveredModel;
+    use rho_harness_core::config::ProviderConfig;
+    use std::collections::HashMap;
+
+    fn discovered(id: &str, provider: &str, description: &str) -> DiscoveredModel {
+        DiscoveredModel::new(id, id, provider, description)
+    }
+
+    fn model_item(id: &str, provider: &str, description: &str) -> ModelItem {
+        ModelItem {
+            id: id.to_string(),
+            provider: provider.to_string(),
+            description: description.to_string(),
+        }
+    }
+
+    fn store_with(entries: &[(&str, Vec<DiscoveredModel>)]) -> ModelStore {
+        let models: HashMap<String, Vec<DiscoveredModel>> = entries
+            .iter()
+            .map(|(provider, models)| ((*provider).to_string(), models.clone()))
+            .collect();
+        serde_json::from_value(serde_json::json!({ "updated_at_ms": 0, "models": models })).unwrap()
+    }
+
+    fn auth_with(dir: &tempfile::TempDir, providers: &[&str]) -> AuthStore {
+        let mut auth = AuthStore::load(dir.path().join("auth.json")).unwrap();
+        for provider in providers {
+            auth.set_key(provider, "test-key").unwrap();
+        }
+        auth
+    }
+
+    fn config_with_custom(active: &str, providers: &[(&str, &str)]) -> Config {
+        Config {
+            provider: active.to_string(),
+            providers: providers
+                .iter()
+                .map(|(name, base_url)| {
+                    (
+                        (*name).to_string(),
+                        ProviderConfig {
+                            base_url: (*base_url).to_string(),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    fn summarize(models: &[ModelItem]) -> Vec<(&str, &str, &str)> {
+        models
+            .iter()
+            .map(|m| (m.id.as_str(), m.provider.as_str(), m.description.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn merge_provider_presets_keeps_cached_entries_and_adds_missing_presets() {
+        let cached = discovered("gpt-4o", "chatgpt", "cached gpt-4o");
+        let custom = discovered("acme-cache", "chatgpt", "cached custom");
+        let merged = merge_provider_presets("chatgpt", vec![cached.clone(), custom.clone()]);
+        let ids: Vec<&str> = merged.iter().map(|m| m.id.as_str()).collect();
+
+        assert_eq!(merged.iter().filter(|m| m.id == "gpt-4o").count(), 1);
+        assert!(merged.contains(&cached));
+        assert!(merged.contains(&custom));
+        assert!(ids.contains(&"gpt-6-luna"));
+        assert_eq!(ids.first(), Some(&"gpt-6.1-sol"));
+    }
+
+    #[test]
+    fn merge_provider_presets_adds_provider_specific_or_fallback_presets() {
+        let cases = [
+            ("chatgpt", "gpt-6-luna"),
+            ("local", "llama3.2:latest"),
+            ("acme", "acme-default"),
+        ];
+        for (provider, preset_id) in cases {
+            let merged = merge_provider_presets(provider, Vec::new());
+            assert!(
+                merged.iter().any(|m| m.id == preset_id),
+                "{provider} should include {preset_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn configured_provider_models_cover_auth_and_store_providers_but_not_local() {
+        let dir = tempfile::tempdir().unwrap();
+        let auth = auth_with(&dir, &["chatgpt"]);
+        let store = store_with(&[
+            ("acme", vec![discovered("acme-model", "acme", "cached acme")]),
+            ("local", vec![discovered("llama-cached", "local", "local cache")]),
+            ("ollama", vec![discovered("ollama-cached", "ollama", "ollama cache")]),
+        ]);
+        let mut models = Vec::new();
+        append_configured_provider_models(&mut models, &store, &auth);
+
+        assert!(models.iter().any(|m| m.id == "gpt-6-luna" && m.provider == "chatgpt"));
+        assert!(models.contains(&model_item("acme-model", "acme", "cached acme")));
+        assert!(models.contains(&model_item("acme-default", "acme", "custom model")));
+        assert!(models.iter().all(|m| m.provider != "claude"));
+        assert!(models.iter().all(|m| m.provider != "local" && m.provider != "ollama"));
+        let chatgpt_ids: Vec<&str> = models
+            .iter()
+            .filter(|m| m.provider == "chatgpt")
+            .map(|m| m.id.as_str())
+            .collect();
+        assert_eq!(chatgpt_ids.first(), Some(&"gpt-6.1-sol"));
+    }
+
+    #[test]
+    fn configured_provider_models_skip_entries_already_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let auth = auth_with(&dir, &["chatgpt"]);
+        let store = store_with(&[]);
+        let mut models = vec![model_item("gpt-6-luna", "chatgpt", "already listed")];
+        append_configured_provider_models(&mut models, &store, &auth);
+
+        assert_eq!(models.iter().filter(|m| m.id == "gpt-6-luna").count(), 1);
+        assert!(models.contains(&model_item("gpt-6-luna", "chatgpt", "already listed")));
+    }
+
+    #[test]
+    fn custom_provider_models_use_cached_catalog_or_endpoint_placeholder() {
+        let endpoint = "endpoint: https://acme.test/v1";
+        let cached = vec![
+            discovered("m-3.1", "acme", "desc 3.1"),
+            discovered("m-3.8", "acme", "desc 3.8"),
+        ];
+        let cached_expected = vec![("m-3.8", "acme", "desc 3.8"), ("m-3.1", "acme", "desc 3.1")];
+        type Expected = Vec<(&'static str, &'static str, &'static str)>;
+        let cases: Vec<(&str, Option<Vec<DiscoveredModel>>, Expected)> = vec![
+            ("other", None, vec![("acme-default", "acme", endpoint)]),
+            ("acme", None, vec![]),
+            ("other", Some(cached.clone()), cached_expected.clone()),
+            ("acme", Some(cached), cached_expected),
+        ];
+        for (active, cached, expected) in cases {
+            let store = match cached {
+                Some(models) => store_with(&[("acme", models)]),
+                None => store_with(&[]),
+            };
+            let config = config_with_custom(active, &[("acme", "https://acme.test/v1")]);
+            let mut models = Vec::new();
+            append_custom_provider_models(&mut models, &config, &store);
+            assert_eq!(summarize(&models), expected, "active provider {active}");
+        }
+    }
+
+    #[test]
+    fn custom_provider_models_keep_existing_entries_unique() {
+        let store = store_with(&[("acme", vec![discovered("m-3.8", "acme", "desc 3.8")])]);
+        let config = config_with_custom("other", &[("acme", "https://acme.test/v1")]);
+        let mut models = vec![model_item("m-3.8", "acme", "already listed")];
+        append_custom_provider_models(&mut models, &config, &store);
+
+        assert_eq!(summarize(&models), vec![("m-3.8", "acme", "already listed")]);
+    }
+}

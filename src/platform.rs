@@ -44,3 +44,53 @@ pub async fn agent_engine(config: Config, auth_store: AuthStore, resume: Option<
     let base_dir = std::env::current_dir()?;
     agent_engine_in_dir(config, auth_store, base_dir, resume).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn active_tools_follow_web_tool_toggles() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let cases = [
+            (
+                true,
+                true,
+                vec![
+                    "read",
+                    "write",
+                    "edit",
+                    "bash",
+                    "fd",
+                    "rg",
+                    "web_search",
+                    "web_fetch",
+                    "subagent",
+                ],
+            ),
+            (
+                false,
+                true,
+                vec!["read", "write", "edit", "bash", "fd", "rg", "web_fetch", "subagent"],
+            ),
+            (
+                true,
+                false,
+                vec!["read", "write", "edit", "bash", "fd", "rg", "web_search", "subagent"],
+            ),
+            (
+                false,
+                false,
+                vec!["read", "write", "edit", "bash", "fd", "rg", "subagent"],
+            ),
+        ];
+        for (search_enabled, fetch_enabled, expected) in cases {
+            let mut config = Config::default();
+            config.tools.web.search.enabled = search_enabled;
+            config.tools.web.fetch.enabled = fetch_enabled;
+            let assembly = active_tools(&config, base_dir.path()).await.unwrap();
+            let names: Vec<&str> = assembly.tools.iter().map(|tool| tool.name()).collect();
+            assert_eq!(names, expected, "search={search_enabled} fetch={fetch_enabled}");
+        }
+    }
+}

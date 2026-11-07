@@ -237,3 +237,23 @@ pub(crate) fn render_markdown_table_at_width(lines: &[String], theme: &Theme, wi
 pub fn strip_markdown_decorations(s: &str) -> String {
     s.replace("**", "").replace(['*', '`'], "").trim().to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_cell;
+
+    #[test]
+    fn wrap_cell_breaks_words_at_the_column_width() {
+        let cases = [
+            ("", 5, vec![""]),
+            ("ab", 0, vec!["a", "b"]),
+            ("ab cd", 10, vec!["ab cd"]),
+            ("abc defgh", 5, vec!["abc", "defgh"]),
+            ("abc defghij", 5, vec!["abc", "defgh", "ij"]),
+            ("abcdefghijkl", 5, vec!["abcde", "fghij", "kl"]),
+        ];
+        for (cell, width, expected) in cases {
+            assert_eq!(wrap_cell(cell, width), expected, "cell {cell:?} at width {width}");
+        }
+    }
+}

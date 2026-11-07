@@ -54,3 +54,28 @@ fn test_friendly_error_formatting() {
     );
     assert!(friendly_error(Some(401), "").contains("Run 'rho login chatgpt'"));
 }
+
+#[tokio::test]
+async fn fetch_quota_formats_usage_from_endpoint_and_rejects_failures() {
+    let cases = [
+        (
+            "200 OK",
+            r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#,
+            Some("95%"),
+        ),
+        ("200 OK", r#"{"other":{}}"#, None),
+        (
+            "500 Internal Server Error",
+            r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#,
+            None,
+        ),
+    ];
+    for (status, body, expected) in cases {
+        let usage_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
+        assert_eq!(
+            fetch_quota(&usage_url, "tok", Some("acct-1")).await.as_deref(),
+            expected,
+            "{status} {body}"
+        );
+    }
+}

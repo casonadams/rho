@@ -66,6 +66,11 @@ fn resume_requires_supported_versioned_header() {
             r#"{"record_type":"header","version":3,"session_id":"future","created_at":"2025-01-01T00:00:00Z"}\n"#,
             "unsupported session version",
         ),
+        (
+            "mismatch",
+            r#"{"record_type":"header","version":2,"session_id":"someone-else","created_at":"2025-01-01T00:00:00Z"}\n"#,
+            "does not match its file name",
+        ),
     ] {
         std::fs::write(dir.join(format!("{id}.jsonl")), body.replace("\\n", "\n")).unwrap();
         let error = SessionManager::new(&dir, Some(id)).unwrap_err().to_string();
@@ -134,4 +139,47 @@ fn last_session_for_cwd_tracks_and_resolves() {
             .as_deref(),
         Some("sess-b1")
     );
+}
+
+#[tokio::test]
+async fn last_session_for_cwd_async_resolves_missing_directories_by_raw_path() {
+    let sessions_dir = temp_dir();
+    let project = temp_dir();
+    SessionManager::record_session_for_cwd(&sessions_dir, &project, "sess-async").unwrap();
+
+    let asynchronous = SessionManager::last_session_for_cwd_async(&sessions_dir, &project).await;
+    assert_eq!(asynchronous.unwrap().as_deref(), Some("sess-async"));
+    let other = temp_dir();
+    assert_eq!(
+        SessionManager::last_session_for_cwd_async(&sessions_dir, &other)
+            .await
+            .unwrap(),
+        None
+    );
+}
+
+type IndexFixture = fn(&std::path::Path);
+
+#[tokio::test]
+async fn last_session_lookup_reports_unreadable_or_corrupt_index() {
+    let cases: &[(&str, IndexFixture)] = &[
+        ("corrupt_json", |index| std::fs::write(index, "{not json").unwrap()),
+        ("index_is_directory", |index| std::fs::create_dir_all(index).unwrap()),
+    ];
+    for (name, prepare) in cases {
+        let sessions_dir = temp_dir();
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+        prepare(&sessions_dir.join(".last_sessions.json"));
+        let project = temp_dir();
+        assert!(
+            SessionManager::last_session_for_cwd(&sessions_dir, &project).is_err(),
+            "{name}"
+        );
+        assert!(
+            SessionManager::last_session_for_cwd_async(&sessions_dir, &project)
+                .await
+                .is_err(),
+            "{name}"
+        );
+    }
 }

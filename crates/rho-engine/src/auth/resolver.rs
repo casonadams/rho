@@ -208,10 +208,26 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn async_resolution_matches_sync_for_literals_and_commands() {
+        assert_eq!(resolve_secret_value_async("sk-literal").await.unwrap(), "sk-literal");
+        assert_eq!(
+            resolve_secret_value_async("!echo async_secret").await.unwrap(),
+            "async_secret"
+        );
+    }
+
     #[cfg(unix)]
-    #[test]
-    fn times_out_hung_secret_commands() {
-        let err = execute_command_with_timeout("sleep 5", Duration::from_millis(50)).unwrap_err();
-        assert!(err.to_string().contains("timed out"));
+    #[tokio::test]
+    async fn failing_or_hung_secret_commands_are_errors_in_both_modes() {
+        let failed = execute_command_async_with_timeout("echo nope >&2; exit 3", Duration::from_secs(5)).await;
+        assert!(failed.unwrap_err().to_string().contains("nope"));
+
+        let hung = execute_command_with_timeout("sleep 5", Duration::from_millis(50)).unwrap_err();
+        assert!(hung.to_string().contains("timed out"));
+        let hung = execute_command_async_with_timeout("sleep 5", Duration::from_millis(50))
+            .await
+            .unwrap_err();
+        assert!(hung.to_string().contains("timed out"));
     }
 }

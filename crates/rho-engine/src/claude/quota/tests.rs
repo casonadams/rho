@@ -40,3 +40,20 @@ fn parse_quota_cases() {
     let now = Utc.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
     assert_quota_cases(CASES, now, parse_quota);
 }
+
+#[tokio::test]
+async fn fetch_quota_reads_usage_endpoint_and_rejects_failures() {
+    let cases = [
+        ("200 OK", FIVE_HOUR_ONLY, Some("90%")),
+        ("200 OK", "{}", None),
+        ("503 Service Unavailable", FIVE_HOUR_ONLY, None),
+    ];
+    for (status, body, expected_prefix) in cases {
+        let usage_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
+        let display = fetch_quota(&usage_url, "tok", None).await;
+        match expected_prefix {
+            Some(prefix) => assert!(display.is_some_and(|d| d.starts_with(prefix)), "{status} {body}"),
+            None => assert_eq!(display, None, "{status} {body}"),
+        }
+    }
+}

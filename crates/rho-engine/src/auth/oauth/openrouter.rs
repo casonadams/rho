@@ -87,12 +87,9 @@ async fn acquire_openrouter_headless_code(challenge: &str, callbacks: &dyn OAuth
     Ok(code)
 }
 
-async fn exchange_openrouter_key(code: &str, verifier: &str) -> Result<String> {
+pub(crate) async fn exchange_openrouter_key(keys_url: &str, code: &str, verifier: &str) -> Result<String> {
     let body = build_exchange_body(code, verifier);
-    let request = CLIENT
-        .post(OPENROUTER_KEYS_URL)
-        .timeout(Duration::from_secs(15))
-        .json(&body);
+    let request = CLIENT.post(keys_url).timeout(Duration::from_secs(15)).json(&body);
     let text = send_checked(request, "OpenRouter key exchange")
         .await?
         .text()
@@ -115,6 +112,6 @@ pub async fn perform_openrouter_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Res
         .on_progress("Exchanging authorization code for OpenRouter API key...")
         .await?;
 
-    let key = exchange_openrouter_key(&code, &pkce.verifier).await?;
+    let key = exchange_openrouter_key(OPENROUTER_KEYS_URL, &code, &pkce.verifier).await?;
     Ok(StoredCredential::api_key(key))
 }

@@ -176,4 +176,22 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[tokio::test]
+    async fn non_markdown_directories_and_unreadable_files_are_skipped() {
+        let temp_dir = std::env::temp_dir().join(format!("prompts_skip_{}", uuid::Uuid::new_v4()));
+        let user_config = temp_dir.join("user_config");
+        let prompts = user_config.join("prompts");
+        std::fs::create_dir_all(prompts.join("folder.md")).unwrap();
+        std::fs::write(prompts.join("good.md"), "Good").unwrap();
+        std::fs::write(prompts.join("notes.txt"), "Notes").unwrap();
+        std::fs::write(prompts.join("binary.md"), [0xff_u8, 0xfe]).unwrap();
+
+        let discovered =
+            discover_prompt_templates_for_paths_async(Some(&temp_dir.join("home")), Some(&user_config), None).await;
+        let names: Vec<&str> = discovered.iter().map(|t| t.metadata.name.as_str()).collect();
+        assert_eq!(names, vec!["good"]);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::io::duplex;
 use tokio::sync::{RwLock, mpsc};
 
+use super::handlers::auth::handle_set_api_key_cmd;
 use super::handlers::config::{handle_config_update_cmd, handle_node_info_cmd, handle_state_command};
 use super::handlers::session::{extract_chat_messages, handle_create_session_cmd, handle_get_tree_cmd};
 use super::handlers::turn::{handle_tool_response_cmd, parse_tool_decision};
@@ -213,7 +214,9 @@ async fn test_rpc_state_command_and_get_tree() {
     assert!(state_data.get("total_input_tokens").is_some());
     assert!(state_data.get("context_window").is_some());
 
-    let _resp2 = read_response(&mut client_reader).await;
+    let resp2 = read_response(&mut client_reader).await;
+    assert_eq!(resp2.command, "get_tree");
+    assert!(resp2.data.unwrap().get("entries").is_some());
     let _resp3 = read_response(&mut client_reader).await;
 
     let resp4 = read_response(&mut client_reader).await;
@@ -708,4 +711,72 @@ async fn test_handle_session_lifecycle_cmd_variants() {
     assert!(!res.unwrap());
 
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_handle_create_session_workspace_target() {
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_create_session_target_test");
+    let workspace = temp_dir.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+
+    handle_create_session_cmd(
+        Some(workspace.display().to_string()),
+        Some("req-create".to_string()),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    let resp = read_response(&mut client_reader).await;
+    assert!(resp.success);
+    assert_eq!(resp.command, "create_session");
+    assert_eq!(resp.data.unwrap()["active_workspace"].as_str(), workspace.to_str());
+    assert_eq!(ctx.engine.read().await.base_dir, workspace);
+    assert_eq!(ctx.config.read().await.sessions_dir, workspace.join(".rho/sessions"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_handle_set_api_key_cmd_outcomes() {
+    let cases = [
+        ("saved", false, None),
+        ("save_blocked", true, Some("Failed to write auth file")),
+    ];
+    for (name, blocked, expected_error) in cases {
+        let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_set_api_key_test");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let path = temp_dir.join("auth-under-test.json");
+        let store = AuthStore::load(&path).unwrap();
+        if blocked {
+            std::fs::create_dir(&path).unwrap();
+        }
+        let mut active_turn = None;
+        let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+        *ctx.auth_store.write().await = store;
+
+        handle_set_api_key_cmd(
+            "anthropic".to_string(),
+            "sk-ant-testkey".to_string(),
+            Some("req-key".to_string()),
+            &mut ctx,
+        )
+        .await
+        .unwrap();
+
+        let resp = read_response(&mut client_reader).await;
+        assert_eq!(resp.command, "set_api_key", "{name}");
+        assert_eq!(resp.success, expected_error.is_none(), "{name}");
+        match expected_error {
+            Some(needle) => assert!(resp.error.unwrap().contains(needle), "{name}"),
+            None => assert!(
+                ctx.auth_store.read().await.get_credential("anthropic").is_some(),
+                "{name}"
+            ),
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

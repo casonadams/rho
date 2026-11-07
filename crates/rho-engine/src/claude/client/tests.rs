@@ -433,3 +433,11 @@ fn test_thinking_level_request_shapes() {
         }
     }
 }
+
+#[test]
+fn debug_output_names_model_and_thinking_level() {
+    let client = ClaudeClient::new("sk-ant-secret-token", "claude-opus-4").with_thinking_level(Some("high"));
+    let debug = format!("{client:?}");
+    assert!(debug.contains("model: \"claude-opus-4\""), "{debug}");
+    assert!(debug.contains("thinking_level: Some(\"high\")"), "{debug}");
+}

@@ -16,6 +16,43 @@ use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use std::time::Duration;
 
+pub(crate) fn oauth_credential(
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: Option<i64>,
+    (account_id, account_email): (Option<String>, Option<String>),
+) -> StoredCredential {
+    let expires_at_ms = expires_in.map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
+    StoredCredential::OAuth {
+        access_token,
+        refresh_token,
+        expires_at_ms,
+        account_id,
+        account_email,
+    }
+}
+
+pub(crate) async fn refresh_oauth_credential<Exchange, Fut>(
+    credential: &StoredCredential,
+    expired_message: &str,
+    exchange: Exchange,
+) -> Result<StoredCredential>
+where
+    Exchange: FnOnce(String, (Option<String>, Option<String>)) -> Fut,
+    Fut: Future<Output = Result<StoredCredential>>,
+{
+    let StoredCredential::OAuth {
+        refresh_token: Some(refresh),
+        account_id,
+        account_email,
+        ..
+    } = credential
+    else {
+        return Err(AppError::Auth(expired_message.to_string()));
+    };
+    exchange(refresh.clone(), (account_id.clone(), account_email.clone())).await
+}
+
 pub(crate) fn validate_callback(callback: CallbackParams, state: &str) -> Result<String> {
     if let Some(err) = callback.error {
         let desc = callback.error_description.unwrap_or_default();

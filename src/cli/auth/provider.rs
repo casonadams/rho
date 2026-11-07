@@ -87,6 +87,7 @@ fn prompt_select_from_list(prompt: &str, items: &[String]) -> Result<usize> {
 
 pub fn prompt_select_auth_method() -> Result<AuthMethod> {
     prompt_auth_choice(
+        prompt_select_from_list,
         "Select authentication method:",
         [
             "API key (Anthropic, OpenAI, Gemini, etc.)",
@@ -110,14 +111,20 @@ pub fn prompt_select_api_key_provider(config: &Config) -> Result<String> {
     Ok(options[idx].0.to_string())
 }
 
-fn prompt_auth_choice(prompt: &str, options: [&str; 2], methods: [AuthMethod; 2]) -> Result<AuthMethod> {
+pub(crate) fn prompt_auth_choice(
+    select: impl FnOnce(&str, &[String]) -> Result<usize>,
+    prompt: &str,
+    options: [&str; 2],
+    methods: [AuthMethod; 2],
+) -> Result<AuthMethod> {
     let items: Vec<String> = options.iter().map(|option| option.to_string()).collect();
-    let idx = prompt_select_from_list(prompt, &items)?;
+    let idx = select(prompt, &items)?;
     Ok(methods[idx])
 }
 
 pub fn prompt_auth_method(provider_label: &str) -> Result<AuthMethod> {
     prompt_auth_choice(
+        prompt_select_from_list,
         &format!("Select authentication method for {provider_label}:"),
         [
             "OAuth (sign in with browser to generate API key)",

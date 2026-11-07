@@ -1,3 +1,4 @@
+use super::super::activation::activate_path_instructions_async;
 use super::super::*;
 use std::path::Path;
 
@@ -202,6 +203,31 @@ async fn test_dynamic_path_activation_with_transclusion() {
     assert_eq!(ctx.instruction_files.len(), 1);
     assert!(ctx.instruction_files[0].1.contains("# Subtree Rules"));
     assert!(ctx.instruction_files[0].1.contains("Subtree coding standards."));
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}
+
+#[tokio::test]
+async fn test_async_path_activation_loads_subcrate_and_honors_no_context() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_async_{}", uuid::Uuid::new_v4()));
+    let repo_root = temp_dir.join("repo");
+    setup_monorepo_dirs(&repo_root);
+
+    let mut ctx = ProjectContext::discover(&repo_root, None).await;
+    activate_path_instructions_async(&mut ctx, Path::new("crates/rho-subcrate/src/lib.rs")).await;
+    assert_eq!(ctx.instruction_files.len(), 2);
+    assert_eq!(ctx.instruction_files[1].1, "# Subcrate Instructions");
+
+    let mut disabled = ProjectContext::discover_with_dirs(
+        &repo_root,
+        ContextDirs {
+            no_context_files: true,
+            ..Default::default()
+        },
+    )
+    .await;
+    activate_path_instructions_async(&mut disabled, Path::new("crates/rho-subcrate/src/lib.rs")).await;
+    assert!(disabled.instruction_files.is_empty());
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
