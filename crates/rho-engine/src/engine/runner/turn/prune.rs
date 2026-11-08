@@ -335,6 +335,19 @@ fn prune_image_tool_result(tool_name: &str, text: &str, meta: Option<&ToolCallMe
     }
 }
 
+fn spill_artifact_path(text: &str) -> Option<&str> {
+    let (_, notice) = crate::tools::truncate::split_artifact_notice(text);
+    let after = &notice?[notice?.find(" saved to ")? + " saved to ".len()..];
+    Some(&after[..after.find(". Use '")?])
+}
+
+fn with_artifact_path(stub: String, text: &str) -> String {
+    match spill_artifact_path(text) {
+        Some(path) => format!("{} Full output: {path}]", stub.trim_end_matches(']')),
+        None => stub,
+    }
+}
+
 fn prune_read_result(text: &str, meta: Option<&ToolCallMeta>, line_threshold: usize) -> Option<String> {
     if is_read_error(text) {
         return None;
@@ -345,15 +358,12 @@ fn prune_read_result(text: &str, meta: Option<&ToolCallMeta>, line_threshold: us
     }
     let size_str = crate::tools::truncate::format_size(text.len());
     let target = meta.map(|m| m.target.as_str()).unwrap_or("");
-    if target.is_empty() {
-        Some(format!(
-            "[File read ({line_count} lines, {size_str}). Output pruned for historical turn.]"
-        ))
+    let stub = if target.is_empty() {
+        format!("[File read ({line_count} lines, {size_str}). Output pruned for historical turn.]")
     } else {
-        Some(format!(
-            "[File '{target}' read ({line_count} lines, {size_str}). Output pruned for historical turn.]"
-        ))
-    }
+        format!("[File '{target}' read ({line_count} lines, {size_str}). Output pruned for historical turn.]")
+    };
+    Some(with_artifact_path(stub, text))
 }
 
 fn prune_search_result(
@@ -371,15 +381,16 @@ fn prune_search_result(
     }
     let size_str = crate::tools::truncate::format_size(text.len());
     let target = meta.map(|m| m.target.as_str()).unwrap_or("");
-    if target.is_empty() {
-        Some(format!(
+    let stub = if target.is_empty() {
+        format!(
             "[Tool '{tool_name}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
-        ))
+        )
     } else {
-        Some(format!(
+        format!(
             "[Tool '{tool_name}' with pattern '{target}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
-        ))
-    }
+        )
+    };
+    Some(with_artifact_path(stub, text))
 }
 
 fn prune_fetch_result(text: &str, target: &str, line_count: usize, size_str: &str) -> Option<String> {
@@ -500,14 +511,21 @@ pub fn find_recent_tokens_cutoff(messages: &[ChatMessage], protect_tokens: usize
     if protect_tokens == 0 || messages.is_empty() {
         return messages.len();
     }
+    let sizes: Vec<usize> = messages
+        .iter()
+        .map(|msg| rho_harness_core::tokens::estimate_message_tokens(msg, model))
+        .collect();
+    let total: usize = sizes.iter().sum();
+    let step = (protect_tokens / 2).max(1);
+    let boundary = total.saturating_sub(protect_tokens) / step * step;
     let mut accumulated = 0usize;
-    for (idx, msg) in messages.iter().enumerate().rev() {
-        accumulated = accumulated.saturating_add(rho_harness_core::tokens::estimate_message_tokens(msg, model));
-        if accumulated >= protect_tokens {
-            return idx;
-        }
-    }
-    0
+    sizes
+        .iter()
+        .take_while(|size| {
+            accumulated = accumulated.saturating_add(**size);
+            accumulated <= boundary
+        })
+        .count()
 }
 
 struct PruneContext<'a> {
@@ -637,7 +655,7 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[ChatMessage], polic
     }
 
     let tool_calls = collect_tool_calls(messages);
-    let superseded_ids = collect_superseded_tool_call_ids(messages);
+    let superseded_ids = collect_superseded_tool_call_ids(&messages[..effective_cutoff]);
     let ctx = PruneContext {
         tool_calls: &tool_calls,
         superseded_call_ids: &superseded_ids,

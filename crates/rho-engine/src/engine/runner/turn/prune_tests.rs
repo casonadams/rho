@@ -1322,3 +1322,103 @@ fn test_source_text_mentioning_read_errors_is_still_pruned() {
 
     assert!(extract_tool_result_first_text(&pruned[2]).contains("Output pruned for historical turn."));
 }
+
+fn verbose_read_history(turns: usize, reread_first_at: Option<usize>) -> Vec<ChatMessage> {
+    let body = (0..20)
+        .map(|i| format!("line {i} {}", "x".repeat(40)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut history = vec![ChatMessage::user("start")];
+    for n in 0..turns {
+        let path = if reread_first_at == Some(n) {
+            "src/f0.rs".to_string()
+        } else {
+            format!("src/f{n}.rs")
+        };
+        let (call, result) = make_read_turn(&format!("c{n}"), &path, &body);
+        history.extend([
+            call,
+            result,
+            ChatMessage::assistant(format!("done {n}")),
+            ChatMessage::user(format!("next {n}")),
+        ]);
+    }
+    history
+}
+
+fn cache_test_policy() -> PrunePolicy {
+    PrunePolicy {
+        volatile_turns: 1,
+        line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+        protect_recent_tokens: 3_000,
+        prune_minimum_tokens: 1_000,
+        min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+        model: Some("claude-sonnet-4".to_string()),
+    }
+}
+
+#[test]
+fn test_pruned_prefix_changes_only_at_step_boundaries() {
+    let policy = cache_test_policy();
+    let turns = 40;
+    let mut previous: Vec<ChatMessage> = Vec::new();
+    let mut rewrites = 0;
+    for n in 1..=turns {
+        let pruned = prune_historical_tool_outputs_with_policy(&verbose_read_history(n, None), &policy);
+        if pruned.len() < previous.len() || pruned[..previous.len()] != previous[..] {
+            rewrites += 1;
+        }
+        previous = pruned;
+    }
+    assert!(
+        rewrites <= turns / 4,
+        "pruned prefix was rewritten on {rewrites} of {turns} turns"
+    );
+}
+
+#[test]
+fn test_reread_in_protected_tail_does_not_rewrite_pruned_prefix() {
+    let policy = cache_test_policy();
+    let before = prune_historical_tool_outputs_with_policy(&verbose_read_history(30, None), &policy);
+    let after = prune_historical_tool_outputs_with_policy(&verbose_read_history(30, Some(29)), &policy);
+
+    assert!(extract_tool_result_first_text(&before[2]).contains("Output pruned for historical turn."));
+    assert_eq!(before[2], after[2]);
+}
+
+#[test]
+fn test_pruned_stub_keeps_artifact_path_from_spill_notice() {
+    let body = (1..=40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let notice = "\n\n[Output truncated. Full content (900 lines, 40.0KB) saved to .rho/artifacts/abc.log. Use 'read' or 'bash' with grep on this file if needed.]";
+    let spilled = format!("{body}{notice}");
+    let plain = body.clone();
+
+    for tool in ["read", "rg", "fd"] {
+        let (call, result) = make_tool_turn("c1", tool, "needle", &spilled);
+        let history = vec![
+            ChatMessage::user("search"),
+            call,
+            result,
+            ChatMessage::assistant("done"),
+            ChatMessage::user("next"),
+        ];
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let text = extract_tool_result_first_text(&pruned[2]);
+        assert!(text.contains("Output pruned for historical turn."), "{tool}: {text}");
+        assert!(
+            text.contains(".rho/artifacts/abc.log"),
+            "{tool} lost artifact path: {text}"
+        );
+    }
+
+    let (call, result) = make_tool_turn("c2", "rg", "needle", &plain);
+    let history = vec![
+        ChatMessage::user("search"),
+        call,
+        result,
+        ChatMessage::assistant("done"),
+        ChatMessage::user("next"),
+    ];
+    let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+    assert!(!extract_tool_result_first_text(&pruned[2]).contains("artifacts"));
+}
