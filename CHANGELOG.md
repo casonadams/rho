@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.13.0](https://github.com/casonadams/rho/compare/v0.12.2...v0.13.0) (2026-11-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* the removed commands, tools and config keys above no longer exist; `read` output no longer carries a [path#TAG] prefix.
+
+### Features
+
+* **engine:** serialize permission prompts and wire subagent model resolver ([ca75902](https://github.com/casonadams/rho/commit/ca759029f485d4a8c35d3a7451008d53fe715a3f))
+* **platform:** record the session id per interactive terminal ([97cb541](https://github.com/casonadams/rho/commit/97cb54132d8684800d675abaed17b1087f6b2b96))
+* **quota:** report quota used from 0% instead of remaining ([86257ca](https://github.com/casonadams/rho/commit/86257cacc7a5b49f6eacd0b7555f8336994c49ab))
+* **repl:** print resume command on exit and title /resume rows by content ([4fa05e2](https://github.com/casonadams/rho/commit/4fa05e2f6ed9cbb52170e7ac188ba253b2e93c18))
+* **subagent:** default to the smol model when configured ([c9acfd1](https://github.com/casonadams/rho/commit/c9acfd11024663e8c34fc520c383a3bb9bf30e3e))
+* **subagent:** gate tool calls, add cancellation, model override and parallel runs ([57c766a](https://github.com/casonadams/rho/commit/57c766a7921d64139e1ca72de419255cdf5e3248))
+* **ui:** improve edit/write cards and show Took on every tool ([46e050a](https://github.com/casonadams/rho/commit/46e050a41a03a52220a90cb3be8ebf341aaf8222))
+* **ui:** polish thinking, assistant, tool card, notice and input output ([a3d5612](https://github.com/casonadams/rho/commit/a3d56125b8b5c2f41b30e76b476d4e250f2b7665))
+
+
+### Bug Fixes
+
+* **auth:** adopt rotated OAuth credentials from disk and surface refresh failures ([6c729c5](https://github.com/casonadams/rho/commit/6c729c5b36d643f40957294ced9d684ae8e8c881))
+* **compaction:** ignore stale usage after pruning and share the limit source ([7ef81a8](https://github.com/casonadams/rho/commit/7ef81a806279b21e6f5928294d4e7c86b2589aac))
+* **config:** stop reading user-level ~/.claude directories ([14d67cf](https://github.com/casonadams/rho/commit/14d67cf061eba7a23e5a1b7bcfa91db544a45e04))
+* **permission:** honor the action in inline-table rules ([bc994bf](https://github.com/casonadams/rho/commit/bc994bf175eb6b2a784dacdcee6031effb6e4e98))
+* **prune:** step the cutoff to keep the cache prefix and keep spill paths ([318914d](https://github.com/casonadams/rho/commit/318914da9576d9ce8098466eb2521199cd5a51d1))
+* **session:** use real creation time and share resume row format ([0c4613b](https://github.com/casonadams/rho/commit/0c4613b5c2966ec618a3dcb1d364d1cc166ef9cc))
+* **subagent:** keep head and tail of long parent messages ([0cc27b4](https://github.com/casonadams/rho/commit/0cc27b456f17da56834575d60e2f9358046a3f81))
+
+
+### Code Refactoring
+
+* simplify code base and harden permission, trust and session handling ([3e1d1ea](https://github.com/casonadams/rho/commit/3e1d1ea140df5d872ebaceefce68946d2b825529))
+
 ## [0.12.2](https://github.com/casonadams/rho/compare/v0.12.1...v0.12.2) (2026-10-29)
 
 
