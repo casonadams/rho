@@ -308,6 +308,32 @@ async fn test_open_stream_stops_after_single_retry_if_401_persists() {
     assert_eq!((err.0, refresh_count.load(Ordering::SeqCst)), (Some(401), 1));
 }
 
+struct FailingRefreshProvider;
+
+#[async_trait::async_trait]
+impl TokenProvider for FailingRefreshProvider {
+    async fn token(&self) -> Result<String, String> {
+        Ok("stale-token".into())
+    }
+    async fn force_refresh(&self) -> Result<String, String> {
+        Err("invalid_grant".into())
+    }
+}
+
+#[tokio::test]
+async fn test_open_stream_reports_why_refresh_failed_after_401() {
+    let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+    let addr = spawn_two_responses_server(r401, r401).await;
+    let client = ClaudeClient::with_token_provider(Arc::new(FailingRefreshProvider), "claude-sonnet-4-5")
+        .with_endpoint(format!("http://{addr}"));
+
+    let (status, message) = client.open_stream(&sample_request()).await.unwrap_err();
+
+    assert_eq!(status, None);
+    assert!(message.contains("invalid_grant"), "{message}");
+    assert!(message.contains("rho login claude"), "{message}");
+}
+
 async fn spawn_sse_server(sse_body: &str) -> std::net::SocketAddr {
     let resp_str = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",

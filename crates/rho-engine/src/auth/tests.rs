@@ -156,3 +156,30 @@ async fn unparseable_non_empty_auth_file_fails_closed_async() {
     let result = AuthStore::load_async(path).await;
     assert!(result.is_err(), "Loading corrupt auth file must fail closed");
 }
+
+#[tokio::test]
+async fn refresh_adopts_credential_another_process_saved_to_disk() {
+    let far_future = 4_102_444_800_000;
+    let cases = [
+        ("expired token", Some(1_000), false),
+        ("rejected live token", Some(far_future), true),
+    ];
+    for (name, memory_expiry, force) in cases {
+        let (dir, mut store) = store_with(
+            "claude",
+            StoredCredential::oauth("stale_access", Some("dead_refresh".into()), memory_expiry),
+        );
+        let mut other_process = AuthStore::load(dir.path().join("auth.json")).unwrap();
+        let rotated = StoredCredential::oauth("fresh_access", Some("rotated_refresh".into()), Some(far_future));
+        other_process.set_credential("claude", rotated.clone()).unwrap();
+
+        let key = if force {
+            store.force_refresh("claude").await
+        } else {
+            store.get_key("claude").await
+        };
+
+        assert_eq!(key.unwrap().as_deref(), Some("fresh_access"), "{name}");
+        assert_eq!(store.get_credential("claude"), Some(&rotated), "{name}");
+    }
+}

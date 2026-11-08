@@ -94,10 +94,12 @@ impl ClaudeClient {
         request: &ModelCompletionRequest,
         body: &str,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        if let Ok(new_token) = self.token_provider.force_refresh().await {
-            self.post_stream(&new_token, request).await
-        } else {
-            Err((Some(401), body.to_string()))
+        match self.token_provider.force_refresh().await {
+            Ok(new_token) => self.post_stream(&new_token, request).await,
+            Err(error) => Err((
+                None,
+                format!("token refresh failed after 401 ({error}). Run 'rho login claude'. Backend: {body}"),
+            )),
         }
     }
 

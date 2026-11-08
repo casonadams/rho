@@ -57,7 +57,26 @@ impl AuthStore {
         }
     }
 
+    /// Adopts an OAuth credential another process saved to disk, since refresh tokens may be
+    /// single-use and the in-memory copy would then be dead. Returns whether memory changed.
+    async fn adopt_credential_from_disk(&mut self, provider: &str) -> Result<bool> {
+        let mut on_disk = io::load_credentials_async(&self.file_path).await?;
+        match on_disk.remove(provider) {
+            Some(disk @ StoredCredential::OAuth { .. }) if self.credentials.get(provider) != Some(&disk) => {
+                self.credentials.insert(provider.to_string(), disk);
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     async fn refresh_stored(&mut self, provider: &str) -> Result<String> {
+        if self.adopt_credential_from_disk(provider).await?
+            && let Some(cred) = self.credentials.get(provider)
+            && !cred.is_expired(60)
+        {
+            return Ok(cred.raw_secret().to_string());
+        }
         let provider_id = ProviderId::from_str(provider)
             .map_err(|e| AppError::Auth(format!("Unknown provider '{provider}': {e}")))?;
         let cred = self
