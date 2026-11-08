@@ -114,10 +114,28 @@ fn resolve_model_or_fallback(
     create_engine_model(config, auth_store, shared_auth)
 }
 
+fn subagent_model_resolver(
+    config: &Config,
+    auth_store: &AuthStore,
+    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
+) -> crate::tools::subagent::SubagentModelResolver {
+    let config = config.clone();
+    let auth_store = auth_store.clone();
+    Arc::new(move |model: &str| {
+        crate::provider::ProviderFactory::create_model(&config, model, &auth_store, shared_auth.clone())
+            .map_err(|e| e.to_string())
+    })
+}
+
+struct SubagentModels<'a> {
+    default: &'a ModelHandle,
+    resolver: crate::tools::subagent::SubagentModelResolver,
+}
+
 async fn build_engine_tools(
     base_dir: &Path,
     config: &Config,
-    model: &ModelHandle,
+    models: SubagentModels<'_>,
     tools_opt: Option<Vec<Arc<dyn EngineTool>>>,
     extra_tools: Vec<Arc<dyn EngineTool>>,
     history_tools: &std::collections::HashSet<String>,
@@ -131,7 +149,12 @@ async fn build_engine_tools(
     let mut tools = match tools_opt {
         Some(t) => t,
         None => {
-            let mut t = crate::tools::builtin_tools::build_builtin_tools(base_dir, config, Some(model.clone()))?;
+            let mut t = crate::tools::builtin_tools::build_builtin_tools_with_resolver(
+                base_dir,
+                config,
+                Some(models.default.clone()),
+                Some(models.resolver),
+            )?;
             t.extend(mcp_tools);
             t
         }
@@ -211,7 +234,10 @@ impl AgentEngineBuilder {
         let (tools, activator) = build_engine_tools(
             &base_dir,
             &self.config,
-            &model,
+            SubagentModels {
+                default: &model,
+                resolver: subagent_model_resolver(&self.config, &self.auth_store, shared_auth.clone()),
+            },
             self.tools.take(),
             std::mem::take(&mut self.extra_tools),
             &history_tools,

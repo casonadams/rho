@@ -393,3 +393,83 @@ async fn test_always_allow_save_failure_denies_instead_of_running() {
     );
     assert!(!dir.path().join("never_run").exists());
 }
+
+struct OverlapPresenter {
+    in_flight: std::sync::atomic::AtomicUsize,
+    max_in_flight: std::sync::atomic::AtomicUsize,
+    prompts: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl rho_harness_core::presentation::presenter::Presenter for OverlapPresenter {
+    fn write_output(&self, _text: &str) {}
+    fn print_welcome(&self, _display: &rho_harness_core::presentation::WelcomeDisplay) {}
+    fn print_session_status(&self, _display: &rho_harness_core::presentation::SessionStatus) {}
+    fn print_notice(&self, _text: &str) {}
+    fn print_block(&self, _display: &rho_harness_core::presentation::BlockDisplay) {}
+    fn print_user_block(&self, _input: &str) {}
+    fn print_token(&self, _token: &str) {}
+    fn print_thinking_token(&self, _token: &str) {}
+    fn finish_tool_line(&self, _line: rho_harness_core::presentation::ToolLine) {}
+    fn flush(&self) {}
+    fn has_interactive_ui(&self) -> bool {
+        true
+    }
+    fn start_spinner(&self, _message: &str) -> rho_harness_core::presentation::activity::ActivityToken {
+        Default::default()
+    }
+    fn start_tool_spinner(
+        &self,
+        _name: &str,
+        _arguments: &serde_json::Value,
+    ) -> rho_harness_core::presentation::activity::ActivityToken {
+        Default::default()
+    }
+    fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
+    fn stream_port(&self) -> rho_harness_core::presentation::stream::ToolStreamPort {
+        Default::default()
+    }
+    async fn request_interaction(
+        &self,
+        _prompt: rho_harness_core::presentation::InteractionPrompt,
+    ) -> Option<InteractionResponse> {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.prompts.fetch_add(1, SeqCst);
+        let now = self.in_flight.fetch_add(1, SeqCst) + 1;
+        self.max_in_flight.fetch_max(now, SeqCst);
+        for _ in 0..5 {
+            tokio::task::yield_now().await;
+        }
+        self.in_flight.fetch_sub(1, SeqCst);
+        Some(InteractionResponse::Cancelled)
+    }
+}
+
+#[tokio::test]
+async fn test_concurrent_asks_prompt_one_at_a_time() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let dir = tempdir().unwrap();
+    let presenter = Arc::new(OverlapPresenter {
+        in_flight: Default::default(),
+        max_in_flight: Default::default(),
+        prompts: Default::default(),
+    });
+    let hook = PermissionHook::with_policy(
+        Some(dir.path().to_path_buf()),
+        presenter.clone(),
+        build_policy(None, None),
+    );
+    let args = json!({"command": "make deploy"});
+
+    let (a, b, c) = tokio::join!(
+        hook.check_permission("bash", &args),
+        hook.check_permission("bash", &args),
+        hook.check_permission("bash", &args),
+    );
+
+    for verdict in [a, b, c] {
+        assert!(matches!(verdict, PermissionAction::Deny(_)));
+    }
+    assert_eq!(presenter.prompts.load(SeqCst), 3);
+    assert_eq!(presenter.max_in_flight.load(SeqCst), 1);
+}

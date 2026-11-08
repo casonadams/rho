@@ -220,14 +220,15 @@ impl TerminalApprovalSink {
         let arguments = redact_value(&self.session_manager, arguments);
         if let Ok(mut state) = self.state.lock() {
             disarm_spinner(&mut state);
-            state.pending.insert(
-                name.to_string(),
-                PendingToolCall {
+            state
+                .pending
+                .entry(name.to_string())
+                .or_default()
+                .push_back(PendingToolCall {
                     name: name.to_string(),
                     arguments: arguments.clone(),
                     started: Some(Instant::now()),
-                },
-            );
+                });
             state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
             self.presenter.start_tool_run(name, &arguments);
         }
@@ -256,7 +257,8 @@ impl TerminalApprovalSink {
         state.last_display = DisplayKind::Tool;
         let duration_ms = state
             .pending
-            .remove(details.name)
+            .get_mut(details.name)
+            .and_then(std::collections::VecDeque::pop_front)
             .and_then(|p| p.started)
             .map(|s| s.elapsed().as_millis() as u64);
         let arguments = redact_value(&self.session_manager, details.arguments);
@@ -388,6 +390,38 @@ mod tests {
 
         sink.finish_spinner();
         assert_eq!(idle_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn overlapping_calls_to_the_same_tool_each_get_their_own_pending_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: Arc::default(),
+            active_tools: Arc::default(),
+            thinking: Arc::default(),
+        });
+        let sink = new_test_sink(&temp, &presenter);
+        let args = serde_json::json!({"prompt": "p"});
+        fn finish<'a>(args: &'a Value, output: &'a str) -> ToolFinishDetails<'a> {
+            ToolFinishDetails {
+                name: "subagent",
+                arguments: args,
+                output,
+                is_error: false,
+            }
+        }
+
+        sink.tool_start("subagent", &args);
+        sink.tool_start("subagent", &args);
+        assert_eq!(sink.state.lock().unwrap().pending["subagent"].len(), 2);
+
+        sink.tool_finished(finish(&args, "one"));
+        assert_eq!(sink.state.lock().unwrap().pending["subagent"].len(), 1);
+        sink.tool_finished(finish(&args, "two"));
+
+        let state = sink.state.lock().unwrap();
+        assert!(state.pending["subagent"].is_empty());
+        assert_eq!(state.completed.len(), 2);
     }
 
     #[test]

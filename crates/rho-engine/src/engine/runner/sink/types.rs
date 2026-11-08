@@ -42,7 +42,7 @@ pub struct TerminalSinkConfig {
 
 pub struct TerminalSinkState {
     pub spinner: Option<ActivityToken>,
-    pub pending: HashMap<String, PendingToolCall>,
+    pub pending: HashMap<String, std::collections::VecDeque<PendingToolCall>>,
     pub reasoning: Vec<String>,
     pub completed: Vec<CompletedTool>,
     pub last_display: DisplayKind,

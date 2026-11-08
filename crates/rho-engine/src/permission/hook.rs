@@ -26,6 +26,15 @@ pub struct PermissionHook {
     policy: Arc<RwLock<Policy>>,
     guard_evaluator: Option<GuardEvaluator>,
     mcp_servers: Vec<String>,
+    prompt_lock: tokio::sync::Mutex<()>,
+}
+
+fn settled(decision: Decision) -> Option<PermissionAction> {
+    match decision {
+        Decision::Allow => Some(PermissionAction::Proceed),
+        Decision::Deny(reason) => Some(PermissionAction::Deny(reason)),
+        Decision::Ask => None,
+    }
 }
 
 impl PermissionHook {
@@ -37,6 +46,7 @@ impl PermissionHook {
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
             mcp_servers: Vec::new(),
+            prompt_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -48,6 +58,7 @@ impl PermissionHook {
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
             mcp_servers: Vec::new(),
+            prompt_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -166,18 +177,26 @@ impl PermissionHook {
     }
 
     pub async fn check_permission(&self, tool_name: &str, arguments: &Value) -> PermissionAction {
-        let policy = self.policy.read().await.clone();
         let req = EvalRequest {
             tool: tool_name,
             args: arguments,
             working_dir: self.working_dir.as_deref(),
             mcp_servers: &self.mcp_servers,
         };
+        let policy = self.policy.read().await.clone();
+        match settled(decide_tool_call(&policy, req)) {
+            Some(action) => action,
+            None => self.ask_exclusively(req).await,
+        }
+    }
 
-        match decide_tool_call(&policy, req) {
-            Decision::Allow => PermissionAction::Proceed,
-            Decision::Deny(reason) => PermissionAction::Deny(reason),
-            Decision::Ask => {
+    /// Concurrent callers queue here so only one prompt is on screen; the policy is re-read because an earlier answer may have saved an allow rule.
+    async fn ask_exclusively(&self, req: EvalRequest<'_>) -> PermissionAction {
+        let _prompting = self.prompt_lock.lock().await;
+        let policy = self.policy.read().await.clone();
+        match settled(decide_tool_call(&policy, req)) {
+            Some(action) => action,
+            None => {
                 let drafts = ask_drafts(&policy, req);
                 self.evaluate_guard_or_ask(req, &drafts).await
             }
