@@ -160,16 +160,12 @@ pub enum SubagentRole {
 impl SubagentRole {
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        const ROLES: [(SubagentRole, &str); 4] = [
-            (SubagentRole::Scout, "scout"),
-            (SubagentRole::Critic, "critic"),
-            (SubagentRole::Planner, "planner"),
-            (SubagentRole::General, "general"),
-        ];
-        ROLES
-            .iter()
-            .find_map(|(r, s)| if *r == *self { Some(*s) } else { None })
-            .unwrap_or("scout")
+        match self {
+            Self::Scout => "scout",
+            Self::Critic => "critic",
+            Self::Planner => "planner",
+            Self::General => "general",
+        }
     }
 
     #[must_use]
@@ -242,6 +238,9 @@ pub struct SubagentArgs {
     /// Maximum turn count for the subagent (default: 10, max: 20)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<usize>,
+    /// Share the recent parent conversation (text only) with the subagent; the subagent's model provider will see it
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherit_context: Option<bool>,
 }
 
 // Submodule aliases for backwards compatibility

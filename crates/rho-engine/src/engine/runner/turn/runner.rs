@@ -6,6 +6,7 @@ use crate::hook::{LifecycleHook, ToolDispatchAction};
 use crate::provider::adapter::{FinishReason, ModelCompletionRequest, ModelStreamEvent, ModelToolDefinition};
 use crate::repeat::RepeatedCallTracker;
 use crate::tools::EngineTool;
+use crate::tools::engine_tool::TurnToolContext;
 use futures::Stream;
 use futures::StreamExt;
 use rho_harness_core::error::AppError;
@@ -175,7 +176,27 @@ impl AgentRunner {
         self
     }
 
-    pub fn stream(self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
+    fn parent_history_snapshot(&self) -> Arc<[ChatMessage]> {
+        let mut snapshot: Vec<ChatMessage> = self.history.clone();
+        if !self.prompt.trim().is_empty() {
+            snapshot.push(ChatMessage::user(self.prompt.clone()));
+        }
+        snapshot.into()
+    }
+
+    pub fn stream(mut self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
+        let turn_ctx = TurnToolContext {
+            permission: self.permission.clone(),
+            lifecycle: self.lifecycle.clone(),
+            cancellation: self.cancellation.clone(),
+            progress: self.stream_port.clone().unwrap_or_default(),
+            parent_history: self.parent_history_snapshot(),
+        };
+        self.tools = self
+            .tools
+            .iter()
+            .map(|tool| tool.bind_turn(&turn_ctx).unwrap_or_else(|| tool.clone()))
+            .collect();
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let emitter = TurnEmitter {
             tx,
@@ -262,13 +283,13 @@ struct ToolExecutionContext<'a> {
     permission: Option<&'a Arc<crate::permission::PermissionHook>>,
 }
 
-enum DispatchDecision {
+pub(crate) enum DispatchDecision {
     Proceed(serde_json::Value),
     Deny(ChatMessage),
     Stop(ChatMessage, String),
 }
 
-async fn evaluate_tool_dispatch(
+pub(crate) async fn evaluate_tool_dispatch(
     call: &ToolCall,
     lifecycle: Option<&Arc<LifecycleHook>>,
     permission: Option<&Arc<crate::permission::PermissionHook>>,
@@ -327,7 +348,7 @@ async fn evaluate_tool_dispatch(
     DispatchDecision::Proceed(args)
 }
 
-async fn apply_tool_outcome_hooks(
+pub(crate) async fn apply_tool_outcome_hooks(
     lifecycle: Option<&Arc<LifecycleHook>>,
     tool_name: &str,
     args: &serde_json::Value,
@@ -345,61 +366,111 @@ async fn apply_tool_outcome_hooks(
     }
 }
 
-async fn execute_single_tool_call(
-    call: &ToolCall,
-    ctx: &mut ToolExecutionContext<'_>,
-) -> (ChatMessage, Option<String>) {
-    if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
-        return (
-            ChatMessage::User {
-                content: vec![rho_harness_core::model::UserContent::ToolResult(
-                    rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), msg),
-                )],
-            },
-            None,
-        );
+type CallOutcome = (ChatMessage, Option<String>);
+
+fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
+    ChatMessage::User {
+        content: vec![rho_harness_core::model::UserContent::ToolResult(
+            rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), output),
+        )],
     }
+}
 
-    let effective_args = match evaluate_tool_dispatch(call, ctx.lifecycle, ctx.permission).await {
-        DispatchDecision::Proceed(args) => args,
-        DispatchDecision::Deny(msg) => return (msg, None),
-        DispatchDecision::Stop(msg, reason) => return (msg, Some(reason)),
-    };
+enum PlannedCall {
+    Ready(serde_json::Value),
+    Settled(CallOutcome),
+}
 
-    ctx.sink.tool_start(&call.function.name, &effective_args);
-    let tool_opt = ctx.tools.iter().find(|t| t.name() == call.function.name);
-    let (mut output, is_error) = match tool_opt {
-        Some(t) => match t.execute(effective_args.clone()).await {
+async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> PlannedCall {
+    if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
+        return PlannedCall::Settled((tool_result_message(call, msg.to_string()), None));
+    }
+    match evaluate_tool_dispatch(call, ctx.lifecycle, ctx.permission).await {
+        DispatchDecision::Proceed(args) => {
+            ctx.sink.tool_start(&call.function.name, &args);
+            PlannedCall::Ready(args)
+        }
+        DispatchDecision::Deny(msg) => PlannedCall::Settled((msg, None)),
+        DispatchDecision::Stop(msg, reason) => PlannedCall::Settled((msg, Some(reason))),
+    }
+}
+
+async fn run_planned_tool(tools: &[Arc<dyn EngineTool>], call: &ToolCall, args: &serde_json::Value) -> (String, bool) {
+    match tools.iter().find(|t| t.name() == call.function.name) {
+        Some(t) => match t.execute(args.clone()).await {
             Ok(r) => (r.content, r.is_error),
             Err(e) => (format!("Error: {e}"), true),
         },
         None => (format!("Error: Tool '{}' not found", call.function.name), true),
-    };
+    }
+}
 
+async fn finish_tool_call(
+    call: &ToolCall,
+    args: &serde_json::Value,
+    result: (String, bool),
+    ctx: &ToolExecutionContext<'_>,
+) -> CallOutcome {
+    let (mut output, is_error) = result;
     ctx.sink.tool_finished(crate::engine::runner::sink::ToolFinishDetails {
         name: &call.function.name,
-        arguments: &effective_args,
+        arguments: args,
         output: &output,
         is_error,
     });
+    let stop_reason = apply_tool_outcome_hooks(ctx.lifecycle, &call.function.name, args, &mut output, is_error).await;
+    (tool_result_message(call, output), stop_reason)
+}
 
-    let stop_reason = apply_tool_outcome_hooks(
-        ctx.lifecycle,
-        &call.function.name,
-        &effective_args,
-        &mut output,
-        is_error,
-    )
+async fn execute_single_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> CallOutcome {
+    match plan_tool_call(call, ctx).await {
+        PlannedCall::Settled(outcome) => outcome,
+        PlannedCall::Ready(args) => {
+            let result = run_planned_tool(ctx.tools, call, &args).await;
+            finish_tool_call(call, &args, result, ctx).await
+        }
+    }
+}
+
+/// Plans every call in order (so permission prompts never overlap), runs the approved ones together, then finishes them in order.
+async fn execute_concurrent_tool_calls(calls: &[ToolCall], ctx: &mut ToolExecutionContext<'_>) -> Vec<CallOutcome> {
+    let mut planned = Vec::with_capacity(calls.len());
+    for call in calls {
+        let plan = plan_tool_call(call, ctx).await;
+        let stops = matches!(&plan, PlannedCall::Settled((_, Some(_))));
+        planned.push(plan);
+        if stops {
+            break;
+        }
+    }
+    let tools = ctx.tools;
+    let results = futures::future::join_all(planned.iter().zip(calls).map(|(plan, call)| async move {
+        match plan {
+            PlannedCall::Ready(args) => Some(run_planned_tool(tools, call, args).await),
+            PlannedCall::Settled(_) => None,
+        }
+    }))
     .await;
 
-    (
-        ChatMessage::User {
-            content: vec![rho_harness_core::model::UserContent::ToolResult(
-                rho_harness_core::model::ToolResult::new(call.id.clone(), call.function.name.clone(), output),
-            )],
-        },
-        stop_reason,
-    )
+    let mut outcomes = Vec::with_capacity(planned.len());
+    for ((plan, result), call) in planned.into_iter().zip(results).zip(calls) {
+        match (plan, result) {
+            (PlannedCall::Ready(args), Some(result)) => outcomes.push(finish_tool_call(call, &args, result, ctx).await),
+            (PlannedCall::Settled(outcome), _) => outcomes.push(outcome),
+            (PlannedCall::Ready(_), None) => {}
+        }
+    }
+    outcomes
+}
+
+fn batch_is_concurrency_safe(tools: &[Arc<dyn EngineTool>], calls: &[ToolCall]) -> bool {
+    calls.len() > 1
+        && calls.iter().all(|call| {
+            tools
+                .iter()
+                .find(|t| t.name() == call.function.name)
+                .is_some_and(|t| t.concurrency_safe(&call.function.arguments))
+        })
 }
 
 fn append_notification_messages(
@@ -563,10 +634,25 @@ async fn dispatch_tool_calls(
         permission: runner.permission.as_ref(),
     };
 
-    let mut results = Vec::with_capacity(outcome_calls.len());
-    for call in outcome_calls {
-        emitter.ensure_live()?;
-        let (res_msg, stop_reason) = execute_single_tool_call(call, &mut exec_ctx).await;
+    emitter.ensure_live()?;
+    let outcomes = if batch_is_concurrency_safe(&runner.tools, outcome_calls) {
+        execute_concurrent_tool_calls(outcome_calls, &mut exec_ctx).await
+    } else {
+        let mut sequential = Vec::with_capacity(outcome_calls.len());
+        for call in outcome_calls {
+            emitter.ensure_live()?;
+            let outcome = execute_single_tool_call(call, &mut exec_ctx).await;
+            let stopped = outcome.1.is_some();
+            sequential.push(outcome);
+            if stopped {
+                break;
+            }
+        }
+        sequential
+    };
+
+    let mut results = Vec::with_capacity(outcomes.len());
+    for (res_msg, stop_reason) in outcomes {
         results.extend(tool_result_contents(res_msg));
         emitter.send(MultiTurnStreamItem::ToolExecutionCommitted).await?;
         if let Some(reason) = stop_reason {
@@ -797,6 +883,131 @@ mod tests {
         ));
         crate::tools::jobs::JobManager::global()
             .update_status("bg-2", crate::tools::jobs::JobStatus::Failed { error: "a".into() });
+    }
+
+    struct RendezvousTool {
+        name: &'static str,
+        safe: bool,
+        barrier: Arc<tokio::sync::Barrier>,
+    }
+
+    #[async_trait::async_trait]
+    impl EngineTool for RendezvousTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            "waits for its peer"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(&self, _args: serde_json::Value) -> Result<crate::tools::ToolResult, AppError> {
+            self.barrier.wait().await;
+            Ok(crate::tools::ToolResult::success(format!("{} done", self.name)))
+        }
+        fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+            self.safe
+        }
+    }
+
+    fn rendezvous_tools(safe: bool) -> Vec<Arc<dyn EngineTool>> {
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        ["alpha", "beta"]
+            .into_iter()
+            .map(|name| {
+                Arc::new(RendezvousTool {
+                    name,
+                    safe,
+                    barrier: barrier.clone(),
+                }) as Arc<dyn EngineTool>
+            })
+            .collect()
+    }
+
+    fn calls_to(names: &[&str]) -> Vec<ToolCall> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| ToolCall::new(format!("call-{i}"), ToolFunction::new(*n, serde_json::json!({"i": i}))))
+            .collect()
+    }
+
+    fn result_text(message: &ChatMessage) -> String {
+        match message {
+            ChatMessage::User { content } => match &content[0] {
+                rho_harness_core::model::UserContent::ToolResult(tr) => match &tr.content[0] {
+                    rho_harness_core::model::ToolResultContent::Text(t) => t.text.clone(),
+                    _ => String::new(),
+                },
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrency_safe_batches_run_together_and_keep_call_order() {
+        let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+        let tools = rendezvous_tools(true);
+        let calls = calls_to(&["alpha", "beta"]);
+        assert!(batch_is_concurrency_safe(&tools, &calls));
+        let mut ctx = ToolExecutionContext {
+            tools: &tools,
+            sink: &runner.sink,
+            repeat_tracker: &mut tracker,
+            lifecycle: None,
+            permission: None,
+        };
+
+        let outcomes = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            execute_concurrent_tool_calls(&calls, &mut ctx),
+        )
+        .await
+        .expect("calls must overlap; a sequential run would deadlock on the barrier");
+
+        let texts: Vec<String> = outcomes.iter().map(|(m, _)| result_text(m)).collect();
+        assert_eq!(texts, vec!["alpha done", "beta done"]);
+        assert!(outcomes.iter().all(|(_, stop)| stop.is_none()));
+    }
+
+    #[test]
+    fn batches_with_unsafe_unknown_or_single_calls_stay_sequential() {
+        let unsafe_tools = rendezvous_tools(false);
+        let safe_tools = rendezvous_tools(true);
+        assert!(!batch_is_concurrency_safe(&unsafe_tools, &calls_to(&["alpha", "beta"])));
+        assert!(!batch_is_concurrency_safe(&safe_tools, &calls_to(&["alpha"])));
+        assert!(!batch_is_concurrency_safe(
+            &safe_tools,
+            &calls_to(&["alpha", "missing"])
+        ));
+        assert!(batch_is_concurrency_safe(&safe_tools, &calls_to(&["alpha", "beta"])));
+    }
+
+    #[tokio::test]
+    async fn concurrent_batch_repeats_are_settled_without_running_the_tool() {
+        let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+        let barrier = Arc::new(tokio::sync::Barrier::new(1));
+        let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(RendezvousTool {
+            name: "alpha",
+            safe: true,
+            barrier,
+        })];
+        let same = ToolCall::new("c", ToolFunction::new("alpha", serde_json::json!({"same": true})));
+        let calls = vec![same.clone(); 12];
+        let mut ctx = ToolExecutionContext {
+            tools: &tools,
+            sink: &runner.sink,
+            repeat_tracker: &mut tracker,
+            lifecycle: None,
+            permission: None,
+        };
+
+        let outcomes = execute_concurrent_tool_calls(&calls, &mut ctx).await;
+
+        assert_eq!(outcomes.len(), 12);
+        assert!(outcomes.iter().any(|(m, _)| result_text(m) != "alpha done"));
     }
 
     #[tokio::test]

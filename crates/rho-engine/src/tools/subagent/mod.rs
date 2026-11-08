@@ -1,3 +1,4 @@
+mod recovery;
 pub mod runner;
 #[cfg(test)]
 mod tests;
@@ -7,17 +8,40 @@ pub use runner::SubagentRunner;
 pub use types::{DEFAULT_SUBAGENT_MAX_TURNS, MAX_SUBAGENT_TURNS, SubagentArgs, SubagentRole, clamp_max_turns};
 
 use crate::engine::compactor::llm::ModelHandle;
-use crate::tools::engine_tool::EngineTool;
+use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::{ToolResult, generated_schema};
 use rho_harness_core::agents::AgentMetadata;
 use rho_harness_core::error::AppError;
 use std::sync::Arc;
 
+/// Resolves a custom agent's `model` field to a handle; the error text is shown to the calling model.
+pub type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String> + Send + Sync>;
+
+const INHERIT_MODEL_NAMES: [&str; 4] = ["inherit", "sonnet", "opus", "haiku"];
+
+#[derive(Clone)]
 pub struct SubagentTool {
     model: Option<ModelHandle>,
     tools: Vec<Arc<dyn EngineTool>>,
     agents: Vec<AgentMetadata>,
     description: String,
+    ctx: TurnToolContext,
+    model_resolver: Option<SubagentModelResolver>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawSubagentArgs {
+    prompt: String,
+    agent: Option<String>,
+    role: Option<String>,
+    context_slice: Option<String>,
+    max_turns: Option<usize>,
+    inherit_context: Option<bool>,
+}
+
+enum Target<'a> {
+    Agent(&'a AgentMetadata),
+    Role(SubagentRole),
 }
 
 impl SubagentTool {
@@ -27,6 +51,8 @@ impl SubagentTool {
             model,
             tools,
             agents: Vec::new(),
+            ctx: TurnToolContext::default(),
+            model_resolver: None,
             description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.".to_string(),
         }
     }
@@ -41,6 +67,90 @@ impl SubagentTool {
         }
         self.agents = agents;
         self
+    }
+
+    #[must_use]
+    pub fn with_model_resolver(mut self, resolver: SubagentModelResolver) -> Self {
+        self.model_resolver = Some(resolver);
+        self
+    }
+
+    fn resolve_target(&self, args: &RawSubagentArgs) -> Result<Target<'_>, String> {
+        let name = args
+            .agent
+            .as_deref()
+            .or(args.role.as_deref())
+            .map(str::trim)
+            .filter(|n| !n.is_empty());
+        let Some(name) = name else {
+            return Ok(Target::Role(SubagentRole::default()));
+        };
+        if let Some(agent) = self.agents.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
+            return Ok(Target::Agent(agent));
+        }
+        name.parse::<SubagentRole>()
+            .map(Target::Role)
+            .map_err(|_| self.unknown_target(name))
+    }
+
+    fn tools_for(&self, target: &Target<'_>) -> Vec<Arc<dyn EngineTool>> {
+        match target {
+            Target::Agent(agent) => filter_tools_for_agent(&self.tools, agent),
+            Target::Role(role) => runner::filter_tools_for_role(&self.tools, *role),
+        }
+    }
+
+    fn model_for(&self, target: &Target<'_>, default: &ModelHandle) -> Result<ModelHandle, String> {
+        let requested = match target {
+            Target::Agent(agent) => agent.model.as_deref().map(str::trim).filter(|m| !m.is_empty()),
+            Target::Role(_) => None,
+        };
+        let Some(requested) = requested else {
+            return Ok(default.clone());
+        };
+        if INHERIT_MODEL_NAMES.iter().any(|n| n.eq_ignore_ascii_case(requested)) {
+            return Ok(default.clone());
+        }
+        let resolver = self
+            .model_resolver
+            .as_ref()
+            .ok_or_else(|| format!("agent requests model '{requested}' but no model resolver is configured"))?;
+        resolver(requested).map_err(|e| format!("failed to resolve model '{requested}' for subagent: {e}"))
+    }
+
+    fn resolve_runner(&self, default_model: &ModelHandle, args: &RawSubagentArgs) -> Result<SubagentRunner, String> {
+        let target = self.resolve_target(args)?;
+        let model = self.model_for(&target, default_model)?;
+        let runner = match &target {
+            Target::Agent(agent) => SubagentRunner::new_custom(
+                model,
+                agent.system_prompt.clone(),
+                self.tools_for(&target),
+                clamp_max_turns(args.max_turns.or(agent.max_turns)),
+            )
+            .with_label(&agent.name),
+            Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, clamp_max_turns(args.max_turns)),
+        };
+        Ok(runner.with_context(self.ctx.clone()))
+    }
+
+    fn compose_context(&self, args: &RawSubagentArgs) -> Option<String> {
+        let parent = args
+            .inherit_context
+            .unwrap_or(false)
+            .then(|| runner::render_parent_conversation(&self.ctx.parent_history))
+            .filter(|text| !text.is_empty());
+        match (parent, args.context_slice.as_deref().filter(|s| !s.trim().is_empty())) {
+            (Some(parent), Some(slice)) => Some(format!("{parent}\n\n{slice}")),
+            (Some(text), None) => Some(text),
+            (None, slice) => slice.map(str::to_string),
+        }
+    }
+
+    fn unknown_target(&self, name: &str) -> String {
+        let mut valid: Vec<&str> = vec!["scout", "critic", "planner", "general"];
+        valid.extend(self.agents.iter().map(|a| a.name.as_str()));
+        format!("unknown subagent '{name}'; valid: {}", valid.join(", "))
     }
 }
 
@@ -77,56 +187,37 @@ impl EngineTool for SubagentTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let (role, agent_name, prompt, context_slice, max_turns) =
-            match serde_json::from_value::<SubagentArgs>(args.clone()) {
-                Ok(parsed) => (
-                    parsed.role,
-                    parsed.agent,
-                    parsed.prompt,
-                    parsed.context_slice,
-                    parsed.max_turns,
-                ),
-                Err(err) => {
-                    let role_str = args.get("role").and_then(|v| v.as_str());
-                    let agent_str = args.get("agent").and_then(|v| v.as_str());
-                    let Some(prompt_str) = args.get("prompt").and_then(|v| v.as_str()) else {
-                        return Ok(ToolResult::error(format!("failed to parse subagent arguments: {err}")));
-                    };
-                    let slice = args.get("context_slice").and_then(|v| v.as_str()).map(str::to_string);
-                    let turns = args.get("max_turns").and_then(|v| v.as_u64()).map(|u| u as usize);
-                    (
-                        None,
-                        agent_str.or(role_str).map(str::to_string),
-                        prompt_str.to_string(),
-                        slice,
-                        turns,
-                    )
-                }
-            };
-
-        if prompt.trim().is_empty() {
+        let args = match serde_json::from_value::<RawSubagentArgs>(args) {
+            Ok(parsed) => parsed,
+            Err(err) => return Ok(ToolResult::error(format!("failed to parse subagent arguments: {err}"))),
+        };
+        if args.prompt.trim().is_empty() {
             return Ok(ToolResult::error("subagent prompt cannot be empty"));
         }
-
         let Some(model) = &self.model else {
             return Ok(ToolResult::error("No model handle configured for subagent execution."));
         };
-
-        if let Some(name) = agent_name.as_deref()
-            && let Some(agent) = self.agents.iter().find(|a| a.name.eq_ignore_ascii_case(name))
-        {
-            let filtered_tools = filter_tools_for_agent(&self.tools, agent);
-            let turns = clamp_max_turns(max_turns.or(agent.max_turns));
-            let runner = SubagentRunner::new_custom(model.clone(), agent.system_prompt.clone(), filtered_tools, turns);
-            let result = runner.run(&prompt, context_slice.as_deref()).await;
-            return Ok(result);
+        match self.resolve_runner(model, &args) {
+            Ok(runner) => Ok(runner.run(&args.prompt, self.compose_context(&args).as_deref()).await),
+            Err(message) => Ok(ToolResult::error(message)),
         }
+    }
 
-        let role = role.unwrap_or_default();
-        let max_turns = clamp_max_turns(max_turns);
-        let runner = SubagentRunner::new(model.clone(), role, &self.tools, max_turns);
+    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        Some(Arc::new(Self {
+            ctx: ctx.clone(),
+            ..self.clone()
+        }))
+    }
 
-        let result = runner.run(&prompt, context_slice.as_deref()).await;
-        Ok(result)
+    fn concurrency_safe(&self, args: &serde_json::Value) -> bool {
+        let Ok(parsed) = serde_json::from_value::<RawSubagentArgs>(args.clone()) else {
+            return false;
+        };
+        let Ok(target) = self.resolve_target(&parsed) else {
+            return false;
+        };
+        let tools = self.tools_for(&target);
+        !tools.is_empty() && tools.iter().all(|t| runner::READ_ONLY_TOOLS.contains(&t.name()))
     }
 }

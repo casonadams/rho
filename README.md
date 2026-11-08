@@ -50,7 +50,15 @@ rho --resume-picker
   files, and bounds output.
 - **`subagent`**: Spawn isolated subagents with specialized roles (`scout`, `critic`,
   `planner`, `general`) to perform focused research, trade-off analysis, or code review
-  without parent context bloat.
+  without parent context bloat. Subagent tool calls go through the same permission
+  rules and lifecycle hooks as the parent, stop on cancellation, stream per-turn
+  progress, and return a summary with turn, tool-call, and token counts. An unknown
+  `role` or `agent` name is an error. A custom agent's `model` field selects its model
+  (`inherit`, `sonnet`, `opus` and `haiku` use the parent's); a model that cannot be
+  resolved is an error. `inherit_context: true` shares the recent text-only parent
+  conversation with the subagent (and its model provider). Several subagent calls in one
+  turn run concurrently when every tool they can use is read-only; permission prompts
+  still appear one at a time.
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.

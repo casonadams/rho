@@ -2,7 +2,7 @@ mod bash;
 mod eval;
 mod hook;
 mod matcher;
-mod mock;
+pub(crate) mod mock;
 mod path;
 mod policy;
 mod prompt;
