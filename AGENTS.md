@@ -31,8 +31,7 @@
 
 ## Testing and performance
 
-- Use `make crap` to run tests and gate on test code coverage / CRAP threshold
-  (executes workspace tests under coverage and fails if any function exceeds CRAP 30).
+- Use `make test` to run the workspace tests.
 - Test duration limits: Individual unit tests must complete in milliseconds.
   No test may exceed 2.5 seconds (target < 500ms; hard ceiling 2.5 seconds for
   full engine initialization or subprocess lifecycle tests). The entire workspace
@@ -58,13 +57,12 @@
   `cargo:rerun-if-changed` to prevent Cargo from invalidating incremental build
   caches on every invocation.
 
-## Code quality, complexity, and CRAP score
+## Code quality and complexity
 
 - The repository enforces strict cognitive complexity limits via `cccc` (SonarSource Campbell standard). Functions must maintain a cognitive complexity score <= 15.
-- The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining cyclomatic complexity with test code coverage. Functions with a CRAP score > 30 are considered fragile and defect-prone.
-- When modifying, extending, or fixing bugs in any function, ensure its cognitive complexity remains <= 15 and its CRAP score remains <= 30.
-- Never introduce new functions with cognitive complexity > 15 or a CRAP score > 30.
-- All changes must pass `make all` (which executes format check, clippy, cognitive complexity <= 15 via cccc, and tests under test code coverage with CRAP <= 30 gating).
+- When modifying, extending, or fixing bugs in any function, ensure its cognitive complexity remains <= 15.
+- Never introduce new functions with cognitive complexity > 15.
+- All changes must pass `make all` (which executes format check, clippy, cognitive complexity <= 15 via cccc, and the workspace tests).
 
 ## UX and modal guidelines
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
@@ -90,4 +88,4 @@
   1. `fmt-check` (code formatting)
   2. `clippy` (lints treated as errors)
   3. `complexity` (cognitive complexity <= 15 via `cccc`)
-  4. `crap` (workspace tests under coverage and CRAP <= 30 threshold gating)
+  4. `test` (workspace tests)

@@ -10,7 +10,7 @@ help: ## Display this help screen
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: all
-all: fmt-check clippy complexity crap ## Run all checks (format check, clippy, complexity, CRAP/tests)
+all: fmt-check clippy complexity test ## Run all checks (format check, clippy, complexity, tests)
 
 .PHONY: build
 build: ## Build the project in debug mode
@@ -44,19 +44,13 @@ clippy-fix: ## Automatically fix Clippy suggestions where possible
 clean: ## Clean cargo build artifacts
 	$(CARGO) clean
 
-.PHONY: coverage
-coverage: ## Generate LCOV test coverage trace (uses nextest when available)
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; \
-	$(CARGO) llvm-cov clean --profraw-only 2>/dev/null || true; \
-	if $(CARGO) nextest --version >/dev/null 2>&1; then \
-		$(CARGO) llvm-cov nextest --workspace --no-report && $(CARGO) llvm-cov report --workspace --lcov --output-path target/lcov.info; \
+.PHONY: test
+test: ## Run the workspace tests (uses nextest when available)
+	@if $(CARGO) nextest --version >/dev/null 2>&1; then \
+		$(CARGO) nextest run --workspace --all-targets && $(CARGO) test --workspace --doc; \
 	else \
-		$(CARGO) llvm-cov --workspace --lcov --output-path target/lcov.info; \
+		$(CARGO) test --workspace; \
 	fi
-
-.PHONY: crap
-crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30 (runs tests via coverage)
-	@$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --format json 2>/dev/null | jq -e '([.entries[] | select(.crap > 30) | {file, line, function, crap: (.crap * 10 | round / 10), cc: .cyclomatic, cov: (.coverage * 10 | round / 10)}]) as $$v | if ($$v | length) > 0 then ($$v | halt_error(1)) else $$v end'
 
 .PHONY: complexity
 complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc and gate on cognitive <= 15

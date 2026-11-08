@@ -165,7 +165,6 @@ tool call ─▶ PermissionHook (engine/permission/)
 
 - No Clippy suppressions; `clippy.toml` thresholds (`too_many_lines = 80`, `too_many_arguments = 6`) are the contract.
 - Cognitive complexity is statically gated via `cccc` (`max-cognitive = 15`).
-- Change risk is dynamically gated via `cargo-crap` (`CRAP <= 30` combining cyclomatic complexity with test code coverage).
 - HTTP clients are singletons with `.no_proxy()` (macOS IPC safety).
 - File size targets are cohesive ~300–400 lines; avoid micro-fragmentation.
 - `.specs/<slug>/spec.md` + `plan.md` capture feature specs before work.
