@@ -59,7 +59,8 @@ fn test_parse_agent_files_variants() {
 async fn test_agent_resolution_precedence() {
     let p = std::env::temp_dir().join(format!("agent_res_{}", uuid::Uuid::new_v4()));
 
-    write_agent(&p.join("home/.claude/agents"), "u", "---\ndescription: u\n---\n");
+    write_agent(&p.join("home/.claude/agents"), "ignored", "---\ndescription: x\n---\n");
+    write_agent(&p.join("home/.agents/agents"), "u", "---\ndescription: u\n---\n");
     write_agent(&p.join("prj/.claude/agents"), "s", "---\ndescription: old\n---\n");
     write_agent(&p.join("prj/.agents/agents"), "s", "---\ndescription: new\n---\n");
 
@@ -71,6 +72,7 @@ async fn test_agent_resolution_precedence() {
         .collect();
     assert_eq!(map.get("s").map(String::as_str), Some("new"));
     assert_eq!(map.get("u").map(String::as_str), Some("u"));
+    assert!(!map.contains_key("ignored"));
 
     let _ = std::fs::remove_dir_all(p);
 }

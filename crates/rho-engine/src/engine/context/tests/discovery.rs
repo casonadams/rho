@@ -290,5 +290,5 @@ async fn test_claude_instructions_and_rules_discovery() {
     .await;
 
     let titles: Vec<_> = discovered.instruction_files.iter().map(|(_, c)| c.as_str()).collect();
-    assert_eq!(titles, &["# User Rules", "# Repo Rules", "# Modular Style"]);
+    assert_eq!(titles, &["# Repo Rules", "# Modular Style"]);
 }

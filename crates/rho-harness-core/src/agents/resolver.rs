@@ -36,7 +36,6 @@ pub async fn resolved_agents_for_paths_async(
 fn collect_agents(paths: AgentResolutionPaths<'_>, resolved: &mut Vec<ResolvedAgent>) {
     let mut search_dirs = Vec::new();
     if let Some(home) = paths.home_dir {
-        search_dirs.push((home.join(".claude/agents"), AgentOrigin::User));
         search_dirs.push((home.join(".agents/agents"), AgentOrigin::User));
     }
     if let Some(project) = paths.project_dir

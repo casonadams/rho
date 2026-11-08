@@ -265,15 +265,13 @@ fn test_is_skill_path() {
 #[test]
 fn claude_skills_and_commands_discovered_with_precedence() {
     let fixture = fixture();
-    // User claude command
+    // User claude dirs are ignored
     std::fs::create_dir_all(fixture.home_dir.join(".claude/commands")).unwrap();
     std::fs::write(
         fixture.home_dir.join(".claude/commands/user-cmd.md"),
         "---\ndescription: User claude command\n---\n# User command\n",
     )
     .unwrap();
-
-    // User claude skill
     write_skill(
         &fixture.home_dir.join(".claude/skills"),
         "user-skill",
@@ -306,12 +304,11 @@ fn claude_skills_and_commands_discovered_with_precedence() {
     };
     let resolved = resolved_skills_for_paths(paths);
 
-    let user_cmd = resolved.iter().find(|s| s.metadata.name == "user-cmd").unwrap();
-    assert_eq!(user_cmd.origin, SkillOrigin::User);
-    assert_eq!(user_cmd.metadata.description, "User claude command");
-
-    let user_skill = resolved.iter().find(|s| s.metadata.name == "user-skill").unwrap();
-    assert_eq!(user_skill.origin, SkillOrigin::User);
+    assert!(
+        resolved
+            .iter()
+            .all(|s| s.metadata.name != "user-cmd" && s.metadata.name != "user-skill")
+    );
 
     let proj_cmd = resolved.iter().find(|s| s.metadata.name == "proj-cmd").unwrap();
     assert_eq!(proj_cmd.origin, SkillOrigin::Project);

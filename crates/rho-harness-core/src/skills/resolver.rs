@@ -3,7 +3,7 @@ use super::types::{ResolvedSkill, SkillMetadata, SkillOrigin, SkillResolutionPat
 use std::path::{Path, PathBuf};
 
 /// Resolve every skill available to the session: declarative skills as `SKILL.md`
-/// files under user directory `~/.agents/skills` or `~/.claude/skills` and project skill directories
+/// files under user directory `~/.agents/skills` and project skill directories
 /// (`.agents/skills`, `.claude/skills`, `skills`, `.claude/commands`). Project skills replace user skills by name.
 /// Skills carry readable content only and are never executed.
 pub fn resolved_skills(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
@@ -58,8 +58,6 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
     let mut resolved: Vec<ResolvedSkill> = Vec::new();
 
     if let Some(home_path) = paths.home_dir {
-        scan_directory(&home_path.join(".claude/commands"), SkillOrigin::User, &mut resolved);
-        scan_directory(&home_path.join(".claude/skills"), SkillOrigin::User, &mut resolved);
         scan_directory(&home_path.join(".agents/skills"), SkillOrigin::User, &mut resolved);
     }
     if let Some(project_dir) = paths.project_dir {

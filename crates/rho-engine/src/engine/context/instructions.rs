@@ -28,7 +28,6 @@ pub fn discover_instructions_with_seen(
 
     if let Some(home) = dirs.home_dir {
         load_candidate_instructions(&home.join(".agents"), &mut files, &mut seen);
-        load_candidate_instructions(&home.join(".claude"), &mut files, &mut seen);
     }
 
     let repo_root = find_repo_root(base);

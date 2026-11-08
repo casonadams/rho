@@ -131,7 +131,7 @@ fn install_hook(root: &Path, event: &str) -> std::path::PathBuf {
 }
 
 fn first_hook(event: &str, dirs: &[&Path]) -> Option<std::path::PathBuf> {
-    collect_hooks(event, &[], dirs).into_iter().next()
+    collect_hooks(event, &[], &[], dirs).into_iter().next()
 }
 
 fn assert_no_hook_found(setup: impl FnOnce(&Path)) {
@@ -147,14 +147,16 @@ fn test_find_hook_project_agents_directory() {
     let hook_file = project.path().join(".agents").join("hooks").join("on_tool_call");
     write_executable(&hook_file);
 
-    let found = collect_hooks("tool_call", &[], &[project.path()]).into_iter().next();
+    let found = collect_hooks("tool_call", &[], &[], &[project.path()])
+        .into_iter()
+        .next();
     assert_eq!(found, Some(hook_file));
 
     let claude_project = tempfile::tempdir().unwrap();
     let claude_file = claude_project.path().join(".claude/hooks/on_turn_start");
     write_executable(&claude_file);
     assert_eq!(
-        collect_hooks("turn_start", &[], &[claude_project.path()])
+        collect_hooks("turn_start", &[], &[], &[claude_project.path()])
             .into_iter()
             .next(),
         Some(claude_file)
@@ -167,7 +169,7 @@ fn test_find_hook_user_fallback() {
     let user = tempfile::tempdir().unwrap();
     let hook_file = install_hook(user.path(), "turn_start");
 
-    let found = collect_hooks("turn_start", &[], &[user.path()]);
+    let found = collect_hooks("turn_start", &[], &[user.path()], &[]);
     assert_eq!(found, vec![hook_file]);
 }
 
@@ -178,7 +180,22 @@ fn test_project_hook_is_skipped_when_workspace_untrusted() {
     install_hook(project.path(), "tool_call");
     let user = tempfile::tempdir().unwrap();
 
-    assert_eq!(first_hook("tool_call", &[user.path()]), None);
+    assert_eq!(
+        collect_hooks("tool_call", &[], &[user.path()], &[]),
+        Vec::<PathBuf>::new()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_user_claude_hooks_directory_is_ignored() {
+    let user = tempfile::tempdir().unwrap();
+    write_executable(&user.path().join(".claude/hooks/on_turn_start"));
+
+    assert_eq!(
+        collect_hooks("turn_start", &[], &[user.path()], &[]),
+        Vec::<PathBuf>::new()
+    );
 }
 
 #[test]
@@ -211,7 +228,7 @@ fn test_hook_precedence_user_then_project_then_configured_dirs() {
     let user_hook = user.path().join(".agents").join("hooks").join("turn_end");
     write_executable(&user_hook);
 
-    let found = collect_hooks("turn_end", &[], &[user.path(), project.path()]);
+    let found = collect_hooks("turn_end", &[], &[user.path()], &[project.path()]);
     assert_eq!(found, vec![user_hook.clone(), project_hook.clone()]);
 
     let extra_dir = tempfile::tempdir().unwrap();
@@ -221,7 +238,8 @@ fn test_hook_precedence_user_then_project_then_configured_dirs() {
     let all = collect_hooks(
         "turn_end",
         &[extra_dir.path().to_path_buf()],
-        &[user.path(), project.path()],
+        &[user.path()],
+        &[project.path()],
     );
     assert_eq!(all, vec![extra_hook, user_hook, project_hook]);
 }

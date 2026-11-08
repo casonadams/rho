@@ -31,7 +31,6 @@ async fn load_user_prompts(
         load_templates_from_dir(&cfg.join("prompts"), "user", target).await;
     }
     if let Some(home) = home_dir {
-        load_templates_from_dir(&home.join(".claude").join("prompts"), "user", target).await;
         load_templates_from_dir(&home.join(".agents").join("prompts"), "user", target).await;
     }
 }

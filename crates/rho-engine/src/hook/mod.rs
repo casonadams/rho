@@ -56,11 +56,11 @@ impl LifecycleHook {
 
     pub fn find_all_hooks(&self, name: &str) -> Vec<PathBuf> {
         let home = rho_harness_core::config::dirs_fallback();
-        let mut roots = vec![home.as_path()];
+        let mut project_roots = Vec::new();
         if crate::mcp::trust::project_trusted_by_env() {
-            roots.push(self.working_dir.as_path());
+            project_roots.push(self.working_dir.as_path());
         }
-        collect_hooks(name, &self.hook_dirs, &roots)
+        collect_hooks(name, &self.hook_dirs, &[home.as_path()], &project_roots)
     }
 
     pub fn find_hook(&self, name: &str) -> Option<PathBuf> {
@@ -179,12 +179,12 @@ impl LifecycleHook {
     }
 }
 
-fn collect_hooks(name: &str, hook_dirs: &[PathBuf], roots: &[&Path]) -> Vec<PathBuf> {
-    let dirs = hook_dirs.iter().cloned().chain(
-        roots
-            .iter()
-            .flat_map(|root| [root.join(".agents").join("hooks"), root.join(".claude").join("hooks")]),
-    );
+fn collect_hooks(name: &str, hook_dirs: &[PathBuf], user_roots: &[&Path], project_roots: &[&Path]) -> Vec<PathBuf> {
+    let user_dirs = user_roots.iter().map(|root| root.join(".agents").join("hooks"));
+    let project_dirs = project_roots
+        .iter()
+        .flat_map(|root| [root.join(".agents").join("hooks"), root.join(".claude").join("hooks")]);
+    let dirs = hook_dirs.iter().cloned().chain(user_dirs).chain(project_dirs);
     let mut hooks = Vec::new();
     for hook in dirs.filter_map(|dir| find_hook_in_dir(&dir, name)) {
         if !hooks.contains(&hook) {
