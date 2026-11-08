@@ -395,6 +395,8 @@ rho config models.guard none</code></pre>
 "*.env*" = { action = "deny", reason = "Do not read secret environment files" }</code></pre>
       </div>
 
+      <p>The inline table form accepts any action: <code>{ action = "ask", reason = "..." }</code> prompts and <code>{ action = "allow", reason = "..." }</code> allows. The reason is only reported on deny, and an unknown action is a parse error.</p>
+
       <p>Use <code>rho --no-permission</code> to bypass permission modals for headless non-interactive CI environments.</p>
 
       <h2 id="privacy">Privacy &amp; Zero Telemetry</h2>

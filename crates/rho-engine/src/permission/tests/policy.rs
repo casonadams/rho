@@ -98,6 +98,32 @@ fn permission_surface_tables_and_custom_deny_reason() {
 }
 
 #[test]
+fn inline_table_rules_honor_their_action() {
+    let cases = [
+        ("allow", Decision::Allow),
+        ("ask", Decision::Ask),
+        ("deny", Decision::Deny("because".to_string())),
+    ];
+    for (action, expected) in cases {
+        let toml = format!("[permission.bash]\n\"rm *\" = {{ action = \"{action}\", reason = \"because\" }}\n");
+        let policy = build_policy(Some(parse_scope_from_str(&toml).unwrap()), None);
+
+        assert_eq!(
+            decide_with(&policy, "bash", json!({"command": "rm notes.txt"})),
+            expected,
+            "action {action}"
+        );
+    }
+}
+
+#[test]
+fn inline_table_with_unknown_action_is_rejected() {
+    let toml = "[permission.bash]\n\"rm *\" = { action = \"maybe\" }\n";
+
+    assert!(parse_scope_from_str(toml).is_err());
+}
+
+#[test]
 fn malformed_scope_fails_safely() {
     let malformed = "[permission\nbash = \"*\"]\n";
     assert!(parse_scope_from_str(malformed).is_err());

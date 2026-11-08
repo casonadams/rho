@@ -206,6 +206,10 @@ directly to the agent:
 "git push --force*" = { action = "deny", reason = "Force-pushing branches is strictly prohibited" }
 ```
 
+The inline table form accepts any action, so `{ action = "ask", reason = "..." }`
+prompts and `{ action = "allow", reason = "..." }` allows. The `reason` is only
+reported to the agent on deny. An unknown `action` is a parse error.
+
 #### Grouped Syntax
 
 Rules can also be grouped under top-level action tables:

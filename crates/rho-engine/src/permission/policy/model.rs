@@ -22,7 +22,10 @@ pub struct PolicyRule {
 #[serde(untagged)]
 pub enum RuleAction {
     State(PermissionState),
-    DenyObject { action: String, reason: Option<String> },
+    StateObject {
+        action: PermissionState,
+        reason: Option<String>,
+    },
     SurfaceMap(BTreeMap<String, RuleAction>),
 }
 

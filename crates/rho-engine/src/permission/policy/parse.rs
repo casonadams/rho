@@ -38,11 +38,11 @@ fn collect_surface_rules(surface: &str, action: RuleAction, rules: &mut Vec<Poli
                 synthetic: false,
             });
         }
-        RuleAction::DenyObject { reason, .. } => {
+        RuleAction::StateObject { action, reason } => {
             rules.push(PolicyRule {
                 surface: surface.to_string(),
                 pattern: "*".to_string(),
-                state: PermissionState::Deny,
+                state: action,
                 reason,
                 synthetic: false,
             });
@@ -67,11 +67,11 @@ fn push_pattern_rule(target: (&str, &str), action: RuleAction, rules: &mut Vec<P
                 synthetic: false,
             });
         }
-        RuleAction::DenyObject { reason, .. } => {
+        RuleAction::StateObject { action, reason } => {
             rules.push(PolicyRule {
                 surface: surface.to_string(),
                 pattern: pattern.to_string(),
-                state: PermissionState::Deny,
+                state: action,
                 reason,
                 synthetic: false,
             });
