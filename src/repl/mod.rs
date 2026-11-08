@@ -24,6 +24,7 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crossterm::tty::IsTty;
+use rho_harness_core::session::SessionManager;
 
 pub struct ReplSession {
     pub config: Config,
@@ -117,6 +118,19 @@ pub(crate) async fn init_engine(session: &mut ReplSession) -> Result<AgentEngine
     session.config = engine.config.clone();
     engine.spawn_refresh_quota();
     Ok(engine)
+}
+
+/// Command that resumes the session, or `None` when it has no content worth resuming.
+pub(crate) async fn resume_hint(session_manager: &SessionManager) -> Option<String> {
+    let tree = session_manager.load_tree().await.ok()?;
+    (!tree.is_empty() || tree.session_name.is_some())
+        .then(|| format!("Resume this session: rho --resume {}", session_manager.session_id))
+}
+
+pub(crate) async fn print_resume_hint(engine: &AgentEngine) {
+    if let Some(hint) = resume_hint(&engine.session_manager).await {
+        eprintln!("{hint}");
+    }
 }
 
 pub(crate) async fn print_welcome(session: &ReplSession, engine: &AgentEngine) -> Vec<crate::skills::ResolvedSkill> {

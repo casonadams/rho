@@ -113,3 +113,29 @@ async fn init_engine_applies_cli_session_name() {
     );
     super::print_welcome(&session, &engine).await;
 }
+
+#[tokio::test]
+async fn resume_hint_names_the_session_only_when_it_has_content() {
+    use rho_harness_core::model::ChatMessage;
+    use rho_harness_core::session::SessionManager;
+
+    let dir = std::env::temp_dir().join(format!("rho_resume_hint_{}", uuid::Uuid::new_v4()));
+    let empty = SessionManager::new_async(&dir, None).await.unwrap();
+    let used = SessionManager::new_async(&dir, None).await.unwrap();
+    used.append_messages(
+        &used.session_id,
+        vec![ChatMessage::user("hello"), ChatMessage::assistant("hi")],
+    )
+    .await
+    .unwrap();
+    let named = SessionManager::new_async(&dir, None).await.unwrap();
+    named.set_session_name("auth work").await.unwrap();
+
+    assert_eq!(crate::repl::resume_hint(&empty).await, None);
+    assert_eq!(
+        crate::repl::resume_hint(&used).await,
+        Some(format!("Resume this session: rho --resume {}", used.session_id))
+    );
+    assert!(crate::repl::resume_hint(&named).await.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}

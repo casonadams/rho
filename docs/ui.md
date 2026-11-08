@@ -88,14 +88,14 @@ autocomplete):
 | `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly.                                 |
 | `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). |
-| `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                 |
+| `/resume [id]`              | Open session selector (rows show name or first message, age, turns, ID), or resume a session by ID.      |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |
 | `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                            |
 | `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                             |
 | `/fork [turn\|id]`          | Fork session from a turn or node into a new session branch.                                               |
 | `/clone`                    | Duplicate active branch into a new session.                                                               |
-| `/name [name]`              | Assign a human-readable name to the current session.                                                      |
+| `/name [name]`              | Name the current session; the name titles it in `/resume`.                                                |
 | `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                           |
 | `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                            |
 | `/mcp`                      | Open the interactive Model Context Protocol modal (toggle servers, inspect status).                       |

@@ -197,7 +197,8 @@ rho -c
 # Interactively browse and select from previous sessions to resume
 rho -r
 
-# Resume a specific session by ID (including budget checkpoint)
+# Resume a specific session by ID (including budget checkpoint).
+# On exit, rho prints the exact command for the session you just left.
 rho --resume &lt;SESSION_ID&gt;
 
 # Export session to HTML or Markdown
@@ -498,7 +499,7 @@ rho config models.guard none</code></pre>
             </tr>
             <tr>
               <td><code>/resume</code></td>
-              <td>Interactive session selector to resume historical conversations</td>
+              <td>Interactive session selector to resume historical conversations; rows show the session name or first message, age, turns and ID</td>
             </tr>
             <tr>
               <td><code>/rewind</code></td>

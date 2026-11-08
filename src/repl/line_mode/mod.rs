@@ -318,6 +318,7 @@ async fn run_line_event_loop<S: LineSource>(
             break;
         }
     }
+    crate::repl::print_resume_hint(&engine).await;
     Ok(())
 }
 

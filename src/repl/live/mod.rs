@@ -149,6 +149,10 @@ impl ReplSession {
             history: &mut history,
             completions: &completions,
         };
-        run_live_loop(io, editor, self, &mut engine).await
+        let result = run_live_loop(io, editor, self, &mut engine).await;
+        drop(input);
+        drop(controller);
+        crate::repl::print_resume_hint(&engine).await;
+        result
     }
 }
