@@ -663,6 +663,7 @@ rho config models.guard none</code></pre>
       </p>
 
       <ul>
+        <li><strong>Tool-Output Pruning</strong>: Before each request, older tool results longer than 15 lines are replaced with short stubs (tool, target, size; bash keeps its exit code and log path; <code>read</code>, <code>rg</code> and <code>fd</code> keep the spilled artifact path). The latest turn and a window of recent tokens are never pruned, and the boundary moves in steps so provider prompt caches keep hitting.</li>
         <li><strong>Adaptive Context Threshold</strong>: Auto-compaction monitors token pressure against the active model's real context window, automatically scaling reserve budgets across both small local models (8k–32k) and massive cloud windows (200k–1M+).</li>
         <li><strong>Atomic Split-Turn Preservation</strong>: Cut points never bisect tool calls from their corresponding tool results, preserving protocol validity for Anthropic and OpenAI schemas.</li>
         <li><strong>Cumulative File Tracking</strong>: Across multiple compactions, rho records all modified and inspected workspace files in a durable <code>&lt;file-operations&gt;</code> XML ledger so file awareness is never lost.</li>
