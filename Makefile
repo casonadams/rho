@@ -4,6 +4,7 @@ CARGO ?= cargo
 CPUS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 export CARGO_BUILD_JOBS ?= $(CPUS)
 export RUST_TEST_THREADS ?= $(CPUS)
+COGNITIVE_MAX := $(shell sed -n 's/^max-cognitive *= *\([0-9]*\).*/\1/p' cccc.toml)
 
 .PHONY: help
 help: ## Display this help screen
@@ -53,7 +54,6 @@ test: ## Run the workspace tests (uses nextest when available)
 	fi
 
 .PHONY: complexity
-complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc and gate on cognitive <= 15
+complexity: ## Gate on the cognitive complexity limit set in cccc.toml
 	@command -v cccc >/dev/null 2>&1 || { echo "Error: cccc not found. Install with: cargo install cccc-cli"; exit 1; }
-	@cccc --max-cognitive 15 . | jq -e '([.files[]? | .path as $$path | .functions[]? | select(.cognitive > 15) | {file: $$path, line: .line, function: .name, cognitive: .cognitive, cyclomatic: .cyclomatic}]) as $$v | if ($$v | length) > 0 then ($$v | halt_error(1)) else $$v end'
-
+	@out=$$(cccc .) || { echo "$$out" | jq -c '.files[]? | .path as $$path | .functions[]? | select(.cognitive > $(COGNITIVE_MAX)) | {file: $$path, line, function: .name, cognitive, cyclomatic}'; exit 1; }
