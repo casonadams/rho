@@ -25,7 +25,7 @@ function initGallery() {
     welcome: {
       src: "assets/welcome.svg",
       alt: "rho startup welcome screen with live rolling quota",
-      caption: "Startup screen with active agents, skills, tools, and live rolling quota in footer (<code>93% 4h19m 1% 3d10h</code>)."
+      caption: "Startup screen with active agents, skills, tools, and live rolling quota in footer (<code>7% 4h19m 99% 3d10h</code>)."
     },
     turn: {
       src: "assets/chat.svg",

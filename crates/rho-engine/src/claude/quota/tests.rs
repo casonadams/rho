@@ -12,25 +12,25 @@ const CASES: &[(&str, &str, Option<&str>, Option<&str>)] = &[
         "formats_5h_then_weekly",
         FIVE_HOUR_AND_WEEKLY,
         None,
-        Some("85% 4h30m 60% 4d0h"),
+        Some("15% 4h30m 40% 4d0h"),
     ),
     (
         "opus_model_specific_override",
         MODEL_WINDOWS,
         Some("claude-opus-4-6"),
-        Some("100% 3h0m 80% 3d0h"),
+        Some("0% 3h0m 20% 3d0h"),
     ),
     (
         "sonnet_model_specific_override",
         MODEL_WINDOWS,
         Some("claude-sonnet-4-6"),
-        Some("100% 3h0m 50% 5d0h"),
+        Some("0% 3h0m 50% 5d0h"),
     ),
     (
         "single_window_when_only_five_hour_present",
         FIVE_HOUR_ONLY,
         None,
-        Some("90% 2h15m"),
+        Some("10% 2h15m"),
     ),
     ("missing_fields_returns_none", "{}", None, None),
 ];
@@ -44,7 +44,7 @@ fn parse_quota_cases() {
 #[tokio::test]
 async fn fetch_quota_reads_usage_endpoint_and_rejects_failures() {
     let cases = [
-        ("200 OK", FIVE_HOUR_ONLY, Some("90%")),
+        ("200 OK", FIVE_HOUR_ONLY, Some("10%")),
         ("200 OK", "{}", None),
         ("503 Service Unavailable", FIVE_HOUR_ONLY, None),
     ];

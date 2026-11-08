@@ -43,7 +43,7 @@ pub(crate) fn format_quota_window(
     reset_time: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> String {
-    let pct = (remaining_fraction * 100.0).round().clamp(0.0, 100.0) as u64;
+    let pct = 100 - (remaining_fraction * 100.0).round().clamp(0.0, 100.0) as u64;
     let Some(reset_time) = reset_time else {
         return format!("{pct}%");
     };
@@ -100,14 +100,14 @@ mod tests {
     fn format_window_prefers_earlier_percent_keys_and_falls_back_to_reset_alias() {
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let window = json!({ "utilization": 25.0, "remaining_percent": 10.0, "reset_at": now.timestamp() + 3600 });
-        assert_eq!(format_window(&window, &WINDOW, now).as_deref(), Some("75% 1h0m"));
+        assert_eq!(format_window(&window, &WINDOW, now).as_deref(), Some("25% 1h0m"));
     }
 
     #[test]
     fn format_window_clamps_used_percent_at_zero_remaining() {
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
         let window = json!({ "utilization": 120.0 });
-        assert_eq!(format_window(&window, &WINDOW, now).as_deref(), Some("0%"));
+        assert_eq!(format_window(&window, &WINDOW, now).as_deref(), Some("100%"));
     }
 
     #[test]

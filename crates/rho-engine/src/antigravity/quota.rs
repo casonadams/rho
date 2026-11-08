@@ -50,7 +50,7 @@ pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> O
 
 pub(crate) fn is_unmetered_summary(display: &str) -> bool {
     let tokens: Vec<&str> = display.split_whitespace().collect();
-    !tokens.is_empty() && tokens.iter().all(|&t| t == "100%")
+    !tokens.is_empty() && tokens.iter().all(|&t| t == "0%")
 }
 
 fn project_request_body(project_id: &str) -> Value {

@@ -12,25 +12,25 @@ const CASES: &[(&str, &str, Option<&str>, Option<&str>)] = &[
         "formats_5h_then_weekly",
         PRIMARY_AND_SECONDARY,
         None,
-        Some("95% 4h23m 89% 3d21h"),
+        Some("5% 4h23m 11% 3d21h"),
     ),
     (
         "supports_used_percent_and_alternate_keys",
         ALTERNATE_KEYS,
         None,
-        Some("95% 4h23m 89% 3d21h"),
+        Some("5% 4h23m 11% 3d21h"),
     ),
     (
         "single_window_when_only_primary_present",
         PRIMARY_ONLY,
         None,
-        Some("95% 4h23m"),
+        Some("5% 4h23m"),
     ),
     (
         "expired_or_missing_reset_omits_countdown",
         EXPIRED_OR_MISSING_RESET,
         None,
-        Some("100% 90%"),
+        Some("0% 10%"),
     ),
     ("missing_rate_limit_returns_none", r#"{"other":{}}"#, None, None),
 ];
@@ -61,7 +61,7 @@ async fn fetch_quota_formats_usage_from_endpoint_and_rejects_failures() {
         (
             "200 OK",
             r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#,
-            Some("95%"),
+            Some("5%"),
         ),
         ("200 OK", r#"{"other":{}}"#, None),
         (

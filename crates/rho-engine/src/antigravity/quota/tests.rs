@@ -30,19 +30,19 @@ const MODELS_CASES: &[(&str, &str, Option<&str>, Option<&str>)] = &[
         "exact_match_with_reset_time",
         MODELS_EXACT,
         Some("gemini-2.5-pro"),
-        Some("85% 3h22m"),
+        Some("15% 3h22m"),
     ),
     (
         "prefix_match_picks_lowest_fraction",
         MODELS_PREFIX,
         Some("claude-sonnet-4-6"),
-        Some("74% 2h30m"),
+        Some("26% 2h30m"),
     ),
     (
         "expired_reset_time_omits_countdown",
         MODELS_EXPIRED,
         Some("gemini-2.5-flash"),
-        Some("100%"),
+        Some("0%"),
     ),
     (
         "missing_quota_info_returns_none",
@@ -54,7 +54,7 @@ const MODELS_CASES: &[(&str, &str, Option<&str>, Option<&str>)] = &[
         "fallback_to_lowest_when_no_name_matches",
         MODELS_FALLBACK,
         Some("completely-different-model"),
-        Some("40% 1h0m"),
+        Some("60% 1h0m"),
     ),
 ];
 
@@ -71,43 +71,43 @@ const SUMMARY_CASES: &[(&str, &str, Option<&str>, Option<&str>)] = &[
         "formats_5h_then_weekly",
         SUMMARY_GROUPS_GEMINI,
         Some("gemini-2.5-pro"),
-        Some("95% 4h23m 89% 3d21h"),
+        Some("5% 4h23m 11% 3d21h"),
     ),
     (
         "flat_buckets_fallback",
         SUMMARY_FLAT_5H_WEEKLY,
         Some("gemini-3.7-flash"),
-        Some("95% 4h23m 89% 3d21h"),
+        Some("5% 4h23m 11% 3d21h"),
     ),
     (
         "flat_buckets_isolates_gemini_from_unmetered_3p",
         SUMMARY_GEMINI_VS_3P,
         Some("gemini-2.5-pro"),
-        Some("70% 3h0m 85% 6d0h"),
+        Some("30% 3h0m 15% 6d0h"),
     ),
     (
         "flat_buckets_isolates_claude_from_gemini",
         SUMMARY_CLAUDE_VS_GEMINI,
         Some("claude-sonnet-4-6"),
-        Some("60% 2h30m 80% 5d0h"),
+        Some("40% 2h30m 20% 5d0h"),
     ),
     (
         "weekly_description_mentioning_5h_is_not_misclassified",
         SUMMARY_WEEKLY_DESCRIPTION,
         Some("gemini-2.5-pro"),
-        Some("0% 20m 50% 4d0h"),
+        Some("100% 20m 50% 4d0h"),
     ),
     (
         "matches_group_by_group_id",
         SUMMARY_GROUP_ID,
         Some("gemini-2.5-flash"),
-        Some("40% 1h0m"),
+        Some("60% 1h0m"),
     ),
     (
         "matches_claude_group",
         SUMMARY_CLAUDE_GROUPS,
         Some("claude-sonnet-4-6"),
-        Some("70% 3h0m 85% 6d0h"),
+        Some("30% 3h0m 15% 6d0h"),
     ),
 ];
 
@@ -150,21 +150,21 @@ fn parse_quota_summary_matches_gpt_and_custom_target() {
 
     let gpt_display = parse_quota_summary(&json, "gpt-oss-1", now);
     assert!(gpt_display.is_some());
-    assert!(gpt_display.unwrap().contains("65%"));
+    assert!(gpt_display.unwrap().contains("35%"));
 
     let custom_display = parse_quota_summary(&json, "deepseek-coder", now);
     assert!(custom_display.is_some());
-    assert!(custom_display.unwrap().contains("40%"));
+    assert!(custom_display.unwrap().contains("60%"));
 }
 
 #[test]
 fn unmetered_summary_detection() {
-    assert!(is_unmetered_summary("100%"));
-    assert!(is_unmetered_summary("100% 100%"));
+    assert!(is_unmetered_summary("0%"));
+    assert!(is_unmetered_summary("0% 0%"));
     assert!(!is_unmetered_summary(""));
-    assert!(!is_unmetered_summary("100% 4h30m"));
-    assert!(!is_unmetered_summary("85% 3h20m 92% 5d12h"));
-    assert!(!is_unmetered_summary("0% 20m"));
+    assert!(!is_unmetered_summary("0% 4h30m"));
+    assert!(!is_unmetered_summary("15% 3h20m 8% 5d12h"));
+    assert!(!is_unmetered_summary("100% 20m"));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn parse_quota_unmetered_summary_falls_back_to_active_model_quota() {
     assert!(summary.as_deref().is_none_or(is_unmetered_summary));
     assert_eq!(
         parse_models_quota(&json, "gemini-2.5-pro", now),
-        Some("80% 2h15m".to_string())
+        Some("20% 2h15m".to_string())
     );
 }
 
@@ -232,7 +232,7 @@ async fn fetch_quota_uses_summary_when_metered() {
     let endpoints = vec![format!("http://{addr}")];
     let quota = fetch_quota_from_endpoints(&endpoints, "token", "test-proj", "gemini-2.5-pro").await;
     assert!(quota.is_some());
-    assert!(quota.unwrap().contains("85%"));
+    assert!(quota.unwrap().contains("15%"));
 }
 
 #[tokio::test]
@@ -280,5 +280,5 @@ async fn fetch_quota_falls_back_to_models_when_summary_empty() {
     let endpoints = vec![format!("http://{addr}")];
     let quota = fetch_quota_from_endpoints(&endpoints, "token", "", "gemini-2.5-pro").await;
     assert!(quota.is_some());
-    assert!(quota.unwrap().contains("70%"));
+    assert!(quota.unwrap().contains("30%"));
 }
