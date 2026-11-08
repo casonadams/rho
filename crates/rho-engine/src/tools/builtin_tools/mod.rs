@@ -93,7 +93,9 @@ pub fn build_builtin_tools_with_resolver(
     let agent_metas: Vec<_> = resolved_agents.into_iter().map(|a| a.metadata).collect();
     let mut subagent = crate::tools::subagent::SubagentTool::new(model, tools.clone()).with_agents(agent_metas);
     if let Some(resolver) = model_resolver {
-        subagent = subagent.with_model_resolver(resolver);
+        subagent = subagent
+            .with_model_resolver(resolver)
+            .with_default_model(config.models.get("smol").cloned());
     }
     tools.push(Arc::new(subagent) as Arc<dyn EngineTool>);
     Ok(tools)

@@ -27,6 +27,7 @@ pub struct SubagentTool {
     description: String,
     ctx: TurnToolContext,
     model_resolver: Option<SubagentModelResolver>,
+    default_model: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -53,6 +54,7 @@ impl SubagentTool {
             agents: Vec::new(),
             ctx: TurnToolContext::default(),
             model_resolver: None,
+            default_model: None,
             description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.".to_string(),
         }
     }
@@ -72,6 +74,12 @@ impl SubagentTool {
     #[must_use]
     pub fn with_model_resolver(mut self, resolver: SubagentModelResolver) -> Self {
         self.model_resolver = Some(resolver);
+        self
+    }
+
+    #[must_use]
+    pub fn with_default_model(mut self, model: Option<String>) -> Self {
+        self.default_model = model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
         self
     }
 
@@ -104,7 +112,8 @@ impl SubagentTool {
         let requested = match target {
             Target::Agent(agent) => agent.model.as_deref().map(str::trim).filter(|m| !m.is_empty()),
             Target::Role(_) => None,
-        };
+        }
+        .or(self.default_model.as_deref());
         let Some(requested) = requested else {
             return Ok(default.clone());
         };

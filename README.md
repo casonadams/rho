@@ -58,7 +58,8 @@ with the age, turn count and session ID beside it.
   rules and lifecycle hooks as the parent, stop on cancellation, stream per-turn
   progress, and return a summary with turn, tool-call, and token counts. An unknown
   `role` or `agent` name is an error. A custom agent's `model` field selects its model
-  (`inherit`, `sonnet`, `opus` and `haiku` use the parent's); a model that cannot be
+  (`inherit`, `sonnet`, `opus` and `haiku` use the parent's). Subagents that name no model
+  use `models.smol` when it is set, otherwise the parent's. A model that cannot be
   resolved is an error. `inherit_context: true` shares the recent text-only parent
   conversation with the subagent (and its model provider). Several subagent calls in one
   turn run concurrently when every tool they can use is read-only; permission prompts

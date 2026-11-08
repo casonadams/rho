@@ -510,6 +510,53 @@ async fn custom_agent_model_is_resolved_and_used() {
 }
 
 #[tokio::test]
+async fn subagents_without_a_model_use_the_default_model_unless_they_inherit() {
+    let cases = [
+        ("role", json!({ "role": "scout", "prompt": "go" }), "from smol"),
+        (
+            "agent without model",
+            json!({ "agent": "plain", "prompt": "go" }),
+            "from smol",
+        ),
+        (
+            "agent with own model",
+            json!({ "agent": "pinned", "prompt": "go" }),
+            "from pinned",
+        ),
+        (
+            "agent that inherits",
+            json!({ "agent": "inheriting", "prompt": "go" }),
+            "from parent",
+        ),
+    ];
+    for (name, args, expected) in cases {
+        let handles: std::collections::HashMap<&str, ModelHandle> = [
+            ("acme/smol", Arc::new(MockAdapter::text("from smol")) as ModelHandle),
+            ("acme/pinned", Arc::new(MockAdapter::text("from pinned")) as ModelHandle),
+        ]
+        .into();
+        let resolver: SubagentModelResolver = Arc::new(move |model| {
+            handles
+                .get(model)
+                .cloned()
+                .ok_or_else(|| format!("unexpected model {model}"))
+        });
+        let tool = SubagentTool::new(Some(Arc::new(MockAdapter::text("from parent"))), Vec::new())
+            .with_agents(vec![
+                agent("plain", None, None),
+                agent("pinned", Some("acme/pinned"), None),
+                agent("inheriting", Some("inherit"), None),
+            ])
+            .with_model_resolver(resolver)
+            .with_default_model(Some(" acme/smol ".to_string()));
+
+        let result = tool.execute(args).await.unwrap();
+
+        assert!(result.content.starts_with(expected), "{name}: {}", result.content);
+    }
+}
+
+#[tokio::test]
 async fn inherit_aliases_and_missing_model_use_the_parent_model() {
     for model in [
         None,
