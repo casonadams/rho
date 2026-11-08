@@ -32,6 +32,11 @@ pub(super) struct PreparedTurn {
     pub loop_state: TurnLoopState,
 }
 
+pub(super) struct LoadedHistory {
+    pub messages: Vec<ChatMessage>,
+    pub pruned: bool,
+}
+
 pub(super) struct TurnLoopState {
     pub visible_history: Vec<ChatMessage>,
     pub checkpoint: Option<Vec<ChatMessage>>,
@@ -43,9 +48,9 @@ pub(super) struct TurnLoopState {
 }
 
 impl AgentEngine {
-    fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage]) {
+    fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage], history_pruned: bool) {
         self.run_tracker.start();
-        let anchor = if !history.is_empty() {
+        let anchor = if !history.is_empty() && !history_pruned {
             self.usage
                 .latest()
                 .filter(|u| u.has_values())
@@ -74,7 +79,7 @@ impl AgentEngine {
         )
     }
 
-    pub(super) async fn load_initial_history(&self) -> Result<Vec<ChatMessage>> {
+    pub(super) async fn load_initial_history(&self) -> Result<LoadedHistory> {
         let raw = self
             .session_manager
             .active_messages()
@@ -85,7 +90,12 @@ impl AgentEngine {
             .limit_for(&self.config.model, &self.config.provider)
             .unwrap_or(128_000);
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
-        Ok(super::prune::prune_historical_tool_outputs_with_policy(&raw, &policy))
+        let pruned = super::prune::prune_historical_tool_outputs_with_policy(&raw, &policy);
+        let changed = pruned != raw;
+        Ok(LoadedHistory {
+            messages: pruned,
+            pruned: changed,
+        })
     }
 
     pub(crate) async fn check_proactive_compaction(
@@ -93,15 +103,17 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         history: &mut Vec<ChatMessage>,
         additional_tokens: usize,
+        history_pruned: bool,
     ) -> Result<Option<crate::engine::CompactionStats>> {
-        let history_tokens = self.usage.latest().map(|u| u.input_tokens as usize).unwrap_or_else(|| {
-            history
-                .iter()
-                .map(|m| rho_harness_core::tokens::estimate_message_tokens(m, &self.config.model))
-                .sum::<usize>()
-        });
+        let reported = self.usage.latest().filter(|_| !history_pruned);
+        let history_tokens = reported
+            .map(|u| u.input_tokens as usize)
+            .unwrap_or_else(|| self.context.estimate_messages_tokens(history, &self.config.model));
         let total_tokens = history_tokens.saturating_add(additional_tokens);
-        let limit = crate::engine::model::resolve_context_limit(&self.config).unwrap_or(128_000);
+        let limit = self
+            .context
+            .limit_for(&self.config.model, &self.config.provider)
+            .unwrap_or(128_000);
         let threshold = limit.saturating_sub(self.config.reserve_tokens);
         if total_tokens > threshold {
             let _spinner = presenter.start_spinner("Compacting...");
@@ -123,12 +135,13 @@ impl AgentEngine {
         prompt: &str,
         presenter: &dyn Presenter,
         history: &mut Vec<ChatMessage>,
+        history_pruned: bool,
     ) -> Result<Option<TurnOutput>> {
         let add_tokens = rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
             rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
         );
         if self
-            .check_proactive_compaction(presenter, history, add_tokens)
+            .check_proactive_compaction(presenter, history, add_tokens, history_pruned)
             .await?
             .is_some()
         {
@@ -142,9 +155,13 @@ impl AgentEngine {
         user_prompt: &str,
         effective_prompt: &str,
         preamble: String,
-        history: Vec<ChatMessage>,
+        loaded: LoadedHistory,
         presenter: &Arc<dyn Presenter>,
     ) -> Result<PreparedTurn> {
+        let LoadedHistory {
+            messages: history,
+            pruned: history_pruned,
+        } = loaded;
         self.session_manager
             .append_event(
                 SessionEventKind::UserMessage,
@@ -155,7 +172,7 @@ impl AgentEngine {
         let add_tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
             rho_harness_core::tokens::estimate_text_tokens(effective_prompt, &self.config.model),
         );
-        self.start_turn_metrics(add_tokens, &history);
+        self.start_turn_metrics(add_tokens, &history, history_pruned);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
             visible_history: history,
@@ -181,14 +198,20 @@ impl AgentEngine {
         let context = self.project_context().await?;
         let preamble = context.build_system_prompt();
         let effective_prompt = crate::engine::context::format_turn_prompt(prompt, context.git_status.as_deref());
-        let mut history = self.load_initial_history().await?;
+        let mut loaded = self.load_initial_history().await?;
         if let Some(out) = self
-            .check_turn_proactive_compaction(&preamble, &effective_prompt, presenter.as_ref(), &mut history)
+            .check_turn_proactive_compaction(
+                &preamble,
+                &effective_prompt,
+                presenter.as_ref(),
+                &mut loaded.messages,
+                loaded.pruned,
+            )
             .await?
         {
             return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
         }
-        self.build_ready_turn(prompt, &effective_prompt, preamble, history, presenter)
+        self.build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
             .await
             .map(PreparedTurnOutcome::Ready)
     }
@@ -285,6 +308,54 @@ impl AgentEngine {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use rho_harness_core::config::Config;
+    use rho_harness_core::model::ChatMessage;
+
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::engine::metrics::StructuralUsage;
+    use crate::engine::tracking::TurnUsage;
+    use crate::provider::adapter::MockAdapter;
+
+    #[test]
+    fn test_pruned_history_estimate_replaces_stale_usage_anchor() {
+        let dir = std::env::temp_dir().join(format!("turn_metrics_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app_config = Config {
+            auth_file: dir.join("auth.json"),
+            ..Config::default()
+        };
+        let engine = mock_engine(
+            Arc::new(MockAdapter::text("response")),
+            MockEngineConfig {
+                base_dir: &dir,
+                app_config,
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let stale = StructuralUsage {
+            input_tokens: 120_000,
+            output_tokens: 0,
+            total_tokens: 120_000,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: None,
+        };
+        engine.usage.record_turn(TurnUsage::new(stale, stale), 100);
+        let history = vec![ChatMessage::user("hello"), ChatMessage::assistant("hi")];
+
+        engine.start_turn_metrics(10, &history, true);
+
+        let displayed = engine.usage.latest().unwrap().input_tokens;
+        assert!(
+            displayed < 1_000,
+            "displayed context stayed anchored to stale usage: {displayed}"
+        );
+    }
+
     #[test]
     fn test_resolve_active_provider() {
         let (spec_p, _) = rho_harness_core::provider::parse_model_spec("antigravity/gemini-3.8-flash");

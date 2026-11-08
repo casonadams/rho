@@ -1105,6 +1105,7 @@ mod auto_compact {
     use std::sync::Arc;
 
     use rho_harness_core::config::Config;
+    use rho_harness_core::model::{ToolCall, ToolFunction};
     use rho_harness_core::session::tree::TreeNodeKind;
 
     use super::common::CapturingPresenter;
@@ -1207,7 +1208,10 @@ mod auto_compact {
         tokens: u64,
     ) {
         record_test_turn_usage(engine, tokens);
-        engine.check_proactive_compaction(presenter, history, 0).await.unwrap();
+        engine
+            .check_proactive_compaction(presenter, history, 0, false)
+            .await
+            .unwrap();
     }
 
     fn threshold_engine(dir: &std::path::Path) -> crate::engine::AgentEngine {
@@ -1237,6 +1241,85 @@ mod auto_compact {
         ];
         common::append_test_messages(&engine.session_manager, sid, msgs).await;
         engine.session_manager.load_messages().await.unwrap()
+    }
+
+    async fn seed_large_read_history(engine: &crate::engine::AgentEngine) {
+        use rho_harness_core::model::{AssistantContent, TextContent, ToolResult, ToolResultContent, UserContent};
+        let body = (0..500)
+            .map(|i| format!("line {i} {}", "x".repeat(90)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let sid = engine.session_manager.session_id.clone();
+        for i in 0..10 {
+            let call = ToolCall::new(
+                format!("c{i}"),
+                ToolFunction::new(
+                    "read".to_string(),
+                    serde_json::json!({ "path": format!("src/f{i}.rs") }),
+                ),
+            );
+            let result = ToolResult {
+                call: format!("c{i}"),
+                provider: None,
+                name: "read".to_string(),
+                content: vec![ToolResultContent::Text(TextContent::new(&body))],
+            };
+            let msgs = vec![
+                ChatMessage::user(format!("task {i}")),
+                ChatMessage::Assistant {
+                    id: None,
+                    content: vec![AssistantContent::ToolCall(call)],
+                },
+                ChatMessage::User {
+                    content: vec![UserContent::ToolResult(result)],
+                },
+                ChatMessage::assistant(format!("done {i}")),
+            ];
+            common::append_test_messages(&engine.session_manager, &sid, msgs).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stale_usage_does_not_compact_history_that_pruning_shrank() {
+        let dir = std::env::temp_dir().join(format!("stale_usage_{}", uuid::Uuid::new_v4()));
+        let engine = threshold_engine(&dir);
+        seed_large_read_history(&engine).await;
+        record_test_turn_usage(&engine, 120_000);
+
+        let presenter = Arc::new(CapturingPresenter::default());
+        let output = engine
+            .run_turn(TurnRequest::new("next"), presenter.clone())
+            .await
+            .unwrap();
+        assert_eq!(output.status, crate::engine::runner::RunStatus::Completed);
+        assert!(presenter.notices.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_compaction_limit_matches_pruning_limit_without_model_store_entry() {
+        let dir = std::env::temp_dir().join(format!("limit_source_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app_config = Config {
+            model: "claude-sonnet-4".to_string(),
+            provider: "claude".to_string(),
+            config_dir: dir.clone(),
+            auth_file: dir.join("auth.json"),
+            ..Config::default()
+        };
+        let engine = mock_engine(
+            Arc::new(MockAdapter::text("response")),
+            MockEngineConfig {
+                base_dir: &dir,
+                app_config,
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let mut history = seed_threshold_history(&engine).await;
+        let presenter = Arc::new(CapturingPresenter::default());
+
+        check_compaction_step(&engine, &presenter, &mut history, 150_000).await;
+        assert!(presenter.notices.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
