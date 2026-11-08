@@ -107,7 +107,22 @@ fn message_text(message: &ChatMessage) -> Option<(&'static str, String)> {
         ChatMessage::System { .. } => return None,
     };
     let text = text.trim();
-    (!text.is_empty()).then(|| (speaker, text.chars().take(MAX_PARENT_MESSAGE_CHARS).collect()))
+    (!text.is_empty()).then(|| (speaker, truncate_middle(text)))
+}
+
+fn truncate_middle(text: &str) -> String {
+    let total = text.chars().count();
+    if total <= MAX_PARENT_MESSAGE_CHARS {
+        return text.to_string();
+    }
+    let head_len = MAX_PARENT_MESSAGE_CHARS / 2;
+    let tail_len = MAX_PARENT_MESSAGE_CHARS - head_len;
+    let head: String = text.chars().take(head_len).collect();
+    let tail: String = text.chars().skip(total - tail_len).collect();
+    format!(
+        "{head}\n[... {} characters omitted ...]\n{tail}",
+        total - MAX_PARENT_MESSAGE_CHARS
+    )
 }
 
 /// Text-only transcript of the most recent parent messages; tool calls, tool output and reasoning are left out.

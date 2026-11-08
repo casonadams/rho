@@ -693,3 +693,15 @@ async fn custom_agent_progress_is_labelled_with_its_name() {
 
     assert_eq!(*progress.0.lock().unwrap(), vec!["subagent reviewer turn 1/10: read\n"]);
 }
+
+#[test]
+fn long_parent_message_keeps_both_its_opening_and_its_closing_text() {
+    let long = format!("OPENING {} codeword is kumquat CLOSING", "filler ".repeat(1_500));
+    let history = vec![ChatMessage::user(long)];
+
+    let rendered = runner::render_parent_conversation(&history);
+
+    assert!(rendered.contains("OPENING"));
+    assert!(rendered.contains("kumquat CLOSING"));
+    assert!(rendered.contains("characters omitted"));
+}
