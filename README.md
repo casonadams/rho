@@ -32,7 +32,7 @@ rho --resume-picker
 ```
 
 When a session that has content ends, rho prints `Resume this session: rho --resume <SESSION_ID>`
-to stderr. In `/resume`, each row is titled by the session name (see `/name`) or its first message,
+to stderr. In `/resume` and `--resume-picker`, each row is titled by the session name (see `/name`) or its first message,
 with the age, turn count and session ID beside it.
 
 ---

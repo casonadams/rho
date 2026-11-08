@@ -121,6 +121,7 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
     let header = parse_header(first)?;
     validate_header(&header, expected_id)?;
     let mut state = empty_store_state();
+    state.created_at = header.created_at;
     for line in lines {
         if line.is_empty() {
             return Err(session_error("session contains an empty committed record"));

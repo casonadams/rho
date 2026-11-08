@@ -120,7 +120,7 @@ fn make_session_summary(stem: &str, state: StoreState, last_modified: DateTime<U
     SessionSummary {
         session_id: stem.to_string(),
         name: state.tree.session_name,
-        created_at: last_modified,
+        created_at: state.created_at,
         last_modified,
         turn_count,
         preview,
@@ -240,6 +240,29 @@ mod tests {
             .collect();
         assert_eq!(remaining, vec![sid_c]);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn summary_created_at_comes_from_the_session_header_not_the_file_mtime() {
+        let dir = crate::test_support::created_temp_dir();
+        let session = SessionManager::new(&dir, None).unwrap();
+        let sid = session.session_id.clone();
+        session
+            .append_messages(&sid, vec![ChatMessage::user("q"), ChatMessage::assistant("a")])
+            .await
+            .unwrap();
+        let path = dir.join(format!("{sid}.jsonl"));
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let (header, rest) = raw.split_once('\n').unwrap();
+        let mut header: serde_json::Value = serde_json::from_str(header).unwrap();
+        header["created_at"] = "2020-01-02T03:04:05Z".into();
+        std::fs::write(&path, format!("{header}\n{rest}")).unwrap();
+
+        let summary = list_session_summaries(&dir).unwrap().remove(0);
+
+        assert_eq!(summary.created_at.to_rfc3339(), "2020-01-02T03:04:05+00:00");
+        assert!(summary.last_modified > summary.created_at);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -30,17 +30,20 @@ fn run_picker<B: TerminalBackend>(
 }
 
 pub fn session_modal(summaries: &[SessionSummary]) -> ModalState {
-    resume_modal(resume_options(summaries, picker_row), "")
+    resume_modal(resume_options(summaries, session_row), "")
 }
 
-fn picker_row(summary: &SessionSummary) -> (String, String) {
-    let title = summary.name.as_deref().unwrap_or(&summary.preview);
-    let time = format_relative_time(summary.last_modified);
-    let label = format!(
-        "{title} ({} | {} turns | {time})",
-        summary.session_id, summary.turn_count
-    );
-    (label, summary.session_id.clone())
+pub(crate) fn session_row(item: &SessionSummary) -> (String, String) {
+    let title = item.name.as_deref().unwrap_or(&item.preview);
+    let mut parts = vec![
+        format_relative_time(item.last_modified),
+        format!("{} turns", item.turn_count),
+    ];
+    if item.name.is_some() {
+        parts.push(item.preview.clone());
+    }
+    parts.push(item.session_id.clone());
+    (title.to_string(), parts.join("\t"))
 }
 
 pub(crate) fn resume_options(
@@ -213,17 +216,17 @@ mod tests {
     }
 
     #[test]
-    fn session_modal_labels_carry_the_session_id_in_the_description() {
+    fn session_modal_rows_are_titled_by_name_or_first_message() {
         let modal = modal();
-        let labels: Vec<(&str, &str)> = modal
+        let rows: Vec<(&str, &str)> = modal
             .all_options
             .iter()
             .map(|o| (o.label.as_str(), o.description.as_deref().unwrap_or("")))
             .collect();
-        assert!(labels[0].0.contains("First"));
-        assert_eq!(labels[0].1, "aaa-111");
-        assert_eq!(labels[1].1, "bbb-222");
-        assert!(labels[1].0.contains("second preview"));
+        assert_eq!(rows[0].0, "First");
+        assert!(rows[0].1.ends_with("3 turns\tfirst preview\taaa-111"), "{}", rows[0].1);
+        assert_eq!(rows[1].0, "second preview");
+        assert!(rows[1].1.ends_with("9 turns\tbbb-222"), "{}", rows[1].1);
     }
 
     #[test]
@@ -231,31 +234,6 @@ mod tests {
         let modal = modal();
         let values: Vec<Option<&str>> = modal.all_options.iter().map(|o| o.value.as_deref()).collect();
         assert_eq!(values, [Some("aaa-111"), Some("bbb-222")]);
-    }
-
-    #[test]
-    fn picker_row_titles_fall_back_from_name_to_preview() {
-        let cases = [
-            (Some("First"), "first preview", "First"),
-            (None, "second preview", "second preview"),
-        ];
-        for (name, preview, title) in cases {
-            let summary = SessionSummary {
-                session_id: "ccc-333".into(),
-                name: name.map(str::to_string),
-                created_at: Utc::now(),
-                last_modified: Utc::now(),
-                turn_count: 4,
-                preview: preview.into(),
-            };
-            let (label, value) = picker_row(&summary);
-            assert!(
-                label.starts_with(&format!("{title} (ccc-333 | 4 turns | ")),
-                "label {label:?}"
-            );
-            assert!(label.ends_with(')'));
-            assert_eq!(value, "ccc-333");
-        }
     }
 
     #[test]
@@ -284,7 +262,7 @@ mod tests {
         assert_eq!(modal.filter_query, "sec");
         assert_eq!(modal.options.len(), 1);
         let desc = modal.selected_option().and_then(|o| o.description.as_deref());
-        assert_eq!(desc, Some("bbb-222"));
+        assert!(desc.is_some_and(|d| d.ends_with("bbb-222")));
     }
 
     #[test]

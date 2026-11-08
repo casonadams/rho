@@ -106,6 +106,7 @@ pub enum SessionEventKind {
 
 #[derive(Debug)]
 pub struct StoreState {
+    pub created_at: DateTime<Utc>,
     pub next_sequence: u64,
     pub messages: Vec<ChatMessage>,
     pub checkpoint: Option<Vec<ChatMessage>>,

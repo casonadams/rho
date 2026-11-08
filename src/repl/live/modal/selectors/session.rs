@@ -4,10 +4,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::super::ModalKeyResult;
 use crate::error::Result;
-use crate::ui::interactive::session_picker::{resume_modal, resume_options};
+use crate::ui::interactive::session_picker::{resume_modal, resume_options, session_row};
 use crate::ui::interactive::{TerminalBackend, TerminalController};
-use crate::ui::render::formatters::format_relative_time;
-use rho_harness_core::session::SessionSummary;
 
 pub async fn open_session_selector<B: TerminalBackend>(
     sessions_dir: &Path,
@@ -25,19 +23,6 @@ pub async fn open_session_selector<B: TerminalBackend>(
         ""
     };
     controller.state_mut().push_modal(resume_modal(options, subtitle));
-}
-
-fn session_row(item: &SessionSummary) -> (String, String) {
-    let title = item.name.as_deref().unwrap_or(&item.preview);
-    let mut parts = vec![
-        format_relative_time(item.last_modified),
-        format!("{} turns", item.turn_count),
-    ];
-    if item.name.is_some() {
-        parts.push(item.preview.clone());
-    }
-    parts.push(item.session_id.clone());
-    (title.to_string(), parts.join("\t"))
 }
 
 fn selected_session_id<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
@@ -74,12 +59,10 @@ pub fn handle_session_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
-    use super::{open_session_selector, session_row};
+    use super::open_session_selector;
     use crate::ui::interactive::InteractiveState;
     use crate::ui::interactive::TerminalController;
     use crate::ui::interactive::controller::tests::fake::FakeTerminal;
-    use chrono::Utc;
-    use rho_harness_core::session::SessionSummary;
     use rho_harness_core::session::{SessionEventKind, SessionManager};
 
     #[tokio::test]
@@ -97,35 +80,5 @@ mod tests {
             .await
             .unwrap();
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    fn summary(name: Option<&str>) -> SessionSummary {
-        SessionSummary {
-            session_id: "20261108_192507_46b8ae52".into(),
-            name: name.map(str::to_string),
-            created_at: Utc::now(),
-            last_modified: Utc::now(),
-            turn_count: 4,
-            preview: "fix the oauth refresh".into(),
-        }
-    }
-
-    #[test]
-    fn unnamed_session_is_titled_by_its_first_message() {
-        let (title, desc) = session_row(&summary(None));
-
-        assert_eq!(title, "fix the oauth refresh");
-        assert!(desc.ends_with("4 turns\t20261108_192507_46b8ae52"), "{desc}");
-    }
-
-    #[test]
-    fn named_session_keeps_its_name_and_shows_the_first_message() {
-        let (title, desc) = session_row(&summary(Some("auth work")));
-
-        assert_eq!(title, "auth work");
-        assert!(
-            desc.ends_with("4 turns\tfix the oauth refresh\t20261108_192507_46b8ae52"),
-            "{desc}"
-        );
     }
 }
