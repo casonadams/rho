@@ -41,7 +41,7 @@ fn layouts_by_focus(editor: &EditorState, theme: &Theme) -> (InteractiveLayout, 
 #[test]
 fn empty_editor_has_one_line_and_fixed_chrome() {
     let layout = editor_layout(&EditorState::default(), 8, 24);
-    assert_eq!(layout.editor_lines, [""]);
+    assert_eq!(layout.editor_lines, [" "]);
     let actual = (
         layout.top_divider.as_str(),
         layout.footer_lines.len(),
@@ -50,7 +50,7 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
     );
     assert_eq!(
         actual,
-        ("\u{1b}[2m────────\u{1b}[0m", 2, CursorPosition { row: 0, column: 0 }, 6)
+        ("\u{1b}[2m────────\u{1b}[0m", 2, CursorPosition { row: 0, column: 1 }, 6)
     );
 }
 
@@ -59,8 +59,8 @@ fn explicit_newlines_grow_the_editor() {
     let editor = editor_with_text("one\ntwo\n");
     let layout = editor_layout(&editor, 20, 24);
 
-    assert_eq!(layout.editor_lines, ["one", "two", ""]);
-    assert_eq!(layout.cursor, CursorPosition { row: 2, column: 0 });
+    assert_eq!(layout.editor_lines, [" one", " two", " "]);
+    assert_eq!(layout.cursor, CursorPosition { row: 2, column: 1 });
     assert_eq!(layout.height(), 8);
 }
 
@@ -160,9 +160,9 @@ fn minimal_terminal_height_graceful_degradation() {
 #[test]
 fn soft_wrap_tracks_lines_and_cursor_across_wrapped_lines() {
     let cases: [(&str, usize, usize, &[&str], CursorPosition); 3] = [
-        ("ab界c", 0, 4, &["ab界", "c"], CursorPosition { row: 1, column: 1 }),
-        ("abcdef", 2, 3, &["abc", "def"], CursorPosition { row: 1, column: 1 }),
-        ("界", 0, 2, &["界", ""], CursorPosition { row: 1, column: 0 }),
+        ("ab界c", 0, 5, &[" ab界", " c"], CursorPosition { row: 1, column: 2 }),
+        ("abcdef", 2, 4, &[" abc", " def"], CursorPosition { row: 1, column: 2 }),
+        ("界", 0, 3, &[" 界", " "], CursorPosition { row: 1, column: 1 }),
     ];
     for (text, left_moves, width, lines, cursor) in cases {
         let mut editor = editor_with_text(text);
@@ -217,7 +217,7 @@ fn hardware_cursor_renders_ghost_text() {
 
     let layout = editor_layout(&editor, 80, 24);
 
-    assert_eq!(layout.editor_lines, ["hello\x1b[2m world\x1b[22m"]);
+    assert_eq!(layout.editor_lines, [" hello\x1b[2m world\x1b[22m"]);
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn unfocused_editor_suppresses_software_cursor() {
 
     assert!(!unfocused.cursor_visible);
     assert!(!unfocused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
-    assert_eq!(unfocused.editor_lines, ["hello"]);
+    assert_eq!(unfocused.editor_lines, [" hello"]);
 }
 
 #[test]
@@ -249,9 +249,17 @@ fn hardware_cursor_mode_suppresses_software_cursor_and_preserves_hardware_visibi
     assert!(focused.cursor_visible);
     assert_eq!(focused.cursor_mode, crate::ui::theme::CursorMode::Hardware);
     assert!(!focused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
-    assert_eq!(focused.editor_lines, ["hello"]);
+    assert_eq!(focused.editor_lines, [" hello"]);
 
     assert!(!unfocused.cursor_visible);
     assert_eq!(unfocused.cursor_mode, crate::ui::theme::CursorMode::Hardware);
     assert!(!unfocused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
+}
+
+#[test]
+fn editor_lines_are_indented_one_space_and_wrap_inside_the_margin() {
+    let layout = editor_layout(&editor_with_text("abcde"), 4, 24);
+    assert!(layout.editor_lines.iter().all(|line| line.starts_with(' ')));
+    assert_eq!(layout.editor_lines, [" abc", " de"]);
+    assert_eq!(layout.cursor, CursorPosition { row: 1, column: 3 });
 }

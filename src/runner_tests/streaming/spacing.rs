@@ -35,7 +35,7 @@ fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
         !output.contains("\n\n\n"),
         "Output contained excess newlines: {output:?}"
     );
-    assert!(output.contains("\n\nHere is the summary."));
+    assert!(output.contains("\n\n Here is the summary."));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn token_by_token_reasoning_with_trailing_newlines_collapses_cleanly() {
         !output.contains("\n\n\n"),
         "Output contained excess newlines: {output:?}"
     );
-    assert!(output.contains("\n\nSummary."));
+    assert!(output.contains("\n\n Summary."));
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
     let clean = crate::ui::block::strip_ansi(&output);
     assert!(clean.contains("Paragraph 1."));
     assert!(clean.contains("Paragraph 2."));
-    assert!(output.contains("\n\nAnswer."));
+    assert!(output.contains("\n\n Answer."));
 }
 
 #[test]

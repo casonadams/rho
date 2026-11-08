@@ -135,6 +135,14 @@ ANSI palette: cyan accents, blue tool headers, green success, red errors, yellow
 warnings, and magenta skill tags. There is no theme configuration; the interface
 always matches your terminal emulator, in dark or light mode.
 
+- Thinking output and assistant replies share a one-column left margin. Thinking
+  is rendered as markdown in the dim style, and the live stream and the
+  committed block use the same renderer, so a redraw never changes its layout.
+  The input area uses the same one-column indent.
+- Tool cards show a dim duration after the header (`read src/main.rs · 12ms`);
+  `bash` keeps its `Took ...` footer. `web_fetch` shows the content kind inline
+  and dim, such as `web_fetch https://example.com (text)`.
+- Notices carry a bold `info`, `warning`, or `error` label.
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and
   table borders) uses the terminal's native dim (SGR 2) effect instead of a
   fixed palette color, so it stays readable on any palette.

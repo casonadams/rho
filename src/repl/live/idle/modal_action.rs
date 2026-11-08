@@ -42,9 +42,10 @@ fn report_save<B: TerminalBackend>(
     match result {
         Ok(()) => true,
         Err(err) => {
-            ctx.session
-                .renderer
-                .print_notice(&format!("\nWarning: Could not save {what}: {err}\n"));
+            ctx.session.renderer.notice(
+                crate::ui::render::NoticeKind::Warn,
+                &format!("Could not save {what}: {err}"),
+            );
             false
         }
     }
@@ -70,9 +71,10 @@ async fn handle_model_selected(
         print_model_status(ctx, &model, &provider, saved_default);
     }
     if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
-        ctx.session
-            .renderer
-            .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
+        ctx.session.renderer.notice(
+            crate::ui::render::NoticeKind::Warn,
+            &format!("Could not switch model: {err}"),
+        );
     }
     super::super::modal::update_models_role_description(ctx.controller, "default", &model);
     super::super::modal::update_settings_model_description(ctx.controller, &model);
@@ -191,9 +193,10 @@ async fn handle_thinking_selected(
     ctx.engine.config.thinking_level = level.clone();
     save_or_print_thinking(ctx, level.as_deref(), save_as_default).await;
     if let Err(err) = ctx.engine.update_model().await {
-        ctx.session
-            .renderer
-            .print_notice(&format!("\nWarning: Could not update thinking level: {err}\n"));
+        ctx.session.renderer.notice(
+            crate::ui::render::NoticeKind::Warn,
+            &format!("Could not update thinking level: {err}"),
+        );
     }
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.controller.redraw()?;

@@ -10,14 +10,15 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_headless_tool_card;
+use crate::ui::render::margin::{Margin, margin_width};
 use crate::ui::render::presenter::InteractiveStreamSink;
-use crate::ui::render::thinking_stream::ThinkingStreamTracker;
+use crate::ui::render::thinking::ThinkingRenderer;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
 use rho_harness_core::presentation::stream::ToolStreamPort;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
 
-pub use super::notices::CacheMissNotice;
+pub use super::notices::{CacheMissNotice, NoticeKind};
 
 pub enum RenderActivity {
     Progress(ProgressBar),
@@ -42,7 +43,8 @@ pub struct TerminalRenderer {
     pub(crate) ui: Option<InteractiveUi>,
     pub(crate) assistant_turn_buffer: Arc<Mutex<String>>,
     pub(crate) width: Arc<AtomicUsize>,
-    pub(crate) thinking_stream: Arc<Mutex<ThinkingStreamTracker>>,
+    pub(crate) assistant_margin: Arc<Mutex<Margin>>,
+    pub(crate) thinking_stream: Arc<Mutex<ThinkingRenderer>>,
 }
 
 impl Default for TerminalRenderer {
@@ -53,7 +55,8 @@ impl Default for TerminalRenderer {
             ui: None,
             assistant_turn_buffer: Arc::new(Mutex::new(String::new())),
             width: Arc::new(AtomicUsize::new(0)),
-            thinking_stream: Arc::new(Mutex::new(ThinkingStreamTracker::new())),
+            assistant_margin: Arc::new(Mutex::new(Margin::new(None))),
+            thinking_stream: Arc::new(Mutex::new(ThinkingRenderer::new(&Theme::default()))),
         }
     }
 }
@@ -91,7 +94,7 @@ impl TerminalRenderer {
     pub fn set_width(&self, width: usize) {
         self.width.store(width, Ordering::Relaxed);
         if let Ok(mut md) = self.markdown.lock() {
-            md.set_width(width);
+            md.set_width(margin_width(width));
         }
     }
 
@@ -116,7 +119,7 @@ impl TerminalRenderer {
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             buf.push_str(token);
         }
-        let width = self.width.load(Ordering::Relaxed);
+        let width = margin_width(self.width.load(Ordering::Relaxed));
         let rendered = self
             .markdown
             .lock()
@@ -127,8 +130,17 @@ impl TerminalRenderer {
                 markdown.render_token(token, &self.theme)
             })
             .unwrap_or_else(|_| token.to_string());
-        if !rendered.is_empty() {
-            self.stream_output(rendered);
+        self.stream_assistant(&rendered);
+    }
+
+    fn stream_assistant(&self, rendered: &str) {
+        let indented = self
+            .assistant_margin
+            .lock()
+            .map(|mut margin| margin.apply(rendered))
+            .unwrap_or_else(|_| rendered.to_string());
+        if !indented.is_empty() {
+            self.stream_output(indented);
         }
     }
 
@@ -137,7 +149,7 @@ impl TerminalRenderer {
         let rendered = self
             .thinking_stream
             .lock()
-            .map(|mut tracker| tracker.process_token(token, width, &self.theme))
+            .map(|mut renderer| renderer.push(token, width, &self.theme))
             .unwrap_or_else(|_| {
                 let dim = self.theme.dimmed;
                 format!("{dim}{token}{dim:#}")
@@ -148,8 +160,8 @@ impl TerminalRenderer {
     }
 
     fn flush_thinking_stream(&self) {
-        if let Ok(mut tracker) = self.thinking_stream.lock() {
-            let remaining = tracker.flush(&self.theme);
+        if let Ok(mut renderer) = self.thinking_stream.lock() {
+            let remaining = renderer.finish(&self.theme);
             if !remaining.is_empty() {
                 self.stream_output(remaining);
             }
@@ -171,8 +183,9 @@ impl TerminalRenderer {
                 out
             })
             .unwrap_or_default();
-        if !remaining.is_empty() {
-            self.stream_output(remaining);
+        self.stream_assistant(&remaining);
+        if let Ok(mut margin) = self.assistant_margin.lock() {
+            margin.reset();
         }
     }
 

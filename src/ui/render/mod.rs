@@ -2,7 +2,7 @@
 //!
 //! Submodules:
 //! - [`renderer`]: the core `TerminalRenderer` struct and its user-facing methods.
-//! - [`formatters`]: edit-diff, write-preview, and thinking-block formatting.
+//! - [`formatters`]: edit-diff and write-preview formatting.
 //!
 //! Render payload data and text summarization live in `rho-harness-core`'s
 //! presentation module and are re-exported here so external callers continue
@@ -11,11 +11,12 @@
 pub(crate) mod card;
 pub(crate) mod diff;
 pub(crate) mod formatters;
+pub(crate) mod margin;
 pub(crate) mod notices;
 pub(crate) mod presenter;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
-pub(crate) mod thinking_stream;
+pub(crate) mod thinking;
 
 #[cfg(test)]
 mod tests;
@@ -25,11 +26,11 @@ pub use card::{
     format_read_header, format_tool_header, normalize_tool_name, render_headless_tool_card, render_tool_block,
     render_tool_transcript, tool_title_style,
 };
-pub(crate) use formatters::format_thinking_block;
-pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
+pub use renderer::{CacheMissNotice, NoticeKind, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 pub use rpc_presenter::{PendingApprovals, RpcPresenter};
+pub(crate) use thinking::format_thinking_block;
 
 pub fn format_duration(duration: std::time::Duration) -> String {
     let secs = duration.as_secs();

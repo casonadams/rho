@@ -4,7 +4,7 @@ use super::chrome::{
     active_activity_status, modal_banner_title, modal_top_divider, queued_lines_text, thinking_divider_style,
     top_divider, working_line_text,
 };
-use super::editor::{render_editor_lines, window_editor, wrap_editor};
+use super::editor::{render_editor_lines, window_editor, wrap_editor_indented};
 use super::{CursorPosition, InteractiveLayout, LayoutInput};
 
 fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
@@ -114,7 +114,7 @@ fn estimate_layout_demands(input: &LayoutInput<'_>, width: usize, ed_len: usize)
 fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces {
     let working = working_line_text(input.footer, input.spinner_frame, width);
     let queued = queued_lines_text(input.queued_messages, width);
-    let ed_wrapped = wrap_editor(input.editor, width);
+    let ed_wrapped = wrap_editor_indented(input.editor, width);
     let ac_desired = desired_autocomplete_count(input, width);
     let (total_editor_lines, ft_lines) = estimate_layout_demands(input, width, ed_wrapped.0.len());
     let budget = compute_normal_budget(&NormalBudgetInput {

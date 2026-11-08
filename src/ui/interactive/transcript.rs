@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::ui::interactive::layout::wrap_to_width;
 use crate::ui::render::format_thinking_block;
+use crate::ui::render::margin::{Margin, margin_width};
 use crate::ui::theme::{BlockStyle, Theme};
 
 #[cfg(test)]
@@ -75,7 +76,7 @@ fn render_assistant_text(text: &str, width: usize, theme: &Theme) -> String {
     let render_width = if theme.block_agent_output {
         theme.agent_block(width).inner_width()
     } else {
-        width
+        margin_width(width)
     };
     md.set_width(render_width);
     let full = md.render_text(text, theme);
@@ -86,7 +87,8 @@ fn render_assistant_text(text: &str, width: usize, theme: &Theme) -> String {
         let block = theme.agent_block(width).with_vertical_padding().render_styled(trimmed);
         format!("{OSC133_ZONE_START}\n{block}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
     } else {
-        format!("{OSC133_ZONE_START}\n{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
+        let indented = Margin::new(None).apply(&full);
+        format!("{OSC133_ZONE_START}\n{indented}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
     }
 }
 

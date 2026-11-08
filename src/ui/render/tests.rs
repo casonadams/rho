@@ -2,9 +2,9 @@ use super::CacheMissNotice;
 use super::card::{fetch_content_kind, format_bash_args_header, tool_title_style};
 use super::diff::format_gutter_prefix;
 use super::formatters::{
-    format_edit_diff, format_read_expanded, format_relative_time, format_session_status, format_thinking_block,
-    format_write_preview,
+    format_edit_diff, format_read_expanded, format_relative_time, format_session_status, format_write_preview,
 };
+use super::notices::{NoticeKind, format_notice};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, InteractiveUi, OutputEvent, TranscriptItem, TranscriptRenderInput, UiEvent, render_transcript_item,
@@ -96,28 +96,6 @@ fn test_format_write_preview_expansion_and_collapse() {
 
     let expanded = format_write_preview(&long_args, &theme, true).unwrap();
     assert!(!expanded.contains("more lines") && expanded.contains("line 12"));
-}
-
-#[test]
-fn test_format_thinking_block_renders_dimmed_with_trailing_breaks() {
-    let theme = Theme::default();
-    let formatted = format_thinking_block("analyzing the problem\nchecking tests", &theme, 80);
-    assert!(formatted.contains(" analyzing the problem"));
-    assert!(formatted.contains(" checking tests"));
-    assert!(!formatted.contains("┌─ Thinking"));
-    assert!(formatted.ends_with('\n'));
-}
-
-#[test]
-fn test_format_thinking_block_wraps_on_word_boundaries() {
-    let theme = Theme::default();
-    let text = "first second third fourth fifth";
-    let formatted = format_thinking_block(text, &theme, 15);
-    let lines: Vec<&str> = formatted.trim().lines().collect();
-    assert_eq!(lines.len(), 3);
-    assert!(lines[0].contains("first second"));
-    assert!(lines[1].contains("third fourth"));
-    assert!(lines[2].contains("fifth"));
 }
 
 #[test]
@@ -364,7 +342,7 @@ fn interactive_renderer_marks_assistant_tokens_as_stream_output() {
 
     assert!(matches!(
         events.try_recv(),
-        Ok(UiEvent::Output(OutputEvent::StreamText(text))) if text == "answer"
+        Ok(UiEvent::Output(OutputEvent::StreamText(text))) if text == " answer"
     ));
 }
 
@@ -523,8 +501,41 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("web_fetch"));
     assert!(output.contains("https://serde.rs/"));
-    assert!(output.contains("fetched (text)"));
+    let plain = crate::ui::block::strip_ansi(&output);
+    assert!(plain.contains("https://serde.rs/ (text)") && !plain.contains("fetched"));
     assert_eq!(output.matches("https://serde.rs/").count(), 1);
+}
+
+#[test]
+fn non_bash_tool_headers_show_dim_duration() {
+    let theme = Theme::default();
+    let dim = theme.dimmed;
+    let tool = |name: &str, args: serde_json::Value, duration_ms| ToolLine {
+        name: name.to_string(),
+        arguments: args,
+        is_error: false,
+        output: String::new(),
+        output_summary: String::new(),
+        duration_ms,
+    };
+    let cases = [
+        tool("rg", serde_json::json!({"pattern": "x"}), Some(42)),
+        tool("read", serde_json::json!({"path": "a.rs"}), Some(1500)),
+        tool("web_fetch", serde_json::json!({"url": "https://serde.rs/"}), Some(250)),
+    ];
+    let expected = ["42ms", "1.500s", "250ms"];
+    for (case, duration) in cases.iter().zip(expected) {
+        let header = crate::ui::render::format_tool_header(case, &theme);
+        assert!(
+            header.ends_with(&format!("{dim} \u{b7} {duration}{dim:#}")),
+            "{}: {header:?}",
+            case.name
+        );
+    }
+    let untimed = tool("rg", serde_json::json!({"pattern": "x"}), None);
+    assert!(!crate::ui::render::format_tool_header(&untimed, &theme).contains('\u{b7}'));
+    let bash = tool("bash", serde_json::json!({"command": "ls"}), Some(42));
+    assert!(!crate::ui::render::format_tool_header(&bash, &theme).contains('\u{b7}'));
 }
 
 #[test]
@@ -823,4 +834,32 @@ fn test_clean_command_paths() {
     let cmd = format!("cat {cwd_str}/Cargo.toml");
     let cleaned = clean_command_paths(&cmd);
     assert_eq!(cleaned, "cat Cargo.toml");
+}
+
+#[test]
+fn notice_kinds_get_label_prefix_and_spacing() {
+    let theme = Theme::default();
+    let cases = [
+        (NoticeKind::Info, "info", theme.highlight),
+        (NoticeKind::Warn, "warning", theme.warning),
+        (NoticeKind::Error, "error", theme.tool_err),
+    ];
+    for (kind, label, style) in cases {
+        let notice = format_notice(&theme, kind, "\nsomething happened\n");
+        let style = style.bold();
+        assert_eq!(notice, format!("\n {style}{label}{style:#} something happened\n"));
+    }
+    let multi = crate::ui::block::strip_ansi(&format_notice(&theme, NoticeKind::Warn, "first\nsecond"));
+    assert_eq!(multi, "\n warning first\n second\n");
+}
+
+#[test]
+fn renderer_notice_is_emitted_as_a_transcript_notice() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    renderer.notice(NoticeKind::Warn, "Could not switch model: boom");
+    let Ok(UiEvent::Transcript(TranscriptItem::Notice(text))) = events.try_recv() else {
+        panic!("expected a notice transcript item");
+    };
+    assert!(crate::ui::block::strip_ansi(&text).contains("warning Could not switch model: boom"));
 }

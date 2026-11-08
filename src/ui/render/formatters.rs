@@ -1,4 +1,4 @@
-//! Edit-diff, write-preview, thinking-block, session-status, and relative-time formatters.
+//! Edit-diff, write-preview, session-status, and relative-time formatters.
 //!
 //! These are `pub(crate)` because they are only consumed by `renderer.rs`,
 //! but they remain exposed as module-private items so future tools can reuse them.
@@ -209,30 +209,4 @@ pub fn format_session_status(session: &SessionStatus) -> String {
         Some(quota) => format!("{} | {} | {quota}", session.model, session.context),
         None => format!("{} | {}", session.model, session.context),
     }
-}
-
-fn thinking_wrap_width(width: usize) -> usize {
-    if width > 0 {
-        width.saturating_sub(1).max(10)
-    } else {
-        crossterm::terminal::size()
-            .map(|(w, _)| (w as usize).saturating_sub(1).max(10))
-            .unwrap_or(79)
-    }
-}
-
-pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: usize) -> String {
-    let d = theme.dimmed;
-    let mut out = String::from("\n");
-    let wrap_width = thinking_wrap_width(width);
-    for line in thinking_text.trim().lines() {
-        if line.trim().is_empty() {
-            let _ = writeln!(out, "{d} {line}{d:#}");
-        } else {
-            for wrapped in crate::ui::interactive::wrap_to_width(line, wrap_width) {
-                let _ = writeln!(out, "{d} {wrapped}{d:#}");
-            }
-        }
-    }
-    out
 }

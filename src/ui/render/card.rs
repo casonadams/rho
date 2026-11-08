@@ -114,6 +114,17 @@ pub fn format_read_header(tool: &ToolLine, theme: &Theme) -> String {
 }
 
 pub fn format_tool_header(tool: &ToolLine, theme: &Theme) -> String {
+    let header = format_tool_header_base(tool, theme);
+    match tool.duration_ms {
+        Some(duration_ms) if tool.name != "bash" => {
+            let dim = theme.dimmed;
+            format!("{header}{dim} \u{b7} {}{dim:#}", super::format_duration_ms(duration_ms))
+        }
+        _ => header,
+    }
+}
+
+fn format_tool_header_base(tool: &ToolLine, theme: &Theme) -> String {
     let title = theme.tool_title_style(tool.is_error);
     let accent = theme.highlight;
     let display_name = normalize_tool_name(&tool.name);
@@ -126,9 +137,9 @@ pub fn format_tool_header(tool: &ToolLine, theme: &Theme) -> String {
             .get("url")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let status = theme.warning;
+        let dim = theme.dimmed;
         let kind = fetch_content_kind(&tool.arguments);
-        return format!("{title}web_fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
+        return format!("{title}web_fetch{title:#} {accent}{url}{accent:#} {dim}({kind}){dim:#}");
     }
     let summary = format_tool_args_summary(&tool.name, &tool.arguments);
     if summary.is_empty() {

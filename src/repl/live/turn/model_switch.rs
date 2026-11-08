@@ -49,9 +49,10 @@ async fn validate_engine_model(input: &mut TurnModelSwitchInput<'_, '_, impl Ter
         .clone()
         .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(input.auth_store.clone())));
     if let Err(err) = create_engine_model(input.config, input.auth_store, shared_auth) {
-        input
-            .renderer
-            .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
+        input.renderer.notice(
+            crate::ui::render::NoticeKind::Warn,
+            &format!("Could not switch model: {err}"),
+        );
     }
 }
 

@@ -12,6 +12,24 @@ pub struct CacheMissNotice {
     pub idle_minutes: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeKind {
+    Info,
+    Warn,
+    Error,
+}
+
+pub fn format_notice(theme: &Theme, kind: NoticeKind, text: &str) -> String {
+    let (label, style) = match kind {
+        NoticeKind::Info => ("info", theme.highlight),
+        NoticeKind::Warn => ("warning", theme.warning),
+        NoticeKind::Error => ("error", theme.tool_err),
+    };
+    let style = style.bold();
+    let body = text.trim().replace('\n', "\n ");
+    format!("\n {style}{label}{style:#} {body}\n")
+}
+
 fn resolve_block_bg(theme: &Theme, style: &str) -> anstyle::Style {
     match style {
         "warning" => {
@@ -109,6 +127,10 @@ impl TerminalRenderer {
         self.emit_notice_output(&block_output);
     }
 
+    pub fn notice(&self, kind: NoticeKind, text: &str) {
+        self.emit_notice_output(&format_notice(&self.theme, kind, text));
+    }
+
     pub fn print_notice(&self, text: &str) {
         self.emit_notice_output(text);
     }
@@ -124,18 +146,18 @@ impl TerminalRenderer {
     }
 
     pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {
-        let warning = self.theme.warning;
         let cost_str = cost
             .filter(|c| *c >= 0.01)
             .map(|c| format!(" (~${c:.2})"))
             .unwrap_or_default();
         let tokens_str = crate::ui::interactive::footer::format_tokens(tokens);
-        let text = format!("{warning}Compaction: {tokens_str} tokens billed{cost_str}{warning:#}\n");
-        self.print_notice(&text);
+        self.notice(
+            NoticeKind::Warn,
+            &format!("Compaction: {tokens_str} tokens billed{cost_str}"),
+        );
     }
 
     pub fn print_cache_miss_notice(&self, notice: CacheMissNotice) {
-        let warning = self.theme.warning;
         let cost_str = notice
             .cost
             .filter(|c| *c >= 0.01)
@@ -147,8 +169,10 @@ impl TerminalRenderer {
         } else {
             "after model switch".to_string()
         };
-        let text = format!("{warning}Cache miss {reason}: {tokens_str} tokens re-billed{cost_str}{warning:#}\n");
-        self.print_notice(&text);
+        self.notice(
+            NoticeKind::Warn,
+            &format!("Cache miss {reason}: {tokens_str} tokens re-billed{cost_str}"),
+        );
     }
 
     pub fn print_user_block(&self, input: &str) {

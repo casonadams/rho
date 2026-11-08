@@ -83,6 +83,16 @@ pub(crate) fn wrap_editor(editor: &EditorState, width: usize) -> (Vec<String>, C
     wrapper.finish(editor.text().len())
 }
 
+pub(crate) fn wrap_editor_indented(editor: &EditorState, width: usize) -> (Vec<String>, CursorPosition) {
+    let (lines, cursor) = wrap_editor(editor, width.saturating_sub(1).max(1));
+    let indented = lines.into_iter().map(|line| format!(" {line}")).collect();
+    let cursor = CursorPosition {
+        row: cursor.row,
+        column: cursor.column + 1,
+    };
+    (indented, cursor)
+}
+
 pub(crate) fn window_editor(
     lines: Vec<String>,
     cursor: CursorPosition,
