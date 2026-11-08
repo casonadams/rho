@@ -15,6 +15,13 @@
   `tests.rs` only when a test suite is genuinely distinct or very large. Do not
   create nested test directories (`tests/sub/mod.rs`) for unit tests.
 
+## Shell tooling (macOS)
+
+- `sed` is BSD sed: in-place edits need an explicit suffix argument
+  (`sed -i '' 's|a|b|' file`). `sed -i 's|a|b|' file` fails with `bad flag` or
+  `unescaped newline` because the script is taken as the suffix. Prefer the
+  edit tool or a short Python script for multi-line or regex rewrites.
+
 ## Lint policy
 
 - Do not add Clippy `allow`, `expect`, command-line exclusions, or crate-level
