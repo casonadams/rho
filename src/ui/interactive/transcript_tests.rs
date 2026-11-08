@@ -21,6 +21,7 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
         output: "fn main() { println!(\"hello\"); }".into(),
         output_summary: "summary".into(),
         duration_ms: None,
+        file_change: None,
     });
 
     let collapsed = render_tool_item(&item, &theme, false);
@@ -42,6 +43,7 @@ fn render_transcript_web_search_tool_expanded_shows_output() {
         output: "Found 10 results from crates.io\n1. tokio\n2. futures".into(),
         output_summary: "summary".into(),
         duration_ms: None,
+        file_change: None,
     });
 
     let collapsed = render_tool_item(&item, &theme, false);
@@ -178,6 +180,7 @@ fn render_transcript_skill_read_collapsed() {
         output: "# Plan Skill\n\nFull instructions here...".into(),
         output_summary: "summary".into(),
         duration_ms: None,
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -202,6 +205,7 @@ fn render_transcript_skill_read_expanded() {
         output: "# Plan Skill\n\nFull instructions here...".into(),
         output_summary: "summary".into(),
         duration_ms: None,
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -255,6 +259,7 @@ fn render_transcript_tool_collapsed_shows_preview() {
         output: "line_one\nline_two\nline_three\nline_four\nline_five\nline_six\nline_seven\nline_eight\nline_nine\nline_ten".into(),
         output_summary: "summary".into(),
         duration_ms: Some(150),
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -280,6 +285,7 @@ fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
         output: "##\n127.0.0.1\tlocalhost\n255.255.255.255\tbroadcasthost\n::1\tlocalhost".into(),
         output_summary: "completed".into(),
         duration_ms: Some(8),
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -305,6 +311,7 @@ fn render_transcript_tool_expanded_shows_full_output() {
         output: "line_one\nline_two\nline_three\nline_four\nline_five\nline_six\nline_seven\nline_eight\nline_nine\nline_ten".into(),
         output_summary: "summary".into(),
         duration_ms: Some(150),
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -330,6 +337,7 @@ fn render_transcript_bash_with_timeout_styles_timeout_with_dimmed() {
         output: "finished".into(),
         output_summary: "completed".into(),
         duration_ms: Some(250),
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -359,6 +367,7 @@ fn render_transcript_tool_with_border_style_uses_outline() {
         output: "ok".into(),
         output_summary: "ok".into(),
         duration_ms: Some(100),
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -392,6 +401,7 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         output: "match 1".into(),
         output_summary: "1 match".into(),
         duration_ms: Some(5),
+        file_change: None,
     });
     let item2 = TranscriptItem::Tool(ToolItem {
         name: "read".into(),
@@ -400,6 +410,7 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         output: "fn main() {}".into(),
         output_summary: "1 line".into(),
         duration_ms: Some(2),
+        file_change: None,
     });
 
     let rendered1 = render_transcript_item(TranscriptRenderInput {
@@ -446,6 +457,7 @@ fn render_transcript_mcp_tool_shows_server_and_call() {
         output: "Navigated to http://localhost:3000/hub/".into(),
         output_summary: "Navigated".into(),
         duration_ms: Some(250),
+        file_change: None,
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {

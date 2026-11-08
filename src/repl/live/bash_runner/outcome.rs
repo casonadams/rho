@@ -45,6 +45,7 @@ pub fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, co
             output: output.clone(),
             output_summary: summary,
             duration_ms: Some(outcome.duration_ms),
+            file_change: None,
         },
         UserBashResult {
             output,
@@ -64,6 +65,7 @@ pub fn cancelled_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) ->
             output: output.clone(),
             output_summary: "(cancelled)".to_string(),
             duration_ms: Some(outcome.duration_ms),
+            file_change: None,
         },
         UserBashResult {
             output,

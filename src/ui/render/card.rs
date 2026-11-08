@@ -1,4 +1,6 @@
-use super::formatters::{format_edit_diff, format_read_expanded, format_write_preview};
+use super::diff::replace_tabs;
+use super::file_change;
+use super::formatters::{EditDiffRequest, format_edit_diff, format_read_expanded, format_write_preview};
 use crate::ui::block::terminal_width;
 use crate::ui::interactive::truncate_to_visual_lines;
 use crate::ui::theme::{BlockStyle, Theme};
@@ -114,14 +116,12 @@ pub fn format_read_header(tool: &ToolLine, theme: &Theme) -> String {
 }
 
 pub fn format_tool_header(tool: &ToolLine, theme: &Theme) -> String {
-    let header = format_tool_header_base(tool, theme);
-    match tool.duration_ms {
-        Some(duration_ms) if tool.name != "bash" => {
-            let dim = theme.dimmed;
-            format!("{header}{dim} \u{b7} {}{dim:#}", super::format_duration_ms(duration_ms))
-        }
-        _ => header,
+    let mut header = format_tool_header_base(tool, theme);
+    if let Some(details) = file_change::header_details(tool) {
+        let dim = theme.dimmed;
+        header.push_str(&format!("{dim} \u{b7} {details}{dim:#}"));
     }
+    header
 }
 
 fn format_tool_header_base(tool: &ToolLine, theme: &Theme) -> String {
@@ -174,7 +174,7 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
         let truncated = truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
         if truncated.skipped_count > 0 {
             content.push_str(&format!(
-                "{dim}... ({n} earlier lines){dim:#}\n",
+                "{dim}... ({n} earlier lines, Ctrl+O to expand){dim:#}\n",
                 n = truncated.skipped_count
             ));
         }
@@ -188,15 +188,31 @@ fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, ex
     } else {
         &tool.output_summary
     };
-    let clean = raw.trim_end().replace('\t', "   ");
+    let clean = replace_tabs(raw.trim_end());
     if !clean.is_empty() {
         append_output_lines(content, &clean, width, expanded, dim);
     }
 }
 
+fn edit_diff(tool: &ToolLine, expanded: bool, theme: &Theme) -> Option<String> {
+    let request = EditDiffRequest {
+        args: &tool.arguments,
+        file_change: tool.file_change.as_ref(),
+        expanded,
+    };
+    format_edit_diff(request, theme)
+}
+
+fn append_failed_edit_attempt(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) {
+    if let Some(diff) = edit_diff(tool, expanded, theme) {
+        let dim = theme.dimmed;
+        content.push_str(&format!("\n\n{dim}Attempted change:{dim:#}\n{diff}"));
+    }
+}
+
 fn append_edit_or_write(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) -> bool {
     if !tool.is_error && tool.name == "edit" {
-        if let Some(diff) = format_edit_diff(&tool.arguments, theme) {
+        if let Some(diff) = edit_diff(tool, expanded, theme) {
             content.push_str("\n\n");
             content.push_str(&diff);
         }
@@ -229,9 +245,10 @@ pub fn append_tool_details(
     {
         append_generic_output(content, tool, width, expanded, theme.dimmed);
     }
-    if tool.name == "bash"
-        && let Some(duration_ms) = tool.duration_ms
-    {
+    if tool.is_error && tool.name == "edit" {
+        append_failed_edit_attempt(content, tool, expanded, theme);
+    }
+    if let Some(duration_ms) = tool.duration_ms {
         let dim = theme.dimmed;
         content.push_str(&format!(
             "\n\n{dim}Took {}{dim:#}",

@@ -548,6 +548,7 @@ mod regressions {
                 output: "test result: ok".into(),
                 output_summary: "1 line".into(),
                 duration_ms: Some(1500),
+                file_change: None,
             });
             drive_renderer_to_controller(events, controller);
             controller.redraw().unwrap();
@@ -852,6 +853,7 @@ mod regressions {
                 output: "destructive command".into(),
                 output_summary: "destructive command".into(),
                 duration_ms: None,
+                file_change: None,
             });
             drive_renderer_to_controller(&mut events, &mut controller);
 

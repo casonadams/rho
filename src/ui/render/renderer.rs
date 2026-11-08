@@ -1,5 +1,6 @@
 //! Central terminal presentation renderer.
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,13 +11,14 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_headless_tool_card;
+use crate::ui::render::file_change;
 use crate::ui::render::margin::{Margin, margin_width};
 use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::render::thinking::ThinkingRenderer;
 use crate::ui::theme::Theme;
-use rho_harness_core::presentation::ToolLine;
 use rho_harness_core::presentation::stream::ToolStreamPort;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
+use rho_harness_core::presentation::{FileChange, ToolLine};
 
 pub use super::notices::{CacheMissNotice, NoticeKind};
 
@@ -45,6 +47,7 @@ pub struct TerminalRenderer {
     pub(crate) width: Arc<AtomicUsize>,
     pub(crate) assistant_margin: Arc<Mutex<Margin>>,
     pub(crate) thinking_stream: Arc<Mutex<ThinkingRenderer>>,
+    pub(crate) pending_file_changes: Arc<Mutex<HashMap<String, FileChange>>>,
 }
 
 impl Default for TerminalRenderer {
@@ -57,6 +60,7 @@ impl Default for TerminalRenderer {
             width: Arc::new(AtomicUsize::new(0)),
             assistant_margin: Arc::new(Mutex::new(Margin::new(None))),
             thinking_stream: Arc::new(Mutex::new(ThinkingRenderer::new(&Theme::default()))),
+            pending_file_changes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -243,6 +247,11 @@ impl TerminalRenderer {
     }
 
     pub fn start_tool_run(&self, name: &str, args: &serde_json::Value) {
+        if let Some((path, change)) = file_change::capture(name, args)
+            && let Ok(mut pending) = self.pending_file_changes.lock()
+        {
+            pending.insert(path, change);
+        }
         let summary = format_tool_args_summary(name, args);
         if let Some(ui) = &self.ui {
             if name == "bash" {
@@ -265,7 +274,13 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn finish_tool_line(&self, line: ToolLine) {
+    pub fn finish_tool_line(&self, mut line: ToolLine) {
+        if line.file_change.is_none()
+            && let Some(path) = file_change::target_path(&line.arguments)
+            && let Ok(mut pending) = self.pending_file_changes.lock()
+        {
+            line.file_change = pending.remove(path);
+        }
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line));
             return;

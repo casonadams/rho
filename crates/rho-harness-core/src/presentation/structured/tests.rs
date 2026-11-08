@@ -17,6 +17,7 @@ fn emit_test_events(presenter: &StructuredPresenter) {
         output: "file.txt\n".to_string(),
         output_summary: "file.txt".to_string(),
         duration_ms: Some(10),
+        file_change: None,
     });
     presenter.print_turn_completed("completed");
 }

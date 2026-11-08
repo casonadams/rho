@@ -139,9 +139,18 @@ always matches your terminal emulator, in dark or light mode.
   is rendered as markdown in the dim style, and the live stream and the
   committed block use the same renderer, so a redraw never changes its layout.
   The input area uses the same one-column indent.
-- Tool cards show a dim duration after the header (`read src/main.rs · 12ms`);
-  `bash` keeps its `Took ...` footer. `web_fetch` shows the content kind inline
-  and dim, such as `web_fetch https://example.com (text)`.
+- Every finished tool card ends with a dim `Took 6.054s` line on its own line.
+  While a tool runs, its live card shows `Elapsed ...` in the same place.
+  `web_fetch` shows the content kind inline and dim, such as
+  `web_fetch https://example.com (text)`.
+- Edit cards show `N edits · +added -removed` in the header and label every
+  edit in a multi-edit call (`@@ edit #1/3 · line 12 @@`). Write cards show
+  line count, size, and whether the file was new or overwritten. Line numbers
+  and the new/overwrite state are captured before the tool runs, so redraws
+  never re-read the file. A failed edit also shows the change it attempted.
+- Long edit diffs, write previews, and tool output end with
+  `... (N more lines, Ctrl+O to expand)`; `Ctrl+O` shows everything. Tabs render
+  as four spaces.
 - Notices carry a bold `info`, `warning`, or `error` label.
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and
   table borders) uses the terminal's native dim (SGR 2) effect instead of a

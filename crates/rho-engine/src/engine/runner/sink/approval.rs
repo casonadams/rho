@@ -247,6 +247,7 @@ impl TerminalApprovalSink {
             output: output.to_string(),
             output_summary: summarize_tool_output(output),
             duration_ms,
+            file_change: None,
         });
     }
 

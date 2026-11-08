@@ -13,6 +13,7 @@ mod lazy {
             output: "fn main() {\n    println!(\"hello\");\n}".into(),
             output_summary: "3 lines".into(),
             duration_ms: None,
+            file_change: None,
         })
     }
 

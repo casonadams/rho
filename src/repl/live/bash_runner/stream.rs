@@ -291,6 +291,7 @@ async fn spawn_failure<B: TerminalBackend>(
         output: error_msg.clone(),
         output_summary: "spawn error".to_string(),
         duration_ms: Some(outcome.duration_ms),
+        file_change: None,
     });
     run.drain_and_flush(false)?;
     Ok(UserBashResult {

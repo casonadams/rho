@@ -87,6 +87,14 @@ pub struct SessionStatus {
     pub quota: Option<String>,
 }
 
+/// File state captured before a mutating tool ran, so cards render the same
+/// way on every redraw and after the file has changed on disk.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileChange {
+    pub overwrote_existing: bool,
+    pub edit_start_lines: Vec<Option<usize>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolLine {
     pub name: String,
@@ -95,6 +103,8 @@ pub struct ToolLine {
     pub output: String,
     pub output_summary: String,
     pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_change: Option<FileChange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

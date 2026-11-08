@@ -237,6 +237,7 @@ fn apply_tool_result(
             output: text.clone(),
             output_summary: text,
             duration_ms: None,
+            file_change: None,
         },
     }
 }
@@ -284,6 +285,7 @@ fn push_assistant_content(
                     output: String::new(),
                     output_summary: String::new(),
                     duration_ms: None,
+                    file_change: None,
                 };
                 pending.insert(call.id.to_string(), tool);
             }

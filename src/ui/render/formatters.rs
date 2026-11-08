@@ -3,50 +3,44 @@
 //! These are `pub(crate)` because they are only consumed by `renderer.rs`,
 //! but they remain exposed as module-private items so future tools can reuse them.
 
+use super::file_change;
 use crate::ui::theme::Theme;
 use chrono::{DateTime, Utc};
+use rho_harness_core::presentation::FileChange;
 use rho_harness_core::presentation::SessionStatus;
 use std::fmt::Write;
 
-pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
-    let edits = args.get("edits")?.as_array()?;
+pub(crate) struct EditDiffRequest<'a> {
+    pub args: &'a serde_json::Value,
+    pub file_change: Option<&'a FileChange>,
+    pub expanded: bool,
+}
+
+pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> Option<String> {
+    let edits = request.args.get("edits")?.as_array()?;
     if edits.is_empty() {
         return None;
     }
-    let path_str = args.get("path").and_then(|v| v.as_str());
-    let mut cached_content: Option<Option<String>> = None;
+    let start_lines = match request.file_change {
+        Some(change) => change.edit_start_lines.clone(),
+        None => {
+            let needs_file = edits.iter().any(|edit| file_change::explicit_edit_line(edit).is_none());
+            let content = file_change::target_path(request.args)
+                .filter(|_| needs_file)
+                .and_then(file_change::read_bounded);
+            file_change::edit_start_lines(edits, content.as_deref())
+        }
+    };
     let mut out = String::new();
     for (idx, edit) in edits.iter().enumerate() {
-        let old_text = edit.get("oldText").and_then(|v| v.as_str()).unwrap_or("");
-        let new_text = edit.get("newText").and_then(|v| v.as_str()).unwrap_or("");
-        let start_line = edit
-            .get("line")
-            .or_else(|| edit.get("start_line"))
-            .or_else(|| edit.get("line_number"))
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .or_else(|| {
-                let path = path_str?;
-                let content = cached_content
-                    .get_or_insert_with(|| {
-                        if std::fs::metadata(path)
-                            .map(|m| m.len() > 10 * 1024 * 1024)
-                            .unwrap_or(false)
-                        {
-                            return None;
-                        }
-                        std::fs::read_to_string(path).ok()
-                    })
-                    .as_deref()?;
-                super::diff::locate_edit_line_number(content, old_text, new_text)
-            });
-
         out.push_str(&super::diff::format_entry_diff(super::diff::EntryDiffInput {
             idx,
-            old_text,
-            new_text,
+            total: edits.len(),
+            expanded: request.expanded,
+            old_text: edit.get("oldText").and_then(|v| v.as_str()).unwrap_or(""),
+            new_text: edit.get("newText").and_then(|v| v.as_str()).unwrap_or(""),
             theme,
-            start_line,
+            start_line: start_lines.get(idx).copied().flatten(),
         }));
     }
     Some(out)
@@ -58,7 +52,7 @@ fn format_preview_lines(lines: &[&str], lang: Option<&str>, gutter_width: usize,
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
     for (idx, line) in lines.iter().enumerate() {
         let line_num = idx + 1;
-        let no_tabs = line.replace('\t', "   ");
+        let no_tabs = super::diff::replace_tabs(line);
         let highlighted = highlighter.highlight_line(&no_tabs, theme);
         let gutter = super::diff::format_gutter_prefix(line_num, gutter_width, d);
         let _ = writeln!(out, "{gutter}{highlighted}");
@@ -135,7 +129,7 @@ fn render_parsed_read_lines(
     let d = theme.dimmed;
     for item in parsed {
         if let Some(num) = item.num {
-            let no_tabs = item.content.replace('\t', "   ");
+            let no_tabs = super::diff::replace_tabs(item.content);
             let highlighted = highlighter.highlight_line(&no_tabs, theme);
             let gutter = super::diff::format_gutter_prefix(num, gutter_width, d);
             let _ = writeln!(out, "{gutter}{highlighted}");
@@ -181,8 +175,7 @@ pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expa
     let gutter_width = max.to_string().len().max(3);
     let mut out = format_preview_lines(&lines[..max], lang, gutter_width, theme);
     if !expanded && total > 8 {
-        let d = theme.dimmed;
-        out.push_str(&format!("{d}... ({} more lines, {total} total){d:#}\n", total - 8));
+        out.push_str(&super::diff::more_lines_footer(total - 8, Some(total), theme.dimmed));
     }
     Some(out)
 }

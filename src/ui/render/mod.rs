@@ -10,6 +10,7 @@
 
 pub(crate) mod card;
 pub(crate) mod diff;
+pub(crate) mod file_change;
 pub(crate) mod formatters;
 pub(crate) mod margin;
 pub(crate) mod notices;

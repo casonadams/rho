@@ -60,6 +60,7 @@ mod expansion {
             output: "fn main() {}".into(),
             output_summary: "1 line".into(),
             duration_ms: None,
+            file_change: None,
         });
         controller.push_transcript_item(tool).unwrap();
         assert_eq!(controller.cache().len(), 1);

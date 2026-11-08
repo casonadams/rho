@@ -1,10 +1,11 @@
-use super::CacheMissNotice;
 use super::card::{fetch_content_kind, format_bash_args_header, tool_title_style};
 use super::diff::format_gutter_prefix;
 use super::formatters::{
-    format_edit_diff, format_read_expanded, format_relative_time, format_session_status, format_write_preview,
+    EditDiffRequest, format_edit_diff, format_read_expanded, format_relative_time, format_session_status,
+    format_write_preview,
 };
 use super::notices::{NoticeKind, format_notice};
+use super::{CacheMissNotice, format_tool_header, render_tool_transcript};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, InteractiveUi, OutputEvent, TranscriptItem, TranscriptRenderInput, UiEvent, render_transcript_item,
@@ -15,7 +16,7 @@ use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, clean_command_paths, format_tool_args_summary, read_summary_parts,
     to_relative_path,
 };
-use rho_harness_core::presentation::{BlockDisplay, SessionStatus, ToolLine, WelcomeDisplay};
+use rho_harness_core::presentation::{BlockDisplay, FileChange, SessionStatus, ToolLine, WelcomeDisplay};
 
 fn assert_contains_all(s: &str, items: &[&str]) {
     for item in items {
@@ -26,6 +27,15 @@ fn assert_contains_all(s: &str, items: &[&str]) {
 // =========================================================================
 // Formatters Tests
 // =========================================================================
+
+fn edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
+    let request = EditDiffRequest {
+        args,
+        file_change: None,
+        expanded: false,
+    };
+    format_edit_diff(request, theme)
+}
 
 #[test]
 fn test_format_edit_diff_renders_removals_and_additions() {
@@ -39,7 +49,7 @@ fn test_format_edit_diff_renders_removals_and_additions() {
             }
         ]
     });
-    let diff = format_edit_diff(&args, &theme).unwrap();
+    let diff = edit_diff(&args, &theme).unwrap();
     assert!(!diff.contains("```diff") && !diff.contains("```"));
     assert_contains_all(&diff, &["- let x = 1;", "+ let x = 2;", "+ let y = 3;"]);
     assert!(diff.ends_with('\n'));
@@ -57,7 +67,7 @@ fn test_format_edit_diff_intra_line_word_highlighting() {
             }
         ]
     });
-    let diff = format_edit_diff(&args, &theme).unwrap();
+    let diff = edit_diff(&args, &theme).unwrap();
     assert!(!diff.contains("```diff") && !diff.contains("```"));
     assert_contains_all(
         &diff,
@@ -92,7 +102,7 @@ fn test_format_write_preview_expansion_and_collapse() {
         "content": long_content
     });
     let collapsed = format_write_preview(&long_args, &theme, false).unwrap();
-    assert!(collapsed.contains("... (4 more lines, 12 total)") && !collapsed.contains("line 12"));
+    assert!(collapsed.contains("... (4 more lines, 12 total, Ctrl+O to expand)") && !collapsed.contains("line 12"));
 
     let expanded = format_write_preview(&long_args, &theme, true).unwrap();
     assert!(!expanded.contains("more lines") && expanded.contains("line 12"));
@@ -111,7 +121,7 @@ fn test_format_edit_diff_with_explicit_line_number() {
             }
         ]
     });
-    let diff = format_edit_diff(&args, &theme).unwrap();
+    let diff = edit_diff(&args, &theme).unwrap();
     assert!(diff.contains(" 42 │ "));
     assert!(diff.contains(" 43 │ "));
     assert!(diff.contains("- let a = 1;"));
@@ -136,11 +146,11 @@ fn test_format_edit_diff_locates_line_from_file_on_disk() {
         ]
     });
 
-    let diff_before = format_edit_diff(&args, &theme).unwrap();
+    let diff_before = edit_diff(&args, &theme).unwrap();
     assert_contains_all(&diff_before, &["  4 │ ", "target", "replaced"]);
 
     std::fs::write(&file_path, "line 1\nline 2\nline 3\nreplaced line\nline 5\n").unwrap();
-    let diff_after = format_edit_diff(&args, &theme).unwrap();
+    let diff_after = edit_diff(&args, &theme).unwrap();
     assert_contains_all(&diff_after, &["  4 │ ", "target", "replaced"]);
 }
 
@@ -160,7 +170,7 @@ fn test_format_edit_diff_multi_edit_resolves_lines_from_single_read() {
         ]
     });
 
-    let diff = format_edit_diff(&args, &theme).unwrap();
+    let diff = edit_diff(&args, &theme).unwrap();
     assert_contains_all(&diff, &["  1 │ ", "  3 │ ", "first", "second"]);
 }
 
@@ -226,7 +236,7 @@ fn test_line_number_gutter_parity_across_read_edit_write() {
         "path": "example.rs",
         "edits": [{ "oldText": "fn old() {}", "newText": "fn test() {}", "line": 1 }]
     });
-    let edit_out = format_edit_diff(&edit_args, &theme).unwrap();
+    let edit_out = edit_diff(&edit_args, &theme).unwrap();
 
     let read_args = serde_json::json!({ "path": "example.rs" });
     let read_raw = "     1\tfn test() {}\n";
@@ -363,6 +373,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
         output: "contents".to_string(),
         output_summary: "contents".to_string(),
         duration_ms: None,
+        file_change: None,
     });
 
     let (activity_events, output) = drain_interactive_output(&mut events, &renderer.theme);
@@ -440,6 +451,7 @@ fn finished_bash_block_includes_elapsed_duration() {
         output: "test result: ok".to_string(),
         output_summary: "test result: ok".to_string(),
         duration_ms: Some(5000),
+        file_change: None,
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
@@ -448,7 +460,7 @@ fn finished_bash_block_includes_elapsed_duration() {
 }
 
 #[test]
-fn finished_read_block_omits_elapsed_duration() {
+fn finished_read_block_includes_elapsed_duration() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
@@ -459,11 +471,12 @@ fn finished_read_block_omits_elapsed_duration() {
         output: "hello world".to_string(),
         output_summary: "hello world".to_string(),
         duration_ms: Some(50),
+        file_change: None,
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("read") && output.contains("src/main.rs"));
-    assert!(!output.contains("Took"));
+    assert!(output.contains("Took 50ms"));
 }
 
 #[test]
@@ -478,6 +491,7 @@ fn finished_read_block_includes_line_range_styling() {
         output: "".to_string(),
         output_summary: "".to_string(),
         duration_ms: None,
+        file_change: None,
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
@@ -496,6 +510,7 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
         output: "serde docs".to_string(),
         output_summary: "serde docs".to_string(),
         duration_ms: None,
+        file_change: None,
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
@@ -507,35 +522,42 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
 }
 
 #[test]
-fn non_bash_tool_headers_show_dim_duration() {
+fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
     let theme = Theme::default();
     let dim = theme.dimmed;
-    let tool = |name: &str, args: serde_json::Value, duration_ms| ToolLine {
-        name: name.to_string(),
-        arguments: args,
-        is_error: false,
-        output: String::new(),
-        output_summary: String::new(),
-        duration_ms,
-    };
     let cases = [
-        tool("rg", serde_json::json!({"pattern": "x"}), Some(42)),
-        tool("read", serde_json::json!({"path": "a.rs"}), Some(1500)),
-        tool("web_fetch", serde_json::json!({"url": "https://serde.rs/"}), Some(250)),
+        ("bash", serde_json::json!({"command": "ls"}), 42, "Took 42ms"),
+        ("rg", serde_json::json!({"pattern": "x"}), 1500, "Took 1.500s"),
+        ("read", serde_json::json!({"path": "a.rs"}), 250, "Took 250ms"),
+        (
+            "web_fetch",
+            serde_json::json!({"url": "https://serde.rs/"}),
+            90,
+            "Took 90ms",
+        ),
+        (
+            "edit",
+            serde_json::json!({"path": "a.rs", "edits": [{"oldText": "a", "newText": "b", "line": 1}]}),
+            7,
+            "Took 7ms",
+        ),
     ];
-    let expected = ["42ms", "1.500s", "250ms"];
-    for (case, duration) in cases.iter().zip(expected) {
-        let header = crate::ui::render::format_tool_header(case, &theme);
+    for (name, args, duration_ms, expected) in cases {
+        let mut tool = tool_line(name, args, false, None);
+        tool.duration_ms = Some(duration_ms);
+        let mut content = String::new();
+        crate::ui::render::card::append_tool_details(&mut content, &tool, 80, false, false, &theme);
         assert!(
-            header.ends_with(&format!("{dim} \u{b7} {duration}{dim:#}")),
-            "{}: {header:?}",
-            case.name
+            content.ends_with(&format!("\n\n{dim}{expected}{dim:#}")),
+            "{name}: {content:?}"
         );
+        assert!(!format_tool_header(&tool, &theme).contains("Took"), "{name}");
     }
-    let untimed = tool("rg", serde_json::json!({"pattern": "x"}), None);
-    assert!(!crate::ui::render::format_tool_header(&untimed, &theme).contains('\u{b7}'));
-    let bash = tool("bash", serde_json::json!({"command": "ls"}), Some(42));
-    assert!(!crate::ui::render::format_tool_header(&bash, &theme).contains('\u{b7}'));
+    let mut untimed = tool_line("rg", serde_json::json!({"pattern": "x"}), false, None);
+    untimed.duration_ms = None;
+    let mut content = String::new();
+    crate::ui::render::card::append_tool_details(&mut content, &untimed, 80, false, false, &theme);
+    assert!(!content.contains("Took"));
 }
 
 #[test]
@@ -550,6 +572,7 @@ fn search_tool_displays_cleanly() {
         output: "results".to_string(),
         output_summary: "results".to_string(),
         duration_ms: None,
+        file_change: None,
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
@@ -862,4 +885,155 @@ fn renderer_notice_is_emitted_as_a_transcript_notice() {
         panic!("expected a notice transcript item");
     };
     assert!(crate::ui::block::strip_ansi(&text).contains("warning Could not switch model: boom"));
+}
+
+fn tool_line(name: &str, arguments: serde_json::Value, is_error: bool, change: Option<FileChange>) -> ToolLine {
+    ToolLine {
+        name: name.to_string(),
+        arguments,
+        is_error,
+        output: if is_error {
+            "no match".to_string()
+        } else {
+            String::new()
+        },
+        output_summary: String::new(),
+        duration_ms: None,
+        file_change: change,
+    }
+}
+
+fn numbered(prefix: &str, count: usize) -> String {
+    (1..=count)
+        .map(|n| format!("{prefix}{n}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn multi_edit_diffs_label_every_edit_including_the_first() {
+    let theme = Theme::default();
+    let two = serde_json::json!({"edits": [
+        {"oldText": "a", "newText": "b", "line": 3},
+        {"oldText": "c", "newText": "d"},
+    ]});
+    let plain = crate::ui::block::strip_ansi(&edit_diff(&two, &theme).unwrap());
+    assert!(plain.starts_with("@@ edit #1/2 \u{b7} line 3 @@\n"), "{plain}");
+    assert!(plain.contains("@@ edit #2/2 @@\n"));
+
+    let one = serde_json::json!({"edits": [{"oldText": "a", "newText": "b", "line": 3}]});
+    assert!(!crate::ui::block::strip_ansi(&edit_diff(&one, &theme).unwrap()).contains("@@"));
+}
+
+#[test]
+fn edit_diff_truncates_long_sides_until_expanded() {
+    let theme = Theme::default();
+    let args = serde_json::json!({"edits": [{"oldText": numbered("old", 12), "newText": "new"}]});
+    let request = |expanded| EditDiffRequest {
+        args: &args,
+        file_change: None,
+        expanded,
+    };
+    let collapsed = crate::ui::block::strip_ansi(&format_edit_diff(request(false), &theme).unwrap());
+    assert!(collapsed.contains("... (4 more lines, Ctrl+O to expand)") && !collapsed.contains("old12"));
+    let expanded = crate::ui::block::strip_ansi(&format_edit_diff(request(true), &theme).unwrap());
+    assert!(expanded.contains("- old12") && !expanded.contains("more lines"));
+}
+
+#[test]
+fn edit_diff_prefers_recorded_start_lines_over_the_file_on_disk() {
+    let theme = Theme::default();
+    let args = serde_json::json!({"path": "/nonexistent/never.rs", "edits": [{"oldText": "a", "newText": "b"}]});
+    let change = FileChange {
+        overwrote_existing: true,
+        edit_start_lines: vec![Some(41)],
+    };
+    let request = EditDiffRequest {
+        args: &args,
+        file_change: Some(&change),
+        expanded: false,
+    };
+    let plain = crate::ui::block::strip_ansi(&format_edit_diff(request, &theme).unwrap());
+    assert!(
+        plain.contains(" 41 \u{2502} - a") && plain.contains(" 41 \u{2502} + b"),
+        "{plain}"
+    );
+}
+
+#[test]
+fn tabs_expand_to_four_spaces_in_diffs_and_write_previews() {
+    let theme = Theme::default();
+    let args = serde_json::json!({"edits": [{"oldText": "\tx\ty", "newText": "\tz"}]});
+    let diff = crate::ui::block::strip_ansi(&edit_diff(&args, &theme).unwrap());
+    assert!(!diff.contains('\t') && diff.contains("-     x"), "{diff:?}");
+    let write = serde_json::json!({"path": "a.txt", "content": "\tindented"});
+    let preview = crate::ui::block::strip_ansi(&format_write_preview(&write, &theme, true).unwrap());
+    assert!(preview.contains("\u{2502}     indented"), "{preview:?}");
+}
+
+#[test]
+fn failed_edit_card_shows_the_attempted_change_after_the_error() {
+    let theme = Theme::default();
+    let args = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "missing", "newText": "present", "line": 7}]});
+    let failed = tool_line("edit", args.clone(), true, None);
+    let card = crate::ui::block::strip_ansi(&render_tool_transcript(&failed, 80, false, false, &theme));
+    let (error_at, attempt_at) = (card.find("no match").unwrap(), card.find("Attempted change:").unwrap());
+    assert!(
+        error_at < attempt_at && card.contains("- missing") && card.contains("+ present"),
+        "{card}"
+    );
+
+    let ok = crate::ui::block::strip_ansi(&render_tool_transcript(
+        &tool_line("edit", args, false, None),
+        80,
+        false,
+        false,
+        &theme,
+    ));
+    assert!(!ok.contains("Attempted change:"));
+}
+
+#[test]
+fn edit_and_write_cards_show_change_summary_in_the_header() {
+    let theme = Theme::default();
+    let edit = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "a\nb", "newText": "c", "line": 1}]});
+    let write = serde_json::json!({"path": "a.txt", "content": "x\ny"});
+    let new_file = FileChange {
+        overwrote_existing: false,
+        edit_start_lines: vec![],
+    };
+    let edit_header = crate::ui::block::strip_ansi(&format_tool_header(&tool_line("edit", edit, false, None), &theme));
+    let write_header = crate::ui::block::strip_ansi(&format_tool_header(
+        &tool_line("write", write, false, Some(new_file)),
+        &theme,
+    ));
+    assert!(edit_header.ends_with("\u{b7} 1 edit \u{b7} +1 -2"), "{edit_header}");
+    assert!(
+        write_header.ends_with("\u{b7} 2 lines \u{b7} 3 B \u{b7} new file"),
+        "{write_header}"
+    );
+}
+
+#[test]
+fn renderer_attaches_the_snapshot_taken_when_the_tool_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.txt");
+    std::fs::write(&file, "keep\nchange me\n").unwrap();
+    let path = file.to_str().unwrap();
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let args = serde_json::json!({"path": path, "edits": [{"oldText": "change me", "newText": "changed"}]});
+
+    renderer.start_tool_run("edit", &args);
+    std::fs::write(&file, "keep\nchanged\nextra\n").unwrap();
+    renderer.finish_tool_line(tool_line("edit", args, false, None));
+
+    let change = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event {
+            UiEvent::Transcript(TranscriptItem::Tool(line)) => line.file_change,
+            _ => None,
+        })
+        .expect("tool line should carry the pre-run snapshot");
+    assert_eq!(change.edit_start_lines, [Some(2)]);
+    assert!(renderer.pending_file_changes.lock().unwrap().is_empty());
 }

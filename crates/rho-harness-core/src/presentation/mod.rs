@@ -11,6 +11,6 @@ pub use stream::{ToolStreamPort, ToolStreamSink};
 pub use structured::{RecordingSink, StdoutNdjsonSink, StructuredOutputSink, StructuredPresenter};
 pub use summary::summarize_tool_output;
 pub use types::{
-    BlockDisplay, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout,
-    SessionStatus, ToolLine, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
+    BlockDisplay, FileChange, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse,
+    OptionLayout, SessionStatus, ToolLine, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
 };

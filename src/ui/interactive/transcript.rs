@@ -37,6 +37,7 @@ pub(crate) fn tool_fixture(name: &str, arguments: serde_json::Value, output: &st
         output: output.into(),
         output_summary: output.into(),
         duration_ms: Some(10),
+        file_change: None,
     })
 }
 

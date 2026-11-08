@@ -157,6 +157,7 @@ fn fast_tool_without_active_card_uses_standard_push_path() {
             output: "fn main() {}".into(),
             output_summary: "1 line".into(),
             duration_ms: Some(2),
+            file_change: None,
         }))
         .unwrap();
 
