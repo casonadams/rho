@@ -2,6 +2,7 @@
 
 pub mod clipboard;
 pub mod suspend;
+pub mod terminal_session;
 
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::AgentEngine;
@@ -25,11 +26,14 @@ pub async fn agent_engine_in_dir(
     base_dir: PathBuf,
     resume: Option<&str>,
 ) -> Result<AgentEngine> {
-    AgentEngineBuilder::new(config, auth_store)
+    let engine = AgentEngineBuilder::new(config, auth_store)
         .resume(resume)
         .base_dir(base_dir)
         .build()
-        .await
+        .await?;
+    // A hint for external tools must never stop a session from starting.
+    let _ = terminal_session::record_terminal_session(&engine.config.config_dir, &engine.session_manager.session_id);
+    Ok(engine)
 }
 
 pub async fn agent_engine(config: Config, auth_store: AuthStore, resume: Option<&str>) -> Result<AgentEngine> {

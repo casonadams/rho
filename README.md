@@ -35,6 +35,11 @@ When a session that has content ends, rho prints `Resume this session: rho --res
 to stderr. In `/resume` and `--resume-picker`, each row is titled by the session name (see `/name`) or its first message,
 with the age, turn count and session ID beside it.
 
+In an interactive terminal, rho also writes the current session ID to
+`~/.config/rho/terminal-sessions/<tty>` (for example `ttys004`; `$RHO_HOME` replaces
+`~/.config/rho`). The file is rewritten when you switch sessions, so a terminal multiplexer can
+resume the exact session of each pane with `rho --resume <id>`.
+
 ---
 
 ## Built-in Tools
