@@ -17,7 +17,6 @@ pub mod metrics;
 mod model;
 pub(crate) mod quota_refresh;
 pub mod runner;
-pub mod stream_rules;
 pub mod tracking;
 
 pub use compactor::CompactionStats;
