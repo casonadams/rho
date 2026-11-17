@@ -2,6 +2,7 @@
 //! (transcript caching, redraw batching), block painting, and themes.
 
 pub mod block;
+pub(crate) mod fuzzy;
 pub mod interactive;
 pub mod markdown;
 pub mod render;

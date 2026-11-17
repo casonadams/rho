@@ -1,7 +1,6 @@
 use super::editor::EditorState;
+use crate::ui::fuzzy::fuzzy_score;
 use crate::ui::interactive::{InteractionInput, InteractionOption, OptionLayout};
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalOption {
@@ -60,15 +59,6 @@ impl From<InteractionOption> for ModalOption {
             value: None,
         }
     }
-}
-
-/// Fuzzy score for `query` against `text`: `None` when the query characters
-/// do not appear in order. Higher is better; `None`/`-1` for empty queries is
-/// handled by callers.
-fn fuzzy_rank(text: &str, query: &str) -> Option<i64> {
-    SkimMatcherV2::default()
-        .fuzzy_indices(text, query)
-        .map(|(score, _)| score)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -193,9 +183,9 @@ impl ModalState {
                 .filter_map(|(idx, opt)| {
                     // Label matches outrank description matches at equal score;
                     // ties keep the original (e.g. newest-first) source order.
-                    let score = fuzzy_rank(&opt.label, &q)
+                    let score = fuzzy_score(&q, &opt.label)
                         .map(|s| s + 4)
-                        .or_else(|| opt.description.as_deref().and_then(|d| fuzzy_rank(d, &q)))?;
+                        .or_else(|| opt.description.as_deref().and_then(|d| fuzzy_score(&q, d)))?;
                     Some((score, idx, opt.clone()))
                 })
                 .collect();

@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use rho_harness_core::provider::ProviderId;
 
-use crate::repl::interactive::fuzzy::fuzzy_match;
+use crate::ui::fuzzy::fuzzy_score;
+use std::cmp::Reverse;
 
 pub const THINKING_LEVELS: &[(&str, &str)] = &[
     ("off", "No reasoning"),
@@ -197,17 +198,17 @@ fn complete_midprompt_skills(skills: &[SkillItem], prefix: &str, cursor: usize) 
     if query.contains(char::is_whitespace) {
         return None;
     }
-    let mut scored: Vec<(i32, &SkillItem)> = skills
+    let mut scored: Vec<(i64, &SkillItem)> = skills
         .iter()
         .filter_map(|s| {
             if query.is_empty() {
                 Some((0, s))
             } else {
-                fuzzy_match(query, &s.name).map(|score| (score, s))
+                fuzzy_score(query, &s.name).map(|score| (score, s))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, s)| (*score, s.name.clone()));
+    scored.sort_by_key(|(score, s)| (Reverse(*score), s.name.clone()));
 
     Some(
         scored
@@ -248,15 +249,15 @@ fn complete_slash_commands(commands: &[CommandItem], prefix: &str, cursor: usize
         return Vec::new();
     }
     let query = prefix.trim_start_matches('/');
-    let mut scored: Vec<(i32, &CommandItem)> = commands
+    let mut scored: Vec<(i64, &CommandItem)> = commands
         .iter()
         .filter_map(|cmd| {
             let cmd_name = cmd.name.trim_start_matches('/');
-            fuzzy_match(query, cmd_name).map(|score| (score, cmd))
+            fuzzy_score(query, cmd_name).map(|score| (score, cmd))
         })
         .collect();
 
-    scored.sort_by_key(|(score, cmd)| (*score, cmd.name.clone()));
+    scored.sort_by_key(|(score, cmd)| (Reverse(*score), cmd.name.clone()));
 
     scored
         .into_iter()
@@ -315,17 +316,17 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
 }
 
 fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &SkillItem)> = skills
+    let mut scored: Vec<(i64, &SkillItem)> = skills
         .iter()
         .filter_map(|s| {
             if argument.is_empty() {
                 Some((0, s))
             } else {
-                fuzzy_match(argument, &s.name).map(|score| (score, s))
+                fuzzy_score(argument, &s.name).map(|score| (score, s))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, s)| (*score, s.name.clone()));
+    scored.sort_by_key(|(score, s)| (Reverse(*score), s.name.clone()));
 
     scored
         .into_iter()
@@ -338,20 +339,20 @@ fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<C
 }
 
 fn complete_models(models: &[ModelItem], argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &ModelItem)> = models
+    let mut scored: Vec<(i64, &ModelItem)> = models
         .iter()
         .filter_map(|m| {
             if argument.is_empty() {
                 Some((0, m))
             } else {
                 let query_target = format!("{}:{}", m.provider, m.id);
-                fuzzy_match(argument, &m.id)
-                    .or_else(|| fuzzy_match(argument, &query_target))
+                fuzzy_score(argument, &m.id)
+                    .or_else(|| fuzzy_score(argument, &query_target))
                     .map(|score| (score, m))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, m)| (*score, m.id.clone()));
+    scored.sort_by_key(|(score, m)| (Reverse(*score), m.id.clone()));
 
     scored
         .into_iter()
@@ -364,17 +365,17 @@ fn complete_models(models: &[ModelItem], argument: &str, cursor: usize) -> Vec<C
 }
 
 fn complete_provider(providers: &[ProviderItem], target: TargetArgs<'_>) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &ProviderItem)> = providers
+    let mut scored: Vec<(i64, &ProviderItem)> = providers
         .iter()
         .filter_map(|p| {
             if target.argument.is_empty() {
                 Some((0, p))
             } else {
-                fuzzy_match(target.argument, &p.name).map(|score| (score, p))
+                fuzzy_score(target.argument, &p.name).map(|score| (score, p))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, p)| (*score, p.name.clone()));
+    scored.sort_by_key(|(score, p)| (Reverse(*score), p.name.clone()));
 
     scored
         .into_iter()
@@ -387,17 +388,17 @@ fn complete_provider(providers: &[ProviderItem], target: TargetArgs<'_>) -> Vec<
 }
 
 fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &(&str, &str))> = THINKING_LEVELS
+    let mut scored: Vec<(i64, &(&str, &str))> = THINKING_LEVELS
         .iter()
         .filter_map(|lvl| {
             if argument.is_empty() {
                 Some((0, lvl))
             } else {
-                fuzzy_match(argument, lvl.0).map(|score| (score, lvl))
+                fuzzy_score(argument, lvl.0).map(|score| (score, lvl))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, lvl)| (*score, lvl.0));
+    scored.sort_by_key(|(score, lvl)| (Reverse(*score), lvl.0));
 
     scored
         .into_iter()
