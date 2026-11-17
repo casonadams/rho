@@ -148,3 +148,20 @@ fn path_values_carry_absolute_then_cwd_relative() {
         vec!["/ws/src/a.rs".to_string(), "src/a.rs".to_string()]
     );
 }
+
+#[test]
+fn credential_store_follows_rust_ai_home_config_dir() {
+    let _env = super::ENV_LOCK.blocking_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let auth = dir.path().join("auth.json");
+    std::fs::write(&auth, "{}").unwrap();
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+        std::env::set_var("RUST_AI_HOME", dir.path());
+    }
+    let protected = is_credential_path(&auth.display().to_string(), None);
+    unsafe {
+        std::env::remove_var("RUST_AI_HOME");
+    }
+    assert!(protected);
+}

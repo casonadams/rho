@@ -1,14 +1,16 @@
 use std::path::PathBuf;
 
+pub fn config_dir() -> Option<PathBuf> {
+    for var in ["RHO_HOME", "RUST_AI_HOME"] {
+        if let Ok(custom) = std::env::var(var) {
+            return Some(PathBuf::from(custom));
+        }
+    }
+    home_dir().map(|home| home.join(".config").join("rho"))
+}
+
 pub fn default_config_dir() -> PathBuf {
-    if let Ok(custom) = std::env::var("RHO_HOME") {
-        return PathBuf::from(custom);
-    }
-    if let Ok(custom) = std::env::var("RUST_AI_HOME") {
-        return PathBuf::from(custom);
-    }
-    let home = dirs_fallback();
-    home.join(".config").join("rho")
+    config_dir().unwrap_or_else(|| PathBuf::from(".").join(".config").join("rho"))
 }
 
 pub fn home_dir() -> Option<PathBuf> {

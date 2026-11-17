@@ -5,14 +5,7 @@ use std::path::{Path, PathBuf};
 
 const PROTECTED_CONFIG_FILES: [&str; 3] = ["permission.toml", "config.toml", "auth.json"];
 
-pub fn config_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("RHO_HOME") {
-        return Some(PathBuf::from(dir));
-    }
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".config/rho"))
-}
+pub use rho_harness_core::config::config_dir;
 
 pub fn config_path() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("permission.toml"))

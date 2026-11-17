@@ -16,7 +16,8 @@ mod tests;
 pub use types::{
     Config, DEFAULT_MAX_TURNS, McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig,
     McpTransportKind, ModelsConfig, PermissionConfig, ProviderConfig, ToolsConfig, UiConfig, WebFetchConfig,
-    WebSearchConfig, WebToolsConfig, default_config_dir, default_idle_timeout_seconds, dirs_fallback, home_dir,
+    WebSearchConfig, WebToolsConfig, config_dir, default_config_dir, default_idle_timeout_seconds, dirs_fallback,
+    home_dir,
 };
 
 use crate::error::{AppError, Result};
