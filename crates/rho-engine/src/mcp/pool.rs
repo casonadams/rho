@@ -1,4 +1,5 @@
 use super::client::McpClient;
+use super::oauth::{McpOAuth, McpTokenStore};
 use super::process::McpProcess;
 use super::transport::McpTransport;
 use rho_harness_core::config::{McpLifecycleMode, McpServerConfig};
@@ -29,6 +30,7 @@ pub struct McpServerPool {
     servers: Arc<RwLock<BTreeMap<String, ServerRegistration>>>,
     connection_lock: Arc<Mutex<()>>,
     default_idle_timeout: Duration,
+    token_store: Option<McpTokenStore>,
 }
 
 impl McpServerPool {
@@ -37,7 +39,14 @@ impl McpServerPool {
             servers: Arc::new(RwLock::new(BTreeMap::new())),
             connection_lock: Arc::new(Mutex::new(())),
             default_idle_timeout: Duration::from_secs(default_idle_timeout_secs),
+            token_store: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_token_store(mut self, store: McpTokenStore) -> Self {
+        self.token_store = Some(store);
+        self
     }
 
     pub async fn register(&self, name: impl Into<String>, config: McpServerConfig, working_dir: impl Into<PathBuf>) {
@@ -90,7 +99,7 @@ impl McpServerPool {
             (reg.config.clone(), reg.working_dir.clone())
         };
 
-        let client = connect_client(name, &config, &working_dir).await?;
+        let client = connect_client(name, &config, &working_dir, self.token_store.as_ref()).await?;
         let in_flight = Arc::new(AtomicUsize::new(1));
         let is_stdio = config.url.is_none();
 
@@ -189,16 +198,36 @@ fn should_reap_registration(reg: &ServerRegistration, default_timeout: Duration,
     now.duration_since(inst.last_activity) >= timeout
 }
 
-async fn connect_client(name: &str, config: &McpServerConfig, working_dir: &Path) -> Result<Arc<McpClient>> {
+pub fn build_transport(
+    name: &str,
+    config: &McpServerConfig,
+    working_dir: &Path,
+    token_store: Option<&McpTokenStore>,
+) -> Result<Arc<McpTransport>> {
     let timeout = config.timeout_seconds.map(Duration::from_secs);
-    let transport = if let Some(url) = &config.url {
-        let kind = config.resolved_transport();
-        McpTransport::new_http(url, kind, config.headers.clone(), timeout)
-    } else {
+    let Some(url) = &config.url else {
         let (stdin, stdout, handle) = McpProcess::spawn(config, working_dir)?;
-        McpTransport::new_stdio(stdin, stdout, handle, timeout)
+        return Ok(McpTransport::new_stdio(stdin, stdout, handle, timeout));
     };
+    let oauth = token_store
+        .filter(|_| config.uses_oauth())
+        .map(|store| Arc::new(McpOAuth::new(name, store.clone())));
+    Ok(McpTransport::new_http(
+        url,
+        config.resolved_transport(),
+        config.headers.clone(),
+        timeout,
+        oauth,
+    ))
+}
 
+async fn connect_client(
+    name: &str,
+    config: &McpServerConfig,
+    working_dir: &Path,
+    token_store: Option<&McpTokenStore>,
+) -> Result<Arc<McpClient>> {
+    let transport = build_transport(name, config, working_dir, token_store)?;
     let client = Arc::new(McpClient::new(name, transport));
     client.initialize().await?;
     Ok(client)

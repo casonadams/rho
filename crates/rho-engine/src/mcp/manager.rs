@@ -228,7 +228,8 @@ pub async fn load_mcp_tools_with_activator(
         return (Vec::new(), super::search::DynamicToolActivator::new());
     }
 
-    let pool = McpServerPool::new(config.mcp.idle_timeout_seconds);
+    let pool = McpServerPool::new(config.mcp.idle_timeout_seconds)
+        .with_token_store(super::oauth::McpTokenStore::in_config_dir(&config.config_dir));
     pool.clone().spawn_reaper_task(Duration::from_secs(30));
 
     for (name, cfg) in &config.mcp.servers {

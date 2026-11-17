@@ -18,6 +18,7 @@ const HELP_ENTRIES: &[(&str, &str)] = &[
     ("/rewind", "Rewind context to a specific prior turn"),
     ("/clear", "Start a new session; preserve history (alias: /new)"),
     ("/mcp", "List configured MCP servers"),
+    ("/mcp login <server>", "Sign in to an OAuth MCP server"),
     ("/login", "Add API-key or subscription auth"),
     ("/logout", "Remove stored provider auth"),
     ("/skill", "List or inspect skills"),

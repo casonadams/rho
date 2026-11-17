@@ -87,9 +87,56 @@ rho mcp add db "https://mcp.db.example.com/mcp"
 
 # Remove an MCP server
 rho mcp remove db
+
+# Sign in to (or out of) a remote server that uses OAuth
+rho mcp login linear
+rho mcp logout linear
 ```
 
-Or view and test active servers interactively inside the REPL with `/mcp`.
+Or view and test active servers interactively inside the REPL with `/mcp`, and
+sign in with `/mcp login <server>` / `/mcp logout <server>`.
+
+### Remote Servers with OAuth
+
+Remote (URL) servers that require OAuth 2.1, per the MCP authorization spec,
+work without any token in your config:
+
+```json
+{
+  "mcpServers": {
+    "linear": { "url": "https://mcp.linear.app/mcp" }
+  }
+}
+```
+
+Run `/mcp login linear` (or `rho mcp login linear`). rho reads the server's
+`401` challenge and protected resource metadata, discovers its authorization
+server, registers itself with dynamic client registration, and opens the
+browser for a PKCE sign-in that names the server as the token's `resource`.
+Tokens are stored in `~/.config/rho/mcp-auth.json` (mode `0600`), sent as
+`Authorization: Bearer` on every request, refreshed before they expire, and
+refreshed once and retried if the server rejects one. When a server needs a
+sign-in, the error and the `/mcp` list say so.
+
+If the provider does not support dynamic registration, register an OAuth app
+with it and add an `oauth` block (`redirectPort` must match the redirect URI
+you registered, `http://localhost:<port>/callback`):
+
+```json
+"github": {
+  "url": "https://api.githubcopilot.com/mcp/",
+  "oauth": {
+    "clientId": "Iv1.abc123",
+    "clientSecret": "${GITHUB_MCP_CLIENT_SECRET}",
+    "scopes": ["repo", "read:org"],
+    "redirectPort": 8765
+  }
+}
+```
+
+`scopes` overrides the scopes the server asks for. A server with a static
+`Authorization` header (like `remote_jira` above) keeps using that header and
+never uses OAuth.
 
 ### Deferred Tool Search
 

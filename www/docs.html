@@ -224,6 +224,7 @@ rho mcp list
 rho mcp test filesystem
 rho mcp add db "https://mcp.db.example.com/mcp"
 rho mcp remove db
+rho mcp login linear
 
 # Self-update to latest release
 rho update</code></pre>
@@ -532,7 +533,7 @@ rho config models.guard none</code></pre>
             </tr>
             <tr>
               <td><code>/mcp</code></td>
-              <td>Open the interactive Model Context Protocol modal and toggle external tool servers</td>
+              <td>Open the interactive Model Context Protocol modal and toggle external tool servers; <code>/mcp login &lt;server&gt;</code> and <code>/mcp logout &lt;server&gt;</code> manage OAuth sign-in</td>
             </tr>
             <tr>
               <td><code>/compact</code></td>
@@ -777,7 +778,7 @@ fi</code></pre>
 
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
       <p>
-        MCP servers are tool providers configured via standard JSON in <code>~/.config/mcp/mcp.json</code> or <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes (with lazy on-demand startup and automatic 10-minute idle process reaping) and remote <code>streamable-http</code> (with static request headers and SSE streaming). All exposed tools are automatically namespaced:
+        MCP servers are tool providers configured via standard JSON in <code>~/.config/mcp/mcp.json</code> or <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes (with lazy on-demand startup and automatic 10-minute idle process reaping) and remote <code>streamable-http</code> (with static request headers or OAuth 2.1 sign-in, and SSE streaming). All exposed tools are automatically namespaced:
       </p>
 
       <div class="code-block-wrapper">
@@ -788,10 +789,16 @@ fi</code></pre>
 rho mcp list
 rho mcp test filesystem
 rho mcp add db "https://mcp.db.example.com/mcp"
+rho mcp login linear     # OAuth sign-in for a remote server
 
 # In the interactive REPL:
-/mcp</code></pre>
+/mcp
+/mcp login linear</code></pre>
       </div>
+
+      <p>
+        Remote servers that require OAuth need no token in the config. <code>/mcp login &lt;server&gt;</code> discovers the server's authorization server from its <code>401</code> challenge and protected resource metadata, registers rho dynamically, and runs a browser PKCE sign-in. Tokens live in <code>~/.config/rho/mcp-auth.json</code> (mode <code>0600</code>) and are refreshed automatically. For providers without dynamic registration, add <code>"oauth": { "clientId": "...", "redirectPort": 8765 }</code> to the server entry.
+      </p>
 
       <div class="code-block-wrapper">
         <div class="code-block-header">

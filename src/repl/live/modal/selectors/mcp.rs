@@ -5,7 +5,11 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
-fn format_server_option(name: &str, server: &rho_harness_core::config::McpServerConfig) -> ModalOption {
+fn format_server_option(
+    name: &str,
+    server: &rho_harness_core::config::McpServerConfig,
+    tokens: &rho_engine::mcp::McpTokenStore,
+) -> ModalOption {
     let transport_str = match server.resolved_transport() {
         rho_harness_core::config::McpTransportKind::Stdio => "stdio",
         rho_harness_core::config::McpTransportKind::StreamableHttp => "http",
@@ -19,15 +23,21 @@ fn format_server_option(name: &str, server: &rho_harness_core::config::McpServer
         .unwrap_or("<unspecified>");
 
     let active_mark = if server.enabled { "  ✓" } else { "  (off)" };
-    let desc = format!("[{transport_str}] {target}{active_mark}");
+    let auth = match (server.uses_oauth(), tokens.is_signed_in(name)) {
+        (false, _) => String::new(),
+        (true, true) => " · signed in".to_string(),
+        (true, false) => format!(" · sign in: /mcp login {name}"),
+    };
+    let desc = format!("[{transport_str}] {target}{auth}{active_mark}");
 
     ModalOption::new(format!("{name:16}"), Some(desc))
 }
 
 fn build_mcp_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
     let mut options = Vec::new();
+    let tokens = rho_engine::mcp::McpTokenStore::in_config_dir(&session.config.config_dir);
     for (name, server) in &session.config.mcp.servers {
-        options.push(format_server_option(name, server));
+        options.push(format_server_option(name, server, &tokens));
     }
 
     if options.is_empty() {

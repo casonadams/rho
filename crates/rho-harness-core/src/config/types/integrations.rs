@@ -116,6 +116,20 @@ pub struct McpServerConfig {
     pub idle_timeout_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub search_keywords: BTreeMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<McpOAuthConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct McpOAuthConfig {
+    #[serde(default, alias = "clientId", skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(default, alias = "clientSecret", skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    #[serde(default, alias = "redirectPort", skip_serializing_if = "Option::is_none")]
+    pub redirect_port: Option<u16>,
 }
 
 impl McpServerConfig {
@@ -131,6 +145,10 @@ impl McpServerConfig {
 
     pub fn is_remote(&self) -> bool {
         self.url.is_some()
+    }
+
+    pub fn uses_oauth(&self) -> bool {
+        self.url.is_some() && !self.headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"))
     }
 
     pub fn resolved_transport(&self) -> McpTransportKind {

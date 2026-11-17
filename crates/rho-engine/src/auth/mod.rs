@@ -8,7 +8,7 @@ pub mod pkce;
 pub mod resolver;
 pub mod store;
 pub mod token;
-mod token_request;
+pub(crate) mod token_request;
 
 pub use loopback::{CallbackParams, LoopbackServer};
 pub use oauth::{perform_oauth_login, refresh_oauth_token};

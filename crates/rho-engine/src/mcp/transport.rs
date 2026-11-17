@@ -4,6 +4,7 @@ pub mod stdio;
 pub use http::HttpTransport;
 pub use stdio::StdioTransport;
 
+use super::oauth::McpOAuth;
 use super::process::McpChildHandle;
 use rho_harness_core::config::McpTransportKind;
 use rho_harness_core::error::Result;
@@ -39,9 +40,10 @@ impl McpTransport {
         kind: McpTransportKind,
         headers: BTreeMap<String, String>,
         timeout: Option<Duration>,
+        oauth: Option<Arc<McpOAuth>>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            inner: TransportKind::Http(HttpTransport::new(url, kind, headers, timeout)),
+            inner: TransportKind::Http(HttpTransport::new(url, kind, headers, timeout, oauth)),
         })
     }
 

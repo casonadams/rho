@@ -38,14 +38,24 @@ async fn handle_async_slash_commands(
         "thinking" | "think" => handle_thinking(ctx, parts),
         "model" => handle_model(ctx, parts),
         "skill" | "skills" => handle_skill(ctx, parts).await,
-        "mcp" => {
-            if ctx.renderer.has_interactive_ui() {
-                Ok(Some(CommandResult::OpenMcpSelector))
-            } else {
+        "mcp" => match (parts.get(1).copied(), parts.get(2)) {
+            (Some("login"), Some(server)) => Ok(Some(CommandResult::Login {
+                provider: Some(format!("mcp:{server}")),
+            })),
+            (Some("logout"), Some(server)) => Ok(Some(CommandResult::Logout {
+                provider: Some(format!("mcp:{server}")),
+            })),
+            (Some("login" | "logout"), None) => {
+                ctx.renderer
+                    .print_notice("  Usage: /mcp login <server> or /mcp logout <server>\n");
+                Ok(Some(CommandResult::Continue))
+            }
+            _ if ctx.renderer.has_interactive_ui() => Ok(Some(CommandResult::OpenMcpSelector)),
+            _ => {
                 ctx.renderer.print_notice("  Configure MCP in ~/.config/rho/mcp.json\n");
                 Ok(Some(CommandResult::Continue))
             }
-        }
+        },
         "login" => Ok(Some(handle_login_cmd(parts))),
         "logout" => Ok(Some(CommandResult::Logout {
             provider: parts.get(1).map(|v| (*v).to_string()),

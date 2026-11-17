@@ -1,3 +1,4 @@
+use super::super::oauth::{McpOAuth, login_hint};
 use super::super::types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use crate::http::CLIENT;
 use crate::provider::sse::SseLineDecoder;
@@ -21,6 +22,12 @@ pub struct HttpTransport {
     timeout: Duration,
     session_id: Arc<RwLock<Option<String>>>,
     next_id: AtomicI64,
+    oauth: Option<Arc<McpOAuth>>,
+}
+
+enum Reply {
+    Value(Value),
+    Unauthorized(String),
 }
 
 fn try_parse_target_response(data_lines: &mut Vec<String>, target_id: i64) -> Option<Result<Value>> {
@@ -71,6 +78,7 @@ impl HttpTransport {
         kind: McpTransportKind,
         headers: BTreeMap<String, String>,
         timeout: Option<Duration>,
+        oauth: Option<Arc<McpOAuth>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             url: url.into(),
@@ -79,6 +87,7 @@ impl HttpTransport {
             timeout: timeout.unwrap_or(DEFAULT_HTTP_TIMEOUT),
             session_id: Arc::new(RwLock::new(None)),
             next_id: AtomicI64::new(1),
+            oauth,
         })
     }
 
@@ -90,7 +99,7 @@ impl HttpTransport {
         self.kind
     }
 
-    async fn build_request_headers(&self) -> reqwest::header::HeaderMap {
+    async fn build_request_headers(&self, bearer: Option<&str>) -> reqwest::header::HeaderMap {
         let mut map = reqwest::header::HeaderMap::new();
         map.insert(
             reqwest::header::CONTENT_TYPE,
@@ -112,6 +121,12 @@ impl HttpTransport {
             ) {
                 map.insert(name, val);
             }
+        }
+
+        if let Some(token) = bearer
+            && let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+        {
+            map.insert(reqwest::header::AUTHORIZATION, val);
         }
 
         if let Some(session_id) = self.session_id.read().await.as_deref()
@@ -149,64 +164,98 @@ impl HttpTransport {
         ))
     }
 
+    async fn bearer(&self) -> Result<Option<String>> {
+        match &self.oauth {
+            Some(oauth) => oauth.bearer().await,
+            None => Ok(None),
+        }
+    }
+
+    fn unauthorized(&self, www_auth: &str) -> AppError {
+        match &self.oauth {
+            Some(oauth) => AppError::Auth(format!(
+                "MCP server '{}' requires authorization. {}",
+                oauth.server(),
+                login_hint(oauth.server())
+            )),
+            None => AppError::Auth(format!("Unauthorized: {www_auth}")),
+        }
+    }
+
+    async fn send(&self, method: &str, id: i64, payload: &JsonRpcRequest, bearer: Option<&str>) -> Result<Reply> {
+        let res = CLIENT
+            .post(&self.url)
+            .headers(self.build_request_headers(bearer).await)
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| AppError::Mcp(format!("HTTP request to '{}' failed: {e}", self.url)))?;
+
+        let status = res.status();
+        let res_headers = res.headers().clone();
+        self.record_session_id(&res_headers).await;
+
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            let www_auth = res_headers
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            return Ok(Reply::Unauthorized(www_auth.to_string()));
+        }
+
+        if !status.is_success() {
+            let body = res.text().await.unwrap_or_default();
+            return Err(AppError::Mcp(format!(
+                "HTTP error {status} from '{}': {body}",
+                self.url
+            )));
+        }
+
+        let content_type = res_headers
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        if content_type.contains("text/event-stream") {
+            return self.parse_sse_response(res, id).await.map(Reply::Value);
+        }
+        let json: JsonRpcResponse = res
+            .json()
+            .await
+            .map_err(|e| AppError::Mcp(format!("Failed to parse JSON-RPC response: {e}")))?;
+        if let Some(err) = json.error {
+            return Err(AppError::Mcp(format!(
+                "MCP error from {method}: {} (code {})",
+                err.message, err.code
+            )));
+        }
+        Ok(Reply::Value(json.result.unwrap_or(Value::Null)))
+    }
+
+    async fn send_authorized(&self, method: &str, id: i64, payload: &JsonRpcRequest) -> Result<Value> {
+        let token = self.bearer().await?;
+        let www_auth = match self.send(method, id, payload, token.as_deref()).await? {
+            Reply::Value(value) => return Ok(value),
+            Reply::Unauthorized(www_auth) => www_auth,
+        };
+        let retry = match (&self.oauth, token) {
+            (Some(oauth), Some(rejected)) => oauth.refresh_after_rejection(&rejected).await?,
+            _ => None,
+        };
+        let Some(fresh) = retry else {
+            return Err(self.unauthorized(&www_auth));
+        };
+        match self.send(method, id, payload, Some(&fresh)).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Unauthorized(www_auth) => Err(self.unauthorized(&www_auth)),
+        }
+    }
+
     pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let req_payload = JsonRpcRequest::new(id, method, params);
-        let headers = self.build_request_headers().await;
 
-        let post_fut = async {
-            let res = CLIENT
-                .post(&self.url)
-                .headers(headers)
-                .json(&req_payload)
-                .send()
-                .await
-                .map_err(|e| AppError::Mcp(format!("HTTP request to '{}' failed: {e}", self.url)))?;
-
-            let status = res.status();
-            let res_headers = res.headers().clone();
-            self.record_session_id(&res_headers).await;
-
-            if status == reqwest::StatusCode::UNAUTHORIZED {
-                let www_auth = res_headers
-                    .get(reqwest::header::WWW_AUTHENTICATE)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                return Err(AppError::Auth(format!("Unauthorized: {www_auth}")));
-            }
-
-            if !status.is_success() {
-                let body = res.text().await.unwrap_or_default();
-                return Err(AppError::Mcp(format!(
-                    "HTTP error {status} from '{}': {body}",
-                    self.url
-                )));
-            }
-
-            let content_type = res_headers
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-
-            if content_type.contains("text/event-stream") {
-                self.parse_sse_response(res, id).await
-            } else {
-                let json: JsonRpcResponse = res
-                    .json()
-                    .await
-                    .map_err(|e| AppError::Mcp(format!("Failed to parse JSON-RPC response: {e}")))?;
-
-                if let Some(err) = json.error {
-                    return Err(AppError::Mcp(format!(
-                        "MCP error from {method}: {} (code {})",
-                        err.message, err.code
-                    )));
-                }
-                Ok(json.result.unwrap_or(Value::Null))
-            }
-        };
-
-        match tokio::time::timeout(self.timeout, post_fut).await {
+        match tokio::time::timeout(self.timeout, self.send_authorized(method, id, &req_payload)).await {
             Ok(res) => res,
             Err(_) => {
                 let _ = self
@@ -222,7 +271,8 @@ impl HttpTransport {
 
     pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
         let notif_payload = JsonRpcNotification::new(method, params);
-        let headers = self.build_request_headers().await;
+        let bearer = self.bearer().await.ok().flatten();
+        let headers = self.build_request_headers(bearer.as_deref()).await;
 
         let _ = CLIENT
             .post(&self.url)
@@ -263,7 +313,7 @@ mod tests {
             socket.write_all(http_resp.as_bytes()).await.unwrap();
         });
 
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None);
+        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
         let res = transport.request("tools/list", None).await.unwrap();
         assert_eq!(res, serde_json::json!({ "tools": [] }));
     }
@@ -288,7 +338,7 @@ mod tests {
             socket.write_all(http_resp.as_bytes()).await.unwrap();
         });
 
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None);
+        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
         let res = transport.request("ping", None).await.unwrap();
         assert_eq!(res, serde_json::json!({ "status": "streaming_ok" }));
     }
@@ -299,6 +349,7 @@ mod tests {
             "http://example.com/mcp",
             McpTransportKind::StreamableHttp,
             BTreeMap::new(),
+            None,
             None,
         );
         assert_eq!(transport.kind(), McpTransportKind::StreamableHttp);
@@ -335,7 +386,7 @@ mod tests {
 
         let mut headers = BTreeMap::new();
         headers.insert("X-Custom-Key".to_string(), "custom-val".to_string());
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, headers, None);
+        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, headers, None, None);
         let res1 = transport.request("init", None).await.unwrap();
         assert_eq!(res1, serde_json::json!(true));
         let res2 = transport.request("next", None).await.unwrap();
@@ -376,7 +427,7 @@ mod tests {
             socket3.write_all(http_resp3.as_bytes()).await.unwrap();
         });
 
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None);
+        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
         let auth_err = transport.request("ping", None).await.unwrap_err();
         assert!(auth_err.to_string().contains("Unauthorized"));
 

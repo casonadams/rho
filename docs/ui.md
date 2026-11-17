@@ -100,6 +100,7 @@ autocomplete):
 | `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                           |
 | `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                            |
 | `/mcp`                      | Open the interactive Model Context Protocol modal (toggle servers, inspect status).                       |
+| `/mcp login\|logout <name>` | Sign in to or out of a remote MCP server that uses OAuth (see [MCP](mcp-and-hooks.md#remote-servers-with-oauth)). |
 | `/login [provider]`         | Authenticate with an AI provider (OAuth PKCE or API key).                                                 |
 | `/logout [provider]`        | Remove stored credentials for a provider.                                                                 |
 | `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                          |

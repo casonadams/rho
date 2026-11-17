@@ -59,4 +59,14 @@ pub enum McpCommands {
         /// Server name
         name: String,
     },
+    /// Sign in to a remote MCP server that requires OAuth
+    Login {
+        /// Server name
+        name: String,
+    },
+    /// Forget the stored OAuth tokens for an MCP server
+    Logout {
+        /// Server name
+        name: String,
+    },
 }

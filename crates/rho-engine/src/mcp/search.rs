@@ -435,6 +435,7 @@ mod tests {
             rho_harness_core::config::McpTransportKind::StreamableHttp,
             std::collections::BTreeMap::new(),
             None,
+            None,
         );
         Arc::new(McpClient::new(name, transport))
     }

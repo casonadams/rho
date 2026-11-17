@@ -9,8 +9,8 @@ pub use app::{Config, DEFAULT_MAX_TURNS, ToolsConfig, WebFetchConfig, WebSearchC
 pub use file::ModelsConfig;
 pub(crate) use file::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
 pub use integrations::{
-    McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig, McpTransportKind, PermissionConfig,
-    ProviderConfig, default_idle_timeout_seconds,
+    McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind,
+    PermissionConfig, ProviderConfig, default_idle_timeout_seconds,
 };
 pub(crate) use key::ConfigKey;
 pub use paths::{config_dir, default_config_dir, dirs_fallback, home_dir};

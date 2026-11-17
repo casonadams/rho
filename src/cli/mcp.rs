@@ -1,6 +1,8 @@
 use crate::config::Config;
 use crate::config::cli::McpCommands;
-use rho_engine::mcp::{McpClient, McpProcess, McpTransport};
+use rho_engine::mcp::oauth::{LoginRequest, McpTokenStore};
+use rho_engine::mcp::pool::build_transport;
+use rho_engine::mcp::{McpClient, McpTransport};
 use rho_harness_core::config::{McpExposureMode, McpServerConfig, McpTransportKind};
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,7 +16,46 @@ pub async fn handle_mcp(action: Option<McpCommands>, config: &Config) -> Result<
         McpCommands::Test { name } => test_server(&name, config).await,
         McpCommands::Add { name, target, args } => add_server(&name, &target, &args, config),
         McpCommands::Remove { name } => remove_server(&name, config),
+        McpCommands::Login { name } => Ok(login_mcp_server(&name, config).await?),
+        McpCommands::Logout { name } => Ok(logout_mcp_server(&name, config)?),
     }
+}
+
+fn token_store(config: &Config) -> McpTokenStore {
+    McpTokenStore::in_config_dir(&config.config_dir)
+}
+
+pub async fn login_mcp_server(name: &str, config: &Config) -> crate::error::Result<()> {
+    let server = config
+        .mcp
+        .servers
+        .get(name)
+        .ok_or_else(|| crate::error::AppError::Config(format!("MCP server '{name}' is not configured")))?;
+    let url = server.url.as_deref().ok_or_else(|| {
+        crate::error::AppError::Config(format!(
+            "MCP server '{name}' runs locally over stdio; only remote (URL) servers use OAuth"
+        ))
+    })?;
+    if !server.uses_oauth() {
+        println!("Note: '{name}' sets a static Authorization header, which rho sends instead of OAuth tokens.");
+    }
+    let request = LoginRequest {
+        server: name,
+        url,
+        config: server.oauth.as_ref(),
+    };
+    rho_engine::mcp::oauth::login(request, &token_store(config), &crate::cli::auth::TerminalOAuthCallbacks).await?;
+    println!("Signed in to MCP server '{name}'.");
+    Ok(())
+}
+
+pub fn logout_mcp_server(name: &str, config: &Config) -> crate::error::Result<()> {
+    if token_store(config).forget(name)? {
+        println!("Removed stored OAuth tokens for MCP server '{name}'.");
+    } else {
+        println!("No stored OAuth tokens for MCP server '{name}'.");
+    }
+    Ok(())
 }
 
 fn list_servers(config: &Config) {
@@ -25,7 +66,7 @@ fn list_servers(config: &Config) {
     }
 
     for (name, server) in &config.mcp.servers {
-        print_server_entry(name, server);
+        print_server_entry(name, server, &token_store(config));
     }
 }
 
@@ -45,7 +86,7 @@ fn format_server_mode(server: &McpServerConfig) -> &'static str {
     }
 }
 
-fn print_server_entry(name: &str, server: &McpServerConfig) {
+fn print_server_entry(name: &str, server: &McpServerConfig, tokens: &McpTokenStore) {
     let transport = format_server_transport(server);
     let mode = format_server_mode(server);
     let target = server
@@ -56,6 +97,14 @@ fn print_server_entry(name: &str, server: &McpServerConfig) {
     let status = if server.enabled { "enabled" } else { "disabled" };
 
     println!("  - {name:16} [{transport}] mode={mode} ({status}) target='{target}'");
+    if server.uses_oauth() {
+        let auth = if tokens.is_signed_in(name) {
+            "signed in"
+        } else {
+            "not signed in"
+        };
+        println!("      oauth: {auth}");
+    }
     if !server.args.is_empty() {
         println!("      args: {:?}", server.args);
     }
@@ -67,16 +116,18 @@ fn print_server_entry(name: &str, server: &McpServerConfig) {
     }
 }
 
-fn build_mcp_transport(server_cfg: &McpServerConfig) -> Result<Arc<McpTransport>, Box<dyn std::error::Error>> {
-    let timeout = server_cfg.timeout_seconds.map(std::time::Duration::from_secs);
-    if let Some(url) = &server_cfg.url {
-        let kind = server_cfg.resolved_transport();
-        Ok(McpTransport::new_http(url, kind, server_cfg.headers.clone(), timeout))
-    } else {
-        let working_dir = std::env::current_dir()?;
-        let (stdin, stdout, handle) = McpProcess::spawn(server_cfg, &working_dir)?;
-        Ok(McpTransport::new_stdio(stdin, stdout, handle, timeout))
-    }
+fn build_mcp_transport(
+    name: &str,
+    server_cfg: &McpServerConfig,
+    config: &Config,
+) -> Result<Arc<McpTransport>, Box<dyn std::error::Error>> {
+    let working_dir = std::env::current_dir()?;
+    Ok(build_transport(
+        name,
+        server_cfg,
+        &working_dir,
+        Some(&token_store(config)),
+    )?)
 }
 
 async fn probe_client_features(client: &McpClient) {
@@ -129,7 +180,7 @@ async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::err
 
     println!("Testing MCP server '{name}'...");
     let start = Instant::now();
-    let transport = build_mcp_transport(server_cfg)?;
+    let transport = build_mcp_transport(name, server_cfg, config)?;
     let client = Arc::new(McpClient::new(name, transport));
     let init_res = client.initialize().await?;
     println!("  ✓ Initialized in {}ms", start.elapsed().as_millis());
@@ -240,15 +291,37 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_mcp_transport_http_and_stdio() {
+        let config = Config::default();
         let http_cfg = McpServerConfig {
             url: Some("https://example.com/mcp".into()),
             timeout_seconds: Some(5),
             ..Default::default()
         };
-        assert!(build_mcp_transport(&http_cfg).is_ok());
+        assert!(build_mcp_transport("h", &http_cfg, &config).is_ok());
 
         let stdio_cfg = McpServerConfig::stdio("echo", vec!["test".into()]);
-        assert!(build_mcp_transport(&stdio_cfg).is_ok());
+        assert!(build_mcp_transport("s", &stdio_cfg, &config).is_ok());
+    }
+
+    #[tokio::test]
+    async fn login_and_logout_explain_unusable_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Config {
+            config_dir: dir.path().to_path_buf(),
+            ..Config::default()
+        };
+        config
+            .mcp
+            .servers
+            .insert("local".into(), McpServerConfig::stdio("echo", vec![]));
+        let missing = login_mcp_server("ghost", &config).await.unwrap_err();
+        assert!(missing.to_string().contains("'ghost' is not configured"), "{missing}");
+        let stdio = login_mcp_server("local", &config).await.unwrap_err();
+        assert!(
+            stdio.to_string().contains("only remote (URL) servers use OAuth"),
+            "{stdio}"
+        );
+        logout_mcp_server("local", &config).unwrap();
     }
 
     #[tokio::test]

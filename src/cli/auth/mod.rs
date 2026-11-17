@@ -125,6 +125,9 @@ pub async fn login_provider(
     config: &Config,
     auth_store: &mut AuthStore,
 ) -> Result<()> {
+    if let Some(server) = provider.and_then(|p| p.strip_prefix("mcp:")) {
+        return crate::cli::mcp::login_mcp_server(server, config).await;
+    }
     if key_stdin && provider.is_none() {
         return Err(AppError::Auth(
             "Provider name required when using --key-stdin (e.g. `rho login gemini --key-stdin`)".to_string(),
@@ -186,6 +189,9 @@ fn select_logout_target(auth_store: &AuthStore) -> Result<Option<String>> {
 }
 
 pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+    if let Some(server) = provider.and_then(|p| p.strip_prefix("mcp:")) {
+        return crate::cli::mcp::logout_mcp_server(server, config);
+    }
     let target = match provider {
         Some(name) => resolve_provider_name(Some(name), &config.provider),
         None => match select_logout_target(auth_store)? {

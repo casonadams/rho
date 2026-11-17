@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod client;
 pub mod manager;
+pub mod oauth;
 pub mod pool;
 pub mod process;
 pub mod search;
@@ -17,6 +18,7 @@ pub use client::{
     McpToolResult,
 };
 pub use manager::{load_mcp_tools, load_mcp_tools_with_activator};
+pub use oauth::{McpOAuth, McpTokenStore};
 pub use pool::McpServerPool;
 pub use process::{McpChildHandle, McpProcess};
 pub use search::{

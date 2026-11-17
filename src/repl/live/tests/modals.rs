@@ -762,6 +762,7 @@ fn setup_mcp_controller() -> TerminalController<NullBackend> {
             idle_timeout_seconds: 600,
             servers,
         },
+        config_dir: tempfile::tempdir().unwrap().keep(),
         ..Default::default()
     };
     let session = ReplSession::new(config, AuthStore::default(), None);
@@ -776,6 +777,13 @@ fn mcp_selector_opens_with_configured_servers() {
     let modal = controller.state().active_modal().unwrap();
     assert_eq!(modal.title, "Model Context Protocol");
     assert_eq!(modal.options.len(), 2);
+    let remote = modal.options.iter().find(|o| o.label.trim() == "remote_tool").unwrap();
+    assert_eq!(
+        remote.description.as_deref(),
+        Some("[http] https://example.com/mcp · sign in: /mcp login remote_tool  (off)")
+    );
+    let local = modal.options.iter().find(|o| o.label.trim() == "filesystem").unwrap();
+    assert!(!local.description.as_deref().unwrap().contains("sign in"));
 }
 
 #[test]

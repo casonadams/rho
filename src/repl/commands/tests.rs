@@ -181,7 +181,21 @@ async fn login_is_dispatched_without_collecting_credentials() {
 async fn mcp_and_logout_commands_dispatch_by_renderer_mode() {
     let cases = [
         ("/mcp", true, CommandResult::OpenMcpSelector),
-        ("/mcp login", true, CommandResult::OpenMcpSelector),
+        ("/mcp login", true, CommandResult::Continue),
+        (
+            "/mcp login atlassian",
+            true,
+            CommandResult::Login {
+                provider: Some("mcp:atlassian".to_string()),
+            },
+        ),
+        (
+            "/mcp logout atlassian",
+            false,
+            CommandResult::Logout {
+                provider: Some("mcp:atlassian".to_string()),
+            },
+        ),
         ("/mcp", false, CommandResult::Continue),
         ("/logout", false, CommandResult::Logout { provider: None }),
         (

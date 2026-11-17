@@ -1,5 +1,5 @@
 use super::types::{
-    McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig, McpTransportKind,
+    McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind,
     default_idle_timeout_seconds, dirs_fallback,
 };
 use crate::error::{AppError, Result};
@@ -112,6 +112,23 @@ fn parse_search_keywords(val: Option<&Value>) -> BTreeMap<String, Vec<String>> {
         .unwrap_or_default()
 }
 
+fn parse_oauth(val: Option<&Value>) -> Option<McpOAuthConfig> {
+    let obj = val?.as_object()?;
+    let text = |camel: &str, snake: &str| {
+        obj.get(camel)
+            .or_else(|| obj.get(snake))
+            .and_then(Value::as_str)
+            .map(expand_env_vars)
+    };
+    let port = obj.get("redirectPort").or_else(|| obj.get("redirect_port"));
+    Some(McpOAuthConfig {
+        client_id: text("clientId", "client_id"),
+        client_secret: text("clientSecret", "client_secret"),
+        scopes: parse_string_vec(obj.get("scopes")),
+        redirect_port: port.and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()),
+    })
+}
+
 fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerConfig {
     let command = obj.get("command").and_then(|v| v.as_str()).map(expand_env_vars);
     let args = parse_string_vec(obj.get("args"));
@@ -143,6 +160,7 @@ fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerCo
         .or_else(|| obj.get("idle_timeout_seconds"))
         .and_then(|v| v.as_u64());
     let search_keywords = parse_search_keywords(obj.get("searchKeywords").or_else(|| obj.get("search_keywords")));
+    let oauth = parse_oauth(obj.get("oauth"));
 
     McpServerConfig {
         command,
@@ -160,6 +178,7 @@ fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerCo
         direct_tools,
         idle_timeout_seconds,
         search_keywords,
+        oauth,
     }
 }
 
@@ -342,6 +361,32 @@ mod tests {
         assert_eq!(remote.mode, Some(McpExposureMode::Gateway));
         assert_eq!(remote.headers["Authorization"], "Bearer abc");
         assert!(remote.is_remote());
+        assert!(!remote.uses_oauth());
+        assert!(!gh.uses_oauth());
+    }
+
+    #[test]
+    fn parses_oauth_block_in_camel_or_snake_case() {
+        let json = r#"{
+            "a": { "url": "https://a.example/mcp", "oauth": { "clientId": "cid", "clientSecret": "sec", "scopes": ["read", "write"], "redirectPort": 8765 } },
+            "b": { "url": "https://b.example/mcp", "oauth": { "client_id": "other", "redirect_port": 99999 } },
+            "c": { "url": "https://c.example/mcp" }
+        }"#;
+        let parsed = parse_mcp_json_str(json).unwrap();
+        assert_eq!(
+            parsed.servers["a"].oauth,
+            Some(McpOAuthConfig {
+                client_id: Some("cid".into()),
+                client_secret: Some("sec".into()),
+                scopes: vec!["read".into(), "write".into()],
+                redirect_port: Some(8765),
+            })
+        );
+        let b = parsed.servers["b"].oauth.as_ref().unwrap();
+        assert_eq!(b.client_id.as_deref(), Some("other"));
+        assert_eq!(b.redirect_port, None);
+        assert_eq!(parsed.servers["c"].oauth, None);
+        assert!(parsed.servers["c"].uses_oauth());
     }
 
     #[test]
