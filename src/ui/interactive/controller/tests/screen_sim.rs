@@ -292,41 +292,6 @@ impl TerminalBackend for ScreenBackend {
     }
 }
 
-fn strip_ansi(line: &str) -> String {
-    let mut out = String::new();
-    let chars: Vec<char> = line.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] == '\x1b' {
-            i = match chars.get(i + 1) {
-                Some('[') => {
-                    let mut j = i + 2;
-                    while j < chars.len() && !chars[j].is_ascii_alphabetic() {
-                        j += 1;
-                    }
-                    j + 1
-                }
-                Some(']') => {
-                    let mut j = i + 2;
-                    while j < chars.len() && chars[j] != '\x07' {
-                        if chars[j] == '\x1b' && chars.get(j + 1) == Some(&'\\') {
-                            j += 1;
-                            break;
-                        }
-                        j += 1;
-                    }
-                    j + 1
-                }
-                _ => i + 2,
-            };
-        } else {
-            out.push(chars[i]);
-            i += 1;
-        }
-    }
-    out
-}
-
 /// The live region must occupy exactly `rendered.height()` rows ending at the
 /// last non-empty screen row, matching the cached layout (ANSI stripped). A
 /// wrapped region row shifts the physical rows and desyncs this alignment.
@@ -345,7 +310,7 @@ fn assert_screen_region_aligned(controller: &TerminalController<ScreenBackend>) 
     let expected: Vec<String> = rendered
         .lines
         .iter()
-        .map(|l| strip_ansi(l).trim_end().to_string())
+        .map(|l| crate::ui::block::strip_ansi(l).trim_end().to_string())
         .collect();
     let actual: Vec<String> = screen[region_top..=last_nonempty]
         .iter()
