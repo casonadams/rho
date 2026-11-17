@@ -2,6 +2,7 @@ use super::client::McpClient;
 use super::oauth::{McpOAuth, McpTokenStore};
 use super::process::McpProcess;
 use super::transport::McpTransport;
+use crate::auth::resolver::resolve_secret_value_async;
 use rho_harness_core::config::{McpLifecycleMode, McpServerConfig};
 use rho_harness_core::error::{AppError, Result};
 use std::collections::BTreeMap;
@@ -198,7 +199,7 @@ fn should_reap_registration(reg: &ServerRegistration, default_timeout: Duration,
     now.duration_since(inst.last_activity) >= timeout
 }
 
-pub fn build_transport(
+pub async fn build_transport(
     name: &str,
     config: &McpServerConfig,
     working_dir: &Path,
@@ -215,10 +216,25 @@ pub fn build_transport(
     Ok(McpTransport::new_http(
         url,
         config.resolved_transport(),
-        config.headers.clone(),
+        resolve_headers(&config.headers).await?,
         timeout,
         oauth,
     ))
+}
+
+async fn resolve_headers(headers: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
+    let mut resolved = BTreeMap::new();
+    for (name, value) in headers {
+        let value = if value.trim_start().starts_with('!') {
+            resolve_secret_value_async(value)
+                .await
+                .map_err(|e| AppError::Mcp(format!("Failed to resolve MCP header '{name}': {e}")))?
+        } else {
+            value.clone()
+        };
+        resolved.insert(name.clone(), value);
+    }
+    Ok(resolved)
 }
 
 async fn connect_client(
@@ -227,7 +243,7 @@ async fn connect_client(
     working_dir: &Path,
     token_store: Option<&McpTokenStore>,
 ) -> Result<Arc<McpClient>> {
-    let transport = build_transport(name, config, working_dir, token_store)?;
+    let transport = build_transport(name, config, working_dir, token_store).await?;
     let client = Arc::new(McpClient::new(name, transport));
     client.initialize().await?;
     Ok(client)
@@ -290,5 +306,61 @@ mod tests {
         let reaped = pool.reap_idle_servers().await;
         assert!(reaped.is_empty());
         assert_eq!(pool.active_instances_count().await, 1);
+    }
+
+    async fn capture_authorization_header(header_value: &str) -> Result<String> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            let body = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(resp.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&buf[..n])
+                .lines()
+                .find_map(|l| l.strip_prefix("authorization: ").map(str::to_string))
+                .unwrap_or_default()
+        });
+        let config = McpServerConfig {
+            url: Some(url),
+            headers: BTreeMap::from([("Authorization".to_string(), header_value.to_string())]),
+            ..Default::default()
+        };
+        let transport = build_transport("remote", &config, &std::env::temp_dir(), None).await?;
+        transport.request("ping", None).await?;
+        Ok(server.await.unwrap())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn http_header_values_resolve_shell_commands() {
+        let cases = [
+            ("Bearer literal-token", "Bearer literal-token"),
+            ("!printf 'Bearer %s' \"$(echo cmd-token)\"", "Bearer cmd-token"),
+        ];
+        for (raw, expected) in cases {
+            assert_eq!(capture_authorization_header(raw).await.unwrap(), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failing_header_command_is_a_connection_error() {
+        let config = McpServerConfig {
+            url: Some("http://127.0.0.1:1/mcp".to_string()),
+            headers: BTreeMap::from([("Authorization".to_string(), "!exit 7".to_string())]),
+            ..Default::default()
+        };
+        let err = build_transport("remote", &config, &std::env::temp_dir(), None)
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("Failed to resolve MCP header 'Authorization'"));
     }
 }

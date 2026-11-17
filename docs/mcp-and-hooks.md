@@ -48,10 +48,18 @@ Local server definitions extend and override global servers on name collisions.
       "headers": {
         "Authorization": "Bearer ${JIRA_API_TOKEN}"
       }
+    },
+    "github-hosted": {
+      "url": "https://api.githubcopilot.com/mcp/x/all",
+      "headers": {
+        "Authorization": "!printf 'Bearer %s' \"$(gh auth token)\""
+      }
     }
   }
 }
 ```
+
+Header values expand `${VAR}` and `env:VAR`. A value starting with `!` runs as a shell command when the server connects, and its trimmed stdout becomes the header value; a failing or empty command fails the connection.
 
 ### Server Lifecycles & Lazy Connections
 

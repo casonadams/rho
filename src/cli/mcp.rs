@@ -116,18 +116,13 @@ fn print_server_entry(name: &str, server: &McpServerConfig, tokens: &McpTokenSto
     }
 }
 
-fn build_mcp_transport(
+async fn build_mcp_transport(
     name: &str,
     server_cfg: &McpServerConfig,
     config: &Config,
 ) -> Result<Arc<McpTransport>, Box<dyn std::error::Error>> {
     let working_dir = std::env::current_dir()?;
-    Ok(build_transport(
-        name,
-        server_cfg,
-        &working_dir,
-        Some(&token_store(config)),
-    )?)
+    Ok(build_transport(name, server_cfg, &working_dir, Some(&token_store(config))).await?)
 }
 
 async fn probe_client_features(client: &McpClient) {
@@ -180,7 +175,7 @@ async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::err
 
     println!("Testing MCP server '{name}'...");
     let start = Instant::now();
-    let transport = build_mcp_transport(name, server_cfg, config)?;
+    let transport = build_mcp_transport(name, server_cfg, config).await?;
     let client = Arc::new(McpClient::new(name, transport));
     let init_res = client.initialize().await?;
     println!("  ✓ Initialized in {}ms", start.elapsed().as_millis());
@@ -297,10 +292,10 @@ mod tests {
             timeout_seconds: Some(5),
             ..Default::default()
         };
-        assert!(build_mcp_transport("h", &http_cfg, &config).is_ok());
+        assert!(build_mcp_transport("h", &http_cfg, &config).await.is_ok());
 
         let stdio_cfg = McpServerConfig::stdio("echo", vec!["test".into()]);
-        assert!(build_mcp_transport("s", &stdio_cfg, &config).is_ok());
+        assert!(build_mcp_transport("s", &stdio_cfg, &config).await.is_ok());
     }
 
     #[tokio::test]
