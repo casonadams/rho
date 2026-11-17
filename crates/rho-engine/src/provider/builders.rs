@@ -33,14 +33,6 @@ pub(super) fn resolve_provider_key(provider: ProviderId, auth_store: &AuthStore)
     })
 }
 
-fn build_authed_model<C>(
-    request: &ModelRequest<'_>,
-    make: impl FnOnce(std::sync::Arc<tokio::sync::Mutex<AuthStore>>, &str) -> C,
-    into_handle: fn(C) -> ModelHandle,
-) -> ModelHandle {
-    into_handle(make(request.shared_auth.clone(), request.model))
-}
-
 pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
     let account_id = stored_oauth_account_id(auth_store.get_credential("chatgpt")).or_else(|| {
         auth_store
@@ -49,10 +41,9 @@ pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthS
             .flatten()
             .and_then(|k| crate::auth::oauth::extract_chatgpt_account_id(&k))
     });
-    build_authed_model(
-        request,
-        |store, model| crate::chatgpt::ChatGptClient::with_auth_store(store, model).with_account_id(account_id),
-        crate::chatgpt::into_handle,
+    Arc::new(
+        crate::chatgpt::ChatGptClient::with_auth_store(request.shared_auth.clone(), request.model)
+            .with_account_id(account_id),
     )
 }
 
@@ -68,23 +59,16 @@ pub(super) fn build_gemini_model(model: &str, key: String) -> Result<ModelHandle
 pub(super) fn build_antigravity_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
     let project_id = stored_oauth_account_id(auth_store.get_credential("antigravity"))
         .unwrap_or_else(|| crate::auth::antigravity::stable_project_id("antigravity-default"));
-    build_authed_model(
-        request,
-        |store, model| {
-            crate::antigravity::AntigravityClient::with_auth_store(store, project_id, model)
-                .with_effort(request.thinking_level)
-        },
-        crate::antigravity::into_handle,
+    Arc::new(
+        crate::antigravity::AntigravityClient::with_auth_store(request.shared_auth.clone(), project_id, request.model)
+            .with_effort(request.thinking_level),
     )
 }
 
 pub(super) fn build_claude_code_model(request: &ModelRequest<'_>) -> ModelHandle {
-    build_authed_model(
-        request,
-        |store, model| {
-            crate::claude::ClaudeClient::with_auth_store(store, model).with_thinking_level(request.thinking_level)
-        },
-        crate::claude::into_handle,
+    Arc::new(
+        crate::claude::ClaudeClient::with_auth_store(request.shared_auth.clone(), request.model)
+            .with_thinking_level(request.thinking_level),
     )
 }
 

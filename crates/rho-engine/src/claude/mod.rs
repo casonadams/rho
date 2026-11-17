@@ -10,6 +10,6 @@ pub mod stream;
 #[cfg(test)]
 mod test_util;
 
-pub use client::{ClaudeClient, into_handle};
-pub use http::{DEFAULT_ENDPOINT, MESSAGES_PATH, PROVIDER_NAME, claude_headers, friendly_error};
+pub use client::ClaudeClient;
+pub use http::{DEFAULT_ENDPOINT, MESSAGES_PATH, claude_headers, friendly_error};
 pub use stream::SseParser;

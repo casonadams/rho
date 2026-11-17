@@ -395,7 +395,7 @@ async fn antigravity_completion_aggregates_sse_response() {
 
     let client =
         AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
-    let handle = super::completion::into_handle(client);
+    let handle: crate::provider::adapter::ModelHandle = std::sync::Arc::new(client);
     let resp = handle.complete(test_completion_request()).await.unwrap();
 
     assert_eq!((resp.usage.input_tokens, resp.usage.output_tokens), (12, 6));
@@ -425,7 +425,7 @@ async fn antigravity_stream_returns_sse_stream() {
 
     let client =
         AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
-    let handle = super::completion::into_handle(client);
+    let handle: crate::provider::adapter::ModelHandle = std::sync::Arc::new(client);
     let mut stream = handle.stream(test_completion_request()).await.unwrap();
     let first = stream.next().await;
     assert!(first.is_some());

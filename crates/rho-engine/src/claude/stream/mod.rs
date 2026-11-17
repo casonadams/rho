@@ -10,12 +10,10 @@ use wire::{ContentBlockStartPayload, ContentDeltaPayload, SseMessage};
 
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
-use crate::provider::sse::{SseLineDecoder, sse_line_feed};
+use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{Reasoning, ReasoningContent, ToolCall, ToolFunction};
 use std::collections::HashMap;
-
-pub type SseEvents = Vec<Result<ModelStreamEvent, AppError>>;
 
 #[derive(Default)]
 pub struct SseParser {

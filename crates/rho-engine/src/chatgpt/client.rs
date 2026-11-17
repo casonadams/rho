@@ -5,7 +5,6 @@ use tokio::sync::Mutex;
 
 use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
-use crate::engine::compactor::llm::ModelHandle;
 use crate::http::post_json_checked;
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
 use crate::provider::sse::open_sse_stream;
@@ -15,7 +14,6 @@ use serde_json::{Value, json};
 
 pub const DEFAULT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub const RESPONSES_PATH: &str = "/responses";
-pub const PROVIDER_NAME: &str = "chatgpt";
 
 #[derive(Clone)]
 pub struct ChatGptClient {
@@ -267,10 +265,6 @@ impl ModelAdapter for ChatGptClient {
     }
 }
 
-pub fn into_handle(client: ChatGptClient) -> ModelHandle {
-    Arc::new(client)
-}
-
 pub fn friendly_error(status: Option<u16>, body: &str) -> String {
     crate::http::friendly_oauth_error("ChatGPT", "chatgpt", status, body)
 }
@@ -476,13 +470,10 @@ mod tests {
         let (endpoint, _handle) = spawn_mock_responses(vec![resp1, resp2]).await;
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
 
-        let completion_res = into_handle(client.clone())
-            .complete(sample_completion_request())
-            .await
-            .unwrap();
+        let completion_res = client.complete(sample_completion_request()).await.unwrap();
         assert_eq!(completion_res.usage.total_tokens, 7);
 
-        let stream_res = into_handle(client.clone()).stream(sample_completion_request()).await;
+        let stream_res = client.stream(sample_completion_request()).await;
         assert!(stream_res.is_ok());
     }
 
@@ -498,14 +489,13 @@ mod tests {
     }
 
     #[test]
-    fn constructors_and_handle_conversion() {
+    fn auth_store_constructor_targets_default_endpoint() {
         let temp = tempfile::tempdir().unwrap();
         let store = Arc::new(tokio::sync::Mutex::new(
             crate::auth::store::AuthStore::load(temp.path().join("auth.json")).unwrap(),
         ));
         let client = ChatGptClient::with_auth_store(store, "gpt-5.4");
         assert_eq!(client.target_url(), format!("{DEFAULT_ENDPOINT}{RESPONSES_PATH}"));
-        let _handle = into_handle(client);
     }
 
     #[test]

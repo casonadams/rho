@@ -6,7 +6,7 @@ mod tests;
 pub mod client;
 pub mod stream;
 
-pub use client::{ChatGptClient, into_handle};
+pub use client::ChatGptClient;
 
 use crate::http::{CLIENT, send_json_if_ok};
 use chrono::{DateTime, Utc};

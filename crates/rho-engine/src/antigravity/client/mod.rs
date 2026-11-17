@@ -1,7 +1,7 @@
 //! Antigravity streaming client: endpoint/model fallback routing and SSE streaming.
 
 use super::request::{self, Effort, RequestTarget};
-use crate::http::CLIENT;
+use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
 
 pub mod completion;
@@ -184,19 +184,7 @@ impl AntigravityClient {
                 reqwest::header::HeaderValue::from_static("interleaved-thinking-2025-05-14"),
             );
         }
-        let response = CLIENT
-            .post(Self::streaming_endpoint(target.endpoint.base_url))
-            .headers(headers)
-            .body(body.to_string())
-            .send()
-            .await
-            .map_err(|e| (None, e.to_string()))?;
-        let status = response.status();
-        if status.is_success() {
-            return Ok(response);
-        }
-        let text = response.text().await.unwrap_or_default();
-        Err((Some(status.as_u16()), text))
+        post_json_checked(&Self::streaming_endpoint(target.endpoint.base_url), headers, &body).await
     }
 
     pub(super) async fn try_candidates(
@@ -242,5 +230,3 @@ impl AntigravityClient {
             .await
     }
 }
-
-pub use completion::into_handle;

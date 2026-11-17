@@ -121,5 +121,3 @@ impl ClaudeClient {
         }
     }
 }
-
-pub use super::completion::into_handle;

@@ -10,7 +10,7 @@ pub use wire::map_finish_reason;
 use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, usage_from_metadata};
 
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
-use crate::provider::sse::SseLineDecoder;
+use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::Value;
@@ -18,18 +18,11 @@ use serde_json::Value;
 use super::request::sanitize_tool_call_id;
 
 /// Incremental SSE parser for Antigravity `streamGenerateContent?alt=sse`.
+#[derive(Default)]
 pub struct SseParser {
     decoder: SseLineDecoder,
     reasoning_signature: Option<String>,
     next_minted_tool: u64,
-}
-
-pub type SseEvents = Vec<Result<ModelStreamEvent, AppError>>;
-
-impl Default for SseParser {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 fn format_chunk_error(error: &wire::StreamError) -> String {
@@ -42,20 +35,10 @@ fn format_chunk_error(error: &wire::StreamError) -> String {
 
 impl SseParser {
     pub fn new() -> Self {
-        Self {
-            decoder: SseLineDecoder::new(),
-            reasoning_signature: None,
-            next_minted_tool: 0,
-        }
+        Self::default()
     }
 
-    pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        let mut events = Vec::new();
-        for line in self.decoder.decode_lines(bytes) {
-            self.interpret_line(&line, &mut events);
-        }
-        events
-    }
+    sse_line_feed!();
 
     fn handle_candidate(
         &mut self,

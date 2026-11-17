@@ -9,6 +9,8 @@ use std::time::Duration;
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{ModelCompletionResponse, ModelStreamEvent};
 
+pub type SseEvents = Vec<Result<ModelStreamEvent, AppError>>;
+
 pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
@@ -53,15 +55,14 @@ impl SseLineDecoder {
 
 /// Provider-specific incremental SSE parser that transforms wire bytes into domain stream events.
 pub trait SseStreamParser: Send + 'static {
-    fn feed(&mut self, bytes: &[u8]) -> Vec<Result<ModelStreamEvent, AppError>>;
+    fn feed(&mut self, bytes: &[u8]) -> SseEvents;
 }
 
 type StreamState<S, P> = (S, P, bool);
-type EventBatch = Vec<Result<ModelStreamEvent, AppError>>;
 
 async fn next_stream_batch<B, S, P>(
     (mut bytes, mut parser, finished): StreamState<S, P>,
-) -> Option<(EventBatch, StreamState<S, P>)>
+) -> Option<(SseEvents, StreamState<S, P>)>
 where
     B: AsRef<[u8]>,
     S: Stream<Item = reqwest::Result<B>> + Unpin,
@@ -126,7 +127,7 @@ pub fn open_sse_stream<P: SseStreamParser>(
 /// Defines `feed` for a line-oriented SSE parser exposing a `decoder` field and `interpret_line`.
 macro_rules! sse_line_feed {
     () => {
-        pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+        pub fn feed(&mut self, bytes: &[u8]) -> $crate::provider::sse::SseEvents {
             let lines = self.decoder.decode_lines(bytes);
             let mut events = Vec::new();
             for line in lines {
@@ -139,9 +140,7 @@ macro_rules! sse_line_feed {
 pub(crate) use sse_line_feed;
 
 /// Aggregate a vector of streaming events into a single unary `ModelCompletionResponse`.
-pub fn aggregate_stream_events(
-    events: Vec<Result<ModelStreamEvent, AppError>>,
-) -> Result<ModelCompletionResponse, AppError> {
+pub fn aggregate_stream_events(events: SseEvents) -> Result<ModelCompletionResponse, AppError> {
     let mut content = String::new();
     let mut tool_calls = Vec::new();
     let mut usage = StructuralUsage::default();

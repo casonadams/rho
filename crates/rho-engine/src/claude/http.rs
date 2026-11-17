@@ -6,7 +6,6 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName
 
 pub const DEFAULT_ENDPOINT: &str = "https://api.anthropic.com";
 pub const MESSAGES_PATH: &str = "/v1/messages";
-pub const PROVIDER_NAME: &str = "claude";
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 

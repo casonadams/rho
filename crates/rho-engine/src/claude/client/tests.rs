@@ -357,7 +357,7 @@ async fn test_completion_model_aggregates_unary_response() {
     let addr = spawn_sse_server(sse_body).await;
 
     let client = ClaudeClient::new("test-token", "claude-sonnet-4-5").with_endpoint(format!("http://{addr}"));
-    let handle = crate::claude::into_handle(client);
+    let handle: crate::provider::adapter::ModelHandle = std::sync::Arc::new(client);
     let resp = handle.complete(sample_request()).await.unwrap();
     assert_eq!(
         (
