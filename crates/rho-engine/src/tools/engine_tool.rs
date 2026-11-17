@@ -2,6 +2,7 @@ use crate::engine::runner::turn::types::CancellationSignal;
 use crate::hook::LifecycleHook;
 use crate::permission::PermissionHook;
 use crate::tools::types::ToolResult;
+use rho_harness_core::agents::AgentMonitor;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::ToolStreamPort;
@@ -15,6 +16,7 @@ pub struct TurnToolContext {
     pub cancellation: Option<CancellationSignal>,
     pub progress: ToolStreamPort,
     pub parent_history: Arc<[ChatMessage]>,
+    pub monitor: Option<AgentMonitor>,
 }
 
 #[async_trait::async_trait]

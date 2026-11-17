@@ -86,6 +86,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/logout",
     "/reload",
     "/export",
+    "/workflows",
     "/exit",
     "/quit",
 ];

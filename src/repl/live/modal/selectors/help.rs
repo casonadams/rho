@@ -23,6 +23,7 @@ const HELP_ENTRIES: &[(&str, &str)] = &[
     ("/skill", "List or inspect skills"),
     ("/reload", "Re-read config, skills, and MCP tools"),
     ("/export", "Export active branch as HTML or Markdown"),
+    ("/workflows", "List workflows (run one with /<name>)"),
     ("/exit", "Exit rho (alias: /quit)"),
     ("Tab", "Complete slash commands & skill names"),
     ("Shift+Tab", "Cycle thinking level"),
@@ -31,6 +32,7 @@ const HELP_ENTRIES: &[(&str, &str)] = &[
     ("Ctrl+T", "Toggle thinking blocks visibility"),
     ("Ctrl+C", "Clear the input prompt"),
     ("Ctrl+D", "Exit at an empty prompt"),
+    ("Left", "Watch subagents (at an empty prompt)"),
     ("Escape", "Cancel active execution or dismiss modal"),
 ];
 

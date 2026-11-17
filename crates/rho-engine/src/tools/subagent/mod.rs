@@ -40,6 +40,13 @@ struct RawSubagentArgs {
     inherit_context: Option<bool>,
 }
 
+pub(crate) struct RunnerSpec<'a> {
+    pub agent: Option<&'a str>,
+    pub local_agents: &'a [AgentMetadata],
+    pub max_turns: Option<usize>,
+    pub model: Option<&'a str>,
+}
+
 enum Target<'a> {
     Agent(&'a AgentMetadata),
     Role(SubagentRole),
@@ -83,17 +90,12 @@ impl SubagentTool {
         self
     }
 
-    fn resolve_target(&self, args: &RawSubagentArgs) -> Result<Target<'_>, String> {
-        let name = args
-            .agent
-            .as_deref()
-            .or(args.role.as_deref())
-            .map(str::trim)
-            .filter(|n| !n.is_empty());
-        let Some(name) = name else {
+    fn resolve_target<'a>(&'a self, name: Option<&str>, local: &'a [AgentMetadata]) -> Result<Target<'a>, String> {
+        let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
             return Ok(Target::Role(SubagentRole::default()));
         };
-        if let Some(agent) = self.agents.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
+        let find = |agents: &'a [AgentMetadata]| agents.iter().find(|a| a.name.eq_ignore_ascii_case(name));
+        if let Some(agent) = find(local).or_else(|| find(&self.agents)) {
             return Ok(Target::Agent(agent));
         }
         name.parse::<SubagentRole>()
@@ -108,12 +110,21 @@ impl SubagentTool {
         }
     }
 
-    fn model_for(&self, target: &Target<'_>, default: &ModelHandle) -> Result<ModelHandle, String> {
-        let requested = match target {
-            Target::Agent(agent) => agent.model.as_deref().map(str::trim).filter(|m| !m.is_empty()),
+    fn model_for(
+        &self,
+        target: &Target<'_>,
+        override_model: Option<&str>,
+        default: &ModelHandle,
+    ) -> Result<ModelHandle, String> {
+        let agent_model = match target {
+            Target::Agent(agent) => agent.model.as_deref(),
             Target::Role(_) => None,
-        }
-        .or(self.default_model.as_deref());
+        };
+        let requested = override_model
+            .or(agent_model)
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .or(self.default_model.as_deref());
         let Some(requested) = requested else {
             return Ok(default.clone());
         };
@@ -127,20 +138,39 @@ impl SubagentTool {
         resolver(requested).map_err(|e| format!("failed to resolve model '{requested}' for subagent: {e}"))
     }
 
-    fn resolve_runner(&self, default_model: &ModelHandle, args: &RawSubagentArgs) -> Result<SubagentRunner, String> {
-        let target = self.resolve_target(args)?;
-        let model = self.model_for(&target, default_model)?;
+    pub(crate) fn runner_for(&self, spec: RunnerSpec<'_>) -> Result<SubagentRunner, String> {
+        let default_model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| "No model handle configured for subagent execution.".to_string())?;
+        let target = self.resolve_target(spec.agent, spec.local_agents)?;
+        let model = self.model_for(&target, spec.model, default_model)?;
         let runner = match &target {
             Target::Agent(agent) => SubagentRunner::new_custom(
                 model,
                 agent.system_prompt.clone(),
                 self.tools_for(&target),
-                clamp_max_turns(args.max_turns.or(agent.max_turns)),
+                clamp_max_turns(spec.max_turns.or(agent.max_turns)),
             )
             .with_label(&agent.name),
-            Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, clamp_max_turns(args.max_turns)),
+            Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, clamp_max_turns(spec.max_turns)),
         };
         Ok(runner.with_context(self.ctx.clone()))
+    }
+
+    pub(crate) fn turn_context(&self) -> &TurnToolContext {
+        &self.ctx
+    }
+
+    pub(crate) fn model(&self) -> Option<&ModelHandle> {
+        self.model.as_ref()
+    }
+
+    pub(crate) fn with_turn_context(&self, ctx: &TurnToolContext) -> Self {
+        Self {
+            ctx: ctx.clone(),
+            ..self.clone()
+        }
     }
 
     fn compose_context(&self, args: &RawSubagentArgs) -> Option<String> {
@@ -203,27 +233,27 @@ impl EngineTool for SubagentTool {
         if args.prompt.trim().is_empty() {
             return Ok(ToolResult::error("subagent prompt cannot be empty"));
         }
-        let Some(model) = &self.model else {
-            return Ok(ToolResult::error("No model handle configured for subagent execution."));
+        let spec = RunnerSpec {
+            agent: args.agent.as_deref().or(args.role.as_deref()),
+            local_agents: &[],
+            max_turns: args.max_turns,
+            model: None,
         };
-        match self.resolve_runner(model, &args) {
+        match self.runner_for(spec) {
             Ok(runner) => Ok(runner.run(&args.prompt, self.compose_context(&args).as_deref()).await),
             Err(message) => Ok(ToolResult::error(message)),
         }
     }
 
     fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
-        Some(Arc::new(Self {
-            ctx: ctx.clone(),
-            ..self.clone()
-        }))
+        Some(Arc::new(self.with_turn_context(ctx)))
     }
 
     fn concurrency_safe(&self, args: &serde_json::Value) -> bool {
         let Ok(parsed) = serde_json::from_value::<RawSubagentArgs>(args.clone()) else {
             return false;
         };
-        let Ok(target) = self.resolve_target(&parsed) else {
+        let Ok(target) = self.resolve_target(parsed.agent.as_deref().or(parsed.role.as_deref()), &[]) else {
             return false;
         };
         let tools = self.tools_for(&target);

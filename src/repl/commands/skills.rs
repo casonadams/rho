@@ -150,6 +150,9 @@ pub(crate) async fn handle_custom(
     if let Some(res) = try_handle_template(ctx, custom, parts).await {
         return Ok(Some(res));
     }
+    if let Some(res) = super::workflows::try_handle_workflow(ctx, custom, parts).await {
+        return Ok(Some(res));
+    }
 
     ctx.renderer.print_notice(&format!(
         "  Unknown command: /{custom}. Type /help for available commands.\n"

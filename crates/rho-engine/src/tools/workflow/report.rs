@@ -1,0 +1,168 @@
+use serde_json::{Value, json};
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+
+const MAX_OUTPUT_JSON_CHARS: usize = 6_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StepStatus {
+    Done,
+    Skipped,
+    Failed,
+}
+
+impl StepStatus {
+    fn symbol(self) -> &'static str {
+        match self {
+            Self::Done => "✓",
+            Self::Skipped => "·",
+            Self::Failed => "✗",
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Done => "done",
+            Self::Skipped => "skipped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StepRecord {
+    pub path: String,
+    pub status: StepStatus,
+    pub detail: String,
+}
+
+pub(crate) struct RunLog {
+    path: PathBuf,
+    file: Mutex<Option<std::fs::File>>,
+    records: Mutex<Vec<StepRecord>>,
+    warnings: Mutex<Vec<String>>,
+}
+
+impl RunLog {
+    pub(crate) fn create(base_dir: &Path, workflow: &str) -> Result<Self, String> {
+        let dir = base_dir.join(".rho/workflows");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            std::fs::write(&ignore, "*\n").map_err(|e| format!("cannot create {}: {e}", ignore.display()))?;
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let path = dir.join(format!("{workflow}-{stamp}-{}.jsonl", &id[..8]));
+        let file = std::fs::File::create(&path).map_err(|e| format!("cannot create {}: {e}", path.display()))?;
+        Ok(Self {
+            path,
+            file: Mutex::new(Some(file)),
+            records: Mutex::new(Vec::new()),
+            warnings: Mutex::new(Vec::new()),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn event(&self, kind: &str, fields: Value) {
+        let mut line = json!({ "ts": chrono::Utc::now().to_rfc3339(), "event": kind });
+        if let (Some(target), Value::Object(extra)) = (line.as_object_mut(), fields) {
+            target.extend(extra);
+        }
+        let mut guard = self.file.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(file) = guard.as_mut() else {
+            return;
+        };
+        if let Err(e) = writeln!(file, "{line}") {
+            *guard = None;
+            self.warn(format!("run log disabled after write failure: {e}"));
+        }
+    }
+
+    pub(crate) fn warn(&self, message: String) {
+        self.warnings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(message);
+    }
+
+    pub(crate) fn record(&self, path: &str, status: StepStatus, detail: impl Into<String>) {
+        let detail = detail.into();
+        self.event(
+            "step_finished",
+            json!({ "step": path, "status": status.as_str(), "detail": detail }),
+        );
+        self.records
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(StepRecord {
+                path: path.to_string(),
+                status,
+                detail,
+            });
+    }
+
+    pub(crate) fn records(&self) -> Vec<StepRecord> {
+        self.records.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    pub(crate) fn report(&self, headline: &str, outputs: Option<&Value>) -> String {
+        let mut out = format!("{headline}\n\nSteps:\n");
+        for record in self.records() {
+            let detail = if record.detail.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", record.detail)
+            };
+            out.push_str(&format!("  {} {}{detail}\n", record.status.symbol(), record.path));
+        }
+        if let Some(outputs) = outputs.filter(|o| o.as_object().is_some_and(|m| !m.is_empty())) {
+            out.push_str(&format!("\nOutputs:\n```json\n{}\n```\n", clamp_json(outputs)));
+        }
+        for warning in self.warnings.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            out.push_str(&format!("\nWarning: {warning}\n"));
+        }
+        out.push_str(&format!("\nRun log: {}", self.path.display()));
+        out
+    }
+}
+
+fn clamp_json(value: &Value) -> String {
+    let text = serde_json::to_string_pretty(value).unwrap_or_default();
+    if text.chars().count() <= MAX_OUTPUT_JSON_CHARS {
+        return text;
+    }
+    let kept: String = text.chars().take(MAX_OUTPUT_JSON_CHARS).collect();
+    format!("{kept}\n... (truncated; see the run log)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_jsonl_events_and_renders_a_step_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = RunLog::create(dir.path(), "refine").unwrap();
+        log.event("run_started", json!({ "workflow": "refine" }));
+        log.record("refine › round 1 › scan", StepStatus::Done, "3 items");
+        log.record("refine › round 1 › implement", StepStatus::Skipped, "");
+
+        let text = std::fs::read_to_string(log.path()).unwrap();
+        let events: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(events[0]["event"], "run_started");
+        assert_eq!(events[1]["step"], "refine › round 1 › scan");
+        assert_eq!(events[2]["status"], "skipped");
+
+        let report = log.report("Workflow `refine` finished.", Some(&json!({ "remaining": [] })));
+        assert!(report.contains("  ✓ refine › round 1 › scan — 3 items\n"));
+        assert!(report.contains("  · refine › round 1 › implement\n"));
+        assert!(report.contains("\"remaining\": []"));
+        assert!(report.ends_with(&format!("Run log: {}", log.path().display())));
+    }
+}

@@ -6,6 +6,7 @@ use super::ModelItem;
 pub struct CompletionSources {
     pub skills: Vec<ResolvedSkill>,
     pub prompt_templates: Vec<String>,
+    pub workflows: Vec<(String, String)>,
     pub models: Vec<ModelItem>,
     pub custom_providers: Vec<String>,
 }
@@ -22,6 +23,11 @@ impl CompletionSources {
 
     pub fn with_templates(mut self, templates: Vec<String>) -> Self {
         self.prompt_templates = templates;
+        self
+    }
+
+    pub fn with_workflows(mut self, workflows: Vec<(String, String)>) -> Self {
+        self.workflows = workflows;
         self
     }
 

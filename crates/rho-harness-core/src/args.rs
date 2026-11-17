@@ -238,6 +238,15 @@ pub struct SubagentArgs {
     pub inherit_context: Option<bool>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct WorkflowArgs {
+    /// Workflow name (built-in, ~/.agents/workflows/, or .agents/workflows/)
+    pub name: String,
+    /// Workflow inputs keyed by input name; omitted inputs use their defaults
+    #[serde(default)]
+    pub inputs: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};

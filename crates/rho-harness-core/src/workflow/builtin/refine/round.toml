@@ -1,0 +1,58 @@
+description = "One refine pass: scan, validate, fix, verify, commit"
+
+[[input]]
+name = "profile"
+
+[[input]]
+name = "verify"
+default = "make all"
+
+[[input]]
+name = "excluded"
+description = "Findings marked won't-fix in earlier rounds"
+default = []
+
+[[step]]
+id = "scopes"
+builtin = "repo_scopes"
+
+[[step]]
+id = "scan"
+agent = "scout"
+over = "scopes.items"
+concurrency = 5
+max_turns = 12
+prompt_file = "prompts/scan.md"
+expected_output = "Candidate findings, each with file:line evidence, impact, confidence, and a recommendation, followed by the areas of the slice you did not read."
+
+[[step]]
+id = "validate"
+agent = "validator"
+context = ["scan"]
+output = "json"
+max_turns = 16
+prompt_file = "prompts/validate.md"
+expected_output = '{"actionable": [{"fingerprint": "src/x.rs:missing-timeout", "severity": "high|medium", "confidence": "high|medium", "file": "src/x.rs", "line": 42, "title": "...", "evidence": "...", "recommendation": "..."}], "low_confidence": [{"fingerprint": "...", "file": "...", "line": 1, "title": "..."}], "rejected": 0}'
+
+[[step]]
+id = "implement"
+agent = "implementor"
+when = "validate.actionable"
+output = "json"
+max_turns = 20
+check = "{{inputs.verify}}"
+retries = 2
+on_fail = "stash"
+prompt_file = "prompts/implement.md"
+expected_output = '{"fixed": ["<fingerprint>"], "wont_fix": [{"fingerprint": "<fingerprint>", "reason": "..."}], "files_changed": ["path"]}'
+
+[[step]]
+id = "checkpoint"
+builtin = "git_commit"
+when = "implement.files_changed"
+with = { message = "fix({{inputs.profile}}): refine round {{round}}" }
+
+[outputs]
+actionable = "validate.actionable"
+low_confidence = "validate.low_confidence"
+excluded = ["inputs.excluded", "implement.wont_fix"]

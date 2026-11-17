@@ -47,8 +47,12 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         let expired = self.controller.check_system_message_expiration();
         let resized = self.controller.refresh_size()?;
         let footer = sync_turn_footer(self.controller, self.engine);
-        self.batch
-            .flush(self.controller, spinner || footer || expired || steering || resized)?;
+        let agents =
+            crate::repl::live::modal::agents::refresh_agent_modals(self.controller, self.engine.agent_monitor());
+        self.batch.flush(
+            self.controller,
+            spinner || footer || expired || steering || resized || agents,
+        )?;
         self.promote_idle_activity();
         Ok(())
     }

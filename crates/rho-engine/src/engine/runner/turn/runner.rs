@@ -111,6 +111,7 @@ pub struct AgentRunner {
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     cancellation: Option<CancellationSignal>,
     working_dir: std::path::PathBuf,
+    monitor: Option<rho_harness_core::agents::AgentMonitor>,
 }
 
 impl AgentRunner {
@@ -141,6 +142,7 @@ impl AgentRunner {
             steering: None,
             cancellation: None,
             working_dir,
+            monitor: None,
         }
     }
 
@@ -189,6 +191,11 @@ impl AgentRunner {
         self
     }
 
+    pub fn monitor(mut self, monitor: Option<rho_harness_core::agents::AgentMonitor>) -> Self {
+        self.monitor = monitor;
+        self
+    }
+
     pub fn working_dir(mut self, working_dir: impl Into<std::path::PathBuf>) -> Self {
         self.working_dir = working_dir.into();
         self
@@ -209,6 +216,7 @@ impl AgentRunner {
             cancellation: self.cancellation.clone(),
             progress: self.stream_port.clone().unwrap_or_default(),
             parent_history: self.parent_history_snapshot(),
+            monitor: self.monitor.clone(),
         };
         self.tools = self
             .tools

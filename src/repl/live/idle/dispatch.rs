@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use crate::repl::live::batch::LiveBatch;
-use crate::repl::live::modal::{handle_modal_key, handle_modal_paste};
+use crate::repl::live::modal::{agents, handle_modal_key, handle_modal_paste};
 use crate::repl::live::navigation::{apply_completion, navigate_history_next, navigate_history_previous};
 use crate::ui::interactive::{
     InputAction, QueuedMessage, TerminalBackend, TerminalController, UiAction, UiEffect, map_key,
@@ -314,6 +314,11 @@ async fn process_key_event<B: TerminalBackend>(
     input: &mut crate::repl::input_reader::TerminalInputReader,
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
+    let monitor = ctx.engine.agent_monitor();
+    if agents::handle_agents_key(controller, key, monitor)? || agents::try_open_agents(controller, &key, monitor)? {
+        batch.flush(controller, true)?;
+        return Ok(IdleInputResult::None);
+    }
     if let KeyPhase::Handled = try_modal_key(controller, key, batch, resources, input, ctx).await? {
         return Ok(IdleInputResult::None);
     }

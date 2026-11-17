@@ -6,6 +6,7 @@ use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
+use rho_harness_core::agents::{AgentEvent, AgentHandle, AgentStatus};
 use rho_harness_core::model::{AssistantContent, ChatMessage, TextContent, ToolCall, UserContent};
 use serde_json::Value;
 use std::sync::Arc;
@@ -13,6 +14,8 @@ use std::sync::Arc;
 const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
 const MAX_PARENT_MESSAGES: usize = 20;
 const MAX_PARENT_MESSAGE_CHARS: usize = 1_500;
+pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent: ";
+const DEFAULT_MONITOR_GROUP: &str = "subagents";
 pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
 
 pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> String {
@@ -39,6 +42,8 @@ pub struct SubagentRunner {
     max_turns: usize,
     ctx: TurnToolContext,
     label: String,
+    monitor_group: String,
+    monitor_label: String,
 }
 
 struct RunState {
@@ -47,6 +52,7 @@ struct RunState {
     usage: StructuralUsage,
     turns: usize,
     tool_calls: usize,
+    tracker: Option<AgentHandle>,
 }
 
 fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
@@ -139,6 +145,22 @@ pub(crate) fn render_parent_conversation(history: &[ChatMessage]) -> String {
     format!("Parent conversation (most recent last):\n{}", recent.join("\n\n"))
 }
 
+fn track_response(tracker: Option<&AgentHandle>, turn: usize, content: &str, calls: &[ToolCall]) {
+    let Some(tracker) = tracker else {
+        return;
+    };
+    tracker.turn(turn);
+    if !content.trim().is_empty() {
+        tracker.event(AgentEvent::Text(content.trim().to_string()));
+    }
+    for call in calls {
+        tracker.event(AgentEvent::ToolCall {
+            name: call.function.name.clone(),
+            args: call.function.arguments.to_string(),
+        });
+    }
+}
+
 fn interrupted() -> ToolResult {
     ToolResult::error("Subagent interrupted by operator")
 }
@@ -151,12 +173,14 @@ impl SubagentRunner {
         available_tools: &[Arc<dyn EngineTool>],
         max_turns: usize,
     ) -> Self {
-        Self::new_custom(
+        let mut runner = Self::new_custom(
             model,
             role.system_instructions().to_string(),
             filter_tools_for_role(available_tools, role),
             max_turns,
-        )
+        );
+        runner.monitor_label = role.as_str().to_string();
+        runner
     }
 
     #[must_use]
@@ -173,12 +197,22 @@ impl SubagentRunner {
             max_turns,
             ctx: TurnToolContext::default(),
             label: "subagent".to_string(),
+            monitor_group: DEFAULT_MONITOR_GROUP.to_string(),
+            monitor_label: "subagent".to_string(),
         }
     }
 
     #[must_use]
     pub fn with_label(mut self, name: &str) -> Self {
         self.label = format!("subagent {name}");
+        self.monitor_label = name.to_string();
+        self
+    }
+
+    #[must_use]
+    pub fn with_monitor_identity(mut self, group: &str, label: &str) -> Self {
+        self.monitor_group = group.to_string();
+        self.monitor_label = label.to_string();
         self
     }
 
@@ -221,20 +255,44 @@ impl SubagentRunner {
                 parameters: t.parameters(),
             })
             .collect();
+        let task = build_subagent_prompt(prompt, context_slice);
+        let tracker = self.ctx.monitor.as_ref().map(|monitor| {
+            let handle = monitor.start(&self.monitor_group, &self.monitor_label, self.max_turns);
+            handle.event(AgentEvent::Task(task.clone()));
+            handle
+        });
         let mut state = RunState {
-            task: build_subagent_prompt(prompt, context_slice),
+            task,
             messages: Vec::new(),
             usage: StructuralUsage::default(),
             turns: 0,
             tool_calls: 0,
+            tracker,
         };
+        let result = self.run_turns(&preamble, &tools_def, &mut state).await;
+        if let Some(tracker) = &state.tracker {
+            tracker.finish(self.final_status(&result));
+        }
+        result
+    }
 
+    async fn run_turns(&self, preamble: &str, tools_def: &[ModelToolDefinition], state: &mut RunState) -> ToolResult {
         for turn in 1..=self.max_turns {
-            if let Some(result) = self.step(turn, &preamble, &tools_def, &mut state).await {
+            if let Some(result) = self.step(turn, preamble, tools_def, state).await {
                 return result;
             }
         }
-        self.finish_exhausted(&state).await
+        self.finish_exhausted(state).await
+    }
+
+    fn final_status(&self, result: &ToolResult) -> AgentStatus {
+        if self.is_cancelled() {
+            AgentStatus::Cancelled
+        } else if result.is_error {
+            AgentStatus::Failed
+        } else {
+            AgentStatus::Done
+        }
     }
 
     /// Runs one model turn; `Some` ends the run.
@@ -266,6 +324,7 @@ impl SubagentRunner {
         };
         state.usage = state.usage.merge(&resp.usage);
         state.turns = turn;
+        track_response(state.tracker.as_ref(), turn, &resp.content, &resp.tool_calls);
 
         if resp.tool_calls.is_empty() {
             return Some(Self::finish(&resp.content, state));
@@ -297,7 +356,7 @@ impl SubagentRunner {
         }
         let tokens = state.usage.input_tokens + state.usage.output_tokens;
         ToolResult::success(format!(
-            "{text}\n\n[subagent: {} turns, {} tool calls, {tokens} tokens]",
+            "{text}{RUN_FOOTER_PREFIX}{} turns, {} tool calls, {tokens} tokens]",
             state.turns, state.tool_calls
         ))
     }
@@ -346,12 +405,18 @@ impl SubagentRunner {
             && approved
                 .iter()
                 .all(|(_, call, _)| READ_ONLY_TOOLS.contains(&call.function.name.as_str()));
+        let tracker = state.tracker.as_ref();
         let outcomes = if concurrent {
-            futures::future::join_all(approved.iter().map(|(_, call, args)| self.run_call(call, args))).await
+            futures::future::join_all(
+                approved
+                    .iter()
+                    .map(|(_, call, args)| self.run_call(call, args, tracker)),
+            )
+            .await
         } else {
             let mut sequential = Vec::with_capacity(approved.len());
             for (_, call, args) in &approved {
-                sequential.push(self.run_call(call, args).await);
+                sequential.push(self.run_call(call, args, tracker).await);
             }
             sequential
         };
@@ -369,14 +434,27 @@ impl SubagentRunner {
         }
     }
 
-    async fn run_call(&self, call: &ToolCall, args: &Value) -> (ChatMessage, Option<String>) {
+    async fn run_call(
+        &self,
+        call: &ToolCall,
+        args: &Value,
+        tracker: Option<&AgentHandle>,
+    ) -> (ChatMessage, Option<String>) {
         let name = call.function.name.as_str();
         let (mut output, is_error) = self
             .cancellable(self.run_tool(name, args))
             .await
             .unwrap_or_else(|| ("Cancelled by operator".to_string(), true));
         let stop = apply_tool_outcome_hooks(self.ctx.lifecycle.as_ref(), name, args, &mut output, is_error).await;
-        (tool_result_message(call, truncate_output(output)), stop)
+        let output = truncate_output(output);
+        if let Some(tracker) = tracker {
+            tracker.event(AgentEvent::ToolResult {
+                name: name.to_string(),
+                output: output.clone(),
+                is_error,
+            });
+        }
+        (tool_result_message(call, output), stop)
     }
 
     async fn run_tool(&self, name: &str, args: &Value) -> (String, bool) {

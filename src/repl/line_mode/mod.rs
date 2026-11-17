@@ -38,9 +38,11 @@ async fn build_completion_sources_async(
             .collect();
     let models = crate::repl::interactive::discover_models(config, auth_store);
     let custom_providers = config.providers.keys().cloned().collect();
+    let workflows = crate::repl::commands::workflows::completion_entries().await;
     crate::repl::interactive::CompletionSources::new()
         .with_skills(skills)
         .with_templates(prompt_templates)
+        .with_workflows(workflows)
         .with_models(models)
         .with_custom_providers(custom_providers)
 }

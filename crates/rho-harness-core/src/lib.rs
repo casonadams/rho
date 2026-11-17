@@ -14,6 +14,7 @@
 //!   `skills`: built-in tool argument schemas, credential storage, error
 //!   types, URL safety, prompt templates, provider identity, message
 //!   queueing, RPC transport, and skill discovery.
+//! - `workflow`: declarative agent workflow parsing, validation, and discovery.
 //!
 //! See `ARCHITECTURE.md` at the repository root for the full map.
 
@@ -35,4 +36,5 @@ pub mod skills;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod tokens;
+pub mod workflow;
 pub mod workspace;

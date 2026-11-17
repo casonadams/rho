@@ -21,6 +21,7 @@ pub struct AgentEngineBuilder {
     extra_tools: Vec<Arc<dyn EngineTool>>,
     model: Option<ModelHandle>,
     demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
+    agent_monitor: rho_harness_core::agents::AgentMonitor,
 }
 
 type EngineAssembly = (
@@ -41,6 +42,7 @@ impl AgentEngineBuilder {
             base_dir: None,
             model: None,
             demotion_hook: None,
+            agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
         }
     }
 
@@ -76,6 +78,11 @@ impl AgentEngineBuilder {
 
     pub fn demotion_hook(mut self, hook: Arc<dyn crate::engine::compactor::DemotionHook>) -> Self {
         self.demotion_hook = Some(hook);
+        self
+    }
+
+    pub fn agent_monitor(mut self, monitor: rho_harness_core::agents::AgentMonitor) -> Self {
+        self.agent_monitor = monitor;
         self
     }
 }
@@ -214,6 +221,7 @@ impl AgentEngineBuilder {
             model: Some(model.clone()),
             compactor_model: Some(model),
             demotion_hook,
+            agent_monitor: self.agent_monitor,
         }
     }
 

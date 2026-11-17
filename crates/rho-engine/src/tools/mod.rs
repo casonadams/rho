@@ -18,6 +18,7 @@ pub(crate) mod traversal;
 pub mod truncate;
 pub mod types;
 pub mod web;
+pub mod workflow;
 pub mod write;
 
 pub use artifact::{cleanup_artifacts, default_artifact_dir, format_artifact_notice, spill_artifact};
@@ -38,4 +39,5 @@ pub use types::{ToolResult, generated_schema, normalize_schema};
 pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
+pub use workflow::WorkflowTool;
 pub use write::{WriteArgs, WriteTool};

@@ -48,12 +48,14 @@ pub(super) async fn build_completions(
     .into_iter()
     .map(|t| t.metadata.name)
     .collect::<Vec<_>>();
+    let workflows = crate::repl::commands::workflows::completion_entries().await;
     crate::repl::interactive::spawn_background_model_refresh(&session.config, &session.auth_store);
     let models = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
     let custom_providers = session.config.providers.keys().cloned().collect();
     let sources = crate::repl::interactive::CompletionSources::new()
         .with_skills(skills)
         .with_templates(prompt_templates)
+        .with_workflows(workflows)
         .with_models(models)
         .with_custom_providers(custom_providers);
     CompletionSet::from_sources(sources)

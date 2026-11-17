@@ -29,7 +29,7 @@ pub use layout::{
     modal_body_max_scroll, truncate_to_visual_lines, wrap_to_width,
 };
 pub use state::{
-    Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,
+    Activity, AutocompleteItem, AutocompleteState, BodyAnchor, EditorState, FooterState, InteractiveState,
     MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
     RunningTool, UiAction, UiEffect,
 };

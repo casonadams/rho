@@ -62,6 +62,7 @@ mod tests {
             "web_search",
             "web_fetch",
             "subagent",
+            "workflow",
         ] {
             assert_registered_tool(name);
         }

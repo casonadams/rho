@@ -26,6 +26,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /logout [provider]          Remove stored provider auth\n\
   /reload                     Re-read config, skills, and MCP tools; keep history\n\
   /export [html|md] [path]    Export the active branch as a readable artifact\n\
+  /workflows                  List workflows; run one with /<name> [inputs]\n\
   /exit                       Exit rho (alias: /quit)\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\
@@ -33,6 +34,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   Escape                      Cancel active execution / operation\n\
   Ctrl+C                      Clear the input prompt\n\
   Ctrl+D                      Exit at an empty prompt\n\
+  Left                        Watch subagents (at an empty prompt)\n\
   Ctrl+L                      Select model\n\
   Ctrl+O                      Expand or collapse tool output\n\
   Ctrl+T                      Toggle thinking blocks visibility\n\

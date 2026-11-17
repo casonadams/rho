@@ -39,7 +39,7 @@ impl RunningTool {
     pub const MAX_RUNNING_BUFFER_BYTES: usize = MAX_RUNNING_BUFFER_BYTES;
 
     pub fn has_live_card(name: &str) -> bool {
-        matches!(name, "bash" | "subagent")
+        matches!(name, "bash" | "subagent" | "workflow")
     }
 
     pub fn new(name: impl Into<String>, args_summary: impl Into<String>, preview: Option<String>) -> Self {

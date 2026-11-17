@@ -49,6 +49,7 @@ pub struct AgentEngine {
     pub(crate) model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
+    pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
 }
 
 impl AgentEngine {
@@ -67,6 +68,10 @@ impl AgentEngine {
         Arc::clone(&self.tools)
     }
 
+    pub fn agent_monitor(&self) -> &rho_harness_core::agents::AgentMonitor {
+        &self.agent_monitor
+    }
+
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {
         Arc::clone(&self.auth_store)
     }
@@ -75,6 +80,7 @@ impl AgentEngine {
         let base_dir = std::env::current_dir()?;
         let mut builder = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
+            .agent_monitor(self.agent_monitor.clone())
             .base_dir(base_dir);
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));

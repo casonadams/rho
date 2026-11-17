@@ -43,6 +43,7 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("logout", "Remove stored provider authentication <provider>"),
     ("reload", "Reload config, skills, prompt templates, and MCP tools"),
     ("export", "Export session (HTML default, or specify path: .html/.md)"),
+    ("workflows", "List available workflows and any invalid workflow files"),
     ("exit", "Exit rho"),
     ("quit", "Exit rho"),
 ];
@@ -101,6 +102,12 @@ fn build_command_items(sources: &super::sources::CompletionSources) -> Vec<Comma
         commands.push(CommandItem {
             name: format!("/{name}"),
             description: "Custom prompt template".to_string(),
+        });
+    }
+    for (name, description) in &sources.workflows {
+        commands.push(CommandItem {
+            name: format!("/{name}"),
+            description: format!("Workflow: {description}"),
         });
     }
     for s in &sources.skills {

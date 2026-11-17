@@ -97,6 +97,9 @@ pub fn build_builtin_tools_with_resolver(
             .with_model_resolver(resolver)
             .with_default_model(config.models.get("smol").cloned());
     }
+    let workflow =
+        crate::tools::workflow::WorkflowTool::new(subagent.clone(), base_dir, rho_harness_core::config::home_dir());
     tools.push(Arc::new(subagent) as Arc<dyn EngineTool>);
+    tools.push(Arc::new(workflow) as Arc<dyn EngineTool>);
     Ok(tools)
 }

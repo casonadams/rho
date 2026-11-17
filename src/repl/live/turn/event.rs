@@ -7,7 +7,7 @@ use super::runner::TurnLoop;
 use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
-use crate::repl::live::modal::{ModalKeyResult, handle_modal_key, handle_modal_paste};
+use crate::repl::live::modal::{ModalKeyResult, agents, handle_modal_key, handle_modal_paste};
 use crate::ui::interactive::{Activity, TerminalBackend, UiAction};
 
 pub(super) struct TurnInputResources<'a> {
@@ -80,6 +80,11 @@ async fn dispatch_key_event<B: TerminalBackend>(
     res: &mut TurnInputResources<'_>,
     key: KeyEvent,
 ) -> Result<bool> {
+    let monitor = lp.engine.agent_monitor();
+    if agents::handle_agents_key(lp.controller, key, monitor)? || agents::try_open_agents(lp.controller, &key, monitor)?
+    {
+        return Ok(false);
+    }
     let modal_res = handle_modal_key(lp.controller, key, &mut lp.batch.modal)?;
     match modal_res {
         ModalKeyResult::NotHandled => dispatch_regular_key(lp, res, key).await,

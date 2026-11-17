@@ -10,6 +10,7 @@ Available tools:
 - web_search: Search the web and return structured summaries and URLs
 - web_fetch: Fetch and extract clean text or markdown from URLs
 - subagent: Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')
+- workflow: Run a declarative multi-agent workflow when the user asks for one
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

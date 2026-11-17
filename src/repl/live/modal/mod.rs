@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod interaction;
 pub mod selectors;
 pub mod settings;

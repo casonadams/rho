@@ -64,12 +64,15 @@ fn parse_frontmatter_field(line: &str, out: &mut ParsedFrontmatter) {
 
 pub fn parse_agent_file(path: &Path) -> Option<AgentMetadata> {
     let content = std::fs::read_to_string(path).ok()?;
-    let fallback_name = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("subagent")
-        .to_string();
+    let fallback_name = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("subagent");
+    Some(parse_agent_content(
+        &content,
+        fallback_name,
+        &path.display().to_string(),
+    ))
+}
 
+pub fn parse_agent_content(content: &str, fallback_name: &str, location: &str) -> AgentMetadata {
     let mut frontmatter = ParsedFrontmatter::default();
     let body = if content.starts_with("---") {
         let parts: Vec<&str> = content.splitn(3, "---").collect();
@@ -85,14 +88,14 @@ pub fn parse_agent_file(path: &Path) -> Option<AgentMetadata> {
         content.trim().to_string()
     };
 
-    Some(AgentMetadata {
-        name: frontmatter.name.unwrap_or(fallback_name),
+    AgentMetadata {
+        name: frontmatter.name.unwrap_or_else(|| fallback_name.to_string()),
         description: frontmatter.description.unwrap_or_else(|| "Custom subagent".to_string()),
-        location: path.display().to_string(),
+        location: location.to_string(),
         tools: frontmatter.tools,
         disallowed_tools: frontmatter.disallowed_tools,
         model: frontmatter.model,
         max_turns: frontmatter.max_turns,
         system_prompt: body,
-    })
+    }
 }

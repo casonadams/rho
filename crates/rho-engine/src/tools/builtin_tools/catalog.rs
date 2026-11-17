@@ -7,7 +7,7 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::SubagentArgs;
+use rho_harness_core::args::{SubagentArgs, WorkflowArgs};
 
 pub static PROMPT_READ: &str = "\
 Read file contents with offset and limit safeguards.
@@ -89,6 +89,15 @@ Usage:
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
 - Subagents run up to max_turns (default 10) and return a concise summary to the parent.";
+
+pub static PROMPT_WORKFLOW: &str = "\
+Run a declarative multi-agent workflow (built-in, ~/.agents/workflows/, or .agents/workflows/) to completion.
+
+Usage:
+- Run a workflow only when the user asks for it, usually through its slash command (e.g. /refine security).
+- Pass the workflow name and its inputs; omitted inputs use their defaults.
+- The engine runs every step itself; do not repeat the workflow's work yourself.
+- Summarize the returned report for the user: why it stopped, what changed, and anything left over.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {
@@ -224,6 +233,15 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
             "Use subagent with role 'critic' to review proposed diffs or complex logic before applying changes",
         ],
         schema: generated_schema::<SubagentArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "workflow",
+        capability: BuiltinToolKind::Composite,
+        description: "Run a declarative multi-agent workflow to completion and return its report.",
+        prompt: PROMPT_WORKFLOW,
+        prompt_snippet: Some("Run a declarative multi-agent workflow when the user asks for one"),
+        prompt_guidelines: &["Run a workflow only when the user asks for it; summarize its report afterwards"],
+        schema: generated_schema::<WorkflowArgs>,
     },
 ];
 
