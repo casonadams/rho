@@ -321,7 +321,7 @@ async fn process_key_event<B: TerminalBackend>(
     handle_plain_or_shortcut(controller, &action, batch, resources, input, ctx).await
 }
 
-fn sync_renderer_width(
+pub(crate) fn sync_renderer_width(
     renderer: &crate::ui::TerminalRenderer,
     controller: &TerminalController<impl TerminalBackend>,
     resized: bool,

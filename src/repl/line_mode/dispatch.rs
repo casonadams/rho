@@ -298,7 +298,7 @@ pub(crate) async fn handle_config_auth_result(
     Ok(true)
 }
 
-fn print_compaction_stats(session: &ReplSession, stats: &rho_engine::engine::CompactionStats) {
+pub(crate) fn print_compaction_stats(session: &ReplSession, stats: &rho_engine::engine::CompactionStats) {
     let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
     let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
     let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);

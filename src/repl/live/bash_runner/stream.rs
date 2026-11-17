@@ -11,6 +11,7 @@ use super::progress::StreamProgress;
 use crate::error::Result;
 use crate::repl::live::LiveIo;
 use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use crate::repl::live::idle::dispatch::sync_renderer_width;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InputAction, TerminalBackend, TerminalController, map_key};
 
@@ -43,22 +44,16 @@ impl<B: TerminalBackend> BashRun<'_, B> {
         self.batch.flush(self.controller, spinner)
     }
 
-    fn sync_renderer_width(&mut self, resized: bool) {
-        if resized {
-            self.renderer.set_width(self.controller.width());
-        }
-    }
-
     fn handle_resize(&mut self, cols: u16, rows: u16) -> Result<()> {
         let resized =
             self.controller.resize_to(usize::from(cols), usize::from(rows))? || self.controller.refresh_size()?;
-        self.sync_renderer_width(resized);
+        sync_renderer_width(self.renderer, self.controller, resized);
         self.drain_and_flush(true)
     }
 
     fn handle_focus_gained(&mut self) -> Result<()> {
         let resized = self.controller.refresh_size()?;
-        self.sync_renderer_width(resized);
+        sync_renderer_width(self.renderer, self.controller, resized);
         if !self.controller.focused() || resized {
             self.controller.set_focused(true);
             self.drain_and_flush(true)?;
@@ -140,7 +135,7 @@ impl<B: TerminalBackend> BashRun<'_, B> {
     fn handle_frame_tick(&mut self, stream: &mut StreamBuffers) -> Result<()> {
         let expired = self.controller.check_system_message_expiration();
         let resized = self.controller.refresh_size()?;
-        self.sync_renderer_width(resized);
+        sync_renderer_width(self.renderer, self.controller, resized);
         if stream.progress.on_tick(self.controller) || expired || resized {
             self.drain_and_flush(true)?;
         }

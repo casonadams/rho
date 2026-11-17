@@ -79,12 +79,7 @@ pub(crate) async fn handle_compact<B: TerminalBackend>(
         .print_notice("  [Compacting conversation context...]\n");
     match ctx.engine.compact_session(instructions).await {
         Ok(stats) => {
-            let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
-            let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
-            let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
-            ctx.session.renderer.print_notice(&format!(
-                "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
-            ));
+            crate::repl::line_mode::dispatch::print_compaction_stats(ctx.session, &stats);
             crate::repl::live::turn::sync_turn_footer(io.controller, ctx.engine);
             let _ = io.controller.redraw();
         }
