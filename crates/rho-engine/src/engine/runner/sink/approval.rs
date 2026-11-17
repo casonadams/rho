@@ -80,6 +80,8 @@ impl TerminalApprovalSink {
                 last_display: DisplayKind::None,
                 pending_reasoning_newlines: 0,
                 has_reasoning_content: false,
+                text_carry: String::new(),
+                reasoning_carry: String::new(),
             }),
         })
     }
@@ -114,6 +116,35 @@ impl TerminalApprovalSink {
     }
 
     pub fn flush_reasoning(&self) {
+        self.release_text_carry();
+        self.finish_reasoning_block();
+    }
+
+    fn release_text_carry(&self) {
+        let tail = self
+            .state
+            .lock()
+            .map(|mut state| std::mem::take(&mut state.text_carry))
+            .unwrap_or_default();
+        if !tail.is_empty() {
+            self.presenter.print_token(&tail);
+        }
+    }
+
+    fn release_reasoning_carry(&self) {
+        let plan = {
+            let Ok(mut state) = self.state.lock() else { return };
+            let tail = std::mem::take(&mut state.reasoning_carry);
+            if tail.is_empty() {
+                return;
+            }
+            update_reasoning_state(&mut state, &tail)
+        };
+        self.present_reasoning_plan(plan);
+    }
+
+    fn finish_reasoning_block(&self) {
+        self.release_reasoning_carry();
         let collected = self
             .state
             .lock()
@@ -163,10 +194,13 @@ impl TerminalApprovalSink {
         if text.is_empty() {
             return;
         }
+        self.release_text_carry();
         self.ensure_reasoning_spinner();
         let plan = {
             let Ok(mut state) = self.state.lock() else { return };
-            let redacted = self.session_manager.redact_credentials(text);
+            let redacted = self
+                .session_manager
+                .redact_credentials_streamed(&mut state.reasoning_carry, text);
             update_reasoning_state(&mut state, &redacted)
         };
         self.present_reasoning_plan(plan);
@@ -176,8 +210,9 @@ impl TerminalApprovalSink {
         if !self.presenter.has_interactive_ui() {
             self.finish_spinner();
         }
-        self.flush_reasoning();
+        self.finish_reasoning_block();
         let mut prefix_blank = false;
+        let mut redacted = String::new();
         if let Ok(mut state) = self.state.lock() {
             if state.last_display == DisplayKind::Tool
                 || state.last_display == DisplayKind::Thinking
@@ -186,12 +221,16 @@ impl TerminalApprovalSink {
                 prefix_blank = true;
             }
             state.last_display = DisplayKind::Text;
+            redacted = self
+                .session_manager
+                .redact_credentials_streamed(&mut state.text_carry, text);
         }
         if prefix_blank {
             self.presenter.write_output("\n");
         }
-        let redacted = self.session_manager.redact_credentials(text);
-        self.presenter.print_token(&redacted);
+        if !redacted.is_empty() {
+            self.presenter.print_token(&redacted);
+        }
     }
 
     pub fn flush_display(&self) {
@@ -433,6 +472,48 @@ mod tests {
             sink.flush_reasoning();
             assert_eq!(*thinking.lock().unwrap(), vec![expected.to_string()]);
         }
+    }
+
+    #[test]
+    fn secrets_split_across_streamed_chunks_are_redacted() {
+        use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
+        let temp = tempfile::tempdir().unwrap();
+        let recording = RecordingSink::new();
+        let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::recording(recording.clone()));
+        let session = rho_harness_core::session::SessionManager::new_with_secrets(
+            temp.path(),
+            None,
+            vec!["credential-sentinel".to_string()],
+        )
+        .unwrap();
+        let sink = TerminalApprovalSink::new(
+            &presenter,
+            TerminalSinkConfig {
+                model_label: "test".to_string(),
+                run_tracker: crate::engine::metrics::RunTracker::default(),
+            },
+            session,
+        );
+
+        sink.emit_reasoning("thinking about credential-");
+        sink.emit_reasoning("sentinel now");
+        sink.emit_text("key: credential-");
+        sink.emit_text("sentinel done");
+        sink.emit_text(" tail credential-");
+        sink.flush_display();
+
+        let events = recording.events();
+        let joined = |pick: fn(&UiEvent) -> Option<&str>| events.iter().filter_map(pick).collect::<String>();
+        let thinking = joined(|e| match e {
+            UiEvent::ThinkingToken { token } => Some(token),
+            _ => None,
+        });
+        let text = joined(|e| match e {
+            UiEvent::Token { token } => Some(token),
+            _ => None,
+        });
+        assert_eq!(thinking, "thinking about [REDACTED] now");
+        assert_eq!(text, "key: [REDACTED] done tail credential-");
     }
 
     #[test]

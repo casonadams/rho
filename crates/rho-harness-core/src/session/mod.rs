@@ -175,6 +175,12 @@ impl SessionManager {
         self.secrets.redact(value)
     }
 
+    /// Redacts a streamed chunk, keeping any tail that could still complete a secret in `carry`.
+    /// Once the stream ends, `carry` holds no complete secret and can be shown as is.
+    pub fn redact_credentials_streamed(&self, carry: &mut String, chunk: &str) -> String {
+        self.secrets.redact_stream(carry, chunk)
+    }
+
     pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
         summary::list_session_summaries(sessions_dir)
     }

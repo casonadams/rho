@@ -48,6 +48,8 @@ pub struct TerminalSinkState {
     pub last_display: DisplayKind,
     pub pending_reasoning_newlines: usize,
     pub has_reasoning_content: bool,
+    pub text_carry: String,
+    pub reasoning_carry: String,
 }
 
 pub struct ToolFinishDetails<'a> {

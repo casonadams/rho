@@ -141,6 +141,35 @@ async fn concurrent_appends_are_serialized_without_interleaving() {
 }
 
 #[tokio::test]
+async fn streamed_redaction_hides_secrets_split_across_chunks() {
+    let dir = temp_dir();
+    let store = SessionManager::new_with_secrets(&dir, None, vec!["credential-sentinel".to_string()]).unwrap();
+    let cases: [&[&str]; 4] = [
+        &["key: credential-", "sentinel done"],
+        &["key: c", "r", "edential-sentin", "el done"],
+        &["key: credential-sentinel done"],
+        &["key: cred", "it card done"],
+    ];
+    let expected = [
+        "key: [REDACTED] done",
+        "key: [REDACTED] done",
+        "key: [REDACTED] done",
+        "key: credit card done",
+    ];
+    for (chunks, expected) in cases.iter().zip(expected) {
+        let mut carry = String::new();
+        let mut shown = String::new();
+        for chunk in *chunks {
+            let released = store.redact_credentials_streamed(&mut carry, chunk);
+            assert!(!released.contains("credential-"), "{chunks:?} released {released:?}");
+            shown.push_str(&released);
+        }
+        shown.push_str(&carry);
+        assert_eq!(shown, expected, "{chunks:?}");
+    }
+}
+
+#[tokio::test]
 async fn credential_values_are_rejected_without_persistence_or_error_echo() {
     let dir = temp_dir();
     let store = SessionManager::new_with_secrets(&dir, None, vec!["credential-sentinel".to_string()]).unwrap();

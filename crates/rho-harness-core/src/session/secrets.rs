@@ -55,6 +55,29 @@ impl SecretGuard {
         })
     }
 
+    pub(crate) fn redact_stream(&self, carry: &mut String, chunk: &str) -> String {
+        carry.push_str(chunk);
+        let redacted = self.redact(carry);
+        let split = redacted.len() - self.partial_secret_suffix_len(&redacted);
+        *carry = redacted[split..].to_string();
+        redacted[..split].to_string()
+    }
+
+    fn partial_secret_suffix_len(&self, text: &str) -> usize {
+        let Ok(secrets) = self.secrets.lock() else {
+            return text.len();
+        };
+        secrets
+            .iter()
+            .filter_map(|secret| {
+                (1..secret.len().min(text.len() + 1))
+                    .rev()
+                    .find(|&len| secret.is_char_boundary(len) && text.ends_with(&secret[..len]))
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
     pub(crate) fn reject_in<T: Serialize>(&self, value: &T) -> Result<()> {
         let encoded = serde_json::to_string(value).map_err(|_| session_error("session record serialization failed"))?;
         let secrets = self.lock()?;
