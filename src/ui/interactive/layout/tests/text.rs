@@ -17,60 +17,54 @@ fn truncate_to_visual_lines_skips_earlier_lines_when_exceeding_limit() {
 }
 
 #[test]
-fn wrap_to_width_breaks_on_word_boundaries() {
-    let text = "alpha beta gamma delta epsilon";
-    let wrapped = wrap_to_width(text, 16);
-    assert_eq!(wrapped, vec!["alpha beta gamma", "delta epsilon"]);
-}
-
-#[test]
-fn wrap_to_width_splits_oversized_words() {
-    let text = "short supercalifragilisticexpialidocious end";
-    let wrapped = wrap_to_width(text, 10);
-    assert_eq!(
-        wrapped,
-        vec!["short", "supercalif", "ragilistic", "expialidoc", "ious end",]
-    );
-}
-
-#[test]
-fn wrap_to_width_handles_empty_and_whitespace_lines() {
-    let text = "first\n\n   \nsecond";
-    let wrapped = wrap_to_width(text, 20);
-    assert_eq!(wrapped, vec!["first", "", "", "second"]);
-}
-
-#[test]
-fn wrap_to_width_preserves_ansi_styling_across_word_boundaries() {
-    let text = "\x1b[32malpha beta gamma delta\x1b[0m";
-    let wrapped = wrap_to_width(text, 12);
-    assert_eq!(
-        wrapped,
-        vec!["\x1b[32malpha beta\x1b[0m", "\x1b[32mgamma delta\x1b[0m",]
-    );
-}
-
-#[test]
-fn wrap_to_width_preserves_leading_indentation_on_first_line() {
-    let text = "  alpha beta gamma";
-    let wrapped = wrap_to_width(text, 10);
-    assert_eq!(wrapped, vec!["  alpha", "beta gamma"]);
-}
-
-#[test]
-fn wrap_to_width_preserves_multiple_spaces_when_fitting() {
-    let text = "alpha   beta";
-    let wrapped = wrap_to_width(text, 20);
-    assert_eq!(wrapped, vec!["alpha   beta"]);
-}
-
-#[test]
-fn wrap_to_width_strips_carriage_returns() {
-    let text = "\r00:01 +0: loading\r\n\r00:02 +1: passed\r\n";
-    let wrapped = wrap_to_width(text, 40);
-    assert_eq!(wrapped, vec!["00:01 +0: loading", "00:02 +1: passed", ""]);
-    for line in &wrapped {
-        assert!(!line.contains('\r'));
+fn wrap_to_width_breaks_lines_at_the_column_width() {
+    let cases: [(&str, &str, usize, &[&str]); 8] = [
+        (
+            "word boundaries",
+            "alpha beta gamma delta epsilon",
+            16,
+            &["alpha beta gamma", "delta epsilon"],
+        ),
+        (
+            "oversized words split",
+            "short supercalifragilisticexpialidocious end",
+            10,
+            &["short", "supercalif", "ragilistic", "expialidoc", "ious end"],
+        ),
+        (
+            "blank lines kept",
+            "first\n\n   \nsecond",
+            20,
+            &["first", "", "", "second"],
+        ),
+        (
+            "SGR reopened per line",
+            "\x1b[32malpha beta gamma delta\x1b[0m",
+            12,
+            &["\x1b[32malpha beta\x1b[0m", "\x1b[32mgamma delta\x1b[0m"],
+        ),
+        (
+            "first-line indentation kept",
+            "  alpha beta gamma",
+            10,
+            &["  alpha", "beta gamma"],
+        ),
+        ("inner spaces kept", "alpha   beta", 20, &["alpha   beta"]),
+        (
+            "carriage returns stripped",
+            "\r00:01 +0: loading\r\n\r00:02 +1: passed\r\n",
+            40,
+            &["00:01 +0: loading", "00:02 +1: passed", ""],
+        ),
+        (
+            "non-SGR escapes kept",
+            "\x1b[2K\x1b[31mred",
+            80,
+            &["\x1b[2K\x1b[31mred"],
+        ),
+    ];
+    for (name, text, width, expected) in cases {
+        assert_eq!(wrap_to_width(text, width), expected, "{name}");
     }
 }
 
@@ -78,10 +72,4 @@ fn wrap_to_width_strips_carriage_returns() {
 fn wrap_keeps_visible_text_after_non_sgr_escape_sequences() {
     let wrapped = wrap_to_width("\x1b[2Kkeep this text", 80);
     assert_eq!(crate::ui::block::strip_ansi(&wrapped.join("\n")), "keep this text");
-}
-
-#[test]
-fn wrap_applies_only_sgr_codes_to_active_style() {
-    let wrapped = wrap_to_width("\x1b[2K\x1b[31mred", 80);
-    assert_eq!(wrapped, vec!["\x1b[2K\x1b[31mred"]);
 }

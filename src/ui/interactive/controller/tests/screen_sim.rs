@@ -1052,6 +1052,7 @@ mod regressions {
                     let token = if i == 0 { word.to_string() } else { format!(" {word}") };
                     renderer.print_thinking_token(&token);
                     drive_renderer_to_controller(&mut events, &mut controller);
+                    controller.redraw().unwrap();
                 }
                 renderer.finish_thinking(text);
                 renderer.write_output("\n");

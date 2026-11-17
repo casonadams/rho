@@ -263,123 +263,80 @@ impl SpacingTracker {
 mod tests {
     use super::*;
 
-    #[test]
-    fn markdown_prose_wraps_on_word_boundaries() {
-        let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(20);
-
-        let text = "The quick brown fox jumps over the lazy dog";
-        let rendered = md.render_text(text, &theme);
-        let lines: Vec<&str> = rendered.trim().lines().collect();
-
-        assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0], "The quick brown fox");
-        assert_eq!(lines[1], "jumps over the lazy");
-        assert_eq!(lines[2], "dog");
+    fn plain_lines(rendered: &str) -> Vec<String> {
+        let plain = crate::ui::block::strip_ansi(rendered);
+        plain.trim().lines().map(str::to_string).collect()
     }
 
     #[test]
-    fn markdown_code_block_does_not_wrap() {
-        let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(20);
-
-        let code = "```rust\nlet a_very_long_variable_name = \"some long string value\";\n```";
-        let rendered = md.render_text(code, &theme);
-        let lines: Vec<&str> = rendered.trim().lines().collect();
-
-        assert_eq!(lines.len(), 3);
-        assert!(lines[1].contains("a_very_long_variable_name"));
-        assert!(lines[1].contains("some long string value"));
-    }
-
-    #[test]
-    fn markdown_unconstrained_when_width_zero() {
-        let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-
-        let text = "The quick brown fox jumps over the lazy dog";
-        let rendered = md.render_text(text, &theme);
-        let lines: Vec<&str> = rendered.trim().lines().collect();
-
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0], "The quick brown fox jumps over the lazy dog");
-    }
-
-    #[test]
-    fn markdown_styled_inline_preserves_ansi_across_wrap() {
-        let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(12);
-
-        let text = "alpha **beta gamma** delta";
-        let rendered = md.render_text(text, &theme);
-        let lines: Vec<&str> = rendered.trim().lines().collect();
-
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("alpha"));
-        assert!(lines[0].contains("beta"));
-        assert!(lines[1].contains("gamma"));
-        assert!(lines[1].contains("delta"));
-    }
-
-    #[test]
-    fn markdown_bullet_list_wraps_on_word_boundaries() {
-        let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(20);
-
-        let text = "- alpha beta gamma delta epsilon";
-        let rendered = md.render_text(text, &theme);
-        let lines: Vec<&str> = rendered.trim().lines().collect();
-
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("•"));
-        assert!(lines[0].contains("alpha beta gamma"));
-        assert_eq!(lines[1], "delta epsilon");
-    }
-
-    #[test]
-    fn markdown_streamed_prose_wraps_on_word_boundaries() {
-        let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(20);
-
-        let mut output = String::new();
-        let tokens = [
-            "The ", "quick ", "brown ", "fox ", "jumps ", "over ", "the ", "lazy ", "dog.",
+    fn render_text_wraps_prose_but_not_code() {
+        let cases: [(&str, usize, &str, &[&str]); 5] = [
+            (
+                "prose",
+                20,
+                "The quick brown fox jumps over the lazy dog",
+                &["The quick brown fox", "jumps over the lazy", "dog"],
+            ),
+            (
+                "code block",
+                20,
+                "```rust\nlet a_very_long_variable_name = \"some long string value\";\n```",
+                &[
+                    "```rust",
+                    "let a_very_long_variable_name = \"some long string value\";",
+                    "```",
+                ],
+            ),
+            (
+                "width zero",
+                0,
+                "The quick brown fox jumps over the lazy dog",
+                &["The quick brown fox jumps over the lazy dog"],
+            ),
+            (
+                "styled inline",
+                12,
+                "alpha **beta gamma** delta",
+                &["alpha beta", "gamma delta"],
+            ),
+            (
+                "bullet list",
+                20,
+                "- alpha beta gamma delta epsilon",
+                &["\u{2022} alpha beta gamma", "delta epsilon"],
+            ),
         ];
-        for token in tokens {
-            output.push_str(&md.render_token(token, &theme));
+        let theme = Theme::default();
+        for (name, width, text, expected) in cases {
+            let mut md = MarkdownRenderer::new();
+            md.set_width(width);
+            assert_eq!(plain_lines(&md.render_text(text, &theme)), expected, "{name}");
         }
-        output.push_str(&md.flush(&theme));
-
-        let lines: Vec<&str> = output.trim().lines().collect();
-        assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0], "The quick brown fox");
-        assert_eq!(lines[1], "jumps over the lazy");
-        assert_eq!(lines[2], "dog.");
     }
 
     #[test]
-    fn markdown_streamed_prose_styled_wraps_preserving_ansi() {
+    fn streamed_tokens_wrap_like_whole_text() {
+        let cases: [(usize, &[&str], &[&str]); 2] = [
+            (
+                20,
+                &[
+                    "The ", "quick ", "brown ", "fox ", "jumps ", "over ", "the ", "lazy ", "dog.",
+                ],
+                &["The quick brown fox", "jumps over the lazy", "dog."],
+            ),
+            (
+                12,
+                &["alpha ", "**beta ", "gamma** ", "delta."],
+                &["alpha beta", "gamma delta."],
+            ),
+        ];
         let theme = Theme::default();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(12);
-
-        let mut output = String::new();
-        let tokens = ["alpha ", "**beta ", "gamma** ", "delta."];
-        for token in tokens {
-            output.push_str(&md.render_token(token, &theme));
+        for (width, tokens, expected) in cases {
+            let mut md = MarkdownRenderer::new();
+            md.set_width(width);
+            let mut output: String = tokens.iter().map(|token| md.render_token(token, &theme)).collect();
+            output.push_str(&md.flush(&theme));
+            assert_eq!(plain_lines(&output), expected, "{tokens:?}");
         }
-        output.push_str(&md.flush(&theme));
-
-        let lines: Vec<&str> = output.trim().lines().collect();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("alpha"));
-        assert!(lines[0].contains("beta"));
-        assert!(lines[1].contains("gamma"));
-        assert!(lines[1].contains("delta"));
     }
 }
