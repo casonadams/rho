@@ -23,14 +23,6 @@ impl Workspace {
     pub fn resolve(&self, raw_path: &str) -> Option<PathBuf> {
         resolve_path(raw_path, &self.root)
     }
-
-    pub fn list_files(&self, max_files: usize) -> Vec<String> {
-        list_relative_files(&self.root, max_files)
-    }
-
-    pub async fn list_files_async(&self, max_files: usize) -> Vec<String> {
-        list_relative_files_async(&self.root, max_files).await
-    }
 }
 
 pub fn clean_path_arg(raw: &str) -> &str {
@@ -96,72 +88,6 @@ fn is_ignored_directory_or_file(name: &str) -> bool {
 fn to_forward_slash_rel(root: &Path, path: &Path) -> Option<String> {
     let rel = path.strip_prefix(root).ok()?;
     Some(rel.to_string_lossy().replace('\\', "/"))
-}
-
-async fn process_async_entry(
-    root: &Path,
-    entry: tokio::fs::DirEntry,
-    dirs: &mut Vec<PathBuf>,
-    files: &mut Vec<String>,
-) {
-    let Ok(metadata) = entry.metadata().await else {
-        return;
-    };
-    let path = entry.path();
-    if metadata.is_dir() {
-        dirs.push(path);
-    } else if metadata.is_file()
-        && let Some(rel) = to_forward_slash_rel(root, &path)
-    {
-        files.push(rel);
-    }
-}
-
-async fn step_async_entry(root: &Path, entry: tokio::fs::DirEntry, dirs: &mut Vec<PathBuf>, files: &mut Vec<String>) {
-    let file_name = entry.file_name();
-    if !is_ignored_directory_or_file(&file_name.to_string_lossy()) {
-        process_async_entry(root, entry, dirs, files).await;
-    }
-}
-
-async fn drain_async_entries(
-    root: &Path,
-    entries: &mut tokio::fs::ReadDir,
-    dirs: &mut Vec<PathBuf>,
-    files: &mut Vec<String>,
-    max_files: usize,
-) {
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        step_async_entry(root, entry, dirs, files).await;
-        if files.len() >= max_files {
-            break;
-        }
-    }
-}
-
-async fn drain_async_dir(
-    root: &Path,
-    current: &Path,
-    dirs: &mut Vec<PathBuf>,
-    files: &mut Vec<String>,
-    max_files: usize,
-) {
-    if let Ok(mut entries) = tokio::fs::read_dir(current).await {
-        drain_async_entries(root, &mut entries, dirs, files, max_files).await;
-    }
-}
-
-pub async fn list_relative_files_async(root: &Path, max_files: usize) -> Vec<String> {
-    let mut files = Vec::new();
-    let mut dirs = vec![root.to_path_buf()];
-    while let Some(current) = dirs.pop() {
-        drain_async_dir(root, &current, &mut dirs, &mut files, max_files).await;
-        if files.len() >= max_files {
-            break;
-        }
-    }
-    files.sort();
-    files
 }
 
 fn process_sync_entry(root: &Path, path: PathBuf, dirs: &mut Vec<PathBuf>, files: &mut Vec<String>) {

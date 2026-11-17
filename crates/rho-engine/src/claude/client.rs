@@ -86,7 +86,7 @@ impl ClaudeClient {
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let body = build_request_body(&self.model, self.thinking_level.as_deref(), request, self.auth)
             .map_err(|e| (None, e.to_string()))?;
-        post_json_checked(&self.target_url(), claude_headers(self.auth, token), &body, None).await
+        post_json_checked(&self.target_url(), claude_headers(self.auth, token), &body).await
     }
 
     async fn refresh_and_retry(

@@ -14,13 +14,14 @@ pub async fn post_json_checked(
     url: &str,
     headers: reqwest::header::HeaderMap,
     body: &serde_json::Value,
-    timeout: Option<Duration>,
 ) -> Result<reqwest::Response, (Option<u16>, String)> {
-    let mut request = CLIENT.post(url).headers(headers).json(body);
-    if let Some(timeout) = timeout {
-        request = request.timeout(timeout);
-    }
-    let response = request.send().await.map_err(|e| (None, e.to_string()))?;
+    let response = CLIENT
+        .post(url)
+        .headers(headers)
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| (None, e.to_string()))?;
     let status = response.status();
     if status.is_success() {
         return Ok(response);

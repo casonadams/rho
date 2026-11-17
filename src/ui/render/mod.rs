@@ -33,17 +33,6 @@ pub use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay
 pub use rpc_presenter::{PendingApprovals, RpcPresenter};
 pub(crate) use thinking::format_thinking_block;
 
-pub fn format_duration(duration: std::time::Duration) -> String {
-    let secs = duration.as_secs();
-    if secs >= 60 {
-        format!("{}m {}s", secs / 60, secs % 60)
-    } else if secs > 0 {
-        format!("{secs}s")
-    } else {
-        format!("{}ms", duration.as_millis())
-    }
-}
-
 /// Formats a tool duration given in milliseconds.
 pub fn format_duration_ms(duration_ms: u64) -> String {
     let seconds = duration_ms / 1000;

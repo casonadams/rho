@@ -20,8 +20,6 @@ use super::request::sanitize_tool_call_id;
 /// Incremental SSE parser for Antigravity `streamGenerateContent?alt=sse`.
 pub struct SseParser {
     decoder: SseLineDecoder,
-    reasoning_open: bool,
-    reasoning_text: String,
     reasoning_signature: Option<String>,
     next_minted_tool: u64,
 }
@@ -46,8 +44,6 @@ impl SseParser {
     pub fn new() -> Self {
         Self {
             decoder: SseLineDecoder::new(),
-            reasoning_open: false,
-            reasoning_text: String::new(),
             reasoning_signature: None,
             next_minted_tool: 0,
         }
@@ -119,12 +115,9 @@ impl SseParser {
     }
 
     fn handle_part_thought(&mut self, text: String, signature: Option<String>, events: &mut SseEvents) {
-        self.reasoning_open = true;
-        if let Some(sig) = &signature {
-            self.reasoning_signature = Some(sig.clone());
+        if signature.is_some() {
+            self.reasoning_signature = signature;
         }
-        let _sig = signature.or_else(|| self.reasoning_signature.clone());
-        self.reasoning_text.push_str(&text);
         events.push(Ok(ModelStreamEvent::Reasoning(text)));
     }
 
@@ -153,8 +146,6 @@ impl SseParser {
     }
 
     fn close_reasoning(&mut self) {
-        self.reasoning_open = false;
-        self.reasoning_text.clear();
         self.reasoning_signature = None;
     }
 }

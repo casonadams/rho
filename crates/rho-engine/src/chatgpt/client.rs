@@ -158,7 +158,7 @@ impl ChatGptClient {
         request: &ModelCompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let body = self.build_request(request).map_err(|e| (None, e.to_string()))?;
-        post_json_checked(&self.target_url(), self.headers(token), &body, None).await
+        post_json_checked(&self.target_url(), self.headers(token), &body).await
     }
 
     async fn retry_post_stream(
