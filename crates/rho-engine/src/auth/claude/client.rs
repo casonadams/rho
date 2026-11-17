@@ -1,6 +1,6 @@
 use crate::auth::token_request::post_form_json;
 use crate::http::CLIENT;
-use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::error::Result;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -55,19 +55,6 @@ pub struct ClaudeProfileOrganization {
     pub name: Option<String>,
 }
 
-async fn parse_claude_token_response(res: reqwest::Response) -> Result<ClaudeTokenResponse> {
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!(
-            "Claude token exchange failed ({status}): {body}"
-        )));
-    }
-    res.json::<ClaudeTokenResponse>()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse Claude token response: {e}")))
-}
-
 pub async fn exchange_code_with_redirect(
     token_url: &str,
     code: &str,
@@ -91,16 +78,14 @@ pub async fn exchange_code_with_redirect(
     if let Some(s) = effective_state {
         form.push(("state", s));
     }
-    let res = CLIENT
-        .post(token_url)
-        .timeout(TOKEN_TIMEOUT)
-        .header(reqwest::header::USER_AGENT, USER_AGENT)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| AppError::Auth(format!("Claude token exchange network error: {e}")))?;
-
-    parse_claude_token_response(res).await
+    post_form_json(
+        token_url,
+        &form,
+        &[("User-Agent", USER_AGENT)],
+        TOKEN_TIMEOUT,
+        "Claude token exchange",
+    )
+    .await
 }
 
 pub async fn refresh_token(token_url: &str, refresh: &str) -> Result<ClaudeTokenResponse> {

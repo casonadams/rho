@@ -2,8 +2,19 @@
 
 use crate::http::CLIENT;
 use rho_harness_core::error::{AppError, Result};
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
+
+/// Standard OAuth 2.0 token endpoint reply (RFC 6749 section 5.1).
+#[derive(Debug, Deserialize)]
+pub(crate) struct TokenResponse {
+    pub(crate) access_token: String,
+    #[serde(default)]
+    pub(crate) refresh_token: Option<String>,
+    #[serde(default)]
+    pub(crate) expires_in: Option<i64>,
+}
 
 pub(crate) async fn send_checked(request: reqwest::RequestBuilder, operation: &str) -> Result<reqwest::Response> {
     let res = request

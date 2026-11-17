@@ -1037,6 +1037,30 @@ mod regressions {
         }
 
         #[test]
+        fn zz_probe_thinking_layout() {
+            let text = "I'm checking whether the docs describe how file completion works, especially the part about the @ completion ignoring certain paths. I'll search the docs for mentions of node_modules or gitignore in relation to completion.";
+            for (label, set_width) in [("set", true), ("unset", false)] {
+                let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+                let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+                let mut controller = controller_with_transcript((80, 24));
+                if set_width {
+                    renderer.set_width(80);
+                }
+                controller.state_mut().editor_mut().set_text("");
+                commit_bash_after_stream(&mut controller, &mut events, &renderer);
+                for (i, word) in text.split(' ').enumerate() {
+                    let token = if i == 0 { word.to_string() } else { format!(" {word}") };
+                    renderer.print_thinking_token(&token);
+                    drive_renderer_to_controller(&mut events, &mut controller);
+                }
+                renderer.finish_thinking(text);
+                renderer.write_output("\n");
+                drive_renderer_to_controller(&mut events, &mut controller);
+                eprintln!("=== {label} ===\n{}", controller.backend.text().join("\n"));
+            }
+        }
+
+        #[test]
         fn window_resize_reflows_bordered_boxes_and_chrome_cleanly() {
             let mut controller =
                 TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();

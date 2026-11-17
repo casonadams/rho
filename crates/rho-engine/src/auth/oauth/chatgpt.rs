@@ -3,11 +3,10 @@
 use super::jwt::extract_chatgpt_account_id;
 use super::{AuthorizationGrant, LoginPrompt, loopback_login};
 use crate::auth::pkce::AuthorizeRequest;
-use crate::auth::token_request::send_for_json;
+use crate::auth::token_request::{TokenResponse, send_for_json};
 use crate::http::CLIENT;
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
 use rho_harness_core::error::Result;
-use serde::Deserialize;
 use std::time::Duration;
 
 const OPENAI_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -15,13 +14,6 @@ const OPENAI_AUTH_URL: &str = "https://auth.openai.com/oauth/authorize";
 const OPENAI_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const OPENAI_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const OPENAI_SCOPE: &str = "openid profile email offline_access";
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct TokenResponse {
-    pub(crate) access_token: String,
-    pub(crate) refresh_token: Option<String>,
-    pub(crate) expires_in: Option<i64>,
-}
 
 async fn post_openai_token_form(token_url: &str, form: &[(&str, &str)], operation: &str) -> Result<TokenResponse> {
     let request = CLIENT.post(token_url).timeout(Duration::from_secs(15)).form(form);

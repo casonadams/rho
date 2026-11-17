@@ -10,9 +10,10 @@ mod tests;
 
 use super::oauth::{AuthorizationGrant, LoginPrompt, loopback_login, oauth_credential, refresh_oauth_credential};
 use crate::antigravity::load_project_id;
+use crate::auth::token_request::TokenResponse;
 use client::{
-    CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL, GoogleTokenResponse,
-    REDIRECT_PORT, REDIRECT_URI_ENCODED, SCOPES, exchange_code, fetch_user_email, refresh_google_token,
+    CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL, REDIRECT_PORT,
+    REDIRECT_URI_ENCODED, SCOPES, exchange_code, fetch_user_email, refresh_google_token,
 };
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
 use rho_harness_core::error::Result;
@@ -32,7 +33,7 @@ pub fn stable_project_id(seed: &str) -> String {
     )
 }
 
-async fn build_antigravity_credential(token: GoogleTokenResponse) -> StoredCredential {
+async fn build_antigravity_credential(token: TokenResponse) -> StoredCredential {
     let email = fetch_user_email(GOOGLE_USERINFO_URL, &token.access_token).await;
     let project_id = load_project_id(&token.access_token)
         .await

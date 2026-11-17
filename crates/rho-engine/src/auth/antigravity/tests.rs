@@ -52,7 +52,7 @@ async fn exchange_code_rejects_failed_or_incomplete_responses() {
             "Google token exchange failed",
         ),
         ("200 OK", r#"{"access_token":"ya29.x"}"#, "No refresh token received"),
-        ("200 OK", "not json", "Failed to parse Google token response"),
+        ("200 OK", "not json", "Failed to parse Google token exchange response"),
     ];
     for (status, body, expected) in cases {
         let token_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;

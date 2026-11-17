@@ -219,7 +219,7 @@ fn test_chatgpt_build_openai_credential() {
         "sub": "user_123"
     });
     let payload_b64 = URL_SAFE_NO_PAD.encode(payload.to_string());
-    let token = chatgpt::TokenResponse {
+    let token = crate::auth::token_request::TokenResponse {
         access_token: format!("header.{payload_b64}.sig"),
         refresh_token: Some("rt_xyz".to_string()),
         expires_in: Some(3600),

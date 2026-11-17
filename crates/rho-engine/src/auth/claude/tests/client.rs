@@ -122,7 +122,7 @@ async fn exchange_code_with_redirect_rejects_failed_or_malformed_responses() {
             r#"{"error":"invalid_grant"}"#,
             "Claude token exchange failed (400",
         ),
-        ("200 OK", "not json", "Failed to parse Claude token response"),
+        ("200 OK", "not json", "Failed to parse Claude token exchange response"),
     ];
     for (status, body, expected) in cases {
         let token_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;

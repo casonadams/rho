@@ -128,7 +128,11 @@ mod tests {
         let tokens: Vec<String> = text.split_inclusive(' ').map(String::from).collect();
         let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
         eprintln!("words:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
-        let tokens: Vec<String> = text.split(' ').enumerate().map(|(i, w)| if i == 0 { w.to_string() } else { format!(" {w}") }).collect();
+        let tokens: Vec<String> = text
+            .split(' ')
+            .enumerate()
+            .map(|(i, w)| if i == 0 { w.to_string() } else { format!(" {w}") })
+            .collect();
         let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
         eprintln!("leading-space words:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
     }
