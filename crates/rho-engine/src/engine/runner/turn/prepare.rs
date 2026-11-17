@@ -90,12 +90,18 @@ impl AgentEngine {
             .limit_for(&self.config.model, &self.config.provider)
             .unwrap_or(128_000);
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
-        let pruned = super::prune::prune_historical_tool_outputs_with_policy(&raw, &policy);
-        let changed = pruned != raw;
-        Ok(LoadedHistory {
-            messages: pruned,
-            pruned: changed,
-        })
+        Ok(
+            match super::prune::prune_historical_tool_outputs_if_changed(&raw, &policy) {
+                Some(pruned) => LoadedHistory {
+                    messages: pruned,
+                    pruned: true,
+                },
+                None => LoadedHistory {
+                    messages: raw,
+                    pruned: false,
+                },
+            },
+        )
     }
 
     pub(crate) async fn check_proactive_compaction(

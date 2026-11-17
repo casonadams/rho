@@ -292,3 +292,11 @@ pub fn estimate_messages_tokens(messages: &[ChatMessage], model: &str) -> usize 
         .map(|msg| estimate_message_tokens_with(msg, tokenizer))
         .sum()
 }
+
+pub fn estimate_each_message_tokens(messages: &[ChatMessage], model: &str) -> Vec<usize> {
+    let tokenizer = ModelTokenizer::for_model(model);
+    messages
+        .iter()
+        .map(|msg| estimate_message_tokens_with(msg, tokenizer))
+        .collect()
+}

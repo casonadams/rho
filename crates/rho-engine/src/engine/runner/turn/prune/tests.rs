@@ -1438,3 +1438,34 @@ fn test_pruned_stub_keeps_artifact_path_from_spill_notice() {
     let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
     assert!(!extract_tool_result_first_text(&pruned[2]).contains("artifacts"));
 }
+
+#[test]
+fn test_find_recent_tokens_cutoff_uses_precomputed_sizes() {
+    let sizes = [10, 20, 30, 20];
+    assert_eq!(find_recent_tokens_cutoff(&sizes, 40), 2);
+    assert_eq!(find_recent_tokens_cutoff(&sizes, 0), sizes.len());
+    assert_eq!(find_recent_tokens_cutoff(&[], 40), 0);
+}
+
+#[test]
+fn if_changed_returns_none_when_nothing_is_pruned() {
+    let messages = vec![
+        ChatMessage::User {
+            content: vec![UserContent::Text(TextContent::new("hello"))],
+        },
+        ChatMessage::Assistant {
+            id: None,
+            content: vec![AssistantContent::Text(TextContent::new("hi there"))],
+        },
+    ];
+    let policy = PrunePolicy {
+        volatile_turns: 1,
+        line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+        protect_recent_tokens: 0,
+        prune_minimum_tokens: 0,
+        min_prune_tokens: 0,
+        model: None,
+    };
+    assert!(prune_historical_tool_outputs_if_changed(&messages, &policy).is_none());
+    assert_eq!(prune_historical_tool_outputs_with_policy(&messages, &policy), messages);
+}

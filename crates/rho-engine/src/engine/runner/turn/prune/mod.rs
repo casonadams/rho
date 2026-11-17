@@ -154,14 +154,10 @@ pub fn collect_superseded_tool_call_ids(messages: &[ChatMessage]) -> HashSet<Str
     superseded
 }
 
-pub fn find_recent_tokens_cutoff(messages: &[ChatMessage], protect_tokens: usize, model: &str) -> usize {
-    if protect_tokens == 0 || messages.is_empty() {
-        return messages.len();
+pub fn find_recent_tokens_cutoff(sizes: &[usize], protect_tokens: usize) -> usize {
+    if protect_tokens == 0 || sizes.is_empty() {
+        return sizes.len();
     }
-    let sizes: Vec<usize> = messages
-        .iter()
-        .map(|msg| rho_harness_core::tokens::estimate_message_tokens(msg, model))
-        .collect();
     let total: usize = sizes.iter().sum();
     let step = (protect_tokens / 2).max(1);
     let boundary = total.saturating_sub(protect_tokens) / step * step;
@@ -273,32 +269,34 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
 }
 
 fn prune_user_message_content(content: &[UserContent], ctx: &PruneContext<'_>) -> Option<Vec<UserContent>> {
-    let mut modified = false;
-    let new_content: Vec<UserContent> = content
-        .iter()
-        .map(|item| match prune_tool_result_item(item, ctx) {
-            Some(pruned) => {
-                modified = true;
-                pruned
-            }
-            None => item.clone(),
-        })
-        .collect();
-
-    if modified { Some(new_content) } else { None }
+    let mut new_content: Option<Vec<UserContent>> = None;
+    for (idx, item) in content.iter().enumerate() {
+        if let Some(pruned) = prune_tool_result_item(item, ctx) {
+            new_content.get_or_insert_with(|| content.to_vec())[idx] = pruned;
+        }
+    }
+    new_content
 }
 
 pub fn prune_historical_tool_outputs_with_policy(messages: &[ChatMessage], policy: &PrunePolicy) -> Vec<ChatMessage> {
+    prune_historical_tool_outputs_if_changed(messages, policy).unwrap_or_else(|| messages.to_vec())
+}
+
+pub fn prune_historical_tool_outputs_if_changed(
+    messages: &[ChatMessage],
+    policy: &PrunePolicy,
+) -> Option<Vec<ChatMessage>> {
     if messages.is_empty() {
-        return Vec::new();
+        return None;
     }
 
     let model = policy.model.as_deref().unwrap_or("gpt-4");
     let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
-    let recent_cutoff_idx = find_recent_tokens_cutoff(messages, policy.protect_recent_tokens, model);
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(messages, model);
+    let recent_cutoff_idx = find_recent_tokens_cutoff(&sizes, policy.protect_recent_tokens);
     let effective_cutoff = cutoff_idx.min(recent_cutoff_idx);
     if effective_cutoff == 0 {
-        return messages.to_vec();
+        return None;
     }
 
     let tool_calls = collect_tool_calls(messages);
@@ -312,34 +310,29 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[ChatMessage], polic
     };
 
     let mut total_savings = 0usize;
-    let pruned_messages: Vec<ChatMessage> = messages
+    let replacements: Vec<(usize, ChatMessage)> = messages[..effective_cutoff]
         .iter()
         .enumerate()
-        .map(|(idx, msg)| {
-            if idx >= effective_cutoff {
-                return msg.clone();
-            }
-            match msg {
-                ChatMessage::User { content } => match prune_user_message_content(content, &ctx) {
-                    Some(new_content) => {
-                        let original_tokens = rho_harness_core::tokens::estimate_message_tokens(msg, model);
-                        let new_msg = ChatMessage::User { content: new_content };
-                        let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, model);
-                        total_savings = total_savings.saturating_add(original_tokens.saturating_sub(new_tokens));
-                        new_msg
-                    }
-                    None => msg.clone(),
-                },
-                _ => msg.clone(),
-            }
+        .filter_map(|(idx, msg)| match msg {
+            ChatMessage::User { content } => prune_user_message_content(content, &ctx).map(|new_content| {
+                let new_msg = ChatMessage::User { content: new_content };
+                let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, model);
+                total_savings = total_savings.saturating_add(sizes[idx].saturating_sub(new_tokens));
+                (idx, new_msg)
+            }),
+            _ => None,
         })
         .collect();
 
-    if policy.prune_minimum_tokens > 0 && total_savings < policy.prune_minimum_tokens {
-        return messages.to_vec();
+    if replacements.is_empty() || (policy.prune_minimum_tokens > 0 && total_savings < policy.prune_minimum_tokens) {
+        return None;
     }
 
-    pruned_messages
+    let mut pruned_messages = messages.to_vec();
+    for (idx, new_msg) in replacements {
+        pruned_messages[idx] = new_msg;
+    }
+    Some(pruned_messages)
 }
 
 #[cfg(test)]
