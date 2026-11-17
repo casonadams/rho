@@ -48,19 +48,6 @@ impl ProviderId {
         Self::Local,
     ];
 
-    pub const API_KEY_PROVIDERS: [Self; 10] = [
-        Self::Anthropic,
-        Self::OpenAi,
-        Self::DeepSeek,
-        Self::Gemini,
-        Self::Groq,
-        Self::OllamaCloud,
-        Self::OpenRouter,
-        Self::XAi,
-        Self::Mistral,
-        Self::Cohere,
-    ];
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Anthropic => "anthropic",

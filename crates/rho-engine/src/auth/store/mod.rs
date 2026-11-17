@@ -134,7 +134,7 @@ impl AuthStore {
 
     pub fn list_configured_providers(&self) -> Vec<String> {
         let mut list: Vec<String> = self.credentials.keys().cloned().collect();
-        for id in ProviderId::API_KEY_PROVIDERS {
+        for id in ProviderId::ALL {
             if let Some(env_name) = id.api_key_env()
                 && std::env::var(env_name).is_ok_and(|v| !v.trim().is_empty())
                 && !list.contains(&id.as_str().to_string())

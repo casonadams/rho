@@ -1,33 +1,6 @@
 use super::*;
 
 #[test]
-fn api_key_providers_list_excludes_local_and_pure_oauth() {
-    assert_eq!(
-        ProviderId::API_KEY_PROVIDERS,
-        [
-            ProviderId::Anthropic,
-            ProviderId::OpenAi,
-            ProviderId::DeepSeek,
-            ProviderId::Gemini,
-            ProviderId::Groq,
-            ProviderId::OllamaCloud,
-            ProviderId::OpenRouter,
-            ProviderId::XAi,
-            ProviderId::Mistral,
-            ProviderId::Cohere,
-        ]
-    );
-    for excluded in [
-        ProviderId::Local,
-        ProviderId::ChatGpt,
-        ProviderId::Antigravity,
-        ProviderId::ClaudeCode,
-    ] {
-        assert!(!ProviderId::API_KEY_PROVIDERS.contains(&excluded));
-    }
-}
-
-#[test]
 fn credential_strategies_and_labels() {
     let cases = [
         (
