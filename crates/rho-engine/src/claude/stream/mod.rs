@@ -12,7 +12,7 @@ use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::{SseLineDecoder, sse_line_feed};
 use rho_harness_core::error::AppError;
-use rho_harness_core::model::{ToolCall, ToolFunction};
+use rho_harness_core::model::{Reasoning, ReasoningContent, ToolCall, ToolFunction};
 use std::collections::HashMap;
 
 pub type SseEvents = Vec<Result<ModelStreamEvent, AppError>>;
@@ -56,13 +56,20 @@ impl SseParser {
         &mut self,
         index: usize,
         content_block: ContentBlockStartPayload,
-        _events: &mut SseEvents,
+        events: &mut SseEvents,
     ) {
         match content_block {
             ContentBlockStartPayload::Thinking { signature } => {
                 self.thinking_open = true;
                 self.thinking_text.clear();
                 self.thinking_signature = signature;
+            }
+            ContentBlockStartPayload::RedactedThinking { data } => {
+                let block = Reasoning {
+                    id: None,
+                    content: vec![ReasoningContent::Redacted { data }],
+                };
+                events.push(Ok(ModelStreamEvent::ReasoningBlock(block)));
             }
             ContentBlockStartPayload::ToolUse { id, name } => {
                 self.tool_uses.insert(
@@ -184,8 +191,13 @@ impl SseParser {
         }
     }
 
-    fn close_thinking_block(&mut self, _index: usize, _events: &mut SseEvents) {
+    fn close_thinking_block(&mut self, events: &mut SseEvents) {
         self.thinking_open = false;
+        let text = std::mem::take(&mut self.thinking_text);
+        let signature = self.thinking_signature.take().filter(|s| !s.is_empty());
+        events.push(Ok(ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature(
+            text, signature,
+        ))));
     }
 
     fn close_tool_use_block(&mut self, index: usize, events: &mut SseEvents) {
@@ -201,7 +213,7 @@ impl SseParser {
 
     fn handle_block_stop(&mut self, index: usize, events: &mut SseEvents) {
         if self.thinking_open {
-            self.close_thinking_block(index, events);
+            self.close_thinking_block(events);
         } else {
             self.close_tool_use_block(index, events);
         }

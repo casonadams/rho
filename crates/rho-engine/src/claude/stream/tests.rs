@@ -79,14 +79,31 @@ fn decode_cases() -> Vec<(&'static str, Vec<&'static str>, Vec<ParsedEvent>)> {
             vec![Ok(ModelStreamEvent::Text("Hi".into()))],
         ),
         (
-            "thinking block emits reasoning and closes on stop",
+            "thinking block streams reasoning then emits the signed block on stop",
             vec![
-                r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}"#,
-                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}"#,
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm "}}"#,
                 r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}"#,
                 r#"{"type":"content_block_stop","index":0}"#,
             ],
-            vec![Ok(ModelStreamEvent::Reasoning("hmm".into()))],
+            vec![
+                Ok(ModelStreamEvent::Reasoning("hmm ".into())),
+                Ok(ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature(
+                    "hmm ",
+                    Some("sig".into()),
+                ))),
+            ],
+        ),
+        (
+            "redacted thinking block is kept for replay",
+            vec![
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"enc"}}"#,
+                r#"{"type":"content_block_stop","index":0}"#,
+            ],
+            vec![Ok(ModelStreamEvent::ReasoningBlock(Reasoning {
+                id: None,
+                content: vec![ReasoningContent::Redacted { data: "enc".into() }],
+            }))],
         ),
         (
             "tool use input assembled across json deltas",

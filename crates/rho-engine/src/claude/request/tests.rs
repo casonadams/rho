@@ -2,7 +2,7 @@ use super::*;
 use crate::claude::test_util::{login_body, message_marks};
 use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use rho_harness_core::model::{
-    AssistantContent, ChatMessage, ImageContent, Reasoning, ToolCall, ToolFunction, UserContent,
+    AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, ToolCall, ToolFunction, UserContent,
 };
 use serde_json::json;
 
@@ -192,14 +192,20 @@ fn convert_messages_converts_user_and_assistant_images() {
 }
 
 #[test]
-fn convert_messages_handles_reasoning_and_assistant_first() {
+fn convert_messages_replays_signed_and_redacted_thinking_and_drops_unsigned() {
     let asst_msg = ChatMessage::Assistant {
         id: None,
         content: vec![
+            AssistantContent::Reasoning(Reasoning::new("unsigned from another provider")),
             AssistantContent::Reasoning(Reasoning::new_with_signature(
-                "let me think",
+                "  let me think\n",
                 Some("sig_123".to_string()),
             )),
+            AssistantContent::Reasoning(Reasoning::new_with_signature("", Some("sig_empty".to_string()))),
+            AssistantContent::Reasoning(Reasoning {
+                id: None,
+                content: vec![ReasoningContent::Redacted { data: "enc".into() }],
+            }),
             AssistantContent::text("done"),
         ],
     };
@@ -218,11 +224,35 @@ fn convert_messages_handles_reasoning_and_assistant_first() {
     assert_eq!(messages[0]["role"], "user");
     assert_eq!(messages[0]["content"][0]["text"], "Hello");
     assert_eq!(messages[1]["role"], "assistant");
-    let assistant_parts = messages[1]["content"].as_array().unwrap();
-    assert_eq!(assistant_parts.len(), 2);
-    assert_eq!(assistant_parts[0]["type"], "thinking");
-    assert_eq!(assistant_parts[0]["signature"], "sig_123");
-    assert_eq!(assistant_parts[1]["type"], "text");
+    assert_eq!(
+        messages[1]["content"],
+        json!([
+            { "type": "thinking", "thinking": "  let me think\n", "signature": "sig_123" },
+            { "type": "thinking", "thinking": "", "signature": "sig_empty" },
+            { "type": "redacted_thinking", "data": "enc" },
+            { "type": "text", "text": "done" },
+        ])
+    );
+}
+
+#[test]
+fn cache_breakpoints_never_mark_thinking_blocks() {
+    let mut body = json!({
+        "messages": [
+            { "role": "user", "content": [{ "type": "text", "text": "q" }] },
+            { "role": "assistant", "content": [
+                { "type": "text", "text": "a" },
+                { "type": "thinking", "thinking": "t", "signature": "s" },
+            ] },
+            { "role": "user", "content": [{ "type": "text", "text": "next" }] },
+        ]
+    });
+
+    mark_cache_breakpoints(&mut body);
+
+    let assistant = &body["messages"][1]["content"];
+    assert!(assistant[0].get("cache_control").is_some());
+    assert!(assistant[1].get("cache_control").is_none());
 }
 
 #[test]

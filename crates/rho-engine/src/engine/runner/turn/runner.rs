@@ -216,9 +216,21 @@ impl AgentRunner {
 struct TurnStreamOutcome {
     text: String,
     reasoning: String,
+    content: Vec<AssistantContent>,
     tool_calls: Vec<ToolCall>,
     usage: StructuralUsage,
     finish_reason: Option<FinishReason>,
+}
+
+impl TurnStreamOutcome {
+    fn push_text(&mut self, text: &str) {
+        self.text.push_str(text);
+        if let Some(AssistantContent::Text(last)) = self.content.last_mut() {
+            last.text.push_str(text);
+        } else {
+            self.content.push(AssistantContent::text(text));
+        }
+    }
 }
 
 async fn stream_single_event(
@@ -228,7 +240,7 @@ async fn stream_single_event(
 ) -> Result<(), AppError> {
     match event {
         ModelStreamEvent::Text(t) => {
-            outcome.text.push_str(&t);
+            outcome.push_text(&t);
             emitter
                 .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(t)))
                 .await
@@ -238,6 +250,10 @@ async fn stream_single_event(
             emitter
                 .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(r)))
                 .await
+        }
+        ModelStreamEvent::ReasoningBlock(block) => {
+            outcome.content.push(AssistantContent::Reasoning(block));
+            Ok(())
         }
         ModelStreamEvent::ToolCall(tc) => {
             let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
@@ -250,6 +266,7 @@ async fn stream_single_event(
             emitter
                 .send(MultiTurnStreamItem::ToolCall { tool_call: tc.clone() })
                 .await?;
+            outcome.content.push(AssistantContent::ToolCall(tc.clone()));
             outcome.tool_calls.push(tc);
             Ok(())
         }
@@ -611,6 +628,7 @@ struct RunnerStepContext<'a> {
 enum StepExecutionResult {
     Complete(PromptResponse),
     Continue,
+    EmptyCompletion,
 }
 
 fn tool_result_contents(message: ChatMessage) -> Vec<rho_harness_core::model::UserContent> {
@@ -666,17 +684,38 @@ async fn dispatch_tool_calls(
 }
 
 fn build_assistant_message(outcome: &TurnStreamOutcome) -> ChatMessage {
-    let mut content = Vec::new();
-    if !outcome.reasoning.is_empty() {
-        content.push(AssistantContent::Reasoning(Reasoning::new(&outcome.reasoning)));
-    }
-    if !outcome.text.is_empty() {
-        content.push(AssistantContent::text(&outcome.text));
-    }
-    for call in &outcome.tool_calls {
-        content.push(AssistantContent::ToolCall(call.clone()));
+    let mut content = outcome.content.clone();
+    let has_reasoning_blocks = content.iter().any(|c| matches!(c, AssistantContent::Reasoning(_)));
+    if !has_reasoning_blocks && !outcome.reasoning.is_empty() {
+        content.insert(0, AssistantContent::Reasoning(Reasoning::new(&outcome.reasoning)));
     }
     ChatMessage::Assistant { id: None, content }
+}
+
+fn completion_request(
+    runner: &AgentRunner,
+    messages: &[ChatMessage],
+    tools_def: &[ModelToolDefinition],
+) -> ModelCompletionRequest {
+    ModelCompletionRequest {
+        preamble: (!runner.preamble.is_empty()).then(|| runner.preamble.clone()),
+        prompt: String::new(),
+        messages: messages.to_vec(),
+        tools: tools_def.to_vec(),
+        max_tokens: None,
+        temperature: None,
+    }
+}
+
+fn tool_definitions(tools: &[Arc<dyn EngineTool>]) -> Vec<ModelToolDefinition> {
+    tools
+        .iter()
+        .map(|t| ModelToolDefinition {
+            name: t.name().to_string(),
+            description: t.description().to_string(),
+            parameters: t.parameters(),
+        })
+        .collect()
 }
 
 async fn execute_agent_step(
@@ -687,18 +726,7 @@ async fn execute_agent_step(
     emitter: &TurnEmitter,
 ) -> Result<StepExecutionResult, AppError> {
     emitter.ensure_live()?;
-    let req = ModelCompletionRequest {
-        preamble: if runner.preamble.is_empty() {
-            None
-        } else {
-            Some(runner.preamble.clone())
-        },
-        prompt: String::new(),
-        messages: ctx.current_messages.clone(),
-        tools: tools_def.to_vec(),
-        max_tokens: None,
-        temperature: None,
-    };
+    let req = completion_request(runner, ctx.current_messages, tools_def);
     *ctx.request_count += 1;
 
     let stream = runner.model.stream(req).await?;
@@ -716,13 +744,19 @@ async fn execute_agent_step(
         .send(MultiTurnStreamItem::CompletionCall(completion_call))
         .await?;
 
-    let asst = build_assistant_message(&outcome);
-    ctx.current_messages.push(asst.clone());
-    ctx.new_turn_messages.push(asst);
+    let empty = outcome.content.is_empty() && outcome.reasoning.is_empty();
+    if !empty {
+        let asst = build_assistant_message(&outcome);
+        ctx.current_messages.push(asst.clone());
+        ctx.new_turn_messages.push(asst);
+    }
 
     if outcome.tool_calls.is_empty() {
         if wait_for_background_jobs(runner, ctx).await? {
             return Ok(StepExecutionResult::Continue);
+        }
+        if empty {
+            return Ok(StepExecutionResult::EmptyCompletion);
         }
         let resp = PromptResponse {
             output: outcome.text,
@@ -738,38 +772,38 @@ async fn execute_agent_step(
     Ok(StepExecutionResult::Continue)
 }
 
-async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
-    let pending = runner.session_manager.load_checkpoint().await?;
-    let has_checkpoint = pending.is_some();
-    let initial_visible_history = if runner.history.is_empty() {
+/// Anthropic's documented recovery for empty `end_turn` responses after tool results:
+/// <https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons>
+const EMPTY_COMPLETION_NUDGE: &str = "Please continue";
+
+async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>, Vec<ChatMessage>), AppError> {
+    let mut current_messages = if runner.history.is_empty() {
         runner.session_manager.active_messages().await?
     } else {
         runner.history.clone()
     };
-    let mut current_messages = initial_visible_history.clone();
     let mut new_turn_messages = Vec::new();
-
     if !runner.prompt.trim().is_empty() {
         let user_msg = ChatMessage::user(runner.prompt.trim());
         current_messages.push(user_msg.clone());
         new_turn_messages.push(user_msg);
     }
+    Ok((current_messages, new_turn_messages))
+}
+
+async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
+    let pending = runner.session_manager.load_checkpoint().await?;
+    let has_checkpoint = pending.is_some();
+    let (mut current_messages, mut new_turn_messages) = initial_turn_messages(&runner).await?;
 
     let mut turn = 0;
     let mut total_usage = StructuralUsage::default();
     let mut repeat_tracker = runner.repeat_tracker.clone();
     let mut request_count = 0;
     let mut all_completion_calls = Vec::new();
+    let mut nudged = false;
 
-    let tools_def: Vec<ModelToolDefinition> = runner
-        .tools
-        .iter()
-        .map(|t| ModelToolDefinition {
-            name: t.name().to_string(),
-            description: t.description().to_string(),
-            parameters: t.parameters(),
-        })
-        .collect();
+    let tools_def = tool_definitions(&runner.tools);
 
     while turn < runner.budget {
         turn += 1;
@@ -781,21 +815,44 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
             all_completion_calls: &mut all_completion_calls,
             total_usage: &mut total_usage,
         };
-        if let StepExecutionResult::Complete(resp) =
-            execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await?
-        {
-            emitter.ensure_live()?;
-            commit_turn_messages(&runner.session_manager, new_turn_messages, has_checkpoint).await?;
-            return emitter.send(MultiTurnStreamItem::FinalResponse(resp)).await;
+        let step = execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await?;
+        match step {
+            StepExecutionResult::Complete(resp) => {
+                emitter.ensure_live()?;
+                commit_turn_messages(&runner.session_manager, new_turn_messages, has_checkpoint).await?;
+                return emitter.send(MultiTurnStreamItem::FinalResponse(resp)).await;
+            }
+            StepExecutionResult::Continue => nudged = false,
+            StepExecutionResult::EmptyCompletion if !nudged => {
+                nudged = true;
+                let nudge = ChatMessage::user(EMPTY_COMPLETION_NUDGE);
+                current_messages.push(nudge.clone());
+                new_turn_messages.push(nudge);
+            }
+            StepExecutionResult::EmptyCompletion => {
+                save_unfinished_turn(&runner.session_manager, pending, new_turn_messages).await?;
+                return Err(AppError::Provider("model returned an empty response".to_string()));
+            }
         }
     }
 
-    let mut checkpoint = pending.unwrap_or_default();
-    checkpoint.extend(new_turn_messages);
-    runner.session_manager.save_checkpoint(checkpoint).await?;
+    save_unfinished_turn(&runner.session_manager, pending, new_turn_messages).await?;
     Err(AppError::ModelBudgetExhausted {
         max_turns: runner.budget,
     })
+}
+
+async fn save_unfinished_turn(
+    session_manager: &SessionManager,
+    pending: Option<Vec<ChatMessage>>,
+    new_turn_messages: Vec<ChatMessage>,
+) -> Result<(), AppError> {
+    let mut checkpoint = pending.unwrap_or_default();
+    checkpoint.extend(new_turn_messages);
+    if checkpoint.is_empty() {
+        return Ok(());
+    }
+    session_manager.save_checkpoint(checkpoint).await
 }
 
 #[cfg(test)]
@@ -1078,6 +1135,77 @@ mod tests {
         while let Some(item) = rx.recv().await {
             assert!(!matches!(item, Ok(MultiTurnStreamItem::FinalResponse(_))));
         }
+    }
+
+    fn tool_then(turns: Vec<Vec<ModelStreamEvent>>) -> Arc<MockAdapter> {
+        let mut all = vec![vec![
+            ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature("plan", Some("sig-1".into()))),
+            ModelStreamEvent::ToolCall(ToolCall::new(
+                "call-1",
+                ToolFunction::new("missing", serde_json::json!({})),
+            )),
+        ]];
+        all.extend(turns);
+        Arc::new(MockAdapter::from_turns(all))
+    }
+
+    async fn run_prompt(model: Arc<MockAdapter>) -> (AgentRunner, Result<(), AppError>, tempfile::TempDir) {
+        let (runner, temp, _, _) = test_agent_env(model);
+        let runner = runner.prompt("do it");
+        let (tx, _rx) = tokio::sync::mpsc::channel(64);
+        let emitter = TurnEmitter { tx, cancellation: None };
+        let result = run_agent_loop(runner.clone(), &emitter).await;
+        (runner, result, temp)
+    }
+
+    fn has_signed_reasoning(messages: &[ChatMessage]) -> bool {
+        messages.iter().any(|m| match m {
+            ChatMessage::Assistant { content, .. } => content
+                .iter()
+                .any(|c| matches!(c, AssistantContent::Reasoning(r) if r.first_signature() == Some("sig-1"))),
+            _ => false,
+        })
+    }
+
+    #[tokio::test]
+    async fn tool_loop_replays_signed_reasoning_and_nudges_once_after_empty_completion() {
+        let model = tool_then(vec![
+            vec![ModelStreamEvent::Finish(FinishReason::Stop)],
+            vec![ModelStreamEvent::Text("done".into())],
+        ]);
+
+        let (runner, result, _temp) = run_prompt(model.clone()).await;
+
+        result.unwrap();
+        let requests = model.requests();
+        assert!(has_signed_reasoning(&requests[1].messages));
+        assert_eq!(
+            requests[2].messages.last(),
+            Some(&ChatMessage::user(EMPTY_COMPLETION_NUDGE))
+        );
+        let history = runner.session_manager.active_messages().await.unwrap();
+        assert!(has_signed_reasoning(&history));
+        assert_eq!(history.last(), Some(&ChatMessage::assistant("done")));
+    }
+
+    #[tokio::test]
+    async fn repeated_empty_completion_keeps_tool_work_as_checkpoint() {
+        let model = tool_then(vec![
+            vec![ModelStreamEvent::Finish(FinishReason::Stop)],
+            vec![ModelStreamEvent::Finish(FinishReason::Stop)],
+        ]);
+
+        let (runner, result, _temp) = run_prompt(model).await;
+
+        assert!(matches!(&result, Err(AppError::Provider(m)) if m.contains("empty response")));
+        let checkpoint = runner.session_manager.load_checkpoint().await.unwrap().unwrap();
+        assert_eq!(checkpoint.len(), 4);
+        assert_eq!(checkpoint.last(), Some(&ChatMessage::user(EMPTY_COMPLETION_NUDGE)));
+        runner
+            .session_manager
+            .promote_checkpoint(vec![ChatMessage::user("next"), ChatMessage::assistant("done")])
+            .await
+            .unwrap();
     }
 
     #[tokio::test(start_paused = true)]

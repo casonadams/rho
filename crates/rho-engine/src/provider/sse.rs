@@ -150,7 +150,7 @@ pub fn aggregate_stream_events(
     for event in events {
         match event? {
             ModelStreamEvent::Text(t) => content.push_str(&t),
-            ModelStreamEvent::Reasoning(_) => {}
+            ModelStreamEvent::Reasoning(_) | ModelStreamEvent::ReasoningBlock(_) => {}
             ModelStreamEvent::ToolCall(call) => tool_calls.push(call),
             ModelStreamEvent::Usage(u) => usage = usage.merge(&u),
             ModelStreamEvent::Finish(f) => finish_reason = Some(f),

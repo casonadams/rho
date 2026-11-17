@@ -1,7 +1,9 @@
 //! Content and message conversions for Claude Messages API requests.
 
 use crate::provider::adapter::ModelCompletionRequest;
-use rho_harness_core::model::{AssistantContent, ChatMessage, ImageContent, ToolResultContent, UserContent};
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, ToolResultContent, UserContent,
+};
 use serde_json::{Value, json};
 
 fn convert_user_part(part: &UserContent) -> Option<Value> {
@@ -35,23 +37,16 @@ fn convert_claude_user(content: &[UserContent]) -> Vec<Value> {
     content.iter().filter_map(convert_user_part).collect()
 }
 
-fn convert_assistant_reasoning(reasoning: &rho_harness_core::model::Reasoning) -> Option<Value> {
-    let (text_opt, sig_opt) = reasoning.first_text_and_signature();
-    let text = text_opt?.trim();
-    if text.is_empty() {
-        return None;
-    }
-    if let Some(sig) = sig_opt {
-        Some(json!({
-            "type": "thinking",
-            "thinking": text,
-            "signature": sig,
-        }))
-    } else {
-        Some(json!({
-            "type": "text",
-            "text": format!("<thinking>\n{}\n</thinking>", text),
-        }))
+/// Thinking must be replayed byte-for-byte with its signature; unsigned reasoning may be omitted:
+/// <https://platform.claude.com/docs/en/build-with-claude/thinking#preserving-thinking-blocks>
+fn convert_assistant_reasoning(reasoning: &Reasoning) -> Option<Value> {
+    match reasoning.content.first()? {
+        ReasoningContent::Text {
+            text,
+            signature: Some(signature),
+        } => Some(json!({ "type": "thinking", "thinking": text, "signature": signature })),
+        ReasoningContent::Redacted { data } => Some(json!({ "type": "redacted_thinking", "data": data })),
+        _ => None,
     }
 }
 

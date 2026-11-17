@@ -67,6 +67,8 @@ pub(super) enum ContentBlockStartPayload {
         #[serde(default)]
         signature: Option<String>,
     },
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking { data: String },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
     #[serde(other)]

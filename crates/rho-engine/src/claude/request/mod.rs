@@ -346,6 +346,15 @@ fn is_tool_result_message(message: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn last_cacheable_part(parts: &mut [Value]) -> Option<&mut Value> {
+    parts.iter_mut().rev().find(|part| {
+        !matches!(
+            part.get("type").and_then(Value::as_str),
+            Some("thinking" | "redacted_thinking")
+        )
+    })
+}
+
 pub fn mark_cache_breakpoints(body: &mut Value) {
     let mut count = count_cache_breakpoints(body);
 
@@ -392,7 +401,7 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
         && count < 4
         && let Some(checkpoint_msg) = messages.get_mut(turn_n_start_idx - 1)
         && let Some(parts) = checkpoint_msg.get_mut("content").and_then(Value::as_array_mut)
-        && let Some(last_part) = parts.last_mut()
+        && let Some(last_part) = last_cacheable_part(parts)
         && last_part.get("cache_control").is_none()
     {
         last_part["cache_control"] = json!({ "type": "ephemeral" });
@@ -403,7 +412,7 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
         && (!has_tools || messages.len() > 1)
         && let Some(last_message) = messages.last_mut()
         && let Some(parts) = last_message.get_mut("content").and_then(Value::as_array_mut)
-        && let Some(last_part) = parts.last_mut()
+        && let Some(last_part) = last_cacheable_part(parts)
         && last_part.get("cache_control").is_none()
     {
         last_part["cache_control"] = json!({ "type": "ephemeral" });

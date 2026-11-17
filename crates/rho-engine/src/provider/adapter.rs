@@ -1,7 +1,7 @@
 use crate::engine::metrics::StructuralUsage;
 use futures::Stream;
 use rho_harness_core::error::AppError;
-use rho_harness_core::model::{ChatMessage, ToolCall};
+use rho_harness_core::model::{ChatMessage, Reasoning, ToolCall};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -48,6 +48,8 @@ pub struct ModelCompletionResponse {
 pub enum ModelStreamEvent {
     Text(String),
     Reasoning(String),
+    /// A finished reasoning block with the continuity data the provider requires on replay.
+    ReasoningBlock(Reasoning),
     ToolCall(ToolCall),
     Usage(StructuralUsage),
     Finish(FinishReason),
