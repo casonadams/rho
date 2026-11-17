@@ -17,19 +17,6 @@ struct ReasoningStreamPlan {
     content: String,
 }
 
-fn format_reasoning_text(history: &[String], redacted: &str) -> String {
-    if let Some(last) = history.last()
-        && !last.is_empty()
-        && (last.ends_with('.') || last.ends_with('!') || last.ends_with('?'))
-        && !redacted.starts_with(' ')
-        && !redacted.starts_with('\n')
-    {
-        format!(" {redacted}")
-    } else {
-        redacted.to_string()
-    }
-}
-
 fn pop_internal_newlines(state: &mut TerminalSinkState) -> Option<&'static str> {
     if !state.has_reasoning_content || state.pending_reasoning_newlines == 0 {
         return None;
@@ -180,8 +167,7 @@ impl TerminalApprovalSink {
         let plan = {
             let Ok(mut state) = self.state.lock() else { return };
             let redacted = self.session_manager.redact_credentials(text);
-            let text_to_stream = format_reasoning_text(&state.reasoning, &redacted);
-            update_reasoning_state(&mut state, &text_to_stream)
+            update_reasoning_state(&mut state, &redacted)
         };
         self.present_reasoning_plan(plan);
     }
@@ -422,6 +408,31 @@ mod tests {
         let state = sink.state.lock().unwrap();
         assert!(state.pending["subagent"].is_empty());
         assert_eq!(state.completed.len(), 2);
+    }
+
+    #[test]
+    fn reasoning_deltas_are_joined_verbatim() {
+        let cases = [
+            (["src/ui/thinking.", "rs is next"], "src/ui/thinking.rs is next"),
+            (["version 3.", "14"], "version 3.14"),
+            (["e.g.", ", this"], "e.g., this"),
+            (["Done.", " Next"], "Done. Next"),
+        ];
+        for (deltas, expected) in cases {
+            let temp = tempfile::tempdir().unwrap();
+            let thinking = Arc::new(Mutex::new(Vec::new()));
+            let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+                idle_count: Arc::default(),
+                active_tools: Arc::default(),
+                thinking: thinking.clone(),
+            });
+            let sink = new_test_sink(&temp, &presenter);
+            for delta in deltas {
+                sink.emit_reasoning(delta);
+            }
+            sink.flush_reasoning();
+            assert_eq!(*thinking.lock().unwrap(), vec![expected.to_string()]);
+        }
     }
 
     #[test]
