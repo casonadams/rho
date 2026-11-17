@@ -106,7 +106,10 @@ const REFRESH_CASES: [(&str, &str); 2] = [
 async fn exchange_refresh_token_keeps_account_and_previous_refresh_when_not_rotated() {
     for (body, expected_refresh) in REFRESH_CASES {
         let token_url = crate::test_support::serve_http(vec![("200 OK", body.to_string())]).await;
-        let account = (Some("project-1".to_string()), Some("dev@example.com".to_string()));
+        let account = crate::auth::oauth::OAuthAccount {
+            id: Some("project-1".to_string()),
+            email: Some("dev@example.com".to_string()),
+        };
         let cred = exchange_refresh_token(&token_url, "1//old-refresh".to_string(), account)
             .await
             .unwrap();

@@ -16,19 +16,25 @@ use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use std::time::Duration;
 
+#[derive(Debug)]
+pub(crate) struct OAuthAccount {
+    pub id: Option<String>,
+    pub email: Option<String>,
+}
+
 pub(crate) fn oauth_credential(
     access_token: String,
     refresh_token: Option<String>,
     expires_in: Option<i64>,
-    (account_id, account_email): (Option<String>, Option<String>),
+    account: OAuthAccount,
 ) -> StoredCredential {
     let expires_at_ms = expires_in.map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
     StoredCredential::OAuth {
         access_token,
         refresh_token,
         expires_at_ms,
-        account_id,
-        account_email,
+        account_id: account.id,
+        account_email: account.email,
     }
 }
 
@@ -38,7 +44,7 @@ pub(crate) async fn refresh_oauth_credential<Exchange, Fut>(
     exchange: Exchange,
 ) -> Result<StoredCredential>
 where
-    Exchange: FnOnce(String, (Option<String>, Option<String>)) -> Fut,
+    Exchange: FnOnce(String, OAuthAccount) -> Fut,
     Fut: Future<Output = Result<StoredCredential>>,
 {
     let StoredCredential::OAuth {
@@ -50,7 +56,11 @@ where
     else {
         return Err(AppError::Auth(expired_message.to_string()));
     };
-    exchange(refresh.clone(), (account_id.clone(), account_email.clone())).await
+    let account = OAuthAccount {
+        id: account_id.clone(),
+        email: account_email.clone(),
+    };
+    exchange(refresh.clone(), account).await
 }
 
 pub(crate) fn validate_callback(callback: CallbackParams, state: &str) -> Result<String> {

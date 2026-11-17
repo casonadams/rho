@@ -13,7 +13,7 @@ pub use client::{
 pub use flow::{acquire_auth_code, build_authorize_url, parse_auth_code_and_state};
 pub use local::detect_local_claude_credentials_async;
 
-use super::oauth::{oauth_credential, refresh_oauth_credential};
+use super::oauth::{OAuthAccount, oauth_credential, refresh_oauth_credential};
 use crate::auth::pkce::{PkceChallenge, generate_state};
 use rho_harness_core::auth::{OAuthLoginCallbacks, SelectOption, StoredCredential};
 use rho_harness_core::error::Result;
@@ -51,22 +51,19 @@ pub(crate) async fn confirm_import_local_credentials(
     Ok(None)
 }
 
-fn resolve_account_ids(
-    token: &ClaudeTokenResponse,
-    profile: &Option<ClaudeProfileResponse>,
-) -> (Option<String>, Option<String>) {
-    let account_id = profile
+fn resolve_account_ids(token: &ClaudeTokenResponse, profile: &Option<ClaudeProfileResponse>) -> OAuthAccount {
+    let id = profile
         .as_ref()
         .and_then(|p| p.organization.as_ref())
         .and_then(|o| o.uuid.clone())
         .or_else(|| token.organization.as_ref().and_then(|o| o.uuid.clone()))
         .or_else(|| token.account.as_ref().and_then(|a| a.uuid.clone()));
-    let account_email = profile
+    let email = profile
         .as_ref()
         .and_then(|p| p.account.as_ref())
         .and_then(|a| a.email_address.clone())
         .or_else(|| token.account.as_ref().and_then(|a| a.email_address.clone()));
-    (account_id, account_email)
+    OAuthAccount { id, email }
 }
 
 async fn exchange_and_resolve_profile(
@@ -77,12 +74,12 @@ async fn exchange_and_resolve_profile(
 ) -> Result<StoredCredential> {
     let token = exchange_code_with_redirect(TOKEN_URL, code, verifier, redirect_uri, state).await?;
     let profile = fetch_profile(PROFILE_URL, &token.access_token).await;
-    let (account_id, account_email) = resolve_account_ids(&token, &profile);
+    let account = resolve_account_ids(&token, &profile);
     Ok(oauth_credential(
         token.access_token,
         token.refresh_token,
         token.expires_in,
-        (account_id, account_email),
+        account,
     ))
 }
 
@@ -102,39 +99,32 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
     exchange_and_resolve_profile(&code, &pkce.verifier, &redirect_uri, Some(&state)).await
 }
 
-fn resolve_refreshed_ids(
-    token: &ClaudeTokenResponse,
-    (account_id, account_email): (Option<String>, Option<String>),
-) -> (Option<String>, Option<String>) {
-    let new_account_id = token
+fn resolve_refreshed_ids(token: &ClaudeTokenResponse, previous: OAuthAccount) -> OAuthAccount {
+    let id = token
         .organization
         .as_ref()
         .and_then(|o| o.uuid.clone())
         .or_else(|| token.account.as_ref().and_then(|a| a.uuid.clone()))
-        .or(account_id);
-    let new_email = token
+        .or(previous.id);
+    let email = token
         .account
         .as_ref()
         .and_then(|a| a.email_address.clone())
-        .or(account_email);
-    (new_account_id, new_email)
+        .or(previous.email);
+    OAuthAccount { id, email }
 }
 
-async fn exchange_refresh_token(
-    token_url: &str,
-    refresh: String,
-    (account_id, account_email): (Option<String>, Option<String>),
-) -> Result<StoredCredential> {
+async fn exchange_refresh_token(token_url: &str, refresh: String, previous: OAuthAccount) -> Result<StoredCredential> {
     let mut token = refresh_token(token_url, &refresh).await?;
     if token.refresh_token.is_none() {
         token.refresh_token = Some(refresh);
     }
-    let (new_account_id, new_email) = resolve_refreshed_ids(&token, (account_id, account_email));
+    let account = resolve_refreshed_ids(&token, previous);
     Ok(oauth_credential(
         token.access_token,
         token.refresh_token,
         token.expires_in,
-        (new_account_id, new_email),
+        account,
     ))
 }
 

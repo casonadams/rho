@@ -8,7 +8,9 @@ mod client;
 #[cfg(test)]
 mod tests;
 
-use super::oauth::{AuthorizationGrant, LoginPrompt, loopback_login, oauth_credential, refresh_oauth_credential};
+use super::oauth::{
+    AuthorizationGrant, LoginPrompt, OAuthAccount, loopback_login, oauth_credential, refresh_oauth_credential,
+};
 use crate::antigravity::load_project_id;
 use crate::auth::token_request::TokenResponse;
 use client::{
@@ -42,7 +44,10 @@ async fn build_antigravity_credential(token: TokenResponse) -> StoredCredential 
         token.access_token,
         token.refresh_token,
         token.expires_in,
-        (Some(project_id), email),
+        OAuthAccount {
+            id: Some(project_id),
+            email,
+        },
     )
 }
 
@@ -74,11 +79,7 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
     .await
 }
 
-async fn exchange_refresh_token(
-    token_url: &str,
-    refresh: String,
-    account: (Option<String>, Option<String>),
-) -> Result<StoredCredential> {
+async fn exchange_refresh_token(token_url: &str, refresh: String, account: OAuthAccount) -> Result<StoredCredential> {
     let token = refresh_google_token(token_url, &refresh).await?;
     let refresh_token = token.refresh_token.or(Some(refresh));
     Ok(oauth_credential(
