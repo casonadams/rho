@@ -230,10 +230,6 @@ impl RunMetrics {
         self.elapsed_ms = 0;
         self
     }
-
-    pub fn cache_hit_rate(&self) -> Option<f64> {
-        self.usage.as_ref().and_then(StructuralUsage::cache_hit_rate)
-    }
 }
 
 #[derive(Debug)]

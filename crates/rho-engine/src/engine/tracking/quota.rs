@@ -113,21 +113,6 @@ impl QuotaTracker {
         }
     }
 
-    pub fn replace(&self, key: &QuotaKey, value: Option<String>) {
-        if let Ok(mut entries) = self.entries.lock() {
-            let entry = entries.entry(key.clone()).or_default();
-            entry.in_flight = false;
-            entry.in_flight_since = None;
-            entry.display = value;
-            entry.fetched_at = Some(Instant::now());
-        }
-        self.version_tx.send_modify(|v| *v = v.wrapping_add(1));
-    }
-
-    pub fn version(&self) -> u64 {
-        *self.version_tx.borrow()
-    }
-
     pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
         self.version_tx.subscribe()
     }

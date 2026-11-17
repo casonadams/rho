@@ -185,10 +185,6 @@ impl SessionCompactor {
         self
     }
 
-    pub fn demotion_hook(&self) -> Option<&Arc<dyn DemotionHook>> {
-        self.demotion_hook.as_ref()
-    }
-
     pub async fn compact(&self, instructions: Option<&str>) -> Result<CompactionStats> {
         let tree = self.session_manager.load_tree().await?;
         let Some(active_leaf_id) = &tree.active_leaf_id else {

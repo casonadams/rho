@@ -113,10 +113,6 @@ impl ProviderId {
             Self::ChatGpt | Self::Antigravity | Self::ClaudeCode | Self::Local => None,
         }
     }
-
-    pub fn default_model(self) -> &'static str {
-        default_model_for_provider(self.as_str())
-    }
 }
 
 impl fmt::Display for ProviderId {

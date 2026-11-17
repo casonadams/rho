@@ -1,6 +1,6 @@
 use rho_harness_core::model::ChatMessage;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -30,10 +30,6 @@ impl ArtifactDemotionHook {
             DEFAULT_MAX_TOTAL_BYTES,
         );
         Self { dir }
-    }
-
-    pub fn dir(&self) -> &Path {
-        &self.dir
     }
 }
 

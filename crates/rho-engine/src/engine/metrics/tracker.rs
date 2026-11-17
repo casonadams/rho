@@ -66,10 +66,6 @@ impl RunTracker {
         }
     }
 
-    pub fn last_request_id(&self) -> Option<String> {
-        self.state().as_ref().and_then(|s| s.last_request_id.clone())
-    }
-
     pub fn complete(&self, outcome: CompletionOutcome<'_>) -> RunMetrics {
         let observation = self.take();
         let usage = outcome.response.usage.is_reported().then_some(outcome.response.usage);

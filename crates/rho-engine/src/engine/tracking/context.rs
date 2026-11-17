@@ -25,10 +25,6 @@ impl ContextTracker {
         ))
     }
 
-    pub fn estimate_message_tokens(&self, message: &ChatMessage, model: &str) -> usize {
-        self.token_cache.lock().unwrap().get_or_compute(message, model)
-    }
-
     pub fn estimate_messages_tokens(&self, messages: &[ChatMessage], model: &str) -> usize {
         self.token_cache
             .lock()

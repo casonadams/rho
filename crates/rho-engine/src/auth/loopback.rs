@@ -96,10 +96,6 @@ impl LoopbackServer {
         Ok(server)
     }
 
-    pub fn port(&self) -> u16 {
-        self.port
-    }
-
     pub fn redirect_uri(&self, path: &str) -> String {
         let path = if path.starts_with('/') { path } else { "/callback" };
         format!("http://localhost:{}{path}", self.port)

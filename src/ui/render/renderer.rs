@@ -13,10 +13,8 @@ use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_headless_tool_card;
 use crate::ui::render::file_change;
 use crate::ui::render::margin::{Margin, margin_width};
-use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::render::thinking::ThinkingRenderer;
 use crate::ui::theme::Theme;
-use rho_harness_core::presentation::stream::ToolStreamPort;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
 use rho_harness_core::presentation::{FileChange, ToolLine};
 
@@ -71,14 +69,6 @@ impl TerminalRenderer {
             ui: Some(ui),
             ..Self::default()
         }
-    }
-
-    pub fn stream_port(&self) -> ToolStreamPort {
-        ToolStreamPort::new(
-            self.ui
-                .clone()
-                .map(|ui| std::sync::Arc::new(InteractiveStreamSink(Some(ui))) as _),
-        )
     }
 
     pub fn has_interactive_ui(&self) -> bool {

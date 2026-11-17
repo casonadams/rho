@@ -143,11 +143,6 @@ impl LlmCompactor {
         Self { model }
     }
 
-    pub async fn complete(&self, prompt: &str) -> Option<String> {
-        let model = self.model.as_ref()?.clone();
-        run_agent_completion(model, prompt).await.ok().map(|(text, _)| text)
-    }
-
     pub async fn extract<T>(&self, prompt: &str) -> Option<T>
     where
         T: schemars::JsonSchema + for<'de> serde::Deserialize<'de> + serde::Serialize + Send + Sync + 'static,

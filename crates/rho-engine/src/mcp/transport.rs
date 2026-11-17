@@ -58,13 +58,6 @@ impl McpTransport {
             TransportKind::Http(h) => h.notify(method, params).await,
         }
     }
-
-    pub fn last_stderr(&self) -> String {
-        match &self.inner {
-            TransportKind::Stdio(s) => s.last_stderr(),
-            TransportKind::Http(_) => String::new(),
-        }
-    }
 }
 
 #[cfg(all(test, unix))]

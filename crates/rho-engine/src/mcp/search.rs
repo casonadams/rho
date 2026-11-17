@@ -148,10 +148,6 @@ impl ToolSearchCatalog {
         self.tools.write().unwrap().push(tool);
     }
 
-    pub fn list_tools(&self) -> Vec<DeferredMcpTool> {
-        self.tools.read().unwrap().clone()
-    }
-
     pub fn search(&self, query: &str, limit: usize) -> Vec<DeferredMcpTool> {
         let q = query.trim().to_lowercase();
         if q.is_empty() {
