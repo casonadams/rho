@@ -14,7 +14,7 @@
 //! - `tools`: built-in tools (bash, read, edit, write, fd, rg, web) and
 //!   shared plumbing (truncation, atomic writes, HTTP singletons).
 //! - `permission`: bash analysis, policy evaluation, approval prompts.
-//! - `mcp`: MCP client processes, transports, and tool gateway.
+//! - `mcp`: MCP client processes, transports, and tool discovery.
 //! - `hook`: lifecycle hooks for turn and tool interception.
 //! - `process`: process-group child management with cancellation safety.
 //!

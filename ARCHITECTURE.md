@@ -145,7 +145,8 @@ tool call ─▶ PermissionHook (engine/permission/)
   Model catalogs merge discovered models with curated presets; quota parsers
   are provider-specific (`antigravity/quota`, `chatgpt`, `ollama`).
 - MCP servers spawn as child processes with JSON-RPC stdio transport
-  (`mcp/process.rs`, `mcp/transport.rs`); tools surface through `McpGateway`
+  (`mcp/process.rs`, `mcp/transport.rs`); tools register directly or defer
+  behind `tool_search` (`mcp/manager.rs`, `mcp/search.rs`)
   and are reaped on engine rebuild. Configured via `~/.agents/mcp.json`, `.agents/mcp.json`, or `.mcp.json`.
 - Lifecycle hooks run as one-shot child processes (`hook/`) triggered by
   executables in `.agents/hooks/` (e.g. `on_tool_call`, `on_tool_result`),
