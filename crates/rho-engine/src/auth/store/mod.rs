@@ -57,12 +57,12 @@ impl AuthStore {
         }
     }
 
-    /// Adopts an OAuth credential another process saved to disk, since refresh tokens may be
-    /// single-use and the in-memory copy would then be dead. Returns whether memory changed.
-    async fn adopt_credential_from_disk(&mut self, provider: &str) -> Result<bool> {
+    /// Adopts an OAuth credential another process saved to disk when it is at least as fresh as
+    /// memory, since refresh tokens may be single-use. Returns whether memory changed.
+    async fn adopt_newer_credential_from_disk(&mut self, provider: &str) -> Result<bool> {
         let mut on_disk = io::load_credentials_async(&self.file_path).await?;
         match on_disk.remove(provider) {
-            Some(disk @ StoredCredential::OAuth { .. }) if self.credentials.get(provider) != Some(&disk) => {
+            Some(disk @ StoredCredential::OAuth { .. }) if is_fresher(&disk, self.credentials.get(provider)) => {
                 self.credentials.insert(provider.to_string(), disk);
                 Ok(true)
             }
@@ -71,7 +71,8 @@ impl AuthStore {
     }
 
     async fn refresh_stored(&mut self, provider: &str) -> Result<String> {
-        if self.adopt_credential_from_disk(provider).await?
+        let lock = io::lock_auth_file_async(&self.file_path).await?;
+        if self.adopt_newer_credential_from_disk(provider).await?
             && let Some(cred) = self.credentials.get(provider)
             && !cred.is_expired(60)
         {
@@ -85,8 +86,8 @@ impl AuthStore {
             .ok_or_else(|| AppError::Auth(format!("No credential found for provider '{provider}'")))?;
         let refreshed = refresh_oauth_token(provider_id, cred).await?;
         let access = refreshed.raw_secret().to_string();
-        self.credentials.insert(provider.to_string(), refreshed);
-        self.save_async().await?;
+        self.credentials.insert(provider.to_string(), refreshed.clone());
+        io::write_entry_locked_async(&lock, &self.file_path, provider, refreshed).await?;
         Ok(access)
     }
 
@@ -99,13 +100,13 @@ impl AuthStore {
     }
 
     pub fn set_credential(&mut self, provider: &str, cred: StoredCredential) -> Result<()> {
-        self.credentials.insert(provider.to_string(), cred);
-        self.save()
+        self.credentials.insert(provider.to_string(), cred.clone());
+        io::write_entry(&self.file_path, provider, Some(&cred))
     }
 
     pub async fn set_credential_async(&mut self, provider: &str, cred: StoredCredential) -> Result<()> {
-        self.credentials.insert(provider.to_string(), cred);
-        self.save_async().await
+        self.credentials.insert(provider.to_string(), cred.clone());
+        io::write_entry_async(&self.file_path, provider, Some(cred)).await
     }
 
     pub fn set_key(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
@@ -119,11 +120,7 @@ impl AuthStore {
 
     pub fn remove_key(&mut self, provider: &str) -> Result<()> {
         self.credentials.remove(provider);
-        self.save()
-    }
-
-    pub async fn save_async(&self) -> Result<()> {
-        io::save_credentials_async(&self.file_path, &self.credentials).await
+        io::write_entry(&self.file_path, provider, None)
     }
 
     pub fn list_stored_providers(&self) -> Vec<String> {
@@ -171,10 +168,20 @@ impl AuthStore {
             .flatten()
             .collect()
     }
+}
 
-    fn save(&self) -> Result<()> {
-        io::save_credentials(&self.file_path, &self.credentials)
+fn expiry_ms(cred: &StoredCredential) -> i64 {
+    match cred {
+        StoredCredential::OAuth {
+            expires_at_ms: Some(exp),
+            ..
+        } => *exp,
+        _ => i64::MIN,
     }
+}
+
+fn is_fresher(disk: &StoredCredential, memory: Option<&StoredCredential>) -> bool {
+    memory.is_none_or(|memory| memory != disk && expiry_ms(disk) >= expiry_ms(memory))
 }
 
 fn resolve_env_key(provider: &str) -> Result<Option<String>> {

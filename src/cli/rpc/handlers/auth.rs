@@ -14,13 +14,7 @@ pub(crate) async fn handle_oauth_login_result(
     event_tx: &tokio::sync::mpsc::UnboundedSender<RpcEvent>,
 ) {
     let saved = match result {
-        Ok(cred) => {
-            let mut store = auth_store.write().await;
-            match store.set_credential_async(&provider, cred).await {
-                Ok(_) => store.save_async().await,
-                Err(e) => Err(e),
-            }
-        }
+        Ok(cred) => auth_store.write().await.set_credential_async(&provider, cred).await,
         Err(e) => Err(e),
     };
     let (success, error) = match saved {
@@ -92,11 +86,7 @@ pub(crate) async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
-    let mut store = ctx.auth_store.write().await;
-    let saved = match store.set_key_async(&provider, api_key).await {
-        Ok(_) => store.save_async().await,
-        Err(e) => Err(e),
-    };
+    let saved = ctx.auth_store.write().await.set_key_async(&provider, api_key).await;
     write_command_result(ctx.writer, req_id, "set_api_key", saved.map(|()| None)).await
 }
 
@@ -170,7 +160,7 @@ mod tests {
                 "save_error",
                 || Ok(StoredCredential::api_key("test-token")),
                 true,
-                Some("Failed to write auth file"),
+                Some("Failed to read auth file"),
             ),
         ];
         for (name, result, blocked_path, expected_error) in cases {

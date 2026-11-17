@@ -1,5 +1,6 @@
 use super::*;
 use rho_harness_core::auth::StoredCredential;
+use std::collections::HashMap;
 use tempfile::NamedTempFile;
 
 #[test]
@@ -182,4 +183,59 @@ async fn refresh_adopts_credential_another_process_saved_to_disk() {
         assert_eq!(key.unwrap().as_deref(), Some("fresh_access"), "{name}");
         assert_eq!(store.get_credential("claude"), Some(&rotated), "{name}");
     }
+}
+
+#[test]
+fn saving_from_a_stale_store_keeps_other_providers_rotated_credentials() {
+    let (dir, mut stale) = store_with(
+        "claude",
+        StoredCredential::oauth("old_access", Some("old_refresh".into()), None),
+    );
+    let mut renewed = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    let rotated = StoredCredential::oauth("new_access", Some("new_refresh".into()), Some(4_102_444_800_000));
+    renewed.set_credential("claude", rotated.clone()).unwrap();
+
+    stale.set_key("openrouter", "sk-or-key").unwrap();
+    stale.remove_key("openrouter").unwrap();
+
+    let on_disk = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    assert_eq!(on_disk.get_credential("claude"), Some(&rotated));
+}
+
+#[tokio::test]
+async fn refresh_never_replaces_memory_with_an_older_disk_credential() {
+    let far_future = 4_102_444_800_000;
+    let newer = StoredCredential::oauth("newer_access", Some("newer_refresh".into()), Some(far_future + 1_000));
+    let (dir, mut store) = store_with("openrouter", newer.clone());
+    let older = StoredCredential::oauth("older_access", Some("older_refresh".into()), Some(far_future));
+    let mut stale_process = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    stale_process.set_credential("openrouter", older).unwrap();
+
+    let key = store.force_refresh("openrouter").await.unwrap();
+
+    assert_eq!(key.as_deref(), Some("newer_access"));
+    let on_disk = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    assert_eq!(on_disk.get_credential("openrouter"), Some(&newer));
+}
+
+#[tokio::test]
+async fn refresh_waits_for_another_process_holding_the_auth_lock() {
+    let far_future = 4_102_444_800_000;
+    let expired = StoredCredential::oauth("stale_access", Some("stale_refresh".into()), Some(1_000));
+    let (dir, mut store) = store_with("openrouter", expired);
+    let path = dir.path().join("auth.json");
+    let other_process = std::fs::File::create(dir.path().join("auth.json.lock")).unwrap();
+    other_process.lock().unwrap();
+
+    let refresh = tokio::spawn(async move { store.get_key("openrouter").await });
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!refresh.is_finished());
+    let fresh = StoredCredential::oauth("fresh_access", Some("fresh_refresh".into()), Some(far_future));
+    let disk = serde_json::to_string(&HashMap::from([("openrouter", &fresh)])).unwrap();
+    std::fs::write(&path, disk).unwrap();
+    other_process.unlock().unwrap();
+
+    assert_eq!(refresh.await.unwrap().unwrap().as_deref(), Some("fresh_access"));
 }

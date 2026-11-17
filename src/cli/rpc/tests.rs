@@ -743,7 +743,7 @@ async fn test_handle_create_session_workspace_target() {
 async fn test_handle_set_api_key_cmd_outcomes() {
     let cases = [
         ("saved", false, None),
-        ("save_blocked", true, Some("Failed to write auth file")),
+        ("save_blocked", true, Some("Failed to read auth file")),
     ];
     for (name, blocked, expected_error) in cases {
         let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_set_api_key_test");
