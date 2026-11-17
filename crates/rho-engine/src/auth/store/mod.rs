@@ -117,14 +117,6 @@ impl AuthStore {
             .await
     }
 
-    pub fn set_api_key(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
-        self.set_key(provider, key)
-    }
-
-    pub async fn set_api_key_async(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
-        self.set_key_async(provider, key).await
-    }
-
     pub fn remove_key(&mut self, provider: &str) -> Result<()> {
         self.credentials.remove(provider);
         self.save()

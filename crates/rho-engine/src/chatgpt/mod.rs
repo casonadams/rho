@@ -41,14 +41,10 @@ pub fn parse_quota(value: &Value, now: DateTime<Utc>) -> Option<String> {
     let primary = limits.get("primary_window").or_else(|| limits.get("five_hour"));
     let secondary = limits.get("secondary_window").or_else(|| limits.get("weekly"));
 
-    let five_hour = primary.and_then(|w| format_window(w, now));
-    let weekly = secondary.and_then(|w| format_window(w, now));
+    let five_hour = primary.and_then(|w| crate::quota::format_window(w, &WINDOW, now));
+    let weekly = secondary.and_then(|w| crate::quota::format_window(w, &WINDOW, now));
 
     crate::quota::combine_windows(five_hour, weekly)
-}
-
-fn format_window(window: &Value, now: DateTime<Utc>) -> Option<String> {
-    crate::quota::format_window(window, &WINDOW, now)
 }
 
 const WINDOW: crate::quota::WindowSpec = crate::quota::WindowSpec {

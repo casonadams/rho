@@ -35,7 +35,7 @@ async fn setup_idle_dispatch_harness(
     };
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
     let mut auth = crate::auth::AuthStore::default();
-    let _ = auth.set_api_key("anthropic", "test-key");
+    let _ = auth.set_key("anthropic", "test-key");
     let session = crate::repl::ReplSession::new(config.clone(), auth.clone(), None);
     let engine = crate::platform::agent_engine(config, auth, None).await.unwrap();
     let input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();

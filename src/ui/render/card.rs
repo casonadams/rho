@@ -1,7 +1,6 @@
 use super::diff::replace_tabs;
 use super::file_change;
 use super::formatters::{EditDiffRequest, format_edit_diff, format_read_expanded, format_write_preview};
-use crate::ui::block::terminal_width;
 use crate::ui::interactive::truncate_to_visual_lines;
 use crate::ui::theme::{BlockStyle, Theme};
 use rho_harness_core::presentation::ToolLine;
@@ -285,8 +284,4 @@ pub fn render_tool_transcript(
     } else {
         format!("\n{block}")
     }
-}
-
-pub fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> String {
-    render_tool_transcript(line, terminal_width(), true, false, theme)
 }

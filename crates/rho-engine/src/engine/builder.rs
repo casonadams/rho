@@ -85,7 +85,7 @@ fn try_provider_default(
     auth_store: &AuthStore,
     shared_auth: &Arc<tokio::sync::Mutex<AuthStore>>,
 ) -> Option<ModelHandle> {
-    let default_model = default_model_for_provider(&config.provider);
+    let default_model = rho_harness_core::provider::default_model_for_provider(&config.provider);
     let mut trial = config.clone();
     trial.model = default_model.to_string();
     let m = create_engine_model(&trial, auth_store, shared_auth.clone()).ok()?;
@@ -284,10 +284,6 @@ pub fn create_engine_model(
         );
     }
     crate::provider::ProviderFactory::create_model(config, &config.model, auth_store, shared_auth)
-}
-
-fn default_model_for_provider(provider: &str) -> &'static str {
-    rho_harness_core::provider::default_model_for_provider(provider)
 }
 
 #[cfg(test)]

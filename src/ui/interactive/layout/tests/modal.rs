@@ -231,13 +231,13 @@ fn test_in_input_modal_desired_lines_uncapped_body() {
     let body = (1..=20).map(|i| format!("cmd {i}")).collect::<Vec<_>>().join("\n");
     let mut modal = ModalState::new("Run", &body, vec![ModalOption::from("Allow")]);
     modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
-    let desired = crate::ui::interactive::layout::modal::in_input::in_input_modal_desired_lines(&modal, "", 80);
+    let desired = crate::ui::interactive::layout::modal::in_input_modal_desired_lines(&modal, "", 80);
     assert_eq!(desired, 21);
 }
 
 #[test]
 fn test_calculate_content_space_horizontal_layout() {
-    use crate::ui::interactive::layout::modal::in_input::calculate_content_space;
+    use crate::ui::interactive::layout::modal::input::calculate_content_space;
     let mut modal = ModalState::new("Run", "body", vec![ModalOption::from("Allow")]);
     modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
     assert_eq!(calculate_content_space(&modal, 0), (0, 0));
@@ -248,7 +248,7 @@ fn test_calculate_content_space_horizontal_layout() {
 
 #[test]
 fn test_calculate_content_space_vertical_layout() {
-    use crate::ui::interactive::layout::modal::in_input::calculate_content_space;
+    use crate::ui::interactive::layout::modal::input::calculate_content_space;
     let modal = ModalState::new(
         "Run",
         "body",
@@ -325,7 +325,8 @@ fn modal_hint_adopts_custom_theme_dimmed_color() {
 
 mod horizontal {
     use crate::ui::interactive::layout::modal::modal_hint;
-    use crate::ui::interactive::layout::modal::options::{ModalOptionsLayout, render_modal_options};
+    use crate::ui::interactive::layout::modal::types::ModalOptionsLayout;
+    use crate::ui::interactive::layout::modal::vertical::render_modal_options;
     use crate::ui::interactive::{ModalMode, ModalOption, ModalState, OptionLayout};
     use crate::ui::theme::Theme;
 

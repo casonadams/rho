@@ -67,7 +67,13 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
         TranscriptItem::UserMessage(text) => render_user_message(text, &input),
         TranscriptItem::AssistantText(text) => render_assistant_text(text, input.width, input.theme),
         TranscriptItem::Thinking(text) => render_thinking_text(text, input.width, input.hide_thinking, input.theme),
-        TranscriptItem::Tool(tool) => render_tool_transcript(tool, &input),
+        TranscriptItem::Tool(tool) => crate::ui::render::card::render_tool_transcript(
+            tool,
+            input.width,
+            input.tools_expanded,
+            input.tools_expanded,
+            input.theme,
+        ),
         TranscriptItem::Notice(text) => text.clone(),
     }
 }
@@ -270,24 +276,4 @@ pub fn format_welcome_content(welcome: &WelcomeItem, width: usize, theme: &Theme
     let mcp = format_mcp_items(&welcome.mcp, &tools.mcp_groups);
     append_welcome_section(&mut out, "mcp", &mcp, width, dim);
     out
-}
-
-pub fn render_tool_block(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
-    crate::ui::render::card::render_tool_block(
-        tool,
-        input.width,
-        input.tools_expanded,
-        input.tools_expanded,
-        input.theme,
-    )
-}
-
-pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
-    crate::ui::render::card::render_tool_transcript(
-        tool,
-        input.width,
-        input.tools_expanded,
-        input.tools_expanded,
-        input.theme,
-    )
 }

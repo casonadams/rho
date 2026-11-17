@@ -10,7 +10,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
-use crate::ui::render::card::render_headless_tool_card;
+use crate::ui::render::card::render_tool_transcript;
 use crate::ui::render::file_change;
 use crate::ui::render::margin::{Margin, margin_width};
 use crate::ui::render::thinking::ThinkingRenderer;
@@ -275,7 +275,7 @@ impl TerminalRenderer {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line));
             return;
         }
-        let card = render_headless_tool_card(&line, &self.theme);
+        let card = render_tool_transcript(&line, crate::ui::block::terminal_width(), true, false, &self.theme);
         self.write_output(&card);
     }
 

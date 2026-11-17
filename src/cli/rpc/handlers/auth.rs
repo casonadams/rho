@@ -93,7 +93,7 @@ pub(crate) async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let mut store = ctx.auth_store.write().await;
-    let saved = match store.set_api_key_async(&provider, api_key).await {
+    let saved = match store.set_key_async(&provider, api_key).await {
         Ok(_) => store.save_async().await,
         Err(e) => Err(e),
     };

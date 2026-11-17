@@ -23,7 +23,9 @@ pub async fn fetch_quota(usage_url: &str, token: &str, target_model: Option<&str
 }
 
 pub fn parse_quota(value: &Value, target_model: Option<&str>, now: DateTime<Utc>) -> Option<String> {
-    let five_hour = value.get("five_hour").and_then(|w| format_window(w, now));
+    let five_hour = value
+        .get("five_hour")
+        .and_then(|w| crate::quota::format_window(w, &WINDOW, now));
 
     let is_opus = target_model.is_some_and(|m| m.to_ascii_lowercase().contains("opus"));
     let is_sonnet = target_model.is_some_and(|m| m.to_ascii_lowercase().contains("sonnet"));
@@ -36,13 +38,9 @@ pub fn parse_quota(value: &Value, target_model: Option<&str>, now: DateTime<Utc>
         value.get("seven_day")
     };
 
-    let weekly = secondary.and_then(|w| format_window(w, now));
+    let weekly = secondary.and_then(|w| crate::quota::format_window(w, &WINDOW, now));
 
     crate::quota::combine_windows(five_hour, weekly)
-}
-
-fn format_window(window: &Value, now: DateTime<Utc>) -> Option<String> {
-    crate::quota::format_window(window, &WINDOW, now)
 }
 
 const WINDOW: crate::quota::WindowSpec = crate::quota::WindowSpec {

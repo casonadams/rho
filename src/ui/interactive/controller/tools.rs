@@ -2,9 +2,8 @@ use std::io;
 
 use super::TerminalController;
 use super::backend::TerminalBackend;
-use crate::ui::interactive::{
-    Activity, RunningTool, ToolItem, ToolStartRequest, TranscriptItem, TranscriptRenderInput, render_tool_block,
-};
+use crate::ui::interactive::{Activity, RunningTool, ToolItem, ToolStartRequest, TranscriptItem};
+use crate::ui::render::card::render_tool_block;
 
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn start_tool(&mut self, request: ToolStartRequest) -> io::Result<()> {
@@ -55,19 +54,9 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
-    fn render_tool_block_str(&self, tool: &ToolItem) -> String {
-        let input = TranscriptRenderInput {
-            item: &TranscriptItem::Tool(tool.clone()),
-            theme: &self.theme,
-            width: self.width,
-            tools_expanded: self.state.tools_expanded(),
-            hide_thinking: self.state.hide_thinking(),
-        };
-        render_tool_block(tool, &input)
-    }
-
     pub fn commit_active_tool(&mut self, tool: ToolItem, needs_prefix_newline: bool) -> io::Result<bool> {
-        let block = self.render_tool_block_str(&tool);
+        let expanded = self.state.tools_expanded();
+        let block = render_tool_block(&tool, self.width, expanded, expanded, &self.theme);
         let item = TranscriptItem::Tool(tool);
         let rendered = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
             block
