@@ -16,36 +16,11 @@ pub fn display_events(event: &super::turn::runner::StreamEvent) -> Vec<DisplayEv
     }
 }
 
-pub fn checkpoint_messages(
-    visible_history: &[ChatMessage],
-    full_history: &[ChatMessage],
-) -> Result<Vec<ChatMessage>, AppError> {
-    full_history
-        .strip_prefix(visible_history)
-        .filter(|messages| !messages.is_empty())
-        .map(<[ChatMessage]>::to_vec)
-        .ok_or_else(|| AppError::Session("Budget checkpoint did not match the model-visible history".to_string()))
-}
-
 pub fn continuation_history(visible_history: &[ChatMessage], checkpoint: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut history = Vec::with_capacity(visible_history.len() + checkpoint.len());
     history.extend_from_slice(visible_history);
     history.extend_from_slice(checkpoint);
     history
-}
-
-pub fn sanitize_request_id(id: &str) -> String {
-    let redacted = super::helpers::redact_text(id);
-    let lower = redacted.to_ascii_lowercase();
-    if lower.contains("sk-") || lower.contains("key-") || lower.contains("token") {
-        return "sensitive upstream detail redacted".to_string();
-    }
-    redacted
-        .chars()
-        .filter(|c| c.is_ascii() && !c.is_ascii_control())
-        .collect::<String>()
-        .trim()
-        .to_string()
 }
 
 pub fn is_transient_network_error(error: &AppError) -> bool {

@@ -52,11 +52,6 @@ impl McpServerPool {
         );
     }
 
-    pub async fn has_active_instance(&self, name: &str) -> bool {
-        let guard = self.servers.read().await;
-        guard.get(name).map(|r| r.instance.is_some()).unwrap_or(false)
-    }
-
     pub async fn active_instances_count(&self) -> usize {
         let guard = self.servers.read().await;
         guard.values().filter(|r| r.instance.is_some()).count()

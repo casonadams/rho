@@ -34,16 +34,6 @@ impl AgentEngine {
         consumed_context_tokens(usage, &self.config.provider)
     }
 
-    pub fn context_usage_percent(&self) -> Option<usize> {
-        let usage = self.usage.latest()?;
-        if !usage.has_values() {
-            return None;
-        }
-        let limit = self.context_limit()?;
-        let consumed = self.consumed_context(&usage);
-        Some(((consumed as usize * 100) / limit).min(100))
-    }
-
     pub fn context_percent_f64(&self) -> Option<f64> {
         let usage = self.usage.latest()?;
         if !usage.has_values() {
@@ -64,10 +54,6 @@ impl AgentEngine {
 
     pub fn tokens_per_second(&self) -> Option<f64> {
         self.usage.tokens_per_second()
-    }
-
-    pub fn context_display(&self) -> String {
-        self.context_remaining_display()
     }
 
     pub fn context_remaining_display(&self) -> String {

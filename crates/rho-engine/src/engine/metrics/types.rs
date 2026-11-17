@@ -24,11 +24,6 @@ impl CompletionCall {
         self.finish_reason = reason;
         self
     }
-
-    pub fn with_provider_request_id(mut self, id: Option<String>) -> Self {
-        self.provider_request_id = id;
-        self
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -239,13 +234,6 @@ impl RunMetrics {
     pub fn cache_hit_rate(&self) -> Option<f64> {
         self.usage.as_ref().and_then(StructuralUsage::cache_hit_rate)
     }
-}
-
-pub struct NeutralOutcome<'a> {
-    pub session_id: &'a str,
-    pub status: TerminalStatus,
-    pub requests: usize,
-    pub usage: Option<StructuralUsage>,
 }
 
 #[derive(Debug)]

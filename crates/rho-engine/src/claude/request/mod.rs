@@ -8,29 +8,6 @@ pub use contents::convert_messages;
 
 use super::http::ClaudeAuth;
 
-pub fn is_core_claude_tool(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "read"
-            | "write"
-            | "edit"
-            | "bash"
-            | "grep"
-            | "glob"
-            | "askuserquestion"
-            | "enterplanmode"
-            | "exitplanmode"
-            | "killshell"
-            | "notebookedit"
-            | "skill"
-            | "task"
-            | "taskoutput"
-            | "todowrite"
-            | "webfetch"
-            | "websearch"
-    )
-}
-
 pub fn to_claude_tool_name(name: &str) -> String {
     let lower = name.to_ascii_lowercase();
     match lower.as_str() {
@@ -170,11 +147,6 @@ pub fn is_thinking_on_by_default(model: &str) -> bool {
         }
     }
     false
-}
-
-pub fn is_unsupported_forced_tool_model(model: &str) -> bool {
-    let lower = model.to_ascii_lowercase();
-    lower.contains("opus-5-5") || lower.contains("opus-5.5") || lower.contains("fable") || lower.contains("mythos")
 }
 
 fn adaptive_max_tokens(effort: Option<&str>) -> u64 {

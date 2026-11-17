@@ -30,13 +30,6 @@ impl SearchRateLimiter {
     }
 }
 
-pub fn parse_retry_after(header_val: Option<&str>, default_backoff: Duration) -> Duration {
-    header_val
-        .and_then(|val| val.trim().parse::<u64>().ok())
-        .map(|sec| Duration::from_secs(sec.min(5)))
-        .unwrap_or(default_backoff)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

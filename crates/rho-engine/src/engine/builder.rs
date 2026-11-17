@@ -64,11 +64,6 @@ impl AgentEngineBuilder {
         self
     }
 
-    pub fn add_tools(mut self, tools: impl IntoIterator<Item = Arc<dyn EngineTool>>) -> Self {
-        self.extra_tools.extend(tools);
-        self
-    }
-
     pub fn session(mut self, session_manager: SessionManager) -> Self {
         self.session_manager = Some(session_manager);
         self

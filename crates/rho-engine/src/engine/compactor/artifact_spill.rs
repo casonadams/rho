@@ -32,10 +32,6 @@ impl ArtifactDemotionHook {
         Self { dir }
     }
 
-    pub fn spill_text(&self, content: &str) -> std::io::Result<PathBuf> {
-        spill_artifact(&self.dir, content)
-    }
-
     pub fn dir(&self) -> &Path {
         &self.dir
     }

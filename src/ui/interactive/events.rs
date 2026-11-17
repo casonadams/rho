@@ -309,10 +309,6 @@ impl InteractiveUi {
         receiver.await.map_err(|_| UiPortError::Closed)
     }
 
-    pub async fn interact(&self, prompt: InteractionPrompt) -> Result<InteractionResponse, UiPortError> {
-        self.request(prompt).await
-    }
-
     pub fn dismiss_interaction(&self) -> Result<(), UiPortError> {
         self.sender
             .send(UiEvent::DismissInteraction)

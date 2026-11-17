@@ -64,12 +64,13 @@ fn sample_sensitive_request() -> rho_engine::provider::adapter::ModelCompletionR
     rho_engine::provider::adapter::ModelCompletionRequest {
         preamble: None,
         prompt: "credential-sentinel".to_string(),
-        messages: vec![ChatMessage::assistant_blocks(vec![
-            rho_harness_core::model::AssistantContent::ToolCall(ToolCall::new(
+        messages: vec![ChatMessage::Assistant {
+            id: None,
+            content: vec![rho_harness_core::model::AssistantContent::ToolCall(ToolCall::new(
                 "random-id",
                 ToolFunction::new("read", json!({"path":"secret"})),
-            )),
-        ])],
+            ))],
+        }],
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,

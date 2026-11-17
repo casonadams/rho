@@ -72,12 +72,6 @@ impl UsageTracker {
         }
     }
 
-    pub fn start_response(&self) {
-        if let Ok(mut speed) = self.speed.lock() {
-            speed.response_start();
-        }
-    }
-
     pub fn end_response(&self, output_tokens: u64) {
         if let Ok(mut speed) = self.speed.lock() {
             speed.response_end(output_tokens);
@@ -103,10 +97,6 @@ impl UsageTracker {
         } else {
             self.end_response(usage.totals.output_tokens);
         }
-    }
-
-    pub fn record_with_duration(&self, usage: StructuralUsage, elapsed_ms: u64) {
-        self.record_turn(TurnUsage::single(usage), elapsed_ms);
     }
 
     pub fn record(&self, usage: StructuralUsage) {
@@ -153,11 +143,5 @@ impl UsageTracker {
             return Some(speed);
         }
         self.speed.lock().ok().and_then(|s| s.tokens_per_second())
-    }
-
-    pub fn reset_speed(&self) {
-        if let Ok(mut speed) = self.speed.lock() {
-            speed.reset();
-        }
     }
 }

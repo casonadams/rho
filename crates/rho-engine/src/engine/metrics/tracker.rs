@@ -1,6 +1,6 @@
 use super::types::{
-    CompletionCall, CompletionOutcome, ModelCallMetrics, NeutralOutcome, ObservationMetricsInput, RunMetrics,
-    StructuralUsage, TerminalStatus, metrics_from_observation,
+    CompletionCall, CompletionOutcome, ModelCallMetrics, ObservationMetricsInput, RunMetrics, StructuralUsage,
+    TerminalStatus, metrics_from_observation,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -86,17 +86,6 @@ impl RunTracker {
             usage,
             completion_calls: calls,
             requests: outcome.response.requests,
-        })
-    }
-
-    pub fn complete_neutral(&self, outcome: NeutralOutcome<'_>) -> RunMetrics {
-        metrics_from_observation(ObservationMetricsInput {
-            observation: self.take(),
-            session_id: outcome.session_id,
-            status: outcome.status,
-            usage: outcome.usage,
-            completion_calls: Vec::new(),
-            requests: outcome.requests,
         })
     }
 

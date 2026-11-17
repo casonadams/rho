@@ -26,13 +26,6 @@ impl RpcPresenter {
         }
     }
 
-    pub fn with_approvals(event_tx: mpsc::UnboundedSender<RpcEvent>, pending_approvals: PendingApprovals) -> Self {
-        Self {
-            event_tx,
-            pending_approvals,
-        }
-    }
-
     pub fn pending_approvals(&self) -> PendingApprovals {
         Arc::clone(&self.pending_approvals)
     }

@@ -96,10 +96,6 @@ impl InteractiveState {
         self.footer.show_label
     }
 
-    pub fn set_show_label(&mut self, show: bool) {
-        self.footer.show_label = show;
-    }
-
     pub fn toggle_show_label(&mut self) -> bool {
         self.footer.show_label = !self.footer.show_label;
         self.footer.show_label
@@ -123,10 +119,6 @@ impl InteractiveState {
 
     pub fn push_front_queued(&mut self, message: QueuedMessage) {
         self.queue.push_front(message);
-    }
-
-    pub fn clear_queue(&mut self) {
-        self.queue.clear();
     }
 
     pub fn retain_queued(&mut self, f: impl FnMut(&QueuedMessage) -> bool) {

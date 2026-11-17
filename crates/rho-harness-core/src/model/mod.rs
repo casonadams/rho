@@ -45,16 +45,6 @@ impl ChatMessage {
         Self::System { content: text.into() }
     }
 
-    /// Create a user message with multiple content blocks.
-    pub fn user_blocks(content: Vec<UserContent>) -> Self {
-        Self::User { content }
-    }
-
-    /// Create an assistant message with multiple content blocks.
-    pub fn assistant_blocks(content: Vec<AssistantContent>) -> Self {
-        Self::Assistant { id: None, content }
-    }
-
     /// Extract text content from the message, if available.
     pub fn text(&self) -> Option<&str> {
         match self {
