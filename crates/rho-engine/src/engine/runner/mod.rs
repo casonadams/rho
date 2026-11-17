@@ -11,6 +11,7 @@ pub use sink::{
     TurnArtifacts,
 };
 pub use turn::{
-    CancellationSignal, DEFAULT_PRUNE_LINE_THRESHOLD, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus,
-    SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails, prune_historical_tool_outputs, runner::StreamEvent,
+    CancellationSignal, DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary,
+    RunStatus, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails, prune_historical_tool_outputs_with_policy,
+    runner::StreamEvent,
 };

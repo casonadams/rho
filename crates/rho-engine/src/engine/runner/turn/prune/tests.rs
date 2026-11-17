@@ -1,6 +1,22 @@
 use super::*;
 use rho_harness_core::model::*;
 
+fn prune_historical_tool_outputs(
+    messages: &[ChatMessage],
+    volatile_turns: usize,
+    line_threshold: usize,
+) -> Vec<ChatMessage> {
+    let policy = PrunePolicy {
+        volatile_turns,
+        line_threshold,
+        protect_recent_tokens: 0,
+        prune_minimum_tokens: 0,
+        min_prune_tokens: 0,
+        model: None,
+    };
+    prune_historical_tool_outputs_with_policy(messages, &policy)
+}
+
 fn make_tool_turn(cid: &str, tool: &str, cmd: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
     let call = ToolCall::new(
         cid,

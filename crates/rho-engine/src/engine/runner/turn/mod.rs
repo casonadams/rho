@@ -6,7 +6,7 @@ mod stream;
 mod streaming_tool;
 pub mod types;
 
-pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, prune_historical_tool_outputs};
+pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, prune_historical_tool_outputs_with_policy};
 pub use types::{
     CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, SteeringQueueProvider, TurnOutput,
     TurnRequest, UsageDetails,

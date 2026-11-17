@@ -116,7 +116,7 @@ fn test_tool_result_image_token_estimation() {
 
 #[test]
 fn test_multi_turn_image_tool_result_pruning_token_reduction() {
-    use rho::engine::runner::{DEFAULT_PRUNE_LINE_THRESHOLD, prune_historical_tool_outputs};
+    use rho::engine::runner::{DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, prune_historical_tool_outputs_with_policy};
     use rho::tokens::{ESTIMATED_IMAGE_TOKENS, estimate_message_tokens};
 
     let turn1_user = ChatMessage::user("Inspect this mock screenshot");
@@ -153,7 +153,15 @@ fn test_multi_turn_image_tool_result_pruning_token_reduction() {
         .sum();
     assert!(pre_tokens > ESTIMATED_IMAGE_TOKENS);
 
-    let pruned_history = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+    let policy = PrunePolicy {
+        volatile_turns: 1,
+        line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+        protect_recent_tokens: 0,
+        prune_minimum_tokens: 0,
+        min_prune_tokens: 0,
+        model: None,
+    };
+    let pruned_history = prune_historical_tool_outputs_with_policy(&history, &policy);
     assert_eq!(pruned_history.len(), history.len());
 
     let ChatMessage::User {
