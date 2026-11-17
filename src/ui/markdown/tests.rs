@@ -376,3 +376,15 @@ fn test_warmup_syntax_highlighter_completes() {
     super::warmup_syntax_highlighter();
     super::warmup_syntax_highlighter();
 }
+
+#[test]
+fn horizontal_rule_spans_the_render_width() {
+    let theme = Theme::default();
+    for width in [30usize, 57, 120] {
+        let mut md = MarkdownRenderer::new();
+        md.set_width(width);
+        let plain = crate::ui::block::strip_ansi(&md.render_text("above\n\n---\n\nbelow\n", &theme));
+        let rules: Vec<&str> = plain.lines().filter(|line| line.contains('─')).collect();
+        assert_eq!(rules, ["─".repeat(width)], "width {width}");
+    }
+}

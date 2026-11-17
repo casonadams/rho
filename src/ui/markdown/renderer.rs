@@ -170,7 +170,7 @@ impl MarkdownRenderer {
         {
             return highlighter.highlight_line(line, theme);
         }
-        let rendered = render_line(line, &mut self.code_fence, theme);
+        let rendered = render_line(line, &mut self.code_fence, theme, self.width);
         self.sync_code_highlighter(theme);
         rendered
     }

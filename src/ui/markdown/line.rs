@@ -11,13 +11,13 @@ static ORDERED_LIST: LazyLock<regex::Regex> =
 // Render dispatch
 // ---------------------------------------------------------------------------
 
-pub fn render_line(line: &str, code_fence: &mut CodeFenceTracker, theme: &Theme) -> String {
+pub fn render_line(line: &str, code_fence: &mut CodeFenceTracker, theme: &Theme, width: usize) -> String {
     let trimmed = line.trim();
 
     if trimmed.starts_with("```") {
         return code_fence.toggle(trimmed, theme);
     }
-    if let Some(rule) = render_horizontal_rule(line, theme) {
+    if let Some(rule) = render_horizontal_rule(line, theme, width) {
         return rule;
     }
     if let Some(header) = render_header(line, theme) {
@@ -167,12 +167,16 @@ pub fn is_horizontal_rule(trimmed: &str) -> bool {
     matches!(first, '-' | '*' | '_') && stripped.chars().all(|c| c == first)
 }
 
-pub fn render_horizontal_rule(line: &str, theme: &Theme) -> Option<String> {
+pub fn render_horizontal_rule(line: &str, theme: &Theme, width: usize) -> Option<String> {
     let trimmed = line.trim();
     if is_horizontal_rule(trimmed) {
-        let width = crossterm::terminal::size()
-            .map(|(cols, _)| usize::from(cols).max(40))
-            .unwrap_or(80);
+        let width = if width > 0 {
+            width
+        } else {
+            crossterm::terminal::size()
+                .map(|(cols, _)| usize::from(cols).max(40))
+                .unwrap_or(80)
+        };
         let d = theme.dimmed;
         let rule = "─".repeat(width);
         return Some(format!("{d}{rule}{d:#}"));
