@@ -17,6 +17,7 @@ pub struct StreamingToolTracker {
     arguments_buf: String,
     path_started: bool,
     streamed_content_len: usize,
+    content: ContentDecoder,
 }
 
 impl StreamingToolTracker {
@@ -51,9 +52,9 @@ impl StreamingToolTracker {
     }
 
     fn maybe_stream_content(&mut self, sink: &Arc<TerminalApprovalSink>) {
-        if let Some(current_content) = extract_json_streaming_content(&self.arguments_buf)
-            && current_content.len() > self.streamed_content_len
-        {
+        self.content.advance(&self.arguments_buf);
+        let current_content = &self.content.decoded;
+        if current_content.len() > self.streamed_content_len {
             sink.tool_chunk(&current_content[self.streamed_content_len..]);
             self.streamed_content_len = current_content.len();
         }
@@ -70,42 +71,81 @@ impl StreamingToolTracker {
 }
 
 pub fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
-    let key = format!("\"{field}\"");
-    parse_json_string_value(json, &key, false)
+    let start = locate_string_body(json, &format!("\"{field}\""))?;
+    decode_closed_json_string(&json[start..])
 }
 
-pub fn extract_json_streaming_content(json: &str) -> Option<String> {
-    parse_json_string_value(json, "\"content\"", true)
-}
-
-fn parse_json_string_value(json: &str, field_key: &str, is_streaming: bool) -> Option<String> {
+fn locate_string_body(json: &str, field_key: &str) -> Option<usize> {
     let key_pos = json.find(field_key)?;
     let after_key = &json[key_pos + field_key.len()..];
     let colon_pos = after_key.find(':')?;
     let after_colon = after_key[colon_pos + 1..].trim_start();
-    let string_content = after_colon.strip_prefix('"')?;
-
-    let (result, closed) = decode_json_string_content(string_content, is_streaming);
-    if closed || is_streaming { Some(result) } else { None }
+    let string_body = after_colon.strip_prefix('"')?;
+    Some(json.len() - string_body.len())
 }
 
-fn decode_json_string_content(string_content: &str, is_streaming: bool) -> (String, bool) {
-    let mut result = String::new();
-    let mut chars = string_content.char_indices();
-    while let Some((_, ch)) = chars.next() {
-        match ch {
-            '\\' => {
-                if let Some((_, next_ch)) = chars.next() {
-                    append_escaped_char(&mut result, next_ch);
-                } else if is_streaming {
-                    break;
-                }
+#[derive(Default)]
+struct ContentDecoder {
+    body_start: Option<usize>,
+    scanned: usize,
+    decoded: String,
+    closed: bool,
+}
+
+impl ContentDecoder {
+    fn advance(&mut self, json: &str) {
+        if self.closed {
+            return;
+        }
+        let start = match self.body_start {
+            Some(start) => start,
+            None => {
+                let Some(start) = locate_string_body(json, "\"content\"") else {
+                    return;
+                };
+                self.body_start = Some(start);
+                start
             }
-            '"' => return (result, true),
+        };
+        let pending = &json[start + self.scanned..];
+        let mut pos = 0;
+        while pos < pending.len() {
+            let rest = &pending[pos..];
+            let Some(special) = rest.find(['"', '\\']) else {
+                self.decoded.push_str(rest);
+                pos = pending.len();
+                break;
+            };
+            self.decoded.push_str(&rest[..special]);
+            let at = pos + special;
+            if pending.as_bytes()[at] == b'"' {
+                self.closed = true;
+                pos = at + 1;
+                break;
+            }
+            // Backslash: an escape split across deltas is left unconsumed until complete.
+            let Some(next_ch) = pending[at + 1..].chars().next() else {
+                pos = at;
+                break;
+            };
+            append_escaped_char(&mut self.decoded, next_ch);
+            pos = at + 1 + next_ch.len_utf8();
+        }
+        self.scanned += pos;
+    }
+}
+
+fn decode_closed_json_string(string_content: &str) -> Option<String> {
+    let mut result = String::new();
+    let mut chars = string_content.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => append_escaped_char(&mut result, chars.next()?),
+            '"' => return Some(result),
             c => result.push(c),
         }
     }
-    (result, false)
+    None
 }
 
 const ESCAPE_CHARS: [(char, char); 8] = [

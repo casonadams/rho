@@ -3,6 +3,12 @@ use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use rho_harness_core::session::SessionManager;
 use std::sync::Arc;
 
+fn extract_json_streaming_content(json: &str) -> Option<String> {
+    let mut decoder = ContentDecoder::default();
+    decoder.advance(json);
+    decoder.body_start.map(|_| decoder.decoded)
+}
+
 fn mock_sink() -> Arc<TerminalApprovalSink> {
     let temp_dir = std::env::temp_dir().join(format!("streaming_test_{}", uuid::Uuid::new_v4()));
     let session = SessionManager::new(&temp_dir, None).unwrap();
@@ -65,6 +71,30 @@ fn extract_trailing_escape_in_streaming_content() {
 
     let non_streaming = "{\"path\": \"hello\\";
     assert_eq!(extract_json_string_field(non_streaming, "path"), None);
+}
+
+#[test]
+fn content_decoder_matches_one_shot_at_every_split() {
+    let full = "{\"path\": \"a.txt\", \"content\": \"é\\n\\\"q\\\" \\a tab\\t end\"}";
+    let expected = extract_json_streaming_content(full);
+    assert_eq!(expected.as_deref(), Some("é\n\"q\" \\a tab\t end"));
+
+    for split in (0..=full.len()).filter(|&i| full.is_char_boundary(i)) {
+        let mut decoder = ContentDecoder::default();
+        decoder.advance(&full[..split]);
+        decoder.advance(full);
+        let emitted = decoder.decoded.clone();
+        assert_eq!(Some(emitted), expected, "split at {split}");
+    }
+}
+
+#[test]
+fn content_decoder_holds_escape_split_across_deltas() {
+    let mut decoder = ContentDecoder::default();
+    decoder.advance("{\"content\": \"hi\\");
+    assert_eq!(decoder.decoded, "hi");
+    decoder.advance("{\"content\": \"hi\\n");
+    assert_eq!(decoder.decoded, "hi\n");
 }
 
 #[test]
