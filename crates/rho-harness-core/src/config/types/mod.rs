@@ -13,5 +13,5 @@ pub use integrations::{
     ProviderConfig, default_idle_timeout_seconds,
 };
 pub(crate) use key::ConfigKey;
-pub use paths::{default_config_dir, dirs_fallback};
+pub use paths::{default_config_dir, dirs_fallback, home_dir};
 pub use ui::UiConfig;

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub fn is_confined_target(canonical: &Path, base_dir: &Path) -> bool {
     if canonical.components().any(|c| c.as_os_str() == ".git") {
@@ -13,10 +13,8 @@ pub fn is_confined_target(canonical: &Path, base_dir: &Path) -> bool {
     let in_workspace =
         canonical.starts_with(&canonical_base) || repo_root.as_ref().is_some_and(|r| canonical.starts_with(r));
 
-    let in_home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
-        .and_then(|h| PathBuf::from(h).canonicalize().ok())
+    let in_home = rho_harness_core::config::home_dir()
+        .and_then(|h| h.canonicalize().ok())
         .is_some_and(|h| canonical.starts_with(&h));
 
     in_workspace || in_home

@@ -104,7 +104,7 @@ impl AgentEngine {
         let mut cache = self.project_context.lock().await;
         if cache.as_ref().map(|(dir, _)| dir.as_path()) != Some(cwd.as_path()) {
             let tools = self.tool_names();
-            let home = context::resolve_home_dir();
+            let home = rho_harness_core::config::home_dir();
             let dirs = self.build_cached_context_dirs(&tools, home.as_deref());
             *cache = Some((
                 cwd.clone(),

@@ -16,10 +16,7 @@ pub async fn resolved_skills_async(project_dir: Option<&Path>) -> Vec<ResolvedSk
 
 /// Resolve skills with an optional explicit home directory override, falling back to environment.
 pub fn resolved_skills_with_home(project_dir: Option<&Path>, home_dir: Option<&Path>) -> Vec<ResolvedSkill> {
-    let env_home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
-        .map(PathBuf::from);
+    let env_home = crate::config::home_dir();
     let paths = SkillResolutionPaths {
         project_dir,
         home_dir: home_dir.or(env_home.as_deref()),

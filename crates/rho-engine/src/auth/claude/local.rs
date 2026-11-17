@@ -141,10 +141,7 @@ async fn read_valid_keychain_credential_async(config_file: &std::path::Path) -> 
 }
 
 pub async fn detect_local_claude_credentials_async() -> Option<StoredCredential> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
-        .map(std::path::PathBuf::from)?;
+    let home = rho_harness_core::config::home_dir()?;
 
     let creds_file = home.join(".claude").join(".credentials.json");
     let config_file = home.join(".claude.json");

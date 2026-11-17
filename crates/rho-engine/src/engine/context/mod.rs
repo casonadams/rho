@@ -48,7 +48,7 @@ async fn resolve_full_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> Strin
 
 impl ProjectContext {
     pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>) -> Self {
-        let home = config_dir.and_then(|_| resolve_home_dir());
+        let home = config_dir.and_then(|_| rho_harness_core::config::home_dir());
         Self::discover_with_dirs(
             dir,
             ContextDirs {
@@ -61,7 +61,7 @@ impl ProjectContext {
     }
 
     pub async fn discover_with_config(dir: impl AsRef<Path>, config: &rho_harness_core::config::Config) -> Self {
-        let home = resolve_home_dir();
+        let home = rho_harness_core::config::home_dir();
         Self::discover_with_dirs(
             dir,
             ContextDirs {
@@ -151,13 +151,6 @@ async fn get_git_summary(dir: &Path) -> Option<String> {
         }
     }
     None
-}
-
-pub(crate) fn resolve_home_dir() -> Option<PathBuf> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
-        .map(PathBuf::from)
 }
 
 async fn try_read_system_md(dir: Option<&Path>, subpath: &str) -> Option<String> {

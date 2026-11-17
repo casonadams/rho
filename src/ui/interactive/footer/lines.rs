@@ -12,9 +12,7 @@ fn resolve_status_text(footer: &FooterState, system_message: Option<&str>) -> Op
 }
 
 pub fn format_top_line(footer: &FooterState, width: usize, system_message: Option<&str>) -> String {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from);
+    let home = rho_harness_core::config::home_dir();
     let cwd_path = footer
         .cwd
         .as_deref()
