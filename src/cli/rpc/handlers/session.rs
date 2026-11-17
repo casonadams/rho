@@ -109,13 +109,13 @@ pub(crate) async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpi
     }
 }
 
-fn build_engine_session_payload(
+async fn build_engine_session_payload(
     eng: &crate::engine::AgentEngine,
     messages: Option<Vec<serde_json::Value>>,
 ) -> serde_json::Value {
     let totals = eng.session_usage_totals();
     let base_dir = eng.base_dir.display().to_string();
-    let active_branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
+    let active_branch = crate::ui::interactive::footer::path::get_git_branch_async(eng.base_dir.clone()).await;
     let mut payload = serde_json::json!({
         "session_id": eng.session_manager.session_id,
         "workspace": base_dir,
@@ -260,7 +260,7 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
             let messages = extract_chat_messages(&raw_msgs);
             new_eng.spawn_refresh_quota();
-            let payload = build_engine_session_payload(&new_eng, Some(messages));
+            let payload = build_engine_session_payload(&new_eng, Some(messages)).await;
             *ctx.engine.write().await = new_eng;
             Ok(Some(payload))
         }
@@ -326,7 +326,7 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let result = match crate::platform::agent_engine_in_dir(cfg.clone(), auth, target_dir, None).await {
         Ok(new_eng) => {
             new_eng.spawn_refresh_quota();
-            let payload = build_engine_session_payload(&new_eng, None);
+            let payload = build_engine_session_payload(&new_eng, None).await;
             *ctx.engine.write().await = new_eng;
             *ctx.config.write().await = cfg;
             Ok(Some(payload))

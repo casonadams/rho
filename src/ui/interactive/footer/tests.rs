@@ -187,3 +187,12 @@ fn truncate_to_width_counts_only_visible_columns() {
     assert_eq!(truncate_to_width("\x1b[31mred\x1b[0m text", 5), "\x1b[31mred\x1b[0m t");
     assert_eq!(visible_width(&truncate_to_width("\x1b[2Kabcdef", 3)), 3);
 }
+
+#[tokio::test]
+async fn get_git_branch_async_reads_head_without_blocking_worker() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    std::fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/feature/async\n").unwrap();
+    let branch = super::path::get_git_branch_async(dir.path().to_path_buf()).await;
+    assert_eq!(branch.as_deref(), Some("feature/async"));
+}

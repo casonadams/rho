@@ -3,6 +3,7 @@ use super::session::extract_chat_messages;
 use super::turn::handle_compact_cmd;
 use crate::error::Result;
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcResponse};
+use std::sync::LazyLock;
 
 pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
@@ -23,7 +24,7 @@ pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
 
     let raw_msgs = eng.session_manager.load_messages().await.unwrap_or_default();
     let messages = extract_chat_messages(&raw_msgs);
-    let active_branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
+    let active_branch = crate::ui::interactive::footer::path::get_git_branch_async(eng.base_dir.clone()).await;
 
     let data = serde_json::json!({
         "session_id": eng.session_manager.session_id,
@@ -49,7 +50,13 @@ pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
+static HOST_NAME: LazyLock<String> = LazyLock::new(resolve_host_name);
+
 pub(crate) fn get_host_name() -> String {
+    HOST_NAME.clone()
+}
+
+fn resolve_host_name() -> String {
     if let Ok(name) = std::env::var("HOSTNAME") {
         let trimmed = name.trim();
         if !trimmed.is_empty() {
@@ -70,12 +77,12 @@ pub(crate) async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let hostname = get_host_name();
-    let (active_workspace, active_branch) = {
+    let base_dir = {
         let eng = ctx.engine.read().await;
-        let ws = eng.base_dir.display().to_string();
-        let branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
-        (Some(ws), branch)
+        eng.base_dir.clone()
     };
+    let active_workspace = Some(base_dir.display().to_string());
+    let active_branch = crate::ui::interactive::footer::path::get_git_branch_async(base_dir).await;
     let status = if ctx.active_turn.is_some() { "busy" } else { "idle" };
     let payload = serde_json::json!({
         "hostname": hostname,

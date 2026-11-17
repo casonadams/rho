@@ -51,6 +51,13 @@ fn branch_from_git_process(cwd: &Path) -> Option<String> {
     (!branch.is_empty()).then_some(branch)
 }
 
+pub async fn get_git_branch_async(cwd: PathBuf) -> Option<String> {
+    tokio::task::spawn_blocking(move || get_git_branch(&cwd))
+        .await
+        .ok()
+        .flatten()
+}
+
 pub fn get_git_branch(cwd: &Path) -> Option<String> {
     let mut curr = Some(cwd);
     while let Some(dir) = curr {
