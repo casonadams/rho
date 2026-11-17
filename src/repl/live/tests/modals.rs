@@ -1,4 +1,3 @@
-use super::common::HistoryTerminal;
 use crate::auth::AuthStore;
 use crate::repl::ReplSession;
 use crate::repl::live::modal::{
@@ -7,6 +6,7 @@ use crate::repl::live::modal::{
 };
 use crate::repl::live::turn::{TurnModelSwitchInput, apply_turn_model_switch};
 use crate::ui::TerminalRenderer;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{EditorState, FooterState, InteractiveState, LayoutInput, TerminalController, layout};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_engine::provider::discovery::claude_preset_models;
@@ -14,11 +14,11 @@ use rho_engine::provider::store::ModelStore;
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 
-fn send_modal_key(c: &mut TerminalController<HistoryTerminal>, code: KeyCode) -> ModalKeyResult {
+fn send_modal_key(c: &mut TerminalController<NullBackend>, code: KeyCode) -> ModalKeyResult {
     handle_modal_key(c, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
 }
 
-fn send_modal_char(c: &mut TerminalController<HistoryTerminal>, ch: char) -> ModalKeyResult {
+fn send_modal_char(c: &mut TerminalController<NullBackend>, ch: char) -> ModalKeyResult {
     handle_modal_key(c, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE), &mut None).unwrap()
 }
 
@@ -42,7 +42,7 @@ fn setup_model_selector_session(config_dir: std::path::PathBuf) -> crate::repl::
 fn model_selector_modal_filtering() {
     let temp = tempfile::tempdir().unwrap();
     let session = setup_model_selector_session(temp.path().to_path_buf());
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
     super::super::modal::open_model_selector(&session, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().title, "Select Model");
@@ -58,7 +58,7 @@ fn model_selector_modal_filtering() {
 fn model_selector_modal_selection() {
     let temp = tempfile::tempdir().unwrap();
     let session = setup_model_selector_session(temp.path().to_path_buf());
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
     super::super::modal::open_model_selector(&session, &mut controller);
     controller.state_mut().active_modal_mut().unwrap().set_filter("claude");
@@ -78,7 +78,7 @@ fn model_selector_modal_selection() {
 
 #[test]
 fn settings_selector_modal_toggles_block_style() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
@@ -94,7 +94,7 @@ fn settings_selector_modal_toggles_block_style() {
 
 #[test]
 fn settings_selector_modal_opens_tools_menu() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
 
     let modal = controller.state_mut().active_modal_mut().unwrap();
@@ -106,7 +106,7 @@ fn settings_selector_modal_opens_tools_menu() {
 
 #[test]
 fn settings_selector_modal_toggles_cursor_mode() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
     let key7 = KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, key7, &mut None).unwrap();
@@ -124,7 +124,7 @@ fn settings_selector_modal_toggles_cursor_mode() {
 
 #[test]
 fn settings_selector_modal_opens_models_menu() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), None, Some("medium"), &mut controller);
     controller.state_mut().active_modal_mut().unwrap().selected = 7;
     assert_eq!(
@@ -141,7 +141,7 @@ fn settings_selector_modal_opens_models_menu() {
 
 #[test]
 fn settings_selector_modal_cycles_thinking_effort() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), None, Some("medium"), &mut controller);
     let key3 = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, key3, &mut None).unwrap();
@@ -169,7 +169,7 @@ fn settings_selector_modal_cycles_thinking_effort() {
 
 #[test]
 fn settings_selector_modal_toggles_thinking_output() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     assert!(!controller.state().hide_thinking());
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
     let key4 = KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE);
@@ -191,7 +191,7 @@ fn settings_selector_modal_toggles_thinking_output() {
 
 #[test]
 fn settings_selector_modal_toggles_tools_expanded() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     assert!(!controller.state().tools_expanded());
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
     let key5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
@@ -213,7 +213,7 @@ fn settings_selector_modal_toggles_tools_expanded() {
 
 #[test]
 fn settings_selector_modal_toggles_box_responses_and_labels() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
 
     // Jump to Box Responses (digit 2 -> index 1)
@@ -243,7 +243,7 @@ fn settings_selector_modal_toggles_box_responses_and_labels() {
 
 #[test]
 fn settings_selector_modal_arrows_step_thinking_effort() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, Some("medium"), &mut controller);
     let key3 = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, key3, &mut None).unwrap();
@@ -288,7 +288,7 @@ fn settings_selector_modal_arrows_step_thinking_effort() {
 
 #[test]
 fn settings_selector_modal_ctrl_s_saves_thinking_as_default() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, Some("high"), &mut controller);
     let key3 = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, key3, &mut None).unwrap();
@@ -307,7 +307,7 @@ fn settings_selector_modal_ctrl_s_saves_thinking_as_default() {
 
 #[test]
 fn settings_selector_modal_digit_jump_navigates() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
@@ -333,7 +333,7 @@ fn release_key(code: KeyCode) -> KeyEvent {
 
 #[test]
 fn modal_key_handler_ignores_key_release_events() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
@@ -369,12 +369,12 @@ async fn setup_model_switch_env(temp: &std::path::Path) -> (crate::repl::ReplSes
 fn modal_test_env(
     temp: &std::path::Path,
 ) -> (
-    TerminalController<HistoryTerminal>,
+    TerminalController<NullBackend>,
     crate::repl::interactive::InteractiveHistory,
     crate::repl::live::batch::LiveBatch,
 ) {
     (
-        TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap(),
+        TerminalController::new(NullBackend, InteractiveState::default()).unwrap(),
         crate::repl::interactive::InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap(),
         crate::repl::live::batch::LiveBatch::new(),
     )
@@ -502,7 +502,7 @@ async fn init_live_state_hydrates_ui_preferences() {
     assert!(state.tools_expanded());
     assert!(state.show_label());
 
-    let controller = TerminalController::new(HistoryTerminal, state).unwrap();
+    let controller = TerminalController::new(NullBackend, state).unwrap();
     assert!(controller.hide_thinking());
     assert!(controller.tools_expanded());
     assert!(controller.state().show_label());
@@ -514,7 +514,7 @@ async fn init_live_state_hydrates_ui_preferences() {
 
 #[test]
 fn help_modal_opens_with_commands_and_shortcuts() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_help_selector(&mut controller);
     let modal = controller.state().active_modal().unwrap();
     assert_eq!(modal.title, "Help");
@@ -544,7 +544,7 @@ fn help_modal_opens_with_commands_and_shortcuts() {
 
 #[test]
 fn help_modal_navigates_and_filters() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_help_selector(&mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
@@ -569,7 +569,7 @@ fn help_modal_navigates_and_filters() {
 
 #[test]
 fn help_modal_enter_on_command_returns_command_selected() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_help_selector(&mut controller);
 
     let res = send_modal_key(&mut controller, KeyCode::Enter);
@@ -584,7 +584,7 @@ fn help_modal_enter_on_command_returns_command_selected() {
 
 #[test]
 fn help_modal_esc_and_ctrl_c_dismiss() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_help_selector(&mut controller);
     assert!(controller.state().active_modal().is_some());
 
@@ -611,7 +611,7 @@ fn help_modal_esc_and_ctrl_c_dismiss() {
 // Login Modal Tests
 // =========================================================================
 
-fn setup_login_controller(provider: &str) -> (TerminalController<HistoryTerminal>, tempfile::TempDir) {
+fn setup_login_controller(provider: &str) -> (TerminalController<NullBackend>, tempfile::TempDir) {
     let temp = tempfile::tempdir().unwrap();
     let auth_file = temp.path().join("auth.json");
     let mut auth_store = AuthStore::load(&auth_file).unwrap();
@@ -622,7 +622,7 @@ fn setup_login_controller(provider: &str) -> (TerminalController<HistoryTerminal
         ..Default::default()
     };
     let session = ReplSession::new(config, auth_store, None);
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_login_selector(&session, &mut controller);
     (controller, temp)
 }
@@ -742,7 +742,7 @@ async fn login_provider_selected_dispatches_with_input_pause_and_resume() {
 // MCP Modal Tests
 // =========================================================================
 
-fn setup_mcp_controller() -> TerminalController<HistoryTerminal> {
+fn setup_mcp_controller() -> TerminalController<NullBackend> {
     let mut servers = std::collections::BTreeMap::new();
     servers.insert(
         "filesystem".to_string(),
@@ -765,7 +765,7 @@ fn setup_mcp_controller() -> TerminalController<HistoryTerminal> {
         ..Default::default()
     };
     let session = ReplSession::new(config, AuthStore::default(), None);
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_mcp_selector(&session, &mut controller);
     controller
 }
@@ -814,14 +814,12 @@ fn mcp_selector_cancels_on_esc() {
 // Session Modal Tests
 // =========================================================================
 
-async fn open_session_selector_for_test(
-    prefix: &str,
-) -> (std::path::PathBuf, String, TerminalController<HistoryTerminal>) {
+async fn open_session_selector_for_test(prefix: &str) -> (std::path::PathBuf, String, TerminalController<NullBackend>) {
     let temp_dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
     let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
     manager.set_session_name("Test Session").await.unwrap();
     let session_id = manager.session_id.clone();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_session_selector(&temp_dir, &session_id, &mut controller).await;
     (temp_dir, session_id, controller)
 }
@@ -830,7 +828,7 @@ async fn press_session_selector_key(
     prefix: &str,
     code: KeyCode,
     modifiers: KeyModifiers,
-) -> (String, ModalKeyResult, TerminalController<HistoryTerminal>) {
+) -> (String, ModalKeyResult, TerminalController<NullBackend>) {
     let (temp_dir, session_id, mut controller) = open_session_selector_for_test(prefix).await;
     assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
     let res = handle_modal_key(&mut controller, KeyEvent::new(code, modifiers), &mut None).unwrap();
@@ -895,7 +893,7 @@ fn make_tree_with_node(id: &str, label: Option<&str>) -> rho_harness_core::sessi
 #[test]
 fn tree_selector_modal_selection() {
     let tree = make_tree_with_node("node-1", Some("checkpoint-1"));
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_tree_selector(&tree, &mut controller);
 
     let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
@@ -912,7 +910,7 @@ fn tree_selector_modal_selection() {
 #[test]
 fn tree_selector_modal_shift_l_labels_checkpoint() {
     let tree = make_tree_with_node("node-42", None);
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_tree_selector(&tree, &mut controller);
 
     let shift_l = KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT);
@@ -981,7 +979,7 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
 #[test]
 fn model_selector_displays_claude_tag() {
     let (_dir, session) = setup_claude_session();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_model_selector(&session, &mut controller);
     let modal = controller.state().active_modal().unwrap();
     assert_eq!(modal.title, "Select Model");
@@ -1013,7 +1011,7 @@ fn model_selector_displays_claude_tag() {
 #[test]
 fn model_selector_selects_claude_model() {
     let (_dir, session) = setup_claude_session();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     open_model_selector(&session, &mut controller);
 
     let res = handle_modal_key(
@@ -1040,7 +1038,7 @@ fn model_selector_selects_claude_model() {
 #[test]
 fn guard_model_selector_lifecycle() {
     let (_dir, session) = setup_claude_session();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_guard_model_selector(&session, &mut controller);
 
     let modal = controller.state().active_modal().unwrap();
@@ -1095,7 +1093,7 @@ fn guard_model_selector_lifecycle() {
 #[tokio::test]
 async fn turn_model_switch_applies_claude_model_to_config() {
     let (_dir, session) = setup_claude_session();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let mut batch = crate::repl::live::batch::LiveBatch::new();
     let mut config = session.config.clone();
     let renderer = TerminalRenderer::default();
@@ -1123,7 +1121,7 @@ async fn turn_model_switch_applies_claude_model_to_config() {
 fn search_engine_selector_modal_lifecycle() {
     let temp = tempfile::tempdir().unwrap();
     let session = setup_model_selector_session(temp.path().to_path_buf());
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
     super::super::modal::open_search_engine_selector(&session, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().title, "Select Search Engine");
@@ -1150,7 +1148,7 @@ fn search_engine_selector_modal_lifecycle() {
 fn test_repl_model_selection_format() {
     let temp = tempfile::tempdir().unwrap();
     let session = setup_model_selector_session(temp.path().to_path_buf());
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
     super::super::modal::open_model_selector(&session, &mut controller);
     let modal = controller.state().active_modal().unwrap();

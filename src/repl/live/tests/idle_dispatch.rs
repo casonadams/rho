@@ -1,4 +1,3 @@
-use super::common::HistoryTerminal;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::idle::LiveIdleContext;
@@ -7,6 +6,7 @@ use crate::repl::live::idle::dispatch::{
     process_raw_input,
 };
 use crate::repl::live::types::EditorResources;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InputAction, InteractiveState, QueueKind, QueuedMessage, TerminalController};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -15,7 +15,7 @@ use crossterm::event::{
 async fn setup_idle_dispatch_harness(
     temp: &std::path::Path,
 ) -> (
-    TerminalController<HistoryTerminal>,
+    TerminalController<NullBackend>,
     InteractiveHistory,
     CompletionSet,
     LiveBatch,
@@ -24,7 +24,7 @@ async fn setup_idle_dispatch_harness(
     crate::repl::input_reader::TerminalInputReader,
     Option<std::time::Instant>,
 ) {
-    let controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
     let completions = CompletionSet::from_sources(Default::default());
     let batch = LiveBatch::new();

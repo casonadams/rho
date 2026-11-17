@@ -21,48 +21,11 @@ pub use tools::{handle_tools_key, open_tools_selector, update_tools_search_engin
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::io;
-
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::super::ModalKeyResult;
     use crate::repl::ReplSession;
-    use crate::ui::interactive::{InteractiveState, TerminalBackend, TerminalController};
-
-    pub(crate) struct DummyBackend;
-
-    impl TerminalBackend for DummyBackend {
-        fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _text: &str) -> io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
+    use crate::ui::interactive::{InteractiveState, NullBackend, TerminalController};
 
     pub(crate) fn test_config(config_dir: &std::path::Path) -> rho_harness_core::config::Config {
         rho_harness_core::config::Config {
@@ -78,18 +41,18 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn open_in_test_controller(
-        open: impl FnOnce(&ReplSession, &mut TerminalController<DummyBackend>),
-    ) -> TerminalController<DummyBackend> {
+        open: impl FnOnce(&ReplSession, &mut TerminalController<NullBackend>),
+    ) -> TerminalController<NullBackend> {
         let session = create_test_session();
-        let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         open(&session, &mut controller);
         controller.redraw().unwrap();
         controller
     }
 
     pub(crate) fn assert_selector_opens_and_selects(
-        open: impl FnOnce(&ReplSession, &mut TerminalController<DummyBackend>),
-        select: impl FnOnce(&mut TerminalController<DummyBackend>, KeyEvent) -> crate::error::Result<ModalKeyResult>,
+        open: impl FnOnce(&ReplSession, &mut TerminalController<NullBackend>),
+        select: impl FnOnce(&mut TerminalController<NullBackend>, KeyEvent) -> crate::error::Result<ModalKeyResult>,
         title: &str,
         options_len: usize,
         expected: ModalKeyResult,

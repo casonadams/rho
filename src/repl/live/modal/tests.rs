@@ -1,5 +1,5 @@
-use super::selectors::test_support::DummyBackend;
 use super::*;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{EditorState, InteractiveState, ModalOption, ModalState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -35,8 +35,8 @@ fn test_apply_input_edit() {
     apply_input_edit(&mut state, UiAction::Exit);
 }
 
-fn paste_into_modal(modal: Option<ModalState>, text: &str) -> (bool, TerminalController<DummyBackend>) {
-    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+fn paste_into_modal(modal: Option<ModalState>, text: &str) -> (bool, TerminalController<NullBackend>) {
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     if let Some(modal) = modal {
         controller.state_mut().push_modal(modal);
     }
@@ -63,7 +63,7 @@ fn test_handle_modal_paste_input_and_searchable_modes() {
 
 #[test]
 fn test_handle_modal_paste_select_mode_with_input_option() {
-    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let options = vec![
         ModalOption {
             label: "Allow".into(),
@@ -91,8 +91,8 @@ fn test_handle_modal_paste_select_mode_with_input_option() {
     assert_eq!(active.input.text(), "cargo test --lib");
 }
 
-fn selector_with_options(labels: &[&str]) -> TerminalController<DummyBackend> {
-    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+fn selector_with_options(labels: &[&str]) -> TerminalController<NullBackend> {
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let options = labels
         .iter()
         .map(|label| ModalOption {
@@ -108,7 +108,7 @@ fn selector_with_options(labels: &[&str]) -> TerminalController<DummyBackend> {
     controller
 }
 
-fn press_nav(controller: &mut TerminalController<DummyBackend>, code: KeyCode, modifiers: KeyModifiers) -> bool {
+fn press_nav(controller: &mut TerminalController<NullBackend>, code: KeyCode, modifiers: KeyModifiers) -> bool {
     handle_selector_nav(controller, &KeyEvent::new(code, modifiers)).unwrap()
 }
 
@@ -153,7 +153,7 @@ fn test_handle_selector_nav_digits_and_unhandled() {
 
 #[test]
 fn test_handle_selector_nav_searchable_and_filter() {
-    let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let modal = ModalState::new("Search Modal", "", vec![]).with_search(true);
     controller.state_mut().push_modal(modal);
 

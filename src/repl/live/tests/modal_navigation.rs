@@ -1,4 +1,4 @@
-use super::common::HistoryTerminal;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{
     InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveState, ModalMode,
     OptionLayout, TerminalController, UiEvent,
@@ -7,14 +7,14 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::oneshot;
 
 struct NavFixture {
-    controller: TerminalController<HistoryTerminal>,
+    controller: TerminalController<NullBackend>,
     pending: Option<crate::repl::live::modal::PendingModal>,
     _rx: oneshot::Receiver<InteractionResponse>,
 }
 
 impl NavFixture {
     fn new(layout: OptionLayout) -> Self {
-        let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let (tx, _rx) = oneshot::channel();
         let mut pending = None;
         super::super::modal::install_interaction(

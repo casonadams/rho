@@ -1,46 +1,9 @@
-use std::io;
-
 use super::input::{TurnInputContext, TurnKeyResult, handle_turn_key};
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InteractiveState, QueueKind, RunningTool, TerminalBackend, TerminalController};
+use crate::ui::interactive::{Activity, InteractiveState, NullBackend, QueueKind, RunningTool, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
-
-struct MockTerminal;
-
-impl TerminalBackend for MockTerminal {
-    fn set_raw_mode(&mut self, _: bool) -> io::Result<()> {
-        Ok(())
-    }
-    fn size(&self) -> io::Result<(u16, u16)> {
-        Ok((80, 24))
-    }
-    fn hide_cursor(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-    fn show_cursor(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-    fn move_up(&mut self, _: usize) -> io::Result<()> {
-        Ok(())
-    }
-    fn move_down(&mut self, _: usize) -> io::Result<()> {
-        Ok(())
-    }
-    fn move_to_column(&mut self, _: usize) -> io::Result<()> {
-        Ok(())
-    }
-    fn clear_line(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-    fn write_text(&mut self, _text: &str) -> io::Result<()> {
-        Ok(())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent {
@@ -53,7 +16,7 @@ fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 
 struct TurnTestFixture {
     _temp: tempfile::TempDir,
-    controller: TerminalController<MockTerminal>,
+    controller: TerminalController<NullBackend>,
     history: InteractiveHistory,
     completions: CompletionSet,
     batch: super::LiveBatch,
@@ -64,7 +27,7 @@ struct TurnTestFixture {
 impl TurnTestFixture {
     fn new(initial_text: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         controller.state_mut().editor_mut().set_text(initial_text);
         let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
         let completions = CompletionSet::from_sources(Default::default());
@@ -86,7 +49,7 @@ impl TurnTestFixture {
         }
     }
 
-    fn context(&mut self) -> TurnInputContext<'_, MockTerminal> {
+    fn context(&mut self) -> TurnInputContext<'_, NullBackend> {
         TurnInputContext {
             controller: &mut self.controller,
             history: &mut self.history,
@@ -125,7 +88,7 @@ impl LoopFixture {
         }
     }
 
-    fn context(&mut self) -> super::TurnContext<'_, MockTerminal> {
+    fn context(&mut self) -> super::TurnContext<'_, NullBackend> {
         let steering = std::sync::Arc::new(self.base.steering.clone());
         super::TurnContext {
             loop_ctx: super::runner::TurnLoop::new(
@@ -145,7 +108,7 @@ impl LoopFixture {
     }
 }
 
-async fn dispatch(ctx: &mut super::TurnContext<'_, MockTerminal>, event: crossterm::event::Event) -> bool {
+async fn dispatch(ctx: &mut super::TurnContext<'_, NullBackend>, event: crossterm::event::Event) -> bool {
     super::event::dispatch_turn_input(&mut ctx.loop_ctx, &mut ctx.resources, event)
         .await
         .unwrap()
@@ -260,13 +223,13 @@ async fn test_turn_input_ctrl_l_opens_model_selector() {
 }
 
 fn model_switch_fixture() -> (
-    TerminalController<MockTerminal>,
+    TerminalController<NullBackend>,
     super::LiveBatch,
     rho_harness_core::config::Config,
     crate::auth::AuthStore,
 ) {
     (
-        TerminalController::new(MockTerminal, InteractiveState::default()).unwrap(),
+        TerminalController::new(NullBackend, InteractiveState::default()).unwrap(),
         super::LiveBatch::new(),
         rho_harness_core::config::Config::default(),
         crate::auth::AuthStore::default(),
@@ -361,7 +324,7 @@ struct ActiveTurnHarness {
     _temp: tempfile::TempDir,
     session: crate::repl::ReplSession,
     engine: crate::engine::AgentEngine,
-    controller: TerminalController<MockTerminal>,
+    controller: TerminalController<NullBackend>,
     ui_events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
     input_reader: crate::repl::input_reader::TerminalInputReader,
     history: InteractiveHistory,
@@ -396,7 +359,7 @@ impl ActiveTurnHarness {
         let mut session = crate::repl::ReplSession::new(config, auth, None);
         let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
         session.renderer = TerminalRenderer::with_ui(ui);
-        let controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let cancel = crossterm::event::Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
         let input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel]);
         let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();

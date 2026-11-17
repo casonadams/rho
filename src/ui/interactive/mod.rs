@@ -10,6 +10,8 @@ mod state;
 mod transcript;
 pub mod tree_view;
 
+#[cfg(test)]
+pub(crate) use controller::NullBackend;
 pub use controller::cache;
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{

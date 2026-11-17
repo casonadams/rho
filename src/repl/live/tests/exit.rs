@@ -1,6 +1,6 @@
-use super::common::HistoryTerminal;
 use crate::repl::interactive::{CompletionSet, CompletionSources, InteractiveHistory};
 use crate::repl::live::types::{EditorResources, IdleContext, LiveIo, LiveMessage};
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, QueueKind, QueuedMessage, TerminalController};
 
 async fn setup_live_session_and_engine(
@@ -19,7 +19,7 @@ async fn setup_live_session_and_engine(
 
 struct LiveFixture {
     _temp: tempfile::TempDir,
-    controller: TerminalController<HistoryTerminal>,
+    controller: TerminalController<NullBackend>,
     _ui: crate::ui::interactive::InteractiveUi,
     events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
     input: crate::repl::input_reader::TerminalInputReader,
@@ -36,7 +36,7 @@ impl LiveFixture {
         let (session, engine) = setup_live_session_and_engine(temp.path()).await;
         let (ui, events) = crate::ui::interactive::InteractiveUi::channel();
         Self {
-            controller: TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap(),
+            controller: TerminalController::new(NullBackend, InteractiveState::default()).unwrap(),
             _ui: ui,
             events,
             input,
@@ -51,7 +51,7 @@ impl LiveFixture {
     fn parts(
         &mut self,
     ) -> (
-        LiveIo<'_, HistoryTerminal>,
+        LiveIo<'_, NullBackend>,
         EditorResources<'_>,
         &mut crate::repl::ReplSession,
         &mut crate::engine::AgentEngine,

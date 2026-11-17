@@ -1,9 +1,9 @@
-use super::common::HistoryTerminal;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, TerminalController};
 
 #[tokio::test]
 async fn test_user_bash_runner_streams_and_completes() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
 
@@ -25,7 +25,7 @@ async fn test_user_bash_runner_streams_and_completes() {
 
 #[tokio::test]
 async fn test_user_bash_runner_cancellation_preempts_and_terminates() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let cancel_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Esc,
@@ -50,7 +50,7 @@ async fn test_user_bash_runner_cancellation_preempts_and_terminates() {
 
 #[tokio::test]
 async fn test_user_bash_runner_ctrl_c_does_not_cancel() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let ctrl_c_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Char('c'),
@@ -88,7 +88,7 @@ fn assert_spool_file(output: &str) {
 
 #[tokio::test]
 async fn test_user_bash_runner_large_output_spools_to_disk() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
 
@@ -111,7 +111,7 @@ async fn test_user_bash_runner_large_output_spools_to_disk() {
 
 #[tokio::test]
 async fn test_user_bash_runner_failed_command_includes_exit_code() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
 
@@ -138,7 +138,7 @@ async fn test_user_bash_runner_failed_command_includes_exit_code() {
 
 #[tokio::test]
 async fn test_user_bash_runner_handles_ui_events_and_toggles() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let events = vec![
         crossterm::event::Event::Resize(120, 50),

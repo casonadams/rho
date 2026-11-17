@@ -22,6 +22,43 @@ pub trait TerminalBackend {
     fn flush(&mut self) -> io::Result<()>;
 }
 
+#[cfg(test)]
+pub(crate) struct NullBackend;
+
+#[cfg(test)]
+impl TerminalBackend for NullBackend {
+    fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
+        Ok(())
+    }
+    fn size(&self) -> io::Result<(u16, u16)> {
+        Ok((80, 24))
+    }
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn show_cursor(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn move_up(&mut self, _rows: usize) -> io::Result<()> {
+        Ok(())
+    }
+    fn move_down(&mut self, _rows: usize) -> io::Result<()> {
+        Ok(())
+    }
+    fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
+        Ok(())
+    }
+    fn clear_line(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    fn write_text(&mut self, _text: &str) -> io::Result<()> {
+        Ok(())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 pub struct CrosstermBackend {
     stdout: BufWriter<Stdout>,
 }

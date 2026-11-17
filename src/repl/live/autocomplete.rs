@@ -160,47 +160,11 @@ pub fn update_autocomplete_state_generic<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use crate::repl::interactive::CompletionSet;
-    use crate::ui::interactive::{InteractiveState, TerminalBackend, TerminalController};
+    use crate::ui::interactive::{InteractiveState, NullBackend, TerminalController};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rho_harness_core::skills::{ResolvedSkill, SkillMetadata, SkillOrigin};
-    use std::io;
 
     use super::*;
-
-    struct MockTerminal;
-
-    impl TerminalBackend for MockTerminal {
-        fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _rows: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _col: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _text: &str) -> io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
 
     fn sample_skill_completions(skills: &[(&str, &str)]) -> CompletionSet {
         let list = skills
@@ -218,15 +182,15 @@ mod tests {
         CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new().with_skills(list))
     }
 
-    fn init_autocomplete_controller(text: &str, completions: &CompletionSet) -> TerminalController<MockTerminal> {
-        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+    fn init_autocomplete_controller(text: &str, completions: &CompletionSet) -> TerminalController<NullBackend> {
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         controller.state_mut().editor_mut().set_text(text);
         update_autocomplete_state_generic(&mut controller, completions);
         controller
     }
 
     fn press_key(
-        controller: &mut TerminalController<MockTerminal>,
+        controller: &mut TerminalController<NullBackend>,
         completions: &CompletionSet,
         code: KeyCode,
     ) -> AutocompleteKeyResult {
@@ -234,13 +198,13 @@ mod tests {
         handle_autocomplete_key_generic(controller, completions, key)
     }
 
-    fn assert_autocomplete_selected(controller: &TerminalController<MockTerminal>, expected: &str) {
+    fn assert_autocomplete_selected(controller: &TerminalController<NullBackend>, expected: &str) {
         assert!(controller.state().autocomplete.visible);
         assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, expected);
     }
 
     fn assert_tab_completes(
-        controller: &mut TerminalController<MockTerminal>,
+        controller: &mut TerminalController<NullBackend>,
         completions: &CompletionSet,
         expected_text: &str,
     ) {
@@ -342,7 +306,7 @@ mod tests {
     #[test]
     fn test_autocomplete_ignores_key_release_events() {
         let completions = sample_skill_completions(&[("lean", "Lean"), ("spec", "Spec")]);
-        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
         controller.state_mut().editor_mut().set_text("/skill ");
         update_autocomplete_state_generic(&mut controller, &completions);
@@ -368,7 +332,7 @@ mod tests {
     #[test]
     fn test_autocomplete_midprompt_skill_and_range_replacement() {
         let completions = sample_skill_completions(&[("plan", "Plan"), ("spec", "Spec")]);
-        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         controller
             .state_mut()
             .editor_mut()
@@ -390,7 +354,7 @@ mod tests {
     fn test_autocomplete_chains_directory_completion() {
         let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new())
             .with_files(vec!["src/repl/".to_string(), "src/main.rs".to_string()]);
-        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         controller.state_mut().editor_mut().set_text_with_cursor("@src", 4);
         update_autocomplete_state_generic(&mut controller, &completions);
         assert!(controller.state().autocomplete.visible);

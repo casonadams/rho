@@ -277,46 +277,12 @@ pub(crate) fn handle_select_mode_key<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::interactive::NullBackend;
     use crate::ui::interactive::{
         InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, UiEvent,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use std::io;
     use tokio::sync::oneshot;
-
-    struct MockBackend;
-    impl TerminalBackend for MockBackend {
-        fn set_raw_mode(&mut self, _: bool) -> io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _: &str) -> io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
 
     fn sample_prompt() -> InteractionPrompt {
         InteractionPrompt {
@@ -344,11 +310,11 @@ mod tests {
     fn setup_test_modal(
         prompt: InteractionPrompt,
     ) -> (
-        TerminalController<MockBackend>,
+        TerminalController<NullBackend>,
         Option<PendingModal>,
         oneshot::Receiver<InteractionResponse>,
     ) {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let (tx, rx) = oneshot::channel();
         let mut pending = None;
         super::super::install_interaction(

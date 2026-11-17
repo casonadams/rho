@@ -133,8 +133,9 @@ pub fn handle_tools_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{DummyBackend, create_test_session};
+    use super::super::test_support::create_test_session;
     use super::*;
+    use crate::ui::interactive::NullBackend;
     use crate::ui::interactive::{InteractiveState, TerminalController};
     use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -158,7 +159,7 @@ mod tests {
     #[test]
     fn open_tools_modal_and_toggle_options() {
         let session = create_test_session();
-        let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
         open_tools_selector(&session, &mut controller);
         assert_eq!(controller.state().active_modal().unwrap().title, "Tools & Permissions");
@@ -206,7 +207,7 @@ mod tests {
     #[test]
     fn update_tools_search_engine_updates_description_in_active_modal() {
         let session = create_test_session();
-        let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
         open_tools_selector(&session, &mut controller);
         assert_eq!(

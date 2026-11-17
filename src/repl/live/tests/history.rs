@@ -1,24 +1,24 @@
 use std::fs;
 
-use super::common::HistoryTerminal;
 use crate::repl::interactive::InteractiveHistory;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, TerminalController};
 
-fn setup_history_and_controller(path: &std::path::Path) -> (InteractiveHistory, TerminalController<HistoryTerminal>) {
+fn setup_history_and_controller(path: &std::path::Path) -> (InteractiveHistory, TerminalController<NullBackend>) {
     let mut history = InteractiveHistory::with_file(10, path.to_path_buf()).unwrap();
     history.record("older").unwrap();
     history.record("newer\nsecond").unwrap();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     controller.state_mut().editor_mut().set_text("draft\nline");
     (history, controller)
 }
 
-fn step_previous(controller: &mut TerminalController<HistoryTerminal>, history: &mut InteractiveHistory) -> String {
+fn step_previous(controller: &mut TerminalController<NullBackend>, history: &mut InteractiveHistory) -> String {
     assert!(super::super::navigation::navigate_history_previous(controller, history));
     controller.state().editor().text().to_string()
 }
 
-fn step_next(controller: &mut TerminalController<HistoryTerminal>, history: &mut InteractiveHistory) -> String {
+fn step_next(controller: &mut TerminalController<NullBackend>, history: &mut InteractiveHistory) -> String {
     assert!(super::super::navigation::navigate_history_next(controller, history));
     controller.state().editor().text().to_string()
 }
@@ -58,7 +58,7 @@ fn active_history_navigation_next_restores_draft() {
 
 #[test]
 fn test_paste_event_collapses_in_interactive_state() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let lines = (1..=15).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");
     controller
         .state_mut()
@@ -68,7 +68,7 @@ fn test_paste_event_collapses_in_interactive_state() {
 
 #[tokio::test]
 async fn test_paste_clipboard_async_callable() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let renderer = crate::ui::TerminalRenderer::default();
     super::super::navigation::paste_clipboard_async(&renderer, &mut controller).await;
 }
@@ -107,7 +107,7 @@ fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
 #[test]
 fn test_hydrate_session_transcript_populates_items_and_history() {
     let tree = sample_qa_tree();
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let path = std::env::temp_dir().join(format!("test_hist_{}.txt", uuid::Uuid::new_v4()));
     let mut history = InteractiveHistory::with_file(100, path.clone()).unwrap();
 

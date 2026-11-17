@@ -1,21 +1,21 @@
-use super::common::HistoryTerminal;
 use crate::repl::interactive::InteractiveHistory;
 use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::idle::modal_action::{ModalActionContext, apply_modal_key_result};
 use crate::repl::live::modal::ModalKeyResult;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, TerminalController};
 
 pub(super) async fn setup_modal_action_harness(
     temp: &std::path::Path,
 ) -> (
-    TerminalController<HistoryTerminal>,
+    TerminalController<NullBackend>,
     InteractiveHistory,
     LiveBatch,
     crate::repl::ReplSession,
     crate::engine::AgentEngine,
     crate::repl::input_reader::TerminalInputReader,
 ) {
-    let controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
     let batch = LiveBatch::new();
     let config = rho_harness_core::config::Config {
@@ -440,7 +440,7 @@ async fn test_modal_action_selection_operations() {
 }
 
 struct ModalTestCtx<'a> {
-    controller: &'a mut TerminalController<HistoryTerminal>,
+    controller: &'a mut TerminalController<NullBackend>,
     history: &'a mut InteractiveHistory,
     session: &'a mut crate::repl::ReplSession,
     engine: &'a mut crate::engine::AgentEngine,

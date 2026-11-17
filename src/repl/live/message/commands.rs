@@ -256,41 +256,8 @@ pub(crate) async fn handle_tree_commands<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::interactive::NullBackend;
     use crate::ui::interactive::{InteractiveState, TerminalController};
-
-    struct MockBackend;
-    impl TerminalBackend for MockBackend {
-        fn set_raw_mode(&mut self, _: bool) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> std::io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _: usize) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _: usize) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _: usize) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _: &str) -> std::io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     #[test]
     fn test_open_selector_modal_actions() {
@@ -298,7 +265,7 @@ mod tests {
         let auth = crate::auth::AuthStore::default();
         let session = crate::repl::ReplSession::new(config, auth, None);
 
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         open_selector_modal(&session, &mut controller, &CommandResult::OpenModelSelector);
         assert!(controller.state().active_modal().is_some());
         controller.state_mut().pop_modal();

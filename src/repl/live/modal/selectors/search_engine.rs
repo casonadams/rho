@@ -47,8 +47,9 @@ pub fn handle_search_engine_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{DummyBackend, assert_selector_opens_and_selects, create_test_session};
+    use super::super::test_support::{assert_selector_opens_and_selects, create_test_session};
     use super::*;
+    use crate::ui::interactive::NullBackend;
     use crate::ui::interactive::{InteractiveState, TerminalController};
     use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -80,7 +81,7 @@ mod tests {
     #[test]
     fn search_engine_selector_handles_esc() {
         let session = create_test_session();
-        let mut controller = TerminalController::new(DummyBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
         open_search_engine_selector(&session, &mut controller);
         let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);

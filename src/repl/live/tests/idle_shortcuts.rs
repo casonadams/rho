@@ -1,15 +1,15 @@
-use super::common::HistoryTerminal;
 use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::idle::shortcut::{IdleShortcutContext, handle_shortcut_action};
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InputAction, InteractiveState, ModalMode, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 async fn setup_shortcut_harness() -> (
-    TerminalController<HistoryTerminal>,
+    TerminalController<NullBackend>,
     crate::repl::ReplSession,
     crate::engine::AgentEngine,
 ) {
-    let controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let temp = tempfile::tempdir().unwrap();
     let config = rho_harness_core::config::Config {
         config_dir: temp.path().to_path_buf(),
@@ -84,7 +84,7 @@ async fn test_idle_shortcut_double_escape_opens_tree_when_empty() {
 
 #[test]
 fn test_modal_filter_ctrl_c_clears_query_and_esc_dismisses() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let temp = tempfile::tempdir().unwrap();
     let config = rho_harness_core::config::Config {
         config_dir: temp.path().to_path_buf(),
@@ -124,14 +124,14 @@ fn single_node_tree(id: &str) -> rho_harness_core::session::tree::SessionTree {
     tree
 }
 
-fn send_modal_key(controller: &mut TerminalController<HistoryTerminal>, event: KeyEvent) {
+fn send_modal_key(controller: &mut TerminalController<NullBackend>, event: KeyEvent) {
     let _ = super::super::modal::handle_modal_key(controller, event, &mut None).unwrap();
 }
 
 #[test]
 fn test_modal_tree_input_ctrl_c_clears_input_text() {
     let tree = single_node_tree("node-100");
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     super::super::modal::open_tree_selector(&tree, &mut controller);
 
     send_modal_key(&mut controller, KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT));

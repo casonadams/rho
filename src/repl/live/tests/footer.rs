@@ -1,8 +1,8 @@
-use super::common::HistoryTerminal;
 use crate::engine::builder::AgentEngineBuilder;
 use crate::repl::live::modal::selectors::test_support::test_config;
 use crate::repl::live::navigation::update_footer;
 use crate::repl::live::turn::sync_turn_footer;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{Activity, InteractiveState, RunningTool, TerminalController};
 use rho_engine::auth::AuthStore;
 use rho_harness_core::config::Config;
@@ -24,7 +24,7 @@ async fn test_engine_for_footer() -> (crate::engine::AgentEngine, tempfile::Temp
 #[tokio::test]
 async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
     let (engine, _temp) = test_engine_for_footer().await;
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
     assert!(sync_turn_footer(&mut controller, &engine) && !sync_turn_footer(&mut controller, &engine));
 
@@ -140,7 +140,7 @@ async fn switch_model_preserves_or_updates_quota_immediately() {
 #[tokio::test]
 async fn sync_turn_footer_updates_quota_and_detects_changes() {
     let (engine, _session, _temp) = test_quota_harness().await;
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
 
     assert!(sync_turn_footer(&mut controller, &engine));
     assert_eq!(controller.state().footer().quota, None);
@@ -157,7 +157,7 @@ async fn sync_turn_footer_updates_quota_and_detects_changes() {
 #[tokio::test]
 async fn sync_idle_quota_updates_footer_when_quota_arrives_in_background() {
     let (engine, _session, _temp) = test_quota_harness().await;
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let mut batch = crate::repl::live::batch::LiveBatch::new();
 
     let updated = crate::repl::live::idle::sync_idle_quota(&mut controller, &mut batch, &engine).unwrap();

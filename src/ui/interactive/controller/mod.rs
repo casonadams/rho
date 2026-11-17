@@ -9,6 +9,8 @@ pub mod transcript;
 
 pub use ansi::OutputTracker;
 use ansi::terminal_newlines;
+#[cfg(test)]
+pub(crate) use backend::NullBackend;
 pub use backend::{CrosstermBackend, TerminalBackend};
 
 use std::io;

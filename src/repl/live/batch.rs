@@ -195,51 +195,15 @@ mod tests {
     use super::*;
     use crate::ui::interactive::tool_fixture;
     use crate::ui::interactive::{
-        Activity, InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, OptionLayout,
-        TerminalBackend,
+        Activity, InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, NullBackend,
+        OptionLayout,
     };
     use crate::ui::interactive::{OutputEvent, TranscriptItem};
-    use std::io;
     use tokio::sync::{mpsc, oneshot};
-
-    struct MockBackend;
-
-    impl TerminalBackend for MockBackend {
-        fn set_raw_mode(&mut self, _: bool) -> io::Result<()> {
-            Ok(())
-        }
-        fn size(&self) -> io::Result<(u16, u16)> {
-            Ok((80, 24))
-        }
-        fn hide_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn show_cursor(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_up(&mut self, _: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_down(&mut self, _: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn move_to_column(&mut self, _: usize) -> io::Result<()> {
-            Ok(())
-        }
-        fn clear_line(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-        fn write_text(&mut self, _: &str) -> io::Result<()> {
-            Ok(())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
 
     #[test]
     fn test_drain_ui_events_empty() {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let (_tx, mut rx) = mpsc::unbounded_channel();
         let mut modal = None;
         drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
@@ -248,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_drain_ui_events_flushes_activity_and_output() {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let (tx, mut rx) = mpsc::unbounded_channel();
         tx.send(UiEvent::Activity(Activity::Working)).unwrap();
         tx.send(UiEvent::RunningTool(Some("read".into()))).unwrap();
@@ -260,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_drain_ui_events_dismiss_interaction_clears_modal() {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let (oneshot_tx, _oneshot_rx) = oneshot::channel();
         let mut modal = None;
         install_interaction(
@@ -299,8 +263,8 @@ mod tests {
         }
     }
 
-    fn flush_events(events: Vec<UiEvent>, redraw: bool) -> (TerminalController<MockBackend>, LiveBatch) {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+    fn flush_events(events: Vec<UiEvent>, redraw: bool) -> (TerminalController<NullBackend>, LiveBatch) {
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let mut batch = LiveBatch::new();
         queue(&mut batch, events);
         batch.flush(&mut controller, redraw).unwrap();
@@ -310,7 +274,7 @@ mod tests {
     #[test]
     fn flush_without_pending_work_keeps_activity_idle() {
         for redraw in [false, true] {
-            let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+            let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
             let mut batch = LiveBatch::new();
             batch.flush(&mut controller, redraw).unwrap();
             assert_eq!(controller.state().footer().activity, Activity::Idle);
@@ -331,7 +295,7 @@ mod tests {
             ),
         ];
         for (turn, steps) in cases {
-            let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+            let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
             let mut batch = if turn { LiveBatch::turn() } else { LiveBatch::new() };
             for (event, expected) in steps {
                 queue(&mut batch, vec![UiEvent::Activity(event)]);
@@ -343,7 +307,7 @@ mod tests {
 
     #[test]
     fn flush_sets_and_clears_system_message() {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let mut batch = LiveBatch::new();
         queue(&mut batch, vec![UiEvent::SystemMessage(Some("syncing".into()))]);
         batch.flush(&mut controller, false).unwrap();
@@ -374,7 +338,7 @@ mod tests {
 
     #[test]
     fn flush_drains_tool_end_alongside_tool_transcript() {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         controller
             .start_tool(crate::ui::interactive::ToolStartRequest {
                 name: "bash".into(),
@@ -410,7 +374,7 @@ mod tests {
 
     #[test]
     fn flush_applies_running_tool_update_with_redraw_request() {
-        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let mut batch = LiveBatch::new();
         queue(&mut batch, vec![UiEvent::RunningTool(Some("grep".into()))]);
         batch.flush(&mut controller, true).unwrap();

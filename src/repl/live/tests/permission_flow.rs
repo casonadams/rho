@@ -1,4 +1,4 @@
-use super::common::HistoryTerminal;
+use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{
     InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveState, OptionLayout, TerminalController,
     UiEvent,
@@ -9,14 +9,14 @@ use serde_json::json;
 use tokio::sync::oneshot;
 
 struct PermDriver {
-    controller: TerminalController<HistoryTerminal>,
+    controller: TerminalController<NullBackend>,
     pending: Option<crate::repl::live::modal::PendingModal>,
     rx: oneshot::Receiver<InteractionResponse>,
 }
 
 impl PermDriver {
     fn new(prompt: InteractionPrompt) -> Self {
-        let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let (tx, rx) = oneshot::channel();
         let mut pending = None;
         super::super::modal::install_interaction(
