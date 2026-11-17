@@ -22,9 +22,7 @@ const PROVIDER_DEFS: &[(&str, &str)] = &[
 ];
 
 fn format_provider_option(id: &str, desc: &str, configured: &[String]) -> ModalOption {
-    let active = configured.iter().any(|p| p.eq_ignore_ascii_case(id));
-    let active_mark = if active { "  ✓" } else { "" };
-    ModalOption::new(format!("{id:14}"), Some(format!("{desc}{active_mark}")))
+    super::marked_option(id, desc, configured.iter().any(|p| p.eq_ignore_ascii_case(id)))
 }
 
 fn append_custom_providers(options: &mut Vec<ModalOption>, session: &ReplSession, configured: &[String]) {

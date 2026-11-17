@@ -19,6 +19,12 @@ pub use search_engine::{handle_search_engine_key, open_search_engine_selector};
 pub use session::{handle_session_key, open_session_selector};
 pub use tools::{handle_tools_key, open_tools_selector, update_tools_search_engine};
 
+/// Aligned selector row whose description carries the active check mark.
+fn marked_option(id: &str, desc: &str, active: bool) -> crate::ui::interactive::ModalOption {
+    let active_mark = if active { "  ✓" } else { "" };
+    crate::ui::interactive::ModalOption::new(format!("{id:14}"), Some(format!("{desc}{active_mark}")))
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

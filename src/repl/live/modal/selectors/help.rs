@@ -4,79 +4,41 @@ use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
-fn build_help_options() -> Vec<ModalOption> {
-    vec![
-        ModalOption::new(
-            format!("{:<15}", "/settings"),
-            Some("Interactive runtime interface settings"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/models"),
-            Some("Configure role models (default, smol, slow, guard)"),
-        ),
-        ModalOption::new(format!("{:<15}", "/model"), Some("Inspect or switch the active model")),
-        ModalOption::new(format!("{:<15}", "/resume"), Some("Resume a prior session")),
-        ModalOption::new(
-            format!("{:<15}", "/session"),
-            Some("Token capacity & diagnostics (alias: /tokens)"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/compact"),
-            Some("Summarize earlier context to free space"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/tree"),
-            Some("View conversation turn and branch tree"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/fork"),
-            Some("Fork session from turn into a new session"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/clone"),
-            Some("Duplicate active branch into a new session"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/name"),
-            Some("Assign a human-readable name to session"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/rewind"),
-            Some("Rewind context to a specific prior turn"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/clear"),
-            Some("Start a new session; preserve history (alias: /new)"),
-        ),
-        ModalOption::new(format!("{:<15}", "/mcp"), Some("List configured MCP servers")),
-        ModalOption::new(format!("{:<15}", "/login"), Some("Add API-key or subscription auth")),
-        ModalOption::new(format!("{:<15}", "/logout"), Some("Remove stored provider auth")),
-        ModalOption::new(format!("{:<15}", "/skill"), Some("List or inspect skills")),
-        ModalOption::new(
-            format!("{:<15}", "/reload"),
-            Some("Re-read config, skills, and MCP tools"),
-        ),
-        ModalOption::new(
-            format!("{:<15}", "/export"),
-            Some("Export active branch as HTML or Markdown"),
-        ),
-        ModalOption::new(format!("{:<15}", "/exit"), Some("Exit rho (alias: /quit)")),
-        ModalOption::new(format!("{:<15}", "Tab"), Some("Complete slash commands & skill names")),
-        ModalOption::new(format!("{:<15}", "Shift+Tab"), Some("Cycle thinking level")),
-        ModalOption::new(format!("{:<15}", "Ctrl+L"), Some("Select model")),
-        ModalOption::new(format!("{:<15}", "Ctrl+O"), Some("Expand or collapse tool output")),
-        ModalOption::new(format!("{:<15}", "Ctrl+T"), Some("Toggle thinking blocks visibility")),
-        ModalOption::new(format!("{:<15}", "Ctrl+C"), Some("Clear the input prompt")),
-        ModalOption::new(format!("{:<15}", "Ctrl+D"), Some("Exit at an empty prompt")),
-        ModalOption::new(
-            format!("{:<15}", "Escape"),
-            Some("Cancel active execution or dismiss modal"),
-        ),
-    ]
-}
+const HELP_ENTRIES: &[(&str, &str)] = &[
+    ("/settings", "Interactive runtime interface settings"),
+    ("/models", "Configure role models (default, smol, slow, guard)"),
+    ("/model", "Inspect or switch the active model"),
+    ("/resume", "Resume a prior session"),
+    ("/session", "Token capacity & diagnostics (alias: /tokens)"),
+    ("/compact", "Summarize earlier context to free space"),
+    ("/tree", "View conversation turn and branch tree"),
+    ("/fork", "Fork session from turn into a new session"),
+    ("/clone", "Duplicate active branch into a new session"),
+    ("/name", "Assign a human-readable name to session"),
+    ("/rewind", "Rewind context to a specific prior turn"),
+    ("/clear", "Start a new session; preserve history (alias: /new)"),
+    ("/mcp", "List configured MCP servers"),
+    ("/login", "Add API-key or subscription auth"),
+    ("/logout", "Remove stored provider auth"),
+    ("/skill", "List or inspect skills"),
+    ("/reload", "Re-read config, skills, and MCP tools"),
+    ("/export", "Export active branch as HTML or Markdown"),
+    ("/exit", "Exit rho (alias: /quit)"),
+    ("Tab", "Complete slash commands & skill names"),
+    ("Shift+Tab", "Cycle thinking level"),
+    ("Ctrl+L", "Select model"),
+    ("Ctrl+O", "Expand or collapse tool output"),
+    ("Ctrl+T", "Toggle thinking blocks visibility"),
+    ("Ctrl+C", "Clear the input prompt"),
+    ("Ctrl+D", "Exit at an empty prompt"),
+    ("Escape", "Cancel active execution or dismiss modal"),
+];
 
 pub fn open_help_selector<B: TerminalBackend>(controller: &mut TerminalController<B>) {
-    let options = build_help_options();
+    let options = HELP_ENTRIES
+        .iter()
+        .map(|(key, desc)| ModalOption::new(format!("{key:<15}"), Some(*desc)))
+        .collect();
     let modal = ModalState::new("Help", "", options).with_search(true);
     controller.state_mut().push_modal(modal);
 }

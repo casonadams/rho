@@ -12,9 +12,7 @@ const ENGINE_DEFS: &[(&str, &str)] = &[
 ];
 
 fn format_engine_option(id: &str, desc: &str, active_engine: &str) -> ModalOption {
-    let active = id.eq_ignore_ascii_case(active_engine);
-    let active_mark = if active { "  ✓" } else { "" };
-    ModalOption::new(format!("{id:14}"), Some(format!("{desc}{active_mark}")))
+    super::marked_option(id, desc, id.eq_ignore_ascii_case(active_engine))
 }
 
 pub fn open_search_engine_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
