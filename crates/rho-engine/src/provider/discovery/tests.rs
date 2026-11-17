@@ -285,3 +285,12 @@ fn test_parse_ollama_show_response() {
     let empty = serde_json::json!({});
     assert_eq!(parse_ollama_show_response(&empty), None);
 }
+
+#[tokio::test]
+async fn key_lookup_runs_off_the_runtime_and_returns_unset_provider_as_none() {
+    let store = crate::auth::AuthStore::default();
+    let key = super::get_key_off_runtime(&store, "rho-test-provider-without-key")
+        .await
+        .unwrap();
+    assert!(key.is_none());
+}

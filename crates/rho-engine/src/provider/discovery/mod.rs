@@ -17,7 +17,7 @@ pub use presets::{
 };
 
 use crate::auth::AuthStore;
-use rho_harness_core::error::Result;
+use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use serde::{Deserialize, Serialize};
 
@@ -43,12 +43,22 @@ impl DiscoveredModel {
     }
 }
 
+/// Resolves a provider key without blocking a runtime worker: `!command` secrets can run for up to
+/// their full timeout, so the lookup happens on the blocking pool.
+async fn get_key_off_runtime(auth_store: &AuthStore, provider: &str) -> Result<Option<String>> {
+    let store = auth_store.clone();
+    let provider = provider.to_string();
+    tokio::task::spawn_blocking(move || store.get_key_sync(&provider))
+        .await
+        .map_err(|e| AppError::Auth(format!("Key lookup task failed: {e}")))?
+}
+
 async fn discover_keyed_openai_compatible(
     name: &str,
     url: &str,
     auth_store: &AuthStore,
 ) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = auth_store.get_key_sync(name)? {
+    if let Some(key) = get_key_off_runtime(auth_store, name).await? {
         fetch::discover_openai_compatible(name, url, &key).await
     } else {
         Ok(default_presets_for(name))
@@ -56,7 +66,7 @@ async fn discover_keyed_openai_compatible(
 }
 
 async fn discover_antigravity(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = auth_store.get_key_sync("antigravity")? {
+    if let Some(key) = get_key_off_runtime(auth_store, "antigravity").await? {
         let project_id = match auth_store.get_credential("antigravity") {
             Some(rho_harness_core::auth::StoredCredential::OAuth {
                 account_id: Some(id), ..
@@ -70,7 +80,7 @@ async fn discover_antigravity(auth_store: &AuthStore) -> Result<Vec<DiscoveredMo
 }
 
 async fn discover_anthropic(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = auth_store.get_key_sync("anthropic")? {
+    if let Some(key) = get_key_off_runtime(auth_store, "anthropic").await? {
         fetch::discover_anthropic_models(&key).await
     } else {
         Ok(anthropic_preset_models())
@@ -78,7 +88,7 @@ async fn discover_anthropic(auth_store: &AuthStore) -> Result<Vec<DiscoveredMode
 }
 
 async fn discover_gemini(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = auth_store.get_key_sync("gemini")? {
+    if let Some(key) = get_key_off_runtime(auth_store, "gemini").await? {
         fetch::discover_gemini_models(&key).await
     } else {
         Ok(gemini_preset_models())
@@ -86,7 +96,7 @@ async fn discover_gemini(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>>
 }
 
 async fn discover_ollama_cloud(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = auth_store.get_key_sync("ollama-cloud")? {
+    if let Some(key) = get_key_off_runtime(auth_store, "ollama-cloud").await? {
         fetch::discover_ollama_cloud_models(&key).await
     } else {
         Ok(ollama_cloud_preset_models())

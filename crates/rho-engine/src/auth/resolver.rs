@@ -1,7 +1,9 @@
 //! Dynamic key expansion: environment variables, shell commands (!command), and escapes.
 
 use rho_harness_core::error::{AppError, Result};
-use std::process::{Command, Stdio};
+use std::io::Read;
+use std::process::{Command, ExitStatus, Output, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 const SECRET_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -86,17 +88,47 @@ fn execute_command_with_timeout(cmd: &str, timeout: Duration) -> Result<String> 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(io_error)?;
+    // Drain both pipes concurrently so a child writing more than the pipe buffer cannot block on write.
+    let stdout_reader = child.stdout.take().map(drain_pipe);
+    let stderr_reader = child.stderr.take().map(drain_pipe);
     let deadline = Instant::now() + timeout;
-    while child.try_wait().map_err(io_error)?.is_none() {
+    let status: ExitStatus = loop {
+        if let Some(status) = child.try_wait().map_err(io_error)? {
+            break status;
+        }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
             return Err(timed_out(cmd, timeout));
         }
         std::thread::sleep(POLL_INTERVAL);
-    }
-    let output = child.wait_with_output().map_err(io_error)?;
+    };
+    // A backgrounded grandchild can keep the pipes open after the child exits, so the reads share the deadline.
+    let stdout = collect_reader(stdout_reader, deadline).ok_or_else(|| timed_out(cmd, timeout))?;
+    let stderr = collect_reader(stderr_reader, deadline).ok_or_else(|| timed_out(cmd, timeout))?;
+    let output = Output { status, stdout, stderr };
     validate_command_output(output, cmd)
+}
+
+fn drain_pipe<R: Read + Send + 'static>(mut pipe: R) -> Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = pipe.read_to_end(&mut buf);
+        let _ = tx.send(buf);
+    });
+    rx
+}
+
+fn collect_reader(reader: Option<Receiver<Vec<u8>>>, deadline: Instant) -> Option<Vec<u8>> {
+    let Some(rx) = reader else {
+        return Some(Vec::new());
+    };
+    match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(buf) => Some(buf),
+        Err(RecvTimeoutError::Disconnected) => Some(Vec::new()),
+        Err(RecvTimeoutError::Timeout) => None,
+    }
 }
 
 fn validate_command_output(output: std::process::Output, cmd: &str) -> Result<String> {
@@ -215,6 +247,22 @@ mod tests {
             resolve_secret_value_async("!echo async_secret").await.unwrap(),
             "async_secret"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_command_with_large_output_does_not_stall_until_timeout() {
+        let value = execute_command_with_timeout("yes ok | head -c 131072", Duration::from_secs(5)).unwrap();
+        assert!(value.starts_with("ok\nok"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sync_command_with_grandchild_holding_stdout_respects_timeout() {
+        let started = Instant::now();
+        let err = execute_command_with_timeout("sleep 2 & echo done", Duration::from_millis(200)).unwrap_err();
+        assert!(err.to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[cfg(unix)]
