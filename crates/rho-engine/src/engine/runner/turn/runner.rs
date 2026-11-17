@@ -31,6 +31,7 @@ pub enum MultiTurnStreamItem {
     ModelTurnRetried,
     CompletionCall(CompletionCall),
     FinalResponse(PromptResponse),
+    DisplayBarrier(Arc<tokio::sync::Notify>),
 }
 
 type TurnItem = Result<MultiTurnStreamItem, AppError>;
@@ -73,6 +74,16 @@ impl TurnEmitter {
             .send(Ok(item))
             .await
             .map_err(|_| AppError::Cancelled("operator interrupt".to_string()))
+    }
+
+    /// Direct sink calls from the runner task must not overtake display items still queued
+    /// for the stream consumer, or a tool card would split a half-rendered thinking block.
+    async fn wait_for_display_drain(&self) -> Result<(), AppError> {
+        let drained = Arc::new(tokio::sync::Notify::new());
+        self.send(MultiTurnStreamItem::DisplayBarrier(Arc::clone(&drained)))
+            .await?;
+        drained.notified().await;
+        Ok(())
     }
 }
 
@@ -580,11 +591,16 @@ async fn wait_step(
     Ok(WaitStepResult::ContinueWaiting)
 }
 
-async fn wait_for_background_jobs(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> Result<bool, AppError> {
+async fn wait_for_background_jobs(
+    runner: &AgentRunner,
+    ctx: &mut RunnerStepContext<'_>,
+    emitter: &TurnEmitter,
+) -> Result<bool, AppError> {
     if !crate::tools::jobs::JobManager::global().has_running() {
         return Ok(false);
     }
 
+    emitter.wait_for_display_drain().await?;
     runner.sink.resume_spinner_with_message("waiting...");
     let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
 
@@ -652,7 +668,7 @@ async fn dispatch_tool_calls(
         permission: runner.permission.as_ref(),
     };
 
-    emitter.ensure_live()?;
+    emitter.wait_for_display_drain().await?;
     let outcomes = if batch_is_concurrency_safe(&runner.tools, outcome_calls) {
         execute_concurrent_tool_calls(outcome_calls, &mut exec_ctx).await
     } else {
@@ -752,7 +768,7 @@ async fn execute_agent_step(
     }
 
     if outcome.tool_calls.is_empty() {
-        if wait_for_background_jobs(runner, ctx).await? {
+        if wait_for_background_jobs(runner, ctx, emitter).await? {
             return Ok(StepExecutionResult::Continue);
         }
         if empty {
@@ -883,14 +899,20 @@ impl<'a> RunnerStepContext<'a> {
 fn test_agent_env(
     model: Arc<crate::provider::adapter::MockAdapter>,
 ) -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
+    test_agent_env_with(model, Arc::new(crate::engine::eval::presenter::NoopPresenter))
+}
+
+#[cfg(test)]
+fn test_agent_env_with(
+    model: Arc<crate::provider::adapter::MockAdapter>,
+    pres: Arc<dyn rho_harness_core::presentation::Presenter>,
+) -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
     let temp = tempfile::tempdir().unwrap();
     let sm = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
     let cfg = crate::engine::runner::sink::TerminalSinkConfig {
         model_label: "test".into(),
         run_tracker: Default::default(),
     };
-    let pres: Arc<dyn rho_harness_core::presentation::Presenter> =
-        Arc::new(crate::engine::eval::presenter::NoopPresenter);
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
     let runner = AgentRunner::new(model, Vec::new(), sm, sink);
     (
@@ -909,6 +931,69 @@ mod tests {
 
     static BACKGROUND_QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+    fn acking_emitter() -> TurnEmitter {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            while let Some(item) = rx.recv().await {
+                if let Ok(MultiTurnStreamItem::DisplayBarrier(drained)) = item {
+                    drained.notify_one();
+                }
+            }
+        });
+        TurnEmitter { tx, cancellation: None }
+    }
+
+    #[tokio::test]
+    async fn tool_dispatch_waits_until_queued_reasoning_is_displayed() {
+        use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
+        let model = Arc::new(MockAdapter::from_turns(vec![
+            vec![
+                ModelStreamEvent::Reasoning("The candidate".into()),
+                ModelStreamEvent::Reasoning(" list comes from the engine.".into()),
+                ModelStreamEvent::ToolCall(ToolCall::new(
+                    "call-1",
+                    ToolFunction::new("read", serde_json::json!({"path": "a.txt"})),
+                )),
+            ],
+            vec![ModelStreamEvent::Text("done".into())],
+        ]));
+        let recording = RecordingSink::new();
+        let (runner, _temp, _, _) =
+            test_agent_env_with(model, Arc::new(StructuredPresenter::recording(recording.clone())));
+        let sink = Arc::clone(&runner.sink);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let emitter = TurnEmitter { tx, cancellation: None };
+        let producer = async move { run_agent_loop(runner, &emitter).await };
+        let consumer = async move {
+            while let Some(Ok(item)) = rx.recv().await {
+                match item {
+                    MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(text)) => {
+                        sink.emit_reasoning(&text)
+                    }
+                    MultiTurnStreamItem::DisplayBarrier(drained) => drained.notify_one(),
+                    _ => {}
+                }
+            }
+        };
+
+        let (result, ()) = tokio::join!(producer, consumer);
+
+        result.unwrap();
+        let events = recording.events();
+        let tool_started = events
+            .iter()
+            .position(|e| matches!(e, UiEvent::ToolStarted { .. }))
+            .expect("tool start recorded");
+        let thinking: Vec<&str> = events[..tool_started]
+            .iter()
+            .filter_map(|e| match e {
+                UiEvent::ThinkingToken { token } => Some(token.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(thinking, ["The candidate", " list comes from the engine."]);
+    }
+
     #[tokio::test]
     async fn test_wait_for_background_jobs_flow() {
         let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
@@ -916,8 +1001,9 @@ mod tests {
         let sig = CancellationSignal::default();
         let runner = runner.cancellation(Some(sig.clone()));
         let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+        let emitter = acking_emitter();
 
-        assert!(!wait_for_background_jobs(&runner, &mut ctx).await.unwrap());
+        assert!(!wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
         crate::tools::jobs::JobManager::global().register("bg-1".into(), "echo 1".into());
         tokio::spawn(async {
             crate::tools::jobs::JobManager::global().update_status(
@@ -931,11 +1017,11 @@ mod tests {
                 "<system-notice>done</system-notice>".into(),
             );
         });
-        assert!(wait_for_background_jobs(&runner, &mut ctx).await.unwrap());
+        assert!(wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
         crate::tools::jobs::JobManager::global().register("bg-2".into(), "sleep".into());
         sig.cancel();
         assert!(matches!(
-            wait_for_background_jobs(&runner, &mut ctx).await,
+            wait_for_background_jobs(&runner, &mut ctx, &emitter).await,
             Err(AppError::Cancelled(_))
         ));
         crate::tools::jobs::JobManager::global()
@@ -1152,8 +1238,7 @@ mod tests {
     async fn run_prompt(model: Arc<MockAdapter>) -> (AgentRunner, Result<(), AppError>, tempfile::TempDir) {
         let (runner, temp, _, _) = test_agent_env(model);
         let runner = runner.prompt("do it");
-        let (tx, _rx) = tokio::sync::mpsc::channel(64);
-        let emitter = TurnEmitter { tx, cancellation: None };
+        let emitter = acking_emitter();
         let result = run_agent_loop(runner.clone(), &emitter).await;
         (runner, result, temp)
     }

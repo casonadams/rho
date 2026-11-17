@@ -137,6 +137,7 @@ fn handle_completion_stream_item(
             state.streaming_tool.reset();
             state.model_call_start = Some(Instant::now());
         }
+        MultiTurnStreamItem::DisplayBarrier(drained) => drained.notify_one(),
         _ => {}
     }
 }
