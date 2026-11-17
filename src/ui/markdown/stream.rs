@@ -93,17 +93,23 @@ pub struct InlineStreamTracker {
     in_bold: bool,
     in_italic: bool,
     in_code: bool,
-    pending_star: bool,
+    pending_star: Option<StarContext>,
+    token_follows_text: bool,
     scratch: Vec<char>,
+}
+
+#[derive(Clone, Copy)]
+struct StarContext {
+    follows_space: bool,
 }
 
 impl InlineStreamTracker {
     pub fn reset_line(&mut self) -> String {
         let mut out = String::new();
-        if self.pending_star {
-            out.push('*');
-            self.pending_star = false;
+        if let Some(star) = self.pending_star.take() {
+            self.resolve_star(star, ' ', &mut out);
         }
+        self.token_follows_text = false;
         if self.in_bold {
             out.push_str(&anstyle::Style::new().bold().render_reset().to_string());
             self.in_bold = false;
@@ -151,35 +157,36 @@ impl InlineStreamTracker {
         }
     }
 
-    fn handle_pending_star(&mut self, first: char, out: &mut String) -> usize {
-        self.pending_star = false;
-        if first == '*' {
-            self.toggle_bold(out);
-            1
-        } else if first.is_whitespace() {
-            out.push('*');
-            0
-        } else {
+    fn resolve_star(&mut self, star: StarContext, next: char, out: &mut String) {
+        let closes = self.in_italic && !star.follows_space;
+        let opens = !self.in_italic && !next.is_whitespace();
+        if closes || opens {
             self.toggle_italic(out);
-            0
+        } else {
+            out.push('*');
         }
     }
 
-    fn handle_star(&mut self, chars: &[char], i: usize, out: &mut String) -> usize {
-        if i + 1 == chars.len() {
-            self.pending_star = true;
+    fn handle_pending_star(&mut self, star: StarContext, first: char, out: &mut String) -> usize {
+        if first == '*' {
+            self.toggle_bold(out);
             return 1;
         }
-        if self.in_italic {
-            if i > 0 && chars[i - 1].is_whitespace() {
-                out.push('*');
+        self.resolve_star(star, first, out);
+        0
+    }
+
+    fn handle_star(&mut self, chars: &[char], i: usize, out: &mut String) -> usize {
+        let star = StarContext {
+            follows_space: if i > 0 {
+                chars[i - 1].is_whitespace()
             } else {
-                self.toggle_italic(out);
-            }
-        } else if chars[i + 1].is_whitespace() {
-            out.push('*');
-        } else {
-            self.toggle_italic(out);
+                !self.token_follows_text
+            },
+        };
+        match chars.get(i + 1) {
+            Some(&next) => self.resolve_star(star, next, out),
+            None => self.pending_star = Some(star),
         }
         1
     }
@@ -210,14 +217,17 @@ impl InlineStreamTracker {
         let len = chars.len();
         let mut i = 0;
 
-        if self.pending_star && len > 0 {
-            i = self.handle_pending_star(chars[0], &mut out);
+        if let Some(star) = self.pending_star.take_if(|_| len > 0) {
+            i = self.handle_pending_star(star, chars[0], &mut out);
         }
 
         while i < len {
             i += self.process_token_char(&chars, i, &mut out, theme);
         }
 
+        if let Some(&last) = chars.last() {
+            self.token_follows_text = !last.is_whitespace();
+        }
         self.scratch = chars;
         out
     }
@@ -297,6 +307,35 @@ mod tests {
             let mut output = wrapper.process_chunk(input);
             output.push_str(&wrapper.flush());
             assert_eq!(output, expected, "input {input:?}");
+        }
+    }
+
+    fn render_split(text: &str, split: usize) -> String {
+        let theme = Theme::default();
+        let mut tracker = InlineStreamTracker::default();
+        let (head, tail) = text.split_at(split);
+        let mut out = tracker.render_inline_token(head, &theme);
+        out.push_str(&tracker.render_inline_token(tail, &theme));
+        out.push_str(&tracker.reset_line());
+        out
+    }
+
+    #[test]
+    fn inline_markers_render_the_same_at_every_chunk_boundary() {
+        let cases = [
+            ("an *italic* word", "an italic word"),
+            ("ends *italic*", "ends italic"),
+            ("a **bold** word", "a bold word"),
+            ("math 2 * 3 and a* star", "math 2 * 3 and a* star"),
+            ("*lead* then *x* end", "lead then x end"),
+            ("mixed **bold** and *it* and `co*de`", "mixed bold and it and co*de"),
+        ];
+        for (text, plain) in cases {
+            let whole = render_split(text, 0);
+            assert_eq!(crate::ui::block::strip_ansi(&whole), plain, "{text:?}");
+            for split in 1..text.len() {
+                assert_eq!(render_split(text, split), whole, "{text:?} split at {split}");
+            }
         }
     }
 
