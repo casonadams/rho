@@ -51,7 +51,7 @@ Everything needed to run model turns and tools:
   web_search) plus shared plumbing: output truncation, atomic writes, HTTP
   client singleton, rate limiting.
 - `permission/` — bash tokenizer, policy evaluation, interactive prompts.
-- `mcp/` — MCP client/process/transport and tool gateway.
+- `mcp/` — MCP client/process/transport, server manager, and deferred tool search.
 - `hook/` — lightweight one-shot process hooks (`.agents/hooks/`) for turn and tool lifecycle interception.
 
 ### `rho` (CLI shell)
@@ -89,7 +89,7 @@ input ──▶ controller state ──▶ layout ──▶ paint
 
 ```
 TurnRequest
-   │ prepare/ ─▶ context assembly (AGENTS.md, skills, transclusion)
+   │ prepare.rs ─▶ context assembly (AGENTS.md, skills, transclusion)
    ▼
 provider stream (claude/antigravity/chatgpt/ollama)
    │ stream.rs ─▶ DisplayEvent → sink ─▶ UI
@@ -102,9 +102,10 @@ compactor/ (auto-compact on context overflow)  session store (JSONL)
 TurnOutput { final_text, usage, tool_calls }
 ```
 
-- `runner/turn/` drives one turn: prepare → stream → tool dispatch →
-  completion, with steering (`tool_hook/steering`), queued messages, and
-  runtime model switching (`tool_hook/model_switch`).
+- `runner/turn/` drives one turn: prepare → stream → tool dispatch
+  (`runner/dispatch.rs`) → completion, with steering
+  (`SteeringQueueProvider`), queued messages, and history pruning (`prune/`).
+  Runtime model switching lives in `engine/model.rs`.
 - `runner/sink/` adapts engine events into `Presenter` calls with credential
   redaction.
 - `tracking/` accumulates usage, tokens/sec, and quota snapshots.
@@ -116,7 +117,7 @@ TurnOutput { final_text, usage, tool_calls }
 ### 3. Tool Execution & Permission Gate
 
 ```
-tool call ─▶ PermissionHook (engine/permission/)
+tool call ─▶ PermissionHook (rho-engine/src/permission/)
                 ├─ policy eval (project + global permission.toml)
                 ├─ baseline allowlist (read-only, path checks)
                 ├─ bash analysis (lexer ─▶ paths, redirection, suspicion)
