@@ -1,9 +1,9 @@
 //! Markdown table parsing, column constraints, and layout.
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use crate::ui::theme::Theme;
-use crate::ui::wrap::{WordWrap, push_line_into};
+use crate::ui::wrap::wrap_line_into;
 
 const MIN_COLUMN_WIDTH: usize = 5;
 
@@ -70,68 +70,10 @@ fn constrain_column_widths(widths: &mut [usize], available: usize) {
     }
 }
 
-struct CellWrapper {
-    lines: Vec<String>,
-    current: String,
-    word: WordWrap,
-}
-
-impl CellWrapper {
-    fn new(width: usize) -> Self {
-        Self {
-            lines: Vec::new(),
-            current: String::new(),
-            word: WordWrap::new(width.max(1)),
-        }
-    }
-
-    fn commit_word(&mut self) {
-        let keep_leading = self.lines.is_empty();
-        self.word
-            .commit(&mut self.current, keep_leading, push_line_into(&mut self.lines));
-    }
-
-    fn push_space(&mut self, character: char, character_width: usize) {
-        self.commit_word();
-        self.word.push_space(character, character_width);
-    }
-
-    fn push_char(&mut self, character: char, character_width: usize) {
-        if self.word.pending_word_width + character_width > self.word.width {
-            if self.word.current_width > 0 {
-                let lines = &mut self.lines;
-                self.word
-                    .break_line(&mut self.current, |current| lines.push(std::mem::take(current)));
-                self.word.clear_spaces();
-            }
-            if self.word.pending_word_width + character_width > self.word.width && self.word.pending_word_width > 0 {
-                self.lines.push(std::mem::take(&mut self.word.pending_word));
-                self.word.pending_word_width = 0;
-            }
-        }
-        self.word.push_word_char(character, character_width);
-    }
-
-    fn finish(mut self) -> Vec<String> {
-        self.commit_word();
-        if !self.current.is_empty() || self.lines.is_empty() {
-            self.lines.push(self.current);
-        }
-        self.lines
-    }
-}
-
 fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
-    let mut wrapper = CellWrapper::new(width);
-    for character in cell.chars() {
-        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if character == ' ' || character == '\t' {
-            wrapper.push_space(character, character_width);
-        } else {
-            wrapper.push_char(character, character_width);
-        }
-    }
-    wrapper.finish()
+    let mut lines = Vec::new();
+    wrap_line_into(cell, width.max(1), &mut lines);
+    lines
 }
 
 fn render_compact_table(rows: &[Vec<String>], header_end: usize, width: usize) -> String {

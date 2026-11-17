@@ -1,4 +1,5 @@
-use crate::ui::block::{apply_pending_ansi, leading_escape};
+use crate::ui::block::{apply_pending_ansi, leading_escape, visible_width};
+use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Default)]
 pub(crate) struct WordWrap {
@@ -137,4 +138,71 @@ impl AnsiWordWrap {
 
 pub(crate) fn push_line_into(lines: &mut Vec<String>) -> impl FnMut(&mut String) + '_ {
     move |line: &mut String| lines.push(std::mem::take(line))
+}
+
+struct LineWrapper<'a> {
+    line: &'a str,
+    offset: usize,
+    current_line: String,
+    ansi: AnsiWordWrap,
+}
+
+impl<'a> LineWrapper<'a> {
+    fn new(line: &'a str, max_width: usize) -> Self {
+        Self {
+            line,
+            offset: 0,
+            current_line: String::new(),
+            ansi: AnsiWordWrap::new(max_width),
+        }
+    }
+
+    fn commit_pending_word(&mut self, output: &mut Vec<String>) {
+        let keep_leading = output.is_empty();
+        self.ansi
+            .commit(&mut self.current_line, keep_leading, push_line_into(output));
+    }
+
+    fn handle_space(&mut self, c: char, output: &mut Vec<String>) {
+        self.commit_pending_word(output);
+        self.ansi.word.push_space(c, UnicodeWidthChar::width(c).unwrap_or(0));
+    }
+
+    fn handle_char(&mut self, c: char, cw: usize, output: &mut Vec<String>) {
+        self.ansi
+            .push_char(&mut self.current_line, c, cw, |line| output.push(std::mem::take(line)));
+    }
+
+    fn wrap(mut self, output: &mut Vec<String>) {
+        while self.offset < self.line.len() {
+            if let Some(len) = self.ansi.consume_ansi(&self.line[self.offset..]) {
+                self.offset += len;
+                continue;
+            }
+            let Some(c) = self.line[self.offset..].chars().next() else {
+                break;
+            };
+            self.offset += c.len_utf8();
+            if c == '\r' {
+                continue;
+            }
+
+            if c == ' ' || c == '\t' {
+                self.handle_space(c, output);
+            } else {
+                let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+                self.handle_char(c, cw, output);
+            }
+        }
+        self.commit_pending_word(output);
+        if visible_width(&self.current_line) > 0 || output.is_empty() {
+            output.push(self.current_line);
+        }
+    }
+}
+
+/// Word-wraps one source line (no `\n`) to `width` columns, appending the
+/// visual lines to `output`. Leading spaces survive only while `output` is empty.
+pub(crate) fn wrap_line_into(line: &str, width: usize, output: &mut Vec<String>) {
+    LineWrapper::new(line, width).wrap(output);
 }
