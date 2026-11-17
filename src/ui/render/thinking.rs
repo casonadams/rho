@@ -116,6 +116,24 @@ mod tests {
     }
 
     #[test]
+    fn zz_probe() {
+        let theme = Theme::default();
+        let text = "I'm checking whether the docs describe how file completion works, especially the part about the @ completion ignoring certain paths. I'll search the docs for mentions of node_modules or gitignore in relation to completion.";
+        for split in [1usize, 3, 7, 16] {
+            let chars: Vec<char> = text.chars().collect();
+            let tokens: Vec<String> = chars.chunks(split).map(|c| c.iter().collect()).collect();
+            let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
+            eprintln!("split {split}:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
+        }
+        let tokens: Vec<String> = text.split_inclusive(' ').map(String::from).collect();
+        let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
+        eprintln!("words:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
+        let tokens: Vec<String> = text.split(' ').enumerate().map(|(i, w)| if i == 0 { w.to_string() } else { format!(" {w}") }).collect();
+        let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
+        eprintln!("leading-space words:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
+    }
+
+    #[test]
     fn finish_resets_state_for_the_next_block() {
         let theme = Theme::default();
         let mut renderer = ThinkingRenderer::new(&theme);

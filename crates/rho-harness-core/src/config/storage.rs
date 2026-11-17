@@ -41,50 +41,27 @@ impl super::Config {
     }
 
     pub async fn save_ui_block_style_async(config_dir: &Path, style: &str) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let ui = file_config.ui.get_or_insert_with(Default::default);
-        ui.block_style = Some(style.to_string());
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, "ui.block_style", style).await
     }
 
     pub async fn save_ui_agent_box_async(config_dir: &Path, boxed: bool) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let ui = file_config.ui.get_or_insert_with(Default::default);
-        ui.agent_block_output = Some(boxed);
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, "ui.agent_block_output", &boxed.to_string()).await
     }
 
     pub async fn save_ui_hide_thinking_async(config_dir: &Path, hide: bool) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let ui = file_config.ui.get_or_insert_with(Default::default);
-        ui.hide_thinking = Some(hide);
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, "ui.hide_thinking", &hide.to_string()).await
     }
 
     pub async fn save_ui_tools_expanded_async(config_dir: &Path, expanded: bool) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let ui = file_config.ui.get_or_insert_with(Default::default);
-        ui.tools_expanded = Some(expanded);
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, "ui.tools_expanded", &expanded.to_string()).await
     }
 
     pub async fn save_ui_cursor_async(config_dir: &Path, cursor: &str) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let ui = file_config.ui.get_or_insert_with(Default::default);
-        ui.cursor = Some(cursor.to_string());
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, "ui.cursor", cursor).await
     }
 
     pub async fn save_show_label_async(config_dir: &Path, show: bool) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        file_config.show_label = Some(show);
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, "show_label", &show.to_string()).await
     }
 
     pub async fn save_default_search_engine_async(config_dir: &Path, engine: &str) -> Result<()> {
