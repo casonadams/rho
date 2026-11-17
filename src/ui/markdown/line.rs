@@ -207,11 +207,19 @@ pub fn is_ordered_list_prefix_or_item(trimmed: &str) -> bool {
 
 pub fn should_buffer_line(current_line: &str) -> bool {
     let trimmed = current_line.trim_start();
-    const MARKERS: &[&str] = &["|", "#", "`", ">", "- ", "---", "* ", "***", "___"];
-    trimmed == "-"
-        || trimmed == "*"
+    const MARKERS: &[&str] = &["|", "#", "`", ">", "- ", "* "];
+    trimmed.is_empty()
+        || could_become_horizontal_rule(trimmed)
         || MARKERS.iter().any(|marker| trimmed.starts_with(marker))
         || is_ordered_list_prefix_or_item(trimmed)
+}
+
+fn could_become_horizontal_rule(trimmed: &str) -> bool {
+    let mut marks = trimmed.chars().filter(|c| !c.is_whitespace());
+    match marks.next() {
+        Some(first @ ('-' | '*' | '_')) => marks.all(|c| c == first),
+        _ => false,
+    }
 }
 
 pub fn needs_preceding_blank_line(trimmed: &str, in_code_block: bool) -> bool {

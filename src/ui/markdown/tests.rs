@@ -388,3 +388,32 @@ fn horizontal_rule_spans_the_render_width() {
         assert_eq!(rules, ["─".repeat(width)], "width {width}");
     }
 }
+
+fn render_streamed(chunks: &[&str], width: usize, theme: &Theme) -> String {
+    let mut md = MarkdownRenderer::new();
+    md.set_width(width);
+    let mut out: String = chunks.iter().map(|chunk| md.render_token(chunk, theme)).collect();
+    out.push_str(&md.flush(theme));
+    out
+}
+
+#[test]
+fn line_prefixes_split_across_chunks_render_like_whole_lines() {
+    let theme = Theme::default();
+    let cases: [&[&str]; 6] = [
+        &["above\n\n--", "-\n\nbelow\n"],
+        &["above\n\n*", "*", "*\n\nbelow\n"],
+        &["above\n\n_", "_", "_\n\nbelow\n"],
+        &["- a\n ", " ", "- nested\n"],
+        &["- a\n  ", "* nested\n"],
+        &["**", "bold** start of a line\n"],
+    ];
+    for chunks in cases {
+        let whole = chunks.concat();
+        let mut md = MarkdownRenderer::new();
+        md.set_width(40);
+        let expected = crate::ui::block::strip_ansi(&md.render_text(&whole, &theme));
+        let streamed = crate::ui::block::strip_ansi(&render_streamed(chunks, 40, &theme));
+        assert_eq!(streamed.trim_end(), expected.trim_end(), "{chunks:?}");
+    }
+}
