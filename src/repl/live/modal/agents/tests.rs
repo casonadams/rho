@@ -12,11 +12,11 @@ fn controller() -> TerminalController<NullBackend> {
 
 fn monitor_with_two_agents() -> (AgentMonitor, AgentHandle, AgentHandle) {
     let monitor = AgentMonitor::default();
-    let done = monitor.start("refine › round 1", "scan #1 · scout", 12);
+    let done = monitor.start("refine › round 1", "scan #1 · scout", "claude/claude-haiku-5-5", 12);
     done.event(AgentEvent::Task("Scan src/".into()));
     done.turn(2);
     done.finish(AgentStatus::Done);
-    let running = monitor.start("refine › round 1", "scan #2 · scout", 12);
+    let running = monitor.start("refine › round 1", "scan #2 · scout", "claude/claude-haiku-5-5", 12);
     running.event(AgentEvent::Task("Scan crates/".into()));
     running.event(AgentEvent::ToolCall {
         name: "rg".into(),
@@ -44,7 +44,7 @@ fn left_on_an_empty_prompt_opens_the_list_with_running_agents_first() {
     assert!(modal.options[0].label.starts_with("⟳ scan #2 · scout"));
     assert_eq!(
         modal.options[1].description.as_deref(),
-        Some("refine › round 1 · done after 2 turns · 0s")
+        Some("refine › round 1 · claude/claude-haiku-5-5 · done after 2 turns · 0s")
     );
 }
 
@@ -108,7 +108,7 @@ fn refresh_tracks_new_agents_and_follows_the_viewed_agent() {
     let mut c = controller();
     try_open_agents(&mut c, &key(KeyCode::Left), &monitor).unwrap();
     handle_agents_key(&mut c, key(KeyCode::Down), &monitor).unwrap();
-    let late = monitor.start("refine › round 2", "validate · validator", 16);
+    let late = monitor.start("refine › round 2", "validate · validator", "claude/claude-opus-5-5", 16);
     assert!(refresh_agent_modals(&mut c, &monitor));
     let list = c.state().active_modal().unwrap();
     assert_eq!(list.options.len(), 3);
@@ -133,7 +133,7 @@ fn refresh_tracks_new_agents_and_follows_the_viewed_agent() {
 #[test]
 fn body_shows_status_tool_results_and_dropped_events() {
     let monitor = AgentMonitor::default();
-    let handle = monitor.start("g", "a", 5);
+    let handle = monitor.start("g", "a", "local/qwen", 5);
     handle.event(AgentEvent::Text("Looking at the parser".into()));
     handle.event(AgentEvent::ToolResult {
         name: "read".into(),
@@ -150,7 +150,10 @@ fn body_shows_status_tool_results_and_dropped_events() {
     let mut record = monitor.record(handle.id()).unwrap();
     record.dropped_events = 2;
     let body = render_agent_body(&record);
-    assert!(body.starts_with("✗ failed · failed after 3 turns · 0s · g"), "{body}");
+    assert!(
+        body.starts_with("✗ failed · local/qwen · failed after 3 turns · 0s · g"),
+        "{body}"
+    );
     assert!(body.contains("(2 earlier events not kept)"));
     assert!(body.contains("● Looking at the parser"));
     assert!(

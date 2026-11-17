@@ -226,11 +226,27 @@ async fn repeats_rounds_until_clean_and_carries_exclusions_forward() {
             .any(|s| s.group == "loop › rounds › round 1" && s.label == "scan #2 · scout")
     );
     assert!(summaries.iter().any(|s| s.label == "implement · general"));
+    assert!(summaries.iter().all(|s| s.model == "test/scripted"));
+    assert!(
+        result
+            .content
+            .contains("✓ loop › rounds › round 1 › scan — test/scripted · 2 items"),
+        "{}",
+        result.content
+    );
 
     let log_dir = fx.dir.path().join(".rho/workflows");
-    let log = std::fs::read_dir(log_dir).unwrap().next().unwrap().unwrap().path();
+    let log = std::fs::read_dir(log_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .unwrap();
     let text = std::fs::read_to_string(log).unwrap();
     assert!(text.contains("\"event\":\"run_started\""));
+    assert!(
+        text.contains("\"agent\":\"validate · critic\",\"event\":\"agent_started\",\"model\":\"test/scripted\""),
+        "{text}"
+    );
     assert!(text.contains("\"event\":\"round_finished\""));
 }
 
@@ -261,7 +277,7 @@ async fn failed_verification_retries_with_feedback_then_continues() {
     assert!(
         result
             .content
-            .contains("✗ loop › rounds › round 1 › implement — verification failed"),
+            .contains("✗ loop › rounds › round 1 › implement — test/scripted · verification failed"),
         "{}",
         result.content
     );

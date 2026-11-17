@@ -34,6 +34,7 @@ pub(crate) struct StepOutcome {
     pub value: Value,
     pub status: StepStatus,
     pub detail: String,
+    pub model: Option<String>,
 }
 
 impl StepOutcome {
@@ -42,6 +43,20 @@ impl StepOutcome {
             value,
             status: StepStatus::Done,
             detail: detail.into(),
+            model: None,
+        }
+    }
+
+    pub(crate) fn with_model(mut self, model: String) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    fn report_detail(&self) -> String {
+        match (&self.model, self.detail.is_empty()) {
+            (None, _) => self.detail.clone(),
+            (Some(model), true) => model.clone(),
+            (Some(model), false) => format!("{model} · {}", self.detail),
         }
     }
 }
@@ -155,7 +170,7 @@ impl Executor<'_> {
                 Ok(outcome) => outcome,
                 Err(error) => return Err(self.fail_step(step, &step_path, error)),
             };
-            self.log.record(&step_path, outcome.status, outcome.detail);
+            self.log.record(&step_path, outcome.status, outcome.report_detail());
             frame.scope.insert(step.id.clone(), outcome.value);
         }
         Ok(collect_outputs(&frame.workflow.outputs, &Value::Object(frame.scope)))
@@ -196,6 +211,9 @@ impl Executor<'_> {
             return Err(CANCELLED.to_string());
         }
         let failed = results.iter().filter(|r| r.is_err()).count();
+        let model = results
+            .iter()
+            .find_map(|r| r.as_ref().ok().and_then(|o| o.model.clone()));
         let values: Vec<Value> = results
             .into_iter()
             .map(|r| r.map_or_else(|e| Value::String(format!("[item failed: {e}]")), |o| o.value))
@@ -204,7 +222,11 @@ impl Executor<'_> {
             0 => format!("{} items", values.len()),
             n => format!("{} items, {n} failed", values.len()),
         };
-        Ok(StepOutcome::done(Value::Array(values), detail))
+        let outcome = StepOutcome::done(Value::Array(values), detail);
+        Ok(match model {
+            Some(model) => outcome.with_model(model),
+            None => outcome,
+        })
     }
 
     async fn run_single(

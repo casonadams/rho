@@ -82,19 +82,19 @@ impl Executor<'_> {
         };
         let attempts = step.check.as_ref().map_or(1, |c| c.retries + 1);
         let mut feedback: Option<String> = None;
+        let mut model = String::new();
         for attempt in 1..=attempts {
             let task = with_feedback(&prompt, feedback.as_deref(), attempt);
-            let text = self.invoke_agent(frame, agent, &task, &label).await?;
+            let (text, used) = self.invoke_agent(frame, agent, &task, &label).await?;
+            model = used;
             let value = self.parse_output(step, &text).await?;
             let Some(check) = &step.check else {
-                return Ok(StepOutcome::done(value.clone(), summarize(&value)));
+                return Ok(StepOutcome::done(value.clone(), summarize(&value)).with_model(model));
             };
             match self.verify(step, check, scope).await? {
                 None => {
-                    return Ok(StepOutcome::done(
-                        value.clone(),
-                        format!("{}; verified", summarize(&value)),
-                    ));
+                    let detail = format!("{}; verified", summarize(&value));
+                    return Ok(StepOutcome::done(value, detail).with_model(model));
                 }
                 Some(failure) => {
                     self.log.event(
@@ -105,7 +105,8 @@ impl Executor<'_> {
                 }
             }
         }
-        self.check_exhausted(frame, step, feedback.unwrap_or_default()).await
+        let outcome = self.check_exhausted(frame, step, feedback.unwrap_or_default()).await?;
+        Ok(outcome.with_model(model))
     }
 
     async fn invoke_agent(
@@ -114,7 +115,7 @@ impl Executor<'_> {
         agent: &AgentStep,
         task: &str,
         label: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(String, String), String> {
         let runner = self
             .subagents
             .runner_for(RunnerSpec {
@@ -124,6 +125,11 @@ impl Executor<'_> {
                 model: agent.model.as_deref(),
             })?
             .with_monitor_identity(&frame.path, label);
+        let model = runner.model_label();
+        self.log.event(
+            "agent_started",
+            json!({ "step": frame.path, "agent": label, "model": model }),
+        );
         let result = runner.run(task, None).await;
         if self.cancelled() {
             return Err(CANCELLED.to_string());
@@ -131,7 +137,7 @@ impl Executor<'_> {
         if result.is_error {
             return Err(result.content);
         }
-        Ok(strip_footer(&result.content).trim().to_string())
+        Ok((strip_footer(&result.content).trim().to_string(), model))
     }
 
     async fn verify(&self, step: &Step, check: &Check, scope: &Value) -> Result<Option<String>, String> {
@@ -166,6 +172,7 @@ impl Executor<'_> {
             value: json!({ "failed": true, "stashed": stashed, "error": failure }),
             status: StepStatus::Failed,
             detail: detail.to_string(),
+            model: None,
         })
     }
 

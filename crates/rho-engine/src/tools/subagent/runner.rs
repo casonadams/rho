@@ -222,6 +222,10 @@ impl SubagentRunner {
         self
     }
 
+    pub(crate) fn model_label(&self) -> String {
+        format!("{}/{}", self.model.provider_name(), self.model.model_name())
+    }
+
     fn is_cancelled(&self) -> bool {
         self.ctx.cancellation.as_ref().is_some_and(|c| c.is_cancelled())
     }
@@ -257,7 +261,12 @@ impl SubagentRunner {
             .collect();
         let task = build_subagent_prompt(prompt, context_slice);
         let tracker = self.ctx.monitor.as_ref().map(|monitor| {
-            let handle = monitor.start(&self.monitor_group, &self.monitor_label, self.max_turns);
+            let handle = monitor.start(
+                &self.monitor_group,
+                &self.monitor_label,
+                &self.model_label(),
+                self.max_turns,
+            );
             handle.event(AgentEvent::Task(task.clone()));
             handle
         });

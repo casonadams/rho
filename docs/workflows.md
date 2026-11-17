@@ -103,7 +103,8 @@ model = "anthropic/claude-3-7-sonnet"
 prompt_file = "prompts/implement.md"
 ```
 
-The Agents list and run log do not show which model an agent used yet.
+Each agent's model is shown in the Agents list and agent view, in the final
+report's step table, and in the run log as an `agent_started` event.
 
 Every workflow is validated before anything runs. Unknown step references,
 misplaced options, calls to missing workflows, and mismatched `with`/`carry`
@@ -208,7 +209,7 @@ is tracked for the session.
 
 | Key | Where | Action |
 |---|---|---|
-| `Left` | empty prompt | Open the **Agents** list (running agents first, with group, turn, and elapsed time) |
+| `Left` | empty prompt | Open the **Agents** list (running agents first, with group, model, turn, and elapsed time) |
 | type | Agents list | Fuzzy-filter agents |
 | `Enter` / `Right` | Agents list | Watch the selected agent's live transcript |
 | `Up`/`Down`, `PgUp`/`PgDn` | agent view | Scroll; `End` (or `G`) follows new output again |

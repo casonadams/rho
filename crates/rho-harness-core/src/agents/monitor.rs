@@ -46,6 +46,7 @@ pub struct AgentSummary {
     pub id: u64,
     pub group: String,
     pub label: String,
+    pub model: String,
     pub status: AgentStatus,
     pub turn: usize,
     pub max_turns: usize,
@@ -64,6 +65,7 @@ struct TrackedAgent {
     id: u64,
     group: String,
     label: String,
+    model: String,
     status: AgentStatus,
     turn: usize,
     max_turns: usize,
@@ -79,6 +81,7 @@ impl TrackedAgent {
             id: self.id,
             group: self.group.clone(),
             label: self.label.clone(),
+            model: self.model.clone(),
             status: self.status,
             turn: self.turn,
             max_turns: self.max_turns,
@@ -121,7 +124,7 @@ impl AgentMonitor {
     }
 
     #[must_use]
-    pub fn start(&self, group: &str, label: &str, max_turns: usize) -> AgentHandle {
+    pub fn start(&self, group: &str, label: &str, model: &str, max_turns: usize) -> AgentHandle {
         let mut state = self.lock();
         state.next_id += 1;
         let id = state.next_id;
@@ -129,6 +132,7 @@ impl AgentMonitor {
             id,
             group: group.to_string(),
             label: label.to_string(),
+            model: model.to_string(),
             status: AgentStatus::Running,
             turn: 0,
             max_turns,
@@ -249,7 +253,7 @@ mod tests {
     fn tracks_lifecycle_and_bumps_version_on_every_change() {
         let monitor = AgentMonitor::default();
         assert!(monitor.is_empty());
-        let handle = monitor.start("refine › round 1", "scan #1", 10);
+        let handle = monitor.start("refine › round 1", "scan #1", "claude/claude-haiku-5-5", 10);
         let after_start = monitor.version();
         handle.turn(3);
         handle.event(AgentEvent::Text("looking".into()));
@@ -260,13 +264,14 @@ mod tests {
         assert_eq!(record.summary.status, AgentStatus::Done);
         assert_eq!(record.summary.turn, 3);
         assert_eq!(record.summary.group, "refine › round 1");
+        assert_eq!(record.summary.model, "claude/claude-haiku-5-5");
         assert_eq!(record.events, vec![AgentEvent::Text("looking".into())]);
     }
 
     #[test]
     fn caps_events_and_counts_dropped_ones() {
         let monitor = AgentMonitor::default();
-        let handle = monitor.start("g", "a", 1);
+        let handle = monitor.start("g", "a", "m", 1);
         for i in 0..MAX_EVENTS_PER_AGENT + 3 {
             handle.event(AgentEvent::Text(i.to_string()));
         }
@@ -279,7 +284,7 @@ mod tests {
     #[test]
     fn truncates_long_event_text() {
         let monitor = AgentMonitor::default();
-        let handle = monitor.start("g", "a", 1);
+        let handle = monitor.start("g", "a", "m", 1);
         handle.event(AgentEvent::Text("x".repeat(MAX_EVENT_CHARS + 10)));
         let record = monitor.record(handle.id()).unwrap();
         let AgentEvent::Text(text) = &record.events[0] else {
@@ -291,9 +296,9 @@ mod tests {
     #[test]
     fn evicts_oldest_finished_agents_but_keeps_running_ones() {
         let monitor = AgentMonitor::default();
-        let first = monitor.start("g", "running", 1);
+        let first = monitor.start("g", "running", "m", 1);
         for _ in 0..MAX_RETAINED_AGENTS {
-            monitor.start("g", "done", 1).finish(AgentStatus::Done);
+            monitor.start("g", "done", "m", 1).finish(AgentStatus::Done);
         }
         let summaries = monitor.summaries();
         assert_eq!(summaries.len(), MAX_RETAINED_AGENTS);

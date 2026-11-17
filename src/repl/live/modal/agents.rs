@@ -48,7 +48,13 @@ fn list_options(monitor: &AgentMonitor) -> Vec<ModalOption> {
         .iter()
         .map(|s| {
             let label: String = s.label.chars().take(28).collect();
-            let description = format!("{} · {} · {}", s.group, progress(s), format_elapsed(s.elapsed));
+            let description = format!(
+                "{} · {} · {} · {}",
+                s.group,
+                s.model,
+                progress(s),
+                format_elapsed(s.elapsed)
+            );
             ModalOption::new(format!("{} {label:<28}", s.status.symbol()), Some(description))
                 .with_value(s.id.to_string())
         })
@@ -91,9 +97,10 @@ fn render_event(event: &AgentEvent) -> String {
 pub fn render_agent_body(record: &AgentRecord) -> String {
     let s = &record.summary;
     let mut sections = vec![format!(
-        "{} {} · {} · {} · {}",
+        "{} {} · {} · {} · {} · {}",
         s.status.symbol(),
         status_word(s.status),
+        s.model,
         progress(s),
         format_elapsed(s.elapsed),
         s.group
