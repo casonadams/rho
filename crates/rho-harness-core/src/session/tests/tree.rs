@@ -150,10 +150,7 @@ async fn test_session_tree_node_label_and_naming() {
     let session = SessionManager::new(&dir, None).unwrap();
 
     session.set_session_name("Refactor Auth").await.unwrap();
-    assert_eq!(
-        session.get_session_name().await.unwrap(),
-        Some("Refactor Auth".to_string())
-    );
+    assert_eq!(session.cached_session_name(), Some("Refactor Auth".to_string()));
 
     session
         .append_messages(

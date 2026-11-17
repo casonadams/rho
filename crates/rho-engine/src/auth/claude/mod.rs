@@ -11,7 +11,7 @@ pub use client::{
     fetch_profile, refresh_token,
 };
 pub use flow::{acquire_auth_code, build_authorize_url, parse_auth_code_and_state};
-pub use local::{detect_local_claude_credentials, detect_local_claude_credentials_async};
+pub use local::detect_local_claude_credentials_async;
 
 use super::oauth::{oauth_credential, refresh_oauth_credential};
 use crate::auth::pkce::{PkceChallenge, generate_state};

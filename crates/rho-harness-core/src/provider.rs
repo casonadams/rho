@@ -48,8 +48,6 @@ impl ProviderId {
         Self::Local,
     ];
 
-    pub const OAUTH_PROVIDERS: [Self; 4] = [Self::ChatGpt, Self::Antigravity, Self::ClaudeCode, Self::OpenRouter];
-
     pub const API_KEY_PROVIDERS: [Self; 10] = [
         Self::Anthropic,
         Self::OpenAi,
@@ -62,14 +60,6 @@ impl ProviderId {
         Self::Mistral,
         Self::Cohere,
     ];
-
-    pub fn supports_oauth(self) -> bool {
-        Self::OAUTH_PROVIDERS.contains(&self)
-    }
-
-    pub fn supports_api_key(self) -> bool {
-        Self::API_KEY_PROVIDERS.contains(&self)
-    }
 
     pub fn as_str(self) -> &'static str {
         match self {

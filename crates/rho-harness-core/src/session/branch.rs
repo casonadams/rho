@@ -73,10 +73,6 @@ impl SessionManager {
         Ok(())
     }
 
-    pub async fn get_session_name(&self) -> Result<Option<String>> {
-        Ok(self.state.lock().await.tree.session_name.clone())
-    }
-
     pub fn cached_session_name(&self) -> Option<String> {
         self.state.try_lock().ok().and_then(|s| s.tree.session_name.clone())
     }

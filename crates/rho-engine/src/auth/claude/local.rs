@@ -78,23 +78,6 @@ fn decode_keychain_output(raw: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn read_keychain_credentials() -> Option<String> {
-    let output = std::process::Command::new("security")
-        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    decode_keychain_output(&String::from_utf8_lossy(&output.stdout))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn read_keychain_credentials() -> Option<String> {
-    None
-}
-
-#[cfg(target_os = "macos")]
 async fn read_keychain_credentials_async() -> Option<String> {
     let output = tokio::process::Command::new("security")
         .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
@@ -110,25 +93,6 @@ async fn read_keychain_credentials_async() -> Option<String> {
 #[cfg(not(target_os = "macos"))]
 async fn read_keychain_credentials_async() -> Option<String> {
     None
-}
-
-fn enrich_metadata(mut cred: StoredCredential, config_path: Option<&Path>) -> StoredCredential {
-    if let Some(cfg) = config_path
-        && cfg.exists()
-        && let Ok(raw_cfg) = std::fs::read_to_string(cfg)
-    {
-        let (id, email) = parse_claude_json_metadata(&raw_cfg);
-        if let StoredCredential::OAuth {
-            account_id,
-            account_email,
-            ..
-        } = &mut cred
-        {
-            *account_id = id;
-            *account_email = email;
-        }
-    }
-    cred
 }
 
 async fn enrich_metadata_async(mut cred: StoredCredential, config_path: Option<&Path>) -> StoredCredential {
@@ -150,15 +114,6 @@ async fn enrich_metadata_async(mut cred: StoredCredential, config_path: Option<&
     cred
 }
 
-pub fn detect_credentials_from_paths(creds_path: &Path, config_path: Option<&Path>) -> Option<StoredCredential> {
-    let raw = std::fs::read_to_string(creds_path).ok()?;
-    let (access, refresh, exp) = parse_claude_credentials_json(&raw)?;
-    Some(enrich_metadata(
-        StoredCredential::oauth(access, refresh, exp),
-        config_path,
-    ))
-}
-
 pub async fn detect_credentials_from_paths_async(
     creds_path: &Path,
     config_path: Option<&Path>,
@@ -166,37 +121,6 @@ pub async fn detect_credentials_from_paths_async(
     let raw = tokio::fs::read_to_string(creds_path).await.ok()?;
     let (access, refresh, exp) = parse_claude_credentials_json(&raw)?;
     Some(enrich_metadata_async(StoredCredential::oauth(access, refresh, exp), config_path).await)
-}
-
-pub fn detect_local_claude_credentials() -> Option<StoredCredential> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
-        .map(std::path::PathBuf::from)?;
-
-    let creds_file = home.join(".claude").join(".credentials.json");
-    let config_file = home.join(".claude.json");
-
-    let file_cred = if creds_file.exists() {
-        detect_credentials_from_paths(&creds_file, Some(&config_file))
-    } else {
-        None
-    };
-
-    if let Some(cred) = &file_cred
-        && !cred.is_expired(60)
-    {
-        return Some(cred.clone());
-    }
-
-    if let Some(raw_kc) = read_keychain_credentials()
-        && let Some((access, refresh, exp)) = parse_claude_credentials_json(&raw_kc)
-    {
-        let cred = StoredCredential::oauth(access, refresh, exp);
-        return Some(enrich_metadata(cred, Some(&config_file)));
-    }
-
-    file_cred
 }
 
 async fn read_valid_file_credential_async(

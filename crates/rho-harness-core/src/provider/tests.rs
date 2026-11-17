@@ -1,19 +1,6 @@
 use super::*;
 
 #[test]
-fn oauth_providers_list_is_exact() {
-    assert_eq!(
-        ProviderId::OAUTH_PROVIDERS,
-        [
-            ProviderId::ChatGpt,
-            ProviderId::Antigravity,
-            ProviderId::ClaudeCode,
-            ProviderId::OpenRouter,
-        ]
-    );
-}
-
-#[test]
 fn api_key_providers_list_excludes_local_and_pure_oauth() {
     assert_eq!(
         ProviderId::API_KEY_PROVIDERS,
@@ -37,25 +24,6 @@ fn api_key_providers_list_excludes_local_and_pure_oauth() {
         ProviderId::ClaudeCode,
     ] {
         assert!(!ProviderId::API_KEY_PROVIDERS.contains(&excluded));
-    }
-}
-
-#[test]
-fn oauth_and_api_key_capabilities() {
-    let cases = [
-        (ProviderId::OpenRouter, true, true),
-        (ProviderId::ChatGpt, true, false),
-        (ProviderId::Antigravity, true, false),
-        (ProviderId::ClaudeCode, true, false),
-        (ProviderId::Anthropic, false, true),
-        (ProviderId::OpenAi, false, true),
-        (ProviderId::DeepSeek, false, true),
-        (ProviderId::Gemini, false, true),
-        (ProviderId::Local, false, false),
-    ];
-    for (p, oauth, api_key) in cases {
-        assert_eq!(p.supports_oauth(), oauth, "{p:?} oauth");
-        assert_eq!(p.supports_api_key(), api_key, "{p:?} api key");
     }
 }
 

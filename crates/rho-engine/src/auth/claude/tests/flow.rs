@@ -185,7 +185,7 @@ async fn test_perform_login_accept_local_credentials() {
         select_response: Some("import".to_string()),
     };
 
-    if detect_local_claude_credentials().is_some() {
+    if detect_local_claude_credentials_async().await.is_some() {
         let cred = perform_login(&callbacks).await.unwrap();
         assert!(matches!(cred, StoredCredential::OAuth { .. }));
     }

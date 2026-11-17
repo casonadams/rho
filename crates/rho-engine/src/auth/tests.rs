@@ -137,7 +137,7 @@ async fn loads_auth_file_with_utf8_bom_async() {
         Some("key-openrouter-456")
     );
 
-    store.remove_key_async("openrouter").await.unwrap();
+    store.remove_key("openrouter").unwrap();
 
     let mut reloaded = AuthStore::load_async(path).await.unwrap();
     assert_eq!(

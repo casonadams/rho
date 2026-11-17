@@ -5,13 +5,6 @@ use crate::ui::theme::Theme;
 use rho_harness_core::presentation::summary::to_relative_path;
 use rho_harness_core::presentation::{BlockDisplay, SessionStatus, WelcomeDisplay};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CacheMissNotice {
-    pub missed_tokens: u64,
-    pub cost: Option<f64>,
-    pub idle_minutes: Option<u64>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeKind {
     Info,
@@ -143,36 +136,6 @@ impl TerminalRenderer {
             let text = format!("{dim}{message}{dim:#}\n");
             self.write_output(&text);
         }
-    }
-
-    pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {
-        let cost_str = cost
-            .filter(|c| *c >= 0.01)
-            .map(|c| format!(" (~${c:.2})"))
-            .unwrap_or_default();
-        let tokens_str = crate::ui::interactive::footer::format_tokens(tokens);
-        self.notice(
-            NoticeKind::Warn,
-            &format!("Compaction: {tokens_str} tokens billed{cost_str}"),
-        );
-    }
-
-    pub fn print_cache_miss_notice(&self, notice: CacheMissNotice) {
-        let cost_str = notice
-            .cost
-            .filter(|c| *c >= 0.01)
-            .map(|c| format!(" (~${c:.2})"))
-            .unwrap_or_default();
-        let tokens_str = crate::ui::interactive::footer::format_tokens(notice.missed_tokens);
-        let reason = if let Some(mins) = notice.idle_minutes {
-            format!("after {mins}m idle")
-        } else {
-            "after model switch".to_string()
-        };
-        self.notice(
-            NoticeKind::Warn,
-            &format!("Cache miss {reason}: {tokens_str} tokens re-billed{cost_str}"),
-        );
     }
 
     pub fn print_user_block(&self, input: &str) {

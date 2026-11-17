@@ -130,11 +130,6 @@ impl AuthStore {
         self.save()
     }
 
-    pub async fn remove_key_async(&mut self, provider: &str) -> Result<()> {
-        self.credentials.remove(provider);
-        self.save_async().await
-    }
-
     pub async fn save_async(&self) -> Result<()> {
         io::save_credentials_async(&self.file_path, &self.credentials).await
     }

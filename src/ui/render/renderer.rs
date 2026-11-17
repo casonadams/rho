@@ -20,7 +20,7 @@ use rho_harness_core::presentation::stream::ToolStreamPort;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
 use rho_harness_core::presentation::{FileChange, ToolLine};
 
-pub use super::notices::{CacheMissNotice, NoticeKind};
+pub use super::notices::NoticeKind;
 
 pub enum RenderActivity {
     Progress(ProgressBar),

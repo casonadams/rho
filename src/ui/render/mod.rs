@@ -27,7 +27,7 @@ pub use card::{
     format_read_header, format_tool_header, normalize_tool_name, render_headless_tool_card, render_tool_block,
     render_tool_transcript, tool_title_style,
 };
-pub use renderer::{CacheMissNotice, NoticeKind, RenderActivity, TerminalRenderer};
+pub use renderer::{NoticeKind, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 pub use rpc_presenter::{PendingApprovals, RpcPresenter};

@@ -5,7 +5,7 @@ use super::formatters::{
     format_write_preview,
 };
 use super::notices::{NoticeKind, format_notice};
-use super::{CacheMissNotice, format_tool_header, render_tool_transcript};
+use super::{format_tool_header, render_tool_transcript};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, InteractiveUi, OutputEvent, TranscriptItem, TranscriptRenderInput, UiEvent, render_transcript_item,
@@ -633,30 +633,6 @@ fn print_session_status_and_notice_emit_transcript_item() {
     assert!(items[0].contains("claude-sonnet"));
     assert!(items[0].contains("42% context"));
     assert!(items[1].contains("[Notice message]"));
-}
-
-#[test]
-fn print_compaction_and_cache_miss_notices() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-
-    renderer.print_compaction_cost_notice(154_000, Some(0.46));
-    renderer.print_cache_miss_notice(CacheMissNotice {
-        missed_tokens: 45_000,
-        cost: Some(0.14),
-        idle_minutes: Some(5),
-    });
-
-    let items = std::iter::from_fn(|| events.try_recv().ok())
-        .filter_map(|event| match event {
-            UiEvent::Transcript(TranscriptItem::Notice(text)) => Some(text),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(items.len(), 2);
-    assert!(items[0].contains("Compaction: 154k tokens billed (~$0.46)"));
-    assert!(items[1].contains("Cache miss after 5m idle: 45.0k tokens re-billed (~$0.14)"));
 }
 
 #[test]
