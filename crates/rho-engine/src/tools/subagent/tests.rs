@@ -143,6 +143,34 @@ fn test_role_tool_filtering() {
     );
 }
 
+#[test]
+fn custom_agents_never_get_delegation_tools() {
+    use rho_harness_core::agents::AgentMetadata;
+    fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
+        Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
+            Ok(crate::tools::ToolResult::success("ok"))
+        }))
+    }
+    let all_tools = vec![dummy_tool("read"), dummy_tool("subagent"), dummy_tool("workflow")];
+    let agent = |tools: Option<Vec<String>>| AgentMetadata {
+        name: "a".into(),
+        description: String::new(),
+        location: String::new(),
+        tools,
+        disallowed_tools: None,
+        model: None,
+        max_turns: None,
+        system_prompt: String::new(),
+    };
+    for tools in [None, Some(vec!["read".into(), "subagent".into(), "workflow".into()])] {
+        let names: Vec<String> = filter_tools_for_agent(&all_tools, &agent(tools.clone()))
+            .iter()
+            .map(|t| t.name().to_string())
+            .collect();
+        assert_eq!(names, vec!["read"], "tools: {tools:?}");
+    }
+}
+
 #[tokio::test]
 async fn test_subagent_custom_agent_execution() {
     use rho_harness_core::agents::AgentMetadata;

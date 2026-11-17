@@ -198,7 +198,8 @@ You are a strict reviewer. Report concrete bugs with file:line evidence.
 Agents load from `~/.agents/agents/`, then `.claude/agents/` and
 `.agents/agents/` in the project (subdirectories included). A later file with
 the same `name` replaces an earlier one. Asking for an agent name or role that
-doesn't exist is an error. Agents never get the `subagent` tool themselves.
+doesn't exist is an error. Agents never get the `subagent` or `workflow` tools
+themselves, even without a `tools` list.
 
 ### Which model runs
 

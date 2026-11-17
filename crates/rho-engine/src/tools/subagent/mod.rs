@@ -206,7 +206,7 @@ fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) 
     if let Some(disallowed) = &agent.disallowed_tools {
         filtered.retain(|t| !disallowed.iter().any(|d| d.eq_ignore_ascii_case(t.name())));
     }
-    filtered.retain(|t| t.name() != "subagent");
+    filtered.retain(|t| t.name() != "subagent" && t.name() != crate::tools::workflow::WORKFLOW_TOOL_NAME);
     filtered.sort_by(|a, b| a.name().cmp(b.name()));
     filtered
 }
