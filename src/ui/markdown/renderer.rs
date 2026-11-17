@@ -55,7 +55,7 @@ impl MarkdownRenderer {
 
             if self.emitted_on_current_line {
                 let inline = self.stream_tracker.render_inline_token(chunk, theme);
-                let reset = self.stream_tracker.reset_line();
+                let reset = self.stream_tracker.reset_line(theme);
                 out.push_str(&self.stream_wrapper.process_chunk(&format!("{inline}{reset}\n")));
                 self.current_line.clear();
                 self.emitted_on_current_line = false;
@@ -102,7 +102,7 @@ impl MarkdownRenderer {
             line.clear();
             self.current_line = line;
         } else if self.emitted_on_current_line {
-            let reset = self.stream_tracker.reset_line();
+            let reset = self.stream_tracker.reset_line(theme);
             out.push_str(&self.stream_wrapper.process_chunk(&reset));
             out.push_str(&self.stream_wrapper.flush());
             self.current_line.clear();

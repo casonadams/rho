@@ -417,3 +417,43 @@ fn line_prefixes_split_across_chunks_render_like_whole_lines() {
         assert_eq!(streamed.trim_end(), expected.trim_end(), "{chunks:?}");
     }
 }
+
+#[test]
+fn inline_markdown_streams_like_the_whole_line_at_every_split() {
+    let theme = Theme::default();
+    let cases = [
+        (
+            "See [the docs](https://example.com/a) now",
+            "See the docs (https://example.com/a) now",
+        ),
+        ("Go to <https://example.com> now", "Go to https://example.com now"),
+        ("A [bracket] and [x](y(z)) end", "A [bracket] and x (y(z)) end"),
+        (
+            "snake_case_name and _emph_ and __dunder__ here",
+            "snake_case_name and emph and dunder here",
+        ),
+        (
+            "old ~~gone~~ and ~/.config and ~x~ kept",
+            "old gone and ~/.config and ~x~ kept",
+        ),
+        (
+            "mix **bold _it_** and `co_de [a](b)` end",
+            "mix bold it and co_de [a](b) end",
+        ),
+        ("***both*** then *one*", "both then one"),
+    ];
+    for (text, plain) in cases {
+        let line = format!("{text}\n");
+        let mut whole = MarkdownRenderer::new();
+        let expected = whole.render_text(&line, &theme);
+        assert_eq!(crate::ui::block::strip_ansi(&expected).trim_end(), plain, "{text:?}");
+        for split in (1..line.len()).filter(|&i| line.is_char_boundary(i)) {
+            let streamed = render_streamed(&[&line[..split], &line[split..]], 0, &theme);
+            assert_eq!(
+                crate::ui::block::strip_ansi(&streamed),
+                crate::ui::block::strip_ansi(&expected),
+                "{text:?} split at {split}"
+            );
+        }
+    }
+}

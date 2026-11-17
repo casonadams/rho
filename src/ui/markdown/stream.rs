@@ -90,122 +90,273 @@ impl StreamWordWrapper {
 
 #[derive(Default)]
 pub struct InlineStreamTracker {
-    in_bold: bool,
-    in_italic: bool,
+    italic: Option<char>,
+    bold: Option<char>,
+    strike: bool,
     in_code: bool,
-    pending_star: Option<StarContext>,
-    token_follows_text: bool,
+    prev: Option<char>,
+    pending: Option<PendingRun>,
+    link: Option<LinkHold>,
     scratch: Vec<char>,
 }
 
 #[derive(Clone, Copy)]
-struct StarContext {
-    follows_space: bool,
+struct PendingRun {
+    marker: char,
+    len: usize,
+    prev: Option<char>,
+}
+
+struct LinkHold {
+    raw: String,
+    stage: LinkStage,
+}
+
+#[derive(Clone, Copy)]
+enum LinkStage {
+    Text(usize),
+    AfterText,
+    Url(usize),
+    Angle,
+}
+
+enum LinkStep {
+    Hold,
+    Done,
+    NotALink,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Emphasis {
+    Italic,
+    Bold,
+    BoldItalic,
+    Strike,
+}
+
+fn is_markdown_punctuation(c: char) -> bool {
+    c.is_ascii_punctuation() || (!c.is_alphanumeric() && !c.is_whitespace())
+}
+
+fn emphasis_for(marker: char, len: usize) -> Option<Emphasis> {
+    match (marker, len) {
+        ('*' | '_', 1) => Some(Emphasis::Italic),
+        ('*' | '_', 2) => Some(Emphasis::Bold),
+        ('*' | '_', 3) => Some(Emphasis::BoldItalic),
+        ('~', 2) => Some(Emphasis::Strike),
+        _ => None,
+    }
+}
+
+/// CommonMark flanking rules; `_` may not open or close inside a word.
+fn run_can_open_close(marker: char, prev: Option<char>, next: Option<char>) -> (bool, bool) {
+    let space = |c: Option<char>| c.is_none_or(char::is_whitespace);
+    let punct = |c: Option<char>| c.is_some_and(is_markdown_punctuation);
+    let left = !space(next) && (!punct(next) || space(prev) || punct(prev));
+    let right = !space(prev) && (!punct(prev) || space(next) || punct(next));
+    if marker == '_' {
+        (left && (!right || punct(prev)), right && (!left || punct(next)))
+    } else {
+        (left, right)
+    }
+}
+
+impl LinkHold {
+    fn push(&mut self, c: char) -> LinkStep {
+        self.raw.push(c);
+        let (stage, step) = match (self.stage, c) {
+            (LinkStage::Text(depth), '[') => (LinkStage::Text(depth + 1), LinkStep::Hold),
+            (LinkStage::Text(1), ']') => (LinkStage::AfterText, LinkStep::Hold),
+            (LinkStage::Text(depth), ']') => (LinkStage::Text(depth - 1), LinkStep::Hold),
+            (LinkStage::AfterText, '(') => (LinkStage::Url(1), LinkStep::Hold),
+            (LinkStage::AfterText, _) => (LinkStage::AfterText, LinkStep::NotALink),
+            (LinkStage::Url(depth), '(') => (LinkStage::Url(depth + 1), LinkStep::Hold),
+            (LinkStage::Url(1), ')') => (LinkStage::Url(0), LinkStep::Done),
+            (LinkStage::Url(depth), ')') => (LinkStage::Url(depth - 1), LinkStep::Hold),
+            (LinkStage::Angle, '>') => (LinkStage::Angle, LinkStep::Done),
+            (LinkStage::Angle, c) if c.is_whitespace() || c == '<' => (LinkStage::Angle, LinkStep::NotALink),
+            (stage, _) => (stage, LinkStep::Hold),
+        };
+        self.stage = stage;
+        step
+    }
 }
 
 impl InlineStreamTracker {
-    pub fn reset_line(&mut self) -> String {
+    pub fn reset_line(&mut self, theme: &Theme) -> String {
         let mut out = String::new();
-        if let Some(star) = self.pending_star.take() {
-            self.resolve_star(star, ' ', &mut out);
+        if let Some(link) = self.link.take() {
+            self.replay_unlinked(&link.raw, &mut out, theme);
         }
-        self.token_follows_text = false;
-        if self.in_bold {
+        if let Some(run) = self.pending.take() {
+            self.resolve_run(run, None, &mut out);
+        }
+        self.prev = None;
+        if self.bold.take().is_some() {
             out.push_str(&anstyle::Style::new().bold().render_reset().to_string());
-            self.in_bold = false;
         }
-        if self.in_italic {
+        if self.italic.take().is_some() {
             out.push_str(&anstyle::Style::new().italic().render_reset().to_string());
-            self.in_italic = false;
         }
-        if self.in_code {
+        if std::mem::take(&mut self.strike) {
+            out.push_str(&anstyle::Style::new().strikethrough().render_reset().to_string());
+        }
+        if std::mem::take(&mut self.in_code) {
             out.push_str(&anstyle::Style::new().render_reset().to_string());
-            self.in_code = false;
         }
         out
     }
 
-    fn toggle_bold(&mut self, out: &mut String) {
-        let bold_style = anstyle::Style::new().bold();
-        if self.in_bold {
-            out.push_str(&bold_style.render_reset().to_string());
-            self.in_bold = false;
-        } else {
-            out.push_str(&bold_style.render().to_string());
-            self.in_bold = true;
+    fn is_active(&self, emphasis: Emphasis) -> bool {
+        match emphasis {
+            Emphasis::Italic => self.italic.is_some(),
+            Emphasis::Bold => self.bold.is_some(),
+            Emphasis::BoldItalic => self.italic.is_some() && self.bold.is_some(),
+            Emphasis::Strike => self.strike,
         }
     }
 
-    fn toggle_italic(&mut self, out: &mut String) {
-        let italic_style = anstyle::Style::new().italic();
-        if self.in_italic {
-            out.push_str(&italic_style.render_reset().to_string());
-            self.in_italic = false;
-        } else {
-            out.push_str(&italic_style.render().to_string());
-            self.in_italic = true;
+    fn opened_by(&self, emphasis: Emphasis, marker: char) -> bool {
+        match emphasis {
+            Emphasis::Italic => self.italic == Some(marker),
+            Emphasis::Bold => self.bold == Some(marker),
+            Emphasis::BoldItalic => self.italic == Some(marker) && self.bold == Some(marker),
+            Emphasis::Strike => self.strike,
         }
+    }
+
+    fn set_emphasis(&mut self, emphasis: Emphasis, marker: Option<char>, out: &mut String) {
+        let on = marker.is_some();
+        let style = match emphasis {
+            Emphasis::Italic => anstyle::Style::new().italic(),
+            Emphasis::Bold => anstyle::Style::new().bold(),
+            Emphasis::BoldItalic => anstyle::Style::new().bold().italic(),
+            Emphasis::Strike => anstyle::Style::new().strikethrough(),
+        };
+        match emphasis {
+            Emphasis::Italic => self.italic = marker,
+            Emphasis::Bold => self.bold = marker,
+            Emphasis::BoldItalic => (self.italic, self.bold) = (marker, marker),
+            Emphasis::Strike => self.strike = on,
+        }
+        let code = if on {
+            style.render().to_string()
+        } else {
+            style.render_reset().to_string()
+        };
+        out.push_str(&code);
+    }
+
+    fn resolve_run(&mut self, run: PendingRun, next: Option<char>, out: &mut String) {
+        let (can_open, can_close) = run_can_open_close(run.marker, run.prev, next);
+        match emphasis_for(run.marker, run.len) {
+            Some(emphasis) if self.is_active(emphasis) && can_close && self.opened_by(emphasis, run.marker) => {
+                self.set_emphasis(emphasis, None, out);
+            }
+            Some(emphasis) if !self.is_active(emphasis) && can_open => {
+                self.set_emphasis(emphasis, Some(run.marker), out);
+            }
+            _ => out.extend(std::iter::repeat_n(run.marker, run.len)),
+        }
+        self.prev = Some(run.marker);
     }
 
     fn toggle_code(&mut self, out: &mut String, theme: &Theme) {
-        if self.in_code {
-            out.push_str(&theme.code_inline.render_reset().to_string());
-            self.in_code = false;
+        self.in_code = !self.in_code;
+        let code = if self.in_code {
+            theme.code_inline.render().to_string()
         } else {
-            out.push_str(&theme.code_inline.render().to_string());
-            self.in_code = true;
-        }
-    }
-
-    fn resolve_star(&mut self, star: StarContext, next: char, out: &mut String) {
-        let closes = self.in_italic && !star.follows_space;
-        let opens = !self.in_italic && !next.is_whitespace();
-        if closes || opens {
-            self.toggle_italic(out);
-        } else {
-            out.push('*');
-        }
-    }
-
-    fn handle_pending_star(&mut self, star: StarContext, first: char, out: &mut String) -> usize {
-        if first == '*' {
-            self.toggle_bold(out);
-            return 1;
-        }
-        self.resolve_star(star, first, out);
-        0
-    }
-
-    fn handle_star(&mut self, chars: &[char], i: usize, out: &mut String) -> usize {
-        let star = StarContext {
-            follows_space: if i > 0 {
-                chars[i - 1].is_whitespace()
-            } else {
-                !self.token_follows_text
-            },
+            theme.code_inline.render_reset().to_string()
         };
-        match chars.get(i + 1) {
-            Some(&next) => self.resolve_star(star, next, out),
-            None => self.pending_star = Some(star),
+        out.push_str(&code);
+    }
+
+    fn handle_run(&mut self, chars: &[char], i: usize, out: &mut String) -> usize {
+        let marker = chars[i];
+        let len = chars[i..].iter().take_while(|&&c| c == marker).count();
+        let run = PendingRun {
+            marker,
+            len,
+            prev: self.prev,
+        };
+        match chars.get(i + len) {
+            Some(&next) => self.resolve_run(run, Some(next), out),
+            None => self.pending = Some(run),
         }
-        1
+        len
+    }
+
+    fn continue_pending(&mut self, mut run: PendingRun, chars: &[char], out: &mut String) -> usize {
+        let extra = chars.iter().take_while(|&&c| c == run.marker).count();
+        run.len += extra;
+        match chars.get(extra) {
+            Some(&next) => self.resolve_run(run, Some(next), out),
+            None => self.pending = Some(run),
+        }
+        extra
+    }
+
+    /// Returns `false` when `c` proved the held text is not a link and must be dispatched again.
+    fn hold_link_char(&mut self, mut link: LinkHold, c: char, out: &mut String, theme: &Theme) -> bool {
+        match link.push(c) {
+            LinkStep::Hold => {
+                self.link = Some(link);
+                true
+            }
+            LinkStep::Done => {
+                out.push_str(&super::elements::render_inline_elements(&link.raw, theme));
+                self.prev = Some(')');
+                true
+            }
+            LinkStep::NotALink => {
+                link.raw.pop();
+                self.replay_unlinked(&link.raw, out, theme);
+                false
+            }
+        }
+    }
+
+    fn replay_unlinked(&mut self, raw: &str, out: &mut String, theme: &Theme) {
+        let mut rest = raw.chars();
+        if let Some(opener) = rest.next() {
+            out.push(opener);
+            self.prev = Some(opener);
+        }
+        let chars: Vec<char> = rest.collect();
+        self.process_chars(&chars, out, theme);
     }
 
     fn process_token_char(&mut self, chars: &[char], i: usize, out: &mut String, theme: &Theme) -> usize {
-        if chars[i] == '`' {
+        let c = chars[i];
+        if let Some(link) = self.link.take() {
+            if self.hold_link_char(link, c, out, theme) {
+                return 1;
+            }
+            return self.process_token_char(chars, i, out, theme);
+        }
+        if c == '`' {
             self.toggle_code(out, theme);
-            1
         } else if self.in_code {
-            out.push(chars[i]);
-            1
-        } else if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
-            self.toggle_bold(out);
-            2
-        } else if chars[i] == '*' {
-            self.handle_star(chars, i, out)
+            out.push(c);
+        } else if matches!(c, '*' | '_' | '~') {
+            return self.handle_run(chars, i, out);
+        } else if c == '[' || c == '<' {
+            let stage = if c == '[' { LinkStage::Text(1) } else { LinkStage::Angle };
+            self.link = Some(LinkHold {
+                raw: String::from(c),
+                stage,
+            });
         } else {
-            out.push(chars[i]);
-            1
+            out.push(c);
+        }
+        self.prev = Some(c);
+        1
+    }
+
+    fn process_chars(&mut self, chars: &[char], out: &mut String, theme: &Theme) {
+        let mut i = 0;
+        while i < chars.len() {
+            i += self.process_token_char(chars, i, out, theme);
         }
     }
 
@@ -214,20 +365,11 @@ impl InlineStreamTracker {
         let mut chars = std::mem::take(&mut self.scratch);
         chars.clear();
         chars.extend(token.chars());
-        let len = chars.len();
-        let mut i = 0;
-
-        if let Some(star) = self.pending_star.take_if(|_| len > 0) {
-            i = self.handle_pending_star(star, chars[0], &mut out);
+        let mut start = 0;
+        if let Some(run) = self.pending.take_if(|_| !chars.is_empty()) {
+            start = self.continue_pending(run, &chars, &mut out);
         }
-
-        while i < len {
-            i += self.process_token_char(&chars, i, &mut out, theme);
-        }
-
-        if let Some(&last) = chars.last() {
-            self.token_follows_text = !last.is_whitespace();
-        }
+        self.process_chars(&chars[start..], &mut out, theme);
         self.scratch = chars;
         out
     }
@@ -316,7 +458,7 @@ mod tests {
         let (head, tail) = text.split_at(split);
         let mut out = tracker.render_inline_token(head, &theme);
         out.push_str(&tracker.render_inline_token(tail, &theme));
-        out.push_str(&tracker.reset_line());
+        out.push_str(&tracker.reset_line(&theme));
         out
     }
 
