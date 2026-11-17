@@ -1,23 +1,7 @@
 use crate::ui::block::{leading_escape, visible_width};
 use unicode_width::UnicodeWidthChar;
 
-pub fn format_tokens(count: u64) -> String {
-    if count < 1_000 {
-        count.to_string()
-    } else if count.is_power_of_two() {
-        if count >= 1024 * 1024 {
-            format!("{}M", count / (1024 * 1024))
-        } else {
-            format!("{}k", count / 1024)
-        }
-    } else if count < 10_000 {
-        format!("{:.1}k", count as f64 / 1_000.0)
-    } else if count < 1_000_000 {
-        format!("{}k", (count as f64 / 1_000.0).round() as u64)
-    } else {
-        format!("{}M", (count as f64 / 1_000_000.0).round() as u64)
-    }
-}
+pub use rho_engine::engine::metrics::format_tokens;
 
 pub fn sanitize_status_text(text: &str) -> String {
     let single_line = text

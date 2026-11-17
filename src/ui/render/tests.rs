@@ -631,7 +631,7 @@ fn print_compaction_and_cache_miss_notices() {
 
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("Compaction: 154k tokens billed (~$0.46)"));
-    assert!(items[1].contains("Cache miss after 5m idle: 45k tokens re-billed (~$0.14)"));
+    assert!(items[1].contains("Cache miss after 5m idle: 45.0k tokens re-billed (~$0.14)"));
 }
 
 #[test]

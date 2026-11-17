@@ -3,31 +3,10 @@ use super::lines::{
     format_footer_lines, format_model_details, format_percent_value, format_stats_line, format_top_line,
 };
 use super::path::abbreviate_home;
-use super::text::{fit_right_aligned, format_tokens, sanitize_status_text, truncate_to_width};
+use super::text::{fit_right_aligned, sanitize_status_text, truncate_to_width};
 use crate::ui::block::visible_width;
 use crate::ui::interactive::Activity;
 use std::path::Path;
-
-#[test]
-fn format_tokens_matches_status_line_breakpoints() {
-    let cases = [
-        (0, "0"),
-        (999, "999"),
-        (1_000, "1.0k"),
-        (1_234, "1.2k"),
-        (9_999, "10.0k"),
-        (10_000, "10k"),
-        (128_000, "128k"),
-        (131_072, "128k"),
-        (200_000, "200k"),
-        (262_144, "256k"),
-        (1_000_000, "1M"),
-        (2_500_000, "3M"),
-    ];
-    for (tokens, expected) in cases {
-        assert_eq!(format_tokens(tokens), expected);
-    }
-}
 
 #[test]
 fn abbreviate_home_replaces_prefix_with_tilde() {
@@ -96,7 +75,7 @@ fn sample_stats_footer() -> FooterState {
 #[test]
 fn stats_line_formats_usage_and_model() {
     let line = format_stats_line(&sample_stats_footer(), 80);
-    for token in ["↑1.2k", "↓450", "R10k", "W2.0k", "$0.012", "1%/200k", "@258t/s"] {
+    for token in ["↑1.2k", "↓450", "R10.0k", "W2.0k", "$0.012", "1%/200k", "@258t/s"] {
         assert!(line.contains(token));
     }
     assert!(line.ends_with("gemini/gemini-3.8-flash/medium"));

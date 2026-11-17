@@ -91,15 +91,25 @@ fn structural_metrics_contain_no_response_or_identity_content() {
 }
 
 #[test]
-fn format_tokens_powers_of_two_and_decimal() {
+fn format_tokens_breakpoints() {
     use super::types::format_tokens;
 
-    assert_eq!(format_tokens(262_144), "256k");
-    assert_eq!(format_tokens(131_072), "128k");
-    assert_eq!(format_tokens(65_536), "64k");
-    assert_eq!(format_tokens(32_768), "32k");
-    assert_eq!(format_tokens(1_048_576), "1M");
-    assert_eq!(format_tokens(128_000), "128k");
-    assert_eq!(format_tokens(200_000), "200k");
-    assert_eq!(format_tokens(1_000_000), "1M");
+    let cases = [
+        (0, "0"),
+        (999, "999"),
+        (1_000, "1.0k"),
+        (1_234, "1.2k"),
+        (32_768, "32k"),
+        (45_300, "45.3k"),
+        (99_949, "99.9k"),
+        (128_000, "128k"),
+        (131_072, "128k"),
+        (262_144, "256k"),
+        (1_000_000, "1M"),
+        (1_048_576, "1M"),
+        (2_500_000, "2.5M"),
+    ];
+    for (tokens, expected) in cases {
+        assert_eq!(format_tokens(tokens), expected, "{tokens} tokens");
+    }
 }
