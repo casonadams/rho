@@ -89,6 +89,23 @@ pub fn walker_builder(search_root: &Path, include_hidden: bool, types: Option<&T
     builder
 }
 
+/// Lists up to `max_files` files under `root` as sorted, `/`-separated
+/// relative paths, honoring the same ignore and hidden rules as fd and rg.
+pub fn list_workspace_files(root: &Path, max_files: usize) -> Vec<String> {
+    let mut files: Vec<String> = walker_builder(root, false, None)
+        .build()
+        .flatten()
+        .filter(|entry| entry.file_type().is_some_and(|file_type| file_type.is_file()))
+        .filter_map(|entry| {
+            let relative = entry.path().strip_prefix(root).ok()?;
+            Some(relative.to_string_lossy().replace('\\', "/"))
+        })
+        .take(max_files)
+        .collect();
+    files.sort();
+    files
+}
+
 /// Selects a default file-type definition (e.g. 'rust', 'py'); unknown names
 /// are rejected with the existing fd/rg error phrasing.
 pub fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, String> {
@@ -135,5 +152,36 @@ pub fn resolve_relative_path(
         }
     } else {
         path.to_string_lossy().replace('\\', "/")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::list_workspace_files;
+    use std::fs;
+
+    fn workspace() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fs::create_dir_all(dir.path().join("sub")).unwrap();
+        fs::create_dir_all(dir.path().join("ignored")).unwrap();
+        fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+        fs::write(dir.path().join(".hidden"), "").unwrap();
+        fs::write(dir.path().join("b.txt"), "").unwrap();
+        fs::write(dir.path().join("sub/a.rs"), "").unwrap();
+        fs::write(dir.path().join("ignored/c.txt"), "").unwrap();
+        dir
+    }
+
+    #[test]
+    fn list_workspace_files_skips_ignored_and_hidden_entries() {
+        let dir = workspace();
+        assert_eq!(list_workspace_files(dir.path(), 100), ["b.txt", "sub/a.rs"]);
+    }
+
+    #[test]
+    fn list_workspace_files_stops_at_max_files() {
+        let dir = workspace();
+        assert_eq!(list_workspace_files(dir.path(), 1).len(), 1);
     }
 }

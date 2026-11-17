@@ -440,6 +440,31 @@ fn fast_tools_emit_footer_status_without_live_widget_bounce() {
 }
 
 #[test]
+fn long_running_tools_open_live_card() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let cases = [
+        ("bash", serde_json::json!({"command": "cargo test"}), "cargo test"),
+        (
+            "subagent",
+            serde_json::json!({"prompt": "find callers"}),
+            "find callers",
+        ),
+    ];
+    for (tool, args, expected_summary) in cases {
+        renderer.start_tool_run(tool, &args);
+        match events.try_recv() {
+            Ok(UiEvent::ToolStart(request)) => {
+                assert_eq!(request.name, tool);
+                assert!(request.args_summary.contains(expected_summary));
+            }
+            other => panic!("expected ToolStart for {tool}, got ok={}", other.is_ok()),
+        }
+        assert!(events.try_recv().is_err());
+    }
+}
+
+#[test]
 fn finished_bash_block_includes_elapsed_duration() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);

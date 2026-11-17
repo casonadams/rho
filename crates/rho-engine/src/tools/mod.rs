@@ -33,6 +33,7 @@ pub use rg::{RgArgs, RgTool};
 pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
+pub use traversal::list_workspace_files;
 pub use types::{ToolResult, generated_schema, normalize_schema};
 pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,

@@ -81,6 +81,15 @@ fn running_tool_widget_with_preview_renders_diff_card() {
 }
 
 #[test]
+fn running_tool_widget_renders_subagent_before_any_output() {
+    let tool = RunningTool::new("subagent", "prompt=\"find callers\"", None);
+    let full = render_test_widget(&tool, false);
+    for token in ["subagent", "find callers", "Elapsed"] {
+        assert!(full.contains(token), "missing {token}");
+    }
+}
+
+#[test]
 fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
     let theme = Theme::default();
     let tool_fd = RunningTool::new("fd", "pattern in .", None);

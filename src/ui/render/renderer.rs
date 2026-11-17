@@ -254,7 +254,7 @@ impl TerminalRenderer {
         }
         let summary = format_tool_args_summary(name, args);
         if let Some(ui) = &self.ui {
-            if name == "bash" {
+            if crate::ui::interactive::RunningTool::has_live_card(name) {
                 let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
                     name: name.to_string(),
                     args_summary: summary,

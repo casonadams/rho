@@ -81,7 +81,7 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
 }
 
 pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
-    if input.tool.preview.is_none() && input.tool.output.is_empty() && input.tool.name != "bash" {
+    if input.tool.preview.is_none() && input.tool.output.is_empty() && !RunningTool::has_live_card(&input.tool.name) {
         return Vec::new();
     }
     let width = input.width.max(20);
