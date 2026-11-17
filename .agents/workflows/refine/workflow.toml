@@ -1,0 +1,29 @@
+description = "Scan, fix, and verify rho until no actionable findings remain"
+isolation = "branch"
+
+[[input]]
+name = "profile"
+description = "Review focus"
+choices = ["review", "security", "performance", "reliability", "architecture"]
+
+[[input]]
+name = "max_rounds"
+description = "Maximum scan/fix rounds"
+default = 6
+
+[[input]]
+name = "verify"
+description = "Command that must pass after each round of fixes"
+default = "make all"
+
+[[step]]
+id = "rounds"
+workflow = "round"
+with = { profile = "{{inputs.profile}}", verify = "{{inputs.verify}}" }
+repeat = { until_empty = "actionable", max = "{{inputs.max_rounds}}", stop_on_no_progress = true }
+carry = ["excluded"]
+
+[outputs]
+remaining = "rounds.actionable"
+excluded = "rounds.excluded"
+low_confidence = "rounds.low_confidence"
