@@ -40,6 +40,9 @@ loop:
    it still fails, the round's changes are stashed (`git stash list`).
 5. **checkpoint**: commits the round.
 
+None of `refine`'s steps set a model, so every agent runs on `models.smol` when
+it is set (see [Models](#models)).
+
 Rounds repeat until a scan finds nothing actionable (`clean`), the same
 findings come back (`no progress`), or `max_rounds` (default 6) is reached.
 Findings marked `wont_fix` are carried into later rounds so they are not
@@ -78,8 +81,29 @@ bundle directory:
 Agent names resolve in this order: the bundle's `agents/`, then
 `.agents/agents/` and `~/.agents/agents/`, then the built-in roles (`scout`,
 `critic`, `planner`, `general`). Bundle agents use the same markdown format as
-[custom agents](configuration.md). An agent's `tools` list is a hard limit: a
+[custom agents](configuration.md#custom-agents). An agent's `tools` list is a hard limit: a
 step cannot widen it.
+
+### Models
+
+Each agent step's model is the first of these that is set: the step's `model`,
+the agent's `model` frontmatter field, `models.smol`, then the main session's
+model ([details](configuration.md#which-model-runs)). Built-in roles and agents
+without a `model` field therefore run on `models.smol` when it is set.
+
+Use a full `<provider>/<model>` name. `opus`, `sonnet`, `haiku`, and `inherit`
+mean "use the main session's model", not a model family. A common split is a
+fast model for parallel scouts and a strong one for the agent that edits code:
+
+```toml
+[[step]]
+id = "implement"
+agent = "implementor"
+model = "anthropic/claude-3-7-sonnet"
+prompt_file = "prompts/implement.md"
+```
+
+The Agents list and run log do not show which model an agent used yet.
 
 Every workflow is validated before anything runs. Unknown step references,
 misplaced options, calls to missing workflows, and mismatched `with`/`carry`
@@ -119,7 +143,7 @@ Steps run in file order. Each step is exactly one of:
 
 | Kind | Fields | Result |
 |---|---|---|
-| `agent = "<name>"` | `prompt` or `prompt_file`, `max_turns`, `model` | The agent's final text, or a JSON object with `output = "json"` |
+| `agent = "<name>"` | `prompt` or `prompt_file`, `max_turns` (1 to 20), `model` | The agent's final text, or a JSON object with `output = "json"` |
 | `run = "<command>"` | `timeout_sec` (default 1800) | Trimmed stdout, or parsed JSON with `output = "json"`; a non-zero exit fails the step |
 | `builtin = "repo_scopes"` | `with = { max_scopes = 3 }` | `{ items: [{ paths, files }], total_files, reviewable_files, truncated }` |
 | `builtin = "git_commit"` | `with = { message = "..." }` | `{ committed, sha }`; nothing to commit is not an error |

@@ -120,7 +120,10 @@ default = "anthropic/claude-3-7-sonnet"
 # Dedicated local guard model for automated shell security classification
 guard = "ollama/qwen2.5-coder:7b"
 
+# Default model for subagents and workflow agents; also selected by `rho --smol`
 smol = "ollama/qwen2.5-coder:7b"
+
+# Deep-reasoning model selected by `rho --slow`
 slow = "openai/o3-mini"
 ```
 
@@ -147,6 +150,69 @@ rho config models.guard ollama/qwen2.5-coder:7b
 # Or disable guard model evaluation (reverts to baseline confirmation prompts)
 rho config models.guard none
 ```
+
+---
+
+## Subagents & Custom Agents
+
+The `subagent` tool hands a focused task to an isolated agent with its own
+context. It returns a summary with turn, tool-call, and token counts.
+
+- **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`
+  and `planner` (read, fd, rg), and `general` (read, write, edit, bash, fd, rg,
+  web_fetch, web_search).
+- **Safety**: subagent tool calls go through the same permission rules and
+  lifecycle hooks as the main agent, and `Esc` cancels them.
+- **Concurrency**: several subagent calls in one turn run in parallel when every
+  tool they can use is read-only. Permission prompts still appear one at a time.
+- **Context**: `inherit_context: true` shares the recent text-only conversation
+  with the subagent (and its model provider).
+- **Watching**: press `Left` on an empty prompt to list subagents and watch one
+  live (see [Workflows](workflows.md#watching-agents)).
+
+### Custom agents
+
+Define your own agents as markdown files. The frontmatter configures the agent,
+and the body is its system prompt:
+
+```markdown
+---
+name: reviewer
+description: Reviews diffs for correctness risks
+tools: read, fd, rg
+model: anthropic/claude-3-7-sonnet
+max_turns: 15
+---
+You are a strict reviewer. Report concrete bugs with file:line evidence.
+```
+
+| Field | Meaning |
+|---|---|
+| `name` | Name used to call the agent; defaults to the file name |
+| `description` | Shown to the main agent when it picks a subagent |
+| `tools` | Allowlist of tools; omit it to allow every tool |
+| `disallowed_tools` | Tools removed from the allowed set |
+| `model` | `<provider>/<model>`; see [Which model runs](#which-model-runs) |
+| `max_turns` | Model calls allowed, 1 to 20 (default 10; larger values are capped at 20) |
+
+Agents load from `~/.agents/agents/`, then `.claude/agents/` and
+`.agents/agents/` in the project (subdirectories included). A later file with
+the same `name` replaces an earlier one. Asking for an agent name or role that
+doesn't exist is an error. Agents never get the `subagent` tool themselves.
+
+### Which model runs
+
+A subagent's model is the first of these that is set:
+
+1. The `model` of the workflow step that runs it ([Workflows](workflows.md#models))
+2. The agent's `model` frontmatter field
+3. `models.smol`
+4. The main session's current model
+
+`inherit`, `sonnet`, `opus`, and `haiku` all mean "use the main session's
+model". They do not select a model family, so use a full `<provider>/<model>`
+name to pick a specific model. A model that cannot be resolved is an error.
+Built-in roles have no `model` field, so they use `models.smol` when it is set.
 
 ---
 
