@@ -1,5 +1,5 @@
 use super::entry::{LineMatch, RG_COLLECTION_CEILING, format_results};
-use crate::tools::traversal::{DEFAULT_TRAVERSAL_TIMEOUT_SECS, should_quit_traversal, walker_builder};
+use crate::tools::traversal::{run_parallel_walk, walker_builder};
 use crate::tools::truncate::truncate_line;
 use crate::tools::types::ToolResult;
 use grep_regex::RegexMatcher;
@@ -11,7 +11,7 @@ use ignore::types::Types;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
 
@@ -93,57 +93,29 @@ fn process_rg_walk_entry(
 }
 
 impl RgQuery {
-    fn run_traversal(
-        &self,
-        builder: ignore::WalkBuilder,
-        matches: &Mutex<Vec<LineMatch>>,
-        match_count: &AtomicUsize,
-        timed_out: &AtomicBool,
-    ) {
-        let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
-        let (matcher, display) = (&self.matcher, self.search_path_display.as_deref());
-        let cancellation = self.cancellation.as_deref();
-        let timeout = self
-            .timeout
-            .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS));
-        let start = Instant::now();
-
+    pub fn run(self, limit: usize) -> ToolResult {
+        let builder = walker_builder(&self.search_root, self.include_hidden, self.types.as_ref());
+        let matches = Mutex::new(Vec::new());
+        let match_count = AtomicUsize::new(0);
         let ctx = RgWalkContext {
-            roots: (w_root, s_root, display),
-            matches,
-            match_count,
+            roots: (
+                self.workspace_root.as_path(),
+                self.search_root.as_path(),
+                self.search_path_display.as_deref(),
+            ),
+            matches: &matches,
+            match_count: &match_count,
         };
-
-        builder.build_parallel().run(|| {
+        let matcher = &self.matcher;
+        let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
             let mut searcher = SearcherBuilder::new()
                 .line_number(true)
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
-            Box::new(move |entry| {
-                if should_quit_traversal(cancellation, timed_out, start, timeout) {
-                    return WalkState::Quit;
-                }
-                process_rg_walk_entry(entry, &mut searcher, matcher, &ctx)
-            })
+            move |entry| process_rg_walk_entry(entry, &mut searcher, matcher, &ctx)
         });
-    }
-
-    pub fn run(self, limit: usize) -> ToolResult {
-        let mut builder = walker_builder(&self.search_root, self.include_hidden);
-        if let Some(types) = &self.types {
-            builder.types(types.clone());
-        }
-
-        let timed_out = AtomicBool::new(false);
-        let matches = Mutex::new(Vec::new());
-        let match_count = AtomicUsize::new(0);
-        self.run_traversal(builder, &matches, &match_count, &timed_out);
-        if timed_out.load(Ordering::Relaxed) {
-            let secs = self
-                .timeout
-                .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS))
-                .as_secs();
-            return ToolResult::error(format!("Search timed out after {secs}s"));
+        if let Err(message) = walked {
+            return ToolResult::error(message);
         }
         let list = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
         format_results(list, limit, self.artifact_dir.as_deref())

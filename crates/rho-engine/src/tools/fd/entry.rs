@@ -1,7 +1,7 @@
 use super::stats::FileStats;
 use std::path::PathBuf;
 
-use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size, split_artifact_notice, truncate_head_with_spill};
+use crate::tools::truncate::{finish_listing, format_size, listing_limit_notice};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::FdSort;
 
@@ -38,16 +38,6 @@ pub struct FdFormat {
     pub artifact_dir: Option<PathBuf>,
 }
 
-fn limit_notice(total: usize, limit: usize, hit_ceiling: bool) -> String {
-    if hit_ceiling {
-        format!(
-            "showing first {limit} of {FD_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
-        )
-    } else {
-        format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
-    }
-}
-
 fn render_fd_content(entries: Vec<FdEntry>, show_stats: bool) -> String {
     if show_stats {
         format_table(&entries)
@@ -73,27 +63,11 @@ pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResul
     if entries.is_empty() {
         return ToolResult::success("No files found matching pattern");
     }
-    let mut notices: Vec<String> = Vec::new();
-    if entries.len() > limit {
-        notices.push(limit_notice(entries.len(), limit, hit_ceiling));
-        entries.truncate(limit);
-    }
-
+    let limit_notice = (entries.len() > limit)
+        .then(|| listing_limit_notice(limit, entries.len(), hit_ceiling.then_some(FD_COLLECTION_CEILING)));
+    entries.truncate(limit);
     let content = render_fd_content(entries, show_stats);
-    let truncation = truncate_head_with_spill(&content, usize::MAX, DEFAULT_MAX_BYTES, artifact_dir.as_deref());
-    if truncation.truncated_by.is_some() {
-        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
-    }
-    let (body, spill_notice) = split_artifact_notice(&truncation.content);
-    let mut output = body.to_string();
-    if !notices.is_empty() {
-        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
-    }
-    if let Some(notice) = spill_notice {
-        output.push_str("\n\n");
-        output.push_str(notice);
-    }
-    ToolResult::success(output)
+    finish_listing(&content, limit_notice, None, artifact_dir.as_deref())
 }
 
 fn format_table(entries: &[FdEntry]) -> String {

@@ -1,6 +1,6 @@
 use super::entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, format_results, sort_entries};
 use super::stats::{FileStats, count_file_stats};
-use crate::tools::traversal::{DEFAULT_TRAVERSAL_TIMEOUT_SECS, should_quit_traversal, walker_builder};
+use crate::tools::traversal::{run_parallel_walk, walker_builder};
 use crate::tools::types::ToolResult;
 use ignore::WalkState;
 use ignore::types::Types;
@@ -9,7 +9,7 @@ use rho_harness_core::args::FdSort;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub(super) struct FdQuery {
     pub workspace_root: PathBuf,
@@ -63,20 +63,6 @@ fn push_entry_under_ceiling(
     WalkState::Continue
 }
 
-fn setup_walker_builder(
-    search_root: &Path,
-    depth: Option<usize>,
-    types: Option<&Types>,
-    include_hidden: bool,
-) -> ignore::WalkBuilder {
-    let mut builder = walker_builder(search_root, include_hidden);
-    builder.max_depth(depth);
-    if let Some(types) = types {
-        builder.types(types.clone());
-    }
-    builder
-}
-
 struct FdWalkFilters<'a> {
     regex: Option<&'a Regex>,
     types: Option<&'a Types>,
@@ -113,85 +99,42 @@ fn process_walk_entry(
 }
 
 impl FdQuery {
-    fn run_traversal(
-        &self,
-        builder: ignore::WalkBuilder,
-        collected: &Mutex<Vec<FdEntry>>,
-        count: &AtomicUsize,
-        hit_ceiling: &AtomicBool,
-        timed_out: &AtomicBool,
-    ) {
-        let (s_root, w_root) = (self.search_root.as_path(), self.workspace_root.as_path());
-        let (reg, ty) = (self.regex.as_ref(), self.types.as_ref());
-        let display = self.search_path_display.as_deref();
-        let cancellation = self.cancellation.as_deref();
-        let timeout = self
-            .timeout
-            .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS));
-        let start = Instant::now();
-
-        builder.build_parallel().run(|| {
-            Box::new(|entry| {
-                if should_quit_traversal(cancellation, timed_out, start, timeout) {
-                    return WalkState::Quit;
-                }
-                let Ok(entry) = entry else { return WalkState::Continue };
-                let filters = FdWalkFilters {
-                    regex: reg,
-                    types: ty,
-                    display,
-                    min_lines: self.min_lines,
-                    max_lines: self.max_lines,
-                    stats_needed: self.stats_needed,
-                };
-                let Some(fd_entry) = process_walk_entry(entry, w_root, s_root, &filters) else {
-                    return WalkState::Continue;
-                };
-                push_entry_under_ceiling(collected, count, hit_ceiling, fd_entry)
-            })
-        });
-    }
-
     pub fn run(self, limit: usize) -> ToolResult {
-        let builder = setup_walker_builder(&self.search_root, self.depth, self.types.as_ref(), self.include_hidden);
-        let (collected, count, hit_ceiling, timed_out) = (
-            Mutex::new(Vec::new()),
-            AtomicUsize::new(0),
-            AtomicBool::new(false),
-            AtomicBool::new(false),
-        );
-        self.run_traversal(builder, &collected, &count, &hit_ceiling, &timed_out);
-
-        if timed_out.load(Ordering::Relaxed) {
-            let secs = self
-                .timeout
-                .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS))
-                .as_secs();
-            return ToolResult::error(format!("Search timed out after {secs}s"));
+        let mut builder = walker_builder(&self.search_root, self.include_hidden, self.types.as_ref());
+        builder.max_depth(self.depth);
+        let (collected, count, hit_ceiling) = (Mutex::new(Vec::new()), AtomicUsize::new(0), AtomicBool::new(false));
+        let filters = FdWalkFilters {
+            regex: self.regex.as_ref(),
+            types: self.types.as_ref(),
+            display: self.search_path_display.as_deref(),
+            min_lines: self.min_lines,
+            max_lines: self.max_lines,
+            stats_needed: self.stats_needed,
+        };
+        let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
+        let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
+            |entry: Result<ignore::DirEntry, ignore::Error>| {
+                let Ok(entry) = entry else { return WalkState::Continue };
+                match process_walk_entry(entry, w_root, s_root, &filters) {
+                    Some(fd_entry) => push_entry_under_ceiling(&collected, &count, &hit_ceiling, fd_entry),
+                    None => WalkState::Continue,
+                }
+            }
+        });
+        if let Err(message) = walked {
+            return ToolResult::error(message);
         }
 
-        let entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
-        finalize_fd_results(
+        let mut entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
+        sort_entries(&mut entries, self.sort);
+        format_results(
             entries,
-            (self.sort, self.show_stats, limit, hit_ceiling.load(Ordering::Relaxed)),
-            self.artifact_dir,
+            FdFormat {
+                hit_ceiling: hit_ceiling.into_inner(),
+                limit,
+                show_stats: self.show_stats,
+                artifact_dir: self.artifact_dir,
+            },
         )
     }
-}
-
-fn finalize_fd_results(
-    mut entries: Vec<FdEntry>,
-    (sort, show_stats, limit, hit_ceiling): (Option<FdSort>, bool, usize, bool),
-    artifact_dir: Option<PathBuf>,
-) -> ToolResult {
-    sort_entries(&mut entries, sort);
-    format_results(
-        entries,
-        FdFormat {
-            hit_ceiling,
-            limit,
-            show_stats,
-            artifact_dir,
-        },
-    )
 }

@@ -1,7 +1,7 @@
 //! Shared filesystem traversal configuration for the fd and rg tools.
 
-use ignore::WalkBuilder;
 use ignore::types::{Types, TypesBuilder};
+use ignore::{DirEntry, WalkBuilder, WalkState};
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,7 +18,7 @@ impl Drop for CancelOnDrop {
     }
 }
 
-pub fn should_quit_traversal(
+fn should_quit_traversal(
     cancellation: Option<&AtomicBool>,
     timed_out: &AtomicBool,
     start: Instant,
@@ -39,11 +39,45 @@ pub fn should_quit_traversal(
     false
 }
 
+/// Runs `builder` across threads, giving each thread a visitor from
+/// `make_visitor`, until a visitor quits, `cancellation` fires, or `timeout`
+/// (default `DEFAULT_TRAVERSAL_TIMEOUT_SECS`) elapses.
+pub fn run_parallel_walk<'s, V>(
+    builder: &WalkBuilder,
+    timeout: Option<Duration>,
+    cancellation: Option<&'s AtomicBool>,
+    mut make_visitor: impl FnMut() -> V,
+) -> Result<(), String>
+where
+    V: FnMut(Result<DirEntry, ignore::Error>) -> WalkState + Send + 's,
+{
+    let timeout = timeout.unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS));
+    let start = Instant::now();
+    let timed_out = AtomicBool::new(false);
+    builder.build_parallel().run(|| {
+        let mut visit = make_visitor();
+        let timed_out = &timed_out;
+        Box::new(move |entry| {
+            if should_quit_traversal(cancellation, timed_out, start, timeout) {
+                return WalkState::Quit;
+            }
+            visit(entry)
+        })
+    });
+    if timed_out.into_inner() {
+        return Err(format!("Search timed out after {}s", timeout.as_secs()));
+    }
+    Ok(())
+}
+
 /// Builds a workspace-scoped walker: ignore rules (.gitignore, .ignore, the
 /// global gitignore, .git/info/exclude) and hidden entries are respected
 /// unless `include_hidden`, and symlinks are never followed.
-pub fn walker_builder(search_root: &Path, include_hidden: bool) -> WalkBuilder {
+pub fn walker_builder(search_root: &Path, include_hidden: bool, types: Option<&Types>) -> WalkBuilder {
     let mut builder = WalkBuilder::new(search_root);
+    if let Some(types) = types {
+        builder.types(types.clone());
+    }
     builder
         .hidden(!include_hidden)
         .follow_links(false)

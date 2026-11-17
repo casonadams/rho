@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::path::Path;
 
+use crate::tools::types::ToolResult;
+
 pub const DEFAULT_MAX_LINES: usize = 2000;
 pub const DEFAULT_MAX_BYTES: usize = 50 * 1024; // 50 KB
 /// Max chars per search match line (pi's `GREP_MAX_LINE_LENGTH`).
@@ -270,6 +272,46 @@ pub fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// Notice for a result list cut to `limit`; `ceiling` is set when collection
+/// stopped early, so `total` is a lower bound.
+pub fn listing_limit_notice(limit: usize, total: usize, ceiling: Option<usize>) -> String {
+    match ceiling {
+        Some(ceiling) => format!(
+            "showing first {limit} of {ceiling}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
+        ),
+        None => format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type"),
+    }
+}
+
+/// Caps a search listing at `DEFAULT_MAX_BYTES`, spilling the full text to
+/// `artifact_dir`, and appends notices in limit, byte-cap, extra order.
+pub fn finish_listing(
+    content: &str,
+    limit_notice: Option<String>,
+    extra_notice: Option<String>,
+    artifact_dir: Option<&Path>,
+) -> ToolResult {
+    let truncation = truncate_head_with_spill(content, usize::MAX, DEFAULT_MAX_BYTES, artifact_dir);
+    let byte_notice = truncation
+        .truncated_by
+        .is_some()
+        .then(|| format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
+    let notices: Vec<String> = [limit_notice, byte_notice, extra_notice]
+        .into_iter()
+        .flatten()
+        .collect();
+    let (body, spill_notice) = split_artifact_notice(&truncation.content);
+    let mut output = body.to_string();
+    if !notices.is_empty() {
+        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+    }
+    if let Some(notice) = spill_notice {
+        output.push_str("\n\n");
+        output.push_str(notice);
+    }
+    ToolResult::success(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,6 +495,29 @@ mod tests {
         assert!(res.truncated);
         assert!(res.content.contains("line 4\nline 5"));
         assert!(res.content.contains("Full content (5 lines, 34B) saved to"));
+    }
+
+    #[test]
+    fn finish_listing_orders_notices_before_the_spill_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = "x\n".repeat(DEFAULT_MAX_BYTES);
+        let limit = Some(listing_limit_notice(10, 20, None));
+        let res = finish_listing(&content, limit, Some("extra".into()), Some(dir.path()));
+
+        let notices = "[showing first 10 of 20 matches; narrow with a tighter pattern, path, or type. \
+                       50.0KB limit reached. extra]";
+        let notices_at = res.content.find(notices).expect("notices present");
+        let spill_at = res
+            .content
+            .find("[Output truncated. Full content")
+            .expect("spill notice");
+        assert!(notices_at < spill_at);
+    }
+
+    #[test]
+    fn finish_listing_leaves_short_output_unannotated() {
+        let res = finish_listing("a\nb", None, None, None);
+        assert_eq!(res.content, "a\nb");
     }
 
     #[test]
