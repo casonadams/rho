@@ -68,7 +68,12 @@ resume the exact session of each pane with `rho --resume <id>`.
   resolved is an error. `inherit_context: true` shares the recent text-only parent
   conversation with the subagent (and its model provider). Several subagent calls in one
   turn run concurrently when every tool they can use is read-only; permission prompts
-  still appear one at a time.
+  still appear one at a time. Press `Left` on an empty prompt to list subagents and
+  watch one live.
+- **`workflow`**: Run a declarative multi-agent [workflow](docs/workflows.md) to
+  completion. The engine runs every step (parallel fan-out, verification commands,
+  repeat-until-clean loops) instead of trusting the model to orchestrate. Built in:
+  `/refine <profile>`, an unattended scan → fix → verify loop on its own git branch.
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.
@@ -100,6 +105,13 @@ Comprehensive guides are organized in [`docs/`](docs/):
 - **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**
   - Comprehensive keybinding reference organized by session flow, queueing,
     model controls, and editor navigation.
+
+- **[Workflows](docs/workflows.md)**
+  - Declarative TOML workflows: agent, shell, builtin, and sub-workflow steps with
+    parallel fan-out, verification retries, and repeat-until-clean loops.
+  - Bundle-local agents and prompts, validated before anything runs.
+  - Built-in `/refine <profile>` loop, live agent watching (`Left` on an empty
+    prompt), and a JSONL run log per workflow.
 
 - **[Permissions, Privacy & Safety](docs/permissions.md)**
   - Strict zero-telemetry policy: rho collects nothing, no analytics, no phone-home pings.

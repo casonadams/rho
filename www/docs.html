@@ -96,6 +96,7 @@
           <li class="docs-nav-item"><a href="#installation">Installation</a></li>
           <li class="docs-nav-item"><a href="#cli-commands">CLI Commands</a></li>
           <li class="docs-nav-item"><a href="#built-in-tools">Built-in Tools</a></li>
+          <li class="docs-nav-item"><a href="#workflows">Workflows</a></li>
         </ul>
       </div>
 
@@ -242,9 +243,23 @@ rho update</code></pre>
         <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization.</li>
         <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching.</li>
         <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines.</li>
-        <li><strong><code>subagent</code></strong>: Spawns isolated subagents with specialized roles (<code>scout</code>, <code>critic</code>, <code>planner</code>, <code>general</code>) to perform focused discovery and review without parent context bloat. Subagent tool calls go through the same permission rules and lifecycle hooks as the parent, stop on cancellation, stream per-turn progress, and return a summary with turn, tool-call, and token counts. An unknown <code>role</code> or <code>agent</code> name is an error. A custom agent&#39;s <code>model</code> field selects its model (<code>inherit</code>, <code>sonnet</code>, <code>opus</code> and <code>haiku</code> use the parent&#39;s). Subagents that name no model use <code>models.smol</code> when it is set, otherwise the parent&#39;s. A model that cannot be resolved is an error. <code>inherit_context: true</code> shares the recent text-only parent conversation with the subagent (and its model provider). Several subagent calls in one turn run concurrently when every tool they can use is read-only; permission prompts still appear one at a time.</li>
+        <li><strong><code>subagent</code></strong>: Spawns isolated subagents with specialized roles (<code>scout</code>, <code>critic</code>, <code>planner</code>, <code>general</code>) to perform focused discovery and review without parent context bloat. Subagent tool calls go through the same permission rules and lifecycle hooks as the parent, stop on cancellation, stream per-turn progress, and return a summary with turn, tool-call, and token counts. An unknown <code>role</code> or <code>agent</code> name is an error. A custom agent&#39;s <code>model</code> field selects its model (<code>inherit</code>, <code>sonnet</code>, <code>opus</code> and <code>haiku</code> use the parent&#39;s). Subagents that name no model use <code>models.smol</code> when it is set, otherwise the parent&#39;s. A model that cannot be resolved is an error. <code>inherit_context: true</code> shares the recent text-only parent conversation with the subagent (and its model provider). Several subagent calls in one turn run concurrently when every tool they can use is read-only; permission prompts still appear one at a time. Press <kbd class="kbd">Left</kbd> on an empty prompt to list subagents and watch one live.</li>
+        <li><strong><code>workflow</code></strong>: Runs a declarative multi-agent <a href="#workflows">workflow</a> to completion. The engine runs every step itself (parallel fan-out, verification commands with retries, repeat-until-clean loops) instead of trusting the model to orchestrate.</li>
         <li><strong><code>web_search</code></strong>: Live web searching with domain filters and structured summaries.</li>
         <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs.</li>
+      </ul>
+
+      <h2 id="workflows">Workflows</h2>
+      <p>
+        A workflow is a TOML step list in <code>.agents/workflows/</code> (project), <code>~/.agents/workflows/</code> (user), or built into rho. The engine runs the steps itself, so fan-out, verification, and stop conditions are enforced rather than requested. Run one with its slash command, for example <code>/refine security</code>, and list them with <code>/workflows</code>.
+      </p>
+      <ul>
+        <li><strong>Steps</strong>: <code>agent</code> (prompt or <code>prompt_file</code>, optional <code>output = "json"</code>), <code>run</code> (shell command), <code>builtin</code> (<code>repo_scopes</code>, <code>git_commit</code>), or <code>workflow</code> (call another workflow, optionally with <code>repeat</code> and <code>carry</code>).</li>
+        <li><strong>Wiring</strong>: <code>over</code> fans a step out over a list in parallel, <code>context</code> passes earlier results to an agent, <code>when</code> skips a step on empty values, and <code>{{ inputs.x }}</code> / <code>{{ step.field }}</code> templates fill prompts and commands.</li>
+        <li><strong>Verification</strong>: <code>check</code> runs a command after an agent step and re-runs the agent with the failure output up to <code>retries</code> times; <code>on_fail</code> chooses <code>stop</code>, <code>stash</code>, or <code>continue</code>.</li>
+        <li><strong>Bundles</strong>: a workflow directory can ship its own <code>agents/</code> and <code>prompts/</code>; agent tool lists stay a hard limit. Every workflow is validated before anything runs.</li>
+        <li><strong>Built-in <code>/refine &lt;profile&gt;</code></strong>: an unattended scan &rarr; validate &rarr; fix &rarr; verify &rarr; commit loop on a new <code>rho/refine-&lt;timestamp&gt;</code> branch. It repeats until nothing actionable remains, the same findings come back, or <code>max_rounds</code> (default 6) is reached.</li>
+        <li><strong>Safety &amp; visibility</strong>: shell steps go through the same permission rules and hooks as <code>bash</code>, <kbd class="kbd">Escape</kbd> cancels the whole run, each run writes a JSONL log to <code>.rho/workflows/</code>, and <kbd class="kbd">Left</kbd> on an empty prompt lets you watch every agent live.</li>
       </ul>
 
       <h2 id="providers">Providers, Authentication &amp; Rolling Quotas</h2>
@@ -469,6 +484,11 @@ rho config models.guard none</code></pre>
               <td>Any</td>
               <td>Enqueue follow-up prompt to FIFO message queue (or newline)</td>
             </tr>
+            <tr>
+              <td><kbd class="kbd">Left</kbd></td>
+              <td>Empty editor</td>
+              <td>Open the Agents list; <kbd class="kbd">Enter</kbd> watches an agent live, <kbd class="kbd">Tab</kbd> jumps between agents, <kbd class="kbd">Left</kbd>/<kbd class="kbd">Escape</kbd> goes back without cancelling the turn</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -520,6 +540,10 @@ rho config models.guard none</code></pre>
             <tr>
               <td><code>/tree</code></td>
               <td>View session turn DAG tree and branch navigation (<kbd class="kbd">Ctrl+O</kbd>)</td>
+            </tr>
+            <tr>
+              <td><code>/workflows</code></td>
+              <td>List workflows and their inputs, plus any invalid workflow files; run one with <code>/&lt;name&gt;</code>, e.g. <code>/refine security</code></td>
             </tr>
             <tr>
               <td><code>/exit</code></td>

@@ -36,6 +36,11 @@ Deterministic domain code, independent of any framework types:
 - `provider/` — provider identity and capability enums.
 - `prompts/`, `skills/`, `queue/`, `rpc/`, `net/` — prompt templates, skill
   discovery, message queueing, RPC transport, URL safety.
+- `workflow/` — declarative workflow types, TOML parsing and validation,
+  `{{ }}` templates, repository scope planning, and bundle discovery
+  (including the embedded built-in `refine` bundle).
+- `agents/` — custom agent parsing/discovery and `AgentMonitor`, the live
+  registry of subagent runs that the TUI lists and inspects.
 
 ### `rho-engine` (agent runtime)
 
@@ -48,8 +53,10 @@ Everything needed to run model turns and tools:
 - `claude/`, `antigravity/`, `chatgpt/`, `ollama/` — provider-specific wire
   formats, SSE streaming, quota parsing, and OAuth flows (`auth/`).
 - `tools/` — built-in tools (bash, read, edit, write, fd, rg, web_fetch,
-  web_search) plus shared plumbing: output truncation, atomic writes, HTTP
-  client singleton, rate limiting.
+  web_search, subagent, workflow) plus shared plumbing: output truncation,
+  atomic writes, HTTP client singleton, rate limiting. `tools/workflow/` is the
+  workflow executor: it runs steps itself, reuses `SubagentRunner` for agent
+  steps, and routes shell steps through the permission gate.
 - `permission/` — bash tokenizer, policy evaluation, interactive prompts.
 - `mcp/` — MCP client/process/transport, server manager, and deferred tool search.
 - `hook/` — lightweight one-shot process hooks (`.agents/hooks/`) for turn and tool lifecycle interception.

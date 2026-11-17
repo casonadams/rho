@@ -58,6 +58,7 @@ Shortcuts for inspecting tools and copying or pasting content:
 | `Ctrl+O` | **Toggle Tool Outputs**   | Expands or collapses tool result cards (diffs, bash stdout, file reads) in the transcript. |
 | `Ctrl+V` | **Paste Clipboard Image** | Detects an image in the system clipboard and attaches it to the session.                   |
 | `Ctrl+X` | **Copy Last Response**    | Copies the assistant's latest message to the system clipboard.                             |
+| `Left`   | **Watch Agents**          | On an empty prompt, opens the Agents list. `Enter`/`Right` watches one agent live, `Tab`/`Shift+Tab` jumps between agents, `Left`/`Esc` goes back. See [Workflows](workflows.md#watching-agents). |
 
 ---
 
@@ -68,7 +69,7 @@ editor:
 
 | Shortcut                             | Action                                                               |
 | :----------------------------------- | :------------------------------------------------------------------- |
-| `Left` / `Ctrl+B`                    | Move cursor one character left                                       |
+| `Left` / `Ctrl+B`                    | Move cursor one character left (on an empty prompt, `Left` opens the Agents list) |
 | `Right` / `Ctrl+F`                   | Move cursor one character right                                      |
 | `Alt+Left` / `Ctrl+Left` / `Alt+B`   | Move cursor one word backward                                        |
 | `Alt+Right` / `Ctrl+Right` / `Alt+F` | Move cursor one word forward                                         |
@@ -122,4 +123,5 @@ commands:
 | `/login`    | **Provider Auth**                | Configure OAuth or verify API keys for 13+ providers.                         |
 | `/mcp`      | **MCP Servers**                  | Inspect configured MCP servers and capabilities.                              |
 | `/export`   | **Export Transcript**            | Generates an HTML or Markdown transcript file.                                |
+| `/workflows`| **Workflows**                    | Lists workflows and their inputs; run one with `/<name>`, e.g. `/refine security`. |
 | `/exit`     | **Exit rho**                     | Shuts down the interactive REPL.                                              |

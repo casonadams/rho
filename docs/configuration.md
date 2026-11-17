@@ -80,14 +80,16 @@ lowest):
 ├── hooks/          # Global lifecycle hooks (fallback)
 ├── mcp.json        # Global Model Context Protocol tool servers
 ├── prompts/        # Global prompt templates
-└── skills/         # Global skills (~/.agents/skills/<name>/SKILL.md)
+├── skills/         # Global skills (~/.agents/skills/<name>/SKILL.md)
+└── workflows/      # Global workflows (see workflows.md)
 
 <project>/.agents/
 ├── AGENTS.md       # Project instructions & engineering defaults
 ├── hooks/          # Project lifecycle hooks
 ├── mcp.json        # Project Model Context Protocol tool servers
 ├── prompts/        # Project prompt templates
-└── skills/         # Project skills (.agents/skills/<name>/SKILL.md)
+├── skills/         # Project skills (.agents/skills/<name>/SKILL.md)
+└── workflows/      # Project workflows (see workflows.md)
 
 ~/.config/rho/
 ├── auth.json       # Persisted credentials and OAuth tokens
