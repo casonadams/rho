@@ -179,11 +179,6 @@ impl SubagentRole {
     }
 
     #[must_use]
-    pub fn is_mutating(&self) -> bool {
-        matches!(self, Self::General)
-    }
-
-    #[must_use]
     pub fn system_instructions(&self) -> &'static str {
         match self {
             Self::Scout => {
@@ -280,10 +275,6 @@ mod tests {
     fn test_subagent_role_properties() {
         assert_eq!(SubagentRole::default(), SubagentRole::Scout);
         assert_eq!(SubagentRole::Scout.as_str(), "scout");
-        assert!(!SubagentRole::Scout.is_mutating());
-        assert!(!SubagentRole::Critic.is_mutating());
-        assert!(!SubagentRole::Planner.is_mutating());
-        assert!(SubagentRole::General.is_mutating());
 
         assert_eq!(
             SubagentRole::Scout.allowed_tools(),

@@ -19,10 +19,6 @@ impl ToolRegistry {
         DECLARATIONS.iter().find(|descriptor| descriptor.name == name)
     }
 
-    pub fn is_known(name: &str) -> bool {
-        Self::descriptor(name).is_some()
-    }
-
     pub fn prompt(name: &str) -> Option<&'static str> {
         Self::descriptor(name).map(|descriptor| descriptor.prompt)
     }
@@ -81,6 +77,5 @@ mod tests {
     #[test]
     fn unknown_tools_have_no_descriptor() {
         assert!(ToolRegistry::descriptor("unknown").is_none());
-        assert!(!ToolRegistry::is_known("unknown"));
     }
 }

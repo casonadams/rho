@@ -18,7 +18,6 @@ pub struct BackgroundJobInfo {
     pub command: String,
     pub started_at: Instant,
     pub status: JobStatus,
-    pub consumed: bool,
     pub log_path: Option<PathBuf>,
 }
 
@@ -70,7 +69,6 @@ impl JobManager {
                 command,
                 started_at: Instant::now(),
                 status: JobStatus::Running,
-                consumed: false,
                 log_path: None,
             },
         );
@@ -89,7 +87,6 @@ impl JobManager {
             if let Some(job) = jobs.get_mut(id) {
                 let finishing = job.status == JobStatus::Running && status != JobStatus::Running;
                 job.status = status;
-                job.consumed = false;
                 if finishing {
                     finished.push_back(id.to_string());
                 }
@@ -97,12 +94,6 @@ impl JobManager {
             evict_finished(&mut registry);
         }
         self.notify.notify_waiters();
-    }
-
-    pub fn mark_consumed(&self, id: &str) {
-        if let Some(job) = self.lock().jobs.get_mut(id) {
-            job.consumed = true;
-        }
     }
 
     pub fn get(&self, id: &str) -> Option<BackgroundJobInfo> {
@@ -152,8 +143,6 @@ mod tests {
         assert!(!mgr.has_running());
         assert_eq!(mgr.running_count(), 0);
 
-        mgr.mark_consumed("j1");
-        assert!(mgr.get("j1").unwrap().consumed);
         assert!(!mgr.list().is_empty());
     }
 

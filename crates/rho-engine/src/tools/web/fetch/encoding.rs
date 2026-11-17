@@ -120,42 +120,9 @@ pub fn is_image(bytes: &[u8], content_type: &str, url: &str) -> bool {
     image_mime_type(bytes, content_type, url).is_some()
 }
 
-const SUPPORTED_SUBSTRINGS: &[&str] = &[
-    "html",
-    "xhtml",
-    "json",
-    "xml",
-    "csv",
-    "tab-separated",
-    "markdown",
-    "pdf",
-];
-
-pub fn is_supported_content_type(content_type: &str) -> bool {
-    let ct = content_type.to_lowercase();
-    ct.is_empty() || ct.starts_with("text/") || SUPPORTED_SUBSTRINGS.iter().any(|&s| ct.contains(s))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_is_supported_content_type() {
-        assert!(is_supported_content_type(""));
-        assert!(is_supported_content_type("text/plain"));
-        assert!(is_supported_content_type("text/html; charset=utf-8"));
-        assert!(is_supported_content_type("application/json"));
-        assert!(is_supported_content_type("application/xml"));
-        assert!(is_supported_content_type("text/csv"));
-        assert!(is_supported_content_type("application/tab-separated-values"));
-        assert!(is_supported_content_type("text/markdown"));
-        assert!(is_supported_content_type("application/pdf"));
-        assert!(is_supported_content_type("application/xhtml+xml"));
-        assert!(!is_supported_content_type("image/png"));
-        assert!(!is_supported_content_type("application/octet-stream"));
-        assert!(!is_supported_content_type("video/mp4"));
-    }
 
     #[test]
     fn test_charset_from_bom() {

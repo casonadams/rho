@@ -8,10 +8,6 @@ pub struct SpeedTracker {
 }
 
 impl SpeedTracker {
-    pub fn response_start(&mut self) {
-        self.started_at = Some(Instant::now());
-    }
-
     pub fn response_end(&mut self, output_tokens: u64) {
         if let Some(start) = self.started_at.take()
             && output_tokens > 0

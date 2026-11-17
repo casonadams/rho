@@ -138,10 +138,6 @@ impl AgentEngine {
         self.quota.subscribe()
     }
 
-    pub fn quota_version(&self) -> u64 {
-        self.quota.version()
-    }
-
     pub fn invalidate_quota(&self) {
         let Some(provider) = canonical_quota_provider(&self.config.provider) else {
             return;
@@ -668,7 +664,6 @@ mod tests {
         assert!(engine.should_refresh_quota());
         let mut rx = engine.quota_subscribe();
         assert_eq!(*rx.borrow_and_update(), 0);
-        assert_eq!(engine.quota_version(), 0);
 
         engine.refresh_quota().await;
         engine.invalidate_quota();

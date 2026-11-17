@@ -47,8 +47,4 @@ impl ContextTracker {
             .unwrap()
             .calculate_context_tokens(messages, last_usage_anchor, model)
     }
-
-    pub fn token_cache(&self) -> Arc<Mutex<MessageTokenCache>> {
-        Arc::clone(&self.token_cache)
-    }
 }

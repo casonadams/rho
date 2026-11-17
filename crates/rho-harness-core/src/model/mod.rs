@@ -60,16 +60,6 @@ impl ChatMessage {
         }
     }
 
-    /// Return true if this message is from the user.
-    pub fn is_user(&self) -> bool {
-        matches!(self, Self::User { .. })
-    }
-
-    /// Return true if this message is from the assistant.
-    pub fn is_assistant(&self) -> bool {
-        matches!(self, Self::Assistant { .. })
-    }
-
     /// Return true if this message is a system message.
     pub fn is_system(&self) -> bool {
         matches!(self, Self::System { .. })
@@ -261,19 +251,6 @@ impl Reasoning {
         }
     }
 
-    pub fn display_text(&self) -> String {
-        self.content
-            .iter()
-            .filter_map(|c| match c {
-                ReasoningContent::Text { text, .. } => Some(text.as_str()),
-                ReasoningContent::Summary(s) => Some(s.as_str()),
-                ReasoningContent::Redacted { data } => Some(data.as_str()),
-                ReasoningContent::Encrypted(_) => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
     pub fn first_text_and_signature(&self) -> (Option<&str>, Option<&str>) {
         for c in &self.content {
             if let ReasoningContent::Text { text, signature } = c {
@@ -281,10 +258,6 @@ impl Reasoning {
             }
         }
         (None, None)
-    }
-
-    pub fn first_text(&self) -> Option<&str> {
-        self.first_text_and_signature().0
     }
 
     pub fn first_signature(&self) -> Option<&str> {
@@ -323,11 +296,11 @@ mod tests {
     #[test]
     fn test_chat_message_constructors() {
         let u = ChatMessage::user("hello");
-        assert!(u.is_user());
+        assert!(matches!(u, ChatMessage::User { .. }));
         assert_eq!(u.text(), Some("hello"));
 
         let a = ChatMessage::assistant("world");
-        assert!(a.is_assistant());
+        assert!(matches!(a, ChatMessage::Assistant { .. }));
         assert_eq!(a.text(), Some("world"));
 
         let s = ChatMessage::system("instructions");
@@ -380,9 +353,7 @@ mod tests {
     #[test]
     fn test_reasoning_block() {
         let r = Reasoning::new_with_signature("thinking step", Some("sig_abc".to_string()));
-        assert_eq!(r.first_text(), Some("thinking step"));
         assert_eq!(r.first_signature(), Some("sig_abc"));
-        assert_eq!(r.display_text(), "thinking step");
 
         let msg = ChatMessage::Assistant {
             id: None,

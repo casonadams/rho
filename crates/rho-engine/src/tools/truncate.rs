@@ -254,15 +254,6 @@ pub fn truncate_head_with_spill(
     attach_spill_artifact(truncate_head(content, max_lines, max_bytes), content, artifact_dir)
 }
 
-pub fn truncate_tail_with_spill(
-    content: &str,
-    max_lines: usize,
-    max_bytes: usize,
-    artifact_dir: Option<&Path>,
-) -> Truncation {
-    attach_spill_artifact(truncate_tail(content, max_lines, max_bytes), content, artifact_dir)
-}
-
 pub fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {
     const SPILL_PREFIX: &str = "\n\n[Output truncated. Full content";
     if let Some(idx) = content.rfind(SPILL_PREFIX) {
@@ -484,17 +475,6 @@ mod tests {
         assert_eq!(files.len(), 1);
         let saved_content = std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap();
         assert_eq!(saved_content, content);
-    }
-
-    #[test]
-    fn test_truncate_tail_with_spill_writes_artifact() {
-        let dir = tempfile::tempdir().unwrap();
-        let content = "line 1\nline 2\nline 3\nline 4\nline 5";
-        let res = truncate_tail_with_spill(content, 2, 1000, Some(dir.path()));
-
-        assert!(res.truncated);
-        assert!(res.content.contains("line 4\nline 5"));
-        assert!(res.content.contains("Full content (5 lines, 34B) saved to"));
     }
 
     #[test]
