@@ -10,6 +10,7 @@ pub struct ScreenBackend {
     pub height: usize,
     pub grid: Vec<Vec<char>>,
     pub filled: Vec<Vec<bool>>,
+    pub scrollback: Vec<String>,
     pub row: usize,
     pub col: usize,
     pending_wrap: bool,
@@ -23,6 +24,7 @@ impl ScreenBackend {
             height,
             grid: vec![vec![' '; width]; height],
             filled: vec![vec![false; width]; height],
+            scrollback: Vec::new(),
             row: 0,
             col: 0,
             pending_wrap: false,
@@ -41,7 +43,9 @@ impl ScreenBackend {
     }
 
     fn scroll_up(&mut self) {
-        self.grid.remove(0);
+        let top = self.grid.remove(0);
+        self.scrollback
+            .push(top.iter().collect::<String>().trim_end().to_string());
         self.grid.push(vec![' '; self.width]);
         self.filled.remove(0);
         self.filled.push(vec![false; self.width]);
@@ -105,6 +109,10 @@ impl ScreenBackend {
             .iter()
             .map(|row| row.iter().collect::<String>().trim_end().to_string())
             .collect()
+    }
+
+    fn scrollback_and_screen(&self) -> Vec<String> {
+        self.scrollback.iter().cloned().chain(self.text()).collect()
     }
 
     pub fn dump(&self) -> String {
@@ -205,7 +213,9 @@ impl ScreenBackend {
                 self.pending_wrap = false;
             }
             'J' => {
-                if matches!(params.trim(), "2" | "3") {
+                if params.trim() == "3" {
+                    self.scrollback.clear();
+                } else if params.trim() == "2" {
                     for row in self.grid.iter_mut() {
                         for cell in row.iter_mut() {
                             *cell = ' ';
@@ -1104,6 +1114,67 @@ mod regressions {
             let screen = controller.backend.text();
             let top_border = screen.iter().find(|l| l.contains('╭')).expect("top border 157");
             assert_eq!(top_border.chars().count(), 157);
+        }
+
+        fn stream_tall_reply(controller: &mut TerminalController<ScreenBackend>, lines: usize) {
+            let reply = (0..lines)
+                .map(|i| format!("- reply line {i:02}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            controller.write_stream_output(&reply).unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::AssistantText(reply))
+                .unwrap();
+        }
+
+        #[test]
+        fn resize_after_reply_taller_than_screen_shows_each_line_once() {
+            let mut controller =
+                TerminalController::new(ScreenBackend::new(60, 12), InteractiveState::default()).unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("long answer please".into()))
+                .unwrap();
+            stream_tall_reply(&mut controller, 30);
+
+            controller.backend.resize(50, 12);
+            assert!(controller.resize_to(50, 12).unwrap());
+
+            let all = controller.backend.scrollback_and_screen();
+            for i in 0..30 {
+                let needle = format!("reply line {i:02}");
+                let count = all.iter().filter(|l| l.contains(&needle)).count();
+                assert_eq!(count, 1, "{needle:?} appears {count} times");
+            }
+        }
+
+        #[test]
+        fn resize_reflows_history_already_in_scrollback() {
+            let mut controller =
+                TerminalController::new(ScreenBackend::new(60, 12), InteractiveState::default()).unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("first question".into()))
+                .unwrap();
+            stream_tall_reply(&mut controller, 20);
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("second question".into()))
+                .unwrap();
+            assert!(
+                controller
+                    .backend
+                    .scrollback
+                    .iter()
+                    .any(|l| l.contains("first question"))
+            );
+
+            controller.backend.resize(50, 12);
+            assert!(controller.resize_to(50, 12).unwrap());
+
+            let all = controller.backend.scrollback_and_screen();
+            assert_eq!(all.iter().filter(|l| l.contains("first question")).count(), 1);
+            assert_eq!(all.iter().filter(|l| l.contains("second question")).count(), 1);
+            for border in all.iter().filter(|l| l.contains('╭')) {
+                assert_eq!(border.chars().count(), 50, "stale-width border: {border:?}");
+            }
         }
     }
 }

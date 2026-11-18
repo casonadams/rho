@@ -3,6 +3,7 @@
 mod resize {
     use super::super::fake::{FakeTerminal, Operation};
     use crate::ui::interactive::controller::TerminalController;
+    use crate::ui::interactive::controller::ansi::CLEAR_SCREEN_AND_SCROLLBACK;
     use crate::ui::interactive::{InteractiveState, ToolStartRequest};
 
     #[test]
@@ -17,7 +18,7 @@ mod resize {
         let operations = operations.borrow();
         let clear_index = operations
             .iter()
-            .position(|operation| matches!(operation, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+            .position(|operation| matches!(operation, Operation::Write(text) if text == CLEAR_SCREEN_AND_SCROLLBACK))
             .unwrap();
         let divider_index = operations
             .iter()
@@ -101,7 +102,7 @@ mod resize {
         assert!(
             operations
                 .iter()
-                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+                .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN_AND_SCROLLBACK))
         );
         assert!(operations.ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,]));
     }
@@ -136,7 +137,7 @@ mod resize {
         let ops = operations.borrow();
         assert!(
             ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+                .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN_AND_SCROLLBACK))
         );
     }
 }

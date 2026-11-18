@@ -5,6 +5,8 @@ use super::backend::TerminalBackend;
 
 pub const CSI_BEGIN_SYNC_UPDATE: &str = "\x1b[?2026h";
 pub const CSI_END_SYNC_UPDATE: &str = "\x1b[?2026l";
+pub const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H\x1b[0m";
+pub const CLEAR_SCREEN_AND_SCROLLBACK: &str = "\x1b[H\x1b[2J\x1b[3J\x1b[0m";
 
 fn skip_escape_sequence(characters: &mut std::iter::Peekable<std::str::Chars<'_>>) {
     if characters.next_if_eq(&'[').is_some() {

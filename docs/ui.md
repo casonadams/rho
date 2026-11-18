@@ -21,6 +21,10 @@ newlines grow the editor upward.
 ↑6.9k ↓514 5.4%/128k @14t/s       qwen3.8:27b-mlx • high
 ```
 
+Resizing the terminal clears its scrollback and replays the whole session
+transcript at the new width, so earlier output reflows instead of being
+duplicated. Output printed before `rho` started is cleared along with it.
+
 - **Top Status Line**: Displays the current working directory, active git
   branch, and session name.
 - **Bottom Metrics Line**:

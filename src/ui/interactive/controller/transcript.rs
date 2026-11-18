@@ -1,10 +1,18 @@
 use super::TerminalController;
-use super::ansi::{CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE, terminal_newlines};
+use super::ansi::{
+    CLEAR_SCREEN, CLEAR_SCREEN_AND_SCROLLBACK, CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE, terminal_newlines,
+};
 use super::backend::TerminalBackend;
 use super::cache::{TranscriptRenderCache, target_slot};
 use super::paint;
 use crate::ui::interactive::{TranscriptItem, TranscriptRenderInput, render_transcript_item};
 use std::io;
+
+#[derive(Clone, Copy)]
+enum RedrawScope {
+    VisibleTail,
+    Everything,
+}
 
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn transcript(&self) -> &[TranscriptItem] {
@@ -203,10 +211,10 @@ impl<B: TerminalBackend> TerminalController<B> {
             .to_string()
     }
 
-    fn repaint_item(&mut self, idx: usize, item: &TranscriptItem, redraw_buffer: &mut String) -> io::Result<()> {
+    fn repaint_item(&mut self, idx: usize, item: &TranscriptItem, redraw_buffer: &mut String) {
         let rendered = self.render_cached(idx, item);
         if rendered.is_empty() {
-            return Ok(());
+            return;
         }
         let formatted = terminal_newlines(&rendered);
         self.output.update(&formatted);
@@ -215,46 +223,37 @@ impl<B: TerminalBackend> TerminalController<B> {
             redraw_buffer.push_str("\r\n");
             self.output.update("\n");
         }
-        Ok(())
     }
 
-    fn repaint_history(&mut self, redraw_buffer: &mut String, available_height: usize) -> io::Result<()> {
-        let items = std::mem::take(&mut self.transcript);
-        let count = items.len();
-        if count == 0 || available_height == 0 {
-            self.transcript = items;
-            return Ok(());
+    fn visible_tail_start(&mut self, items: &[TranscriptItem], rows: usize) -> usize {
+        if rows == 0 {
+            return items.len();
         }
-
-        let mut start_idx = 0;
-        let mut accumulated_lines = 0;
-
-        for idx in (0..count).rev() {
-            let item = &items[idx];
-            let rendered = self.render_cached(idx, item);
+        let mut used = 0;
+        for idx in (0..items.len()).rev() {
+            let rendered = self.render_cached(idx, &items[idx]);
             if rendered.is_empty() {
                 continue;
             }
-            let formatted = terminal_newlines(&rendered);
-            let item_lines = formatted.split('\n').count();
-            if accumulated_lines + item_lines <= available_height {
-                accumulated_lines += item_lines;
-                start_idx = idx;
-            } else {
-                if accumulated_lines == 0 {
-                    start_idx = idx;
-                }
-                break;
+            let lines = rendered.split('\n').count();
+            if used + lines > rows {
+                return if used == 0 { idx } else { idx + 1 };
             }
+            used += lines;
         }
+        0
+    }
 
-        self.transcript = items;
+    fn repaint_history(&mut self, redraw_buffer: &mut String, scope: RedrawScope, rows: usize) {
         let items = std::mem::take(&mut self.transcript);
-        for (idx, item) in items.iter().enumerate().skip(start_idx) {
-            self.repaint_item(idx, item, redraw_buffer)?;
+        let start = match scope {
+            RedrawScope::VisibleTail => self.visible_tail_start(&items, rows),
+            RedrawScope::Everything => 0,
+        };
+        for (idx, item) in items.iter().enumerate().skip(start) {
+            self.repaint_item(idx, item, redraw_buffer);
         }
         self.transcript = items;
-        Ok(())
     }
 
     fn repaint_streamed_output(&mut self, redraw_buffer: &mut String) {
@@ -268,27 +267,39 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
     }
 
+    /// Repaints the screen, keeping terminal scrollback, with as much of the transcript tail as fits.
     pub fn full_redraw(&mut self) -> io::Result<()> {
+        self.synchronized_redraw(RedrawScope::VisibleTail)
+    }
+
+    /// Clears terminal scrollback and replays the entire transcript at the current size.
+    pub fn replay_transcript(&mut self) -> io::Result<()> {
+        self.synchronized_redraw(RedrawScope::Everything)
+    }
+
+    fn synchronized_redraw(&mut self, scope: RedrawScope) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.rendered = None;
         self.backend.write_text(CSI_BEGIN_SYNC_UPDATE)?;
 
-        let redraw_result = self.run_full_redraw();
+        let redraw_result = self.run_full_redraw(scope);
 
         let _ = self.backend.write_text(CSI_END_SYNC_UPDATE);
         let flush_result = self.backend.flush();
         redraw_result.and(flush_result)
     }
 
-    fn run_full_redraw(&mut self) -> io::Result<()> {
+    fn run_full_redraw(&mut self, scope: RedrawScope) -> io::Result<()> {
         let rendered = self.current_layout();
-        let live_height = rendered.height();
-        let available_height = self.height.saturating_sub(live_height);
-
-        self.backend.write_text("\x1b[2J\x1b[H\x1b[0m")?;
+        let clear = match scope {
+            RedrawScope::VisibleTail => CLEAR_SCREEN,
+            RedrawScope::Everything => CLEAR_SCREEN_AND_SCROLLBACK,
+        };
+        self.backend.write_text(clear)?;
         self.output.clear();
         let mut redraw_buffer = String::new();
-        self.repaint_history(&mut redraw_buffer, available_height)?;
+        let rows = self.height.saturating_sub(rendered.height());
+        self.repaint_history(&mut redraw_buffer, scope, rows);
         self.repaint_streamed_output(&mut redraw_buffer);
         if !redraw_buffer.is_empty() {
             self.backend.write_text(&redraw_buffer)?;

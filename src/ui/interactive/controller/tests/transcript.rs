@@ -3,6 +3,7 @@
 mod expansion {
     use super::super::fake::{FakeTerminal, Operation};
     use crate::ui::interactive::controller::TerminalController;
+    use crate::ui::interactive::controller::ansi::CLEAR_SCREEN;
     use crate::ui::interactive::{InteractiveState, ToolItem, TranscriptItem};
 
     #[test]
@@ -150,7 +151,7 @@ mod expansion {
         controller.toggle_tools_expanded().unwrap();
 
         let ops = operations.borrow();
-        assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[0m".into())));
+        assert!(ops.contains(&Operation::Write(CLEAR_SCREEN.into())));
         assert!(
             !ops.iter()
                 .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[3J")))
@@ -183,7 +184,9 @@ mod expansion {
 mod redraw {
     use super::super::fake::{FakeTerminal, Operation};
     use crate::ui::interactive::controller::TerminalController;
-    use crate::ui::interactive::controller::ansi::{CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE};
+    use crate::ui::interactive::controller::ansi::{
+        CLEAR_SCREEN, CLEAR_SCREEN_AND_SCROLLBACK, CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE,
+    };
     use crate::ui::interactive::{InteractiveState, TranscriptItem};
 
     #[test]
@@ -265,7 +268,7 @@ mod redraw {
         assert!(controller.refresh_size().unwrap());
 
         let ops = operations.borrow();
-        assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[0m".into())));
+        assert!(ops.contains(&Operation::Write(CLEAR_SCREEN_AND_SCROLLBACK.into())));
         assert!(
             ops.iter()
                 .any(|op| matches!(op, Operation::Write(text) if text.contains("hello world message")))
@@ -279,7 +282,7 @@ mod redraw {
             .expect("CSI 2026h must be emitted");
         let clear_pos = ops
             .iter()
-            .position(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+            .position(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN))
             .expect("screen clear must be emitted");
         let sync_end_pos = ops
             .iter()
@@ -345,7 +348,7 @@ mod redraw {
     fn assert_repaint(ops: &[Operation]) {
         assert!(
             ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+                .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN))
         );
         assert!(
             ops.iter()

@@ -169,7 +169,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         self.width = width;
         self.height = height;
-        self.full_redraw()?;
+        self.replay_transcript()?;
         Ok(true)
     }
 
