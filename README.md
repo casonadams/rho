@@ -59,8 +59,6 @@ resume the exact session of each pane with `rho --resume <id>`.
   files, and bounds output.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents).
-- **`workflow`**: Run a multi-agent [workflow](docs/workflows.md), such as the built-in
-  `/refine` scan → fix → verify loop.
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.
@@ -95,8 +93,8 @@ Comprehensive guides are organized in [`docs/`](docs/):
     model controls, and editor navigation.
 
 - **[Workflows](docs/workflows.md)**
-  - Multi-agent workflows defined in TOML, plus the built-in `/refine` loop.
-  - Watch any running agent live with `Left` on an empty prompt.
+  - Multi-agent workflows defined in XML and started with `/workflow <name>`.
+  - Watch any running agent live with `Left`.
 
 - **[Permissions, Privacy & Safety](docs/permissions.md)**
   - Strict zero-telemetry policy: rho collects nothing, no analytics, no phone-home pings.

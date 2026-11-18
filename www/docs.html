@@ -232,7 +232,7 @@ rho update</code></pre>
 
       <img src="assets/chat.svg" alt="rho streaming assistant turn with collapsible reasoning block" class="doc-screenshot" width="960" height="620">
 
-      <h2 id="built-in-tools">10 Built-in Native Tools</h2>
+      <h2 id="built-in-tools">9 Built-in Native Tools</h2>
       <p>
         rho includes 10 fast, native tools designed specifically for coding agents:
       </p>
@@ -244,24 +244,21 @@ rho update</code></pre>
         <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization.</li>
         <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching.</li>
         <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines.</li>
-        <li><strong><code>subagent</code></strong>: Spawns isolated subagents with specialized roles (<code>scout</code>, <code>critic</code>, <code>planner</code>, <code>general</code>) to perform focused discovery and review without parent context bloat. Subagent tool calls go through the same permission rules and lifecycle hooks as the parent, stop on cancellation, stream per-turn progress, and return a summary with turn, tool-call, and token counts. An unknown <code>role</code> or <code>agent</code> name is an error. A custom agent&#39;s <code>model</code> field selects its model (<code>inherit</code>, <code>sonnet</code>, <code>opus</code> and <code>haiku</code> use the parent&#39;s). Subagents that name no model use <code>models.smol</code> when it is set, otherwise the parent&#39;s. A model that cannot be resolved is an error. <code>inherit_context: true</code> shares the recent text-only parent conversation with the subagent (and its model provider). Several subagent calls in one turn run concurrently when every tool they can use is read-only; permission prompts still appear one at a time. Press <kbd class="kbd">Left</kbd> on an empty prompt to list subagents and watch one live.</li>
-        <li><strong><code>workflow</code></strong>: Runs a declarative multi-agent <a href="#workflows">workflow</a> to completion. The engine runs every step itself (parallel fan-out, verification commands with retries, repeat-until-clean loops) instead of trusting the model to orchestrate.</li>
+        <li><strong><code>subagent</code></strong>: Spawns isolated subagents with specialized roles (<code>scout</code>, <code>critic</code>, <code>planner</code>, <code>general</code>) or custom agents to perform focused work without parent context bloat. The caller passes a model role (<code>default</code>, <code>smol</code>, or <code>slow</code>; default <code>smol</code>) and <code>turns</code> (default 100). Subagent tool calls go through the same permission rules and lifecycle hooks as the parent, stop on cancellation, stream per-turn progress, and return a summary with turn, tool-call, and token counts. Each subagent is grounded with its tool guidelines, <code>AGENTS.md</code>, and the environment. <code>inherit_context: true</code> shares the recent text-only parent conversation. Several subagent calls in one turn run concurrently when every tool they can use is read-only. Press <kbd class="kbd">Left</kbd> on an empty prompt to watch one live.</li>
         <li><strong><code>web_search</code></strong>: Live web searching with domain filters and structured summaries.</li>
         <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs.</li>
       </ul>
 
       <h2 id="workflows">Workflows</h2>
       <p>
-        A workflow is a TOML step list in <code>.agents/workflows/</code> (project), <code>~/.agents/workflows/</code> (user), or built into rho. The engine runs the steps itself, so fan-out, verification, and stop conditions are enforced rather than requested. Run one with its slash command, for example <code>/refine security</code>, and list them with <code>/workflows</code>.
+        A workflow is an XML file in <code>.agents/workflows/</code> (project) or <code>~/.agents/workflows/</code> (user). rho runs it itself, so fan-out, verification, and stop conditions are enforced rather than requested. Start one with <code>/workflow &lt;name&gt; [inputs]</code>; <code>/workflow</code> alone lists them. Workflows are never offered to the model as a tool, and rho ships none built in &mdash; this repository's <code>.agents/workflows/refine/</code> is a complete example.
       </p>
       <ul>
-        <li><strong>Steps</strong>: <code>agent</code> (prompt or <code>prompt_file</code>, optional <code>output = "json"</code>), <code>run</code> (shell command), <code>builtin</code> (<code>repo_scopes</code>, <code>git_commit</code>), or <code>workflow</code> (call another workflow, optionally with <code>repeat</code> and <code>carry</code>).</li>
-        <li><strong>Wiring</strong>: <code>over</code> fans a step out over a list in parallel, <code>context</code> passes earlier results to an agent, <code>when</code> skips a step on empty values, and <code>{{ inputs.x }}</code> / <code>{{ step.field }}</code> templates fill prompts and commands.</li>
-        <li><strong>Verification</strong>: <code>check</code> runs a command after an agent step and re-runs the agent with the failure output up to <code>retries</code> times; <code>on_fail</code> chooses <code>stop</code>, <code>stash</code>, or <code>continue</code>.</li>
-        <li><strong>Bundles</strong>: a workflow directory can ship its own <code>agents/</code> and <code>prompts/</code>; agent tool lists stay a hard limit. Every workflow is validated before anything runs.</li>
-        <li><strong>Models</strong>: an agent step uses the step&#39;s <code>model</code>, else the agent&#39;s <code>model</code> frontmatter field, else <code>models.smol</code>, else the main session&#39;s model. Use a full <code>&lt;provider&gt;/&lt;model&gt;</code> name; <code>opus</code>, <code>sonnet</code>, <code>haiku</code>, and <code>inherit</code> mean the main session&#39;s model. Custom agents are markdown files in <code>.agents/agents/</code> or <code>~/.agents/agents/</code> with <code>name</code>, <code>description</code>, <code>tools</code>, <code>disallowed_tools</code>, <code>model</code>, and <code>max_turns</code> (1 to 20) frontmatter.</li>
-        <li><strong>Built-in <code>/refine &lt;profile&gt;</code></strong>: an unattended scan &rarr; validate &rarr; fix &rarr; verify &rarr; commit loop on a new <code>rho/refine-&lt;timestamp&gt;</code> branch. It repeats until nothing actionable remains, the same findings come back, or <code>max_rounds</code> (default 6) is reached.</li>
-        <li><strong>Safety &amp; visibility</strong>: shell steps go through the same permission rules and hooks as <code>bash</code>, <kbd class="kbd">Escape</kbd> cancels the whole run, each run writes a JSONL log to <code>.rho/workflows/</code>, and <kbd class="kbd">Left</kbd> on an empty prompt lets you watch every agent live.</li>
+        <li><strong>Steps</strong>: <code>&lt;agent use="..." model="smol" turns="40"&gt;prompt&lt;/agent&gt;</code> runs one agent (the prompt is raw text, so code needs no escaping), <code>&lt;run cmd="make all"/&gt;</code> runs one command without a shell, and <code>&lt;call workflow="..."/&gt;</code> runs another workflow.</li>
+        <li><strong>Blocks</strong>: <code>&lt;sequence&gt;</code>, <code>&lt;parallel&gt;</code>, <code>&lt;each items="..." as="x"&gt;</code>, <code>&lt;loop max="6" while="..." until="..." stop-if-unchanged="..."&gt;</code>, and <code>&lt;choose&gt;</code>; any element takes <code>when</code> / <code>unless</code>. There are no scripts or expressions: steps decide, the workflow branches on their values.</li>
+        <li><strong>References</strong>: <code>{{name}}</code> reads inputs, step ids (<code>{{verify.ok}}</code>, <code>{{validate.actionable}}</code>), and <code>{{id.history}}</code>. Names are checked before anything runs; a step that has not run yet reads as empty, which lets a loop feed one pass into the next.</li>
+        <li><strong>Agents and models</strong>: agent files define only tools and instructions; the <code>&lt;agent&gt;</code> block picks a model role (<code>default</code>, <code>smol</code>, <code>slow</code>) and a turn limit (default 100). Every agent is grounded with its tool guidelines, <code>AGENTS.md</code>, the environment, and which workflow step it is running.</li>
+        <li><strong>Trust and visibility</strong>: workflows are trusted &mdash; commands and agent tool calls skip permission rules, prompts, the guard model, and hooks. Every step is logged to <code>.rho/workflows/</code>, <kbd class="kbd">Escape</kbd> cancels the run, and <kbd class="kbd">Left</kbd> opens a live view of every agent.</li>
       </ul>
 
       <h2 id="providers">Providers, Authentication &amp; Rolling Quotas</h2>
@@ -544,8 +541,8 @@ rho config models.guard none</code></pre>
               <td>View session turn DAG tree and branch navigation (<kbd class="kbd">Ctrl+O</kbd>)</td>
             </tr>
             <tr>
-              <td><code>/workflows</code></td>
-              <td>List workflows and their inputs, plus any invalid workflow files; run one with <code>/&lt;name&gt;</code>, e.g. <code>/refine security</code></td>
+              <td><code>/workflow</code></td>
+              <td>List workflows, or run one: <code>/workflow refine security</code></td>
             </tr>
             <tr>
               <td><code>/exit</code></td>

@@ -105,8 +105,8 @@ autocomplete):
 | `/logout [provider]`        | Remove stored credentials for a provider.                                                                 |
 | `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                          |
 | `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.                                    |
-| `/workflows`                | List available [workflows](workflows.md) with their inputs, plus any invalid workflow files.              |
-| `/<workflow> [inputs]`      | Run a workflow, e.g. `/refine security`. Arguments fill inputs in order; `name=value` sets one by name.   |
+| `/workflow`                 | List available [workflows](workflows.md) with their inputs, plus any invalid workflow files.              |
+| `/workflow <name> [inputs]` | Run a workflow, e.g. `/workflow refine security`. Arguments fill inputs in order; `name=value` sets one by name. |
 | `/exit`                     | Exit rho (alias: `/quit`).                                                                                |
 
 ---

@@ -36,9 +36,8 @@ Deterministic domain code, independent of any framework types:
 - `provider/` — provider identity and capability enums.
 - `prompts/`, `skills/`, `queue/`, `rpc/`, `net/` — prompt templates, skill
   discovery, message queueing, RPC transport, URL safety.
-- `workflow/` — declarative workflow types, TOML parsing and validation,
-  `{{ }}` templates, repository scope planning, and bundle discovery
-  (including the embedded built-in `refine` bundle).
+- `workflow/` — declarative workflow types, a small XML reader, parsing and
+  validation, `{{ }}` templates, and discovery of `.agents/workflows/`.
 - `agents/` — custom agent parsing/discovery and `AgentMonitor`, the live
   registry of subagent runs that the TUI lists and inspects.
 
@@ -53,10 +52,11 @@ Everything needed to run model turns and tools:
 - `claude/`, `antigravity/`, `chatgpt/`, `ollama/` — provider-specific wire
   formats, SSE streaming, quota parsing, and OAuth flows (`auth/`).
 - `tools/` — built-in tools (bash, read, edit, write, fd, rg, web_fetch,
-  web_search, subagent, workflow) plus shared plumbing: output truncation,
-  atomic writes, HTTP client singleton, rate limiting. `tools/workflow/` is the
-  workflow executor: it runs steps itself, reuses `SubagentRunner` for agent
-  steps, and routes shell steps through the permission gate.
+  web_search, subagent) plus shared plumbing: output truncation, atomic writes,
+  HTTP client singleton, rate limiting. `tools/workflow/` is the workflow
+  executor behind `/workflow`; it is not a model tool. It runs steps itself,
+  reuses `SubagentRunner` for agent steps, and runs commands directly without
+  permission checks or hooks (workflows are trusted).
 - `permission/` — bash tokenizer, policy evaluation, interactive prompts.
 - `mcp/` — MCP client/process/transport, server manager, and deferred tool search.
 - `hook/` — lightweight one-shot process hooks (`.agents/hooks/`) for turn and tool lifecycle interception.

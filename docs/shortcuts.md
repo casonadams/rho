@@ -123,5 +123,5 @@ commands:
 | `/login`    | **Provider Auth**                | Configure OAuth or verify API keys for 13+ providers.                         |
 | `/mcp`      | **MCP Servers**                  | Inspect configured MCP servers and capabilities; `/mcp login <name>` signs in to OAuth servers. |
 | `/export`   | **Export Transcript**            | Generates an HTML or Markdown transcript file.                                |
-| `/workflows`| **Workflows**                    | Lists workflows and their inputs; run one with `/<name>`, e.g. `/refine security`. |
+| `/workflow` | **Workflows**                    | Lists workflows; `/workflow <name> [inputs]` runs one, e.g. `/workflow refine security`. |
 | `/exit`     | **Exit rho**                     | Shuts down the interactive REPL.                                              |

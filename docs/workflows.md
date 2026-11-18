@@ -1,59 +1,18 @@
 # Workflows
 
-A workflow is a TOML file that describes a multi-agent process step by step.
-The engine runs the steps itself: it fans out agents, enforces tool
-restrictions, runs verification commands, and decides when a loop stops. The
-model only does the individual steps. Compare this with a prompt that asks the
-model to orchestrate, which it can skip or cut short.
-
-Run a workflow with its slash command, for example:
+A workflow is an XML file that describes a multi-agent process. rho runs it
+itself: it starts the agents, runs the commands, evaluates the conditions, and
+decides when loops stop. Models only do the individual agent steps.
 
 ```text
-/refine security
-/refine review 3 verify="cargo test"
-/workflows          # list workflows, their inputs, and any invalid files
+/workflow                         # list workflows and any invalid files
+/workflow refine security         # run one; arguments fill inputs in order
+/workflow refine security rounds=3
 ```
 
-The slash command asks the main agent to call the `workflow` tool once with
-the bound inputs. While it runs, press `Left` on an empty prompt to watch its
-agents (see [Watching agents](#watching-agents)).
-
----
-
-## Built-in: `refine`
-
-`/refine <profile> [max_rounds] [verify]` is an unattended scan → fix → verify
-loop:
-
-1. **scopes**: splits the repository into up to 3 (or 5 for large repos)
-   disjoint slices.
-2. **scan**: one read-only `scout` per slice, in parallel, guided by the
-   profile (`review`, `security`, `performance`, `reliability`,
-   `architecture`).
-3. **validate**: a read-only `validator` re-reads every cited line, rejects
-   weak or style-only items, merges duplicates, and returns JSON findings with
-   stable fingerprints. Only high/medium severity and confidence findings are
-   actionable.
-4. **implement**: an `implementor` fixes the actionable findings or marks them
-   `wont_fix` with a reason. `verify` (default `make all`) must pass. On
-   failure the implementor gets the failure output and retries up to twice. If
-   it still fails, the round's changes are stashed (`git stash list`).
-5. **checkpoint**: commits the round.
-
-None of `refine`'s steps set a model, so every agent runs on `models.smol` when
-it is set (see [Models](#models)).
-
-Rounds repeat until a scan finds nothing actionable (`clean`), the same
-findings come back (`no progress`), or `max_rounds` (default 6) is reached.
-Findings marked `wont_fix` are carried into later rounds so they are not
-reported again.
-
-`refine` runs on a new branch `rho/refine-<timestamp>` and refuses to start on
-a dirty working tree, so every change can be reviewed or reverted per round.
-It never pushes or merges.
-
-Override it by creating `.agents/workflows/refine/` in your project or
-`~/.agents/workflows/refine/` for your user.
+Workflows are started only by you, with `/workflow`. They are not exposed to
+the model as a tool. While one runs, press `Left` on an empty prompt to watch
+its agents, and `Esc` to cancel it.
 
 ---
 
@@ -61,159 +20,212 @@ Override it by creating `.agents/workflows/refine/` in your project or
 
 Later sources override earlier ones with the same name:
 
-1. Built-in workflows shipped with rho
-2. `~/.agents/workflows/`
-3. `<project>/.agents/workflows/`
+1. `~/.agents/workflows/`
+2. `<project>/.agents/workflows/`
 
-A workflow is either a single file (`.agents/workflows/hello.toml`) or a
-bundle directory:
+A workflow is either a single file (`.agents/workflows/hello.xml`) or a
+directory:
 
 ```text
 .agents/workflows/refine/
-├── workflow.toml       # entry point; the workflow is named after the directory
-├── round.toml          # sub-workflow, called as `workflow = "round"`
-├── agents/             # agents visible only inside this bundle
-│   └── validator.md
-└── prompts/            # files referenced by `prompt_file`
-    └── scan.md
+├── workflow.xml      # the workflow; named after the directory
+├── agents/           # agents visible only inside this workflow
+│   └── implementor.md
+└── prompts/          # long prompts referenced by prompt-file
 ```
 
-Agent names resolve in this order: the bundle's `agents/`, then
-`.agents/agents/` and `~/.agents/agents/`, then the built-in roles (`scout`,
-`critic`, `planner`, `general`). Bundle agents use the same markdown format as
-[custom agents](configuration.md#custom-agents). An agent's `tools` list is a hard limit: a
-step cannot widen it.
-
-### Models
-
-Each agent step's model is the first of these that is set: the step's `model`,
-the agent's `model` frontmatter field, `models.smol`, then the main session's
-model ([details](configuration.md#which-model-runs)). Built-in roles and agents
-without a `model` field therefore run on `models.smol` when it is set.
-
-Use a full `<provider>/<model>` name. `opus`, `sonnet`, `haiku`, and `inherit`
-mean "use the main session's model", not a model family. A common split is a
-fast model for parallel scouts and a strong one for the agent that edits code:
-
-```toml
-[[step]]
-id = "implement"
-agent = "implementor"
-model = "anthropic/claude-3-7-sonnet"
-prompt_file = "prompts/implement.md"
-```
-
-Each agent's model is shown in the Agents list and agent view, in the final
-report's step table, and in the run log as an `agent_started` event.
-
-Every workflow is validated before anything runs. Unknown step references,
-misplaced options, calls to missing workflows, and mismatched `with`/`carry`
-names are reported by `/workflows` and by the `workflow` tool.
+rho ships no built-in workflows. This repository's
+[`.agents/workflows/refine/`](../.agents/workflows/refine/) is a complete
+example to copy.
 
 ---
 
-## Format reference
+## Trust
 
-```toml
-name = "refine"                 # optional; defaults to the file or directory name
-description = "Scan, fix, verify until clean"
-isolation = "branch"            # optional: run on a fresh git branch (needs a clean tree)
+Workflows are trusted. Their commands and their agents' tool calls run without
+permission rules, approval prompts, the guard model, or lifecycle hooks. Every
+step and every agent tool call is still recorded in the run log
+(`.rho/workflows/<name>-<time>-<id>.jsonl`), and `Esc` cancels the whole run.
 
-[[input]]
-name = "profile"
-choices = ["review", "security"]   # optional
-# no default: required
+---
 
-[[input]]
-name = "max_rounds"
-default = 6
+## Format
 
-[[step]]
-id = "scan"                     # letters, digits, '-', '_'
-agent = "scout"
-over = "scopes.items"           # optional: run once per list item, in parallel
-concurrency = 5                 # default 4
-prompt = "Scan {{item.paths}} for {{inputs.profile}}"
+```xml
+<workflow name="refine" description="Scan, fix, verify until clean" isolation="branch">
+  <input name="profile" choices="review security performance"/>
+  <input name="rounds" default="6"/>
 
-[outputs]
-findings = "validate.actionable"                        # one reference
-excluded = ["inputs.excluded", "implement.wont_fix"]    # lists are concatenated
+  ... steps and blocks ...
+
+  <output name="remaining" value="{{validate.actionable}}"/>
+</workflow>
 ```
 
-Steps run in file order. Each step is exactly one of:
+| Attribute | Meaning |
+|---|---|
+| `name` | Defaults to the file or directory name |
+| `description` | Shown by `/workflow` |
+| `isolation="branch"` | Run on a new branch `rho/<name>-<time>`; refuses to start on a dirty working tree |
 
-| Kind | Fields | Result |
+`<input name choices default description/>` declares an input. An input without
+a `default` is required; `choices` is a space-separated list of allowed values.
+`<output name value/>` declares what the final report shows.
+
+### Steps
+
+| Element | Does | Value it produces |
 |---|---|---|
-| `agent = "<name>"` | `prompt` or `prompt_file`, `max_turns` (1 to 20), `model` | The agent's final text, or a JSON object with `output = "json"` |
-| `run = "<command>"` | `timeout_sec` (default 1800) | Trimmed stdout, or parsed JSON with `output = "json"`; a non-zero exit fails the step |
-| `builtin = "repo_scopes"` | `with = { max_scopes = 3 }` | `{ items: [{ paths, files }], total_files, reviewable_files, truncated }` |
-| `builtin = "git_commit"` | `with = { message = "..." }` | `{ committed, sha }`; nothing to commit is not an error |
-| `workflow = "<name>"` | `with`, `repeat`, `carry` | The called workflow's outputs |
+| `<agent use="..." model="..." turns="..." output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
+| `<run cmd="..." output="text\|json"/>` | Runs one command | `{ok, exit, output}`, plus `json` with `output="json"` |
+| `<call workflow="name" profile="..."/>` | Runs another workflow; other attributes are its inputs | That workflow's outputs |
 
-Options available on any step:
+**`<agent>`**
 
-- `context = ["scan", ...]`: appends earlier steps' results to an agent prompt.
-- `when = "validate.actionable"`: skips the step when the value is empty,
-  false, zero, or missing.
-- `expected_output = "..."`: describes the result shape to the agent.
-- `output = "json"`: the agent must return one JSON object. If it doesn't,
-  one repair call converts its answer; otherwise the step fails.
-- `check = "<command>"`, `retries = 2`, `on_fail = "stop" | "stash" | "continue"`
-  (agent steps only): runs a verification command after the agent finishes.
-  On failure the agent is re-run with the failure output. When retries run
-  out, `stop` ends the workflow, `stash` stashes the changes and continues,
-  and `continue` just continues.
+- `use` names an agent: a file in the workflow's `agents/`, `.agents/agents/`,
+  `~/.agents/agents/`, or a built-in role (`scout`, `critic`, `planner`,
+  `general`).
+- `model` is a model role from settings: `default`, `smol`, or `slow`
+  (default `smol`).
+- `turns` limits model calls (default 100).
+- The element's text is the prompt, taken verbatim up to `</agent>`, so it can
+  contain `<`, `&`, and code. `prompt-file="prompts/x.md"` loads it from a file
+  inside the workflow directory instead.
+- `context="scan validate"` appends those steps' values to the prompt.
+- With `output="json"` the agent must return one JSON object; if it does not,
+  one repair call converts its answer, otherwise the step fails.
 
-Repeating a sub-workflow:
+**`<run>`**
 
-```toml
-[[step]]
-id = "rounds"
-workflow = "round"
-with = { profile = "{{inputs.profile}}" }
-repeat = { until_empty = "actionable", max = "{{inputs.max_rounds}}", stop_on_no_progress = true }
-carry = ["excluded"]            # output `excluded` of round N becomes input `excluded` of round N+1
-```
+- `cmd` is split into arguments on spaces first, with `"..."` or `'...'`
+  keeping spaces inside one argument. `{{references}}` are filled in afterwards,
+  each inside its own argument, so a value never becomes extra arguments or
+  shell syntax. There is no shell; write `cmd="sh -c '...'"` when you need one.
+- The command runs in the repository root. A non-zero exit does not stop the
+  workflow; it sets `ok` to false so later steps can react.
 
-The loop stops when the `until_empty` output is empty (`clean`), when its
-items' `fingerprint` fields match the previous round (`no progress`), or at
-`max`. The step result is the last round's outputs plus `rounds` and
-`stop_reason`.
+### Blocks
 
-### Templates
+| Element | Runs its children |
+|---|---|
+| `<sequence>` | In order (also the body of every other block) |
+| `<parallel>` | At the same time; each child is one branch |
+| `<each items="..." as="x" parallel="5">` | Once per item, up to `parallel` at a time (default 1); `items` is a `{{reference}}` to a list or a space-separated literal list. A failed item yields `null` and the others continue |
+| `<loop max="6" while="..." until="..." stop-if-unchanged="...">` | Repeatedly, up to `max` passes |
+| `<choose on="{{x}}"><case value="a">…</case><otherwise>…</otherwise></choose>` | The first case whose value equals `on` |
 
-`{{ path }}` placeholders read from `inputs.<name>`, `item` (inside `over`
-steps), `round` (the current repeat round, starting at 1), and earlier step
-ids, with `.` for fields and list indexes (`{{scan.0}}`). Strings are inserted
-as-is; lists and objects as pretty JSON. In a `workflow` step's `with`, a value
-that is exactly one placeholder passes the value through unchanged, so lists
-stay lists.
+A `<loop>` first clears the values of the steps inside it, so every loop starts
+fresh; between its passes, a step keeps its last value, which is how one pass
+feeds the next. After each pass the loop stops when `until` is truthy, when
+`while` is falsy, when `stop-if-unchanged` produces the same value as the
+previous pass, or at `max`. Inside the loop, `{{<loop id>.index}}` is the
+current pass, starting at 1.
+
+An `<agent>` or `<call>` that fails stops the workflow. A `<run>` whose command
+exits non-zero does not; it sets `ok` to false.
+
+### Conditions
+
+Every step and block accepts `when="{{ref}}"` and `unless="{{ref}}"`. A value
+is truthy unless it is empty, `false`, `0`, an empty list or object, or has not
+been produced yet. There is no expression language; decisions are made by steps
+(an agent returning `{"approved": true}`, a command's `ok`) and the workflow
+branches on their values.
+
+### References
+
+`{{name}}` and `{{name.field.0}}` read:
+
+- inputs, by name
+- steps and blocks, by `id`
+- the `as` variable inside `<each>`
+- `{{<id>.history}}`: every value the step has produced in this run, oldest
+  first
+
+Names are checked before the workflow runs, so typos are reported up front. A
+step that has not run yet, or was skipped, reads as empty. Strings are inserted
+as-is; lists and objects as JSON.
+
+| Step or block | Value |
+|---|---|
+| `<agent>` | text, or the returned JSON object |
+| `<run>` | `{ok, exit, output, json}` |
+| `<call>` | the called workflow's outputs |
+| `<each>` | a list with the value of each item's last step |
+| `<parallel>` | an object keyed by each child's `id` |
+| `<loop>` | `{index, passes, stopped}` (`until`, `while`, `unchanged`, or `max`) |
+| `<choose>` | the matched case's value, `otherwise`, or empty |
 
 ---
 
-## Safety
+## Agents
 
-- `run`, `check`, and the git builtins go through the same permission rules
-  and lifecycle hooks as the model's `bash` tool.
-- Agent tool lists are enforced, so read-only agents cannot edit files.
-- Esc cancels the whole workflow, including running agents and commands.
-- Each run writes a JSONL event log to `.rho/workflows/<name>-<time>-<id>.jsonl`,
-  and the final report links to it.
+Agent files say what an agent can do; the workflow says how it runs.
+
+```markdown
+---
+name: implementor
+description: Applies minimal, verified fixes
+tools: read, edit, write, fd, rg
+---
+You fix validated findings...
+```
+
+- `tools` is the complete list of rho tools (and MCP tools) the agent may use.
+  Omit it to allow all tools. `subagent` is never available to agents.
+- The model and turn limit come from the caller: the `<agent>` block, or the
+  `subagent` tool's `model` and `turns` arguments.
+- Every agent's system prompt is grounded like the main session's: the agent
+  file's body, usage guidelines for its own tools, `AGENTS.md` instructions,
+  the current directory, date, platform, and git status, and, in a workflow,
+  which workflow, step, and loop pass it is running.
+
+---
+
+## Example
+
+```xml
+<workflow name="refine" isolation="branch">
+  <input name="profile" choices="review security performance reliability architecture"/>
+  <input name="rounds" default="6"/>
+
+  <loop id="round" max="{{rounds}}" while="{{validate.actionable}}"
+        stop-if-unchanged="{{validate.actionable}}">
+    <each id="scan" items="src crates/rho-engine crates/rho-harness-core" as="slice" parallel="3">
+      <agent use="scout" model="smol" turns="40">
+        Scan {{slice}} for a {{profile}} review...
+      </agent>
+    </each>
+
+    <agent id="validate" use="validator" output="json" context="scan">
+      Re-read every cited line; return {"actionable": [...]}.
+    </agent>
+
+    <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
+      <agent id="implement" use="implementor" model="slow">
+        Fix: {{validate.actionable}}
+        Last verification failure: {{verify.output}}
+      </agent>
+      <run id="verify" cmd="make all"/>
+    </loop>
+
+    <run when="{{verify.ok}}" cmd="git add -A"/>
+    <run when="{{verify.ok}}" cmd="git commit -m 'fix({{profile}}): refine round {{round.index}}'"/>
+  </loop>
+
+  <output name="remaining" value="{{validate.actionable}}"/>
+</workflow>
+```
 
 ---
 
 ## Watching agents
 
-Every subagent, whether it comes from a workflow or a plain `subagent` call,
-is tracked for the session.
-
 | Key | Where | Action |
 |---|---|---|
-| `Left` | empty prompt | Open the **Agents** list (running agents first, with group, model, turn, and elapsed time) |
+| `Left` | empty prompt, or while a workflow runs | Open the **Agents** list |
 | type | Agents list | Fuzzy-filter agents |
 | `Enter` / `Right` | Agents list | Watch the selected agent's live transcript |
 | `Up`/`Down`, `PgUp`/`PgDn` | agent view | Scroll; `End` (or `G`) follows new output again |
-| `Tab` / `Shift+Tab` | agent view | Jump to the next or previous agent in the list |
-| `Left` / `Esc` | either | Go back one level (agent view → list → prompt) |
-
-`Esc` in these views only closes the view; it never cancels the running turn.
+| `Tab` / `Shift+Tab` | agent view | Jump to the next or previous agent |
+| `Left` / `Esc` | either | Go back one level |
