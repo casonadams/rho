@@ -411,6 +411,106 @@ async fn repeated_empty_completion_keeps_tool_work_as_checkpoint() {
         .unwrap();
 }
 
+fn tool_turn_then(failures: Vec<Vec<Result<ModelStreamEvent, AppError>>>) -> Arc<MockAdapter> {
+    let mut turns = vec![vec![
+        Ok(ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature(
+            "plan",
+            Some("sig-1".into()),
+        ))),
+        Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+            "call-1",
+            ToolFunction::new("missing", serde_json::json!({})),
+        ))),
+    ]];
+    turns.extend(failures);
+    Arc::new(MockAdapter::from_result_turns(turns))
+}
+
+fn dropped() -> Vec<Result<ModelStreamEvent, AppError>> {
+    vec![Err(AppError::Network(
+        "Stream transport failed: connection reset".into(),
+    ))]
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_turns_keep_completed_tool_work_as_checkpoint() {
+    let cases = [
+        ("retries exhausted", vec![dropped(), dropped(), dropped()], 4),
+        (
+            "not retryable",
+            vec![vec![Err(AppError::Provider("invalid request".into()))]],
+            2,
+        ),
+    ];
+    for (name, failures, expected_requests) in cases {
+        let model = tool_turn_then(failures);
+
+        let (runner, result, _temp) = run_prompt(Arc::clone(&model)).await;
+
+        assert!(result.is_err(), "{name}");
+        assert_eq!(model.requests().len(), expected_requests, "{name}");
+        let checkpoint = runner
+            .session_manager
+            .load_checkpoint()
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("{name}: tool work from the failed turn must be checkpointed"));
+        assert_eq!(checkpoint.first(), Some(&ChatMessage::user("do it")), "{name}");
+        assert!(has_signed_reasoning(&checkpoint), "{name}");
+        assert!(
+            matches!(checkpoint.last(), Some(ChatMessage::User { content })
+                if content.iter().any(|c| matches!(c, rho_harness_core::model::UserContent::ToolResult(_)))),
+            "{name}: {checkpoint:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn failures_before_any_model_output_leave_no_checkpoint() {
+    let model = Arc::new(MockAdapter::from_result_turns(vec![vec![Err(AppError::Provider(
+        "invalid request".into(),
+    ))]]));
+
+    let (runner, result, _temp) = run_prompt(model).await;
+
+    assert!(result.is_err());
+    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
+    let model = tool_turn_then(vec![dropped(), vec![Ok(ModelStreamEvent::Text("done".into()))]]);
+    let (runner, _temp, _, _) = test_agent_env(Arc::clone(&model));
+    let runner = runner.prompt("do it");
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+    let retries = tokio::spawn(async move {
+        let mut retries = Vec::new();
+        while let Some(item) = rx.recv().await {
+            match item {
+                Ok(MultiTurnStreamItem::DisplayBarrier(drained)) => drained.notify_one(),
+                Ok(MultiTurnStreamItem::ModelTurnRetried(retry)) => retries.push(retry),
+                _ => {}
+            }
+        }
+        retries
+    });
+    let emitter = TurnEmitter { tx, cancellation: None };
+
+    run_agent_loop(runner.clone(), &emitter).await.unwrap();
+    drop(emitter);
+
+    let retries = retries.await.unwrap();
+    assert_eq!(retries.len(), 1);
+    assert_eq!((retries[0].attempt, retries[0].max_attempts), (1, MODEL_CALL_ATTEMPTS));
+    assert!(retries[0].reason.contains("connection reset"));
+    assert_eq!(model.requests().len(), 3);
+    assert_eq!(model.requests()[1].messages, model.requests()[2].messages);
+    let history = runner.session_manager.active_messages().await.unwrap();
+    assert!(has_signed_reasoning(&history));
+    assert_eq!(history.last(), Some(&ChatMessage::assistant("done")));
+    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+}
+
 #[tokio::test(start_paused = true)]
 async fn background_notification_is_injected_once_when_woken() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;

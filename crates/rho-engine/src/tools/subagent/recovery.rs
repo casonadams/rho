@@ -7,18 +7,7 @@ use std::time::Duration;
 const SYNTHESIS_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub(crate) fn prepare_history_for_recovery(history: &[ChatMessage]) -> Vec<ChatMessage> {
-    let mut end = history.len();
-    while end > 0 {
-        match &history[end - 1] {
-            ChatMessage::Assistant { content, .. }
-                if content.iter().any(|c| matches!(c, AssistantContent::ToolCall(_))) =>
-            {
-                end -= 1
-            }
-            _ => break,
-        }
-    }
-    history[..end].to_vec()
+    crate::engine::runner::history::without_unanswered_tool_calls(history).to_vec()
 }
 
 pub(crate) async fn attempt_recovery_synthesis(

@@ -28,34 +28,26 @@ impl AgentEngine {
         res: StreamRunResult,
         sink: &Arc<TerminalApprovalSink>,
         lifecycle: &crate::hook::LifecycleHook,
-        loop_state: &mut TurnLoopState,
-    ) -> Result<Option<TurnOutput>> {
+    ) -> Result<TurnOutput> {
         match res {
-            StreamRunResult::RateLimitRetry | StreamRunResult::NetworkRetry => Ok(None),
-            StreamRunResult::Compacted => self.compacted_turn_output().await.map(Some),
+            StreamRunResult::Compacted => self.compacted_turn_output().await,
             StreamRunResult::Complete(state) => {
-                loop_state.rate_limit_retries = 0;
-                loop_state.network_retries = 0;
                 let elapsed = Self::elapsed_generation_ms(&state);
                 sink.finish_spinner();
                 sink.flush_display();
                 let prompt_response = state.final_response.unwrap_or_default();
-                let out = self
-                    .finish_turn(
-                        crate::engine::runner::sink::TurnArtifacts {
-                            response: prompt_response,
-                            tool_calls_count: state.total_tool_calls,
-                            completed_tools: sink.completed(),
-                            generation_elapsed_ms: elapsed,
-                        },
-                        lifecycle,
-                    )
-                    .await?;
-                Ok(Some(out))
+                self.finish_turn(
+                    crate::engine::runner::sink::TurnArtifacts {
+                        response: prompt_response,
+                        tool_calls_count: state.total_tool_calls,
+                        completed_tools: sink.completed(),
+                        generation_elapsed_ms: elapsed,
+                    },
+                    lifecycle,
+                )
+                .await
             }
             StreamRunResult::ContentFiltered(state) => {
-                loop_state.rate_limit_retries = 0;
-                loop_state.network_retries = 0;
                 let elapsed = Self::elapsed_generation_ms(&state);
                 sink.finish_spinner();
                 sink.flush_display();
@@ -75,7 +67,7 @@ impl AgentEngine {
                     )
                     .await?;
                 out.status = crate::engine::runner::turn::types::RunStatus::ContentFiltered;
-                Ok(Some(out))
+                Ok(out)
             }
         }
     }
@@ -87,7 +79,7 @@ impl AgentEngine {
         request: &TurnRequest<'_>,
         lifecycle: &Arc<crate::hook::LifecycleHook>,
         loop_state: &mut TurnLoopState,
-    ) -> Result<Option<TurnOutput>> {
+    ) -> Result<TurnOutput> {
         let presenter = lifecycle.presenter();
         let runner = self
             .prepare_step_runner(sink, preamble, request, lifecycle, loop_state)
@@ -95,8 +87,7 @@ impl AgentEngine {
         let stream_res = self
             .run_turn_stream(runner, sink, presenter.as_ref(), loop_state)
             .await?;
-        self.handle_stream_run_result(stream_res, sink, lifecycle, loop_state)
-            .await
+        self.handle_stream_run_result(stream_res, sink, lifecycle).await
     }
 
     pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
@@ -108,13 +99,7 @@ impl AgentEngine {
         };
         let lifecycle = self.lifecycle_hook(presenter.clone());
         let _in_flight_guard = self.usage.in_flight_guard();
-        loop {
-            if let Some(out) = self
-                .execute_turn_step(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
-                .await?
-            {
-                return Ok(out);
-            }
-        }
+        self.execute_turn_step(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
+            .await
     }
 }

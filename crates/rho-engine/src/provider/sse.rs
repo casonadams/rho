@@ -80,7 +80,10 @@ where
             Ok(Some(chunk)) => chunk,
             Ok(None) => return None,
             Err(_) => {
-                let err = AppError::Provider("Provider stream went idle without sending data".to_string());
+                let err = AppError::Network(format!(
+                    "provider stream went idle for {}s without sending data",
+                    STREAM_IDLE_TIMEOUT.as_secs()
+                ));
                 return Some((vec![Err(err)], (bytes, parser, true)));
             }
         };
@@ -305,6 +308,6 @@ mod tests {
         let first = tokio::time::timeout(Duration::from_secs(3600), events.next())
             .await
             .expect("idle stream must error, not hang");
-        assert!(matches!(first, Some(Err(AppError::Provider(msg))) if msg.contains("idle")));
+        assert!(matches!(first, Some(Err(AppError::Network(msg))) if msg.contains("idle")));
     }
 }

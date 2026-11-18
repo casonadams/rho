@@ -6,6 +6,7 @@ pub static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
         .no_proxy()
         .connect_timeout(Duration::from_secs(5))
+        .tcp_keepalive(Duration::from_secs(30))
         .build()
         .expect("failed to build shared HTTP client")
 });

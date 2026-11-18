@@ -41,6 +41,21 @@ impl AgentEngine {
         self.record_run_summary(&metrics).await
     }
 
+    pub(super) async fn record_failed_turn(
+        &self,
+        error: &AppError,
+        completed_tools: &[crate::engine::runner::sink::CompletedTool],
+    ) -> Result<()> {
+        self.record_completed_tool_events(completed_tools).await?;
+        self.session_manager
+            .append_event(
+                SessionEventKind::RunFailed,
+                serde_json::json!({ "error": redact_text(&error.to_string()) }),
+            )
+            .await?;
+        self.record_failed_metrics(error).await
+    }
+
     pub(super) async fn record_failed_metrics(&self, error: &AppError) -> Result<()> {
         let status = match error {
             AppError::ModelBudgetExhausted { .. } => TerminalStatus::BudgetExhausted,

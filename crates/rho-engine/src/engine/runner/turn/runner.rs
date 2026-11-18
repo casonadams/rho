@@ -35,13 +35,34 @@ pub enum MultiTurnStreamItem {
     StreamAssistantItem(StreamEvent),
     ToolCall { tool_call: ToolCall },
     ToolExecutionCommitted,
-    ModelTurnRetried,
+    ModelTurnRetried(ModelRetry),
     CompletionCall(CompletionCall),
     FinalResponse(PromptResponse),
     DisplayBarrier(Arc<tokio::sync::Notify>),
 }
 
 type TurnItem = Result<MultiTurnStreamItem, AppError>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelRetry {
+    pub attempt: usize,
+    pub max_attempts: usize,
+    pub delay: std::time::Duration,
+    pub reason: String,
+    pub discarded_tool_calls: usize,
+}
+
+const MODEL_CALL_ATTEMPTS: usize = 3;
+const MODEL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn is_retryable_model_error(error: &AppError) -> bool {
+    crate::engine::runner::history::is_transient_network_error(error)
+        || error.to_string().to_lowercase().contains("rate limit")
+}
+
+fn retry_delay(attempt: usize) -> std::time::Duration {
+    std::time::Duration::from_secs(1 << attempt.min(5))
+}
 
 struct TurnStream {
     rx: tokio::sync::mpsc::Receiver<TurnItem>,
@@ -318,12 +339,69 @@ async fn stream_single_event(
 async fn stream_turn(
     mut stream: Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>,
     emitter: &TurnEmitter,
-) -> Result<TurnStreamOutcome, AppError> {
-    let mut outcome = TurnStreamOutcome::default();
+    outcome: &mut TurnStreamOutcome,
+) -> Result<(), AppError> {
     while let Some(res) = stream.next().await {
-        stream_single_event(res?, &mut outcome, emitter).await?;
+        stream_single_event(res?, outcome, emitter).await?;
     }
-    Ok(outcome)
+    Ok(())
+}
+
+async fn attempt_model_call(
+    runner: &AgentRunner,
+    req: ModelCompletionRequest,
+    emitter: &TurnEmitter,
+    outcome: &mut TurnStreamOutcome,
+) -> Result<(), AppError> {
+    let stream = tokio::time::timeout(MODEL_RESPONSE_TIMEOUT, runner.model.stream(req))
+        .await
+        .map_err(|_| {
+            AppError::Network(format!(
+                "model provider sent no response within {}s",
+                MODEL_RESPONSE_TIMEOUT.as_secs()
+            ))
+        })??;
+    stream_turn(stream, emitter, outcome).await
+}
+
+async fn sleep_unless_cancelled(delay: std::time::Duration, runner: &AgentRunner) -> Result<(), AppError> {
+    tokio::select! {
+        () = tokio::time::sleep(delay) => Ok(()),
+        () = async {
+            match runner.cancellation.as_ref() {
+                Some(c) => c.wait_cancelled().await,
+                None => std::future::pending::<()>().await,
+            }
+        } => Err(AppError::Cancelled("operator interrupt".to_string())),
+    }
+}
+
+/// Retries one model request on transient failures so a dropped connection costs a request, not the whole turn.
+async fn call_model(
+    runner: &AgentRunner,
+    req: &ModelCompletionRequest,
+    emitter: &TurnEmitter,
+) -> Result<TurnStreamOutcome, AppError> {
+    let mut attempt = 1;
+    loop {
+        let mut outcome = TurnStreamOutcome::default();
+        let error = match attempt_model_call(runner, req.clone(), emitter, &mut outcome).await {
+            Ok(()) => return Ok(outcome),
+            Err(error) if attempt < MODEL_CALL_ATTEMPTS && is_retryable_model_error(&error) => error,
+            Err(error) => return Err(error),
+        };
+        let retry = ModelRetry {
+            attempt,
+            max_attempts: MODEL_CALL_ATTEMPTS,
+            delay: retry_delay(attempt),
+            reason: error.to_string(),
+            discarded_tool_calls: outcome.tool_calls.len(),
+        };
+        let delay = retry.delay;
+        emitter.send(MultiTurnStreamItem::ModelTurnRetried(retry)).await?;
+        sleep_unless_cancelled(delay, runner).await?;
+        attempt += 1;
+    }
 }
 
 fn append_notification_messages(
@@ -570,8 +648,7 @@ async fn execute_agent_step(
     let req = completion_request(runner, ctx.current_messages, tools_def);
     *ctx.request_count += 1;
 
-    let stream = runner.model.stream(req).await?;
-    let outcome = stream_turn(stream, emitter).await?;
+    let outcome = call_model(runner, &req, emitter).await?;
     *ctx.total_usage = ctx.total_usage.merge(&outcome.usage);
 
     let completion_call = CompletionCall {
@@ -656,7 +733,12 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
             all_completion_calls: &mut all_completion_calls,
             total_usage: &mut total_usage,
         };
-        let step = execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await?;
+        let step = match execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await {
+            Ok(step) => step,
+            Err(error) => {
+                return Err(keep_partial_turn(&runner.session_manager, pending, new_turn_messages, error).await);
+            }
+        };
         match step {
             StepExecutionResult::Complete(resp) => {
                 emitter.ensure_live()?;
@@ -694,6 +776,27 @@ async fn save_unfinished_turn(
         return Ok(());
     }
     session_manager.save_checkpoint(checkpoint).await
+}
+
+async fn keep_partial_turn(
+    session_manager: &SessionManager,
+    pending: Option<Vec<ChatMessage>>,
+    new_turn_messages: Vec<ChatMessage>,
+    error: AppError,
+) -> AppError {
+    if matches!(error, AppError::Cancelled(_)) {
+        return error;
+    }
+    let complete = crate::engine::runner::history::without_unanswered_tool_calls(&new_turn_messages);
+    if !complete.iter().any(|m| matches!(m, ChatMessage::Assistant { .. })) {
+        return error;
+    }
+    match save_unfinished_turn(session_manager, pending, complete.to_vec()).await {
+        Ok(()) => error,
+        Err(save_error) => AppError::Session(format!(
+            "{error}; the turn's completed work could not be kept: {save_error}"
+        )),
+    }
 }
 
 #[cfg(test)]

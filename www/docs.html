@@ -696,6 +696,7 @@ rho config models.guard none</code></pre>
         <li><strong>Atomic Split-Turn Preservation</strong>: Cut points never bisect tool calls from their corresponding tool results, preserving protocol validity for Anthropic and OpenAI schemas.</li>
         <li><strong>Cumulative File Tracking</strong>: Across multiple compactions, rho records all modified and inspected workspace files in a durable <code>&lt;file-operations&gt;</code> XML ledger so file awareness is never lost.</li>
         <li><strong>Resilient Deterministic Fallback</strong>: If upstream provider network timeouts or rate limits interrupt an LLM summarization call, rho automatically falls back to an offline deterministic fact extractor that constructs a structured summary node without dropping session state.</li>
+        <li><strong>Per-Request Retry</strong>: A model request that fails with a network error, rate limit, idle stream (300s), or no response (120s) is retried up to 3 times with backoff instead of failing the turn; if the turn still fails, its finished model and tool work is kept as a checkpoint for the next prompt and the error is recorded in the session log.</li>
         <li><strong>Bounded Summary Enforcement</strong>: Compaction summaries are strictly clamped to <code>compaction_max_bytes</code> (default 8,192 bytes), preventing runaway summarizer recursion.</li>
       </ul>
 

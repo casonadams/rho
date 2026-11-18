@@ -7,11 +7,11 @@ use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
 
 use super::prepare::TurnLoopState;
-use super::runner::{AgentRunner, MultiTurnStreamItem, StreamEvent};
+use super::runner::{AgentRunner, ModelRetry, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse};
-use crate::engine::runner::history::{DisplayEvent, is_content_filter_error, is_transient_network_error};
+use crate::engine::runner::history::{DisplayEvent, is_content_filter_error};
 use crate::engine::runner::sink::TerminalApprovalSink;
 use crate::engine::tracking::UsageTracker;
 
@@ -21,7 +21,6 @@ pub(super) struct TurnStreamState {
     pub(super) final_response: Option<PromptResponse>,
     pub(super) streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
-    pub(super) items_emitted: bool,
 }
 
 impl TurnStreamState {
@@ -32,23 +31,24 @@ impl TurnStreamState {
             final_response: None,
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
-            items_emitted: false,
         }
     }
 }
 
 pub(super) enum StreamRunResult {
     Compacted,
-    RateLimitRetry,
-    NetworkRetry,
     Complete(Box<TurnStreamState>),
     ContentFiltered(Box<TurnStreamState>),
 }
 
-enum StreamErrorAction {
-    Compacted,
-    RateLimitRetry,
-    NetworkRetry,
+fn format_model_retry(retry: &ModelRetry) -> String {
+    format!(
+        "[Model request failed ({}); retrying in {}s ({}/{})...]",
+        retry.reason,
+        retry.delay.as_secs(),
+        retry.attempt,
+        retry.max_attempts - 1
+    )
 }
 
 fn record_streaming_text(text: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
@@ -129,7 +129,12 @@ fn handle_completion_stream_item(
             state.total_tool_calls += 1;
             state.streaming_tool.handle_name(tool_call.function.name.to_string());
         }
-        MultiTurnStreamItem::ModelTurnRetried => {
+        MultiTurnStreamItem::ModelTurnRetried(retry) => {
+            state.total_tool_calls = state.total_tool_calls.saturating_sub(retry.discarded_tool_calls);
+            state.streaming_tool.reset();
+            sink.finish_spinner();
+            sink.flush_display();
+            sink.presenter.print_notice(&format_model_retry(&retry));
             state.model_call_start = Some(Instant::now());
             sink.resume_model_spinner();
         }
@@ -222,42 +227,6 @@ impl AgentEngine {
         }
     }
 
-    async fn retry_rate_limit(
-        &self,
-        duration: std::time::Duration,
-        presenter: &dyn Presenter,
-        sink: &Arc<TerminalApprovalSink>,
-        retries: &mut usize,
-    ) -> Result<StreamErrorAction> {
-        *retries += 1;
-        let secs = duration.as_secs().max(1);
-        presenter.print_notice(&format!("[Rate limit reached; retrying in {secs}s...]"));
-        tokio::time::sleep(duration).await;
-        sink.resume_model_spinner();
-        Ok(StreamErrorAction::RateLimitRetry)
-    }
-
-    async fn retry_network(
-        &self,
-        _error: &AppError,
-        presenter: &dyn Presenter,
-        sink: &Arc<TerminalApprovalSink>,
-        retries: &mut usize,
-        items_emitted: bool,
-    ) -> Result<StreamErrorAction> {
-        if items_emitted {
-            return Err(AppError::Network("Connection lost during active turn".to_string()));
-        }
-        *retries += 1;
-        let secs = *retries as u64;
-        presenter.print_notice(&format!(
-            "[Network connection failed; retrying in {secs}s ({retries}/2)...]"
-        ));
-        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-        sink.resume_model_spinner();
-        Ok(StreamErrorAction::NetworkRetry)
-    }
-
     async fn try_context_overflow(
         &self,
         error: &AppError,
@@ -273,11 +242,15 @@ impl AgentEngine {
         Ok(false)
     }
 
-    async fn handle_fatal_stream_error(&self, error: AppError) -> Result<StreamErrorAction> {
+    async fn handle_fatal_stream_error(
+        &self,
+        error: AppError,
+        sink: &Arc<TerminalApprovalSink>,
+    ) -> Result<StreamRunResult> {
         if matches!(error, AppError::InvalidToolCall(_)) {
             self.run_tracker.invalid_tool();
         }
-        self.record_failed_metrics(&error).await?;
+        self.record_failed_turn(&error, &sink.completed()).await?;
         Err(error)
     }
 
@@ -287,8 +260,7 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         sink: &Arc<TerminalApprovalSink>,
         loop_state: &mut TurnLoopState,
-        items_emitted: bool,
-    ) -> Result<StreamErrorAction> {
+    ) -> Result<StreamRunResult> {
         sink.finish_spinner();
         sink.flush_display();
         if self
@@ -301,27 +273,9 @@ impl AgentEngine {
             )
             .await?
         {
-            return Ok(StreamErrorAction::Compacted);
+            return Ok(StreamRunResult::Compacted);
         }
-        if error.to_string().to_lowercase().contains("rate limit")
-            && !items_emitted
-            && loop_state.rate_limit_retries < 2
-        {
-            return self
-                .retry_rate_limit(
-                    std::time::Duration::from_secs(1),
-                    presenter,
-                    sink,
-                    &mut loop_state.rate_limit_retries,
-                )
-                .await;
-        }
-        if is_transient_network_error(&error) && !items_emitted && loop_state.network_retries < 2 {
-            return self
-                .retry_network(&error, presenter, sink, &mut loop_state.network_retries, items_emitted)
-                .await;
-        }
-        self.handle_fatal_stream_error(error).await
+        self.handle_fatal_stream_error(error, sink).await
     }
 
     pub(super) async fn run_turn_stream(
@@ -335,22 +289,12 @@ impl AgentEngine {
         let mut stream = runner.stream();
         while let Some(item) = stream.next().await {
             match item {
-                Ok(item) => {
-                    state.items_emitted = true;
-                    self.process_stream_item(item, sink, &mut state);
-                }
+                Ok(item) => self.process_stream_item(item, sink, &mut state),
                 Err(err) => {
                     if is_content_filter_error(&err) {
                         return Ok(StreamRunResult::ContentFiltered(Box::new(state)));
                     }
-                    let action = self
-                        .handle_stream_error(err, presenter, sink, loop_state, state.items_emitted)
-                        .await?;
-                    match action {
-                        StreamErrorAction::Compacted => return Ok(StreamRunResult::Compacted),
-                        StreamErrorAction::RateLimitRetry => return Ok(StreamRunResult::RateLimitRetry),
-                        StreamErrorAction::NetworkRetry => return Ok(StreamRunResult::NetworkRetry),
-                    }
+                    return self.handle_stream_error(err, presenter, sink, loop_state).await;
                 }
             }
             tokio::task::yield_now().await;
@@ -413,58 +357,8 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn test_transient_network_error_retries_then_exhausts() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let engine = mock_engine(
-            Arc::new(MockAdapter::default()),
-            MockEngineConfig {
-                base_dir: temp_dir.path(),
-                app_config: rho_harness_core::config::Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
-        let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
-        let sink = engine.create_approval_sink(&presenter);
-        let mut loop_state = TurnLoopState {
-            visible_history: Vec::new(),
-            checkpoint: None,
-            current_prompt: String::new(),
-            current_budget: 10,
-            overflow_recovered: false,
-            rate_limit_retries: 0,
-            network_retries: 0,
-        };
-
-        let transient_err =
-            AppError::Provider("error sending request for url (https://cloudcode-pa.googleapis.com)".to_string());
-
-        let action = engine
-            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
-            .await
-            .unwrap();
-        assert!(matches!(action, StreamErrorAction::NetworkRetry));
-        assert_eq!(loop_state.network_retries, 1);
-
-        let transient_err = AppError::Provider("connection reset by peer".to_string());
-        let action = engine
-            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
-            .await
-            .unwrap();
-        assert!(matches!(action, StreamErrorAction::NetworkRetry));
-        assert_eq!(loop_state.network_retries, 2);
-
-        let transient_err = AppError::Provider("connection reset by peer".to_string());
-        let result = engine
-            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, false)
-            .await;
-        assert!(result.is_err());
-        assert_eq!(loop_state.network_retries, 2);
-    }
-
     #[tokio::test]
-    async fn test_transient_network_error_not_retried_if_content_already_emitted() {
+    async fn fatal_stream_errors_are_recorded_with_their_cause() {
         let temp_dir = tempfile::tempdir().unwrap();
         let engine = mock_engine(
             Arc::new(MockAdapter::default()),
@@ -483,68 +377,39 @@ mod tests {
             current_prompt: String::new(),
             current_budget: 10,
             overflow_recovered: false,
-            rate_limit_retries: 0,
-            network_retries: 0,
         };
 
-        let transient_err = AppError::Provider("Claude stream failed: broken pipe".to_string());
-
+        let error = AppError::Network("provider stream went idle for 300s without sending data".into());
         let result = engine
-            .handle_stream_error(transient_err, presenter.as_ref(), &sink, &mut loop_state, true)
+            .handle_stream_error(error, presenter.as_ref(), &sink, &mut loop_state)
             .await;
-        assert!(result.is_err());
-        assert_eq!(loop_state.network_retries, 0);
+
+        assert!(matches!(result, Err(AppError::Network(_))));
+        let events = engine.session_manager.load_events().await.unwrap();
+        let failed = events
+            .iter()
+            .find(|e| e.kind == rho_harness_core::session::SessionEventKind::RunFailed)
+            .expect("RunFailed event");
+        assert!(failed.payload["error"].as_str().unwrap().contains("went idle for 300s"));
+        let summary = events
+            .iter()
+            .find(|e| e.kind == rho_harness_core::session::SessionEventKind::RunSummary)
+            .expect("run summary");
+        assert_eq!(summary.payload["terminal_status"], "failed");
     }
 
-    fn retry_fixture(
-        temp_dir: &tempfile::TempDir,
-    ) -> (
-        AgentEngine,
-        Arc<dyn Presenter>,
-        Arc<TerminalApprovalSink>,
-        TurnLoopState,
-    ) {
-        let engine = mock_engine(
-            Arc::new(MockAdapter::default()),
-            MockEngineConfig {
-                base_dir: temp_dir.path(),
-                app_config: rho_harness_core::config::Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
-        let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
-        let sink = engine.create_approval_sink(&presenter);
-        let loop_state = TurnLoopState {
-            visible_history: Vec::new(),
-            checkpoint: None,
-            current_prompt: String::new(),
-            current_budget: 10,
-            overflow_recovered: false,
-            rate_limit_retries: 0,
-            network_retries: 0,
+    #[test]
+    fn retry_notice_names_the_cause_delay_and_attempt() {
+        let retry = ModelRetry {
+            attempt: 1,
+            max_attempts: 3,
+            delay: std::time::Duration::from_secs(2),
+            reason: "Network error: connection reset".into(),
+            discarded_tool_calls: 0,
         };
-        (engine, presenter, sink, loop_state)
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_rate_limit_retry_depends_on_delivery() {
-        for (delivered, expect_retry) in [(false, true), (true, false)] {
-            let temp_dir = tempfile::tempdir().unwrap();
-            let (engine, presenter, sink, mut loop_state) = retry_fixture(&temp_dir);
-            let rate_limited = AppError::Provider("rate limit exceeded".to_string());
-
-            let result = engine
-                .handle_stream_error(rate_limited, presenter.as_ref(), &sink, &mut loop_state, delivered)
-                .await;
-
-            if expect_retry {
-                assert!(matches!(result.unwrap(), StreamErrorAction::RateLimitRetry));
-                assert_eq!(loop_state.rate_limit_retries, 1);
-            } else {
-                assert!(result.is_err());
-                assert_eq!(loop_state.rate_limit_retries, 0);
-            }
-        }
+        assert_eq!(
+            format_model_retry(&retry),
+            "[Model request failed (Network error: connection reset); retrying in 2s (1/2)...]"
+        );
     }
 }

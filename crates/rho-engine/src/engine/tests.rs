@@ -588,7 +588,7 @@ impl rho_harness_core::presentation::presenter::Presenter for RetryTestPresenter
 }
 
 #[tokio::test(start_paused = true)]
-async fn rate_limit_429_with_retry_after_retries_and_succeeds() {
+async fn rate_limited_model_request_retries_and_succeeds() {
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
     use rho_harness_core::error::AppError;
@@ -630,7 +630,7 @@ async fn rate_limit_429_with_retry_after_retries_and_succeeds() {
     assert!(
         notices
             .iter()
-            .any(|n| n.contains("[Rate limit reached; retrying in 1s...]")),
+            .any(|n| n.contains("rate limited") && n.contains("retrying in 2s (1/2)")),
         "expected rate limit notice, got: {notices:?}"
     );
 

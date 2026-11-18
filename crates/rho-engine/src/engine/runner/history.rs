@@ -23,6 +23,17 @@ pub fn continuation_history(visible_history: &[ChatMessage], checkpoint: &[ChatM
     history
 }
 
+fn has_tool_calls(message: &ChatMessage) -> bool {
+    matches!(message, ChatMessage::Assistant { content, .. }
+        if content.iter().any(|c| matches!(c, rho_harness_core::model::AssistantContent::ToolCall(_))))
+}
+
+/// Drops trailing assistant messages whose tool calls never got results, which providers reject.
+pub fn without_unanswered_tool_calls(history: &[ChatMessage]) -> &[ChatMessage] {
+    let end = history.iter().rposition(|m| !has_tool_calls(m)).map_or(0, |i| i + 1);
+    &history[..end]
+}
+
 pub fn is_transient_network_error(error: &AppError) -> bool {
     let msg = error.to_string();
     let lower = msg.to_ascii_lowercase();

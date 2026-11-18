@@ -151,6 +151,10 @@ rho config models.guard ollama/qwen2.5-coder:7b
 rho config models.guard none
 ```
 
+### Failed Requests
+
+Each model request in a turn is retried on its own when it fails with a network error, a rate limit, a provider stream that goes idle for 300 seconds, or no response within 120 seconds: up to 3 attempts with 2s and 4s backoff, announced as `[Model request failed (...); retrying in 2s (1/2)...]`. Text streamed by the failed attempt may appear again. If a turn still fails, the model and tool work it finished is kept as a checkpoint and the next prompt continues from it, and the session log records the error (`run_failed`) and the tool calls that ran. Interrupting a turn with Esc discards its unfinished work.
+
 ---
 
 ## Subagents & Custom Agents
