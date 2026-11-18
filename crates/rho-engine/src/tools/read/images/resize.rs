@@ -89,8 +89,6 @@ fn as_passthrough_image(
     }
 }
 
-/// PNG first, then JPEG across the quality ladder — first candidate under the
-/// budget wins (pi parity). The resize re-samples from the original each round.
 fn search_candidate(
     rgba: &RgbaImage,
     (w, h, orig_w, orig_h): (u32, u32, u32, u32),

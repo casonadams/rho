@@ -69,9 +69,7 @@ struct FdWalkFilters<'a> {
     display: Option<&'a str>,
     min_lines: Option<usize>,
     max_lines: Option<usize>,
-    /// Line counts are needed during the walk (line filters or line sort).
     stats_needed: bool,
-    /// Byte size is needed during the walk for size sort (metadata only, no content read).
     size_sort: bool,
     show_stats: bool,
 }
@@ -110,7 +108,6 @@ fn process_walk_entry(
 
 impl FdQuery {
     pub fn run(self, limit: usize) -> ToolResult {
-        // Size sorting uses metadata bytes, so only line filters and line sorting need file contents.
         let eager_stats =
             self.min_lines.is_some() || self.max_lines.is_some() || matches!(self.sort, Some(FdSort::Lines));
         let mut builder = walker_builder(&self.search_root, self.include_hidden, self.types.as_ref());
@@ -142,7 +139,6 @@ impl FdQuery {
 
         let mut entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
         sort_entries(&mut entries, self.sort);
-        // Stats not needed for sorting or filtering are read only for the rows that will be emitted.
         for entry in entries.iter_mut().take(limit) {
             if let Some(path) = entry.source.take() {
                 entry.stats = count_file_stats(&path);

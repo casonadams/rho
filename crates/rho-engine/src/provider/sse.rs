@@ -16,7 +16,6 @@ pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 #[derive(Default)]
 pub struct SseLineDecoder {
     buffer: Vec<u8>,
-    /// Offset into `buffer` up to which bytes have already been scanned for `\n`.
     scanned: usize,
 }
 

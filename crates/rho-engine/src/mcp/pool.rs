@@ -24,8 +24,6 @@ pub struct ServerRegistration {
     pub config: McpServerConfig,
     pub working_dir: PathBuf,
     pub instance: Option<ServerInstance>,
-    /// Serializes first connects to this server only, so a slow server does not
-    /// block connects to other registered servers.
     connect_lock: Arc<Mutex<()>>,
 }
 

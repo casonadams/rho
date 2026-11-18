@@ -295,8 +295,7 @@ pub fn prune_historical_tool_outputs_if_changed(
     prune_historical_tool_outputs_with_sizes(messages, &sizes, policy)
 }
 
-/// Same as [`prune_historical_tool_outputs_if_changed`], but takes per-message token sizes that the
-/// caller already computed (`sizes[i]` must equal the estimate for `messages[i]` under `policy.model`).
+/// `sizes[i]` must equal the token estimate for `messages[i]` under `policy.model`.
 pub fn prune_historical_tool_outputs_with_sizes(
     messages: &[ChatMessage],
     sizes: &[usize],

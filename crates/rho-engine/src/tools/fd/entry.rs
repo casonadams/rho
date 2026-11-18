@@ -12,9 +12,7 @@ pub struct FdEntry {
     pub relative: String,
     pub is_dir: bool,
     pub stats: Option<FileStats>,
-    /// Byte size from metadata, recorded when sorting by size without reading file contents.
     pub size: Option<u64>,
-    /// Path whose line stats are deferred until the row is emitted.
     pub source: Option<PathBuf>,
 }
 

@@ -267,12 +267,10 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
     }
 
-    /// Repaints the screen, keeping terminal scrollback, with as much of the transcript tail as fits.
     pub fn full_redraw(&mut self) -> io::Result<()> {
         self.synchronized_redraw(RedrawScope::VisibleTail)
     }
 
-    /// Clears terminal scrollback and replays the entire transcript at the current size.
     pub fn replay_transcript(&mut self) -> io::Result<()> {
         self.synchronized_redraw(RedrawScope::Everything)
     }
