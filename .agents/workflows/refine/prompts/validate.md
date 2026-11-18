@@ -9,9 +9,10 @@ Earlier rounds' fix reports:
 {{implement.history}}
 
 Classify each surviving finding:
-- `actionable`: severity high or medium, confidence high or medium, and a concrete fix that preserves intended behavior and passes `make all`.
+- `actionable`: severity high or medium, confidence high or medium, and a concrete fix that preserves intended behavior and passes `make all`. Each round produces one commit, so keep only the highest-severity root-cause cluster here: findings that share a root cause or must change together in one subsystem.
+- `deferred`: other findings that would qualify as actionable; a later round picks them up.
 - `low_confidence`: anything else still worth reporting.
 
 Give every finding a stable `fingerprint` of the form `<file>:<short-kebab-case-rule>` with no line numbers, so the same issue is recognized across rounds.
 
-Return {"actionable": [{"fingerprint", "severity", "confidence", "file", "line", "title", "evidence", "recommendation"}], "low_confidence": [...], "rejected": <count>}. Use empty arrays when there is nothing to report.
+Return {"actionable": [{"fingerprint", "severity", "confidence", "file", "line", "title", "evidence", "recommendation"}], "deferred": [...], "low_confidence": [...], "rejected": <count>}. Use empty arrays when there is nothing to report.

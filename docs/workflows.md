@@ -197,20 +197,26 @@ You fix validated findings...
       </agent>
     </each>
 
-    <agent id="validate" use="validator" output="json" context="scan">
+    <agent id="validate" use="validator" model="smol" output="json" context="scan">
       Re-read every cited line; return {"actionable": [...]}.
     </agent>
 
-    <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
-      <agent id="implement" use="implementor" model="slow">
+    <loop id="attempt" max="3" until="{{review.approved}}" when="{{validate.actionable}}">
+      <agent id="implement" use="implementor" model="smol" output="json">
         Fix: {{validate.actionable}}
         Last verification failure: {{verify.output}}
+        Last review issues: {{review.issues}}
       </agent>
       <run id="verify" cmd="make all"/>
+      <run when="{{verify.ok}}" cmd="git add -A"/>
+      <run id="diff" when="{{verify.ok}}" cmd="git diff --cached"/>
+      <agent id="review" use="reviewer" model="smol" output="json" when="{{verify.ok}}">
+        Review this diff; return {"approved": true|false, "issues": [...]}.
+        {{diff.output}}
+      </agent>
     </loop>
 
-    <run when="{{verify.ok}}" cmd="git add -A"/>
-    <run when="{{verify.ok}}" cmd="git commit -m 'fix({{profile}}): refine round {{round.index}}'"/>
+    <run when="{{review.approved}}" cmd="git commit -m {{implement.commit_subject}}"/>
   </loop>
 
   <output name="remaining" value="{{validate.actionable}}"/>

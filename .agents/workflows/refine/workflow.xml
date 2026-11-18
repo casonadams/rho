@@ -1,4 +1,4 @@
-<workflow name="refine" description="Scan, fix, and verify rho until no actionable findings remain" isolation="branch">
+<workflow name="refine" description="Scan, fix, review, and verify rho until no actionable findings remain" isolation="branch">
   <input name="profile" choices="review security performance reliability architecture" description="Review focus"/>
   <input name="rounds" default="6" description="Maximum scan and fix rounds"/>
 
@@ -8,21 +8,25 @@
       <agent use="scout" model="smol" turns="40" prompt-file="prompts/scan.md"/>
     </each>
 
-    <agent id="validate" use="validator" model="slow" turns="40" output="json" context="scan" prompt-file="prompts/validate.md"/>
+    <agent id="validate" use="validator" model="smol" turns="40" output="json" context="scan" prompt-file="prompts/validate.md"/>
 
-    <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
-      <agent id="implement" use="implementor" model="slow" turns="60" output="json" prompt-file="prompts/implement.md"/>
+    <loop id="attempt" max="3" until="{{review.approved}}" when="{{validate.actionable}}">
+      <agent id="implement" use="implementor" model="smol" turns="60" output="json" prompt-file="prompts/implement.md"/>
       <run id="verify" cmd="make all"/>
+      <run when="{{verify.ok}}" cmd="git add -A"/>
+      <run id="diff" when="{{verify.ok}}" cmd="git diff --cached"/>
+      <agent id="review" use="reviewer" model="smol" turns="40" output="json" when="{{verify.ok}}" prompt-file="prompts/review.md"/>
     </loop>
 
-    <run when="{{verify.ok}}" cmd="git add -A"/>
-    <run when="{{verify.ok}}" cmd="git commit --quiet -m 'fix({{profile}}): refine round {{round.index}}'"/>
-    <run when="{{validate.actionable}}" unless="{{verify.ok}}"
-         cmd="git stash push --quiet --include-untracked -m 'rho refine: round {{round.index}} failed verification'"/>
+    <run when="{{review.approved}}" cmd="git commit --quiet -m {{implement.commit_subject}} -m {{implement.commit_body}}"/>
+    <run when="{{validate.actionable}}" unless="{{review.approved}}"
+         cmd="git stash push --quiet --include-untracked -m 'rho refine: round {{round.index}} was not approved'"/>
   </loop>
 
   <output name="rounds" value="{{round.passes}}"/>
   <output name="stopped" value="{{round.stopped}}"/>
   <output name="remaining" value="{{validate.actionable}}"/>
+  <output name="deferred" value="{{validate.deferred}}"/>
   <output name="low_confidence" value="{{validate.low_confidence}}"/>
+  <output name="review_issues" value="{{review.issues}}"/>
 </workflow>

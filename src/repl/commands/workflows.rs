@@ -144,9 +144,11 @@ mod tests {
             "<review|security|performance|reliability|architecture> [rounds]"
         );
         let names: Vec<&str> = refine.agents.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["implementor", "validator"]);
+        assert_eq!(names, ["implementor", "reviewer", "validator"]);
         let implementor = &refine.agents[0];
         assert!(!implementor.tools.as_ref().unwrap().contains(&"bash".to_string()));
+        let reviewer = &refine.agents[1];
+        assert!(!reviewer.tools.as_ref().unwrap().contains(&"edit".to_string()));
     }
 
     #[test]
