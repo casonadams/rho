@@ -710,8 +710,10 @@ async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>
 }
 
 async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
-    let pending = runner.session_manager.load_checkpoint().await?;
-    let has_checkpoint = pending.is_some();
+    let mut saved = TurnCheckpoint {
+        exists: runner.session_manager.load_checkpoint().await?.is_some(),
+        len: 0,
+    };
     let (mut current_messages, mut new_turn_messages) = initial_turn_messages(&runner).await?;
 
     let mut turn = 0;
@@ -736,16 +738,20 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
         let step = match execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await {
             Ok(step) => step,
             Err(error) => {
-                return Err(keep_partial_turn(&runner.session_manager, pending, new_turn_messages, error).await);
+                return Err(keep_partial_turn(&runner.session_manager, &mut saved, &new_turn_messages, error).await);
             }
         };
         match step {
             StepExecutionResult::Complete(resp) => {
                 emitter.ensure_live()?;
-                commit_turn_messages(&runner.session_manager, new_turn_messages, has_checkpoint).await?;
+                commit_turn_messages(&runner.session_manager, saved.unsaved(&new_turn_messages), saved.exists).await?;
                 return emitter.send(MultiTurnStreamItem::FinalResponse(resp)).await;
             }
-            StepExecutionResult::Continue => nudged = false,
+            StepExecutionResult::Continue => {
+                nudged = false;
+                saved.persist(&runner.session_manager, &new_turn_messages).await?;
+                runner.sink.record_tool_events().await?;
+            }
             StepExecutionResult::EmptyCompletion if !nudged => {
                 nudged = true;
                 let nudge = ChatMessage::user(EMPTY_COMPLETION_NUDGE);
@@ -753,45 +759,57 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
                 new_turn_messages.push(nudge);
             }
             StepExecutionResult::EmptyCompletion => {
-                save_unfinished_turn(&runner.session_manager, pending, new_turn_messages).await?;
+                saved.persist(&runner.session_manager, &new_turn_messages).await?;
                 return Err(AppError::Provider("model returned an empty response".to_string()));
             }
         }
     }
 
-    save_unfinished_turn(&runner.session_manager, pending, new_turn_messages).await?;
+    saved.persist(&runner.session_manager, &new_turn_messages).await?;
     Err(AppError::ModelBudgetExhausted {
         max_turns: runner.budget,
     })
 }
 
-async fn save_unfinished_turn(
-    session_manager: &SessionManager,
-    pending: Option<Vec<ChatMessage>>,
-    new_turn_messages: Vec<ChatMessage>,
-) -> Result<(), AppError> {
-    let mut checkpoint = pending.unwrap_or_default();
-    checkpoint.extend(new_turn_messages);
-    if checkpoint.is_empty() {
-        return Ok(());
+struct TurnCheckpoint {
+    exists: bool,
+    len: usize,
+}
+
+impl TurnCheckpoint {
+    fn unsaved(&self, new_turn_messages: &[ChatMessage]) -> Vec<ChatMessage> {
+        new_turn_messages[self.len..].to_vec()
     }
-    session_manager.save_checkpoint(checkpoint).await
+
+    async fn persist(
+        &mut self,
+        session_manager: &SessionManager,
+        new_turn_messages: &[ChatMessage],
+    ) -> Result<(), AppError> {
+        let complete = crate::engine::runner::history::without_unanswered_tool_calls(new_turn_messages);
+        if complete.len() <= self.len {
+            return Ok(());
+        }
+        session_manager.extend_checkpoint(complete[self.len..].to_vec()).await?;
+        self.exists = true;
+        self.len = complete.len();
+        Ok(())
+    }
 }
 
 async fn keep_partial_turn(
     session_manager: &SessionManager,
-    pending: Option<Vec<ChatMessage>>,
-    new_turn_messages: Vec<ChatMessage>,
+    saved: &mut TurnCheckpoint,
+    new_turn_messages: &[ChatMessage],
     error: AppError,
 ) -> AppError {
-    if matches!(error, AppError::Cancelled(_)) {
+    if !new_turn_messages
+        .iter()
+        .any(|m| matches!(m, ChatMessage::Assistant { .. }))
+    {
         return error;
     }
-    let complete = crate::engine::runner::history::without_unanswered_tool_calls(&new_turn_messages);
-    if !complete.iter().any(|m| matches!(m, ChatMessage::Assistant { .. })) {
-        return error;
-    }
-    match save_unfinished_turn(session_manager, pending, complete.to_vec()).await {
+    match saved.persist(session_manager, new_turn_messages).await {
         Ok(()) => error,
         Err(save_error) => AppError::Session(format!(
             "{error}; the turn's completed work could not be kept: {save_error}"

@@ -250,7 +250,7 @@ impl AgentEngine {
         if matches!(error, AppError::InvalidToolCall(_)) {
             self.run_tracker.invalid_tool();
         }
-        self.record_failed_turn(&error, &sink.completed()).await?;
+        self.record_failed_turn(&error, sink).await?;
         Err(error)
     }
 

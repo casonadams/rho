@@ -29,6 +29,7 @@ impl AgentEngine {
         sink: &Arc<TerminalApprovalSink>,
         lifecycle: &crate::hook::LifecycleHook,
     ) -> Result<TurnOutput> {
+        sink.record_tool_events().await?;
         match res {
             StreamRunResult::Compacted => self.compacted_turn_output().await,
             StreamRunResult::Complete(state) => {

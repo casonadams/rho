@@ -16,6 +16,9 @@ macro_rules! extract_record_ident {
             | SessionRecord::RunCheckpoint {
                 sequence, session_id, ..
             }
+            | SessionRecord::RunCheckpointExtended {
+                sequence, session_id, ..
+            }
             | SessionRecord::CheckpointPromoted {
                 sequence, session_id, ..
             }
@@ -81,6 +84,19 @@ fn apply_checkpoint_record(state: &mut StoreState, messages: Vec<ChatMessage>) -
     }
     state.integrity.check_checkpoint_batch(&messages)?;
     state.checkpoint = Some(messages);
+    Ok(())
+}
+
+fn apply_checkpoint_extended(state: &mut StoreState, messages: Vec<ChatMessage>) -> Result<()> {
+    if messages.is_empty() {
+        return Err(session_error("run checkpoint extensions cannot be empty"));
+    }
+    state.integrity.check_checkpoint_batch(&messages)?;
+    state
+        .checkpoint
+        .as_mut()
+        .ok_or_else(|| session_error("run checkpoint extension has no checkpoint to extend"))?
+        .extend(messages);
     Ok(())
 }
 
@@ -174,6 +190,7 @@ pub(crate) fn replay_record(
             *messages_stale = false;
         }
         SessionRecord::RunCheckpoint { messages, .. } => apply_checkpoint_record(state, messages)?,
+        SessionRecord::RunCheckpointExtended { messages, .. } => apply_checkpoint_extended(state, messages)?,
         SessionRecord::CheckpointPromoted {
             messages, timestamp, ..
         } => {

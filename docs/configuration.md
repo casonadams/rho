@@ -153,7 +153,7 @@ rho config models.guard none
 
 ### Failed Requests
 
-Each model request in a turn is retried on its own when it fails with a network error, a rate limit, a provider stream that goes idle for 300 seconds, or no response within 120 seconds: up to 3 attempts with 2s and 4s backoff, announced as `[Model request failed (...); retrying in 2s (1/2)...]`. Text streamed by the failed attempt may appear again. If a turn still fails, the model and tool work it finished is kept as a checkpoint and the next prompt continues from it, and the session log records the error (`run_failed`) and the tool calls that ran. Interrupting a turn with Esc discards its unfinished work.
+Each model request in a turn is retried on its own when it fails with a network error, a rate limit, a provider stream that goes idle for 300 seconds, or no response within 120 seconds: up to 3 attempts with 2s and 4s backoff, announced as `[Model request failed (...); retrying in 2s (1/2)...]`. Text streamed by the failed attempt may appear again. Each finished step of a turn (a model response and its tool results) is appended to the session file as soon as it completes, along with the tool audit events, so a failed turn, an Esc interrupt, a crash, or a killed terminal keeps that work as a checkpoint; the next prompt continues from it, and the work joins the conversation history when a turn completes. A step still waiting on its tools is dropped. Failed turns also record the error (`run_failed`) in the session log.
 
 ---
 

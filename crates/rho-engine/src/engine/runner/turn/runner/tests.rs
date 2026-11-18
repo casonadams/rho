@@ -477,6 +477,107 @@ async fn failures_before_any_model_output_leave_no_checkpoint() {
     assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
 }
 
+#[derive(Debug)]
+struct HangsAfterScript(MockAdapter);
+
+#[async_trait::async_trait]
+impl crate::provider::adapter::ModelAdapter for HangsAfterScript {
+    fn model_name(&self) -> &str {
+        self.0.model_name()
+    }
+
+    fn provider_name(&self) -> &str {
+        self.0.provider_name()
+    }
+
+    async fn stream(
+        &self,
+        request: ModelCompletionRequest,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+        let scripted = self.0.requests().is_empty();
+        let stream = self.0.stream(request).await?;
+        if scripted {
+            return Ok(stream);
+        }
+        Ok(Box::pin(futures::stream::pending()))
+    }
+}
+
+#[tokio::test]
+async fn finished_steps_survive_a_turn_that_is_killed_mid_flight() {
+    let script = MockAdapter::from_turns(vec![vec![
+        ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature("plan", Some("sig-1".into()))),
+        ModelStreamEvent::ToolCall(ToolCall::new(
+            "call-1",
+            ToolFunction::new("missing", serde_json::json!({})),
+        )),
+    ]]);
+    let (runner, temp, _, _) = test_agent_env(Arc::new(MockAdapter::default()));
+    let session_id = runner.session_manager.session_id.clone();
+    let mut runner = runner.prompt("do it");
+    runner.model = Arc::new(HangsAfterScript(script.clone()));
+
+    let mut stream = runner.stream();
+    let drain = tokio::spawn(async move {
+        while let Some(item) = stream.next().await {
+            if let Ok(MultiTurnStreamItem::DisplayBarrier(drained)) = item {
+                drained.notify_one();
+            }
+        }
+    });
+    crate::mcp::test_server::eventually("the hanging second model call", || script.requests().len() == 2).await;
+    drain.abort();
+    let _ = drain.await;
+
+    let reopened = rho_harness_core::session::SessionManager::new(temp.path(), Some(&session_id)).unwrap();
+    let checkpoint = reopened
+        .load_checkpoint()
+        .await
+        .unwrap()
+        .expect("finished step was persisted");
+    assert_eq!(checkpoint.first(), Some(&ChatMessage::user("do it")));
+    assert!(has_signed_reasoning(&checkpoint));
+    assert!(matches!(checkpoint.last(), Some(ChatMessage::User { content })
+        if content.iter().any(|c| matches!(c, rho_harness_core::model::UserContent::ToolResult(_)))));
+    assert!(reopened.load_messages().await.unwrap().is_empty());
+    let kinds: Vec<_> = reopened
+        .load_events()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.kind)
+        .collect();
+    use rho_harness_core::session::SessionEventKind::{ToolCall as CallEvent, ToolResult as ResultEvent};
+    assert_eq!(
+        kinds,
+        [CallEvent, ResultEvent],
+        "finished tools are audited before the turn ends"
+    );
+}
+
+#[tokio::test]
+async fn completing_after_checkpointed_steps_promotes_them_once() {
+    let model = tool_turn_then(vec![vec![Ok(ModelStreamEvent::Text("done".into()))]]);
+
+    let (runner, result, _temp) = run_prompt(model).await;
+
+    result.unwrap();
+    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+    let history = runner.session_manager.active_messages().await.unwrap();
+    assert_eq!(history.len(), 4, "{history:?}");
+    assert_eq!(history.first(), Some(&ChatMessage::user("do it")));
+    assert_eq!(history.last(), Some(&ChatMessage::assistant("done")));
+    let tool_calls = runner
+        .session_manager
+        .load_events()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == rho_harness_core::session::SessionEventKind::ToolCall)
+        .count();
+    assert_eq!(tool_calls, 1, "each tool is audited once");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
     let model = tool_turn_then(vec![dropped(), vec![Ok(ModelStreamEvent::Text("done".into()))]]);

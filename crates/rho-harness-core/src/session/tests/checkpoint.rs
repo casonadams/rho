@@ -58,6 +58,49 @@ async fn budget_checkpoint_rejects_dangling_tools_and_credentials() {
     );
 }
 
+#[tokio::test]
+async fn extended_checkpoints_append_batches_and_survive_reload() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    let id = store.session_id.clone();
+    let mut first = complete_tool_turn(&["call-1"]);
+    first.pop();
+    let mut second = complete_tool_turn(&["call-2"]);
+    second.pop();
+    let second = second.split_off(1);
+
+    store.extend_checkpoint(first.clone()).await.unwrap();
+    store.extend_checkpoint(second.clone()).await.unwrap();
+    let log = std::fs::read_to_string(&store.file_path).unwrap();
+    assert_eq!(
+        log.lines().filter(|line| line.contains("call-1")).count(),
+        1,
+        "earlier batches must not be rewritten"
+    );
+    drop(store);
+
+    let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
+    let expected: Vec<ChatMessage> = first.into_iter().chain(second).collect();
+    assert_eq!(resumed.load_checkpoint().await.unwrap(), Some(expected));
+    resumed
+        .promote_checkpoint(vec![ChatMessage::assistant("done")])
+        .await
+        .unwrap();
+    assert!(resumed.load_checkpoint().await.unwrap().is_none());
+    assert_eq!(resumed.load_messages().await.unwrap().len(), 6);
+}
+
+#[tokio::test]
+async fn checkpoint_extensions_reject_dangling_tool_calls() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    let mut dangling = complete_tool_turn(&["call-1"]);
+    dangling.truncate(2);
+    assert!(store.extend_checkpoint(dangling).await.is_err());
+    assert!(store.extend_checkpoint(Vec::new()).await.is_err());
+    assert!(store.load_checkpoint().await.unwrap().is_none());
+}
+
 async fn append_cancellation_event(store: &SessionManager, boundary: &str) {
     let payload = serde_json::json!({"boundary": boundary, "terminal": true});
     let _ = store.append_event(SessionEventKind::Cancellation, payload).await;

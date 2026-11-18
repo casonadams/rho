@@ -45,6 +45,7 @@ pub struct TerminalSinkState {
     pub pending: HashMap<String, std::collections::VecDeque<PendingToolCall>>,
     pub reasoning: Vec<String>,
     pub completed: Vec<CompletedTool>,
+    pub recorded_events: usize,
     pub last_display: DisplayKind,
     pub pending_reasoning_newlines: usize,
     pub has_reasoning_content: bool,

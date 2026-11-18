@@ -43,6 +43,12 @@ pub enum SessionRecord {
         timestamp: DateTime<Utc>,
         messages: Vec<ChatMessage>,
     },
+    RunCheckpointExtended {
+        sequence: u64,
+        session_id: String,
+        timestamp: DateTime<Utc>,
+        messages: Vec<ChatMessage>,
+    },
     CheckpointPromoted {
         sequence: u64,
         session_id: String,

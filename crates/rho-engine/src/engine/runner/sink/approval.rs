@@ -77,6 +77,7 @@ impl TerminalApprovalSink {
                 pending: HashMap::new(),
                 reasoning: Vec::new(),
                 completed: Vec::new(),
+                recorded_events: 0,
                 last_display: DisplayKind::None,
                 pending_reasoning_newlines: 0,
                 has_reasoning_content: false,
@@ -113,6 +114,23 @@ impl TerminalApprovalSink {
             .lock()
             .map(|state| state.completed.clone())
             .unwrap_or_default()
+    }
+
+    pub fn unrecorded(&self) -> Vec<CompletedTool> {
+        self.state
+            .lock()
+            .map(|state| state.completed[state.recorded_events..].to_vec())
+            .unwrap_or_default()
+    }
+
+    pub async fn record_tool_events(&self) -> rho_harness_core::error::Result<()> {
+        for tool in self.unrecorded() {
+            append_tool_events(&self.session_manager, &tool).await?;
+            if let Ok(mut state) = self.state.lock() {
+                state.recorded_events += 1;
+            }
+        }
+        Ok(())
     }
 
     pub fn flush_reasoning(&self) {
@@ -318,6 +336,34 @@ impl Drop for TerminalApprovalSink {
     fn drop(&mut self) {
         self.flush_reasoning();
     }
+}
+
+async fn append_tool_events(
+    session_manager: &SessionManager,
+    tool: &CompletedTool,
+) -> rho_harness_core::error::Result<()> {
+    use rho_harness_core::session::SessionEventKind;
+    session_manager
+        .append_event(
+            SessionEventKind::ToolCall,
+            serde_json::json!({
+                "id": tool.internal_call_id,
+                "name": tool.name,
+                "arguments": tool.arguments,
+            }),
+        )
+        .await?;
+    session_manager
+        .append_event(
+            SessionEventKind::ToolResult,
+            serde_json::json!({
+                "id": tool.internal_call_id,
+                "name": tool.name,
+                "output": tool.output,
+                "status": tool.status,
+            }),
+        )
+        .await
 }
 
 #[cfg(test)]

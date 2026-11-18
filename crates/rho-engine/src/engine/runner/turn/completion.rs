@@ -44,9 +44,9 @@ impl AgentEngine {
     pub(super) async fn record_failed_turn(
         &self,
         error: &AppError,
-        completed_tools: &[crate::engine::runner::sink::CompletedTool],
+        sink: &crate::engine::runner::sink::TerminalApprovalSink,
     ) -> Result<()> {
-        self.record_completed_tool_events(completed_tools).await?;
+        sink.record_tool_events().await?;
         self.session_manager
             .append_event(
                 SessionEventKind::RunFailed,
@@ -73,37 +73,6 @@ impl AgentEngine {
                 serde_json::to_value(metrics).map_err(|error| AppError::Other(error.into()))?,
             )
             .await
-    }
-
-    async fn record_single_tool_event(&self, tool: &crate::engine::runner::sink::CompletedTool) -> Result<()> {
-        self.session_manager
-            .append_event(
-                SessionEventKind::ToolCall,
-                serde_json::json!({
-                    "id": tool.internal_call_id,
-                    "name": tool.name,
-                    "arguments": tool.arguments,
-                }),
-            )
-            .await?;
-        self.session_manager
-            .append_event(
-                SessionEventKind::ToolResult,
-                serde_json::json!({
-                    "id": tool.internal_call_id,
-                    "name": tool.name,
-                    "output": tool.output,
-                    "status": tool.status,
-                }),
-            )
-            .await
-    }
-
-    async fn record_completed_tool_events(&self, tools: &[crate::engine::runner::sink::CompletedTool]) -> Result<()> {
-        for tool in tools {
-            self.record_single_tool_event(tool).await?;
-        }
-        Ok(())
     }
 
     async fn record_turn_usage(
@@ -151,7 +120,6 @@ impl AgentEngine {
             generation_elapsed_ms,
         } = artifacts;
 
-        self.record_completed_tool_events(&completed_tools).await?;
         self.session_manager
             .append_event(
                 SessionEventKind::AssistantResponse,

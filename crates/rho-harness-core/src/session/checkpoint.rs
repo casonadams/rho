@@ -42,6 +42,35 @@ impl SessionManager {
         Ok(())
     }
 
+    pub async fn extend_checkpoint(&self, messages: Vec<ChatMessage>) -> Result<()> {
+        if messages.is_empty() {
+            return Err(session_error("run checkpoint extensions cannot be empty"));
+        }
+        self.reject_secrets(&messages)?;
+        let mut state = self.state.lock().await;
+        state.integrity.check_checkpoint_batch(&messages)?;
+        let (sequence, session_id, timestamp) = (state.next_sequence, self.session_id.clone(), Utc::now());
+        let record = if state.checkpoint.is_some() {
+            SessionRecord::RunCheckpointExtended {
+                sequence,
+                session_id,
+                timestamp,
+                messages: messages.clone(),
+            }
+        } else {
+            SessionRecord::RunCheckpoint {
+                sequence,
+                session_id,
+                timestamp,
+                messages: messages.clone(),
+            }
+        };
+        append_durable_record(&self.file_path, &record).await?;
+        state.next_sequence += 1;
+        state.checkpoint.get_or_insert_with(Vec::new).extend(messages);
+        Ok(())
+    }
+
     pub async fn promote_checkpoint(&self, messages: Vec<ChatMessage>) -> Result<()> {
         self.reject_secrets(&messages)?;
         let mut state = self.state.lock().await;
