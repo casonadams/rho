@@ -15,20 +15,26 @@ pub async fn post_json_checked(
     url: &str,
     headers: reqwest::header::HeaderMap,
     body: &serde_json::Value,
-) -> Result<reqwest::Response, (Option<u16>, String)> {
+) -> crate::provider::error::HttpResult {
+    use crate::provider::error::HttpFailure;
     let response = CLIENT
         .post(url)
         .headers(headers)
         .json(body)
         .send()
         .await
-        .map_err(|e| (None, e.to_string()))?;
+        .map_err(|e| HttpFailure::Transport(e.to_string()))?;
     let status = response.status();
     if status.is_success() {
         return Ok(response);
     }
-    let text = response.text().await.unwrap_or_default();
-    Err((Some(status.as_u16()), text))
+    let retry_after = crate::provider::error::parse_retry_after(response.headers(), chrono::Utc::now());
+    let body = response.text().await.unwrap_or_default();
+    Err(HttpFailure::Status {
+        status: status.as_u16(),
+        body,
+        retry_after,
+    })
 }
 
 pub async fn send_json_if_ok(request: reqwest::RequestBuilder) -> Option<serde_json::Value> {

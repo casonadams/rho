@@ -11,7 +11,6 @@ mod tests;
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
-use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -128,6 +127,8 @@ struct ResponseFailedPayload {
 
 #[derive(Deserialize)]
 struct ErrorDetailsPayload {
+    #[serde(default)]
+    code: Option<String>,
     #[serde(default)]
     message: String,
 }
@@ -371,19 +372,21 @@ impl SseParser {
                 Self::handle_completed(response.and_then(|r| r.usage), FinishReason::Length, events);
             }
             ResponsesWireEvent::ResponseFailed { response } => {
-                let msg = response
-                    .and_then(|r| r.error)
+                let error = response.and_then(|r| r.error);
+                let code = error.as_ref().and_then(|e| e.code.clone());
+                let msg = error
                     .map(|e| e.message)
                     .filter(|m| !m.is_empty())
                     .unwrap_or_else(|| "ChatGPT response failed".to_string());
-                events.push(Err(AppError::Provider(msg)));
+                events.push(Err(crate::provider::error::classify_stream_error(code.as_deref(), msg)));
             }
             ResponsesWireEvent::Error { error, message } => {
+                let code = error.as_ref().and_then(|e| e.code.clone());
                 let msg = error
                     .map(|e| e.message)
                     .or(message)
                     .unwrap_or_else(|| "ChatGPT API error".to_string());
-                events.push(Err(AppError::Provider(msg)));
+                events.push(Err(crate::provider::error::classify_stream_error(code.as_deref(), msg)));
             }
             ResponsesWireEvent::Unknown => {}
         }

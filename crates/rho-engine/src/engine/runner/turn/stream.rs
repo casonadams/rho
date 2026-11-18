@@ -11,7 +11,7 @@ use super::runner::{AgentRunner, ModelRetry, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse};
-use crate::engine::runner::history::{DisplayEvent, is_content_filter_error};
+use crate::engine::runner::history::DisplayEvent;
 use crate::engine::runner::sink::TerminalApprovalSink;
 use crate::engine::tracking::UsageTracker;
 
@@ -235,7 +235,7 @@ impl AgentEngine {
         checkpoint: &mut Option<Vec<ChatMessage>>,
         overflow_recovered: &mut bool,
     ) -> Result<bool> {
-        if !*overflow_recovered && crate::engine::compactor::is_context_overflow_error(error) {
+        if !*overflow_recovered && matches!(error, AppError::ContextOverflow(_)) {
             *overflow_recovered = true;
             return self.try_recover_overflow(presenter, visible_history, checkpoint).await;
         }
@@ -291,7 +291,7 @@ impl AgentEngine {
             match item {
                 Ok(item) => self.process_stream_item(item, sink, &mut state),
                 Err(err) => {
-                    if is_content_filter_error(&err) {
+                    if matches!(err, AppError::ContentFiltered) {
                         return Ok(StreamRunResult::ContentFiltered(Box::new(state)));
                     }
                     return self.handle_stream_error(err, presenter, sink, loop_state).await;

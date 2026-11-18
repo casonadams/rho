@@ -403,22 +403,27 @@ impl ModelAdapter for OpenAiClient {
     }
 
     async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
+        use crate::provider::error::HttpFailure;
         let body = build_request_body(&req, &self.model, true);
+        let provider = self.provider_name.clone();
         let resp = CLIENT
             .post(self.endpoint_url())
             .headers(self.build_headers())
             .json(&body)
             .send()
             .await
-            .map_err(|e| AppError::Provider(format!("Failed to connect to {}: {e}", self.provider_name)))?;
+            .map_err(|e| AppError::Network(format!("Failed to connect to {provider}: {e}")))?;
 
         if !resp.status().is_success() {
-            let status = resp.status();
+            let status = resp.status().as_u16();
+            let retry_after = crate::provider::error::parse_retry_after(resp.headers(), chrono::Utc::now());
             let text = resp.text().await.unwrap_or_default();
-            return Err(AppError::Provider(format!(
-                "HTTP {status} from {}: {text}",
-                self.provider_name
-            )));
+            let failure = HttpFailure::Status {
+                status,
+                body: format!("HTTP {status} from {provider}: {text}"),
+                retry_after,
+            };
+            return Err(failure.into_app_error(|_, body| body.to_string()));
         }
 
         let parser = OpenAiSseParser::new();

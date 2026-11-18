@@ -1,5 +1,6 @@
 use super::*;
 use crate::provider::adapter::ModelStreamEvent;
+use rho_harness_core::error::AppError;
 
 #[test]
 fn reasoning_summary_parts_inject_paragraph_breaks_between_steps() {

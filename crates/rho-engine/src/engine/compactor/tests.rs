@@ -361,7 +361,7 @@ mod compactor {
     #[tokio::test]
     async fn test_llm_compactor_overflow_retries_and_recovers() {
         let mock = Arc::new(MockAdapter::default());
-        mock.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+        mock.add_turn(vec![Err(rho_harness_core::error::AppError::ContextOverflow(
             "context_length_exceeded: maximum context length is 128000 tokens".to_string(),
         ))]);
         mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
@@ -395,7 +395,7 @@ mod compactor {
     async fn test_llm_compactor_overflow_falls_back_when_all_retries_exhausted() {
         let mock = Arc::new(MockAdapter::default());
         for _ in 0..4 {
-            mock.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+            mock.add_turn(vec![Err(rho_harness_core::error::AppError::ContextOverflow(
                 "context_length_exceeded".to_string(),
             ))]);
         }
@@ -423,7 +423,7 @@ mod compactor {
     #[tokio::test]
     async fn test_llm_compactor_overflow_single_turn_falls_back_without_retrying() {
         let mock = Arc::new(MockAdapter::default());
-        mock.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
+        mock.add_turn(vec![Err(rho_harness_core::error::AppError::ContextOverflow(
             "context_length_exceeded".to_string(),
         ))]);
         let compactor = LlmCompactor::new(Some(mock.clone()));
@@ -830,47 +830,6 @@ mod orchestrator {
     }
 }
 
-mod overflow {
-    use crate::engine::compactor::{is_context_overflow_error, is_context_overflow_message};
-    use rho_harness_core::error::AppError;
-
-    #[test]
-    fn test_is_context_overflow_message_patterns() {
-        let overflow_messages = [
-            "InvalidRequestError: This model's maximum context length is 128000 tokens.",
-            "error: prompt is too long: 205000 tokens > 200000 maximum tokens",
-            "ResourceExhausted: input token count exceeds limit",
-            "context_length_exceeded",
-            "context window exceeded",
-            "Request payload size exceeds the limit: 1048576 bytes",
-            "exceeds the context window of 128000 tokens",
-        ];
-        for msg in overflow_messages {
-            assert!(is_context_overflow_message(msg));
-        }
-        for msg in [
-            "Connection reset by peer",
-            "Unauthorized 401",
-            "Internal server error 500",
-            "Rate limit exceeded 429",
-        ] {
-            assert!(!is_context_overflow_message(msg));
-        }
-    }
-
-    #[test]
-    fn test_is_context_overflow_streaming_error() {
-        let completion_err = AppError::Provider("prompt is too long: 210000 tokens".to_string());
-        assert!(is_context_overflow_error(&completion_err));
-
-        let prompt_err = AppError::Provider("context_length_exceeded".to_string());
-        assert!(is_context_overflow_error(&prompt_err));
-
-        let unrelated = AppError::Provider("Model overloaded, try again later".to_string());
-        assert!(!is_context_overflow_error(&unrelated));
-    }
-}
-
 mod recovery {
     use super::common;
     use rho_harness_core::model::ChatMessage;
@@ -929,7 +888,7 @@ mod recovery {
     async fn test_context_overflow_auto_recovery_halts_after_compaction() {
         let dir = std::env::temp_dir().join(format!("overflow_rec_{}", uuid::Uuid::new_v4()));
         let model = Arc::new(MockAdapter::default());
-        model.add_turn(vec![Err(AppError::Provider(
+        model.add_turn(vec![Err(AppError::ContextOverflow(
             "context_length_exceeded: maximum context length is 128000 tokens".to_string(),
         ))]);
         model.add_turn(vec![Ok(ModelStreamEvent::Text("recovered from overflow".to_string()))]);
@@ -955,8 +914,12 @@ mod recovery {
     async fn test_context_overflow_fails_if_overflow_persists() {
         let dir = std::env::temp_dir().join(format!("overflow_loop_{}", uuid::Uuid::new_v4()));
         let model = Arc::new(MockAdapter::default());
-        model.add_turn(vec![Err(AppError::Provider("context_length_exceeded".to_string()))]);
-        model.add_turn(vec![Err(AppError::Provider("context_length_exceeded".to_string()))]);
+        model.add_turn(vec![Err(AppError::ContextOverflow(
+            "context_length_exceeded".to_string(),
+        ))]);
+        model.add_turn(vec![Err(AppError::ContextOverflow(
+            "context_length_exceeded".to_string(),
+        ))]);
 
         let engine = recovery_engine(&dir, model);
         let session_id = engine.session_manager.session_id.clone();

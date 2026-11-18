@@ -81,6 +81,8 @@ pub(crate) struct StreamResponseBody {
 
 #[derive(Deserialize, Debug)]
 pub(crate) struct StreamError {
+    #[serde(default)]
+    pub(crate) code: Option<u16>,
     pub(crate) message: Option<Value>,
 }
 

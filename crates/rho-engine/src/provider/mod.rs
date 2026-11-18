@@ -1,6 +1,7 @@
 pub mod adapter;
 mod builders;
 pub mod discovery;
+pub mod error;
 pub mod openai;
 pub mod sse;
 pub mod store;

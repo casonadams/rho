@@ -33,6 +33,16 @@ fn format_chunk_error(error: &wire::StreamError) -> String {
     }
 }
 
+fn chunk_error(error: &wire::StreamError) -> AppError {
+    let message = format_chunk_error(error);
+    match error.code {
+        Some(status) => {
+            crate::provider::error::HttpFailure::status(status, message).into_app_error(|_, body| body.to_string())
+        }
+        None => crate::provider::error::classify_stream_error(None, message),
+    }
+}
+
 impl SseParser {
     pub fn new() -> Self {
         Self::default()
@@ -63,7 +73,7 @@ impl SseParser {
             return;
         };
         if let Some(ref error) = chunk.error {
-            events.push(Err(AppError::Provider(format_chunk_error(error))));
+            events.push(Err(chunk_error(error)));
             return;
         }
         let mut body = chunk.response.unwrap_or(chunk.direct);

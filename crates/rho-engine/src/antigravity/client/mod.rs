@@ -3,6 +3,7 @@
 use super::request::{self, Effort, RequestTarget};
 use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
+use crate::provider::error::{HttpFailure, HttpResult};
 
 pub mod completion;
 pub mod discovery;
@@ -80,9 +81,10 @@ async fn try_post_stream_refresh(
     request: &ModelCompletionRequest,
     token: &mut String,
     refreshed: &mut bool,
-) -> Result<reqwest::Response, (Option<u16>, String)> {
+) -> HttpResult {
     let mut res = client.post_stream(endpoint.with_token(token), request).await;
-    if let Err((Some(401), ref body)) = res
+    if let Err(failure) = &res
+        && failure.status_code() == Some(401)
         && !*refreshed
     {
         if let Ok(new_token) = client.token_provider.force_refresh().await {
@@ -90,28 +92,28 @@ async fn try_post_stream_refresh(
             *refreshed = true;
             res = client.post_stream(endpoint.with_token(token), request).await;
         } else {
-            return Err((Some(401), body.clone()));
+            return Err(HttpFailure::status(401, failure.body()));
         }
     }
     res
 }
 
-pub(super) fn classify_stream_error(
-    res: Result<reqwest::Response, (Option<u16>, String)>,
-    last: &mut Option<(Option<u16>, String)>,
-) -> Option<Result<reqwest::Response, (Option<u16>, String)>> {
-    match res {
-        Ok(resp) => Some(Ok(resp)),
-        Err((Some(429), body)) if body.contains("Individual quota reached") => Some(Err((Some(429), body))),
-        Err((Some(status), body)) if [403, 404, 429, 500, 502, 503, 504].contains(&status) => {
-            *last = Some((Some(status), body));
-            None
-        }
-        Err((None, body)) => {
-            *last = Some((None, body));
-            None
-        }
-        Err(other) => Some(Err(other)),
+pub(super) fn classify_stream_error(res: HttpResult, last: &mut Option<HttpFailure>) -> Option<HttpResult> {
+    let failure = match res {
+        Ok(resp) => return Some(Ok(resp)),
+        Err(failure) => failure,
+    };
+    let fall_through = match &failure {
+        HttpFailure::Status { status: 429, body, .. } if body.contains("Individual quota reached") => false,
+        HttpFailure::Status { status, .. } => [403, 404, 429, 500, 502, 503, 504].contains(status),
+        HttpFailure::Transport(_) => true,
+        HttpFailure::Local(_) => false,
+    };
+    if fall_through {
+        *last = Some(failure);
+        None
+    } else {
+        Some(Err(failure))
     }
 }
 
@@ -169,14 +171,11 @@ impl AntigravityClient {
         format!("{endpoint}/v1internal:streamGenerateContent?alt=sse")
     }
 
-    async fn post_stream(
-        &self,
-        target: EndpointTarget<'_, '_>,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+    async fn post_stream(&self, target: EndpointTarget<'_, '_>, request: &ModelCompletionRequest) -> HttpResult {
         let envelope = request::new_envelope();
         let wire_target = target.endpoint.wire_target();
-        let body = request::build_request_body(wire_target, request, &envelope).map_err(|e| (None, e.to_string()))?;
+        let body = request::build_request_body(wire_target, request, &envelope)
+            .map_err(|e| HttpFailure::Local(e.to_string()))?;
         let mut headers = antigravity_headers(target.token);
         if request::wants_claude_thinking_header(wire_target.runtime_model, wire_target.effort) {
             headers.insert(
@@ -194,7 +193,7 @@ impl AntigravityClient {
         token: &mut String,
         refreshed: &mut bool,
         request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+    ) -> HttpResult {
         let mut last = None;
         for candidate in candidates {
             for &base_url in endpoints {
@@ -210,18 +209,15 @@ impl AntigravityClient {
                 }
             }
         }
-        Err(last.unwrap_or((None, "no endpoint available".to_string())))
+        Err(last.unwrap_or_else(|| HttpFailure::Transport("no endpoint available".to_string())))
     }
 
-    pub(crate) async fn open_stream(
-        &self,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+    pub(crate) async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
         let mut token = self
             .token_provider
             .token()
             .await
-            .map_err(|e| (None, format!("Failed to acquire Antigravity access token: {e}")))?;
+            .map_err(|e| HttpFailure::Local(format!("Failed to acquire Antigravity access token: {e}")))?;
         let candidates = resolve_candidate_models(&self.model, self.effort);
         let endpoints = resolve_endpoints(self.endpoint.as_deref());
         let endpoint_refs: Vec<&str> = endpoints.iter().map(|s| s.as_str()).collect();

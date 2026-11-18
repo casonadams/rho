@@ -208,14 +208,19 @@ fn decode_cases() -> Vec<(&'static str, Vec<&'static str>, Vec<ParsedEvent>)> {
             ],
         ),
         (
-            "error event surfaces the provider message",
+            "overloaded error events are retryable and keep the provider message",
             vec![r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#],
-            vec![Err("Provider error: Overloaded".to_string())],
+            vec![Err("Provider unavailable: Overloaded".to_string())],
+        ),
+        (
+            "untyped error events stay provider errors",
+            vec![r#"{"type":"error","error":{"message":"bad"}}"#],
+            vec![Err("Provider error: bad".to_string())],
         ),
         (
             "error event without a message uses the default",
             vec![r#"{"type":"error","error":{"type":"api_error"}}"#],
-            vec![Err("Provider error: Anthropic streaming error".to_string())],
+            vec![Err("Provider unavailable: Anthropic streaming error".to_string())],
         ),
     ]
 }

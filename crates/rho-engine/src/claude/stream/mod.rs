@@ -11,7 +11,6 @@ use wire::{ContentBlockStartPayload, ContentDeltaPayload, SseMessage};
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
-use rho_harness_core::error::AppError;
 use rho_harness_core::model::{Reasoning, ReasoningContent, ToolCall, ToolFunction};
 use std::collections::HashMap;
 
@@ -183,7 +182,10 @@ impl SseParser {
             SseMessage::MessageStop => self.handle_message_stop(events),
             SseMessage::Error { error } => {
                 let msg = error.message.unwrap_or_else(|| "Anthropic streaming error".to_string());
-                events.push(Err(AppError::Provider(msg)));
+                events.push(Err(crate::provider::error::classify_stream_error(
+                    error.kind.as_deref(),
+                    msg,
+                )));
             }
             SseMessage::Ignored => {}
         }

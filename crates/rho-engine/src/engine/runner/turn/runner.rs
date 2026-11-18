@@ -55,13 +55,11 @@ pub struct ModelRetry {
 const MODEL_CALL_ATTEMPTS: usize = 3;
 const MODEL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-fn is_retryable_model_error(error: &AppError) -> bool {
-    crate::engine::runner::history::is_transient_network_error(error)
-        || error.to_string().to_lowercase().contains("rate limit")
-}
-
-fn retry_delay(attempt: usize) -> std::time::Duration {
-    std::time::Duration::from_secs(1 << attempt.min(5))
+fn retry_delay(attempt: usize, error: &AppError) -> std::time::Duration {
+    let backoff = std::time::Duration::from_secs(1 << attempt.min(5));
+    error
+        .retry_after()
+        .map_or(backoff, |wait| wait.min(crate::provider::error::MAX_RETRY_AFTER))
 }
 
 struct TurnStream {
@@ -387,13 +385,13 @@ async fn call_model(
         let mut outcome = TurnStreamOutcome::default();
         let error = match attempt_model_call(runner, req.clone(), emitter, &mut outcome).await {
             Ok(()) => return Ok(outcome),
-            Err(error) if attempt < MODEL_CALL_ATTEMPTS && is_retryable_model_error(&error) => error,
+            Err(error) if attempt < MODEL_CALL_ATTEMPTS && error.is_transient() => error,
             Err(error) => return Err(error),
         };
         let retry = ModelRetry {
             attempt,
             max_attempts: MODEL_CALL_ATTEMPTS,
-            delay: retry_delay(attempt),
+            delay: retry_delay(attempt, &error),
             reason: error.to_string(),
             discarded_tool_calls: outcome.tool_calls.len(),
         };

@@ -98,7 +98,7 @@ where
                 }
             }
             Err(e) => {
-                let err = AppError::Provider(format!("Stream transport failed: {e}"));
+                let err = AppError::Network(format!("Stream transport failed: {e}"));
                 return Some((vec![Err(err)], (bytes, parser, true)));
             }
         }
@@ -123,11 +123,11 @@ where
 
 /// Map a provider's opened HTTP response (or its `(status, body)` failure) into an event stream.
 pub fn open_sse_stream<P: SseStreamParser>(
-    opened: Result<reqwest::Response, (Option<u16>, String)>,
+    opened: crate::provider::error::HttpResult,
     friendly_error: fn(Option<u16>, &str) -> String,
     parser: P,
 ) -> Result<crate::provider::adapter::ModelEventStream, AppError> {
-    let response = opened.map_err(|(status, body)| AppError::Provider(friendly_error(status, &body)))?;
+    let response = opened.map_err(|failure| failure.into_app_error(friendly_error))?;
     Ok(unfold_sse_stream(response.bytes_stream(), parser))
 }
 

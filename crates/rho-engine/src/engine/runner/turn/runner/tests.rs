@@ -578,6 +578,36 @@ async fn completing_after_checkpointed_steps_promotes_them_once() {
     assert_eq!(tool_calls, 1, "each tool is audited once");
 }
 
+#[test]
+fn retry_delay_honors_provider_waits_up_to_the_cap() {
+    use std::time::Duration;
+    let limited = |secs: Option<u64>| AppError::RateLimited {
+        message: "slow".into(),
+        retry_after: secs.map(Duration::from_secs),
+    };
+    let cases = [
+        (1, limited(None), Duration::from_secs(2)),
+        (2, limited(None), Duration::from_secs(4)),
+        (1, limited(Some(7)), Duration::from_secs(7)),
+        (1, limited(Some(0)), Duration::ZERO),
+        (1, limited(Some(600)), crate::provider::error::MAX_RETRY_AFTER),
+        (1, AppError::Network("reset".into()), Duration::from_secs(2)),
+    ];
+    for (attempt, error, expected) in cases {
+        assert_eq!(retry_delay(attempt, &error), expected, "{error}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn non_transient_provider_errors_are_not_retried() {
+    let model = tool_turn_then(vec![vec![Err(AppError::ContextOverflow("too long".into()))]]);
+
+    let (_runner, result, _temp) = run_prompt(Arc::clone(&model)).await;
+
+    assert!(matches!(result, Err(AppError::ContextOverflow(_))), "{result:?}");
+    assert_eq!(model.requests().len(), 2);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
     let model = tool_turn_then(vec![dropped(), vec![Ok(ModelStreamEvent::Text("done".into()))]]);

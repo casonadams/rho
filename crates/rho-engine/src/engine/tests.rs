@@ -596,7 +596,10 @@ async fn rate_limited_model_request_retries_and_succeeds() {
     let dir = std::env::temp_dir().join(format!("retry_429_{}", uuid::Uuid::new_v4()));
 
     let model = Arc::new(MockAdapter::default());
-    model.add_turn(vec![Err(AppError::Provider("rate limited".to_string()))]);
+    model.add_turn(vec![Err(AppError::RateLimited {
+        message: "rate limited".to_string(),
+        retry_after: None,
+    })]);
     model.add_turn(vec![Ok(ModelStreamEvent::Text(
         "recovered successfully after rate limit".to_string(),
     ))]);

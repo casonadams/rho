@@ -117,6 +117,8 @@ pub(super) struct OutputTokensDetails {
 
 #[derive(Deserialize)]
 pub(super) struct ErrorPayload {
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
     pub message: Option<String>,
 }
 

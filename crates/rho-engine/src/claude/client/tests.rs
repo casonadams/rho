@@ -305,7 +305,10 @@ async fn test_open_stream_stops_after_single_retry_if_401_persists() {
         ClaudeClient::with_token_provider(provider, "claude-sonnet-4-5").with_endpoint(format!("http://{addr}"));
 
     let err = client.open_stream(&sample_request()).await.unwrap_err();
-    assert_eq!((err.0, refresh_count.load(Ordering::SeqCst)), (Some(401), 1));
+    assert_eq!(
+        (err.status_code(), refresh_count.load(Ordering::SeqCst)),
+        (Some(401), 1)
+    );
 }
 
 struct FailingRefreshProvider;
@@ -327,7 +330,8 @@ async fn test_open_stream_reports_why_refresh_failed_after_401() {
     let client = ClaudeClient::with_token_provider(Arc::new(FailingRefreshProvider), "claude-sonnet-4-5")
         .with_endpoint(format!("http://{addr}"));
 
-    let (status, message) = client.open_stream(&sample_request()).await.unwrap_err();
+    let failure = client.open_stream(&sample_request()).await.unwrap_err();
+    let (status, message) = (failure.status_code(), failure.body().to_string());
 
     assert_eq!(status, None);
     assert!(message.contains("invalid_grant"), "{message}");

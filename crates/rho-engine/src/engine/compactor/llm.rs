@@ -1,4 +1,5 @@
 pub use crate::provider::adapter::ModelHandle;
+use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, ToolResult, ToolResultContent, UserContent};
 use std::time::Duration;
 
@@ -40,14 +41,8 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
     match tokio::time::timeout(Duration::from_secs(60), model.complete(req)).await {
         Ok(Ok(resp)) if !resp.content.trim().is_empty() => Ok((resp.content.trim().to_string(), resp.usage)),
         Ok(Ok(_)) => Err(LlmCallError::Other),
-        Ok(Err(e)) => {
-            let msg = e.to_string();
-            if crate::engine::compactor::is_context_overflow_message(&msg) {
-                Err(LlmCallError::ContextOverflow(msg))
-            } else {
-                Err(LlmCallError::Other)
-            }
-        }
+        Ok(Err(AppError::ContextOverflow(msg))) => Err(LlmCallError::ContextOverflow(msg)),
+        Ok(Err(_)) => Err(LlmCallError::Other),
         Err(_) => Err(LlmCallError::Other),
     }
 }

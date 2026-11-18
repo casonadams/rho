@@ -20,6 +20,18 @@ pub enum AppError {
     ModelBudgetExhausted { max_turns: usize },
     #[error("Provider error: {0}")]
     Provider(String),
+    #[error("Rate limited: {message}")]
+    RateLimited {
+        message: String,
+        retry_after: Option<std::time::Duration>,
+    },
+    #[error("Provider unavailable: {message}")]
+    ProviderUnavailable {
+        message: String,
+        retry_after: Option<std::time::Duration>,
+    },
+    #[error("Context window exceeded: {0}")]
+    ContextOverflow(String),
     #[error("The provider filtered the model response")]
     ContentFiltered,
     #[error("Operation cancelled: {0}")]
@@ -34,4 +46,20 @@ pub enum AppError {
     InvalidToolCall(String),
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
+}
+
+impl AppError {
+    pub fn retry_after(&self) -> Option<std::time::Duration> {
+        match self {
+            Self::RateLimited { retry_after, .. } | Self::ProviderUnavailable { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
+
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Network(_) | Self::RateLimited { .. } | Self::ProviderUnavailable { .. }
+        )
+    }
 }

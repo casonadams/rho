@@ -9,6 +9,7 @@ use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
+use crate::provider::error::{HttpFailure, HttpResult};
 
 #[cfg(test)]
 mod tests;
@@ -79,45 +80,31 @@ impl ClaudeClient {
         )
     }
 
-    async fn post_stream(
-        &self,
-        token: &str,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+    async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
         let body = build_request_body(&self.model, self.thinking_level.as_deref(), request, self.auth)
-            .map_err(|e| (None, e.to_string()))?;
+            .map_err(|e| HttpFailure::Local(e.to_string()))?;
         post_json_checked(&self.target_url(), claude_headers(self.auth, token), &body).await
     }
 
-    async fn refresh_and_retry(
-        &self,
-        request: &ModelCompletionRequest,
-        body: &str,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+    async fn refresh_and_retry(&self, request: &ModelCompletionRequest, body: &str) -> HttpResult {
         match self.token_provider.force_refresh().await {
             Ok(new_token) => self.post_stream(&new_token, request).await,
-            Err(error) => Err((
-                None,
-                format!("token refresh failed after 401 ({error}). Run 'rho login claude'. Backend: {body}"),
-            )),
+            Err(error) => Err(HttpFailure::Local(format!(
+                "token refresh failed after 401 ({error}). Run 'rho login claude'. Backend: {body}"
+            ))),
         }
     }
 
-    pub(crate) async fn open_stream(
-        &self,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+    pub(crate) async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
         let token = self
             .token_provider
             .token()
             .await
-            .map_err(|e| (None, format!("Failed to acquire Claude access token: {e}")))?;
+            .map_err(|e| HttpFailure::Local(format!("Failed to acquire Claude access token: {e}")))?;
 
-        let res = self.post_stream(&token, request).await;
-        if let Err((Some(401), ref body)) = res {
-            self.refresh_and_retry(request, body).await
-        } else {
-            res
+        match self.post_stream(&token, request).await {
+            Err(failure) if failure.status_code() == Some(401) => self.refresh_and_retry(request, failure.body()).await,
+            res => res,
         }
     }
 }

@@ -7,6 +7,7 @@ use crate::auth::store::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 use crate::http::post_json_checked;
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
+use crate::provider::error::{HttpFailure, HttpResult};
 use crate::provider::sse::open_sse_stream;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
@@ -150,30 +151,26 @@ impl ChatGptClient {
         Ok(body)
     }
 
-    async fn post_stream(
-        &self,
-        token: &str,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        let body = self.build_request(request).map_err(|e| (None, e.to_string()))?;
+    async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
+        let body = self
+            .build_request(request)
+            .map_err(|e| HttpFailure::Local(e.to_string()))?;
         post_json_checked(&self.target_url(), self.headers(token), &body).await
     }
 
-    async fn retry_post_stream(
-        &self,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        let fresh = self.token_provider.force_refresh().await.map_err(|e| (Some(401), e))?;
+    async fn retry_post_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
+        let fresh = self
+            .token_provider
+            .force_refresh()
+            .await
+            .map_err(|e| HttpFailure::status(401, e))?;
         self.post_stream(&fresh, request).await
     }
 
-    pub async fn open_stream(
-        &self,
-        request: &ModelCompletionRequest,
-    ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        let token = self.token_provider.token().await.map_err(|e| (None, e))?;
+    pub async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
+        let token = self.token_provider.token().await.map_err(HttpFailure::Local)?;
         match self.post_stream(&token, request).await {
-            Err((Some(401), _)) => self.retry_post_stream(request).await,
+            Err(failure) if failure.status_code() == Some(401) => self.retry_post_stream(request).await,
             other => other,
         }
     }
@@ -429,7 +426,7 @@ mod tests {
         });
         let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
-        assert_eq!(err.0, Some(401));
+        assert_eq!(err.status_code(), Some(401));
         assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
     }
 
@@ -438,7 +435,7 @@ mod tests {
         let client = ChatGptClient::with_token_provider(Arc::new(FailingTokenProvider), "gpt-5.4")
             .with_endpoint("http://127.0.0.1:9");
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
-        assert_eq!(err, (None, "failed to get token".to_string()));
+        assert_eq!(err, HttpFailure::Local("failed to get token".to_string()));
     }
 
     #[tokio::test]
@@ -453,7 +450,7 @@ mod tests {
         });
         let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
-        assert_eq!(err, (Some(401), "refresh failed".to_string()));
+        assert_eq!(err, HttpFailure::status(401, "refresh failed"));
     }
 
     #[tokio::test]

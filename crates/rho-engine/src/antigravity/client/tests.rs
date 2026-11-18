@@ -7,6 +7,7 @@ use super::http::{
 };
 use crate::auth::TokenProvider;
 use crate::provider::adapter::ModelCompletionRequest;
+use crate::provider::error::HttpFailure;
 
 #[test]
 fn is_selectable_runtime_model_filters_correctly() {
@@ -253,7 +254,10 @@ async fn open_stream_stops_after_single_retry_if_401_persists() {
         .with_endpoint(format!("http://{addr}"));
 
     let err = client.open_stream(&test_completion_request()).await.unwrap_err();
-    assert_eq!((err.0, refresh_count.load(Ordering::SeqCst)), (Some(401), 1));
+    assert_eq!(
+        (err.status_code(), refresh_count.load(Ordering::SeqCst)),
+        (Some(401), 1)
+    );
 }
 
 #[tokio::test]
@@ -265,21 +269,22 @@ async fn open_stream_fails_immediately_if_refresh_fails() {
         AntigravityClient::with_token_provider(Arc::new(FailingRefreshProvider), "test-project", "gemini-2.5-pro")
             .with_endpoint(format!("http://{addr}"));
     let err = client.open_stream(&test_completion_request()).await.unwrap_err();
-    assert_eq!(err.0, Some(401));
+    assert_eq!(err.status_code(), Some(401));
 }
 
 #[test]
 fn classify_stream_error_treats_transport_errors_as_recoverable() {
     let mut last = None;
-    let res = classify_stream_error(Err((None, "connection reset by peer".into())), &mut last);
+    let reset = HttpFailure::Transport("connection reset by peer".into());
+    let res = classify_stream_error(Err(reset.clone()), &mut last);
     assert!(res.is_none());
-    assert_eq!(last, Some((None, "connection reset by peer".into())));
+    assert_eq!(last, Some(reset));
 }
 
 #[test]
 fn classify_stream_error_quota_fails_fast() {
     let mut last = None;
-    let quota_err = (Some(429), r#"{"error":{"message":"Individual quota reached"}}"#.into());
+    let quota_err = HttpFailure::status(429, r#"{"error":{"message":"Individual quota reached"}}"#);
     let res = classify_stream_error(Err(quota_err.clone()), &mut last);
     assert!(matches!(res, Some(Err(ref err)) if err == &quota_err));
     assert!(last.is_none());
@@ -368,8 +373,8 @@ async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() 
         )
         .await;
     let err = res.unwrap_err();
-    assert_eq!(err.0, None);
-    let msg = friendly_error(err.0, &err.1);
+    assert_eq!(err.status_code(), None);
+    let msg = friendly_error(err.status_code(), err.body());
     assert!(msg.starts_with("Antigravity request failed: "));
     assert_eq!(msg.matches("Antigravity request failed:").count(), 1);
 }
