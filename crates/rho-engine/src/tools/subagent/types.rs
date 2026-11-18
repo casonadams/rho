@@ -1,13 +1,10 @@
 pub use rho_harness_core::args::subagent::{SubagentArgs, SubagentRole};
 
-pub const DEFAULT_SUBAGENT_MAX_TURNS: usize = 10;
-pub const MAX_SUBAGENT_TURNS: usize = 20;
+pub const DEFAULT_SUBAGENT_TURNS: usize = 100;
 
 #[must_use]
-pub fn clamp_max_turns(requested: Option<usize>) -> usize {
-    requested
-        .unwrap_or(DEFAULT_SUBAGENT_MAX_TURNS)
-        .clamp(1, MAX_SUBAGENT_TURNS)
+pub fn resolve_turns(requested: Option<usize>) -> usize {
+    requested.unwrap_or(DEFAULT_SUBAGENT_TURNS).max(1)
 }
 
 #[cfg(test)]
@@ -15,10 +12,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_clamp_max_turns() {
-        assert_eq!(clamp_max_turns(None), DEFAULT_SUBAGENT_MAX_TURNS);
-        assert_eq!(clamp_max_turns(Some(0)), 1);
-        assert_eq!(clamp_max_turns(Some(5)), 5);
-        assert_eq!(clamp_max_turns(Some(50)), MAX_SUBAGENT_TURNS);
+    fn turns_default_to_100_with_no_upper_cap() {
+        assert_eq!(resolve_turns(None), DEFAULT_SUBAGENT_TURNS);
+        assert_eq!(resolve_turns(Some(0)), 1);
+        assert_eq!(resolve_turns(Some(500)), 500);
     }
 }

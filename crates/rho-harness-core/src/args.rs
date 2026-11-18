@@ -230,21 +230,15 @@ pub struct SubagentArgs {
     /// Optional context slice or snippet to prime the subagent
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_slice: Option<String>,
-    /// Maximum turn count for the subagent (default: 10, max: 20)
+    /// Model role from settings: 'default', 'smol', or 'slow' (default: smol)
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_turns: Option<usize>,
+    pub model: Option<String>,
+    /// Maximum model calls for the subagent (default: 100)
+    #[serde(default, alias = "max_turns", skip_serializing_if = "Option::is_none")]
+    pub turns: Option<usize>,
     /// Share the recent parent conversation (text only) with the subagent; the subagent's model provider will see it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherit_context: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct WorkflowArgs {
-    /// Workflow name (built-in, ~/.agents/workflows/, or .agents/workflows/)
-    pub name: String,
-    /// Workflow inputs keyed by input name; omitted inputs use their defaults
-    #[serde(default)]
-    pub inputs: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 // Submodule aliases for backwards compatibility
@@ -295,11 +289,12 @@ mod tests {
 
     #[test]
     fn test_subagent_args_serde() {
-        let json = r#"{"role":"scout","prompt":"find main.rs","max_turns":5}"#;
+        let json = r#"{"role":"scout","prompt":"find main.rs","max_turns":5,"model":"slow"}"#;
         let parsed: SubagentArgs = serde_json::from_str(json).expect("valid json");
         assert_eq!(parsed.role, Some(SubagentRole::Scout));
         assert_eq!(parsed.prompt, "find main.rs");
-        assert_eq!(parsed.max_turns, Some(5));
+        assert_eq!(parsed.turns, Some(5));
+        assert_eq!(parsed.model.as_deref(), Some("slow"));
 
         let serialized = serde_json::to_string(&parsed).expect("can serialize");
         assert!(serialized.contains(r#""role":"scout""#));

@@ -7,8 +7,6 @@ pub struct AgentMetadata {
     pub location: String,
     pub tools: Option<Vec<String>>,
     pub disallowed_tools: Option<Vec<String>>,
-    pub model: Option<String>,
-    pub max_turns: Option<usize>,
     pub system_prompt: String,
 }
 

@@ -17,6 +17,7 @@ pub struct TurnToolContext {
     pub progress: ToolStreamPort,
     pub parent_history: Arc<[ChatMessage]>,
     pub monitor: Option<AgentMonitor>,
+    pub project: Option<Arc<crate::engine::context::ProjectContext>>,
 }
 
 #[async_trait::async_trait]

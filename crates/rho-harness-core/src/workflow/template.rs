@@ -10,13 +10,10 @@ pub fn references(template: &str) -> Result<Vec<String>, String> {
         let after = &rest[start + OPEN.len()..];
         let end = after
             .find(CLOSE)
-            .ok_or_else(|| format!("unclosed '{{{{' in template: {}", preview(template)))?;
+            .ok_or_else(|| format!("unclosed '{{{{' in: {}", preview(template)))?;
         let path = after[..end].trim();
         if path.is_empty() {
-            return Err(format!(
-                "empty '{{{{ }}}}' placeholder in template: {}",
-                preview(template)
-            ));
+            return Err(format!("empty '{{{{ }}}}' placeholder in: {}", preview(template)));
         }
         refs.push(path.to_string());
         rest = &after[end + CLOSE.len()..];
@@ -24,22 +21,51 @@ pub fn references(template: &str) -> Result<Vec<String>, String> {
     Ok(refs)
 }
 
-pub fn render(template: &str, scope: &Value) -> Result<String, String> {
+pub type Resolver<'a> = &'a dyn Fn(&str) -> Option<Value>;
+
+/// Fills placeholders; references with no value render as empty text.
+#[must_use]
+pub fn render(template: &str, scope: &Value) -> String {
+    render_with(template, &|path| lookup(scope, path).cloned())
+}
+
+#[must_use]
+pub fn render_with(template: &str, resolve: Resolver<'_>) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(start) = rest.find(OPEN) {
         out.push_str(&rest[..start]);
         let after = &rest[start + OPEN.len()..];
-        let end = after
-            .find(CLOSE)
-            .ok_or_else(|| format!("unclosed '{{{{' in template: {}", preview(template)))?;
-        let path = after[..end].trim();
-        let value = lookup(scope, path).ok_or_else(|| format!("'{{{{{path}}}}}' has no value"))?;
-        out.push_str(&value_to_text(value));
+        let Some(end) = after.find(CLOSE) else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        if let Some(value) = resolve(after[..end].trim()) {
+            out.push_str(&value_to_text(&value));
+        }
         rest = &after[end + CLOSE.len()..];
     }
     out.push_str(rest);
-    Ok(out)
+    out
+}
+
+/// A template that is exactly one placeholder yields the referenced value itself (`null` when missing).
+#[must_use]
+pub fn evaluate(template: &str, scope: &Value) -> Value {
+    evaluate_with(template, &|path| lookup(scope, path).cloned())
+}
+
+#[must_use]
+pub fn evaluate_with(template: &str, resolve: Resolver<'_>) -> Value {
+    let trimmed = template.trim();
+    let single = trimmed
+        .strip_prefix(OPEN)
+        .and_then(|rest| rest.strip_suffix(CLOSE))
+        .filter(|inner| !inner.contains(OPEN) && !inner.contains(CLOSE));
+    match single {
+        Some(path) => resolve(path.trim()).unwrap_or(Value::Null),
+        None => Value::String(render_with(template, resolve)),
+    }
 }
 
 pub fn lookup<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
@@ -66,7 +92,7 @@ pub fn is_truthy(value: &Value) -> bool {
         Value::Null => false,
         Value::Bool(b) => *b,
         Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.trim().is_empty(),
+        Value::String(s) => !matches!(s.trim(), "" | "false" | "0"),
         Value::Array(items) => !items.is_empty(),
         Value::Object(map) => !map.is_empty(),
     }
@@ -84,8 +110,8 @@ mod tests {
 
     #[test]
     fn extracts_references_with_whitespace() {
-        let refs = references("Scan {{ item.paths }} for {{inputs.profile}}.").unwrap();
-        assert_eq!(refs, vec!["item.paths", "inputs.profile"]);
+        let refs = references("Scan {{ slice }} for {{profile}}.").unwrap();
+        assert_eq!(refs, vec!["slice", "profile"]);
     }
 
     #[test]
@@ -95,17 +121,23 @@ mod tests {
     }
 
     #[test]
-    fn renders_strings_raw_and_structures_as_json() {
-        let scope = json!({"inputs": {"profile": "security"}, "item": {"paths": ["src", "lib"]}, "round": 2});
-        let out = render("{{inputs.profile}} r{{round}} {{item.paths.1}}", &scope).unwrap();
-        assert_eq!(out, "security r2 lib");
-        let listed = render("{{item.paths}}", &scope).unwrap();
-        assert_eq!(listed, "[\n  \"src\",\n  \"lib\"\n]");
+    fn renders_strings_raw_structures_as_json_and_missing_as_empty() {
+        let scope = json!({"profile": "security", "scan": ["a", "b"], "round": {"index": 2}});
+        assert_eq!(
+            render("{{profile}} r{{round.index}} {{scan.1}}", &scope),
+            "security r2 b"
+        );
+        assert_eq!(render("{{scan}}", &scope), "[\n  \"a\",\n  \"b\"\n]");
+        assert_eq!(render("[{{verify.output}}]", &scope), "[]");
     }
 
     #[test]
-    fn render_fails_on_missing_value() {
-        assert!(render("{{nope.x}}", &json!({})).unwrap_err().contains("nope.x"));
+    fn evaluate_passes_single_references_through() {
+        let scope = json!({"list": [1, 2], "ok": true});
+        assert_eq!(evaluate("{{ list }}", &scope), json!([1, 2]));
+        assert_eq!(evaluate("{{ok}}", &scope), json!(true));
+        assert_eq!(evaluate("{{missing}}", &scope), Value::Null);
+        assert_eq!(evaluate("n={{ok}}", &scope), json!("n=true"));
     }
 
     #[test]
@@ -115,6 +147,8 @@ mod tests {
             (json!(false), false),
             (json!(0), false),
             (json!(""), false),
+            (json!("false"), false),
+            (json!("0"), false),
             (json!([]), false),
             (json!({}), false),
             (json!(true), true),

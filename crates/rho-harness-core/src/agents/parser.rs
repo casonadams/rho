@@ -34,8 +34,6 @@ struct ParsedFrontmatter {
     description: Option<String>,
     tools: Option<Vec<String>>,
     disallowed_tools: Option<Vec<String>>,
-    model: Option<String>,
-    max_turns: Option<usize>,
 }
 
 fn parse_frontmatter_field(line: &str, out: &mut ParsedFrontmatter) {
@@ -51,14 +49,6 @@ fn parse_frontmatter_field(line: &str, out: &mut ParsedFrontmatter) {
         .or_else(|| line.strip_prefix("disallowed-tools:"))
     {
         out.disallowed_tools = Some(parse_tool_list(val));
-    } else if let Some(val) = line.strip_prefix("model:") {
-        out.model = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
-    } else if let Some(val) = line
-        .strip_prefix("maxTurns:")
-        .or_else(|| line.strip_prefix("max_turns:"))
-        .or_else(|| line.strip_prefix("max-turns:"))
-    {
-        out.max_turns = val.trim().trim_matches('"').trim_matches('\'').parse().ok();
     }
 }
 
@@ -94,8 +84,6 @@ pub fn parse_agent_content(content: &str, fallback_name: &str, location: &str) -
         location: location.to_string(),
         tools: frontmatter.tools,
         disallowed_tools: frontmatter.disallowed_tools,
-        model: frontmatter.model,
-        max_turns: frontmatter.max_turns,
         system_prompt: body,
     }
 }

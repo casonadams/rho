@@ -356,8 +356,38 @@ pub(crate) async fn handle_terminal_result(
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::ExpandedPrompt { text } => Ok(handle_expanded_prompt(session, text)),
+        CommandResult::RunWorkflow { name, inputs } => {
+            run_workflow_plain(session, engine, &name, inputs).await;
+            Ok(DispatchOutcome::Continue)
+        }
         _ => Ok(DispatchOutcome::Continue),
     }
+}
+
+async fn run_workflow_plain(
+    session: &ReplSession,
+    engine: &AgentEngine,
+    name: &str,
+    inputs: std::collections::BTreeMap<String, String>,
+) {
+    let (progress, mut chunks) = crate::repl::live::workflow_runner::progress_channel();
+    let cancel = crate::engine::runner::CancellationSignal::default();
+    let runner = match engine.workflow_runner(progress, cancel).await {
+        Ok(runner) => runner,
+        Err(e) => {
+            session.renderer.print_notice(&format!("  /workflow: {e}\n"));
+            return;
+        }
+    };
+    let run = runner.run(name, inputs);
+    tokio::pin!(run);
+    let result = loop {
+        tokio::select! {
+            result = &mut run => break result,
+            Some(chunk) = chunks.recv() => session.renderer.print_notice(&format!("  {chunk}")),
+        }
+    };
+    session.renderer.print_notice(&format!("\n{}\n", result.report));
 }
 
 pub async fn handle_command_result(

@@ -51,6 +51,10 @@ pub enum CommandResult {
         provider: Option<String>,
     },
     Reload,
+    RunWorkflow {
+        name: String,
+        inputs: std::collections::BTreeMap<String, String>,
+    },
     Exit,
 }
 
@@ -86,7 +90,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/logout",
     "/reload",
     "/export",
-    "/workflows",
+    "/workflow",
     "/exit",
     "/quit",
 ];

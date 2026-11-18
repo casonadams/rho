@@ -144,25 +144,23 @@ fn test_role_tool_filtering() {
 }
 
 #[test]
-fn custom_agents_never_get_delegation_tools() {
+fn custom_agents_never_get_the_subagent_tool() {
     use rho_harness_core::agents::AgentMetadata;
     fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
         Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
             Ok(crate::tools::ToolResult::success("ok"))
         }))
     }
-    let all_tools = vec![dummy_tool("read"), dummy_tool("subagent"), dummy_tool("workflow")];
+    let all_tools = vec![dummy_tool("read"), dummy_tool("subagent")];
     let agent = |tools: Option<Vec<String>>| AgentMetadata {
         name: "a".into(),
         description: String::new(),
         location: String::new(),
         tools,
         disallowed_tools: None,
-        model: None,
-        max_turns: None,
         system_prompt: String::new(),
     };
-    for tools in [None, Some(vec!["read".into(), "subagent".into(), "workflow".into()])] {
+    for tools in [None, Some(vec!["read".into(), "subagent".into()])] {
         let names: Vec<String> = filter_tools_for_agent(&all_tools, &agent(tools.clone()))
             .iter()
             .map(|t| t.name().to_string())
@@ -184,8 +182,6 @@ async fn test_subagent_custom_agent_execution() {
         location: ".claude/agents/code-reviewer.md".to_string(),
         tools: Some(vec!["read".to_string(), "fd".to_string()]),
         disallowed_tools: Some(vec!["bash".to_string()]),
-        model: Some("sonnet".to_string()),
-        max_turns: Some(8),
         system_prompt: "You are a code reviewer.".to_string(),
     };
 
@@ -482,8 +478,6 @@ async fn unknown_agent_or_role_names_are_rejected_with_valid_options() {
         location: String::new(),
         tools: None,
         disallowed_tools: None,
-        model: None,
-        max_turns: None,
         system_prompt: "review".to_string(),
     };
     let tool = SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new()).with_agents(vec![agent]);
@@ -496,15 +490,13 @@ async fn unknown_agent_or_role_names_are_rejected_with_valid_options() {
     }
 }
 
-fn agent(name: &str, model: Option<&str>, tools: Option<&[&str]>) -> rho_harness_core::agents::AgentMetadata {
+fn agent(name: &str, tools: Option<&[&str]>) -> rho_harness_core::agents::AgentMetadata {
     rho_harness_core::agents::AgentMetadata {
         name: name.to_string(),
         description: String::new(),
         location: String::new(),
         tools: tools.map(|t| t.iter().map(ToString::to_string).collect()),
         disallowed_tools: None,
-        model: model.map(ToString::to_string),
-        max_turns: None,
         system_prompt: format!("You are {name}."),
     }
 }
@@ -513,131 +505,91 @@ fn named_tool(name: &'static str) -> Arc<dyn EngineTool> {
     counting_tool(name, Arc::new(AtomicUsize::new(0)), "ok".into())
 }
 
-#[tokio::test]
-async fn custom_agent_model_is_resolved_and_used() {
-    let default = MockAdapter::text("from default");
-    let special = MockAdapter::text("from special");
-    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
-    let resolver_seen = seen.clone();
-    let special_handle: ModelHandle = Arc::new(special);
-    let resolver: SubagentModelResolver = Arc::new(move |name| {
-        resolver_seen.lock().unwrap().push(name.to_string());
-        Ok(special_handle.clone())
-    });
-    let tool = SubagentTool::new(Some(Arc::new(default)), Vec::new())
-        .with_agents(vec![agent("reviewer", Some("openai/gpt-x"), None)])
-        .with_model_resolver(resolver);
+fn role_tool(resolver: SubagentModelResolver, smol: Option<&str>, slow: Option<&str>) -> SubagentTool {
+    SubagentTool::new(Some(Arc::new(MockAdapter::text("from session"))), Vec::new())
+        .with_agents(vec![agent("reviewer", None)])
+        .with_model_resolver(resolver)
+        .with_model_roles(smol.map(str::to_string), slow.map(str::to_string))
+}
 
-    let result = tool
-        .execute(json!({ "agent": "reviewer", "prompt": "go" }))
-        .await
-        .unwrap();
-
-    assert!(result.content.starts_with("from special"), "{}", result.content);
-    assert_eq!(*seen.lock().unwrap(), vec!["openai/gpt-x"]);
+fn acme_resolver() -> SubagentModelResolver {
+    let handles: std::collections::HashMap<&str, ModelHandle> = [
+        ("acme/smol", Arc::new(MockAdapter::text("from smol")) as ModelHandle),
+        ("acme/slow", Arc::new(MockAdapter::text("from slow")) as ModelHandle),
+    ]
+    .into();
+    Arc::new(move |model| {
+        handles
+            .get(model)
+            .cloned()
+            .ok_or_else(|| format!("unexpected model {model}"))
+    })
 }
 
 #[tokio::test]
-async fn subagents_without_a_model_use_the_default_model_unless_they_inherit() {
+async fn subagent_models_are_chosen_by_role() {
     let cases = [
-        ("role", json!({ "role": "scout", "prompt": "go" }), "from smol"),
         (
-            "agent without model",
-            json!({ "agent": "plain", "prompt": "go" }),
+            json!({ "agent": "reviewer", "prompt": "go" }),
+            Some("acme/smol"),
             "from smol",
         ),
+        (json!({ "role": "scout", "prompt": "go" }), None, "from session"),
         (
-            "agent with own model",
-            json!({ "agent": "pinned", "prompt": "go" }),
-            "from pinned",
+            json!({ "agent": "reviewer", "prompt": "go", "model": "slow" }),
+            Some("acme/smol"),
+            "from slow",
         ),
         (
-            "agent that inherits",
-            json!({ "agent": "inheriting", "prompt": "go" }),
-            "from parent",
+            json!({ "agent": "reviewer", "prompt": "go", "model": "default" }),
+            Some("acme/smol"),
+            "from session",
+        ),
+        (
+            json!({ "agent": "reviewer", "prompt": "go", "model": "smol" }),
+            Some(" acme/smol "),
+            "from smol",
         ),
     ];
-    for (name, args, expected) in cases {
-        let handles: std::collections::HashMap<&str, ModelHandle> = [
-            ("acme/smol", Arc::new(MockAdapter::text("from smol")) as ModelHandle),
-            ("acme/pinned", Arc::new(MockAdapter::text("from pinned")) as ModelHandle),
-        ]
-        .into();
-        let resolver: SubagentModelResolver = Arc::new(move |model| {
-            handles
-                .get(model)
-                .cloned()
-                .ok_or_else(|| format!("unexpected model {model}"))
-        });
-        let tool = SubagentTool::new(Some(Arc::new(MockAdapter::text("from parent"))), Vec::new())
-            .with_agents(vec![
-                agent("plain", None, None),
-                agent("pinned", Some("acme/pinned"), None),
-                agent("inheriting", Some("inherit"), None),
-            ])
-            .with_model_resolver(resolver)
-            .with_default_model(Some(" acme/smol ".to_string()));
-
-        let result = tool.execute(args).await.unwrap();
-
-        assert!(result.content.starts_with(expected), "{name}: {}", result.content);
+    for (args, smol, expected) in cases {
+        let tool = role_tool(acme_resolver(), smol, Some("acme/slow"));
+        let result = tool.execute(args.clone()).await.unwrap();
+        assert!(result.content.starts_with(expected), "{args}: {}", result.content);
     }
 }
 
 #[tokio::test]
-async fn inherit_aliases_and_missing_model_use_the_parent_model() {
-    for model in [
-        None,
-        Some("inherit"),
-        Some("Sonnet"),
-        Some("opus"),
-        Some("haiku"),
-        Some("  "),
-    ] {
-        let resolver: SubagentModelResolver = Arc::new(|_| Err("must not be called".into()));
-        let tool = SubagentTool::new(Some(Arc::new(MockAdapter::text("from default"))), Vec::new())
-            .with_agents(vec![agent("reviewer", model, None)])
-            .with_model_resolver(resolver);
-
-        let result = tool
-            .execute(json!({ "agent": "reviewer", "prompt": "go" }))
-            .await
-            .unwrap();
-
-        assert!(
-            result.content.starts_with("from default"),
-            "{model:?}: {}",
-            result.content
-        );
-    }
-}
-
-#[tokio::test]
-async fn unresolvable_agent_model_is_an_error_not_a_silent_fallback() {
+async fn unknown_or_unconfigured_roles_and_unresolvable_models_are_errors() {
     let failing: SubagentModelResolver = Arc::new(|_| Err("no credentials".into()));
     let cases = [
         (
-            SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new())
-                .with_agents(vec![agent("reviewer", Some("acme/m1"), None)])
-                .with_model_resolver(failing),
-            "failed to resolve model 'acme/m1' for subagent: no credentials",
+            role_tool(acme_resolver(), None, None),
+            "slow",
+            "model role 'slow' is not configured",
         ),
         (
-            SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new()).with_agents(vec![agent(
-                "reviewer",
-                Some("acme/m1"),
-                None,
-            )]),
-            "no model resolver is configured",
+            role_tool(acme_resolver(), None, None),
+            "claude/opus",
+            "model must be one of default, smol, slow",
+        ),
+        (
+            role_tool(acme_resolver(), None, None),
+            "guard",
+            "model must be one of default, smol, slow",
+        ),
+        (
+            role_tool(failing, Some("acme/m1"), None),
+            "smol",
+            "failed to resolve model 'acme/m1' for subagent: no credentials",
         ),
     ];
-    for (tool, expected) in cases {
+    for (tool, model, expected) in cases {
         let result = tool
-            .execute(json!({ "agent": "reviewer", "prompt": "go" }))
+            .execute(json!({ "agent": "reviewer", "prompt": "go", "model": model }))
             .await
             .unwrap();
-        assert!(result.is_error);
-        assert!(result.content.contains(expected), "{}", result.content);
+        assert!(result.is_error, "{model}");
+        assert!(result.content.contains(expected), "{model}: {}", result.content);
     }
 }
 
@@ -650,10 +602,10 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
         named_tool("write"),
     ];
     let tool = SubagentTool::new(None, tools).with_agents(vec![
-        agent("reader", None, Some(&["read", "rg"])),
-        agent("writer", None, Some(&["read", "write"])),
-        agent("everything", None, None),
-        agent("toolless", None, Some(&[])),
+        agent("reader", Some(&["read", "rg"])),
+        agent("writer", Some(&["read", "write"])),
+        agent("everything", None),
+        agent("toolless", Some(&[])),
     ]);
     let cases = [
         (json!({ "prompt": "p" }), true),
@@ -758,7 +710,7 @@ async fn custom_agent_progress_is_labelled_with_its_name() {
         ..Default::default()
     };
     let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![named_tool("read")])
-        .with_agents(vec![agent("reviewer", None, Some(&["read"]))])
+        .with_agents(vec![agent("reviewer", Some(&["read"]))])
         .bind_turn(&ctx)
         .unwrap();
 
@@ -766,7 +718,10 @@ async fn custom_agent_progress_is_labelled_with_its_name() {
         .await
         .unwrap();
 
-    assert_eq!(*progress.0.lock().unwrap(), vec!["subagent reviewer turn 1/10: read\n"]);
+    assert_eq!(
+        *progress.0.lock().unwrap(),
+        vec!["subagent reviewer turn 1/100: read\n"]
+    );
 }
 
 #[test]

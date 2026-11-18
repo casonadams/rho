@@ -44,6 +44,7 @@ pub struct SubagentRunner {
     label: String,
     monitor_group: String,
     monitor_label: String,
+    position: Option<String>,
 }
 
 struct RunState {
@@ -199,6 +200,7 @@ impl SubagentRunner {
             label: "subagent".to_string(),
             monitor_group: DEFAULT_MONITOR_GROUP.to_string(),
             monitor_label: "subagent".to_string(),
+            position: None,
         }
     }
 
@@ -220,6 +222,29 @@ impl SubagentRunner {
     pub fn with_context(mut self, ctx: TurnToolContext) -> Self {
         self.ctx = ctx;
         self
+    }
+
+    #[must_use]
+    pub fn with_position(mut self, position: impl Into<String>) -> Self {
+        self.position = Some(position.into());
+        self
+    }
+
+    fn preamble(&self) -> String {
+        let mut preamble = format!("{}\n\n", self.instructions.trim());
+        if let Some(project) = &self.ctx.project {
+            let names: Vec<String> = self.tools.iter().map(|t| t.name().to_string()).collect();
+            preamble.push_str(&crate::engine::context::build_agent_grounding(project, &names));
+            preamble.push_str("\n\n");
+        }
+        if let Some(position) = &self.position {
+            preamble.push_str(&format!("You are running as step `{position}` of a workflow.\n\n"));
+        }
+        preamble.push_str(&format!(
+            "You have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final answer.\n\nUnless your task asks for a specific format, end with a final answer containing: a one-paragraph summary, findings with file:line references, files changed (if any), and open questions.",
+            self.max_turns
+        ));
+        preamble
     }
 
     pub(crate) fn model_label(&self) -> String {
@@ -246,10 +271,7 @@ impl SubagentRunner {
             return ToolResult::error("subagent prompt cannot be empty");
         }
 
-        let preamble = format!(
-            "{}\n\nYou have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final findings.\n\nEnd with a final answer containing: a one-paragraph summary, findings with file:line references, files changed (if any), and open questions.",
-            self.instructions, self.max_turns
-        );
+        let preamble = self.preamble();
         let tools_def: Vec<ModelToolDefinition> = self
             .tools
             .iter()

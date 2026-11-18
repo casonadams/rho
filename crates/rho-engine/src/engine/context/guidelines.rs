@@ -41,16 +41,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                 || t.starts_with("mcp__")
                 || (!matches!(
                     t.as_str(),
-                    "bash"
-                        | "read"
-                        | "write"
-                        | "edit"
-                        | "fd"
-                        | "rg"
-                        | "web_search"
-                        | "web_fetch"
-                        | "subagent"
-                        | "workflow"
+                    "bash" | "read" | "write" | "edit" | "fd" | "rg" | "web_search" | "web_fetch" | "subagent"
                 ))
         });
         if has_specialized {

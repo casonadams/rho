@@ -39,5 +39,5 @@ pub use types::{ToolResult, generated_schema, normalize_schema};
 pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
-pub use workflow::WorkflowTool;
+pub use workflow::{WorkflowRun, WorkflowRunner};
 pub use write::{WriteArgs, WriteTool};

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -35,16 +36,8 @@ fn command_description(bundle: &WorkflowBundle) -> String {
     format!("{description} {hint}").trim().to_string()
 }
 
-pub(crate) fn workflow_prompt(name: &str, inputs: &serde_json::Map<String, serde_json::Value>) -> String {
-    let args = serde_json::json!({ "name": name, "inputs": inputs });
-    format!(
-        "Run the `{name}` workflow now: call the `workflow` tool exactly once with these arguments, then summarize its report for me.\n\n```json\n{args}\n```"
-    )
-}
-
 fn origin_label(origin: WorkflowOrigin) -> &'static str {
     match origin {
-        WorkflowOrigin::Builtin => "builtin",
         WorkflowOrigin::User => "user",
         WorkflowOrigin::Project => "project",
     }
@@ -53,13 +46,13 @@ fn origin_label(origin: WorkflowOrigin) -> &'static str {
 pub(crate) fn format_workflow_list(catalog: &WorkflowCatalog) -> String {
     let mut out = String::from("\nWorkflows\n");
     if catalog.bundles.is_empty() {
-        out.push_str("  (none)\n");
+        out.push_str("  (none) add one under .agents/workflows/ (see docs/workflows.md)\n");
     }
     for bundle in &catalog.bundles {
-        let usage = format!("/{} {}", bundle.name, bundle.entry.argument_hint());
+        let usage = format!("/workflow {} {}", bundle.name, bundle.entry.argument_hint());
         let _ = writeln!(
             out,
-            "  {:<44} {} [{}]",
+            "  {:<52} {} [{}]",
             usage.trim(),
             bundle.entry.description,
             origin_label(bundle.origin)
@@ -74,64 +67,98 @@ pub(crate) fn format_workflow_list(catalog: &WorkflowCatalog) -> String {
     out
 }
 
-pub(crate) async fn handle_workflows(ctx: &SlashCommandContext<'_>) -> CommandResult {
+pub(crate) async fn handle_workflow(ctx: &SlashCommandContext<'_>, parts: &[&str]) -> CommandResult {
     let catalog = discover_workflows(std::env::current_dir().ok(), context_home(ctx)).await;
-    ctx.renderer.print_notice(&format_workflow_list(&catalog));
-    CommandResult::Continue
-}
-
-pub(crate) async fn try_handle_workflow(
-    ctx: &SlashCommandContext<'_>,
-    name: &str,
-    parts: &[&str],
-) -> Option<CommandResult> {
-    let catalog = discover_workflows(std::env::current_dir().ok(), context_home(ctx)).await;
-    let bundle = catalog.find(name)?;
-    match bundle.entry.bind_inputs(parts.get(1..).unwrap_or_default()) {
-        Ok(inputs) => Some(CommandResult::ExpandedPrompt {
-            text: workflow_prompt(name, &inputs),
-        }),
-        Err(error) => {
-            ctx.renderer.print_notice(&format!(
-                "  /{name}: {error}\n  Usage: /{name} {}\n",
-                bundle.entry.argument_hint()
-            ));
-            Some(CommandResult::Continue)
+    let Some(name) = parts.get(1) else {
+        ctx.renderer.print_notice(&format_workflow_list(&catalog));
+        return CommandResult::Continue;
+    };
+    match bind(&catalog, name, parts.get(2..).unwrap_or_default()) {
+        Ok(inputs) => CommandResult::RunWorkflow {
+            name: (*name).to_string(),
+            inputs,
+        },
+        Err(message) => {
+            ctx.renderer.print_notice(&format!("  /workflow {name}: {message}\n"));
+            CommandResult::Continue
         }
     }
+}
+
+fn bind(catalog: &WorkflowCatalog, name: &str, args: &[&str]) -> Result<BTreeMap<String, String>, String> {
+    let Some(bundle) = catalog.find(name) else {
+        let problem = catalog.errors.iter().find(|e| e.contains(&format!("'{name}'")));
+        return Err(match problem {
+            Some(problem) => problem.clone(),
+            None => "unknown workflow (run /workflow to list them)".to_string(),
+        });
+    };
+    bundle
+        .entry
+        .bind_inputs(args)
+        .map_err(|e| format!("{e}\n  Usage: /workflow {name} {}", bundle.entry.argument_hint()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn catalog(dir: &Path) -> WorkflowCatalog {
+        let wf = dir.join(".agents/workflows");
+        std::fs::create_dir_all(&wf).unwrap();
+        std::fs::write(
+            wf.join("refine.xml"),
+            "<workflow description=\"Scan and fix\"><input name=\"profile\" choices=\"review security\"/><run cmd=\"true\"/></workflow>",
+        )
+        .unwrap();
+        std::fs::write(wf.join("broken.xml"), "<workflow><run/></workflow>").unwrap();
+        WorkflowCatalog::discover(Some(dir), None)
+    }
+
     #[test]
-    fn prompt_embeds_exact_tool_arguments() {
-        let mut inputs = serde_json::Map::new();
-        inputs.insert("profile".into(), serde_json::json!("security"));
-        let prompt = workflow_prompt("refine", &inputs);
-        assert!(prompt.starts_with("Run the `refine` workflow now: call the `workflow` tool exactly once"));
-        let block = prompt
-            .split("```json\n")
-            .nth(1)
-            .and_then(|rest| rest.split("\n```").next())
-            .unwrap();
-        let args: serde_json::Value = serde_json::from_str(block).unwrap();
-        assert_eq!(
-            args,
-            serde_json::json!({"name": "refine", "inputs": {"profile": "security"}})
+    fn binds_inputs_or_explains_usage_and_problems() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = catalog(dir.path());
+        assert_eq!(bind(&catalog, "refine", &["security"]).unwrap()["profile"], "security");
+        let bad = bind(&catalog, "refine", &["fuzz"]).unwrap_err();
+        assert!(
+            bad.contains("must be one of") && bad.contains("Usage: /workflow refine <review|security>"),
+            "{bad}"
         );
+        assert!(
+            bind(&catalog, "broken", &[])
+                .unwrap_err()
+                .contains("missing required attribute 'cmd'")
+        );
+        assert!(bind(&catalog, "ghost", &[]).unwrap_err().contains("unknown workflow"));
+    }
+
+    #[test]
+    fn the_repository_refine_example_is_valid() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let catalog = WorkflowCatalog::discover(Some(repo), None);
+        assert!(catalog.errors.is_empty(), "{:?}", catalog.errors);
+        let refine = catalog.find("refine").expect(".agents/workflows/refine");
+        assert_eq!(
+            refine.entry.argument_hint(),
+            "<review|security|performance|reliability|architecture> [rounds]"
+        );
+        let names: Vec<&str> = refine.agents.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["implementor", "validator"]);
+        let implementor = &refine.agents[0];
+        assert!(!implementor.tools.as_ref().unwrap().contains(&"bash".to_string()));
     }
 
     #[test]
     fn list_shows_usage_origin_and_invalid_workflows() {
-        let mut catalog = WorkflowCatalog::discover(None, None);
-        catalog
-            .errors
-            .push("workflow 'broken' is invalid:\n- step 'a': oops".to_string());
-        let text = format_workflow_list(&catalog);
-        assert!(text.contains("/refine <review|security|performance|reliability|architecture> [max_rounds] [verify]"));
-        assert!(text.contains("[builtin]"));
-        assert!(text.contains("Invalid workflows\n  workflow 'broken' is invalid:\n  - step 'a': oops"));
+        let dir = tempfile::tempdir().unwrap();
+        let text = format_workflow_list(&catalog(dir.path()));
+        assert!(text.contains("/workflow refine <review|security>"), "{text}");
+        assert!(text.contains("Scan and fix [project]"), "{text}");
+        assert!(
+            text.contains("Invalid workflows\n  workflow 'broken' is invalid:\n  - line 1"),
+            "{text}"
+        );
+        assert!(format_workflow_list(&WorkflowCatalog::default()).contains("(none)"));
     }
 }

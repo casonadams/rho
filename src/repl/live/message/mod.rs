@@ -94,6 +94,18 @@ async fn run_live_command_tail<B: TerminalBackend>(
             ctx.engine.spawn_refresh_quota();
             Ok(false)
         }
+        CommandResult::RunWorkflow { name, inputs } => {
+            flush_after_command(&mut io)?;
+            crate::repl::live::workflow_runner::run_user_workflow(
+                &ctx.session.renderer,
+                ctx.engine,
+                &name,
+                inputs,
+                &mut io,
+            )
+            .await?;
+            Ok(false)
+        }
         _ => flush_after_command(&mut io).map(|_| false),
     }
 }

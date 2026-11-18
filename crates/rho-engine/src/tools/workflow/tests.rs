@@ -4,102 +4,47 @@ use crate::permission::policy::{build_policy, parse_scope_from_str};
 use crate::permission::tests::mock::MockHookPresenter;
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 use rho_harness_core::agents::AgentMonitor;
-use std::sync::Mutex;
-
-const WORKFLOW: &str = r#"
-description = "test loop"
-
-[[input]]
-name = "focus"
-default = "bugs"
-
-[[input]]
-name = "check"
-default = "true"
-
-[[step]]
-id = "rounds"
-workflow = "round"
-with = { focus = "{{inputs.focus}}", check = "{{inputs.check}}" }
-repeat = { until_empty = "actionable", max = 4, stop_on_no_progress = true }
-carry = ["excluded"]
-
-[outputs]
-remaining = "rounds.actionable"
-excluded = "rounds.excluded"
-"#;
-
-const ROUND: &str = r#"
-[[input]]
-name = "focus"
-
-[[input]]
-name = "check"
-
-[[input]]
-name = "excluded"
-default = []
-
-[[step]]
-id = "slices"
-run = "printf '[\"a\", \"b\"]'"
-output = "json"
-
-[[step]]
-id = "scan"
-agent = "scout"
-over = "slices"
-prompt = "SCAN {{item}} for {{inputs.focus}}"
-
-[[step]]
-id = "validate"
-agent = "critic"
-context = ["scan"]
-output = "json"
-prompt = "VALIDATE excluded={{inputs.excluded}}"
-
-[[step]]
-id = "implement"
-agent = "general"
-when = "validate.actionable"
-output = "json"
-check = "{{inputs.check}}"
-retries = 1
-on_fail = "continue"
-prompt = "FIX {{validate.actionable}}"
-
-[outputs]
-actionable = "validate.actionable"
-excluded = ["inputs.excluded", "implement.wont_fix"]
-"#;
-
-const FIX_REPLY: &str = "Done.\n```json\n{\"fixed\": [\"src/a.rs:bug\"], \"wont_fix\": [{\"fingerprint\": \"src/b.rs:fp\", \"reason\": \"false positive\"}], \"files_changed\": [\"src/a.rs\"]}\n```";
+use rho_harness_core::error::AppError;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 struct ScriptedModel {
     validate_replies: Mutex<Vec<String>>,
-    prompts: Mutex<Vec<String>>,
+    requests: Mutex<Vec<(String, String)>>,
 }
 
 impl ScriptedModel {
     fn with_validate(replies: &[&str]) -> Arc<Self> {
         Arc::new(Self {
             validate_replies: Mutex::new(replies.iter().map(|r| (*r).to_string()).collect()),
-            prompts: Mutex::new(Vec::new()),
+            requests: Mutex::new(Vec::new()),
         })
     }
 
     fn prompts_starting_with(&self, prefix: &str) -> Vec<String> {
-        let prompts = self.prompts.lock().unwrap();
-        prompts.iter().filter(|p| p.starts_with(prefix)).cloned().collect()
+        let requests = self.requests.lock().unwrap();
+        requests
+            .iter()
+            .filter(|(_, p)| p.starts_with(prefix))
+            .map(|(_, p)| p.clone())
+            .collect()
+    }
+
+    fn preamble_for(&self, prefix: &str) -> String {
+        let requests = self.requests.lock().unwrap();
+        requests
+            .iter()
+            .find(|(_, p)| p.starts_with(prefix))
+            .map(|(pre, _)| pre.clone())
+            .unwrap()
     }
 
     fn reply(&self, prompt: &str) -> String {
         if prompt.starts_with("SCAN") {
             return format!("report: {}", prompt.lines().next().unwrap_or_default());
         }
-        if prompt.starts_with("FIX") {
-            return FIX_REPLY.to_string();
+        if prompt.starts_with("FIX") || prompt.starts_with("HELLO") {
+            return "done".to_string();
         }
         let mut replies = self.validate_replies.lock().unwrap();
         if replies.len() > 1 {
@@ -121,7 +66,8 @@ impl ModelAdapter for ScriptedModel {
     }
 
     async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
-        self.prompts.lock().unwrap().push(request.prompt.clone());
+        let preamble = request.preamble.clone().unwrap_or_default();
+        self.requests.lock().unwrap().push((preamble, request.prompt.clone()));
         Ok(ModelCompletionResponse {
             content: self.reply(&request.prompt),
             tool_calls: Vec::new(),
@@ -139,7 +85,25 @@ impl ModelAdapter for ScriptedModel {
     }
 }
 
-const FOUND: &str = "```json\n{\"actionable\": [{\"fingerprint\": \"src/a.rs:bug\", \"severity\": \"high\"}]}\n```";
+const LOOP: &str = r#"
+<workflow name="loop">
+  <input name="focus" default="bugs"/>
+  <loop id="round" max="4" while="{{validate.actionable}}" stop-if-unchanged="{{validate.actionable}}">
+    <each id="scan" items="a b" as="slice" parallel="2">
+      <agent use="scout">SCAN {{slice}} for {{focus}}</agent>
+    </each>
+    <agent id="validate" use="critic" output="json" context="scan">VALIDATE round {{round.index}} after {{validate.history}}</agent>
+    <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
+      <agent id="implement" use="general">FIX {{validate.actionable}} last failure: [{{verify.output}}]</agent>
+      <run id="verify" cmd="sh -c 'test -f fixed-{{round.index}} &amp;&amp; echo passed || { touch fixed-{{round.index}}; echo broken-build; exit 1; }'"/>
+    </loop>
+  </loop>
+  <output name="remaining" value="{{validate.actionable}}"/>
+  <output name="rounds" value="{{round.passes}}"/>
+</workflow>
+"#;
+
+const FOUND: &str = "```json\n{\"actionable\": [{\"fingerprint\": \"src/a.rs:bug\"}]}\n```";
 const CLEAN: &str = "```json\n{\"actionable\": []}\n```";
 
 struct Fixture {
@@ -149,12 +113,13 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new(validate_replies: &[&str]) -> Self {
+    fn new(validate_replies: &[&str], files: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let bundle = dir.path().join(".agents/workflows/loop");
-        std::fs::create_dir_all(&bundle).unwrap();
-        std::fs::write(bundle.join("workflow.toml"), WORKFLOW).unwrap();
-        std::fs::write(bundle.join("round.toml"), ROUND).unwrap();
+        for (path, text) in files {
+            let path = dir.path().join(".agents/workflows").join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
         Self {
             dir,
             model: ScriptedModel::with_validate(validate_replies),
@@ -162,77 +127,95 @@ impl Fixture {
         }
     }
 
-    fn tool(&self, ctx: TurnToolContext) -> Arc<dyn EngineTool> {
-        let subagents = SubagentTool::new(Some(self.model.clone()), Vec::new());
-        let ctx = TurnToolContext {
-            monitor: Some(self.monitor.clone()),
-            ..ctx
-        };
-        WorkflowTool::new(subagents, self.dir.path(), None)
-            .bind_turn(&ctx)
-            .unwrap()
+    fn runner_with(
+        &self,
+        subagents: SubagentTool,
+        project: Option<Arc<crate::engine::context::ProjectContext>>,
+    ) -> WorkflowRunner {
+        WorkflowRunner::new(subagents, self.dir.path(), None).bind(
+            ToolStreamPort::default(),
+            CancellationSignal::default(),
+            Some(self.monitor.clone()),
+            project,
+        )
     }
 
-    async fn run(&self, inputs: Value) -> ToolResult {
-        self.run_with(TurnToolContext::default(), inputs).await
+    fn runner(&self) -> WorkflowRunner {
+        self.runner_with(SubagentTool::new(Some(self.model.clone()), Vec::new()), None)
     }
 
-    async fn run_with(&self, ctx: TurnToolContext, inputs: Value) -> ToolResult {
-        self.tool(ctx)
-            .execute(json!({ "name": "loop", "inputs": inputs }))
-            .await
-            .unwrap()
+    async fn run(&self, name: &str, inputs: &[(&str, &str)]) -> WorkflowRun {
+        let inputs = inputs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        self.runner().run(name, inputs).await
     }
 }
 
 #[tokio::test]
-async fn repeats_rounds_until_clean_and_carries_exclusions_forward() {
-    let fx = Fixture::new(&[FOUND, CLEAN]);
-    let result = fx.run(json!({})).await;
+async fn loops_until_clean_feeding_failures_and_history_into_later_passes() {
+    let fx = Fixture::new(&[FOUND, CLEAN], &[("loop.xml", LOOP)]);
+    let run = fx.run("loop", &[]).await;
 
-    assert!(!result.is_error, "{}", result.content);
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("Workflow `loop` completed."), "{}", run.report);
     assert!(
-        result.content.contains("Workflow `loop` completed."),
+        run.report.contains("✓ loop › round — 2 pass(es), stopped: while"),
         "{}",
-        result.content
+        run.report
     );
     assert!(
-        result.content.contains("✓ loop › rounds — 2 round(s), stopped: clean"),
+        run.report
+            .contains("✓ loop › round 1 › attempt — 2 pass(es), stopped: until"),
         "{}",
-        result.content
+        run.report
     );
     assert!(
-        result.content.contains("· loop › rounds › round 2 › implement"),
+        run.report.contains("· loop › round 2 › attempt — condition not met"),
         "{}",
-        result.content
+        run.report
     );
+    assert!(run.report.contains("\"rounds\": 2"), "{}", run.report);
     assert_eq!(fx.model.prompts_starting_with("SCAN").len(), 4);
+
+    let fixes = fx.model.prompts_starting_with("FIX");
+    assert_eq!(fixes.len(), 2);
+    assert!(fixes[0].ends_with("last failure: []"), "{}", fixes[0]);
+    assert!(fixes[1].contains("broken-build"), "{}", fixes[1]);
+
     let validates = fx.model.prompts_starting_with("VALIDATE");
+    assert!(
+        validates[0].starts_with("VALIDATE round 1 after []"),
+        "{}",
+        validates[0]
+    );
+    assert!(
+        validates[1].starts_with("VALIDATE round 2 after [\n  {\n    \"actionable\""),
+        "{}",
+        validates[1]
+    );
     assert!(
         validates[0].contains("## Context: scan\n### Item 1\nreport: SCAN a for bugs"),
         "{}",
         validates[0]
     );
-    assert!(!validates[0].contains("src/b.rs:fp"));
     assert!(
-        validates[1].contains("src/b.rs:fp"),
-        "round 2 must see the carried exclusion"
+        validates[1].contains("src/a.rs:bug"),
+        "round 2 sees round 1's value in history"
     );
+    assert!(fixes[0].contains("src/a.rs:bug"));
 
     let summaries = fx.monitor.summaries();
     assert!(
         summaries
             .iter()
-            .any(|s| s.group == "loop › rounds › round 1" && s.label == "scan #2 · scout")
+            .any(|s| s.group == "loop › round 1 › scan #2" && s.label == "scout")
     );
-    assert!(summaries.iter().any(|s| s.label == "implement · general"));
-    assert!(summaries.iter().all(|s| s.model == "test/scripted"));
     assert!(
-        result
-            .content
-            .contains("✓ loop › rounds › round 1 › scan — test/scripted · 2 items"),
-        "{}",
-        result.content
+        summaries
+            .iter()
+            .any(|s| s.label == "implement · general" && s.model == "test/scripted")
     );
 
     let log_dir = fx.dir.path().join(".rho/workflows");
@@ -242,104 +225,153 @@ async fn repeats_rounds_until_clean_and_carries_exclusions_forward() {
         .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
         .unwrap();
     let text = std::fs::read_to_string(log).unwrap();
-    assert!(text.contains("\"event\":\"run_started\""));
-    assert!(
-        text.contains("\"agent\":\"validate · critic\",\"event\":\"agent_started\",\"model\":\"test/scripted\""),
-        "{text}"
-    );
-    assert!(text.contains("\"event\":\"round_finished\""));
+    for event in ["run_started", "agent_started", "command", "run_finished"] {
+        assert!(text.contains(&format!("\"event\":\"{event}\"")), "missing {event}");
+    }
 }
 
 #[tokio::test]
-async fn stops_when_a_round_makes_no_progress() {
-    let fx = Fixture::new(&[FOUND]);
-    let result = fx.run(json!({})).await;
-    assert!(!result.is_error, "{}", result.content);
+async fn stops_a_loop_when_its_value_stops_changing() {
+    let fx = Fixture::new(&[FOUND], &[("loop.xml", LOOP)]);
+    let run = fx.run("loop", &[]).await;
+    assert!(run.ok, "{}", run.report);
     assert!(
-        result.content.contains("2 round(s), stopped: no progress"),
+        run.report.contains("✓ loop › round — 2 pass(es), stopped: unchanged"),
         "{}",
-        result.content
-    );
-    assert!(result.content.contains("\"remaining\": ["), "{}", result.content);
-}
-
-#[tokio::test]
-async fn failed_verification_retries_with_feedback_then_continues() {
-    let fx = Fixture::new(&[FOUND, CLEAN]);
-    let result = fx.run(json!({ "check": "echo broken-build; exit 1" })).await;
-
-    assert!(!result.is_error, "{}", result.content);
-    let fixes = fx.model.prompts_starting_with("FIX");
-    assert_eq!(fixes.len(), 2);
-    assert!(!fixes[0].contains("Verification failed"));
-    assert!(fixes[1].contains("## Verification failed (attempt 2)"), "{}", fixes[1]);
-    assert!(fixes[1].contains("broken-build"), "{}", fixes[1]);
-    assert!(
-        result
-            .content
-            .contains("✗ loop › rounds › round 1 › implement — test/scripted · verification failed"),
-        "{}",
-        result.content
+        run.report
     );
 }
 
 #[tokio::test]
-async fn shell_steps_go_through_the_permission_gate() {
-    let fx = Fixture::new(&[CLEAN]);
-    let scope = parse_scope_from_str("[permission.bash]\n\"printf *\" = \"deny\"\n").unwrap();
-    let hook = PermissionHook::with_policy(
+async fn workflows_ignore_permission_rules_for_steps_and_agents() {
+    let wf =
+        r#"<workflow><run id="hi" cmd="printf hello"/><agent use="general">HELLO {{hi.output}}</agent></workflow>"#;
+    let fx = Fixture::new(&[CLEAN], &[("trusted.xml", wf)]);
+    let scope = parse_scope_from_str("[permission.bash]\n\"*\" = \"deny\"\n").unwrap();
+    let deny_all = PermissionHook::with_policy(
         Some(fx.dir.path().to_path_buf()),
         Arc::new(MockHookPresenter::new(false, None)),
         build_policy(None, Some(scope)),
     );
-    let ctx = TurnToolContext {
-        permission: Some(Arc::new(hook)),
+    let gated = TurnToolContext {
+        permission: Some(Arc::new(deny_all)),
         ..Default::default()
     };
-    let result = fx.run_with(ctx, json!({})).await;
-    assert!(result.is_error);
-    assert!(result.content.contains("Workflow `loop` stopped"), "{}", result.content);
-    assert!(
-        result.content.contains("✗ loop › rounds › round 1 › slices"),
-        "{}",
-        result.content
-    );
-    assert!(fx.model.prompts_starting_with("SCAN").is_empty());
+    let subagents = SubagentTool::new(Some(fx.model.clone()), Vec::new()).with_turn_context(&gated);
+    let run = fx.runner_with(subagents, None).run("trusted", BTreeMap::new()).await;
+    assert!(run.ok, "{}", run.report);
+    assert_eq!(fx.model.prompts_starting_with("HELLO"), ["HELLO hello"]);
+}
+
+fn project(dir: &std::path::Path) -> Arc<crate::engine::context::ProjectContext> {
+    Arc::new(crate::engine::context::ProjectContext {
+        current_dir: dir.to_path_buf(),
+        base_system_prompt: String::new(),
+        instruction_files: vec![(
+            "AGENTS.md".to_string(),
+            "Never add comments that restate code.".to_string(),
+        )],
+        skills: Vec::new(),
+        agents: Vec::new(),
+        active_tools: Vec::new(),
+        git_status: Some("## main".to_string()),
+        os_info: "testos".to_string(),
+        date_str: "2026-11-17".to_string(),
+        seen_instruction_files: Default::default(),
+        no_context_files: false,
+        dynamic_instructions_count: 0,
+        dynamic_instructions_bytes: 0,
+        last_git_check: None,
+    })
 }
 
 #[tokio::test]
-async fn rejects_unknown_workflows_and_bad_inputs_before_running() {
-    let fx = Fixture::new(&[CLEAN]);
-    let tool = fx.tool(TurnToolContext::default());
-    let cases = [
-        (json!({ "name": "ghost" }), "unknown workflow 'ghost'; available:"),
-        (
-            json!({ "name": "loop", "inputs": { "nope": 1 } }),
-            "no input named 'nope'",
-        ),
-        (json!({ "name": "refine" }), "requires input 'profile'"),
-        (json!({ "inputs": {} }), "failed to parse workflow arguments"),
-    ];
-    for (args, expected) in cases {
-        let result = tool.execute(args.clone()).await.unwrap();
-        assert!(result.is_error, "{args}");
-        assert!(result.content.contains(expected), "{args}: {}", result.content);
+async fn agents_are_grounded_with_project_instructions_environment_and_position() {
+    let wf = r#"<workflow name="greet"><agent id="hello" use="helper">HELLO</agent></workflow>"#;
+    let agent = "---\nname: helper\ntools: read\n---\nYou greet people.";
+    let fx = Fixture::new(
+        &[CLEAN],
+        &[("greet/workflow.xml", wf), ("greet/agents/helper.md", agent)],
+    );
+    let subagents = SubagentTool::new(Some(fx.model.clone()), Vec::new());
+    let run = fx
+        .runner_with(subagents, Some(project(fx.dir.path())))
+        .run("greet", BTreeMap::new())
+        .await;
+    assert!(run.ok, "{}", run.report);
+    let preamble = fx.model.preamble_for("HELLO");
+    for expected in [
+        "You greet people.",
+        "Never add comments that restate code.",
+        "Platform: testos",
+        "Today's date is 2026-11-17",
+        "Git repository status: ## main",
+        "You are running as step `greet › hello` of a workflow.",
+    ] {
+        assert!(preamble.contains(expected), "missing {expected:?} in:\n{preamble}");
     }
-    assert!(fx.model.prompts.lock().unwrap().is_empty());
 }
 
-#[test]
-fn description_lists_available_workflows_with_argument_hints() {
-    let fx = Fixture::new(&[CLEAN]);
-    let tool = WorkflowTool::new(SubagentTool::new(None, Vec::new()), fx.dir.path(), None);
+#[tokio::test]
+async fn blocks_and_calls_compose_without_any_agent() {
+    let main = r#"
+<workflow name="compose">
+  <parallel id="both">
+    <run id="a" cmd="printf bug"/>
+    <run id="b" cmd="printf '{&quot;n&quot;: 2}'" output="json"/>
+  </parallel>
+  <choose id="route" on="{{a.output}}">
+    <case value="feature"><run id="wrong" cmd="printf no"/></case>
+    <case value="bug"><call id="fixed" workflow="fix" what="{{a.output}}"/></case>
+  </choose>
+  <each id="echoes" items="{{fixed.items}}" as="x"><run cmd="printf {{x}}"/></each>
+  <run id="skipped" unless="{{both.b.json.n}}" cmd="printf never"/>
+  <output name="route" value="{{route}}"/>
+  <output name="n" value="{{b.json.n}}"/>
+  <output name="echoes" value="{{echoes}}"/>
+  <output name="skipped" value="{{skipped}}"/>
+</workflow>"#;
+    let fix = r#"<workflow name="fix"><input name="what"/><run id="r" cmd="printf '[&quot;fixed-{{what}}&quot;]'" output="json"/><output name="items" value="{{r.json}}"/></workflow>"#;
+    let fx = Fixture::new(&[CLEAN], &[("compose/workflow.xml", main), ("compose/fix.xml", fix)]);
+    let run = fx.run("compose", &[]).await;
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("\"route\": \"bug\""), "{}", run.report);
+    assert!(run.report.contains("\"n\": 2"), "{}", run.report);
+    assert!(run.report.contains("\"output\": \"fixed-bug\""), "{}", run.report);
+    assert!(run.report.contains("\"skipped\": null"), "{}", run.report);
+    assert!(!run.report.contains("wrong"), "{}", run.report);
+    assert!(fx.model.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rejects_unknown_workflows_bad_inputs_and_unconfigured_models_before_running() {
+    let slow = r#"<workflow name="slowpoke"><agent use="general" model="slow">HELLO</agent></workflow>"#;
+    let fx = Fixture::new(&[CLEAN], &[("loop.xml", LOOP), ("slowpoke.xml", slow)]);
+    type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str);
+    let cases: [Case<'_>; 3] = [
+        ("ghost", &[], "unknown workflow 'ghost'; available: loop, slowpoke"),
+        ("loop", &[("nope", "1")], "no input named 'nope'"),
+        ("slowpoke", &[], "model roles that are not configured: slow"),
+    ];
+    for (name, inputs, expected) in cases {
+        let run = fx.run(name, inputs).await;
+        assert!(!run.ok, "{name}");
+        assert!(run.report.contains(expected), "{name}: {}", run.report);
+    }
+    assert!(fx.model.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_failing_agent_stops_the_workflow_with_its_step_path() {
+    let wf = r#"<workflow name="broken"><agent use="nobody">HELLO</agent><run cmd="printf after"/></workflow>"#;
+    let fx = Fixture::new(&[CLEAN], &[("broken.xml", wf)]);
+    let run = fx.run("broken", &[]).await;
+    assert!(!run.ok);
     assert!(
-        tool.description().contains("loop [focus] [check]"),
+        run.report
+            .contains("Workflow `broken` stopped: broken › nobody: unknown subagent 'nobody'"),
         "{}",
-        tool.description()
+        run.report
     );
-    assert!(
-        tool.description().contains("refine <review|security"),
-        "{}",
-        tool.description()
-    );
+    assert!(!run.report.contains("after"), "{}", run.report);
 }

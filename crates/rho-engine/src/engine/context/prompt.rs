@@ -136,6 +136,25 @@ pub fn build_system_prompt(ctx: &ProjectContext) -> String {
     prompt
 }
 
+pub fn build_agent_grounding(ctx: &ProjectContext, agent_tools: &[String]) -> String {
+    let mut prompt = String::with_capacity(1024);
+    append_available_tools(&mut prompt, agent_tools);
+    let guidelines = build_guidelines(agent_tools);
+    if !guidelines.is_empty() {
+        prompt.push_str("\nGuidelines:\n");
+        for guideline in guidelines {
+            prompt.push_str(&format!("- {guideline}\n"));
+        }
+    }
+    prompt.push('\n');
+    append_instruction_files(&mut prompt, &ctx.instruction_files);
+    append_environment_info(&mut prompt, ctx);
+    if let Some(git) = ctx.git_status.as_deref().filter(|s| !s.trim().is_empty()) {
+        prompt.push_str(&format!("\nGit repository status: {git}"));
+    }
+    prompt
+}
+
 pub fn escape_xml(s: &str) -> std::borrow::Cow<'_, str> {
     if !s.bytes().any(|b| matches!(b, b'&' | b'<' | b'>' | b'"' | b'\'')) {
         return std::borrow::Cow::Borrowed(s);

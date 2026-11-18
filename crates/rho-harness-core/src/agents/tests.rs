@@ -41,9 +41,10 @@ fn test_parse_agent_files_variants() {
         Some(&["read".to_string(), "rg".to_string()][..])
     );
     assert_eq!(meta_full.disallowed_tools.as_deref(), Some(&["bash".to_string()][..]));
-    assert_eq!(meta_full.model.as_deref(), Some("haiku"));
-    assert_eq!(meta_full.max_turns, Some(7));
-    assert_eq!(meta_full.system_prompt, "Prompt body");
+    assert_eq!(
+        meta_full.system_prompt, "Prompt body",
+        "model and maxTurns are ignored, not leaked into the body"
+    );
 
     let plain_path = tmp.join("plain.md");
     std::fs::write(&plain_path, "Just the instructions\n").unwrap();

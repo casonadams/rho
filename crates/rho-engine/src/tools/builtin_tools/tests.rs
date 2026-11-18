@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn builtin_tools_build_successfully() {
     let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None).unwrap();
-    assert_eq!(tools.len(), 10);
+    assert_eq!(tools.len(), 9);
     let names: Vec<_> = tools.iter().map(|t| t.name()).collect();
     for exp in [
         "read",
@@ -15,7 +15,6 @@ fn builtin_tools_build_successfully() {
         "web_search",
         "web_fetch",
         "subagent",
-        "workflow",
     ] {
         assert!(names.contains(&exp));
     }
@@ -50,5 +49,5 @@ fn builtin_tools_omit_web_when_disabled() {
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
     let tools = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 7);
 }

@@ -13,7 +13,7 @@ use crate::tools::engine_tool::EngineTool;
 use crate::tools::fd::FdTool;
 use crate::tools::read::ReadTool;
 use crate::tools::rg::RgTool;
-use crate::tools::subagent::SubagentModelResolver;
+use crate::tools::subagent::{SubagentModelResolver, SubagentTool};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
@@ -56,6 +56,15 @@ pub fn build_builtin_tools_with_resolver(
     model: Option<crate::engine::compactor::llm::ModelHandle>,
     model_resolver: Option<SubagentModelResolver>,
 ) -> Result<Vec<Arc<dyn EngineTool>>> {
+    build_builtin_toolset(base_dir, config, model, model_resolver).map(|(tools, _)| tools)
+}
+
+pub fn build_builtin_toolset(
+    base_dir: &Path,
+    config: &Config,
+    model: Option<crate::engine::compactor::llm::ModelHandle>,
+    model_resolver: Option<SubagentModelResolver>,
+) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
     let mut tools = build_workspace_native_tools(base_dir);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
@@ -95,11 +104,8 @@ pub fn build_builtin_tools_with_resolver(
     if let Some(resolver) = model_resolver {
         subagent = subagent
             .with_model_resolver(resolver)
-            .with_default_model(config.models.get("smol").cloned());
+            .with_model_roles(config.models.get("smol").cloned(), config.models.get("slow").cloned());
     }
-    let workflow =
-        crate::tools::workflow::WorkflowTool::new(subagent.clone(), base_dir, rho_harness_core::config::home_dir());
-    tools.push(Arc::new(subagent) as Arc<dyn EngineTool>);
-    tools.push(Arc::new(workflow) as Arc<dyn EngineTool>);
-    Ok(tools)
+    tools.push(Arc::new(subagent.clone()) as Arc<dyn EngineTool>);
+    Ok((tools, subagent))
 }

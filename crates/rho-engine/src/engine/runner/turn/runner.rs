@@ -112,6 +112,7 @@ pub struct AgentRunner {
     cancellation: Option<CancellationSignal>,
     working_dir: std::path::PathBuf,
     monitor: Option<rho_harness_core::agents::AgentMonitor>,
+    project: Option<Arc<crate::engine::context::ProjectContext>>,
 }
 
 impl AgentRunner {
@@ -143,6 +144,7 @@ impl AgentRunner {
             cancellation: None,
             working_dir,
             monitor: None,
+            project: None,
         }
     }
 
@@ -196,6 +198,11 @@ impl AgentRunner {
         self
     }
 
+    pub fn project_context(mut self, project: Option<Arc<crate::engine::context::ProjectContext>>) -> Self {
+        self.project = project;
+        self
+    }
+
     pub fn working_dir(mut self, working_dir: impl Into<std::path::PathBuf>) -> Self {
         self.working_dir = working_dir.into();
         self
@@ -217,6 +224,7 @@ impl AgentRunner {
             progress: self.stream_port.clone().unwrap_or_default(),
             parent_history: self.parent_history_snapshot(),
             monitor: self.monitor.clone(),
+            project: self.project.clone(),
         };
         self.tools = self
             .tools

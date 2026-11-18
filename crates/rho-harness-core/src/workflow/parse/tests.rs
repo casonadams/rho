@@ -1,4 +1,5 @@
 use super::*;
+use crate::workflow::types::{Items, ModelRole};
 
 fn no_files(path: &str) -> Result<String, String> {
     Err(format!("no file {path}"))
@@ -8,150 +9,136 @@ fn parse(text: &str) -> Result<Workflow, String> {
     parse_workflow("sample", text, &no_files)
 }
 
-const VALID: &str = r#"
-description = "Scan and fix"
-isolation = "branch"
+fn wrap(body: &str) -> String {
+    format!("<workflow>\n<input name=\"profile\"/>\n{body}\n</workflow>")
+}
 
-[[input]]
-name = "profile"
-choices = ["review", "security"]
+const REFINE: &str = r#"
+<workflow name="refine" description="Scan and fix" isolation="branch">
+  <input name="profile" choices="review security"/>
+  <input name="rounds" default="6"/>
 
-[[step]]
-id = "scopes"
-builtin = "repo_scopes"
-with = { max_scopes = 3 }
-
-[[step]]
-id = "scan"
-agent = "scout"
-over = "scopes.items"
-concurrency = 2
-prompt = "Scan {{item.paths}} for {{inputs.profile}}"
-
-[[step]]
-id = "validate"
-agent = "critic"
-context = ["scan"]
-output = "json"
-prompt = "Validate"
-
-[[step]]
-id = "implement"
-agent = "general"
-when = "validate.actionable"
-check = "make all"
-retries = 2
-on_fail = "stash"
-prompt = "Fix {{validate.actionable}}"
-
-[outputs]
-actionable = "validate.actionable"
-excluded = ["implement.wont_fix"]
+  <loop id="round" max="{{rounds}}" while="{{validate.actionable}}" stop-if-unchanged="{{validate.actionable}}">
+    <each id="scan" items="src crates" as="slice" parallel="2">
+      <agent use="scout" turns="40">
+        Scan {{slice}} for {{profile}}.
+          Keep Vec<String> && <file> verbatim.
+      </agent>
+    </each>
+    <agent id="validate" use="validator" model="slow" output="json" context="scan">Validate.</agent>
+    <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
+      <agent id="implement" use="implementor">Fix {{validate.actionable}}; last failure: {{verify.output}}</agent>
+      <run id="verify" cmd="make all"/>
+    </loop>
+    <run when="{{verify.ok}}" cmd="git commit -m 'fix({{profile}}): round {{round.index}}'"/>
+  </loop>
+  <output name="remaining" value="{{validate.actionable}}"/>
+</workflow>
 "#;
 
 #[test]
-fn parses_a_valid_workflow_into_typed_steps() {
-    let wf = parse(VALID).unwrap();
-    assert_eq!(wf.name, "sample");
+fn parses_a_nested_workflow_into_typed_nodes() {
+    let wf = parse(REFINE).unwrap();
+    assert_eq!(wf.name, "refine");
     assert_eq!(wf.isolation, Isolation::Branch);
+    assert_eq!(wf.inputs[1].default.as_deref(), Some("6"));
     assert_eq!(
-        wf.steps.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
-        ["scopes", "scan", "validate", "implement"]
+        wf.outputs,
+        vec![("remaining".to_string(), "{{validate.actionable}}".to_string())]
     );
-    let StepKind::Builtin { builtin, with } = &wf.steps[0].kind else {
-        panic!("expected builtin");
+    let NodeKind::Loop(round) = &wf.body[0].kind else {
+        panic!("expected loop");
     };
-    assert_eq!(*builtin, Builtin::RepoScopes);
-    assert_eq!(with["max_scopes"], "3");
-    assert_eq!(wf.steps[1].concurrency, 2);
-    assert_eq!(wf.steps[2].output, OutputFormat::Json);
+    assert_eq!(round.max, "{{rounds}}");
+    let NodeKind::Each(scan) = &round.body[0].kind else {
+        panic!("expected each");
+    };
+    assert_eq!(scan.items, Items::Literal(vec!["src".into(), "crates".into()]));
+    assert_eq!((scan.var.as_str(), scan.parallel), ("slice", 2));
+    let NodeKind::Agent(scout) = &scan.body[0].kind else {
+        panic!("expected agent");
+    };
     assert_eq!(
-        wf.steps[3].check,
-        Some(Check {
-            command: "make all".into(),
-            retries: 2,
-            on_fail: OnFail::Stash
-        })
+        scout.prompt,
+        "Scan {{slice}} for {{profile}}.\n  Keep Vec<String> && <file> verbatim."
     );
-    assert_eq!(wf.outputs["excluded"], vec!["implement.wont_fix"]);
+    assert_eq!((scout.model, scout.turns), (None, 40));
+    let NodeKind::Agent(validate) = &round.body[1].kind else {
+        panic!("expected agent");
+    };
+    assert_eq!((validate.model, validate.turns), (Some(ModelRole::Slow), 100));
+    assert_eq!(validate.output, OutputFormat::Json);
+    let NodeKind::Run(commit) = &round.body[3].kind else {
+        panic!("expected run");
+    };
+    assert_eq!(
+        commit.args,
+        ["git", "commit", "-m", "fix({{profile}}): round {{round.index}}"]
+    );
+    assert_eq!(round.body[3].when.as_deref(), Some("{{verify.ok}}"));
 }
 
 #[test]
-fn reports_every_invalid_reference_and_shape_error() {
-    let text = r#"
-[[step]]
-id = "a"
-agent = "scout"
-prompt = "{{item.x}} {{inputs.missing}} {{later.out}}"
-
-[[step]]
-id = "a"
-run = "echo"
-prompt = "nope"
-context = ["zzz"]
-
-[[step]]
-id = "round"
-agent = "scout"
-run = "x"
-
-[outputs]
-out = "ghost.value"
-"#;
-    let err = parse(text).unwrap_err();
+fn reports_every_shape_and_reference_problem() {
+    let text = wrap(
+        r#"<agent use="scout" model="guard" turns="0" bogus="1">Use {{nope}} and {{slice}}</agent>
+<run id="b" cmd="echo 'unterminated"/>
+<run id="a" cmd="echo"/>
+<run id="a" cmd="echo"/>
+<run id="profile" cmd="echo"/>
+<agent use="x" context="ghost">p</agent>
+<agent use="x"/>
+<each items="{{a}}" as="profile"><run cmd="echo"/></each>
+<loop max="zero"><run cmd="echo"/></loop>
+<choose on="{{a}}"><run cmd="echo"/></choose>
+<parallel/>
+<teleport/>
+<output name="o" value="{{ghost.value}}"/>"#,
+    );
+    let err = parse(&text).unwrap_err();
     for expected in [
-        "unknown reference 'item.x' (only valid in steps with `over`)",
-        "unknown reference 'inputs.missing'",
-        "unknown reference 'later.out'",
-        "duplicate step id",
-        "`prompt` and `prompt_file` are only valid on agent steps",
-        "context 'zzz' must name an earlier step",
-        "invalid step id 'round'",
-        "set exactly one of",
-        "unknown reference 'ghost.value'",
+        "model must be one of default, smol, slow (got 'guard')",
+        "'turns' must be a positive integer",
+        "unknown attribute 'bogus'",
+        "unknown reference '{{nope}}'",
+        "unknown reference '{{slice}}'",
+        "unterminated quote",
+        "duplicate id 'a'",
+        "id 'profile' is already an input name",
+        "context 'ghost' is not a step id",
+        "needs a prompt",
+        "'as' name 'profile' is invalid or already used",
+        "'max' must be a positive integer or a reference",
+        "only <case> and one <otherwise>",
+        "<parallel>: needs at least one step",
+        "unknown element 'teleport'",
+        "output 'o': unknown reference '{{ghost.value}}'",
     ] {
         assert!(err.contains(expected), "missing '{expected}' in:\n{err}");
     }
 }
 
 #[test]
-fn rejects_misplaced_step_options() {
+fn each_variable_is_only_visible_inside_its_body() {
+    let text = wrap(r#"<each items="a b" as="x"><run cmd="echo {{x}}"/></each><run cmd="echo {{x}}"/>"#);
+    let err = parse(&text).unwrap_err();
+    assert_eq!(err.matches("unknown reference '{{x}}'").count(), 1, "{err}");
+}
+
+#[test]
+fn rejects_bad_documents_and_roots() {
     let cases = [
+        ("<steps/>", "root element must be <workflow>"),
+        ("<workflow></workflow>", "has no steps"),
         (
-            "[[step]]\nid = \"a\"\nrun = \"x\"\ncheck = \"make\"",
-            "only supported on agent steps",
-        ),
-        (
-            "[[step]]\nid = \"a\"\nagent = \"g\"\nprompt = \"p\"\nretries = 1",
-            "require `check`",
-        ),
-        (
-            "[[step]]\nid = \"a\"\nrun = \"x\"\ncarry = [\"e\"]",
-            "only valid on workflow steps",
-        ),
-        (
-            "[[step]]\nid = \"a\"\nworkflow = \"w\"\ncarry = [\"e\"]",
-            "`carry` requires `repeat`",
-        ),
-        (
-            "[[step]]\nid = \"a\"\nworkflow = \"w\"\nrepeat = { until_empty = \"x\", max = 0 }",
-            "positive integer",
-        ),
-        ("[[step]]\nid = \"a\"\nbuiltin = \"nope\"", "unknown builtin 'nope'"),
-        (
-            "[[step]]\nid = \"a\"\nagent = \"g\"",
-            "exactly one of `prompt` or `prompt_file`",
-        ),
-        (
-            "[[step]]\nid = \"a\"\nagent = \"g\"\nprompt = \"p\"\noutput = \"xml\"",
-            "output must be",
-        ),
-        (
-            "isolation = \"vm\"\n[[step]]\nid = \"a\"\nrun = \"x\"",
+            "<workflow isolation=\"vm\"><run cmd=\"x\"/></workflow>",
             "isolation must be",
         ),
-        ("name = \"x\"", "has no steps"),
-        ("[[step]]\nid = \"a\"\nrun = \"x\"\nbogus = 1", "invalid workflow TOML"),
+        ("<workflow><run cmd=\"x\">", "never closed"),
+        (
+            "<workflow><agent use=\"a\" prompt-file=\"p.md\">inline</agent></workflow>",
+            "not both",
+        ),
     ];
     for (text, expected) in cases {
         let err = parse(text).unwrap_err();
@@ -162,47 +149,60 @@ fn rejects_misplaced_step_options() {
 #[test]
 fn loads_prompt_files_through_the_reader() {
     let reader = |path: &str| -> Result<String, String> {
-        if path == "prompts/scan.md" {
-            Ok("Scan {{inputs.profile}}".to_string())
-        } else {
-            Err("missing".to_string())
-        }
+        (path == "prompts/scan.md")
+            .then(|| "Scan {{profile}}\n".to_string())
+            .ok_or_else(|| "missing".to_string())
     };
-    let text =
-        "[[input]]\nname = \"profile\"\n[[step]]\nid = \"scan\"\nagent = \"scout\"\nprompt_file = \"prompts/scan.md\"";
-    let wf = parse_workflow("w", text, &reader).unwrap();
-    let StepKind::Agent(agent) = &wf.steps[0].kind else {
+    let wf = parse_workflow(
+        "w",
+        &wrap(r#"<agent use="scout" prompt-file="prompts/scan.md"/>"#),
+        &reader,
+    )
+    .unwrap();
+    let NodeKind::Agent(agent) = &wf.body[0].kind else {
         panic!("expected agent");
     };
-    assert_eq!(agent.prompt, "Scan {{inputs.profile}}");
-
-    let missing = "[[step]]\nid = \"scan\"\nagent = \"scout\"\nprompt_file = \"prompts/nope.md\"";
+    assert_eq!(agent.prompt, "Scan {{profile}}");
+    let missing = wrap(r#"<agent use="scout" prompt-file="prompts/nope.md"/>"#);
     assert!(
-        parse_workflow("w", missing, &reader)
+        parse_workflow("w", &missing, &reader)
             .unwrap_err()
-            .contains("cannot read prompt_file")
+            .contains("cannot read prompt-file")
     );
 }
 
 #[test]
-fn repeat_max_accepts_templates_and_numbers() {
-    let text = r#"
-[[input]]
-name = "max_rounds"
-default = 6
+fn splits_commands_on_whitespace_with_quotes() {
+    let cases: [(&str, &[&str]); 4] = [
+        ("make all", &["make", "all"]),
+        ("git commit -m 'a b' \"c d\"", &["git", "commit", "-m", "a b", "c d"]),
+        ("echo ''", &["echo", ""]),
+        ("  x  ", &["x"]),
+    ];
+    for (cmd, expected) in cases {
+        assert_eq!(split_command(cmd).unwrap(), expected, "{cmd}");
+    }
+    assert!(split_command("   ").unwrap_err().contains("empty"));
+}
 
-[[step]]
-id = "rounds"
-workflow = "round"
-repeat = { until_empty = "actionable", max = "{{inputs.max_rounds}}", stop_on_no_progress = true }
-carry = ["excluded"]
-"#;
-    let wf = parse(text).unwrap();
-    let StepKind::Workflow(call) = &wf.steps[0].kind else {
-        panic!("expected workflow call");
+#[test]
+fn choose_and_call_parse_cases_and_inputs() {
+    let text = wrap(
+        r#"<run id="kind" cmd="echo bug"/>
+<choose id="route" on="{{kind.output}}">
+  <case value="bug"><call workflow="fix" profile="{{profile}}"/></case>
+  <otherwise><run cmd="echo other"/></otherwise>
+</choose>"#,
+    );
+    let wf = parse(&text).unwrap();
+    let NodeKind::Choose(choose) = &wf.body[1].kind else {
+        panic!("expected choose");
     };
-    let repeat = call.repeat.as_ref().unwrap();
-    assert_eq!(repeat.max, "{{inputs.max_rounds}}");
-    assert!(repeat.stop_on_no_progress);
-    assert_eq!(call.carry, vec!["excluded"]);
+    assert_eq!(choose.cases[0].0, "bug");
+    let NodeKind::Call(call) = &choose.cases[0].1[0].kind else {
+        panic!("expected call");
+    };
+    assert_eq!(call.workflow, "fix");
+    assert_eq!(call.with["profile"], "{{profile}}");
+    assert!(choose.otherwise.is_some());
 }

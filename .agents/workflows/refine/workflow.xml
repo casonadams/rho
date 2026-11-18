@@ -1,0 +1,28 @@
+<workflow name="refine" description="Scan, fix, and verify rho until no actionable findings remain" isolation="branch">
+  <input name="profile" choices="review security performance reliability architecture" description="Review focus"/>
+  <input name="rounds" default="6" description="Maximum scan and fix rounds"/>
+
+  <loop id="round" max="{{rounds}}" while="{{validate.actionable}}" stop-if-unchanged="{{validate.actionable}}">
+
+    <each id="scan" items="src crates/rho-engine crates/rho-harness-core" as="slice" parallel="3">
+      <agent use="scout" model="smol" turns="40" prompt-file="prompts/scan.md"/>
+    </each>
+
+    <agent id="validate" use="validator" model="slow" turns="40" output="json" context="scan" prompt-file="prompts/validate.md"/>
+
+    <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
+      <agent id="implement" use="implementor" model="slow" turns="60" output="json" prompt-file="prompts/implement.md"/>
+      <run id="verify" cmd="make all"/>
+    </loop>
+
+    <run when="{{verify.ok}}" cmd="git add -A"/>
+    <run when="{{verify.ok}}" cmd="git commit --quiet -m 'fix({{profile}}): refine round {{round.index}}'"/>
+    <run when="{{validate.actionable}}" unless="{{verify.ok}}"
+         cmd="git stash push --quiet --include-untracked -m 'rho refine: round {{round.index}} failed verification'"/>
+  </loop>
+
+  <output name="rounds" value="{{round.passes}}"/>
+  <output name="stopped" value="{{round.stopped}}"/>
+  <output name="remaining" value="{{validate.actionable}}"/>
+  <output name="low_confidence" value="{{validate.low_confidence}}"/>
+</workflow>

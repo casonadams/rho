@@ -61,7 +61,7 @@ async fn handle_async_slash_commands(
             provider: parts.get(1).map(|v| (*v).to_string()),
         })),
         "export" => handle_export(ctx, parts).await,
-        "workflows" => Ok(Some(workflows::handle_workflows(ctx).await)),
+        "workflow" => Ok(Some(workflows::handle_workflow(ctx, parts).await)),
         custom => handle_custom(ctx, custom, parts).await,
     }
 }

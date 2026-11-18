@@ -245,8 +245,6 @@ async fn system_prompt_renders_available_agents() {
         location: ".claude/agents/code-reviewer.md".to_string(),
         tools: None,
         disallowed_tools: None,
-        model: None,
-        max_turns: None,
         system_prompt: "Review code".to_string(),
     }];
 

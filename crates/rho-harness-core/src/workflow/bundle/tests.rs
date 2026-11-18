@@ -1,5 +1,4 @@
 use super::*;
-use crate::workflow::types::StepKind;
 
 fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -11,81 +10,85 @@ fn temp_root(label: &str) -> PathBuf {
 }
 
 #[test]
-fn builtin_refine_bundle_loads_with_local_agents_and_round() {
+fn ships_no_builtin_workflows() {
     let catalog = WorkflowCatalog::discover(None, None);
-    assert!(catalog.errors.is_empty(), "{:?}", catalog.errors);
-    let refine = catalog.find("refine").expect("builtin refine");
-    assert_eq!(refine.origin, WorkflowOrigin::Builtin);
-    assert_eq!(refine.location, "builtin:refine");
-    assert!(refine.workflows.contains_key("round"));
-    let agents: Vec<&str> = refine.agents.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(agents, ["implementor", "validator"]);
-    let validator = refine.agents.iter().find(|a| a.name == "validator").unwrap();
-    assert_eq!(
-        validator.tools.as_deref(),
-        Some(&["read".to_string(), "fd".into(), "rg".into()][..])
-    );
-    assert_eq!(
-        refine.entry.argument_hint(),
-        "<review|security|performance|reliability|architecture> [max_rounds] [verify]"
-    );
+    assert!(catalog.bundles.is_empty());
+    assert!(catalog.errors.is_empty());
 }
 
 #[test]
-fn project_workflows_override_builtins_and_single_files_load() {
-    let root = temp_root("override");
-    let project = root.join("project");
+fn loads_bundles_and_single_files_with_project_overriding_user() {
+    let root = temp_root("discover");
+    let (home, project) = (root.join("home"), root.join("project"));
     write(
-        &project.join(".agents/workflows/refine/workflow.toml"),
-        "description = \"custom\"\n[[step]]\nid = \"a\"\nrun = \"true\"",
+        &home.join(".agents/workflows/refine.xml"),
+        "<workflow description=\"user\"><run cmd=\"true\"/></workflow>",
     );
     write(
-        &project.join(".agents/workflows/hello.toml"),
-        "[[step]]\nid = \"greet\"\nagent = \"general\"\nprompt_file = \"hello.md\"",
+        &project.join(".agents/workflows/refine/workflow.xml"),
+        "<workflow description=\"project\"><call workflow=\"round\" profile=\"x\"/></workflow>",
     );
-    write(&project.join(".agents/workflows/hello.md"), "Say hi");
+    write(
+        &project.join(".agents/workflows/refine/round.xml"),
+        "<workflow><input name=\"profile\"/><agent use=\"implementor\" prompt-file=\"prompts/fix.md\"/></workflow>",
+    );
+    write(
+        &project.join(".agents/workflows/refine/prompts/fix.md"),
+        "Fix {{profile}}",
+    );
+    write(
+        &project.join(".agents/workflows/refine/agents/implementor.md"),
+        "---\nname: implementor\ntools: read, edit\n---\nFix things.",
+    );
 
-    let catalog = WorkflowCatalog::discover(Some(&project), None);
+    let catalog = WorkflowCatalog::discover(Some(&project), Some(&home));
     assert!(catalog.errors.is_empty(), "{:?}", catalog.errors);
     let refine = catalog.find("refine").unwrap();
     assert_eq!(refine.origin, WorkflowOrigin::Project);
-    assert_eq!(refine.entry.description, "custom");
-    let hello = catalog.find("hello").unwrap();
-    let StepKind::Agent(step) = &hello.entry.steps[0].kind else {
-        panic!("expected agent step");
-    };
-    assert_eq!(step.prompt, "Say hi");
+    assert_eq!(refine.entry.description, "project");
+    assert!(refine.workflows.contains_key("round"));
+    assert_eq!(
+        refine.agents[0].tools.as_deref(),
+        Some(&["read".to_string(), "edit".into()][..])
+    );
+    let (owner, round) = catalog.resolve_call(refine, "round").unwrap();
+    assert_eq!(owner.name, "refine");
+    assert_eq!(round.inputs[0].name, "profile");
     std::fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn invalid_bundles_are_reported_not_loaded() {
+fn invalid_workflows_are_reported_not_loaded() {
     let root = temp_root("invalid");
-    write(&root.join(".agents/workflows/broken.toml"), "[[step]]\nid = \"a\"");
+    let dir = root.join(".agents/workflows");
+    write(&dir.join("broken.xml"), "<workflow><run/></workflow>");
     write(
-        &root.join(".agents/workflows/caller/workflow.toml"),
-        "[[step]]\nid = \"a\"\nworkflow = \"ghost\"",
+        &dir.join("caller.xml"),
+        "<workflow><call workflow=\"ghost\"/></workflow>",
     );
     write(
-        &root.join(".agents/workflows/shape/workflow.toml"),
-        "[[step]]\nid = \"a\"\nworkflow = \"inner\"\nwith = { nope = \"x\" }\nrepeat = { until_empty = \"missing\", max = 2 }\ncarry = [\"acc\"]",
+        &dir.join("selfish.xml"),
+        "<workflow><call workflow=\"selfish\"/></workflow>",
     );
     write(
-        &root.join(".agents/workflows/shape/inner.toml"),
-        "[[step]]\nid = \"b\"\nrun = \"true\"\n[outputs]\nacc = \"b\"",
+        &dir.join("shape.xml"),
+        "<workflow><call workflow=\"inner\" nope=\"x\"/></workflow>",
     );
+    write(
+        &dir.join("inner.xml"),
+        "<workflow><input name=\"a\"/><run cmd=\"true\"/></workflow>",
+    );
+    write(&dir.join("notes.txt"), "ignored");
 
     let catalog = WorkflowCatalog::discover(Some(&root), None);
-    for name in ["broken", "caller", "shape"] {
-        assert!(catalog.find(name).is_none(), "{name} should not load");
-    }
+    let names: Vec<&str> = catalog.bundles.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, ["inner"]);
     let errors = catalog.errors.join("\n");
     for expected in [
-        "set exactly one of",
+        "missing required attribute 'cmd'",
         "unknown workflow 'ghost'",
-        "has no input 'nope'",
-        "repeat.until_empty 'missing'",
-        "carry 'acc' must be both an input and an output",
+        "a workflow cannot call itself",
+        "'inner' has no input 'nope'",
     ] {
         assert!(errors.contains(expected), "missing '{expected}' in:\n{errors}");
     }
@@ -93,10 +96,9 @@ fn invalid_bundles_are_reported_not_loaded() {
 }
 
 #[test]
-fn prompt_files_cannot_escape_the_bundle() {
-    let source = BundleSource::Embedded(REFINE_FILES);
+fn prompt_files_cannot_escape_the_workflow_directory() {
+    let root = temp_root("escape");
     for path in ["../secret", "/etc/passwd", ""] {
-        assert!(source.read(path).is_err(), "{path}");
+        assert!(read_relative(&root, path).is_err(), "{path}");
     }
-    assert!(source.read("prompts/scan.md").is_ok());
 }

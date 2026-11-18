@@ -24,7 +24,7 @@ const HELP_ENTRIES: &[(&str, &str)] = &[
     ("/skill", "List or inspect skills"),
     ("/reload", "Re-read config, skills, and MCP tools"),
     ("/export", "Export active branch as HTML or Markdown"),
-    ("/workflows", "List workflows (run one with /<name>)"),
+    ("/workflow", "List workflows, or run one: /workflow <name> [inputs]"),
     ("/exit", "Exit rho (alias: /quit)"),
     ("Tab", "Complete slash commands & skill names"),
     ("Shift+Tab", "Cycle thinking level"),

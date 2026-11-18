@@ -1,76 +1,143 @@
 mod agent_step;
-mod builtins;
+mod command;
 mod executor;
-mod repeat;
 mod report;
-mod shell;
 #[cfg(test)]
 mod tests;
 
-use crate::tools::engine_tool::{EngineTool, TurnToolContext};
+use crate::engine::runner::turn::types::CancellationSignal;
+use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
-use crate::tools::types::{ToolResult, generated_schema};
-use executor::{Executor, Frame, frame_scope};
+use executor::{Executor, Frame};
 use report::RunLog;
-use rho_harness_core::args::WorkflowArgs;
-use rho_harness_core::error::AppError;
-use rho_harness_core::workflow::{Isolation, WorkflowBundle, WorkflowCatalog};
-use serde_json::{Map, Value, json};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use rho_harness_core::presentation::ToolStreamPort;
+use rho_harness_core::workflow::{ModelRole, Node, NodeKind, Workflow, WorkflowBundle, WorkflowCatalog};
+use serde_json::json;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 
-pub const WORKFLOW_TOOL_NAME: &str = "workflow";
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowRun {
+    pub ok: bool,
+    pub report: String,
+}
 
+/// Runs workflows started with `/workflow`. Workflows are trusted: no permission checks or hooks apply.
 #[derive(Clone)]
-pub struct WorkflowTool {
+pub struct WorkflowRunner {
     subagents: SubagentTool,
     base_dir: PathBuf,
     home_dir: Option<PathBuf>,
-    description: String,
 }
 
-impl WorkflowTool {
+fn collect_roles(nodes: &[Node], into: &mut Vec<ModelRole>) {
+    for node in nodes {
+        if let NodeKind::Agent(agent) = &node.kind
+            && let Some(role) = agent.model
+        {
+            into.push(role);
+        }
+        for body in node.kind.bodies() {
+            collect_roles(body, into);
+        }
+    }
+}
+
+fn missing_roles(bundle: &WorkflowBundle, subagents: &SubagentTool) -> Vec<&'static str> {
+    let mut roles = Vec::new();
+    for wf in std::iter::once(&bundle.entry).chain(bundle.workflows.values()) {
+        collect_roles(&wf.body, &mut roles);
+    }
+    let mut missing: Vec<&'static str> = roles
+        .into_iter()
+        .filter(|role| !subagents.role_configured(*role))
+        .map(ModelRole::as_str)
+        .collect();
+    missing.sort_unstable();
+    missing.dedup();
+    missing
+}
+
+impl WorkflowRunner {
     #[must_use]
-    pub fn new(subagents: SubagentTool, base_dir: &Path, home_dir: Option<PathBuf>) -> Self {
-        let catalog = WorkflowCatalog::discover(Some(base_dir), home_dir.as_deref());
-        let available = catalog
-            .bundles
-            .iter()
-            .map(|b| format!("{} {}", b.name, b.entry.argument_hint()).trim().to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
+    pub fn new(subagents: SubagentTool, base_dir: impl Into<PathBuf>, home_dir: Option<PathBuf>) -> Self {
         Self {
             subagents,
-            base_dir: base_dir.to_path_buf(),
+            base_dir: base_dir.into(),
             home_dir,
-            description: format!(
-                "Run a declarative multi-agent workflow to completion and return its report. Run one only when the user asks for it. Available: {available}."
-            ),
         }
     }
 
-    fn catalog(&self) -> WorkflowCatalog {
+    #[must_use]
+    pub fn bind(
+        &self,
+        progress: ToolStreamPort,
+        cancellation: CancellationSignal,
+        monitor: Option<rho_harness_core::agents::AgentMonitor>,
+        project: Option<std::sync::Arc<crate::engine::context::ProjectContext>>,
+    ) -> Self {
+        let ctx = TurnToolContext {
+            permission: None,
+            lifecycle: None,
+            cancellation: Some(cancellation),
+            progress,
+            parent_history: std::sync::Arc::from(Vec::new()),
+            monitor,
+            project,
+        };
+        Self {
+            subagents: self.subagents.with_turn_context(&ctx),
+            ..self.clone()
+        }
+    }
+
+    #[must_use]
+    pub fn catalog(&self) -> WorkflowCatalog {
         WorkflowCatalog::discover(Some(&self.base_dir), self.home_dir.as_deref())
     }
 
-    async fn run(&self, catalog: &WorkflowCatalog, bundle: &WorkflowBundle, inputs: Map<String, Value>) -> ToolResult {
+    pub async fn run(&self, name: &str, inputs: BTreeMap<String, String>) -> WorkflowRun {
+        let runner = self.clone();
+        let catalog = match tokio::task::spawn_blocking(move || runner.catalog()).await {
+            Ok(catalog) => catalog,
+            Err(e) => return failed(format!("workflow discovery failed: {e}")),
+        };
+        let Some(bundle) = catalog.find(name) else {
+            return failed(unknown_workflow(name, &catalog));
+        };
+        let inputs = match bundle.entry.resolve_inputs(inputs) {
+            Ok(inputs) => inputs,
+            Err(e) => return failed(e),
+        };
+        let missing = missing_roles(bundle, &self.subagents);
+        if !missing.is_empty() {
+            return failed(format!(
+                "workflow '{name}' uses model roles that are not configured: {} (set models.<role> in config.toml)",
+                missing.join(", ")
+            ));
+        }
+        self.execute(&catalog, bundle, &inputs).await
+    }
+
+    async fn execute(
+        &self,
+        catalog: &WorkflowCatalog,
+        bundle: &WorkflowBundle,
+        inputs: &BTreeMap<String, String>,
+    ) -> WorkflowRun {
         let log = match RunLog::create(&self.base_dir, &bundle.name) {
             Ok(log) => log,
-            Err(e) => return ToolResult::error(format!("workflow '{}' could not start: {e}", bundle.name)),
+            Err(e) => return failed(format!("workflow '{}' could not start: {e}", bundle.name)),
         };
         log.event(
             "run_started",
             json!({ "workflow": bundle.name, "location": bundle.location, "inputs": inputs }),
         );
-        let ctx = self.subagents.turn_context();
-        ctx.progress.stream_chunk(&format!(
-            "workflow {} · press ← on an empty prompt to watch its agents\n",
-            bundle.name
-        ));
-        let branch = match self.isolate(ctx, bundle).await {
+        let branch = match self.isolate(&bundle.entry).await {
             Ok(branch) => branch,
             Err(e) => {
-                return ToolResult::error(log.report(&format!("Workflow `{}` did not start: {e}", bundle.name), None));
+                let report = log.report(&format!("Workflow `{}` did not start: {e}", bundle.name), None);
+                return WorkflowRun { ok: false, report };
             }
         };
         let executor = Executor {
@@ -81,80 +148,50 @@ impl WorkflowTool {
         };
         let frame = Frame {
             bundle,
-            workflow: &bundle.entry,
             path: bundle.name.clone(),
-            scope: frame_scope(inputs, 1),
         };
-        let result = executor.run_workflow(frame).await;
-        let on_branch = branch.map(|b| format!(" on branch `{b}`")).unwrap_or_default();
+        let result = executor.run_workflow(frame, &bundle.entry, inputs).await;
         log.event("run_finished", json!({ "ok": result.is_ok() }));
+        let on_branch = branch.map(|b| format!(" on branch `{b}`")).unwrap_or_default();
         match result {
-            Ok(outputs) => ToolResult::success(log.report(
-                &format!("Workflow `{}` completed{on_branch}.", bundle.name),
-                Some(&outputs),
-            )),
-            Err(e) => {
-                ToolResult::error(log.report(&format!("Workflow `{}` stopped{on_branch}: {e}", bundle.name), None))
-            }
+            Ok(outputs) => WorkflowRun {
+                ok: true,
+                report: log.report(
+                    &format!("Workflow `{}` completed{on_branch}.", bundle.name),
+                    Some(&outputs),
+                ),
+            },
+            Err(e) => WorkflowRun {
+                ok: false,
+                report: log.report(&format!("Workflow `{}` stopped{on_branch}: {e}", bundle.name), None),
+            },
         }
     }
 
-    async fn isolate(&self, ctx: &TurnToolContext, bundle: &WorkflowBundle) -> Result<Option<String>, String> {
-        match bundle.entry.isolation {
-            Isolation::None => Ok(None),
-            Isolation::Branch => builtins::start_branch(ctx, &self.base_dir, &bundle.name)
-                .await
-                .map(Some),
+    async fn isolate(&self, workflow: &Workflow) -> Result<Option<String>, String> {
+        match workflow.isolation {
+            rho_harness_core::workflow::Isolation::None => Ok(None),
+            rho_harness_core::workflow::Isolation::Branch => {
+                command::start_branch(&self.base_dir, &workflow.name).await.map(Some)
+            }
         }
     }
+}
+
+fn failed(report: String) -> WorkflowRun {
+    WorkflowRun { ok: false, report }
 }
 
 fn unknown_workflow(name: &str, catalog: &WorkflowCatalog) -> String {
     let names: Vec<&str> = catalog.bundles.iter().map(|b| b.name.as_str()).collect();
-    let mut message = format!("unknown workflow '{name}'; available: {}", names.join(", "));
+    let available = if names.is_empty() {
+        "none".to_string()
+    } else {
+        names.join(", ")
+    };
+    let mut message = format!("unknown workflow '{name}'; available: {available}");
     if let Some(problem) = catalog.errors.iter().find(|e| e.contains(&format!("'{name}'"))) {
         message.push_str(&format!("\n{problem}"));
     }
     message
-}
-
-#[async_trait::async_trait]
-impl EngineTool for WorkflowTool {
-    fn name(&self) -> &str {
-        WORKFLOW_TOOL_NAME
-    }
-
-    fn description(&self) -> &str {
-        &self.description
-    }
-
-    fn parameters(&self) -> Value {
-        generated_schema::<WorkflowArgs>()
-    }
-
-    async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
-        let args: WorkflowArgs = match serde_json::from_value(args) {
-            Ok(parsed) => parsed,
-            Err(err) => return Ok(ToolResult::error(format!("failed to parse workflow arguments: {err}"))),
-        };
-        let tool = self.clone();
-        let catalog = tokio::task::spawn_blocking(move || tool.catalog())
-            .await
-            .map_err(|e| AppError::Other(anyhow::anyhow!("workflow discovery failed: {e}")))?;
-        let Some(bundle) = catalog.find(&args.name) else {
-            return Ok(ToolResult::error(unknown_workflow(&args.name, &catalog)));
-        };
-        let inputs = match bundle.entry.resolve_inputs(args.inputs.into_iter().collect()) {
-            Ok(inputs) => inputs,
-            Err(e) => return Ok(ToolResult::error(e)),
-        };
-        Ok(self.run(&catalog, bundle, inputs).await)
-    }
-
-    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
-        Some(Arc::new(Self {
-            subagents: self.subagents.with_turn_context(ctx),
-            ..self.clone()
-        }))
-    }
 }

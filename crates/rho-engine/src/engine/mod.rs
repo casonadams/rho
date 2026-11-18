@@ -50,6 +50,7 @@ pub struct AgentEngine {
     pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
+    pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
 }
 
 impl AgentEngine {
@@ -70,6 +71,19 @@ impl AgentEngine {
 
     pub fn agent_monitor(&self) -> &rho_harness_core::agents::AgentMonitor {
         &self.agent_monitor
+    }
+
+    pub async fn workflow_runner(
+        &self,
+        progress: rho_harness_core::presentation::ToolStreamPort,
+        cancellation: crate::engine::runner::turn::types::CancellationSignal,
+    ) -> std::result::Result<crate::tools::workflow::WorkflowRunner, String> {
+        let runner = self
+            .workflows
+            .as_ref()
+            .ok_or_else(|| "workflows are not available in this session".to_string())?;
+        let project = self.project_context().await.ok().map(Arc::new);
+        Ok(runner.bind(progress, cancellation, Some(self.agent_monitor.clone()), project))
     }
 
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {

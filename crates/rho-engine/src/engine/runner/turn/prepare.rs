@@ -237,6 +237,7 @@ impl AgentEngine {
             .stream_port(params.stream_port)
             .steering(request.steering.clone())
             .monitor(Some(self.agent_monitor.clone()))
+            .project_context(self.project_context().await.ok().map(Arc::new))
             .working_dir(self.base_dir.clone());
 
         if let Some(pending) = params.checkpoint {
