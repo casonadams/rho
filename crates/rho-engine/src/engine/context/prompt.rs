@@ -118,7 +118,7 @@ fn append_environment_info(prompt: &mut String, ctx: &ProjectContext) {
 
 pub fn format_turn_prompt(prompt: &str, git_status: Option<&str>) -> String {
     if let Some(git) = git_status.filter(|s| !s.trim().is_empty()) {
-        format!("[Git repository status: {git}]\n\n{prompt}")
+        format!("{}{git}]\n\n{prompt}", rho_harness_core::prompts::GIT_STATUS_PREFIX)
     } else {
         prompt.to_string()
     }

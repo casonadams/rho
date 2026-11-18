@@ -7,6 +7,9 @@ pub use template::{PromptTemplate, PromptTemplateMetadata};
 
 pub static DEFAULT_SYSTEM_PROMPT: &str = include_str!("SYSTEM.md");
 
+/// Opens the git status line rho prepends to each user prompt; summarizers skip it.
+pub const GIT_STATUS_PREFIX: &str = "[Git repository status: ";
+
 fn is_distinct_project_dir(cwd: &Path) -> bool {
     cwd != crate::config::default_config_dir() && cwd != crate::config::dirs_fallback()
 }

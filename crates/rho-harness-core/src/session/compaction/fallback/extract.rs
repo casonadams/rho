@@ -6,9 +6,12 @@ use serde_json::Value;
 use super::SummaryState;
 
 fn process_user_text_facts(text_str: &str, state: &mut SummaryState) {
-    if state.goal.is_empty() && !text_str.is_empty() {
-        let first_line = text_str.lines().next().unwrap_or("").trim();
-        if !first_line.is_empty() {
+    if state.goal.is_empty() {
+        let first_line = text_str
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with(crate::prompts::GIT_STATUS_PREFIX));
+        if let Some(first_line) = first_line {
             state.goal.push(truncate_str(first_line, 120));
         }
     }

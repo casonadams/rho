@@ -911,6 +911,73 @@ mod recovery {
     }
 
     #[tokio::test]
+    async fn overflow_after_checkpointed_steps_compacts_and_keeps_the_turn_work() {
+        use rho_harness_core::model::{Reasoning, ToolCall, ToolFunction};
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(MockAdapter::default());
+        model.add_turn(vec![
+            Ok(ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature(
+                "plan",
+                Some("sig-1".into()),
+            ))),
+            Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+                "call-1",
+                ToolFunction::new("missing", serde_json::json!({})),
+            ))),
+        ]);
+        model.add_turn(vec![Err(AppError::ContextOverflow(
+            "context_length_exceeded".to_string(),
+        ))]);
+
+        let engine = recovery_engine(dir.path(), model);
+        let session_id = engine.session_manager.session_id.clone();
+        populate_recovery_history(&engine.session_manager, &session_id).await;
+
+        let presenter = Arc::new(CapturingPresenter::default());
+        let output = engine
+            .run_turn(TurnRequest::new("Long task that overflows mid-turn"), presenter.clone())
+            .await;
+        let notices = presenter.notices.lock().unwrap().clone();
+        let output = output.unwrap_or_else(|e| panic!("{e}; notices: {notices:?}"));
+
+        assert_eq!(output.status, crate::engine::runner::RunStatus::Compacted);
+        assert_recovery_presenter(&presenter);
+        let sm = &engine.session_manager;
+        assert!(sm.load_checkpoint().await.unwrap().is_none());
+        let mut messages = sm.load_messages().await.unwrap();
+        let summary = format!("{:?}", messages.remove(0));
+        let kept = format!("{messages:?}");
+        let everything = format!("{summary}{kept}");
+        assert!(everything.contains("Long task that overflows mid-turn"), "{everything}");
+        assert!(everything.contains("Turn stopped before finishing"), "{everything}");
+    }
+
+    #[tokio::test]
+    async fn manual_compaction_continues_past_a_failed_turn_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = recovery_engine(dir.path(), Arc::new(MockAdapter::default()));
+        let sm = &engine.session_manager;
+        populate_recovery_history(sm, &sm.session_id.clone()).await;
+        sm.extend_checkpoint(vec![
+            ChatMessage::user("Unfinished request"),
+            ChatMessage::assistant("Partial answer"),
+        ])
+        .await
+        .unwrap();
+
+        let stats = engine.compact_session(None).await.unwrap();
+
+        assert!(!stats.summary.is_empty());
+        assert!(sm.load_checkpoint().await.unwrap().is_none());
+        let history = format!("{:?}", sm.load_messages().await.unwrap());
+        assert!(history.contains("Unfinished request"), "{history}");
+        assert!(
+            !history.contains("Turn stopped before finishing"),
+            "turns ending in an answer need no note"
+        );
+    }
+
+    #[tokio::test]
     async fn test_context_overflow_fails_if_overflow_persists() {
         let dir = std::env::temp_dir().join(format!("overflow_loop_{}", uuid::Uuid::new_v4()));
         let model = Arc::new(MockAdapter::default());

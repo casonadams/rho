@@ -20,6 +20,20 @@ fn test_fallback_summary_empty_messages() {
 }
 
 #[test]
+fn fallback_goal_skips_the_injected_git_status_line() {
+    let prompt = format!(
+        "{}## main M src/lib.rs]\n\nFix the flaky login test",
+        crate::prompts::GIT_STATUS_PREFIX
+    );
+    let summary = generate_fallback_summary(&[ChatMessage::user(prompt)], None, None);
+    assert!(summary.contains("## Goal\nFix the flaky login test\n"), "{summary}");
+
+    let status_only = format!("{}## main]", crate::prompts::GIT_STATUS_PREFIX);
+    let summary = generate_fallback_summary(&[ChatMessage::user(status_only)], None, None);
+    assert!(summary.contains("## Goal\n(none)"), "{summary}");
+}
+
+#[test]
 fn test_fallback_summary_extracts_goal_and_tool_calls() {
     let messages = vec![
         ChatMessage::user("Refactor database pooling"),

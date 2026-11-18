@@ -341,9 +341,25 @@ impl AgentEngine {
     }
 
     pub async fn compact_session(&self, instructions: Option<&str>) -> Result<CompactionStats> {
+        self.promote_unfinished_turn().await?;
         self.session_compactor().compact(instructions).await
     }
+
+    /// Compaction summarizes canonical history only, so an unfinished turn's saved steps join it first.
+    async fn promote_unfinished_turn(&self) -> Result<()> {
+        let Some(pending) = self.session_manager.load_checkpoint().await? else {
+            return Ok(());
+        };
+        let closing = match pending.last() {
+            Some(ChatMessage::Assistant { .. }) => Vec::new(),
+            _ => vec![ChatMessage::assistant(UNFINISHED_TURN_NOTE)],
+        };
+        self.session_manager.promote_checkpoint(closing).await
+    }
 }
+
+const UNFINISHED_TURN_NOTE: &str =
+    "[Turn stopped before finishing; the work above was kept when the conversation was compacted.]";
 
 pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, session_id: &str, messages: &[ChatMessage]) {
     if let Some(hook) = hook {
