@@ -12,7 +12,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::error::Result;
 use crate::repl::live::LiveIo;
-use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVAL};
 use crate::repl::live::idle::dispatch::sync_renderer_width;
 use crate::repl::live::modal::agents;
 use crate::ui::TerminalRenderer;
@@ -37,6 +37,7 @@ struct WorkflowView<'a, 'b, B: TerminalBackend> {
     batch: LiveBatch,
     monitor: AgentMonitor,
     cancel: CancellationSignal,
+    last_spinner: Instant,
 }
 
 impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
@@ -78,7 +79,15 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
         self.flush(true)
     }
 
+    fn tick_spinner(&mut self) {
+        if self.last_spinner.elapsed() >= SPINNER_FRAME_INTERVAL {
+            self.last_spinner = Instant::now();
+            self.io.controller.advance_spinner();
+        }
+    }
+
     fn handle_frame(&mut self) -> Result<()> {
+        self.tick_spinner();
         let resized = self.io.controller.refresh_size()?;
         sync_renderer_width(self.renderer, self.io.controller, resized);
         self.io.controller.check_system_message_expiration();
@@ -118,6 +127,7 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         batch: LiveBatch::new(),
         monitor: engine.agent_monitor().clone(),
         cancel,
+        last_spinner: Instant::now(),
     };
     view.io
         .controller
@@ -151,4 +161,43 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         file_change: None,
     });
     view.flush(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::interactive::{Activity, InteractiveState, NullBackend, TerminalController};
+
+    #[tokio::test]
+    async fn frame_ticks_animate_the_working_spinner() {
+        let mut state = InteractiveState::default();
+        state.footer_mut().activity = Activity::Working;
+        let mut controller = TerminalController::new(NullBackend, state).unwrap();
+        let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+        let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut io = LiveIo {
+            controller: &mut controller,
+            events: &mut events,
+            input: &mut input,
+        };
+        let mut view = WorkflowView {
+            renderer: &renderer,
+            io: &mut io,
+            batch: LiveBatch::new(),
+            monitor: AgentMonitor::default(),
+            cancel: CancellationSignal::default(),
+            last_spinner: Instant::now(),
+        };
+        view.flush(true).unwrap();
+        let working_line =
+            |view: &WorkflowView<'_, '_, NullBackend>| view.io.controller.rendered().unwrap().working_line.clone();
+        let first = working_line(&view);
+
+        view.last_spinner = Instant::now() - SPINNER_FRAME_INTERVAL;
+        view.handle_frame().unwrap();
+
+        assert!(first.contains("working"));
+        assert_ne!(working_line(&view), first);
+    }
 }
