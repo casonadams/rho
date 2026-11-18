@@ -291,9 +291,25 @@ pub fn prune_historical_tool_outputs_if_changed(
     }
 
     let model = policy.model.as_deref().unwrap_or("gpt-4");
-    let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
     let sizes = rho_harness_core::tokens::estimate_each_message_tokens(messages, model);
-    let recent_cutoff_idx = find_recent_tokens_cutoff(&sizes, policy.protect_recent_tokens);
+    prune_historical_tool_outputs_with_sizes(messages, &sizes, policy)
+}
+
+/// Same as [`prune_historical_tool_outputs_if_changed`], but takes per-message token sizes that the
+/// caller already computed (`sizes[i]` must equal the estimate for `messages[i]` under `policy.model`).
+pub fn prune_historical_tool_outputs_with_sizes(
+    messages: &[ChatMessage],
+    sizes: &[usize],
+    policy: &PrunePolicy,
+) -> Option<Vec<ChatMessage>> {
+    if messages.is_empty() {
+        return None;
+    }
+    assert_eq!(sizes.len(), messages.len(), "one size per message is required");
+
+    let model = policy.model.as_deref().unwrap_or("gpt-4");
+    let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
+    let recent_cutoff_idx = find_recent_tokens_cutoff(sizes, policy.protect_recent_tokens);
     let effective_cutoff = cutoff_idx.min(recent_cutoff_idx);
     if effective_cutoff == 0 {
         return None;

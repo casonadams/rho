@@ -32,6 +32,11 @@ impl ContextTracker {
             .estimate_messages_tokens_memoized(messages, model)
     }
 
+    pub fn estimate_each_message_tokens(&self, messages: &[ChatMessage], model: &str) -> Vec<usize> {
+        let mut cache = self.token_cache.lock().unwrap();
+        messages.iter().map(|msg| cache.get_or_compute(msg, model)).collect()
+    }
+
     pub fn calculate_context_tokens(
         &self,
         messages: &[ChatMessage],

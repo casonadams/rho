@@ -90,8 +90,9 @@ impl AgentEngine {
             .limit_for(&self.config.model, &self.config.provider)
             .unwrap_or(128_000);
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
+        let sizes = self.context.estimate_each_message_tokens(&raw, &self.config.model);
         Ok(
-            match super::prune::prune_historical_tool_outputs_if_changed(&raw, &policy) {
+            match super::prune::prune_historical_tool_outputs_with_sizes(&raw, &sizes, &policy) {
                 Some(pruned) => LoadedHistory {
                     messages: pruned,
                     pruned: true,

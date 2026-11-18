@@ -1448,6 +1448,19 @@ fn test_find_recent_tokens_cutoff_uses_precomputed_sizes() {
 }
 
 #[test]
+fn with_sizes_matches_if_changed_for_precomputed_sizes() {
+    let policy = cache_test_policy();
+    let messages = verbose_read_history(30, None);
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(&messages, "claude-sonnet-4");
+    let expected = prune_historical_tool_outputs_if_changed(&messages, &policy);
+    assert!(expected.is_some());
+    assert_eq!(
+        prune_historical_tool_outputs_with_sizes(&messages, &sizes, &policy),
+        expected
+    );
+}
+
+#[test]
 fn if_changed_returns_none_when_nothing_is_pruned() {
     let messages = vec![
         ChatMessage::User {
