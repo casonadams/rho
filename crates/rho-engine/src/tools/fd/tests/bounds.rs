@@ -35,6 +35,8 @@ fn oversized_output_is_byte_capped_before_the_notices() {
             relative,
             is_dir: false,
             stats: None,
+            size: None,
+            source: None,
         })
         .collect();
     let result = format_results(
@@ -60,6 +62,8 @@ async fn test_fd_oversized_search_spills_artifact() {
             relative: format!("dir_{i:04}/very_long_path_name_{i:04}/{}", "nested_".repeat(20)),
             is_dir: false,
             stats: None,
+            size: None,
+            source: None,
         })
         .collect();
     let result = format_results(

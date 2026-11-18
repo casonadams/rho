@@ -12,6 +12,14 @@ pub struct FdEntry {
     pub relative: String,
     pub is_dir: bool,
     pub stats: Option<FileStats>,
+    /// Byte size from metadata, recorded when sorting by size without reading file contents.
+    pub size: Option<u64>,
+    /// Path whose line stats are deferred until the row is emitted.
+    pub source: Option<PathBuf>,
+}
+
+fn entry_bytes(entry: &FdEntry) -> u64 {
+    entry.stats.map(|s| s.bytes).or(entry.size).unwrap_or(0)
 }
 
 pub fn sort_entries(entries: &mut [FdEntry], sort: Option<FdSort>) {
@@ -23,8 +31,8 @@ pub fn sort_entries(entries: &mut [FdEntry], sort: Option<FdSort>) {
             b_lines.cmp(&a_lines).then_with(|| a.relative.cmp(&b.relative))
         }),
         FdSort::Size => entries.sort_by(|a, b| {
-            let a_bytes = a.stats.map_or(0, |s| s.bytes);
-            let b_bytes = b.stats.map_or(0, |s| s.bytes);
+            let a_bytes = entry_bytes(a);
+            let b_bytes = entry_bytes(b);
             b_bytes.cmp(&a_bytes).then_with(|| a.relative.cmp(&b.relative))
         }),
     }

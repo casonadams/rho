@@ -76,6 +76,25 @@ async fn sort_by_size_orders_descending() {
     assert!(lines[1].contains("src/huge.rs"));
 }
 
+#[tokio::test]
+async fn sort_by_size_with_stats_reports_line_and_byte_counts() {
+    let dir = fixture();
+    std::fs::write(dir.path().join("src/many_lines.rs"), "a\n".repeat(50)).unwrap();
+    std::fs::write(dir.path().join("src/one_line.rs"), "x".repeat(400)).unwrap();
+
+    let result = find(&dir, ".*\\.rs$", |args| {
+        args.sort = Some(FdSort::Size);
+        args.stats = Some(true);
+    })
+    .await;
+    assert!(!result.is_error);
+    let rows: Vec<_> = result.content.lines().collect();
+    assert!(rows[1].contains("src/one_line.rs"));
+    assert!(rows[1].trim_start().starts_with("1 "));
+    assert!(rows[2].contains("src/many_lines.rs"));
+    assert!(rows[2].trim_start().starts_with("50 "));
+}
+
 #[test]
 fn test_count_file_stats_semantics() {
     let temp = TempDir::new().unwrap();

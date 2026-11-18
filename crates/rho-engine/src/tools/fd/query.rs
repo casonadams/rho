@@ -69,7 +69,11 @@ struct FdWalkFilters<'a> {
     display: Option<&'a str>,
     min_lines: Option<usize>,
     max_lines: Option<usize>,
+    /// Line counts are needed during the walk (line filters or line sort).
     stats_needed: bool,
+    /// Byte size is needed during the walk for size sort (metadata only, no content read).
+    size_sort: bool,
+    show_stats: bool,
 }
 
 fn process_walk_entry(
@@ -91,15 +95,24 @@ fn process_walk_entry(
     } else {
         None
     };
+    let size = (filters.size_sort && !is_dir && stats.is_none())
+        .then(|| std::fs::metadata(entry.path()).ok().map(|m| m.len()))
+        .flatten();
+    let source = (filters.show_stats && !is_dir && stats.is_none()).then(|| entry.path().to_path_buf());
     Some(FdEntry {
         relative,
         is_dir,
         stats,
+        size,
+        source,
     })
 }
 
 impl FdQuery {
     pub fn run(self, limit: usize) -> ToolResult {
+        // Size sorting uses metadata bytes, so only line filters and line sorting need file contents.
+        let eager_stats =
+            self.min_lines.is_some() || self.max_lines.is_some() || matches!(self.sort, Some(FdSort::Lines));
         let mut builder = walker_builder(&self.search_root, self.include_hidden, self.types.as_ref());
         builder.max_depth(self.depth);
         let (collected, count, hit_ceiling) = (Mutex::new(Vec::new()), AtomicUsize::new(0), AtomicBool::new(false));
@@ -109,7 +122,9 @@ impl FdQuery {
             display: self.search_path_display.as_deref(),
             min_lines: self.min_lines,
             max_lines: self.max_lines,
-            stats_needed: self.stats_needed,
+            stats_needed: self.stats_needed && eager_stats,
+            size_sort: matches!(self.sort, Some(FdSort::Size)),
+            show_stats: self.show_stats && !eager_stats,
         };
         let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
         let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
@@ -127,6 +142,12 @@ impl FdQuery {
 
         let mut entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
         sort_entries(&mut entries, self.sort);
+        // Stats not needed for sorting or filtering are read only for the rows that will be emitted.
+        for entry in entries.iter_mut().take(limit) {
+            if let Some(path) = entry.source.take() {
+                entry.stats = count_file_stats(&path);
+            }
+        }
         format_results(
             entries,
             FdFormat {
