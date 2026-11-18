@@ -1,0 +1,247 @@
+//! "Did you mean" suggestions for paths that do not exist, ranked by name similarity.
+
+use super::traversal::walker_builder;
+use std::path::{Component, Path};
+use std::time::{Duration, Instant};
+
+const MAX_ENTRIES: usize = 20_000;
+const WALK_BUDGET: Duration = Duration::from_millis(250);
+const MAX_SUGGESTIONS: usize = 3;
+const MODULE_STEMS: [&str; 3] = ["mod", "index", "__init__"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathKind {
+    File,
+    Any,
+}
+
+struct Entry {
+    path: String,
+    is_dir: bool,
+}
+
+fn workspace_entries(root: &Path, kind: PathKind) -> Vec<Entry> {
+    let deadline = Instant::now() + WALK_BUDGET;
+    walker_builder(root, false, None)
+        .build()
+        .flatten()
+        .take_while(|_| Instant::now() < deadline)
+        .filter_map(|entry| {
+            let is_dir = entry.file_type()?.is_dir();
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let wanted = !relative.is_empty() && (kind == PathKind::Any || !is_dir);
+            wanted.then_some(Entry { path: relative, is_dir })
+        })
+        .take(MAX_ENTRIES)
+        .collect()
+}
+
+fn stem(name: &str) -> &str {
+    name.rsplit_once('.')
+        .map_or(name, |(stem, _)| stem)
+        .trim_start_matches('.')
+}
+
+/// The name a path is known by: its stem, or its directory name for module files like `foo/mod.rs`.
+fn display_name(path: &str, is_dir: bool) -> String {
+    let mut parts = path.rsplit('/');
+    let last = parts.next().unwrap_or_default();
+    let name = if is_dir { last } else { stem(last) };
+    match parts.next() {
+        Some(parent) if !is_dir && MODULE_STEMS.contains(&name) => parent.to_lowercase(),
+        _ => name.to_lowercase(),
+    }
+}
+
+/// Optimal string alignment distance: insertions, deletions, substitutions, and adjacent swaps cost 1.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let width = b.len() + 1;
+    let mut d: Vec<usize> = vec![0; (a.len() + 1) * width];
+    for (j, cell) in d.iter_mut().take(width).enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        d[i * width] = i;
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            let mut best = (d[(i - 1) * width + j] + 1)
+                .min(d[i * width + j - 1] + 1)
+                .min(d[(i - 1) * width + j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                best = best.min(d[(i - 2) * width + j - 2] + 1);
+            }
+            d[i * width + j] = best;
+        }
+    }
+    d[a.len() * width + b.len()]
+}
+
+fn shared_leading_dirs(missing_dirs: &[&str], candidate: &str) -> usize {
+    missing_dirs
+        .iter()
+        .zip(candidate.split('/'))
+        .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+        .count()
+}
+
+/// Workspace-relative form of `raw`, or `None` when it points outside the workspace.
+fn relative_target(root: &Path, raw: &str) -> Option<String> {
+    let path = Path::new(raw.trim());
+    let relative = if path.is_absolute() {
+        path.strip_prefix(root).ok()?
+    } else {
+        path
+    };
+    let parts: Vec<String> = relative
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
+    let Some(target) = relative_target(root, raw) else {
+        return Vec::new();
+    };
+    let (target_dirs, target_last) = target.rsplit_once('/').unwrap_or(("", &target));
+    let target_dirs: Vec<&str> = target_dirs.split('/').filter(|d| !d.is_empty()).collect();
+    let wanted = display_name(&target, false);
+    let wanted_last = target_last.to_lowercase();
+    let tolerance = (wanted.chars().count() / 4).max(1);
+
+    let mut ranked: Vec<(usize, usize, bool, usize, String)> = workspace_entries(root, kind)
+        .into_iter()
+        .filter_map(|entry| {
+            let distance = edit_distance(&wanted, &display_name(&entry.path, entry.is_dir));
+            (distance <= tolerance).then(|| {
+                let shared = shared_leading_dirs(&target_dirs, &entry.path);
+                let exact_name = entry
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(&wanted_last));
+                (distance, usize::MAX - shared, !exact_name, entry.path.len(), entry.path)
+            })
+        })
+        .collect();
+    ranked.sort();
+    ranked
+        .into_iter()
+        .take(MAX_SUGGESTIONS)
+        .map(|(.., path)| path)
+        .collect()
+}
+
+/// A trailing "Did you mean" line for a not-found error, or an empty string when nothing is close.
+pub fn missing_path_hint(root: &Path, raw: &str, kind: PathKind) -> String {
+    let suggestions = suggest_paths(root, raw, kind);
+    if suggestions.is_empty() {
+        return String::new();
+    }
+    format!("\nDid you mean: {}?", suggestions.join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workspace(files: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for file in files {
+            let path = dir.path().join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn suggests_moved_renamed_and_module_paths() {
+        let dir = workspace(&[
+            "src/repl/input_reader/mod.rs",
+            "src/repl/input_reader/worker.rs",
+            "crates/engine/src/mcp/client.rs",
+            "crates/engine/src/mcp/runtime.rs",
+            "docs/configuration.md",
+        ]);
+        let root = dir.path();
+        let cases = [
+            (
+                "src/repl/input_reader.rs",
+                PathKind::Any,
+                vec!["src/repl/input_reader", "src/repl/input_reader/mod.rs"],
+            ),
+            (
+                "src/repl/input_reader.rs",
+                PathKind::File,
+                vec!["src/repl/input_reader/mod.rs"],
+            ),
+            (
+                "crates/engine/src/client.rs",
+                PathKind::File,
+                vec!["crates/engine/src/mcp/client.rs"],
+            ),
+            (
+                "crates/engine/src/mcp/runtim.rs",
+                PathKind::File,
+                vec!["crates/engine/src/mcp/runtime.rs"],
+            ),
+            ("./docs/configuraton.md", PathKind::File, vec!["docs/configuration.md"]),
+        ];
+        for (raw, kind, expected) in cases {
+            assert_eq!(suggest_paths(root, raw, kind), expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn unrelated_or_outside_paths_get_no_suggestions() {
+        let dir = workspace(&["src/main.rs"]);
+        assert!(suggest_paths(dir.path(), "totally/unrelated_thing.py", PathKind::Any).is_empty());
+        assert!(suggest_paths(dir.path(), "/etc/hosts", PathKind::Any).is_empty());
+        assert_eq!(missing_path_hint(dir.path(), "nothing_close.rs", PathKind::File), "");
+    }
+
+    #[test]
+    fn absolute_paths_inside_the_workspace_are_matched_and_hints_are_formatted() {
+        let dir = workspace(&["src/lib.rs"]);
+        let raw = dir.path().join("src/lb.rs");
+        assert_eq!(
+            missing_path_hint(dir.path(), raw.to_str().unwrap(), PathKind::File),
+            "\nDid you mean: src/lib.rs?"
+        );
+    }
+
+    #[test]
+    fn ignored_files_are_not_suggested() {
+        let dir = workspace(&["target/debug/app.rs", "src/app.rs"]);
+        std::fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        assert_eq!(suggest_paths(dir.path(), "ap.rs", PathKind::File), ["src/app.rs"]);
+    }
+
+    #[test]
+    fn edit_distance_counts_single_character_changes_and_swaps() {
+        let cases = [
+            ("", "", 0),
+            ("abc", "abc", 0),
+            ("abc", "abd", 1),
+            ("abc", "ab", 1),
+            ("iu", "ui", 1),
+            ("recieve", "receive", 1),
+            ("kitten", "sitting", 3),
+        ];
+        for (a, b, expected) in cases {
+            assert_eq!(edit_distance(a, b), expected, "{a} -> {b}");
+        }
+    }
+}

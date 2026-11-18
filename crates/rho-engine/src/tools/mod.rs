@@ -14,6 +14,7 @@ pub mod read;
 pub mod registry;
 pub mod rg;
 pub mod subagent;
+pub mod suggest;
 pub(crate) mod traversal;
 pub mod truncate;
 pub mod types;

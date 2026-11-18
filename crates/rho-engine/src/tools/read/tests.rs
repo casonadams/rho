@@ -165,11 +165,14 @@ async fn test_read_empty_file_errors() {
 }
 
 #[tokio::test]
-async fn test_read_missing_file() {
-    let tool = ReadTool::new(std::env::temp_dir());
+async fn test_read_missing_file_suggests_close_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src/repl/input_reader")).unwrap();
+    std::fs::write(dir.path().join("src/repl/input_reader/mod.rs"), "").unwrap();
+    let tool = ReadTool::new(dir.path());
     let res = tool
         .execute(ReadArgs {
-            path: "nonexistent_file_xyz_123.txt".to_string(),
+            path: "src/repl/input_reader.rs".to_string(),
             offset: None,
             limit: None,
         })
@@ -178,6 +181,11 @@ async fn test_read_missing_file() {
 
     assert!(res.is_error);
     assert!(res.content.contains("File not found"));
+    assert!(
+        res.content.ends_with("\nDid you mean: src/repl/input_reader/mod.rs?"),
+        "{}",
+        res.content
+    );
 }
 
 // --- image attachment tests (generated fixtures, no binary files) ---

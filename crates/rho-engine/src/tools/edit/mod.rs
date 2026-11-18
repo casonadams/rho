@@ -21,8 +21,9 @@ pub struct EditTool {
 async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::result::Result<String, ToolResult> {
     let Ok(metadata) = tokio::fs::metadata(path).await else {
         return Err(ToolResult::error(format!(
-            "File not found for edit: {clean_path} (in working directory: {})",
-            base.display()
+            "File not found for edit: {clean_path} (in working directory: {}){}",
+            base.display(),
+            crate::tools::suggest::missing_path_hint(base, clean_path, crate::tools::suggest::PathKind::File)
         )));
     };
     if metadata.is_dir() {

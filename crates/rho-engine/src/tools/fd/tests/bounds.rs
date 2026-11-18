@@ -128,6 +128,12 @@ async fn missing_path_errors_without_panicking() {
     let result = find(&dir, ".", |args| args.path = Some("does/not/exist".to_string())).await;
     assert!(result.is_error);
     assert!(result.content.contains("path not found"));
+    let typo = find(&dir, ".", |args| args.path = Some("src/widget.rs".to_string())).await;
+    assert!(
+        typo.content.ends_with("Did you mean: src/ui/widget.rs?"),
+        "{}",
+        typo.content
+    );
 }
 
 #[tokio::test]

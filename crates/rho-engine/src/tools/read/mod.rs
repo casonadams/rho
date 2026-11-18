@@ -25,8 +25,13 @@ async fn resolve_and_read_bytes(base_dir: &Path, clean_path: &str) -> std::resul
     match tokio::fs::read(&path).await {
         Ok(bytes) => Ok(bytes),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ToolResult::error(format!(
-            "File not found: {clean_path} (in working directory: {})",
-            workspace.root().display()
+            "File not found: {clean_path} (in working directory: {}){}",
+            workspace.root().display(),
+            crate::tools::suggest::missing_path_hint(
+                workspace.root(),
+                clean_path,
+                crate::tools::suggest::PathKind::File
+            )
         ))),
         Err(e) => Err(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
     }

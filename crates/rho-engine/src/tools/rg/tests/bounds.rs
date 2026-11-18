@@ -146,6 +146,13 @@ async fn missing_path_errors_without_panicking() {
     let result = search(&dir, "needle", |args| args.path = Some("does/not/exist".to_string())).await;
     assert!(result.is_error);
     assert!(result.content.contains("path not found"));
+    assert!(!result.content.contains("Did you mean"), "{}", result.content);
+    let typo = search(&dir, "needle", |args| args.path = Some("src/iu".to_string())).await;
+    assert!(
+        typo.content.ends_with("path not found: src/iu\nDid you mean: src/ui?"),
+        "{}",
+        typo.content
+    );
 }
 
 #[tokio::test]

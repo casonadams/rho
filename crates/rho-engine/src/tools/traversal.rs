@@ -128,7 +128,10 @@ pub fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf,
     };
     match workspace.resolve(raw) {
         Some(root) if root.exists() => Ok(root),
-        _ => Err(format!("path not found: {raw}")),
+        _ => Err(format!(
+            "path not found: {raw}{}",
+            super::suggest::missing_path_hint(workspace.root(), raw, super::suggest::PathKind::Any)
+        )),
     }
 }
 
