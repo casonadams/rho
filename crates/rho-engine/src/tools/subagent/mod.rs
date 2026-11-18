@@ -120,7 +120,7 @@ impl SubagentTool {
     }
 
     /// Resolves a model role: an explicit role must be configured; no role means `smol`, else the session model.
-    fn model_for(&self, role: Option<ModelRole>, default: &ModelHandle) -> Result<ModelHandle, String> {
+    async fn model_for(&self, role: Option<ModelRole>, default: &ModelHandle) -> Result<ModelHandle, String> {
         let name = match role {
             Some(ModelRole::Default) => return Ok(default.clone()),
             Some(role) => Some(self.roles.get(role.as_str()).ok_or_else(|| {
@@ -137,18 +137,23 @@ impl SubagentTool {
         };
         let resolver = self
             .model_resolver
-            .as_ref()
+            .clone()
             .ok_or_else(|| format!("model '{name}' requested but no model resolver is configured"))?;
-        resolver(name).map_err(|e| format!("failed to resolve model '{name}' for subagent: {e}"))
+        let name = name.clone();
+        let label = name.clone();
+        tokio::task::spawn_blocking(move || resolver(&name))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()))
+            .map_err(|e| format!("failed to resolve model '{label}' for subagent: {e}"))
     }
 
-    pub(crate) fn runner_for(&self, spec: RunnerSpec<'_>) -> Result<SubagentRunner, String> {
+    pub(crate) async fn runner_for(&self, spec: RunnerSpec<'_>) -> Result<SubagentRunner, String> {
         let default_model = self
             .model
             .as_ref()
             .ok_or_else(|| "No model handle configured for subagent execution.".to_string())?;
         let target = self.resolve_target(spec.agent, spec.local_agents)?;
-        let model = self.model_for(spec.model, default_model)?;
+        let model = self.model_for(spec.model, default_model).await?;
         let turns = resolve_turns(spec.turns);
         let runner = match &target {
             Target::Agent(agent) => {
@@ -254,7 +259,7 @@ impl EngineTool for SubagentTool {
             model,
             position: None,
         };
-        match self.runner_for(spec) {
+        match self.runner_for(spec).await {
             Ok(runner) => Ok(runner.run(&args.prompt, self.compose_context(&args).as_deref()).await),
             Err(message) => Ok(ToolResult::error(message)),
         }

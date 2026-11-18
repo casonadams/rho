@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::auth::AuthStore;
 use rho_engine::engine::builder::create_engine_model;
 use rho_harness_core::config::Config;
-use rho_harness_core::error::Result;
+use rho_harness_core::error::{AppError, Result};
 
 use super::super::batch::LiveBatch;
 use super::input::TurnInputContext;
@@ -48,7 +48,12 @@ async fn validate_engine_model(input: &mut TurnModelSwitchInput<'_, '_, impl Ter
         .shared_auth
         .clone()
         .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(input.auth_store.clone())));
-    if let Err(err) = create_engine_model(input.config, input.auth_store, shared_auth) {
+    let config = input.config.clone();
+    let auth_store = input.auth_store.clone();
+    let validation = tokio::task::spawn_blocking(move || create_engine_model(&config, &auth_store, shared_auth))
+        .await
+        .unwrap_or_else(|e| Err(AppError::Auth(format!("Model validation task failed: {e}"))));
+    if let Err(err) = validation {
         input.renderer.notice(
             crate::ui::render::NoticeKind::Warn,
             &format!("Could not switch model: {err}"),

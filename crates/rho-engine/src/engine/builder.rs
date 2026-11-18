@@ -4,7 +4,7 @@ use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
-use rho_harness_core::error::Result;
+use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionManager;
 use std::path::{Path, PathBuf};
@@ -116,6 +116,19 @@ fn resolve_model_or_fallback(
     create_engine_model(config, auth_store, shared_auth)
 }
 
+async fn resolve_model_off_runtime(
+    mut config: Config,
+    auth_store: AuthStore,
+    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
+) -> Result<(Config, ModelHandle)> {
+    tokio::task::spawn_blocking(move || {
+        let model = resolve_model_or_fallback(&mut config, &auth_store, shared_auth)?;
+        Ok((config, model))
+    })
+    .await
+    .map_err(|e| AppError::Auth(format!("Model resolution task failed: {e}")))?
+}
+
 fn subagent_model_resolver(
     config: &Config,
     auth_store: &AuthStore,
@@ -197,11 +210,14 @@ impl AgentEngineBuilder {
         Ok(session_manager)
     }
 
-    fn resolve_model(&mut self, shared_auth: Arc<tokio::sync::Mutex<AuthStore>>) -> Result<ModelHandle> {
+    async fn resolve_model(&mut self, shared_auth: Arc<tokio::sync::Mutex<AuthStore>>) -> Result<ModelHandle> {
         if let Some(m) = self.model.take() {
             return Ok(m);
         }
-        resolve_model_or_fallback(&mut self.config, &self.auth_store, shared_auth)
+        let config = self.config.clone();
+        let (config, model) = resolve_model_off_runtime(config, self.auth_store.clone(), shared_auth).await?;
+        self.config = config;
+        Ok(model)
     }
 
     fn into_engine(
@@ -240,7 +256,7 @@ impl AgentEngineBuilder {
         let base_dir = self.base_dir.take().map(Ok).unwrap_or_else(std::env::current_dir)?;
         let session_manager = self.resolve_session().await?;
         let shared_auth = Arc::new(tokio::sync::Mutex::new(self.auth_store.clone()));
-        let model = self.resolve_model(shared_auth.clone())?;
+        let model = self.resolve_model(shared_auth.clone()).await?;
 
         let history_messages = session_manager.active_messages().await.unwrap_or_default();
         let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
@@ -348,5 +364,28 @@ mod tests {
         let mut config = placeholder_config("openrouter");
         assert!(resolve_model_or_fallback(&mut config, &store, shared(&store)).is_err());
         assert_eq!(config.model, "llama3.2");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_command_key_resolution_keeps_the_runtime_responsive() {
+        let (_dir, mut store) = temp_auth_store();
+        store
+            .set_credential(
+                "anthropic",
+                StoredCredential::api_key("!sleep 0.2; echo sk-ant-slow".to_string()),
+            )
+            .unwrap();
+        let config = Config {
+            provider: "anthropic".to_string(),
+            model: "anthropic/claude-3.7-sonnet".to_string(),
+            ..Default::default()
+        };
+        let started = std::time::Instant::now();
+        let resolving = tokio::spawn(resolve_model_off_runtime(config, store.clone(), shared(&store)));
+        tokio::task::yield_now().await;
+        assert!(started.elapsed() < std::time::Duration::from_millis(150));
+        let (config, _model) = resolving.await.unwrap().unwrap();
+        assert_eq!(config.model, "anthropic/claude-3.7-sonnet");
     }
 }

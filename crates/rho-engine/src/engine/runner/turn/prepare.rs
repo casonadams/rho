@@ -261,6 +261,22 @@ impl AgentEngine {
         )
     }
 
+    /// Builds the guard model on the blocking pool from an auth snapshot: `!command` secrets can
+    /// block for their full timeout and must not hold the shared auth mutex or a runtime worker.
+    async fn build_guard_model(&self) -> Result<Option<crate::provider::ModelHandle>> {
+        if crate::provider::resolve_guard_model(&self.config).is_none() {
+            return Ok(None);
+        }
+        let auth_snapshot = self.auth_store.lock().await.clone();
+        let config = self.config.clone();
+        let shared_auth = self.auth_store.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::provider::ProviderFactory::create_guard_model(&config, &auth_snapshot, shared_auth)
+        })
+        .await
+        .map_err(|e| AppError::Auth(format!("Guard model task failed: {e}")))?
+    }
+
     pub(super) async fn prepare_step_runner<'a>(
         &self,
         sink: &Arc<TerminalApprovalSink>,
@@ -281,13 +297,9 @@ impl AgentEngine {
             };
             let mut perm =
                 crate::permission::PermissionHook::new(Some(cwd), presenter.clone()).with_mcp_servers(mcp_servers);
-            let auth_store = self.auth_store.lock().await;
-            if let Ok(Some(guard_model)) =
-                crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store, self.auth_store.clone())
-            {
+            if let Ok(Some(guard_model)) = self.build_guard_model().await {
                 perm = perm.with_guard(crate::permission::guard::GuardEvaluator::new(guard_model));
             }
-            drop(auth_store);
             Some(Arc::new(perm))
         } else {
             None
@@ -363,6 +375,56 @@ mod tests {
             displayed < 1_000,
             "displayed context stayed anchored to stale usage: {displayed}"
         );
+    }
+
+    #[tokio::test]
+    async fn guard_model_builds_from_snapshot_without_holding_auth_lock() {
+        let dir = std::env::temp_dir().join(format!("turn_guard_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut app_config = Config {
+            auth_file: dir.join("auth.json"),
+            ..Config::default()
+        };
+        app_config
+            .models
+            .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
+        let engine = mock_engine(
+            Arc::new(MockAdapter::text("response")),
+            MockEngineConfig {
+                base_dir: &dir,
+                app_config,
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+
+        let guard = engine.build_guard_model().await.unwrap();
+
+        assert!(guard.is_some());
+        assert!(engine.auth_store.try_lock().is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn guard_model_is_absent_without_guard_config() {
+        let dir = std::env::temp_dir().join(format!("turn_guard_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app_config = Config {
+            auth_file: dir.join("auth.json"),
+            ..Config::default()
+        };
+        let engine = mock_engine(
+            Arc::new(MockAdapter::text("response")),
+            MockEngineConfig {
+                base_dir: &dir,
+                app_config,
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+
+        assert!(engine.build_guard_model().await.unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

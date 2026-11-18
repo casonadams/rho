@@ -86,7 +86,8 @@ impl Executor<'_> {
                 turns: Some(agent.turns),
                 model: agent.model,
                 position: Some(position.clone()),
-            })?
+            })
+            .await?
             .with_monitor_identity(&frame.path, &monitor_label);
         let model = runner.model_label();
         self.log.event(
