@@ -1,4 +1,4 @@
-use super::apply::apply_record;
+use super::apply::{refresh_stale_messages, replay_record};
 use super::types::{HeaderRecordType, SESSION_VERSION, SessionHeader, SessionRecord, StoreState};
 use crate::error::Result;
 use chrono::Utc;
@@ -122,14 +122,16 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
     validate_header(&header, expected_id)?;
     let mut state = empty_store_state();
     state.created_at = header.created_at;
+    let mut messages_stale = false;
     for line in lines {
         if line.is_empty() {
             return Err(session_error("session contains an empty committed record"));
         }
         let record: SessionRecord =
             serde_json::from_slice(line).map_err(|_| session_error("session contains a malformed committed record"))?;
-        apply_record(&mut state, record, expected_id)?;
+        replay_record(&mut state, record, expected_id, &mut messages_stale)?;
     }
+    refresh_stale_messages(&mut state, &mut messages_stale);
     Ok(state)
 }
 
