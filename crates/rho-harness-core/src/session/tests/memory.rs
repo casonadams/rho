@@ -189,3 +189,27 @@ async fn credential_values_are_rejected_without_persistence_or_error_echo() {
     let persisted = std::fs::read_to_string(&store.file_path).unwrap();
     assert!(!persisted.contains("credential-sentinel"));
 }
+
+#[tokio::test]
+async fn resumed_session_with_persisted_credential_keeps_rejecting_turns() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    let id = store.session_id.clone();
+    store
+        .append_messages(
+            &id,
+            vec![
+                ChatMessage::user("key credential-sentinel"),
+                ChatMessage::assistant("ok"),
+            ],
+        )
+        .await
+        .unwrap();
+    drop(store);
+
+    let resumed = SessionManager::new_with_secrets(&dir, Some(&id), vec!["credential-sentinel".to_string()]).unwrap();
+    for attempt in 0..2 {
+        let err = resumed.add_secrets_async(Vec::new()).await.unwrap_err();
+        assert!(err.to_string().contains("cannot be resumed"), "attempt {attempt}");
+    }
+}

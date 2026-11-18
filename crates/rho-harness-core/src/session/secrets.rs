@@ -6,9 +6,22 @@ use super::session_error;
 
 const MIN_SECRET_LEN: usize = 4;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum PersistedScan {
+    #[default]
+    Pending,
+    Clean,
+    Contaminated,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct SecretGuard {
     secrets: Mutex<Vec<String>>,
+    persisted_scan: Mutex<PersistedScan>,
+}
+
+fn contaminated_error() -> crate::error::AppError {
+    session_error("session contains credential material and cannot be resumed")
 }
 
 impl SecretGuard {
@@ -20,7 +33,20 @@ impl SecretGuard {
                     .filter(|secret| secret.len() >= MIN_SECRET_LEN)
                     .collect(),
             ),
+            persisted_scan: Mutex::new(PersistedScan::Pending),
         }
+    }
+
+    pub(crate) fn needs_persisted_scan(&self, secrets: &[String]) -> Result<bool> {
+        match *self.scan_lock()? {
+            PersistedScan::Contaminated => return Err(contaminated_error()),
+            PersistedScan::Pending => return Ok(true),
+            PersistedScan::Clean => {}
+        }
+        let current = self.lock()?;
+        Ok(secrets
+            .iter()
+            .any(|secret| secret.len() >= MIN_SECRET_LEN && !current.contains(secret)))
     }
 
     pub(crate) fn add(&self, secrets: impl IntoIterator<Item = String>, persisted: &str) -> Result<()> {
@@ -28,11 +54,14 @@ impl SecretGuard {
         current.extend(secrets.into_iter().filter(|secret| secret.len() >= MIN_SECRET_LEN));
         current.sort();
         current.dedup();
-        if current.iter().any(|secret| persisted.contains(secret)) {
-            return Err(session_error(
-                "session contains credential material and cannot be resumed",
-            ));
+        let found = current.iter().any(|secret| persisted.contains(secret));
+        drop(current);
+        let mut scan = self.scan_lock()?;
+        if found || *scan == PersistedScan::Contaminated {
+            *scan = PersistedScan::Contaminated;
+            return Err(contaminated_error());
         }
+        *scan = PersistedScan::Clean;
         Ok(())
     }
 
@@ -87,9 +116,60 @@ impl SecretGuard {
         Ok(())
     }
 
+    fn scan_lock(&self) -> Result<std::sync::MutexGuard<'_, PersistedScan>> {
+        self.persisted_scan
+            .lock()
+            .map_err(|_| session_error("session credential guard failed"))
+    }
+
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Vec<String>>> {
         self.secrets
             .lock()
             .map_err(|_| session_error("session credential guard failed"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn owned(secrets: &[&str]) -> Vec<String> {
+        secrets.iter().map(|secret| (*secret).to_string()).collect()
+    }
+
+    #[test]
+    fn only_a_clean_scan_lets_known_secrets_skip_rescanning() {
+        let guard = SecretGuard::new(owned(&["known-secret"]));
+        assert!(guard.needs_persisted_scan(&[]).unwrap());
+        guard.add(Vec::new(), "clean history").unwrap();
+        let cases: [(&[&str], bool); 4] = [
+            (&[], false),
+            (&["known-secret"], false),
+            (&["abc"], false),
+            (&["known-secret", "new-secret"], true),
+        ];
+        for (candidates, expected) in cases {
+            assert_eq!(
+                guard.needs_persisted_scan(&owned(candidates)).unwrap(),
+                expected,
+                "{candidates:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn constructor_secret_in_persisted_history_rejects_resume() {
+        let guard = SecretGuard::new(owned(&["known-secret"]));
+        let err = guard.add(Vec::new(), "log known-secret").unwrap_err();
+        assert!(err.to_string().contains("cannot be resumed"));
+    }
+
+    #[test]
+    fn contamination_keeps_rejecting_after_the_first_failure() {
+        let guard = SecretGuard::new(Vec::new());
+        assert!(guard.add(owned(&["fresh-secret"]), "log fresh-secret").is_err());
+        assert_eq!(guard.redact("fresh-secret"), "[REDACTED]");
+        assert!(guard.needs_persisted_scan(&owned(&["fresh-secret"])).is_err());
+        assert!(guard.add(owned(&["fresh-secret"]), "").is_err());
     }
 }

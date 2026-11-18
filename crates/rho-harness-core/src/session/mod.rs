@@ -167,6 +167,10 @@ impl SessionManager {
     }
 
     pub async fn add_secrets_async(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
+        let secrets: Vec<String> = secrets.into_iter().collect();
+        if !self.secrets.needs_persisted_scan(&secrets)? {
+            return Ok(());
+        }
         let persisted = tokio::fs::read_to_string(&self.file_path).await?;
         self.secrets.add(secrets, &persisted)
     }
