@@ -89,22 +89,30 @@ fn as_passthrough_image(
     }
 }
 
+/// PNG first, then JPEG across the quality ladder — first candidate under the
+/// budget wins (pi parity). The resize re-samples from the original each round.
 fn search_candidate(
     rgba: &RgbaImage,
     (w, h, orig_w, orig_h): (u32, u32, u32, u32),
     max_bytes: usize,
 ) -> Option<ResizedImage> {
-    for (candidate_mime, data) in encode_candidates(rgba, w, h) {
-        if data.len() < max_bytes {
-            return Some(ResizedImage {
-                data,
-                mime: candidate_mime,
-                original_width: orig_w,
-                original_height: orig_h,
-                width: w,
-                height: h,
-                was_resized: true,
-            });
+    let resized = image::imageops::resize(rgba, w, h, FilterType::Lanczos3);
+    let make = |candidate_mime: &'static str, data: String| ResizedImage {
+        data,
+        mime: candidate_mime,
+        original_width: orig_w,
+        original_height: orig_h,
+        width: w,
+        height: h,
+        was_resized: true,
+    };
+    if let Some(png) = encode_png(&resized).filter(|data| data.len() < max_bytes) {
+        return Some(make("image/png", png));
+    }
+    let rgb = DynamicImage::ImageRgba8(resized).to_rgb8();
+    for quality in JPEG_QUALITIES {
+        if let Some(jpeg) = encode_jpeg(&rgb, quality).filter(|data| data.len() < max_bytes) {
+            return Some(make("image/jpeg", jpeg));
         }
     }
     None
@@ -143,23 +151,6 @@ pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: Resiz
 /// `Math.max(1, Math.floor(v * 0.75))`, with 1 kept at 1 (pi parity).
 pub(crate) fn shrink(v: u32) -> u32 {
     if v == 1 { 1 } else { (v * 3 / 4).max(1) }
-}
-
-/// PNG first, then JPEG across the quality ladder — first candidate under the
-/// budget wins (pi parity). The resize re-samples from the original each round.
-fn encode_candidates(rgba: &RgbaImage, width: u32, height: u32) -> Vec<(&'static str, String)> {
-    let resized = image::imageops::resize(rgba, width, height, FilterType::Lanczos3);
-    let mut candidates = Vec::new();
-    if let Some(png) = encode_png(&resized) {
-        candidates.push(("image/png", png));
-    }
-    let rgb = DynamicImage::ImageRgba8(resized).to_rgb8();
-    for quality in JPEG_QUALITIES {
-        if let Some(jpeg) = encode_jpeg(&rgb, quality) {
-            candidates.push(("image/jpeg", jpeg));
-        }
-    }
-    candidates
 }
 
 fn encode_png(rgba: &RgbaImage) -> Option<String> {
