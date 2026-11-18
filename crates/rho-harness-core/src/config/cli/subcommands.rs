@@ -31,6 +31,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<McpCommands>,
     },
+    /// Show tool call and error rates and file edits made through bash, from recorded sessions
+    Stats {
+        /// Only include the N most recently updated sessions
+        #[arg(long)]
+        last: Option<usize>,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

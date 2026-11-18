@@ -48,6 +48,7 @@ pub async fn handle_command(
     match cmd {
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config).await?,
         Commands::Update => handle_update_command(config).await?,
+        Commands::Stats { last } => super::stats::handle_stats(last, &config.sessions_dir)?,
         _ => {}
     }
     Ok(())

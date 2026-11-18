@@ -57,15 +57,19 @@ resume the exact session of each pane with `rho --resume <id>`.
   matching.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files, and bounds output.
-
-When `read`, `edit`, `fd`, or `rg` gets a path that does not exist, the error
-ends with up to three close workspace paths (`Did you mean: ...?`), matching
-moved files, typos, and `foo.rs` versus `foo/mod.rs`.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents).
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.
+
+When `read`, `edit`, `fd`, or `rg` gets a path that does not exist, the error
+ends with up to three close workspace paths (`Did you mean: ...?`), matching
+moved files, typos, and `foo.rs` versus `foo/mod.rs`.
+
+`rho stats [--last N]` reports per-tool call and error counts, the most common
+errors, and file edits made through bash (`sed -i`, scripts, redirects) instead
+of `edit`/`write`, from the sessions stored on this machine.
 
 Web tools, search providers, MCP, and permissions can be configured in `config.toml` or interactively toggled via `/settings` under **Tools & Permissions**.
 

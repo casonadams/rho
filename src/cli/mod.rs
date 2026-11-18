@@ -8,6 +8,7 @@ pub mod rpc;
 mod runner;
 pub mod self_update;
 mod session;
+pub mod stats;
 
 #[cfg(test)]
 mod tests;
