@@ -16,6 +16,8 @@ pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 #[derive(Default)]
 pub struct SseLineDecoder {
     buffer: Vec<u8>,
+    /// Offset into `buffer` up to which bytes have already been scanned for `\n`.
+    scanned: usize,
 }
 
 impl SseLineDecoder {
@@ -27,17 +29,20 @@ impl SseLineDecoder {
         self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
         let mut cursor = 0;
+        let mut scan_from = self.scanned;
 
-        while let Some(rel) = memchr::memchr(b'\n', &self.buffer[cursor..]) {
-            let line_end = cursor + rel;
+        while let Some(rel) = memchr::memchr(b'\n', &self.buffer[scan_from..]) {
+            let line_end = scan_from + rel;
             let line = String::from_utf8_lossy(&self.buffer[cursor..line_end]);
             lines.push(line.trim_end_matches('\r').to_string());
             cursor = line_end + 1;
+            scan_from = cursor;
         }
 
         if cursor > 0 {
             self.buffer.drain(..cursor);
         }
+        self.scanned = self.buffer.len();
         lines
     }
 
@@ -266,6 +271,15 @@ mod tests {
         };
         let response = aggregate_stream_events(vec![usage(10), usage(5)]).unwrap();
         assert_eq!((response.usage.input_tokens, response.usage.total_tokens), (8, 15));
+    }
+
+    #[test]
+    fn sse_line_decoder_joins_line_split_over_many_chunks() {
+        let mut decoder = SseLineDecoder::new();
+        assert!(decoder.decode_raw_lines(b"data: a").is_empty());
+        assert!(decoder.decode_raw_lines(b"bbb").is_empty());
+        assert!(decoder.decode_raw_lines(b"c").is_empty());
+        assert_eq!(decoder.decode_raw_lines(b"\nnext\n"), vec!["data: abbbc", "next"]);
     }
 
     #[test]
