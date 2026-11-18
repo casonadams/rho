@@ -24,12 +24,14 @@ pub struct ServerRegistration {
     pub config: McpServerConfig,
     pub working_dir: PathBuf,
     pub instance: Option<ServerInstance>,
+    /// Serializes first connects to this server only, so a slow server does not
+    /// block connects to other registered servers.
+    connect_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
 pub struct McpServerPool {
     servers: Arc<RwLock<BTreeMap<String, ServerRegistration>>>,
-    connection_lock: Arc<Mutex<()>>,
     default_idle_timeout: Duration,
     token_store: Option<McpTokenStore>,
 }
@@ -38,7 +40,6 @@ impl McpServerPool {
     pub fn new(default_idle_timeout_secs: u64) -> Self {
         Self {
             servers: Arc::new(RwLock::new(BTreeMap::new())),
-            connection_lock: Arc::new(Mutex::new(())),
             default_idle_timeout: Duration::from_secs(default_idle_timeout_secs),
             token_store: None,
         }
@@ -58,6 +59,7 @@ impl McpServerPool {
                 config,
                 working_dir: working_dir.into(),
                 instance: None,
+                connect_lock: Arc::new(Mutex::new(())),
             },
         );
     }
@@ -80,7 +82,14 @@ impl McpServerPool {
             }
         }
 
-        let _lock = self.connection_lock.lock().await;
+        let connect_lock = {
+            let guard = self.servers.read().await;
+            guard
+                .get(name)
+                .map(|reg| Arc::clone(&reg.connect_lock))
+                .ok_or_else(|| AppError::Mcp(format!("MCP server '{name}' is not registered")))?
+        };
+        let _lock = connect_lock.lock().await;
 
         {
             let guard = self.servers.read().await;
