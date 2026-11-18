@@ -70,6 +70,10 @@ fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> Result<()> {
 
 async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
     let line = serialize_record_line(record)?;
+    write_lines(path, line, durable).await
+}
+
+async fn write_lines(path: &Path, line: Vec<u8>, durable: bool) -> Result<()> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || write_line_sync(&path, &line, durable))
         .await
@@ -86,6 +90,14 @@ pub async fn append_record(path: &Path, record: &SessionRecord) -> Result<()> {
 /// session never replays a half-committed state change.
 pub async fn append_durable_record(path: &Path, record: &SessionRecord) -> Result<()> {
     write_record(path, record, true).await
+}
+
+pub async fn append_durable_records(path: &Path, records: &[SessionRecord]) -> Result<()> {
+    let mut lines = Vec::new();
+    for record in records {
+        lines.extend(serialize_record_line(record)?);
+    }
+    write_lines(path, lines, true).await
 }
 
 pub fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {

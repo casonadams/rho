@@ -122,12 +122,12 @@ impl SessionManager {
         let Some(target_id) = target_id else {
             return Ok(());
         };
-        for node in tree.ancestor_nodes(&target_id) {
-            forked
-                .append_messages(&forked.session_id, node.messages.clone())
-                .await?;
-        }
-        Ok(())
+        let batches: Vec<Vec<ChatMessage>> = tree
+            .ancestor_nodes(&target_id)
+            .into_iter()
+            .map(|node| node.messages.clone())
+            .collect();
+        forked.append_message_batches(&forked.session_id, batches).await
     }
 
     pub async fn fork_session(
@@ -235,6 +235,35 @@ mod tests {
         assert_ne!(cloned.session_id, session.session_id);
         assert_eq!(cloned.load_messages().await.unwrap().len(), 2);
 
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn fork_multi_node_session_writes_one_record_per_ancestor() {
+        let dir = std::env::temp_dir().join(format!("session_fork_multi_{}", uuid::Uuid::new_v4()));
+        let session = SessionManager::new_async(&dir, None).await.unwrap();
+        let sid = session.session_id.clone();
+        let mut expected = Vec::new();
+        for turn in 0..3 {
+            let batch = vec![
+                ChatMessage::user(format!("q{turn}")),
+                ChatMessage::assistant(format!("a{turn}")),
+            ];
+            expected.extend(batch.clone());
+            session.append_messages(&sid, batch).await.unwrap();
+        }
+
+        let forked = session.fork_session(&dir, None).await.unwrap();
+        let forked_id = forked.session_id.clone();
+        let contents = std::fs::read_to_string(&forked.file_path).unwrap();
+        assert_eq!(contents.lines().count(), 4);
+        let as_json = |m: &[ChatMessage]| serde_json::to_value(m).unwrap();
+        assert_eq!(as_json(&forked.load_messages().await.unwrap()), as_json(&expected));
+        assert_eq!(forked.load_tree().await.unwrap().nodes.len(), 3);
+        drop(forked);
+
+        let reloaded = SessionManager::new_async(&dir, Some(&forked_id)).await.unwrap();
+        assert_eq!(as_json(&reloaded.load_messages().await.unwrap()), as_json(&expected));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
