@@ -65,7 +65,7 @@ impl SubagentTool {
             ctx: TurnToolContext::default(),
             model_resolver: None,
             roles: BTreeMap::new(),
-            description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.".to_string(),
+            description: crate::tools::ToolRegistry::builtin_description("subagent").to_string(),
         }
     }
 
@@ -74,7 +74,8 @@ impl SubagentTool {
         if !agents.is_empty() {
             let names = agents.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ");
             self.description = format!(
-                "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') or custom agent ({names}) to complete a focused task."
+                "{}\n- Custom agents (pass the name as `agent`): {names}.",
+                crate::tools::ToolRegistry::builtin_description("subagent")
             );
         }
         self.agents = agents;
@@ -241,9 +242,9 @@ impl EngineTool for SubagentTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args = match serde_json::from_value::<RawSubagentArgs>(args) {
+        let args: RawSubagentArgs = match crate::tools::types::parse_tool_args("subagent", args, || self.parameters()) {
             Ok(parsed) => parsed,
-            Err(err) => return Ok(ToolResult::error(format!("failed to parse subagent arguments: {err}"))),
+            Err(e) => return Ok(e),
         };
         if args.prompt.trim().is_empty() {
             return Ok(ToolResult::error("subagent prompt cannot be empty"));

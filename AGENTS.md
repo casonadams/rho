@@ -17,10 +17,10 @@
 
 ## Shell tooling (macOS)
 
-- `sed` is BSD sed: in-place edits need an explicit suffix argument
-  (`sed -i '' 's|a|b|' file`). `sed -i 's|a|b|' file` fails with `bad flag` or
-  `unescaped newline` because the script is taken as the suffix. Prefer the
-  edit tool or a short Python script for multi-line or regex rewrites.
+- Change files only with the edit and write tools. Do not edit through bash
+  (`sed -i`, `perl -pi`, Python or awk scripts, redirects): use `replaceAll`
+  for renames within a file and `startText`/`endText` to replace or delete a
+  block, and issue one edit call per file for cross-file changes.
 
 ## Lint policy
 

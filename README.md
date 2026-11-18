@@ -50,7 +50,7 @@ resume the exact session of each pane with `rho --resume <id>`.
   safeguards. Supports image sniffing and downscaling.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
-- **`edit`**: Apply targeted, exact text replacements to files.
+- **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex

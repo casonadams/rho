@@ -23,18 +23,16 @@ impl ToolRegistry {
         Self::descriptor(name).map(|descriptor| descriptor.prompt)
     }
 
+    pub fn builtin_description(name: &str) -> &'static str {
+        Self::prompt(name).unwrap_or_else(|| panic!("built-in tool '{name}' is missing from DECLARATIONS"))
+    }
+
     pub fn capability(name: &str) -> Option<ToolCapability> {
         Self::descriptor(name).map(|descriptor| descriptor.capability)
     }
 
     pub fn prompt_snippet(name: &str) -> Option<&'static str> {
-        Self::descriptor(name).and_then(|descriptor| descriptor.prompt_snippet)
-    }
-
-    pub fn prompt_guidelines(name: &str) -> &'static [&'static str] {
-        Self::descriptor(name)
-            .map(|descriptor| descriptor.prompt_guidelines)
-            .unwrap_or(&[])
+        Self::descriptor(name).map(|descriptor| descriptor.prompt_snippet)
     }
 }
 
@@ -44,10 +42,10 @@ mod tests {
 
     fn assert_registered_tool(name: &str) {
         let desc = ToolRegistry::descriptor(name).unwrap();
-        assert!(!desc.description.is_empty());
         assert!(!desc.prompt.is_empty());
+        assert!(!desc.prompt_snippet.is_empty());
         assert!(ToolRegistry::capability(name).is_some());
-        assert!(ToolRegistry::prompt_snippet(name).is_some());
+        assert_eq!(ToolRegistry::builtin_description(name), desc.prompt);
     }
 
     #[test]
@@ -65,13 +63,6 @@ mod tests {
         ] {
             assert_registered_tool(name);
         }
-    }
-
-    #[test]
-    fn prompt_guidelines_returned_for_registered_tools() {
-        assert!(!ToolRegistry::prompt_guidelines("read").is_empty());
-        assert!(!ToolRegistry::prompt_guidelines("edit").is_empty());
-        assert!(ToolRegistry::prompt_guidelines("unknown").is_empty());
     }
 
     #[test]

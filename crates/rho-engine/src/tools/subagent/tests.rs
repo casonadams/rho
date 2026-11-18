@@ -57,7 +57,7 @@ async fn test_subagent_tool_rejects_bad_requests() {
     let tool = SubagentTool::new(None, Vec::new());
     let cases = [
         (json!({ "prompt": "search codebase" }), "No model handle configured"),
-        (json!({ "prompt": 12345 }), "failed to parse subagent arguments"),
+        (json!({ "prompt": 12345 }), "Invalid arguments for subagent"),
     ];
     for (args, expected) in cases {
         let result = tool.execute(args).await.unwrap();

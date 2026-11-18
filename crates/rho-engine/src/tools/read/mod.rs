@@ -116,7 +116,7 @@ impl EngineTool for ReadTool {
     }
 
     fn description(&self) -> &str {
-        "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result."
+        crate::tools::ToolRegistry::builtin_description("read")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -124,9 +124,9 @@ impl EngineTool for ReadTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: ReadArgs = match serde_json::from_value(args) {
+        let args: ReadArgs = match crate::tools::types::parse_tool_args("read", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

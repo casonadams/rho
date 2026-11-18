@@ -150,7 +150,7 @@ impl EngineTool for FdTool {
     }
 
     fn description(&self) -> &str {
-        "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded."
+        crate::tools::ToolRegistry::builtin_description("fd")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -158,9 +158,9 @@ impl EngineTool for FdTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: FdArgs = match serde_json::from_value(args) {
+        let args: FdArgs = match crate::tools::types::parse_tool_args("fd", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

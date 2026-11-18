@@ -90,7 +90,7 @@ impl EngineTool for WriteTool {
     }
 
     fn description(&self) -> &str {
-        "Write full content to a file, automatically creating parent directories."
+        crate::tools::ToolRegistry::builtin_description("write")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -98,9 +98,9 @@ impl EngineTool for WriteTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: WriteArgs = match serde_json::from_value(args) {
+        let args: WriteArgs = match crate::tools::types::parse_tool_args("write", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

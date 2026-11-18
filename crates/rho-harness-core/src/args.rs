@@ -27,14 +27,23 @@ impl BashArgs {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct EditReplacement {
-    /// Exact text in the file to replace (must match exactly once)
-    #[serde(rename = "oldText")]
+    /// Exact text to replace; must match exactly once unless replaceAll is true. Omit when using startText/endText
+    #[serde(rename = "oldText", default, skip_serializing_if = "String::is_empty")]
     pub old_text: String,
     /// Replacement text
     #[serde(rename = "newText")]
     pub new_text: String,
+    /// Replace a whole region instead of oldText: exact text where the region starts (must match exactly once)
+    #[serde(rename = "startText", default, skip_serializing_if = "Option::is_none")]
+    pub start_text: Option<String>,
+    /// Exact text where the region ends; the first match after startText closes the region (both anchors are replaced)
+    #[serde(rename = "endText", default, skip_serializing_if = "Option::is_none")]
+    pub end_text: Option<String>,
+    /// Replace every occurrence of oldText instead of requiring a unique match (default: false)
+    #[serde(rename = "replaceAll", default, skip_serializing_if = "Option::is_none")]
+    pub replace_all: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]

@@ -23,16 +23,20 @@ Create or overwrite files. Automatically creates parent directories.
 
 Usage:
 - Use write only for new files or complete rewrites.
-- For small or targeted changes to existing files, prefer edit instead.";
+- For small or targeted changes to existing files, prefer edit instead.
+- Use write instead of shell redirects, heredocs, or scripts to create files.";
 
 pub static PROMPT_EDIT: &str = "\
-Make precise file edits with exact text replacement.
+Edit a file with exact text replacements, applied in order.
 
 Usage:
-- Every edits[].oldText must match a unique, non-overlapping region of the original file.
-- If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits.
-- Keep edits[].oldText as small as possible while still being unique in the file.
-- Do not include large unchanged regions just to connect distant changes.";
+- Each edits[] entry is one of:
+  - {oldText, newText}: oldText must match exactly once; keep it as small as possible while still unique.
+  - {oldText, newText, replaceAll: true}: replace every occurrence, e.g. a rename within the file.
+  - {startText, endText, newText}: replace the region from startText through the first endText after it, inclusive; use this to delete or rewrite a block without copying it into oldText.
+- Put all changes to one file in one call; for changes across files, make one edit call per file in the same response.
+- If two changes touch the same lines, merge them into one entry instead of emitting overlapping edits.
+- Use edit for every change to an existing file; never sed -i, perl -pi, python or awk scripts, or shell redirects.";
 
 pub static PROMPT_FD: &str = "\
 Find files and directories by workspace-relative path pattern.
@@ -60,7 +64,7 @@ Execute bash commands in the current working directory.
 Usage:
 - Commands run directly in the working directory; do not prefix commands with cd.
 - Use fd for file discovery, rg for content search; use bash for git actions, cargo builds, tests, and linters.
-- Use read/edit instead of sed, awk, or cat for reading and editing code.
+- Never read files with cat, sed, or awk, and never create or modify files with bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, tee, mv over a file); use read, edit, and write. Project formatters and generators (cargo fmt, make) are fine.
 - Captures combined stdout and stderr with output truncation safeguards.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
@@ -103,10 +107,8 @@ pub enum BuiltinToolKind {
 pub struct BuiltinToolDeclaration {
     pub name: &'static str,
     pub capability: BuiltinToolKind,
-    pub description: &'static str,
     pub prompt: &'static str,
-    pub prompt_snippet: Option<&'static str>,
-    pub prompt_guidelines: &'static [&'static str],
+    pub prompt_snippet: &'static str,
     pub(crate) schema: fn() -> serde_json::Value,
 }
 
@@ -120,109 +122,64 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
     BuiltinToolDeclaration {
         name: "read",
         capability: BuiltinToolKind::ReadOnly,
-        description: "Read file contents with line numbering, offset, and limit safeguards.",
         prompt: PROMPT_READ,
-        prompt_snippet: Some("Read file contents (with line numbering, offset, and limit safeguards)"),
-        prompt_guidelines: &[
-            "Use read to examine files instead of cat or sed",
-            "Use offset and limit when reading large files",
-        ],
+        prompt_snippet: "Read file contents (with line numbering, offset, and limit safeguards)",
         schema: generated_schema::<ReadArgs>,
     },
     BuiltinToolDeclaration {
         name: "write",
         capability: BuiltinToolKind::WorkspaceMutation,
-        description: "Write full content to a file, automatically creating parent directories.",
         prompt: PROMPT_WRITE,
-        prompt_snippet: Some("Create or overwrite files (automatically creates parent directories)"),
-        prompt_guidelines: &["Use write only for new files or complete rewrites"],
+        prompt_snippet: "Create or overwrite files (automatically creates parent directories)",
         schema: generated_schema::<WriteArgs>,
     },
     BuiltinToolDeclaration {
         name: "edit",
         capability: BuiltinToolKind::WorkspaceMutation,
-        description: "Edit a file by applying exact string replacements. Every oldText must match exactly once.",
         prompt: PROMPT_EDIT,
-        prompt_snippet: Some(
-            "Make precise file edits with exact text replacement (every edits[].oldText must match uniquely)",
-        ),
-        prompt_guidelines: &[
-            "Use edit for precise changes (edits[].oldText must match exactly)",
-            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
-            "Keep edits[].oldText as small as possible while still being unique in the file",
-        ],
+        prompt_snippet: "Change existing files with exact text replacements, replaceAll, or startText/endText regions",
         schema: generated_schema::<EditArgs>,
     },
     BuiltinToolDeclaration {
         name: "bash",
         capability: BuiltinToolKind::Shell,
-        description: "Execute a shell command in the current working directory with a timeout. Do not prefix commands with cd.",
         prompt: PROMPT_BASH,
-        prompt_snippet: Some("Execute bash commands in the current working directory"),
-        prompt_guidelines: &[
-            "Use fd/rg for discovery and content search; bash for git actions, cargo builds, and tests",
-            "Commands run directly in the working directory; do not prefix commands with cd",
-        ],
+        prompt_snippet: "Run git, builds, tests, and linters in the current working directory",
         schema: generated_schema::<BashArgs>,
     },
     BuiltinToolDeclaration {
         name: "fd",
         capability: BuiltinToolKind::ReadOnly,
-        description: "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.",
         prompt: PROMPT_FD,
-        prompt_snippet: Some(
-            "Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)",
-        ),
-        prompt_guidelines: &[
-            "Use fd for file discovery instead of find, glob, or ls round-trips",
-            "Use depth (1-10) with pattern '.' for a bounded workspace overview",
-        ],
+        prompt_snippet: "Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)",
         schema: generated_schema::<FdArgs>,
     },
     BuiltinToolDeclaration {
         name: "rg",
         capability: BuiltinToolKind::ReadOnly,
-        description: "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded.",
         prompt: PROMPT_RG,
-        prompt_snippet: Some(
-            "Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)",
-        ),
-        prompt_guidelines: &[
-            "Use rg for content search instead of grep or bash pipelines",
-            "Narrow with path or type when a pattern matches too much",
-        ],
+        prompt_snippet: "Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)",
         schema: generated_schema::<RgArgs>,
     },
     BuiltinToolDeclaration {
         name: "web_search",
         capability: BuiltinToolKind::Network,
-        description: "Search the web and return structured search results with titles, summaries, and URLs.",
         prompt: PROMPT_WEB_SEARCH,
-        prompt_snippet: Some("Search the web and return structured summaries and URLs"),
-        prompt_guidelines: &[],
+        prompt_snippet: "Search the web and return structured summaries and URLs",
         schema: generated_schema::<WebSearchArgs>,
     },
     BuiltinToolDeclaration {
         name: "web_fetch",
         capability: BuiltinToolKind::Network,
-        description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
         prompt: PROMPT_WEB_FETCH,
-        prompt_snippet: Some("Fetch and extract clean text or markdown from URLs"),
-        prompt_guidelines: &[],
+        prompt_snippet: "Fetch and extract clean text or markdown from URLs",
         schema: generated_schema::<WebFetchArgs>,
     },
     BuiltinToolDeclaration {
         name: "subagent",
         capability: BuiltinToolKind::Composite,
-        description: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general') to complete a focused task.",
         prompt: PROMPT_SUBAGENT,
-        prompt_snippet: Some(
-            "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')",
-        ),
-        prompt_guidelines: &[
-            "Use subagent with role 'scout' for broad code search and discovery to keep parent context compact",
-            "Use subagent with role 'critic' to review proposed diffs or complex logic before applying changes",
-        ],
+        prompt_snippet: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')",
         schema: generated_schema::<SubagentArgs>,
     },
 ];

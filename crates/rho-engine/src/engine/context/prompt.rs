@@ -2,12 +2,9 @@ use super::ProjectContext;
 use super::guidelines::build_guidelines;
 
 fn format_tool_line(tool_name: &str) -> String {
-    if let Some(snippet) = crate::tools::ToolRegistry::prompt_snippet(tool_name) {
-        format!("- {tool_name}: {snippet}\n")
-    } else if let Some(desc) = crate::tools::ToolRegistry::descriptor(tool_name).map(|d| d.description) {
-        format!("- {tool_name}: {desc}\n")
-    } else {
-        format!("- {tool_name}\n")
+    match crate::tools::ToolRegistry::prompt_snippet(tool_name) {
+        Some(snippet) => format!("- {tool_name}: {snippet}\n"),
+        None => format!("- {tool_name}\n"),
     }
 }
 

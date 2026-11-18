@@ -132,7 +132,7 @@ impl EngineTool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF)."
+        crate::tools::ToolRegistry::builtin_description("web_fetch")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -140,9 +140,9 @@ impl EngineTool for WebFetchTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: WebFetchArgs = match serde_json::from_value(args) {
+        let args: WebFetchArgs = match crate::tools::types::parse_tool_args("web_fetch", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

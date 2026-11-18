@@ -60,13 +60,18 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
 }
 
 fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
-    if active_tools.iter().any(|t| t == "edit") {
-        out.push("Use edit for precise changes (edits[].oldText must match exactly)");
-        out.push("When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls");
+    let has_edit = active_tools.iter().any(|t| t == "edit");
+    let has_write = active_tools.iter().any(|t| t == "write");
+    if has_edit {
+        out.push("Use edit for every change to an existing file: oldText for small unique changes, replaceAll for renames within a file, and startText/endText to delete or rewrite a whole block");
+        out.push("Put all changes to one file in one edit call; for changes across files, issue one edit call per file in the same response");
         out.push("Keep edits[].oldText as small as possible while still being unique in the file");
     }
-    if active_tools.iter().any(|t| t == "write") {
+    if has_write {
         out.push("Use write only for new files or complete rewrites");
+    }
+    if (has_edit || has_write) && active_tools.iter().any(|t| t == "bash") {
+        out.push("Never create or modify files through bash (sed -i, perl -pi, python or awk scripts, echo/cat redirects, heredocs, tee, mv over a file); use edit and write. Project formatters and generators such as cargo fmt are fine");
     }
 }
 

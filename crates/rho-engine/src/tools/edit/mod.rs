@@ -1,3 +1,4 @@
+pub mod matching;
 pub mod normalize;
 #[cfg(test)]
 mod tests;
@@ -5,6 +6,7 @@ mod tests;
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::types::{ToolResult, generated_schema};
+pub use matching::locate_edit;
 pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
 pub use rho_harness_core::args::EditArgs;
 pub use rho_harness_core::args::EditReplacement;
@@ -33,58 +35,25 @@ async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::resu
         .map_err(|e| ToolResult::error(format!("Failed to read {clean_path}: {e}")))
 }
 
-fn match_error(content: &str, old_text: &str, i: usize, count: usize) -> ToolResult {
-    if count == 0 {
-        let hint = if has_whitespace_relaxed_match(content, old_text) {
-            "\n\nNote: A matching block with different whitespace or indentation was found. Verify exact indentation and line breaks."
-        } else {
-            ""
-        };
-        ToolResult::error(format!(
-            "Edit #{}: oldText not found in file (exact match required):\n{}{hint}",
-            i + 1,
-            truncate_snippet(old_text, 120)
-        ))
-    } else {
-        ToolResult::error(format!(
-            "Edit #{}: oldText found {count} times in file (must be unique):\n{}\n\nNote: Provide more surrounding context lines in oldText to disambiguate the match.",
-            i + 1,
-            truncate_snippet(old_text, 120)
-        ))
-    }
-}
-
 fn apply_single_replacement(
     current_content: &str,
     edit: &EditReplacement,
     i: usize,
     line_ending: &str,
 ) -> std::result::Result<(String, usize), ToolResult> {
-    let normalized_old = normalize_line_endings(&edit.old_text, line_ending);
-    let normalized_new = normalize_line_endings(&edit.new_text, line_ending);
-    if normalized_old.is_empty() {
-        return Err(ToolResult::error(format!("Edit #{}: oldText must not be empty", i + 1)));
+    let ranges = locate_edit(current_content, edit, line_ending)
+        .map_err(|message| ToolResult::error(format!("Edit #{}: {message}", i + 1)))?;
+    let new_text = normalize_line_endings(&edit.new_text, line_ending);
+    let line_num = 1 + current_content[..ranges[0].start].matches('\n').count();
+    let mut updated = String::with_capacity(current_content.len() + new_text.len() * ranges.len());
+    let mut cursor = 0;
+    for range in ranges {
+        updated.push_str(&current_content[cursor..range.start]);
+        updated.push_str(new_text.as_ref());
+        cursor = range.end;
     }
-    let mut indices = current_content.match_indices(normalized_old.as_ref());
-    let first = indices.next();
-    let second = indices.next();
-    match (first, second) {
-        (None, _) => Err(match_error(current_content, &edit.old_text, i, 0)),
-        (Some(_), Some(_)) => {
-            let count = 2 + indices.count();
-            Err(match_error(current_content, &edit.old_text, i, count))
-        }
-        (Some((match_idx, _)), None) => {
-            let line_num = 1 + current_content[..match_idx].matches('\n').count();
-            let mut updated = String::with_capacity(
-                current_content.len() + normalized_new.len().saturating_sub(normalized_old.len()),
-            );
-            updated.push_str(&current_content[..match_idx]);
-            updated.push_str(normalized_new.as_ref());
-            updated.push_str(&current_content[match_idx + normalized_old.len()..]);
-            Ok((updated, line_num))
-        }
-    }
+    updated.push_str(&current_content[cursor..]);
+    Ok((updated, line_num))
 }
 
 fn apply_all_edits(content: &str, edits: &[EditReplacement]) -> std::result::Result<(String, Vec<usize>), ToolResult> {
@@ -165,7 +134,7 @@ impl EngineTool for EditTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by applying exact string replacements. Every oldText must match exactly once."
+        crate::tools::ToolRegistry::builtin_description("edit")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -173,9 +142,9 @@ impl EngineTool for EditTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: EditArgs = match serde_json::from_value(args) {
+        let args: EditArgs = match crate::tools::types::parse_tool_args("edit", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

@@ -33,12 +33,61 @@ pub(crate) fn edit_start_lines(edits: &[Value], content: Option<&str>) -> Vec<Op
         .iter()
         .map(|edit| {
             explicit_edit_line(edit).or_else(|| {
-                let old = edit.get("oldText").and_then(Value::as_str).unwrap_or("");
                 let new = edit.get("newText").and_then(Value::as_str).unwrap_or("");
-                locate_edit_line_number(content?, old, new)
+                locate_edit_line_number(content?, match_anchor(edit), new)
             })
         })
         .collect()
+}
+
+fn match_anchor(edit: &Value) -> &str {
+    let text = |key: &str| edit.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+    text("oldText").or_else(|| text("startText")).unwrap_or("")
+}
+
+fn replaced_regions(edits: &[Value], content: Option<&str>) -> Vec<Option<String>> {
+    let Some(mut current) = content.map(str::to_string) else {
+        return Vec::new();
+    };
+    let line_ending = rho_engine::tools::edit::detect_line_ending(&current);
+    let mut regions = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let parsed = serde_json::from_value::<rho_harness_core::args::EditReplacement>(edit.clone()).ok();
+        let located = parsed.as_ref().and_then(|e| {
+            let ranges = rho_engine::tools::edit::locate_edit(&current, e, line_ending).ok()?;
+            Some((e, ranges))
+        });
+        let Some((parsed, ranges)) = located else {
+            regions.push(None);
+            continue;
+        };
+        let region = ranges
+            .first()
+            .filter(|_| parsed.start_text.is_some())
+            .map(|r| current[r.clone()].to_string());
+        regions.push(region);
+        for range in ranges.into_iter().rev() {
+            current.replace_range(range, &parsed.new_text);
+        }
+    }
+    regions
+}
+
+pub(crate) fn removed_text(edit: &Value, idx: usize, change: Option<&FileChange>) -> String {
+    if let Some(old) = edit.get("oldText").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        return old.to_string();
+    }
+    if let Some(region) = change
+        .and_then(|c| c.replaced_regions.get(idx))
+        .and_then(Option::as_ref)
+    {
+        return region.clone();
+    }
+    let anchor = |key: &str| edit.get(key).and_then(Value::as_str).unwrap_or("");
+    match (anchor("startText"), anchor("endText")) {
+        ("", "") => String::new(),
+        (start, end) => format!("{start}\n\u{22ee}\n{end}"),
+    }
 }
 
 pub(crate) fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> {
@@ -47,12 +96,15 @@ pub(crate) fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> 
         "write" => FileChange {
             overwrote_existing: std::path::Path::new(path).is_file(),
             edit_start_lines: Vec::new(),
+            replaced_regions: Vec::new(),
         },
         "edit" => {
             let edits = args.get("edits")?.as_array()?;
+            let content = read_bounded(path);
             FileChange {
                 overwrote_existing: true,
-                edit_start_lines: edit_start_lines(edits, read_bounded(path).as_deref()),
+                edit_start_lines: edit_start_lines(edits, content.as_deref()),
+                replaced_regions: replaced_regions(edits, content.as_deref()),
             }
         }
         _ => return None,
@@ -60,15 +112,18 @@ pub(crate) fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> 
     Some((path.to_string(), change))
 }
 
-pub(crate) fn edit_line_stats(args: &Value) -> Option<(usize, usize, usize)> {
+pub(crate) fn edit_line_stats(args: &Value, change: Option<&FileChange>) -> Option<(usize, usize, usize)> {
     let edits = args.get("edits")?.as_array()?;
-    let count = |edit: &Value, key: &str| {
-        edit.get(key)
-            .and_then(Value::as_str)
-            .map_or(0, |text| text.lines().count())
-    };
-    let removed = edits.iter().map(|edit| count(edit, "oldText")).sum();
-    let added = edits.iter().map(|edit| count(edit, "newText")).sum();
+    let lines = |text: &str| text.lines().count();
+    let removed = edits
+        .iter()
+        .enumerate()
+        .map(|(idx, edit)| lines(&removed_text(edit, idx, change)))
+        .sum();
+    let added = edits
+        .iter()
+        .map(|edit| edit.get("newText").and_then(Value::as_str).map_or(0, lines))
+        .sum();
     Some((edits.len(), added, removed))
 }
 
@@ -94,7 +149,7 @@ pub(crate) fn header_details(tool: &ToolLine) -> Option<String> {
     }
     match tool.name.as_str() {
         "edit" => {
-            let (edits, added, removed) = edit_line_stats(&tool.arguments)?;
+            let (edits, added, removed) = edit_line_stats(&tool.arguments, tool.file_change.as_ref())?;
             Some(format!("{} \u{b7} +{added} -{removed}", plural(edits, "edit")))
         }
         "write" => {
@@ -155,6 +210,7 @@ mod tests {
                 Some(FileChange {
                     overwrote_existing: false,
                     edit_start_lines: vec![],
+                    replaced_regions: vec![],
                 }),
                 "3 lines \u{b7} 14 B \u{b7} new file",
             ),
@@ -162,6 +218,7 @@ mod tests {
                 Some(FileChange {
                     overwrote_existing: true,
                     edit_start_lines: vec![],
+                    replaced_regions: vec![],
                 }),
                 "3 lines \u{b7} 14 B \u{b7} overwrote",
             ),
@@ -207,6 +264,27 @@ mod tests {
         ]);
         let (_, edit) = capture("edit", &json!({"path": path, "edits": edits})).unwrap();
         assert_eq!(edit.edit_start_lines, [Some(3), Some(40), None]);
+        assert_eq!(edit.replaced_regions, [None, None, None]);
         assert!(capture("rg", &json!({"path": path})).is_none());
+    }
+
+    #[test]
+    fn region_edits_capture_the_removed_block_for_the_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f.rs");
+        std::fs::write(&file, "use a;\nfn old() {\n    a();\n}\nfn keep() {}\n").unwrap();
+        let args = json!({"path": file.to_str().unwrap(), "edits": [
+            {"oldText": "use a;", "newText": "use b;"},
+            {"startText": "fn old() {", "endText": "}\n", "newText": ""},
+        ]});
+
+        let (_, change) = capture("edit", &args).unwrap();
+
+        assert_eq!(change.edit_start_lines, [Some(1), Some(2)]);
+        let region = "fn old() {\n    a();\n}\n".to_string();
+        assert_eq!(change.replaced_regions, [None, Some(region)]);
+        let card = tool("edit", args.clone(), Some(change));
+        assert_eq!(header_details(&card).unwrap(), "2 edits \u{b7} +1 -4");
+        assert_eq!(removed_text(&args["edits"][1], 1, None), "fn old() {\n\u{22ee}\n}\n");
     }
 }

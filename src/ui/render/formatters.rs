@@ -33,11 +33,12 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
     };
     let mut out = String::new();
     for (idx, edit) in edits.iter().enumerate() {
+        let old_text = file_change::removed_text(edit, idx, request.file_change);
         out.push_str(&super::diff::format_entry_diff(super::diff::EntryDiffInput {
             idx,
             total: edits.len(),
             expanded: request.expanded,
-            old_text: edit.get("oldText").and_then(|v| v.as_str()).unwrap_or(""),
+            old_text: &old_text,
             new_text: edit.get("newText").and_then(|v| v.as_str()).unwrap_or(""),
             theme,
             start_line: start_lines.get(idx).copied().flatten(),

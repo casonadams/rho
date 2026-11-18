@@ -156,7 +156,7 @@ impl EngineTool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web and return structured search results with titles, summaries, and URLs."
+        crate::tools::ToolRegistry::builtin_description("web_search")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -164,9 +164,9 @@ impl EngineTool for WebSearchTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: WebSearchArgs = match serde_json::from_value(args) {
+        let args: WebSearchArgs = match crate::tools::types::parse_tool_args("web_search", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

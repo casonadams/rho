@@ -948,6 +948,7 @@ fn edit_diff_prefers_recorded_start_lines_over_the_file_on_disk() {
     let change = FileChange {
         overwrote_existing: true,
         edit_start_lines: vec![Some(41)],
+        replaced_regions: vec![],
     };
     let request = EditDiffRequest {
         args: &args,
@@ -1002,6 +1003,7 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
     let new_file = FileChange {
         overwrote_existing: false,
         edit_start_lines: vec![],
+        replaced_regions: vec![],
     };
     let edit_header = crate::ui::block::strip_ansi(&format_tool_header(&tool_line("edit", edit, false, None), &theme));
     let write_header = crate::ui::block::strip_ansi(&format_tool_header(

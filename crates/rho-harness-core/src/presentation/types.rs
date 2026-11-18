@@ -93,6 +93,8 @@ pub struct SessionStatus {
 pub struct FileChange {
     pub overwrote_existing: bool,
     pub edit_start_lines: Vec<Option<usize>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replaced_regions: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

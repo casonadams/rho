@@ -47,7 +47,7 @@ impl EngineTool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a shell command in the current working directory with a timeout. Do not prefix commands with cd."
+        crate::tools::ToolRegistry::builtin_description("bash")
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -55,9 +55,9 @@ impl EngineTool for BashTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: BashArgs = match serde_json::from_value(args) {
+        let args: BashArgs = match crate::tools::types::parse_tool_args("bash", args, || self.parameters()) {
             Ok(a) => a,
-            Err(e) => return Ok(ToolResult::error(format!("failed to parse tool arguments: {e}"))),
+            Err(e) => return Ok(e),
         };
         self.execute(args).await
     }

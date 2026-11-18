@@ -16,6 +16,7 @@ async fn edit_file(workspace: &Path, file: &Path, old_text: &str, new_text: &str
             edits: vec![EditReplacement {
                 old_text: old_text.to_string(),
                 new_text: new_text.to_string(),
+                ..Default::default()
             }],
         })
         .await
@@ -129,6 +130,29 @@ async fn test_edit_failures_leave_file_unchanged() {
         }
         assert_eq!(read_disk(&file).await, case.initial, "{}", case.name);
     }
+}
+
+#[tokio::test]
+async fn region_and_replace_all_edits_apply_in_order() {
+    let dir = fixture("forms");
+    let file = dir.path().join("lib.rs");
+    tokio::fs::write(&file, "use a;\nfn old() {\n    a();\n}\nfn keep() { a(); }\n")
+        .await
+        .unwrap();
+    let args: EditArgs = serde_json::from_value(serde_json::json!({
+        "path": file.to_str().unwrap(),
+        "edits": [
+            { "startText": "fn old() {", "endText": "}\n", "newText": "" },
+            { "oldText": "a", "newText": "b", "replaceAll": true }
+        ]
+    }))
+    .unwrap();
+
+    let res = EditTool::new(dir.path()).execute(args).await.unwrap();
+
+    assert!(!res.is_error, "{}", res.content);
+    assert_eq!(read_disk(&file).await, "use b;\nfn keep() { b(); }\n");
+    assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [2, 1] })));
 }
 
 #[tokio::test]
