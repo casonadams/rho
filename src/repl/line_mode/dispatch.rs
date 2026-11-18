@@ -202,6 +202,7 @@ pub(crate) async fn rebuild_engine_on_auth(session: &mut ReplSession, engine: &m
         .rebuild(session.config.clone(), session.auth_store.clone())
         .await?;
     session.config = engine.config.clone();
+    crate::repl::report_mcp_diagnostics(session, engine);
     Ok(())
 }
 

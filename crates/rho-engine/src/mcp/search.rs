@@ -1,158 +1,116 @@
-use super::client::{McpClient, McpToolDefinition};
-use super::pool::McpServerPool;
+use super::client::McpToolDefinition;
 use crate::tools::{EngineTool, GenericTool, ToolResult};
 use std::collections::{BTreeMap, HashSet};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
 
-pub type McpCallFuture = Pin<Box<dyn Future<Output = String> + Send>>;
-pub type McpCallFn = Arc<dyn Fn(String, serde_json::Value) -> McpCallFuture + Send + Sync>;
-
-#[derive(Clone)]
-pub struct DeferredMcpTool {
+#[derive(Debug, Clone, PartialEq)]
+pub struct McpToolEntry {
     pub server_name: String,
     pub name: String,
     pub wire_name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
-    call_fn: McpCallFn,
     pub keywords: Vec<String>,
+    pub direct: bool,
 }
 
-impl DeferredMcpTool {
-    pub fn new(
-        server_name: String,
-        name: String,
-        description: String,
-        input_schema: serde_json::Value,
-        client: Arc<McpClient>,
-        max_bytes: usize,
-    ) -> Self {
-        let wire_name = format!("{server_name}_{name}");
-        let call_fn = Arc::new(move |tool_name: String, args: serde_json::Value| {
-            let client = Arc::clone(&client);
-            Box::pin(async move {
-                match client.call_tool(&tool_name, args).await {
-                    Ok(result) => {
-                        let text = result.as_text_truncated(max_bytes);
-                        if result.is_error.unwrap_or(false) {
-                            format!("[Error] {text}")
-                        } else {
-                            text
-                        }
-                    }
-                    Err(e) => format!("[MCP Error] {e}"),
-                }
-            }) as McpCallFuture
-        });
+impl McpToolEntry {
+    pub fn new(server: &str, tool: McpToolDefinition, search_keywords: &BTreeMap<String, Vec<String>>) -> Self {
+        let keywords = ["*", tool.name.as_str()]
+            .iter()
+            .filter_map(|key| search_keywords.get(*key))
+            .flatten()
+            .cloned()
+            .collect();
         Self {
-            server_name,
-            name,
-            wire_name,
-            description,
-            input_schema,
-            call_fn,
-            keywords: Vec::new(),
-        }
-    }
-
-    pub fn from_definition(
-        server_name: String,
-        tool: McpToolDefinition,
-        pool: McpServerPool,
-        max_bytes: usize,
-        keywords: Vec<String>,
-    ) -> Self {
-        let wire_name = format!("{server_name}_{}", tool.name);
-        let s_name = server_name.clone();
-        let call_fn = Arc::new(move |tool_name: String, args: serde_json::Value| {
-            let pool = pool.clone();
-            let server_name = s_name.clone();
-            Box::pin(async move {
-                match pool.get_or_connect(&server_name).await {
-                    Ok((client, in_flight)) => {
-                        let res = client.call_tool(&tool_name, args).await;
-                        in_flight.fetch_sub(1, Ordering::SeqCst);
-                        pool.touch_activity(&server_name).await;
-                        match res {
-                            Ok(result) => {
-                                let text = result.as_text_truncated(max_bytes);
-                                if result.is_error.unwrap_or(false) {
-                                    format!("[Error] {text}")
-                                } else {
-                                    text
-                                }
-                            }
-                            Err(e) => format!("[MCP Error] {e}"),
-                        }
-                    }
-                    Err(e) => format!("[MCP Error] Failed to connect to server '{server_name}': {e}"),
-                }
-            }) as McpCallFuture
-        });
-        Self {
-            server_name,
+            server_name: server.to_string(),
+            wire_name: super::naming::wire_name(server, &tool.name),
             name: tool.name,
-            wire_name,
             description: tool.description.unwrap_or_default(),
             input_schema: tool.input_schema,
-            call_fn,
             keywords,
+            direct: false,
         }
-    }
-
-    pub async fn execute_call(&self, args: serde_json::Value) -> String {
-        (self.call_fn)(self.name.clone(), args).await
-    }
-
-    pub fn into_engine_tool(&self) -> Arc<dyn EngineTool> {
-        let tool_name = self.wire_name.clone();
-        let description = self.description.clone();
-        let mut schema = self.input_schema.clone();
-        crate::tools::normalize_schema(&mut schema);
-        let tool = self.clone();
-
-        Arc::new(GenericTool::new(tool_name, description, schema, move |args| {
-            let tool = tool.clone();
-            async move {
-                let output = tool.execute_call(args).await;
-                Ok(ToolResult::success(output))
-            }
-        }))
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerState {
+    Connecting,
+    Unavailable(String),
+    Stale(String),
+}
+
+#[derive(Default)]
+struct CatalogState {
+    tools: Vec<McpToolEntry>,
+    servers: BTreeMap<String, ServerState>,
+}
+
+/// Every discovered MCP tool. The model reaches non-direct entries through `tool_search` and the `mcp` gateway,
+/// so later discoveries extend the catalog without changing the provider tool list.
 #[derive(Clone, Default)]
 pub struct ToolSearchCatalog {
-    tools: Arc<std::sync::RwLock<Vec<DeferredMcpTool>>>,
+    state: Arc<RwLock<CatalogState>>,
 }
 
 impl ToolSearchCatalog {
-    pub fn new(tools: Vec<DeferredMcpTool>) -> Self {
-        Self {
-            tools: Arc::new(std::sync::RwLock::new(tools)),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.tools.read().unwrap().len()
+    pub fn new(tools: Vec<McpToolEntry>) -> Self {
+        let catalog = Self::default();
+        catalog.state.write().unwrap().tools = tools;
+        catalog
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tools.read().unwrap().is_empty()
+        self.state.read().unwrap().tools.is_empty()
     }
 
-    pub fn add_tool(&self, tool: DeferredMcpTool) {
-        self.tools.write().unwrap().push(tool);
+    pub fn deferred_count(&self) -> usize {
+        self.state.read().unwrap().tools.iter().filter(|t| !t.direct).count()
     }
 
-    pub fn search(&self, query: &str, limit: usize) -> Vec<DeferredMcpTool> {
+    pub fn replace_server_tools(&self, server: &str, entries: Vec<McpToolEntry>) {
+        let mut state = self.state.write().unwrap();
+        let direct: HashSet<String> = state
+            .tools
+            .iter()
+            .filter(|t| t.server_name == server && t.direct)
+            .map(|t| t.name.clone())
+            .collect();
+        state.tools.retain(|t| t.server_name != server);
+        state.tools.extend(entries.into_iter().map(|mut entry| {
+            entry.direct |= direct.contains(&entry.name);
+            entry
+        }));
+        state.servers.remove(server);
+    }
+
+    pub fn set_server_state(&self, server: &str, server_state: ServerState) {
+        self.state
+            .write()
+            .unwrap()
+            .servers
+            .insert(server.to_string(), server_state);
+    }
+
+    pub fn server_states(&self) -> BTreeMap<String, ServerState> {
+        self.state.read().unwrap().servers.clone()
+    }
+
+    pub fn find(&self, server: Option<&str>, tool: &str) -> Option<McpToolEntry> {
+        let state = self.state.read().unwrap();
+        let found = match server {
+            Some(server) => state
+                .tools
+                .iter()
+                .find(|t| t.server_name == server && (t.name == tool || t.wire_name == tool)),
+            None => state.tools.iter().find(|t| t.wire_name == tool),
+        };
+        found.cloned()
+    }
+
+    pub fn search(&self, query: &str, limit: usize) -> Vec<McpToolEntry> {
         let q = query.trim().to_lowercase();
-        if q.is_empty() {
-            return Vec::new();
-        }
         let tokens: Vec<&str> = q
             .split(|c: char| !c.is_alphanumeric())
             .filter(|t| !t.is_empty())
@@ -161,13 +119,13 @@ impl ToolSearchCatalog {
             return Vec::new();
         }
 
-        let tools = self.tools.read().unwrap();
-        let mut scored: Vec<(usize, &DeferredMcpTool)> = tools
+        let state = self.state.read().unwrap();
+        let mut scored: Vec<(usize, &McpToolEntry)> = state
+            .tools
             .iter()
-            .filter_map(|t| {
-                let score = score_tool_match(t, &q, &tokens);
-                if score > 0 { Some((score, t)) } else { None }
-            })
+            .filter(|t| !t.direct)
+            .map(|t| (score_tool_match(t, &q, &tokens), t))
+            .filter(|(score, _)| *score > 0)
             .collect();
 
         scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.wire_name.cmp(&b.1.wire_name)));
@@ -175,38 +133,74 @@ impl ToolSearchCatalog {
     }
 
     pub fn catalog_summary(&self) -> String {
-        let tools = self.tools.read().unwrap();
+        let state = self.state.read().unwrap();
         let mut by_server: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for t in tools.iter() {
+        for t in state.tools.iter().filter(|t| !t.direct) {
             by_server.entry(&t.server_name).or_default().push(&t.name);
         }
-        let mut lines = Vec::new();
-        for (server, names) in by_server {
-            lines.push(format!("{server}: {}", names.join(", ")));
-        }
-        lines.join("; ")
+        let mut parts: Vec<String> = by_server
+            .into_iter()
+            .map(|(server, names)| format!("{server}: {}", names.join(", ")))
+            .collect();
+        parts.extend(
+            state
+                .servers
+                .iter()
+                .filter(|(_, s)| **s == ServerState::Connecting)
+                .map(|(server, _)| format!("{server}: (connecting)")),
+        );
+        parts.join("; ")
     }
 
-    pub fn format_search_results(&self, query: &str, matches: &[DeferredMcpTool]) -> String {
-        if matches.is_empty() {
-            let tools = self.tools.read().unwrap();
-            let names: Vec<&str> = tools.iter().map(|t| t.wire_name.as_str()).collect();
-            return format!(
-                "No MCP tools matched query '{query}'. Available deferred tools in catalog: {}.",
-                names.join(", ")
-            );
+    fn server_state_note(&self) -> Option<String> {
+        let states = self.server_states();
+        if states.is_empty() {
+            return None;
         }
+        let lines: Vec<String> = states
+            .iter()
+            .map(|(server, state)| match state {
+                ServerState::Connecting => format!("- {server}: still connecting; search again shortly"),
+                ServerState::Unavailable(msg) => format!("- {server}: unavailable: {msg}"),
+                ServerState::Stale(msg) => format!("- {server}: tool list may be outdated: {msg}"),
+            })
+            .collect();
+        Some(format!("MCP server status:\n{}", lines.join("\n")))
+    }
 
-        let mut out = format!(
-            "Loaded {} tool(s) into active tools for subsequent turns:",
-            matches.len()
-        );
-        for m in matches {
-            let params = format_parameter_summary(&m.input_schema);
-            out.push_str(&format!(
-                "\n- `{}`: {} (parameters: {})",
-                m.wire_name, m.description, params
-            ));
+    pub fn format_search_results(&self, query: &str, matches: &[McpToolEntry]) -> String {
+        let mut out = if matches.is_empty() {
+            let state = self.state.read().unwrap();
+            let names: Vec<String> = state
+                .tools
+                .iter()
+                .filter(|t| !t.direct)
+                .map(|t| format!("{}/{}", t.server_name, t.name))
+                .collect();
+            format!(
+                "No MCP tools matched query '{query}'. Available deferred tools: {}.",
+                names.join(", ")
+            )
+        } else {
+            let mut out = format!(
+                "Found {} tool(s). Call one with the `mcp` tool: {{\"server\": <server>, \"tool\": <tool>, \"arguments\": {{...}}}}.",
+                matches.len()
+            );
+            for m in matches {
+                let schema = serde_json::to_string(&m.input_schema).unwrap_or_default();
+                out.push_str(&format!(
+                    "\n- server `{}`, tool `{}`: {} (parameters: {})\n  input schema: {schema}",
+                    m.server_name,
+                    m.name,
+                    m.description,
+                    format_parameter_summary(&m.input_schema)
+                ));
+            }
+            out
+        };
+        if let Some(note) = self.server_state_note() {
+            out.push_str("\n\n");
+            out.push_str(&note);
         }
         out
     }
@@ -294,7 +288,7 @@ fn score_token(token: &str, target: &ToolMatchTarget<'_>) -> usize {
     score + score_property_tokens(target.props, token, stem)
 }
 
-fn score_tool_match(tool: &DeferredMcpTool, query: &str, tokens: &[&str]) -> usize {
+fn score_tool_match(tool: &McpToolEntry, query: &str, tokens: &[&str]) -> usize {
     let target = ToolMatchTarget {
         wire: tool.wire_name.to_lowercase(),
         name: tool.name.to_lowercase(),
@@ -315,58 +309,6 @@ fn score_tool_match(tool: &DeferredMcpTool, query: &str, tokens: &[&str]) -> usi
     score
 }
 
-type SharedToolsRegistry = Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>;
-type SharedToolNames = Arc<std::sync::RwLock<Vec<String>>>;
-
-#[derive(Clone, Default)]
-pub struct DynamicToolActivator {
-    tools_registry: Arc<std::sync::RwLock<Option<SharedToolsRegistry>>>,
-    tool_names: Arc<std::sync::RwLock<Option<SharedToolNames>>>,
-    activated_names: Arc<std::sync::RwLock<HashSet<String>>>,
-}
-
-impl DynamicToolActivator {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn attach(&self, registry: SharedToolsRegistry, tool_names: SharedToolNames) {
-        *self.tools_registry.write().unwrap() = Some(registry);
-        *self.tool_names.write().unwrap() = Some(tool_names);
-    }
-
-    pub fn mark_activated(&self, name: &str) {
-        self.activated_names.write().unwrap().insert(name.to_string());
-    }
-
-    pub fn is_activated(&self, name: &str) -> bool {
-        self.activated_names.read().unwrap().contains(name)
-    }
-
-    pub async fn activate_tools(&self, tools: &[DeferredMcpTool]) {
-        let mut to_activate = Vec::new();
-        {
-            let mut activated = self.activated_names.write().unwrap();
-            for tool in tools {
-                if activated.insert(tool.wire_name.clone()) {
-                    to_activate.push(tool.clone());
-                }
-            }
-        }
-        let reg_opt = self.tools_registry.read().unwrap().clone();
-        let tool_names_opt = self.tool_names.read().unwrap().clone();
-
-        for tool in to_activate {
-            if let Some(reg) = reg_opt.as_ref() {
-                reg.write().await.push(tool.into_engine_tool());
-            }
-            if let Some(names_ref) = tool_names_opt.as_ref() {
-                names_ref.write().unwrap().push(tool.wire_name.clone());
-            }
-        }
-    }
-}
-
 pub fn extract_invoked_tool_names(messages: &[rho_harness_core::model::ChatMessage]) -> HashSet<String> {
     let mut names = HashSet::new();
     for msg in messages {
@@ -381,14 +323,12 @@ pub fn extract_invoked_tool_names(messages: &[rho_harness_core::model::ChatMessa
     names
 }
 
-pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicToolActivator) -> Arc<dyn EngineTool> {
+pub fn build_tool_search_tool(catalog: ToolSearchCatalog) -> Arc<dyn EngineTool> {
     let summary = catalog.catalog_summary();
     let description = format!(
-        "Search and dynamically load deferred MCP tools into active tools for subsequent turns. \
-         Some tools are not loaded upfront; for external services, databases, or APIs, always use 'tool_search' \
-         to discover specialized MCP tools instead of CLI commands in bash. \
-         Keywords match tool names, descriptions, parameters; exact matches win. \
-         Loaded tools are called directly on later turns. Deferred tools: {summary}"
+        "Search the deferred MCP tool catalog. Matches include each tool's input schema; call them with the `mcp` tool. \
+         For external services, databases, or APIs, always search here for specialized MCP tools instead of using CLI commands in bash. \
+         Keywords match tool names, descriptions, and parameters; exact matches win. Deferred tools: {summary}"
     );
 
     let schema = serde_json::json!({
@@ -396,11 +336,11 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Keywords or an exact tool name to search for and activate"
+                "description": "Keywords or an exact tool name to search for"
             },
             "limit": {
                 "type": "integer",
-                "description": "Maximum number of matching tools to load (default: 5)"
+                "description": "Maximum number of matching tools to return (default: 5)"
             }
         },
         "required": ["query"]
@@ -408,18 +348,14 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
 
     Arc::new(GenericTool::new("tool_search", description, schema, move |args| {
         let catalog = catalog.clone();
-        let activator = activator.clone();
         async move {
             let query = args.get("query").and_then(|q| q.as_str()).unwrap_or("").trim();
             let limit = args
                 .get("limit")
                 .and_then(|l| l.as_u64())
-                .map(|l| l as usize)
-                .unwrap_or(5);
+                .map_or(5, |l| usize::try_from(l).unwrap_or(usize::MAX));
             let matches = catalog.search(query, limit);
-            activator.activate_tools(&matches).await;
-            let output = catalog.format_search_results(query, &matches);
-            Ok(ToolResult::success(output))
+            Ok(ToolResult::success(catalog.format_search_results(query, &matches)))
         }
     }))
 }
@@ -427,28 +363,25 @@ pub fn build_tool_search_tool(catalog: ToolSearchCatalog, activator: DynamicTool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::transport::McpTransport;
 
-    fn make_test_client(name: &str) -> Arc<McpClient> {
-        let transport = McpTransport::new_http(
-            "http://127.0.0.1:9999",
-            rho_harness_core::config::McpTransportKind::StreamableHttp,
-            std::collections::BTreeMap::new(),
-            None,
-            None,
-        );
-        Arc::new(McpClient::new(name, transport))
+    fn entry(server: &str, name: &str, description: &str, schema: serde_json::Value) -> McpToolEntry {
+        McpToolEntry::new(
+            server,
+            McpToolDefinition {
+                name: name.to_string(),
+                description: Some(description.to_string()),
+                input_schema: schema,
+            },
+            &BTreeMap::new(),
+        )
     }
 
-    fn sample_tools() -> Vec<DeferredMcpTool> {
-        let client_gh = make_test_client("github");
-        let client_weather = make_test_client("weather");
-
+    fn sample_tools() -> Vec<McpToolEntry> {
         vec![
-            DeferredMcpTool::new(
-                "github".to_string(),
-                "create_issue".to_string(),
-                "[MCP: github] Create an issue in a repository".to_string(),
+            entry(
+                "github",
+                "create_issue",
+                "Create an issue in a repository",
                 serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -458,37 +391,26 @@ mod tests {
                     },
                     "required": ["repo", "title"]
                 }),
-                client_gh.clone(),
-                1000,
             ),
-            DeferredMcpTool::new(
-                "github".to_string(),
-                "list_issues".to_string(),
-                "[MCP: github] List issues for a repository".to_string(),
+            entry(
+                "github",
+                "list_issues",
+                "List issues for a repository",
                 serde_json::json!({
                     "type": "object",
-                    "properties": {
-                        "repo": { "type": "string" },
-                        "state": { "type": "string" }
-                    },
+                    "properties": { "repo": { "type": "string" }, "state": { "type": "string" } },
                     "required": ["repo"]
                 }),
-                client_gh,
-                1000,
             ),
-            DeferredMcpTool::new(
-                "weather".to_string(),
-                "get_forecast".to_string(),
-                "[MCP: weather] Get forecast and temperature predictions".to_string(),
+            entry(
+                "weather",
+                "get_forecast",
+                "Get forecast and temperature predictions",
                 serde_json::json!({
                     "type": "object",
-                    "properties": {
-                        "city": { "type": "string" }
-                    },
+                    "properties": { "city": { "type": "string" } },
                     "required": ["city"]
                 }),
-                client_weather,
-                1000,
             ),
         ]
     }
@@ -496,13 +418,11 @@ mod tests {
     #[test]
     fn test_tool_search_exact_name_match() {
         let catalog = ToolSearchCatalog::new(sample_tools());
-        let results = catalog.search("create_issue", 5);
-        assert!(!results.is_empty());
-        assert_eq!(results[0].wire_name, "github_create_issue");
-
-        let wire_results = catalog.search("github_create_issue", 5);
-        assert!(!wire_results.is_empty());
-        assert_eq!(wire_results[0].wire_name, "github_create_issue");
+        assert_eq!(catalog.search("create_issue", 5)[0].wire_name, "github_create_issue");
+        assert_eq!(
+            catalog.search("github_create_issue", 5)[0].wire_name,
+            "github_create_issue"
+        );
     }
 
     #[test]
@@ -511,20 +431,23 @@ mod tests {
         let results = catalog.search("temperature", 5);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].wire_name, "weather_get_forecast");
-
-        let gh_results = catalog.search("issues", 5);
-        assert_eq!(gh_results.len(), 2);
+        assert_eq!(catalog.search("issues", 5).len(), 2);
     }
 
     #[test]
     fn test_tool_search_configured_keywords_match() {
-        let mut tools = sample_tools();
-        tools[0].keywords = vec!["ticket".to_string(), "bug".to_string()];
-        let catalog = ToolSearchCatalog::new(tools);
-
-        let results = catalog.search("ticket", 5);
-        assert!(!results.is_empty());
-        assert_eq!(results[0].wire_name, "github_create_issue");
+        let keywords = BTreeMap::from([("create_issue".to_string(), vec!["ticket".to_string()])]);
+        let tool = McpToolEntry::new(
+            "github",
+            McpToolDefinition {
+                name: "create_issue".into(),
+                description: None,
+                input_schema: serde_json::json!({}),
+            },
+            &keywords,
+        );
+        let catalog = ToolSearchCatalog::new(vec![tool]);
+        assert_eq!(catalog.search("ticket", 5)[0].wire_name, "github_create_issue");
     }
 
     #[test]
@@ -545,17 +468,62 @@ mod tests {
         assert!(results.is_empty());
         let formatted = catalog.format_search_results("nonexistent_widget", &results);
         assert!(formatted.contains("No MCP tools matched query"));
-        assert!(formatted.contains("github_create_issue"));
+        assert!(formatted.contains("github/create_issue"));
     }
 
     #[test]
-    fn test_tool_search_formatting() {
+    fn search_results_carry_schema_and_gateway_call_shape() {
         let catalog = ToolSearchCatalog::new(sample_tools());
         let results = catalog.search("forecast", 5);
         let formatted = catalog.format_search_results("forecast", &results);
-        assert!(formatted.contains("Loaded 1 tool(s)"));
-        assert!(formatted.contains("weather_get_forecast"));
+        assert!(formatted.contains("Found 1 tool(s)"));
+        assert!(formatted.contains("`mcp` tool"));
+        assert!(formatted.contains("server `weather`, tool `get_forecast`"));
         assert!(formatted.contains("city (required)"));
+        assert!(formatted.contains(r#"input schema: {"properties":{"city":{"type":"string"}}"#));
+    }
+
+    #[test]
+    fn direct_tools_are_findable_but_not_searched() {
+        let mut tools = sample_tools();
+        tools[2].direct = true;
+        let catalog = ToolSearchCatalog::new(tools);
+        assert!(catalog.search("forecast", 5).is_empty());
+        assert_eq!(catalog.deferred_count(), 2);
+        assert!(catalog.find(Some("weather"), "get_forecast").is_some());
+        assert!(catalog.find(None, "weather_get_forecast").is_some());
+        assert!(catalog.find(Some("github"), "get_forecast").is_none());
+        assert!(!catalog.catalog_summary().contains("get_forecast"));
+    }
+
+    #[test]
+    fn replacing_server_tools_keeps_direct_flags_and_clears_state() {
+        let mut tools = sample_tools();
+        tools[0].direct = true;
+        let catalog = ToolSearchCatalog::new(tools);
+        catalog.set_server_state("github", ServerState::Stale("offline".into()));
+        catalog.replace_server_tools(
+            "github",
+            vec![
+                entry("github", "create_issue", "new text", serde_json::json!({})),
+                entry("github", "close_issue", "Close an issue", serde_json::json!({})),
+            ],
+        );
+        assert!(catalog.find(Some("github"), "create_issue").unwrap().direct);
+        assert!(!catalog.find(Some("github"), "close_issue").unwrap().direct);
+        assert!(catalog.find(Some("github"), "list_issues").is_none());
+        assert!(catalog.server_states().is_empty());
+    }
+
+    #[test]
+    fn server_states_are_reported_with_search_results() {
+        let catalog = ToolSearchCatalog::new(sample_tools());
+        catalog.set_server_state("slow", ServerState::Connecting);
+        catalog.set_server_state("broken", ServerState::Unavailable("spawn failed".into()));
+        assert!(catalog.catalog_summary().contains("slow: (connecting)"));
+        let formatted = catalog.format_search_results("zzz", &[]);
+        assert!(formatted.contains("- broken: unavailable: spawn failed"));
+        assert!(formatted.contains("- slow: still connecting"));
     }
 
     #[test]
@@ -578,27 +546,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_tool_search_only_activates_tools() {
-        let registry = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-        let names = Arc::new(std::sync::RwLock::new(Vec::new()));
-        let activator = DynamicToolActivator::new();
-        activator.attach(registry.clone(), names);
-
+    async fn tool_search_does_not_change_the_tool_list() {
         let catalog = ToolSearchCatalog::new(sample_tools());
-        let tool = build_tool_search_tool(catalog, activator.clone());
-
-        assert!(tool.parameters()["properties"].get("execute").is_none());
-
-        let result = tool
-            .execute(serde_json::json!({
-                "query": "forecast",
-                "execute": {"tool": "weather_get_forecast", "arguments": {"city": "Paris"}}
-            }))
-            .await
-            .unwrap();
-        assert!(result.content.contains("weather_get_forecast"));
-        assert!(!result.content.contains("Executed"));
-        assert!(!result.content.contains("Error"));
-        assert!(activator.is_activated("weather_get_forecast"));
+        let tool = build_tool_search_tool(catalog.clone());
+        let result = tool.execute(serde_json::json!({"query": "forecast"})).await.unwrap();
+        assert!(result.content.contains("get_forecast"));
+        assert_eq!(catalog.deferred_count(), 3);
     }
 }

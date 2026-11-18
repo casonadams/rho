@@ -24,6 +24,8 @@ pub(crate) struct ResourceMetadata {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub(crate) struct AuthServerMetadata {
+    #[serde(default)]
+    pub issuer: Option<String>,
     pub authorization_endpoint: String,
     pub token_endpoint: String,
     #[serde(default)]
@@ -106,6 +108,20 @@ pub(crate) fn auth_server_metadata_urls(issuer: &str) -> Result<Vec<String>> {
     ])
 }
 
+/// RFC 8414 3.3: the metadata `issuer` must match the issuer it was fetched for. A trailing slash is ignored
+/// because providers such as Google list `https://accounts.google.com/` but publish it without one.
+pub(crate) fn check_issuer(expected: &str, published: Option<&str>) -> Result<()> {
+    let Some(published) = published else {
+        return Ok(());
+    };
+    if published.trim_end_matches('/') == expected.trim_end_matches('/') {
+        return Ok(());
+    }
+    Err(AppError::Auth(format!(
+        "Authorization server metadata names issuer '{published}', expected '{expected}'; refusing to sign in"
+    )))
+}
+
 async fn first_json<T: serde::de::DeserializeOwned>(urls: &[String], what: &str) -> Result<T> {
     let mut failures = Vec::new();
     for url in urls {
@@ -137,6 +153,7 @@ pub(crate) async fn fetch_resource_metadata(server_url: &str, challenge: &Challe
 pub(crate) async fn fetch_auth_server_metadata(issuer: &str) -> Result<AuthServerMetadata> {
     let metadata: AuthServerMetadata =
         first_json(&auth_server_metadata_urls(issuer)?, "authorization server metadata").await?;
+    check_issuer(issuer, metadata.issuer.as_deref())?;
     let methods = metadata.code_challenge_methods_supported.as_deref();
     if methods.is_some_and(|m| !m.iter().any(|m| m == "S256")) {
         return Err(AppError::Auth(
@@ -187,6 +204,16 @@ mod tests {
             assert_eq!(canonical_resource(input).unwrap(), expected, "{input}");
         }
         assert!(canonical_resource("mcp.example.com").is_err());
+    }
+
+    #[test]
+    fn issuer_must_match_ignoring_a_trailing_slash() {
+        assert!(check_issuer("https://accounts.google.com/", Some("https://accounts.google.com")).is_ok());
+        assert!(check_issuer("https://auth.example.com", Some("https://auth.example.com")).is_ok());
+        assert!(check_issuer("https://auth.example.com", None).is_ok());
+        let err = check_issuer("https://auth.example.com", Some("https://evil.example.com")).unwrap_err();
+        assert!(err.to_string().contains("evil.example.com"), "{err}");
+        assert!(check_issuer("https://auth.example.com/t1", Some("https://auth.example.com/t2")).is_err());
     }
 
     #[test]

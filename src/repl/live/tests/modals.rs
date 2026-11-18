@@ -743,6 +743,10 @@ async fn login_provider_selected_dispatches_with_input_pause_and_resume() {
 // =========================================================================
 
 fn setup_mcp_controller() -> TerminalController<NullBackend> {
+    mcp_controller(false)
+}
+
+fn mcp_controller(remote_enabled: bool) -> TerminalController<NullBackend> {
     let mut servers = std::collections::BTreeMap::new();
     servers.insert(
         "filesystem".to_string(),
@@ -750,7 +754,7 @@ fn setup_mcp_controller() -> TerminalController<NullBackend> {
     );
     let remote = McpServerConfig {
         url: Some("https://example.com/mcp".to_string()),
-        enabled: false,
+        enabled: remote_enabled,
         ..Default::default()
     };
     servers.insert("remote_tool".to_string(), remote);
@@ -760,6 +764,7 @@ fn setup_mcp_controller() -> TerminalController<NullBackend> {
             enabled: true,
             defer_threshold: 10,
             idle_timeout_seconds: 600,
+            startup_timeout_ms: 0,
             servers,
         },
         config_dir: tempfile::tempdir().unwrap().keep(),
@@ -780,10 +785,28 @@ fn mcp_selector_opens_with_configured_servers() {
     let remote = modal.options.iter().find(|o| o.label.trim() == "remote_tool").unwrap();
     assert_eq!(
         remote.description.as_deref(),
-        Some("[http] https://example.com/mcp · sign in: /mcp login remote_tool  (off)")
+        Some("[http] https://example.com/mcp · not signed in  (off)")
     );
     let local = modal.options.iter().find(|o| o.label.trim() == "filesystem").unwrap();
-    assert!(!local.description.as_deref().unwrap().contains("sign in"));
+    assert!(!local.description.as_deref().unwrap().contains("sign"));
+}
+
+#[test]
+fn mcp_selector_enter_signs_in_to_enabled_servers_that_need_it() {
+    let mut controller = mcp_controller(true);
+    let remote = &controller.state().active_modal().unwrap().options[1];
+    assert_eq!(
+        remote.description.as_deref(),
+        Some("[http] https://example.com/mcp · Enter to sign in  ✓")
+    );
+    let _ = send_modal_key(&mut controller, KeyCode::Down);
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    assert_eq!(
+        res,
+        ModalKeyResult::LoginProviderSelected {
+            provider: "mcp:remote_tool".to_string()
+        }
+    );
 }
 
 #[test]

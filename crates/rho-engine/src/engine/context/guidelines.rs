@@ -45,7 +45,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                 ))
         });
         if has_specialized {
-            out.push("Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools and search for them with tool_search if not loaded");
+            out.push("Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools, find unlisted MCP tools with tool_search, and call them through the mcp tool");
         }
     }
     if active_tools.iter().any(|t| t == "read") {

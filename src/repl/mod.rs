@@ -32,18 +32,22 @@ pub struct ReplSession {
     pub renderer: TerminalRenderer,
     pub resume_id: Option<String>,
     pub cli: Option<crate::config::cli::Cli>,
+    pub(crate) mcp_completions: crate::repl::interactive::McpServerList,
 }
 
 impl ReplSession {
     pub fn new(config: Config, auth_store: AuthStore, resume_id: Option<String>) -> Self {
         let mut renderer = TerminalRenderer::default();
         renderer.theme.apply_ui_config(&config.ui);
+        let mcp_completions = crate::repl::interactive::McpServerList::default();
+        mcp_completions.set_from(&config.mcp);
         Self {
             config,
             auth_store,
             renderer,
             resume_id,
             cli: None,
+            mcp_completions,
         }
     }
 
@@ -79,6 +83,7 @@ impl ReplSession {
             skills.len(),
             tools.len()
         ));
+        report_mcp_diagnostics(self, &rebuilt);
         Ok(rebuilt)
     }
 
@@ -148,5 +153,26 @@ pub(crate) async fn print_welcome(session: &ReplSession, engine: &AgentEngine) -
         skills: skill_names,
         mcp,
     });
+    report_mcp_diagnostics(session, engine);
     skills
+}
+
+pub(crate) fn report_mcp_diagnostics(session: &ReplSession, engine: &AgentEngine) {
+    session.mcp_completions.set_from(&engine.config.mcp);
+    warn_mcp(session, engine.mcp_diagnostics());
+}
+
+pub(crate) fn report_late_mcp_problems(session: &ReplSession, engine: &AgentEngine) {
+    if let Some(runtime) = engine.mcp_runtime() {
+        warn_mcp(session, &runtime.take_problems());
+    }
+}
+
+fn warn_mcp(session: &ReplSession, diagnostics: &[rho_engine::mcp::McpDiagnostic]) {
+    let lines = crate::cli::mcp::mcp_diagnostic_lines(diagnostics);
+    if !lines.is_empty() {
+        session
+            .renderer
+            .notice(crate::ui::render::NoticeKind::Warn, &lines.join("\n"));
+    }
 }

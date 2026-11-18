@@ -105,6 +105,8 @@ autocomplete):
 | `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                            |
 | `/mcp`                      | Open the interactive Model Context Protocol modal (toggle servers, inspect status).                       |
 | `/mcp login\|logout <name>` | Sign in to or out of a remote MCP server that uses OAuth (see [MCP](mcp-and-hooks.md#remote-servers-with-oauth)). |
+| `/mcp prompts [server]`     | List MCP server prompts and their arguments (see [Prompts and Resources](mcp-and-hooks.md#prompts-and-resources)). |
+| `/mcp prompt <server> <name> [key=value ...]` | Fetch an MCP server prompt and send it as your next prompt. |
 | `/login [provider]`         | Authenticate with an AI provider (OAuth PKCE or API key).                                                 |
 | `/logout [provider]`        | Remove stored credentials for a provider.                                                                 |
 | `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                          |

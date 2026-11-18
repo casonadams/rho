@@ -1,5 +1,6 @@
 use super::super::oauth::{McpOAuth, login_hint};
 use super::super::types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+use super::Inbound;
 use crate::http::CLIENT;
 use crate::provider::sse::SseLineDecoder;
 use futures::StreamExt;
@@ -9,20 +10,18 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Duration;
 use tokio::sync::RwLock;
 
-pub const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MCP_PROTOCOL_VERSION_HEADER: &str = "2025-11-25";
 
 pub struct HttpTransport {
     url: String,
     kind: McpTransportKind,
     headers: BTreeMap<String, String>,
-    timeout: Duration,
     session_id: Arc<RwLock<Option<String>>>,
     next_id: AtomicI64,
     oauth: Option<Arc<McpOAuth>>,
+    inbound: Inbound,
 }
 
 enum Reply {
@@ -30,13 +29,20 @@ enum Reply {
     Unauthorized(String),
 }
 
-fn try_parse_target_response(data_lines: &mut Vec<String>, target_id: i64) -> Option<Result<Value>> {
+fn try_parse_target_response(data_lines: &mut Vec<String>, target_id: i64, inbound: &Inbound) -> Option<Result<Value>> {
     if data_lines.is_empty() {
         return None;
     }
     let combined = data_lines.join("\n");
     data_lines.clear();
-    let resp = serde_json::from_str::<JsonRpcResponse>(&combined).ok()?;
+    let message = serde_json::from_str::<Value>(&combined).ok()?;
+    if let Some(method) = message.get("method").and_then(Value::as_str) {
+        if message.get("id").is_none() {
+            inbound.dispatch(method);
+        }
+        return None;
+    }
+    let resp = serde_json::from_value::<JsonRpcResponse>(message).ok()?;
     if resp.id.as_i64() != Some(target_id) {
         return None;
     }
@@ -49,9 +55,14 @@ fn try_parse_target_response(data_lines: &mut Vec<String>, target_id: i64) -> Op
     Some(Ok(resp.result.unwrap_or(Value::Null)))
 }
 
-fn process_sse_line(line: &str, data_lines: &mut Vec<String>, target_id: i64) -> Option<Result<Value>> {
+fn process_sse_line(
+    line: &str,
+    data_lines: &mut Vec<String>,
+    target_id: i64,
+    inbound: &Inbound,
+) -> Option<Result<Value>> {
     if line.is_empty() {
-        try_parse_target_response(data_lines, target_id)
+        try_parse_target_response(data_lines, target_id, inbound)
     } else {
         if let Some(stripped) = line.strip_prefix("data:") {
             data_lines.push(stripped.trim().to_string());
@@ -65,11 +76,12 @@ fn scan_sse_chunk(
     data_lines: &mut Vec<String>,
     chunk: &[u8],
     target_id: i64,
+    inbound: &Inbound,
 ) -> Option<Result<Value>> {
     decoder
         .decode_raw_lines(chunk)
         .iter()
-        .find_map(|line| process_sse_line(line, data_lines, target_id))
+        .find_map(|line| process_sse_line(line, data_lines, target_id, inbound))
 }
 
 impl HttpTransport {
@@ -77,18 +89,25 @@ impl HttpTransport {
         url: impl Into<String>,
         kind: McpTransportKind,
         headers: BTreeMap<String, String>,
-        timeout: Option<Duration>,
         oauth: Option<Arc<McpOAuth>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             url: url.into(),
             kind,
             headers,
-            timeout: timeout.unwrap_or(DEFAULT_HTTP_TIMEOUT),
             session_id: Arc::new(RwLock::new(None)),
             next_id: AtomicI64::new(1),
             oauth,
+            inbound: Inbound::default(),
         })
+    }
+
+    pub(crate) fn inbound(&self) -> &Inbound {
+        &self.inbound
+    }
+
+    pub(crate) fn next_id(&self) -> i64 {
+        self.next_id.fetch_add(1, Ordering::SeqCst)
     }
 
     pub fn url(&self) -> &str {
@@ -154,7 +173,7 @@ impl HttpTransport {
 
         while let Some(chunk_res) = stream.next().await {
             let chunk = chunk_res.map_err(|e| AppError::Mcp(format!("SSE stream error: {e}")))?;
-            if let Some(res) = scan_sse_chunk(&mut decoder, &mut data_lines, &chunk, target_id) {
+            if let Some(res) = scan_sse_chunk(&mut decoder, &mut data_lines, &chunk, target_id, &self.inbound) {
                 return res;
             }
         }
@@ -189,11 +208,19 @@ impl HttpTransport {
             .json(payload)
             .send()
             .await
-            .map_err(|e| AppError::Mcp(format!("HTTP request to '{}' failed: {e}", self.url)))?;
+            .map_err(|e| AppError::McpConnectionLost(format!("HTTP request to '{}' failed: {e}", self.url)))?;
 
         let status = res.status();
         let res_headers = res.headers().clone();
+        let had_session = self.session_id.read().await.is_some();
         self.record_session_id(&res_headers).await;
+
+        if status == reqwest::StatusCode::NOT_FOUND && had_session {
+            return Err(AppError::McpConnectionLost(format!(
+                "MCP session at '{}' expired",
+                self.url
+            )));
+        }
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
             let www_auth = res_headers
@@ -251,22 +278,9 @@ impl HttpTransport {
         }
     }
 
-    pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let req_payload = JsonRpcRequest::new(id, method, params);
-
-        match tokio::time::timeout(self.timeout, self.send_authorized(method, id, &req_payload)).await {
-            Ok(res) => res,
-            Err(_) => {
-                let _ = self
-                    .notify("notifications/cancelled", Some(serde_json::json!({ "requestId": id })))
-                    .await;
-                Err(AppError::Mcp(format!(
-                    "MCP request '{method}' to '{}' timed out",
-                    self.url
-                )))
-            }
-        }
+    pub(crate) async fn send_request(&self, id: i64, method: &str, params: Option<Value>) -> Result<Value> {
+        let payload = JsonRpcRequest::new(id, method, params);
+        self.send_authorized(method, id, &payload).await
     }
 
     pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
@@ -287,6 +301,7 @@ impl HttpTransport {
 
 #[cfg(test)]
 mod tests {
+    use super::super::McpTransport;
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -313,7 +328,7 @@ mod tests {
             socket.write_all(http_resp.as_bytes()).await.unwrap();
         });
 
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
+        let transport = McpTransport::new_http(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
         let res = transport.request("tools/list", None).await.unwrap();
         assert_eq!(res, serde_json::json!({ "tools": [] }));
     }
@@ -338,7 +353,7 @@ mod tests {
             socket.write_all(http_resp.as_bytes()).await.unwrap();
         });
 
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
+        let transport = McpTransport::new_http(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
         let res = transport.request("ping", None).await.unwrap();
         assert_eq!(res, serde_json::json!({ "status": "streaming_ok" }));
     }
@@ -349,7 +364,6 @@ mod tests {
             "http://example.com/mcp",
             McpTransportKind::StreamableHttp,
             BTreeMap::new(),
-            None,
             None,
         );
         assert_eq!(transport.kind(), McpTransportKind::StreamableHttp);
@@ -386,7 +400,7 @@ mod tests {
 
         let mut headers = BTreeMap::new();
         headers.insert("X-Custom-Key".to_string(), "custom-val".to_string());
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, headers, None, None);
+        let transport = McpTransport::new_http(url, McpTransportKind::StreamableHttp, headers, None, None);
         let res1 = transport.request("init", None).await.unwrap();
         assert_eq!(res1, serde_json::json!(true));
         let res2 = transport.request("next", None).await.unwrap();
@@ -427,7 +441,7 @@ mod tests {
             socket3.write_all(http_resp3.as_bytes()).await.unwrap();
         });
 
-        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
+        let transport = McpTransport::new_http(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None, None);
         let auth_err = transport.request("ping", None).await.unwrap_err();
         assert!(auth_err.to_string().contains("Unauthorized"));
 
@@ -444,8 +458,9 @@ mod tests {
         let split = event.iter().position(|b| *b == 0xC3).unwrap() + 1;
         let mut decoder = SseLineDecoder::new();
         let mut data_lines = Vec::new();
-        assert!(scan_sse_chunk(&mut decoder, &mut data_lines, &event[..split], 7).is_none());
-        let result = scan_sse_chunk(&mut decoder, &mut data_lines, &event[split..], 7);
+        let slot = Inbound::default();
+        assert!(scan_sse_chunk(&mut decoder, &mut data_lines, &event[..split], 7, &slot).is_none());
+        let result = scan_sse_chunk(&mut decoder, &mut data_lines, &event[split..], 7, &slot);
         assert_eq!(result.unwrap().unwrap(), serde_json::json!("héllo"));
     }
 }

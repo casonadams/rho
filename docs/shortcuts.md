@@ -121,7 +121,7 @@ commands:
 | `/name`     | **Name Session**                 | Assigns a human-readable display name to the session.                         |
 | `/clear`    | **New Session**                  | Starts a fresh session while preserving past transcripts.                     |
 | `/login`    | **Provider Auth**                | Configure OAuth or verify API keys for 13+ providers.                         |
-| `/mcp`      | **MCP Servers**                  | Inspect configured MCP servers and capabilities; `/mcp login <name>` signs in to OAuth servers. |
+| `/mcp`      | **MCP Servers**                  | Inspect configured MCP servers and capabilities; `/mcp login <name>` signs in to OAuth servers; `/mcp prompts` / `/mcp prompt <server> <name>` use server prompts. |
 | `/export`   | **Export Transcript**            | Generates an HTML or Markdown transcript file.                                |
 | `/workflow` | **Workflows**                    | Lists workflows; `/workflow <name> [inputs]` runs one, e.g. `/workflow refine security`. |
 | `/exit`     | **Exit rho**                     | Shuts down the interactive REPL.                                              |

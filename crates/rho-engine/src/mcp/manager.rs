@@ -1,279 +1,353 @@
-use super::cache::{McpCache, compute_definition_hash};
-use super::client::McpToolDefinition;
-use super::pool::McpServerPool;
+use super::gateway::{GATEWAY_TOOL_NAME, build_gateway_tool};
+use super::instructions::McpServerInstructions;
+use super::naming::NameRegistry;
+use super::runtime::{McpRuntime, ServerSnapshot};
+use super::search::{McpToolEntry, ServerState, build_tool_search_tool};
 use super::trust::is_server_definition_trusted;
-use crate::tools::{EngineTool, GenericTool, ToolResult};
+use crate::tools::{EngineTool, GenericTool};
 use rho_harness_core::config::{Config, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-pub struct DiscoveredServer {
-    pub server_name: String,
-    pub tools: Vec<McpToolDefinition>,
-    pub max_bytes: usize,
-    pub config: McpServerConfig,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum McpDiagnostic {
+    NeedsLogin {
+        server: String,
+    },
+    Untrusted {
+        server: String,
+    },
+    Failed {
+        server: String,
+        message: String,
+    },
+    Pending {
+        server: String,
+    },
+    NameConflict {
+        server: String,
+        tool: String,
+        wire_name: String,
+    },
 }
 
-fn is_tool_allowed(name: &str, include: Option<&[String]>, exclude: Option<&[String]>) -> bool {
-    if let Some(exc) = exclude
-        && exc.iter().any(|p| p == name || p == "*")
-    {
-        return false;
+impl McpDiagnostic {
+    pub fn server(&self) -> &str {
+        match self {
+            Self::NeedsLogin { server }
+            | Self::Untrusted { server }
+            | Self::Failed { server, .. }
+            | Self::Pending { server }
+            | Self::NameConflict { server, .. } => server,
+        }
     }
-    if let Some(inc) = include {
-        return inc.iter().any(|p| p == name || p == "*");
-    }
-    true
-}
 
-fn build_pooled_mcp_tool(
-    tool: McpToolDefinition,
-    pool: McpServerPool,
-    server_name: &str,
-    max_bytes: usize,
-) -> Arc<dyn EngineTool> {
-    let tool_name = format!("{}_{}", server_name, tool.name);
-    let description = format!("[MCP: {}] {}", server_name, tool.description.unwrap_or_default());
-    let mut schema = tool.input_schema;
-    crate::tools::normalize_schema(&mut schema);
-    let original_name = tool.name;
-    let s_name = server_name.to_string();
-
-    Arc::new(GenericTool::new(tool_name, description, schema, move |args| {
-        let pool = pool.clone();
-        let original_name = original_name.clone();
-        let server_name = s_name.clone();
-        async move {
-            match pool.get_or_connect(&server_name).await {
-                Ok((client, in_flight)) => {
-                    let res = client.call_tool(&original_name, args).await;
-                    in_flight.fetch_sub(1, Ordering::SeqCst);
-                    pool.touch_activity(&server_name).await;
-                    match res {
-                        Ok(result) => {
-                            let text = result.as_text_truncated(max_bytes);
-                            if result.is_error.unwrap_or(false) {
-                                Ok(ToolResult::error(text))
-                            } else {
-                                Ok(ToolResult::success(text))
-                            }
-                        }
-                        Err(e) => Ok(ToolResult::error(format!("[MCP Error] {e}"))),
-                    }
-                }
-                Err(e) => Ok(ToolResult::error(format!(
-                    "[MCP Error] Failed to connect to server '{server_name}': {e}"
-                ))),
+    pub fn message(&self) -> String {
+        match self {
+            Self::NeedsLogin { server } => format!("sign-in required; run /mcp login {server}"),
+            Self::Untrusted { .. } => "project definition has not been approved".to_string(),
+            Self::Failed { message, .. } => message.clone(),
+            Self::Pending { .. } => "still connecting".to_string(),
+            Self::NameConflict { tool, wire_name, .. } => {
+                format!("tool '{tool}' kept behind tool_search: name '{wire_name}' is already taken")
             }
         }
-    }))
+    }
 }
 
-async fn discover_uncached_tools(
-    pool: &McpServerPool,
-    name: &str,
-    lifecycle: McpLifecycleMode,
-) -> Option<Vec<McpToolDefinition>> {
-    let (client, in_flight) = pool
-        .get_or_connect(name)
-        .await
-        .map_err(|e| eprintln!("Warning: Failed to connect to MCP server '{name}': {e}"))
-        .ok()?;
-
-    let list_res = client
-        .list_tools()
-        .await
-        .map_err(|e| eprintln!("Warning: Failed to list tools from MCP server '{name}': {e}"))
-        .ok();
-
-    in_flight.fetch_sub(1, Ordering::SeqCst);
-
-    if lifecycle == McpLifecycleMode::Lazy {
-        pool.disconnect(name).await;
-    }
-
-    list_res
+pub struct McpLoad {
+    pub tools: Vec<Arc<dyn EngineTool>>,
+    pub diagnostics: Vec<McpDiagnostic>,
+    pub instructions: Vec<McpServerInstructions>,
+    pub runtime: Option<Arc<McpRuntime>>,
 }
 
-async fn discover_server_tools(
-    name: &str,
-    cfg: &McpServerConfig,
-    pool: &McpServerPool,
-    cache: &mut McpCache,
-    working_dir: &Path,
-    config: &Config,
-) -> Option<DiscoveredServer> {
-    let def_hash = compute_definition_hash(cfg);
-    let is_project_scoped = working_dir.join(".mcp.json").is_file()
-        || working_dir.join(".agents").join("mcp.json").is_file()
-        || working_dir.join(".claude").join("mcp.json").is_file();
-
-    if is_project_scoped && !is_server_definition_trusted(working_dir, name, &def_hash, &config.config_dir) {
-        eprintln!("Warning: Skipping untrusted project MCP server '{name}'. Definition has not been approved.");
-        return None;
-    }
-
-    let lifecycle = cfg.lifecycle.unwrap_or(McpLifecycleMode::Lazy);
-    let tools = match cache.get_valid_tools(name, &def_hash) {
-        Some(cached) => cached.to_vec(),
-        None => {
-            let tools = discover_uncached_tools(pool, name, lifecycle).await?;
-            cache.update(name, def_hash, tools.clone(), None);
-            let _ = cache.save_to_dir(&config.config_dir);
-            tools
+impl McpLoad {
+    fn empty() -> Self {
+        Self {
+            tools: Vec::new(),
+            diagnostics: Vec::new(),
+            instructions: Vec::new(),
+            runtime: None,
         }
-    };
-
-    let filtered: Vec<_> = tools
-        .into_iter()
-        .filter(|t| is_tool_allowed(&t.name, cfg.include_tools.as_deref(), cfg.exclude_tools.as_deref()))
-        .collect();
-
-    Some(DiscoveredServer {
-        server_name: name.to_string(),
-        tools: filtered,
-        max_bytes: config.output_max_bytes,
-        config: cfg.clone(),
-    })
+    }
 }
 
-fn is_direct_tool(
-    name: &str,
-    wire_name: &str,
-    direct_tools: Option<&McpDirectTools>,
-    mode: McpExposureMode,
-    should_defer: bool,
-    history: &HashSet<String>,
-) -> bool {
-    if history.contains(wire_name) {
+fn is_project_scoped(working_dir: &Path) -> bool {
+    [".mcp.json", ".agents/mcp.json", ".claude/mcp.json"]
+        .iter()
+        .any(|p| working_dir.join(p).is_file())
+}
+
+fn trusted_servers(
+    config: &Config,
+    working_dir: &Path,
+    diagnostics: &mut Vec<McpDiagnostic>,
+) -> BTreeMap<String, McpServerConfig> {
+    let project_scoped = is_project_scoped(working_dir);
+    let mut trusted = BTreeMap::new();
+    for (name, cfg) in config.mcp.servers.iter().filter(|(_, cfg)| cfg.enabled) {
+        let hash = super::cache::compute_definition_hash(cfg);
+        if project_scoped && !is_server_definition_trusted(working_dir, name, &hash, &config.config_dir) {
+            diagnostics.push(McpDiagnostic::Untrusted { server: name.clone() });
+        } else {
+            trusted.insert(name.clone(), cfg.clone());
+        }
+    }
+    trusted
+}
+
+#[derive(Default)]
+struct StartupPlan {
+    ready: BTreeMap<String, ServerSnapshot>,
+    stale: Vec<String>,
+    discover: Vec<String>,
+}
+
+async fn plan_startup(runtime: &McpRuntime) -> StartupPlan {
+    let mut plan = StartupPlan::default();
+    let names: Vec<String> = runtime.server_names().map(str::to_string).collect();
+    for name in names {
+        match runtime.cached_snapshot(&name).await {
+            Some((snapshot, fresh)) => {
+                if !fresh {
+                    plan.stale.push(name.clone());
+                }
+                plan.ready.insert(name, snapshot);
+            }
+            None => plan.discover.push(name),
+        }
+    }
+    plan
+}
+
+type Discovery = (String, Result<ServerSnapshot, McpDiagnostic>);
+
+async fn discover_within(
+    runtime: &Arc<McpRuntime>,
+    servers: Vec<String>,
+    wait: Option<Duration>,
+) -> (Vec<Discovery>, Vec<String>) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Discovery>();
+    for name in &servers {
+        let (runtime, tx, name) = (Arc::clone(runtime), tx.clone(), name.clone());
+        tokio::spawn(async move {
+            let result = runtime.fetch_snapshot(&name).await;
+            let _ = tx.send((name, result));
+        });
+    }
+    drop(tx);
+    let deadline = wait.map(|w| tokio::time::Instant::now() + w);
+    let mut finished = Vec::new();
+    while finished.len() < servers.len() {
+        let next = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, rx.recv()).await.ok().flatten(),
+            None => rx.recv().await,
+        };
+        match next {
+            Some(item) => finished.push(item),
+            None => break,
+        }
+    }
+    let done: HashSet<&str> = finished.iter().map(|(name, _)| name.as_str()).collect();
+    let pending: Vec<String> = servers.iter().filter(|s| !done.contains(s.as_str())).cloned().collect();
+    if !pending.is_empty() {
+        let runtime = Arc::clone(runtime);
+        tokio::spawn(async move {
+            while let Some((name, result)) = rx.recv().await {
+                runtime.adopt(&name, result);
+            }
+        });
+    }
+    (finished, pending)
+}
+
+fn wants_direct(entry: &McpToolEntry, cfg: &McpServerConfig, should_defer: bool, history: &HashSet<String>) -> bool {
+    if history.contains(&entry.wire_name) {
         return true;
     }
-    match direct_tools {
-        Some(McpDirectTools::All(true)) => true,
-        Some(McpDirectTools::All(false)) => false,
+    match &cfg.direct_tools {
+        Some(McpDirectTools::All(all)) => *all,
         Some(McpDirectTools::Search(_)) => false,
-        Some(McpDirectTools::List(list)) => list.iter().any(|t| t == name || t == wire_name),
-        None => mode == McpExposureMode::Direct || !should_defer,
+        Some(McpDirectTools::List(list)) => list.iter().any(|t| *t == entry.name || *t == entry.wire_name),
+        None => cfg.mode == Some(McpExposureMode::Direct) || !should_defer,
     }
 }
 
-struct ToolRoutingContext<'a> {
+fn direct_tool(runtime: &Arc<McpRuntime>, entry: &McpToolEntry) -> Arc<dyn EngineTool> {
+    let mut schema = entry.input_schema.clone();
+    crate::tools::normalize_schema(&mut schema);
+    let description = format!("[MCP: {}] {}", entry.server_name, entry.description);
+    let (runtime, server, tool) = (Arc::clone(runtime), entry.server_name.clone(), entry.name.clone());
+    Arc::new(GenericTool::new(
+        entry.wire_name.clone(),
+        description,
+        schema,
+        move |args| {
+            let (runtime, server, tool) = (Arc::clone(&runtime), server.clone(), tool.clone());
+            async move { Ok(runtime.call_tool(&server, &tool, args).await) }
+        },
+    ))
+}
+
+struct Routing<'a> {
+    runtime: &'a Arc<McpRuntime>,
     should_defer: bool,
-    active_history_tools: &'a HashSet<String>,
-    activator: &'a super::search::DynamicToolActivator,
-    pool: &'a McpServerPool,
+    history: &'a HashSet<String>,
+    names: NameRegistry,
+    tools: Vec<Arc<dyn EngineTool>>,
+    diagnostics: Vec<McpDiagnostic>,
 }
 
-fn route_discovered_server(
-    server: DiscoveredServer,
-    ctx: &ToolRoutingContext<'_>,
-    initial_tools: &mut Vec<Arc<dyn EngineTool>>,
-    deferred_tools: &mut Vec<super::search::DeferredMcpTool>,
-) {
-    let mode = server.config.mode.unwrap_or(McpExposureMode::Auto);
-    let DiscoveredServer {
-        server_name,
-        tools,
-        max_bytes,
-        config,
-    } = server;
-
-    for tool in tools {
-        let wire_name = format!("{server_name}_{}", tool.name);
-        let direct = is_direct_tool(
-            &tool.name,
-            &wire_name,
-            config.direct_tools.as_ref(),
-            mode,
-            ctx.should_defer,
-            ctx.active_history_tools,
-        );
-
-        if direct {
-            ctx.activator.mark_activated(&wire_name);
-            initial_tools.push(build_pooled_mcp_tool(tool, ctx.pool.clone(), &server_name, max_bytes));
-        } else {
-            let mut keywords = Vec::new();
-            if let Some(list) = config.search_keywords.get("*") {
-                keywords.extend(list.clone());
+impl Routing<'_> {
+    fn route(&mut self, server: &str, cfg: &McpServerConfig, mut entries: Vec<McpToolEntry>) {
+        for entry in &mut entries {
+            if !wants_direct(entry, cfg, self.should_defer, self.history) {
+                continue;
             }
-            if let Some(list) = config.search_keywords.get(&tool.name) {
-                keywords.extend(list.clone());
+            match self.names.claim(server, &entry.name) {
+                Ok(_) => {
+                    entry.direct = true;
+                    self.tools.push(direct_tool(self.runtime, entry));
+                }
+                Err(conflict) => self.diagnostics.push(McpDiagnostic::NameConflict {
+                    server: conflict.server,
+                    tool: conflict.tool,
+                    wire_name: conflict.wire_name,
+                }),
             }
-            deferred_tools.push(super::search::DeferredMcpTool::from_definition(
-                server_name.clone(),
-                tool,
-                ctx.pool.clone(),
-                max_bytes,
-                keywords,
-            ));
         }
+        self.runtime.catalog().replace_server_tools(server, entries);
     }
+}
+
+fn reserved_names() -> Vec<String> {
+    let mut names = crate::engine::context::default_tool_names();
+    names.extend(["tool_search".to_string(), GATEWAY_TOOL_NAME.to_string()]);
+    names
+}
+
+fn server_instructions(runtime: &McpRuntime, ready: &BTreeMap<String, ServerSnapshot>) -> Vec<McpServerInstructions> {
+    ready
+        .iter()
+        .filter(|(name, _)| {
+            runtime
+                .server_config(name)
+                .is_some_and(|c| c.instructions != Some(false))
+        })
+        .filter_map(|(name, snapshot)| {
+            snapshot.instructions.as_ref().map(|text| McpServerInstructions {
+                server: name.clone(),
+                text: text.clone(),
+            })
+        })
+        .collect()
+}
+
+fn spawn_background_work(runtime: &Arc<McpRuntime>, stale: Vec<String>) {
+    for name in stale {
+        let runtime = Arc::clone(runtime);
+        tokio::spawn(async move { runtime.refresh(&name).await });
+    }
+    let eager: Vec<String> = runtime
+        .server_names()
+        .filter(|name| {
+            runtime
+                .server_config(name)
+                .is_some_and(|c| c.lifecycle == Some(McpLifecycleMode::Eager))
+        })
+        .map(str::to_string)
+        .collect();
+    for name in eager {
+        let runtime = Arc::clone(runtime);
+        tokio::spawn(async move {
+            let _ = runtime.pool().get_or_connect(&name).await;
+        });
+    }
+}
+
+fn startup_wait(config: &Config) -> Option<Duration> {
+    (config.mcp.startup_timeout_ms > 0).then(|| Duration::from_millis(config.mcp.startup_timeout_ms))
 }
 
 pub async fn load_mcp_tools(config: &Config, working_dir: &Path) -> Vec<Arc<dyn EngineTool>> {
-    let (tools, _) = load_mcp_tools_with_activator(config, working_dir, &HashSet::new()).await;
-    tools
+    load_mcp(config, working_dir, &HashSet::new()).await.tools
 }
 
-pub async fn load_mcp_tools_with_activator(
-    config: &Config,
-    working_dir: &Path,
-    active_history_tools: &HashSet<String>,
-) -> (Vec<Arc<dyn EngineTool>>, super::search::DynamicToolActivator) {
+pub async fn load_mcp(config: &Config, working_dir: &Path, active_history_tools: &HashSet<String>) -> McpLoad {
     if !config.mcp.enabled {
-        return (Vec::new(), super::search::DynamicToolActivator::new());
+        return McpLoad::empty();
     }
-
-    let pool = McpServerPool::new(config.mcp.idle_timeout_seconds)
-        .with_token_store(super::oauth::McpTokenStore::in_config_dir(&config.config_dir));
-    pool.clone().spawn_reaper_task(Duration::from_secs(30));
-
-    for (name, cfg) in &config.mcp.servers {
-        if cfg.enabled {
-            pool.register(name, cfg.clone(), working_dir).await;
-        }
+    let mut diagnostics = Vec::new();
+    let servers = trusted_servers(config, working_dir, &mut diagnostics);
+    if servers.is_empty() {
+        return McpLoad {
+            diagnostics,
+            ..McpLoad::empty()
+        };
     }
-
-    let mut cache = McpCache::load_from_dir(&config.config_dir);
-    let mut discovered = Vec::new();
-
-    for (name, cfg) in &config.mcp.servers {
-        if cfg.enabled
-            && let Some(d) = discover_server_tools(name, cfg, &pool, &mut cache, working_dir, config).await
-        {
-            if cfg.lifecycle == Some(McpLifecycleMode::Eager) {
-                let _ = pool.get_or_connect(name).await;
+    let runtime = McpRuntime::start(config, working_dir, servers).await;
+    let mut plan = plan_startup(&runtime).await;
+    let (mut finished, pending) =
+        discover_within(&runtime, std::mem::take(&mut plan.discover), startup_wait(config)).await;
+    finished.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, result) in finished {
+        match result {
+            Ok(snapshot) => {
+                plan.ready.insert(name, snapshot);
             }
-            discovered.push(d);
+            Err(diagnostic) => {
+                runtime
+                    .catalog()
+                    .set_server_state(&name, ServerState::Unavailable(diagnostic.message()));
+                diagnostics.push(diagnostic);
+            }
         }
     }
+    for name in &pending {
+        runtime.catalog().set_server_state(name, ServerState::Connecting);
+        diagnostics.push(McpDiagnostic::Pending { server: name.clone() });
+    }
 
-    let activator = super::search::DynamicToolActivator::new();
-    let mut initial_tools = Vec::new();
-    let total_tools: usize = discovered.iter().map(|s| s.tools.len()).sum();
-    let should_defer = total_tools > config.mcp.defer_threshold;
-
-    let ctx = ToolRoutingContext {
-        should_defer,
-        active_history_tools,
-        activator: &activator,
-        pool: &pool,
+    let entries: Vec<(String, Vec<McpToolEntry>)> = plan
+        .ready
+        .iter()
+        .map(|(name, snapshot)| (name.clone(), runtime.entries(name, snapshot.tools.clone())))
+        .collect();
+    let total_tools: usize = entries.iter().map(|(_, e)| e.len()).sum();
+    let mut routing = Routing {
+        runtime: &runtime,
+        should_defer: total_tools > config.mcp.defer_threshold,
+        history: active_history_tools,
+        names: NameRegistry::with_reserved(reserved_names()),
+        tools: Vec::new(),
+        diagnostics: Vec::new(),
     };
-
-    let mut deferred_tools = Vec::new();
-    for srv in discovered {
-        route_discovered_server(srv, &ctx, &mut initial_tools, &mut deferred_tools);
+    for (name, server_entries) in entries {
+        if let Some(cfg) = runtime.server_config(&name).cloned() {
+            routing.route(&name, &cfg, server_entries);
+        }
     }
+    let mut tools = routing.tools;
+    diagnostics.extend(routing.diagnostics);
 
-    if !deferred_tools.is_empty() {
-        let catalog = super::search::ToolSearchCatalog::new(deferred_tools);
-        let search_tool = super::search::build_tool_search_tool(catalog, activator.clone());
-        initial_tools.push(search_tool);
+    let catalog = runtime.catalog();
+    if catalog.deferred_count() > 0 || !pending.is_empty() {
+        tools.push(build_tool_search_tool(catalog.clone()));
     }
-
-    (initial_tools, activator)
+    if !catalog.is_empty() || !pending.is_empty() {
+        tools.push(build_gateway_tool(Arc::clone(&runtime)));
+    }
+    spawn_background_work(&runtime, plan.stale);
+    McpLoad {
+        tools,
+        diagnostics,
+        instructions: server_instructions(&runtime, &plan.ready),
+        runtime: Some(runtime),
+    }
 }
+
+#[cfg(test)]
+mod tests;

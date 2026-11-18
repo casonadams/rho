@@ -289,6 +289,8 @@ enabled = true
 [mcp]
 # Enable or disable MCP subsystem (default: true)
 enabled = true
+# Longest wait for uncached MCP servers at startup, in ms; 0 waits for all (default: 3000)
+startup_timeout_ms = 3000
 
 [permission]
 # Enable or disable runtime permission guardrails (default: true)

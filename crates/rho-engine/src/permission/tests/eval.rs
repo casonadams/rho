@@ -375,6 +375,26 @@ fn mcp_direct_tool_permission_evaluation() {
 }
 
 #[test]
+fn mcp_gateway_calls_follow_the_same_server_tool_rules() {
+    let scope = crate::permission::policy::parse_scope_from_str(
+        "[allow]\nmcp = [\"github:*\"]\n[deny]\nmcp = [\"postgres:drop_db\"]\n",
+    )
+    .unwrap();
+    let policy = crate::permission::policy::build_policy(Some(scope), None);
+    let call = |server: &str, tool: &str| {
+        decide_with_servers(
+            &policy,
+            "mcp",
+            &json!({"server": server, "tool": tool, "arguments": {}}),
+            &[],
+        )
+    };
+    assert_eq!(call("github", "create_issue"), Decision::Allow);
+    assert!(matches!(call("postgres", "drop_db"), Decision::Deny(_)));
+    assert_eq!(call("postgres", "list_tables"), Decision::Ask);
+}
+
+#[test]
 fn test_parse_universal_permission_action() {
     let scope_allow = parse_scope_from_str("[permission]\n\"*\" = \"allow\"\n").unwrap();
     assert_eq!(scope_allow.universal, Some(crate::permission::PermissionState::Allow));

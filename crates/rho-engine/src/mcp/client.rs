@@ -2,7 +2,8 @@ use super::McpTransport;
 use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
 
 pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 
@@ -43,7 +44,18 @@ pub struct McpPromptDefinition {
     pub arguments: Vec<McpPromptArgument>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct McpResourceContents {
+    pub uri: String,
+    #[serde(default, rename = "mimeType")]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub blob: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct McpContent {
     #[serde(rename = "type")]
     pub kind: String,
@@ -53,52 +65,44 @@ pub struct McpContent {
     pub data: Option<String>,
     #[serde(default, rename = "mimeType")]
     pub mime_type: Option<String>,
+    #[serde(default)]
+    pub resource: Option<McpResourceContents>,
+    #[serde(default)]
+    pub uri: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct McpToolResult {
     #[serde(default)]
     pub content: Vec<McpContent>,
     #[serde(default, rename = "isError")]
     pub is_error: Option<bool>,
+    #[serde(default, rename = "structuredContent")]
+    pub structured_content: Option<Value>,
 }
 
-fn format_mcp_content_item(item: &McpContent) -> Option<String> {
-    if let Some(text) = &item.text {
-        Some(text.clone())
-    } else if item.kind == "image" {
-        let mime = item.mime_type.as_deref().unwrap_or("image/png");
-        let data_len = item.data.as_ref().map(|d| d.len()).unwrap_or(0);
-        Some(format!("[Image: {mime}, {data_len} bytes base64]"))
-    } else {
-        None
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPromptMessage {
+    pub role: String,
+    pub content: McpContent,
 }
 
-fn truncate_mcp_text(out: &str, max_bytes: usize) -> String {
-    if out.len() > max_bytes && max_bytes > 0 {
-        let truncated = &out[..out.floor_char_boundary(max_bytes.min(out.len()))];
-        format!("{truncated}\n[MCP tool output truncated at {max_bytes} bytes]")
-    } else {
-        out.to_string()
-    }
-}
-
-impl McpToolResult {
-    pub fn as_text(&self) -> String {
-        self.as_text_truncated(usize::MAX)
-    }
-
-    pub fn as_text_truncated(&self, max_bytes: usize) -> String {
-        let lines: Vec<String> = self.content.iter().filter_map(format_mcp_content_item).collect();
-        let out = lines.join("\n");
-        truncate_mcp_text(&out, max_bytes)
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPromptResult {
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub messages: Vec<McpPromptMessage>,
 }
 
 pub struct McpClient {
     pub server_name: String,
     transport: Arc<McpTransport>,
+    instructions: OnceLock<String>,
 }
 
 impl McpClient {
@@ -106,18 +110,14 @@ impl McpClient {
         Self {
             server_name: server_name.into(),
             transport,
+            instructions: OnceLock::new(),
         }
     }
 
     pub async fn initialize(&self) -> Result<Value> {
         let params = serde_json::json!({
             "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": {
-                "tools": { "listChanged": true },
-                "resources": { "subscribe": false, "listChanged": true },
-                "prompts": { "listChanged": true },
-                "roots": { "listChanged": false }
-            },
+            "capabilities": {},
             "clientInfo": {
                 "name": "rho",
                 "version": env!("CARGO_PKG_VERSION")
@@ -126,8 +126,16 @@ impl McpClient {
 
         let response = self.transport.request("initialize", Some(params)).await?;
         self.transport.notify("notifications/initialized", None).await?;
-
+        if let Some(text) = response.get("instructions").and_then(Value::as_str)
+            && !text.trim().is_empty()
+        {
+            let _ = self.instructions.set(text.to_string());
+        }
         Ok(response)
+    }
+
+    pub fn instructions(&self) -> Option<&str> {
+        self.instructions.get().map(String::as_str)
     }
 
     async fn paginate_list<T: serde::de::DeserializeOwned>(&self, endpoint: &str, key: &str) -> Result<Vec<T>> {
@@ -179,6 +187,22 @@ impl McpClient {
 
     pub async fn list_prompts(&self) -> Result<Vec<McpPromptDefinition>> {
         self.paginate_list("prompts/list", "prompts").await
+    }
+
+    pub async fn read_resource(&self, uri: &str) -> Result<Vec<McpResourceContents>> {
+        let response = self
+            .transport
+            .request("resources/read", Some(serde_json::json!({ "uri": uri })))
+            .await?;
+        let contents = response.get("contents").cloned().unwrap_or(Value::Array(Vec::new()));
+        serde_json::from_value(contents)
+            .map_err(|e| AppError::Mcp(format!("Failed to parse MCP resource contents: {e}")))
+    }
+
+    pub async fn get_prompt(&self, name: &str, arguments: &BTreeMap<String, String>) -> Result<McpPromptResult> {
+        let params = serde_json::json!({ "name": name, "arguments": arguments });
+        let response = self.transport.request("prompts/get", Some(params)).await?;
+        serde_json::from_value(response).map_err(|e| AppError::Mcp(format!("Failed to parse MCP prompt: {e}")))
     }
 }
 

@@ -27,6 +27,7 @@ use shell::{ShellAction, handle_shell_command};
 async fn build_completion_sources_async(
     config: &Config,
     auth_store: &AuthStore,
+    mcp_servers: crate::repl::interactive::McpServerList,
 ) -> crate::repl::interactive::CompletionSources {
     let cwd = std::env::current_dir().ok();
     let skills = crate::skills::resolved_skills_async(cwd.as_deref()).await;
@@ -45,6 +46,7 @@ async fn build_completion_sources_async(
         .with_workflows(workflows)
         .with_models(models)
         .with_custom_providers(custom_providers)
+        .with_mcp_servers(mcp_servers)
 }
 
 pub(crate) fn build_emacs_keybindings() -> reedline::Keybindings {
@@ -71,9 +73,10 @@ fn build_emacs_edit_mode() -> Box<Emacs> {
     Box::new(Emacs::new(build_emacs_keybindings()))
 }
 
-pub async fn build_line_editor_async(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
+pub async fn build_line_editor_async(session: &ReplSession) -> Result<Reedline> {
+    let config = &session.config;
     let edit_mode = build_emacs_edit_mode();
-    let sources = build_completion_sources_async(config, auth_store).await;
+    let sources = build_completion_sources_async(config, &session.auth_store, session.mcp_completions.clone()).await;
     let completer = Box::new(RhoCompleter::new(sources));
     let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
@@ -302,6 +305,7 @@ fn step_line_prompt(session: &ReplSession, engine: &AgentEngine, is_first: &mut 
     } else {
         session.renderer.write_output("\n");
     }
+    crate::repl::report_late_mcp_problems(session, engine);
     render_line_mode_prompt(session, engine);
 }
 
@@ -327,6 +331,6 @@ async fn run_line_event_loop<S: LineSource>(
 pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
     let engine = crate::repl::init_engine(session).await?;
     crate::repl::print_welcome(session, &engine).await;
-    let line_editor = build_line_editor_async(&session.config, &session.auth_store).await?;
+    let line_editor = build_line_editor_async(session).await?;
     run_line_event_loop(line_editor, session, engine, stdin_is_tty).await
 }

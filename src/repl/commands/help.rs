@@ -15,6 +15,8 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /skill [name]               List or inspect skills\n\
   /mcp                        List configured MCP servers\n\
   /mcp login|logout <server>  Sign in to or out of an OAuth MCP server\n\
+  /mcp prompts [server]       List MCP server prompts\n\
+  /mcp prompt <server> <name> [key=value ...]  Send an MCP prompt\n\
   /session                    Display token capacity and session diagnostics\n\
   /compact [instructions]     Summarize earlier context to free context space\n\
   /tree                       View conversation turn and branch tree\n\

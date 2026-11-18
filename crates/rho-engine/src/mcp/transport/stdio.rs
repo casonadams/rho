@@ -1,16 +1,14 @@
 use super::super::process::McpChildHandle;
-use super::super::types::{JsonRpcError, JsonRpcIncoming, JsonRpcNotification, JsonRpcRequest};
+use super::super::types::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+use super::Inbound;
 use rho_harness_core::error::{AppError, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, ChildStdout};
 use tokio::sync::oneshot;
-
-pub const DEFAULT_MCP_TIMEOUT: Duration = Duration::from_secs(30);
 
 type ResponseTx = oneshot::Sender<std::result::Result<Value, JsonRpcError>>;
 
@@ -19,11 +17,20 @@ pub struct StdioTransport {
     next_id: AtomicI64,
     pending: Arc<Mutex<BTreeMap<i64, ResponseTx>>>,
     handle: McpChildHandle,
-    timeout: Duration,
+    inbound: Inbound,
 }
 
-fn handle_stdout_line(line: &str, pending: &Mutex<BTreeMap<i64, ResponseTx>>) {
-    if let Ok(JsonRpcIncoming::Response(resp)) = serde_json::from_str::<JsonRpcIncoming>(line)
+fn handle_stdout_line(line: &str, pending: &Mutex<BTreeMap<i64, ResponseTx>>, inbound: &Inbound) {
+    let Ok(message) = serde_json::from_str::<Value>(line) else {
+        return;
+    };
+    if let Some(method) = message.get("method").and_then(Value::as_str) {
+        if message.get("id").is_none() {
+            inbound.dispatch(method);
+        }
+        return;
+    }
+    if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(message)
         && let Some(id_num) = resp.id.as_i64()
         && let Some(tx) = pending.lock().unwrap().remove(&id_num)
     {
@@ -36,22 +43,15 @@ fn handle_stdout_line(line: &str, pending: &Mutex<BTreeMap<i64, ResponseTx>>) {
 }
 
 fn cancel_pending_on_close(pending: &Mutex<BTreeMap<i64, ResponseTx>>) {
-    let mut guard = pending.lock().unwrap();
-    for (_id, tx) in guard.split_off(&0) {
-        let _ = tx.send(Err(JsonRpcError {
-            code: -32000,
-            message: "MCP process terminated unexpectedly".to_string(),
-            data: None,
-        }));
-    }
+    pending.lock().unwrap().clear();
 }
 
-fn spawn_stdout_reader(stdout: ChildStdout, pending: Arc<Mutex<BTreeMap<i64, ResponseTx>>>) {
+fn spawn_stdout_reader(stdout: ChildStdout, pending: Arc<Mutex<BTreeMap<i64, ResponseTx>>>, inbound: Inbound) {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             if !line.trim().is_empty() {
-                handle_stdout_line(&line, &pending);
+                handle_stdout_line(&line, &pending, &inbound);
             }
         }
         cancel_pending_on_close(&pending);
@@ -62,52 +62,57 @@ async fn write_stdin_line(stdin: &tokio::sync::Mutex<ChildStdin>, json: String) 
     let mut lock = stdin.lock().await;
     lock.write_all(json.as_bytes())
         .await
-        .map_err(|e| AppError::Mcp(format!("Failed to write to MCP stdin: {e}")))?;
+        .map_err(|e| AppError::McpConnectionLost(format!("failed to write to MCP stdin: {e}")))?;
     lock.flush()
         .await
-        .map_err(|e| AppError::Mcp(format!("Failed to flush MCP stdin: {e}")))
+        .map_err(|e| AppError::McpConnectionLost(format!("failed to flush MCP stdin: {e}")))
 }
 
-pub(crate) async fn await_mcp_response(
+pub(super) async fn await_mcp_response(
     rx: oneshot::Receiver<std::result::Result<Value, JsonRpcError>>,
-    pending: &Mutex<BTreeMap<i64, ResponseTx>>,
-    id: i64,
     method: &str,
-    timeout: Duration,
 ) -> Result<Value> {
-    match tokio::time::timeout(timeout, rx).await {
-        Ok(Ok(Ok(val))) => Ok(val),
-        Ok(Ok(Err(e))) => Err(AppError::Mcp(format!(
+    match rx.await {
+        Ok(Ok(val)) => Ok(val),
+        Ok(Err(e)) => Err(AppError::Mcp(format!(
             "MCP error from {method}: {} (code {})",
             e.message, e.code
         ))),
-        Ok(Err(_)) => Err(AppError::Mcp(format!(
-            "MCP server closed stream while waiting for {method}"
+        Err(_) => Err(AppError::McpConnectionLost(format!(
+            "MCP server process exited while waiting for {method}"
         ))),
-        Err(_) => {
-            pending.lock().unwrap().remove(&id);
-            Err(AppError::Mcp(format!("MCP request '{method}' timed out")))
-        }
     }
 }
 
 impl StdioTransport {
-    pub fn new(stdin: ChildStdin, stdout: ChildStdout, handle: McpChildHandle, timeout: Option<Duration>) -> Arc<Self> {
+    pub fn new(stdin: ChildStdin, stdout: ChildStdout, handle: McpChildHandle) -> Arc<Self> {
         let stdin = Arc::new(tokio::sync::Mutex::new(stdin));
         let pending = Arc::new(Mutex::new(BTreeMap::<i64, ResponseTx>::new()));
-        spawn_stdout_reader(stdout, Arc::clone(&pending));
+        let inbound = Inbound::default();
+        spawn_stdout_reader(stdout, Arc::clone(&pending), inbound.clone());
 
         Arc::new(Self {
             stdin,
             next_id: AtomicI64::new(1),
             pending,
             handle,
-            timeout: timeout.unwrap_or(DEFAULT_MCP_TIMEOUT),
+            inbound,
         })
     }
 
-    pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+    pub(crate) fn inbound(&self) -> &Inbound {
+        &self.inbound
+    }
+
+    pub(crate) fn next_id(&self) -> i64 {
+        self.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub(crate) fn forget(&self, id: i64) {
+        self.pending.lock().unwrap().remove(&id);
+    }
+
+    pub(crate) async fn send_request(&self, id: i64, method: &str, params: Option<Value>) -> Result<Value> {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
 
@@ -117,7 +122,7 @@ impl StdioTransport {
             serde_json::to_string(&req).map_err(|e| AppError::Mcp(e.to_string()))?
         );
         write_stdin_line(&self.stdin, json).await?;
-        await_mcp_response(rx, &self.pending, id, method, self.timeout).await
+        await_mcp_response(rx, method).await
     }
 
     pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
@@ -131,5 +136,36 @@ impl StdioTransport {
 
     pub fn last_stderr(&self) -> String {
         self.handle.last_stderr()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stdout_lines_route_responses_and_notifications() {
+        let pending = Mutex::new(BTreeMap::new());
+        let (tx, mut rx) = oneshot::channel();
+        pending.lock().unwrap().insert(1, tx);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let inbound = Inbound::default();
+        let sink = Arc::clone(&seen);
+        let _ = inbound.hook.set(Arc::new(move |method: &str| {
+            sink.lock().unwrap().push(method.to_string())
+        }));
+
+        let lines = [
+            r#"{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"roots/list"}"#,
+            "not json",
+            r#"{"jsonrpc":"2.0","id":1,"result":{"ok":true}}"#,
+        ];
+        for line in lines {
+            handle_stdout_line(line, &pending, &inbound);
+        }
+
+        assert_eq!(*seen.lock().unwrap(), ["notifications/tools/list_changed"]);
+        assert_eq!(rx.try_recv().unwrap().unwrap(), serde_json::json!({ "ok": true }));
     }
 }

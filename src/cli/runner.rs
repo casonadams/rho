@@ -67,6 +67,7 @@ impl CliRunner {
         let writer_task = spawn_rpc_writer(event_rx);
 
         let engine = crate::platform::agent_engine(self.config, self.auth_store, self.resume_target.as_deref()).await?;
+        crate::cli::mcp::eprint_mcp_diagnostics(&engine);
         let res = engine
             .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter.clone())
             .await;
@@ -81,6 +82,7 @@ impl CliRunner {
         session_name: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let engine = crate::platform::agent_engine(self.config, self.auth_store, self.resume_target.as_deref()).await?;
+        crate::cli::mcp::eprint_mcp_diagnostics(&engine);
         if let Some(name) = session_name {
             let _ = engine.session_manager.set_session_name(name).await;
         }

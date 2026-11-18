@@ -44,6 +44,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         demotion_hook: None,
         agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
         workflows: None,
+        mcp: crate::engine::EngineMcp::default(),
     }
 }
 

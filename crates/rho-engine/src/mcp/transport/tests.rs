@@ -1,6 +1,7 @@
 use super::*;
 use crate::mcp::process::McpProcess;
 use rho_harness_core::config::McpServerConfig;
+use std::time::Duration;
 
 #[tokio::test]
 async fn test_mcp_transport_request_response() {
@@ -20,39 +21,127 @@ echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"status\":\"ok\"}}"
     assert_eq!(result, serde_json::json!({"status": "ok"}));
 }
 
+async fn progress_every(inbound: Inbound, period: Duration) {
+    loop {
+        tokio::time::sleep(period).await;
+        inbound.dispatch(PROGRESS_NOTIFICATION);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn requests_time_out_after_an_idle_window_without_progress() {
+    let inbound = Inbound::default();
+    let slow = tokio::time::sleep(Duration::from_secs(100));
+    assert!(
+        wait_with_progress(slow, Duration::from_secs(30), &inbound)
+            .await
+            .is_none()
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn progress_notifications_extend_the_deadline() {
+    let inbound = Inbound::default();
+    let ticker = tokio::spawn(progress_every(inbound.clone(), Duration::from_secs(20)));
+    let slow = async {
+        tokio::time::sleep(Duration::from_secs(100)).await;
+        "done"
+    };
+    assert_eq!(
+        wait_with_progress(slow, Duration::from_secs(30), &inbound).await,
+        Some("done")
+    );
+    ticker.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn progress_cannot_extend_a_request_past_the_hard_cap() {
+    let inbound = Inbound::default();
+    let ticker = tokio::spawn(progress_every(inbound.clone(), Duration::from_secs(10)));
+    let started = tokio::time::Instant::now();
+    let never = std::future::pending::<()>();
+    assert!(
+        wait_with_progress(never, Duration::from_secs(30), &inbound)
+            .await
+            .is_none()
+    );
+    assert!(started.elapsed() >= MAX_PROGRESS_EXTENSION);
+    ticker.abort();
+}
+
+#[test]
+fn tool_calls_get_a_longer_default_timeout_and_a_progress_token() {
+    assert_eq!(request_timeout("tools/call", None), DEFAULT_TOOL_CALL_TIMEOUT);
+    assert_eq!(request_timeout("tools/list", None), DEFAULT_REQUEST_TIMEOUT);
+    assert_eq!(
+        request_timeout("tools/call", Some(Duration::from_secs(5))),
+        Duration::from_secs(5)
+    );
+
+    let params = with_progress_token("tools/call", Some(serde_json::json!({ "name": "t" })), 9);
+    assert_eq!(params.unwrap()["_meta"]["progressToken"], 9);
+    assert_eq!(with_progress_token("tools/list", None, 9), None);
+}
+
 #[tokio::test]
-async fn test_await_mcp_response_error_paths() {
+async fn abandoned_requests_send_a_cancellation_notice() {
+    use crate::mcp::test_server::{self, Reply, handler};
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = Arc::clone(&calls);
+    let server = test_server::spawn(handler(move |method, params| {
+        seen.lock().unwrap().push((method.clone(), params));
+        async move {
+            if method == "tools/call" {
+                std::future::pending::<()>().await;
+            }
+            Reply::Result(serde_json::json!({}))
+        }
+    }))
+    .await;
+    let transport = McpTransport::new_http(
+        server.url.clone(),
+        McpTransportKind::StreamableHttp,
+        BTreeMap::new(),
+        None,
+        None,
+    );
+    let request = {
+        let transport = Arc::clone(&transport);
+        tokio::spawn(async move {
+            transport
+                .request("tools/call", Some(serde_json::json!({ "name": "t" })))
+                .await
+        })
+    };
+    let has = |method: &str| calls.lock().unwrap().iter().any(|(m, _)| m == method);
+    crate::mcp::test_server::eventually("tools/call to arrive", || has("tools/call")).await;
+    request.abort();
+    crate::mcp::test_server::eventually("cancellation", || has("notifications/cancelled")).await;
+
+    let calls = calls.lock().unwrap();
+    let call_id = calls.iter().find(|(m, _)| m == "tools/call").unwrap().1["_meta"]["progressToken"].clone();
+    let cancelled = &calls.iter().find(|(m, _)| m == "notifications/cancelled").unwrap().1;
+    assert_eq!(cancelled["requestId"], call_id);
+}
+
+#[tokio::test]
+async fn stdio_errors_distinguish_server_errors_from_lost_connections() {
     use crate::mcp::transport::stdio::await_mcp_response;
     use crate::mcp::types::JsonRpcError;
-    use std::collections::BTreeMap;
-    use std::sync::Mutex;
-    use std::time::Duration;
     use tokio::sync::oneshot;
 
-    let pending = Mutex::new(BTreeMap::new());
-
-    let (tx1, rx1) = oneshot::channel();
-    tx1.send(Err(JsonRpcError {
+    let (tx, rx) = oneshot::channel();
+    tx.send(Err(JsonRpcError {
         code: -32601,
         message: "Method not found".to_string(),
         data: None,
     }))
     .unwrap();
-    let err1 = await_mcp_response(rx1, &pending, 1, "test_method", Duration::from_secs(1))
-        .await
-        .unwrap_err();
-    assert!(err1.to_string().contains("MCP error from test_method"));
+    let server_error = await_mcp_response(rx, "test_method").await.unwrap_err();
+    assert!(matches!(server_error, AppError::Mcp(_)), "{server_error}");
 
-    let (tx2, rx2) = oneshot::channel();
-    drop(tx2);
-    let err2 = await_mcp_response(rx2, &pending, 2, "test_method", Duration::from_secs(1))
-        .await
-        .unwrap_err();
-    assert!(err2.to_string().contains("closed stream"));
-
-    let (_tx3, rx3) = oneshot::channel();
-    let err3 = await_mcp_response(rx3, &pending, 3, "test_method", Duration::from_millis(10))
-        .await
-        .unwrap_err();
-    assert!(err3.to_string().contains("timed out"));
+    let (tx, rx) = oneshot::channel();
+    drop(tx);
+    let lost = await_mcp_response(rx, "test_method").await.unwrap_err();
+    assert!(matches!(lost, AppError::McpConnectionLost(_)), "{lost}");
 }

@@ -165,6 +165,9 @@ fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
         if let Some(threshold) = mcp.defer_threshold {
             config.mcp.defer_threshold = threshold;
         }
+        if let Some(timeout) = mcp.startup_timeout_ms {
+            config.mcp.startup_timeout_ms = timeout;
+        }
         config.mcp.servers.extend(mcp.servers.clone());
     }
 }

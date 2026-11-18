@@ -2,7 +2,6 @@ use super::client::McpToolDefinition;
 use rho_harness_core::config::McpServerConfig;
 use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -14,7 +13,7 @@ pub struct McpCacheEntry {
     pub definition_hash: String,
     pub tools: Vec<McpToolDefinition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Value>,
+    pub instructions: Option<String>,
     #[serde(default)]
     pub updated_at: u64,
 }
@@ -102,13 +101,10 @@ impl McpCache {
         Ok(())
     }
 
-    pub fn get_valid_tools(&self, server_name: &str, current_hash: &str) -> Option<&[McpToolDefinition]> {
-        let entry = self.servers.get(server_name)?;
-        if entry.definition_hash == current_hash {
-            Some(&entry.tools)
-        } else {
-            None
-        }
+    pub fn get_valid(&self, server_name: &str, current_hash: &str) -> Option<&McpCacheEntry> {
+        self.servers
+            .get(server_name)
+            .filter(|entry| entry.definition_hash == current_hash)
     }
 
     pub fn update(
@@ -116,7 +112,7 @@ impl McpCache {
         server_name: &str,
         definition_hash: String,
         tools: Vec<McpToolDefinition>,
-        capabilities: Option<Value>,
+        instructions: Option<String>,
     ) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -128,7 +124,7 @@ impl McpCache {
             McpCacheEntry {
                 definition_hash,
                 tools,
-                capabilities,
+                instructions,
                 updated_at: now,
             },
         );
@@ -171,9 +167,9 @@ mod tests {
         cache.save_to_path(&cache_file).unwrap();
 
         let loaded = McpCache::load_from_path(&cache_file);
-        assert_eq!(loaded.get_valid_tools("srv1", &hash).unwrap().len(), 1);
-        assert!(loaded.get_valid_tools("srv1", "different_hash").is_none());
-        assert!(loaded.get_valid_tools("non_existent", &hash).is_none());
+        assert_eq!(loaded.get_valid("srv1", &hash).unwrap().tools.len(), 1);
+        assert!(loaded.get_valid("srv1", "different_hash").is_none());
+        assert!(loaded.get_valid("non_existent", &hash).is_none());
     }
 
     #[test]

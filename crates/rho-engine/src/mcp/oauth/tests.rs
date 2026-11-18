@@ -316,6 +316,28 @@ async fn expired_tokens_are_refreshed_before_the_request() {
 }
 
 #[tokio::test]
+async fn a_failed_refresh_asks_the_user_to_sign_in_again() {
+    let (base, _state) = fake_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = McpTokenStore::in_config_dir(dir.path());
+    let tokens = McpTokens {
+        access_token: "old".into(),
+        refresh_token: Some("revoked".into()),
+        expires_at_ms: Some(0),
+        token_endpoint: format!("{base}/no-such-token-endpoint"),
+        client_id: "c".into(),
+        client_secret: None,
+        resource: format!("{base}/mcp"),
+    };
+    store.save("srv", tokens).await.unwrap();
+    let err = transport(&base, &store).request("tools/list", None).await.unwrap_err();
+    assert!(matches!(err, AppError::Auth(_)), "{err}");
+    let message = err.to_string();
+    assert!(message.contains("sign-in expired"), "{message}");
+    assert!(message.contains("/mcp login srv"), "{message}");
+}
+
+#[tokio::test]
 async fn preregistered_clients_skip_dynamic_registration() {
     let (base, state) = fake_server().await;
     let dir = tempfile::tempdir().unwrap();
@@ -324,6 +346,7 @@ async fn preregistered_clients_skip_dynamic_registration() {
     let config = McpOAuthConfig {
         client_id: Some("my-app".into()),
         scopes: vec!["repo".into()],
+        redirect_port: Some(0),
         ..Default::default()
     };
     let url = format!("{base}/mcp");
@@ -340,4 +363,39 @@ async fn preregistered_clients_skip_dynamic_registration() {
     assert!(store.remove("srv").await.unwrap());
     assert!(!store.is_signed_in("srv"));
     assert!(!store.remove("srv").await.unwrap());
+}
+
+#[tokio::test]
+async fn configured_redirect_uri_and_authorization_params_reach_the_provider() {
+    let (base, state) = fake_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = McpTokenStore::in_config_dir(dir.path());
+    let browser = Browser::default();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let redirect = format!("http://localhost:{port}/callback");
+    let config = McpOAuthConfig {
+        client_id: Some("my-app".into()),
+        redirect_uri: Some(redirect.clone()),
+        authorization_params: [("access_type".to_string(), "offline".to_string())].into(),
+        ..Default::default()
+    };
+    let url = format!("{base}/mcp");
+    let request = LoginRequest {
+        server: "srv",
+        url: &url,
+        config: Some(&config),
+    };
+    login(request, &store, &browser).await.unwrap();
+
+    let auth = query(&browser.auth_url.lock().unwrap().clone().unwrap());
+    assert_eq!(auth["redirect_uri"], redirect);
+    assert_eq!(auth["access_type"], "offline");
+    let seen = state.lock().unwrap().seen.clone();
+    let exchange = seen.iter().find(|r| r.path == "/auth/token").unwrap();
+    assert_eq!(form_value(&exchange.body, "redirect_uri"), Some(redirect));
+    assert_eq!(exchange.headers["accept"], "application/json");
 }

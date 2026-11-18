@@ -175,6 +175,7 @@ pub(crate) async fn rebuild_after_auth(ctx: &mut LiveCommandContext<'_, '_>) -> 
         .engine
         .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
         .await?;
+    crate::repl::report_mcp_diagnostics(ctx.session, ctx.engine);
     Ok(())
 }
 
@@ -183,6 +184,22 @@ async fn execute_live_login<B: TerminalBackend>(
     io: &mut LiveIo<'_, B>,
     provider: Option<&str>,
 ) -> Result<()> {
+    if let Some(server) = provider.and_then(|p| p.strip_prefix("mcp:")) {
+        let theme = ctx.session.renderer.theme.clone();
+        let mut ui = crate::repl::live::mcp_login::McpLoginUi {
+            controller: io.controller,
+            input: io.input,
+            theme: &theme,
+            open_url: crate::repl::live::mcp_login::system_browser(),
+        };
+        if crate::repl::live::mcp_login::run_mcp_login(&mut ui, server, &ctx.session.config)
+            .await
+            .is_ok()
+        {
+            rebuild_after_auth(ctx).await?;
+        }
+        return Ok(());
+    }
     let res = io
         .suspend_for_async(|| {
             crate::cli::login_provider(provider, false, &ctx.session.config, &mut ctx.session.auth_store)

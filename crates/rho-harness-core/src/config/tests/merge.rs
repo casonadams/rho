@@ -561,6 +561,7 @@ enabled = false
 [mcp]
 enabled = false
 defer_threshold = 4
+startup_timeout_ms = 250
 
 [mcp.servers.echo]
 command = "echo"
@@ -594,6 +595,7 @@ command = "echo"
     assert!(!cfg.tools.web.fetch.enabled);
     assert!(!cfg.mcp.enabled);
     assert_eq!(cfg.mcp.defer_threshold, 4);
+    assert_eq!(cfg.mcp.startup_timeout_ms, 250);
     assert!(cfg.mcp.servers.contains_key("echo"));
 }
 

@@ -2,6 +2,7 @@ pub mod autocomplete;
 pub mod bash_runner;
 pub mod batch;
 pub mod idle;
+pub(crate) mod mcp_login;
 pub mod message;
 pub mod modal;
 pub mod navigation;

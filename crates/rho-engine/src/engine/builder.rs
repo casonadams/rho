@@ -155,11 +155,8 @@ async fn build_engine_tools(
     extra_tools: Vec<Arc<dyn EngineTool>>,
     history_tools: &std::collections::HashSet<String>,
 ) -> Result<EngineTools> {
-    let (mcp_tools, activator) = if config.mcp.enabled && !config.mcp.servers.is_empty() {
-        crate::mcp::load_mcp_tools_with_activator(config, base_dir, history_tools).await
-    } else {
-        (Vec::new(), crate::mcp::DynamicToolActivator::new())
-    };
+    let mut mcp = crate::mcp::load_mcp(config, base_dir, history_tools).await;
+    let mcp_tools = std::mem::take(&mut mcp.tools);
 
     let (mut tools, subagents) = match tools_opt {
         Some(t) => (t, None),
@@ -176,17 +173,13 @@ async fn build_engine_tools(
     };
     tools.extend(extra_tools);
     tools.sort_by(|a, b| a.name().cmp(b.name()));
-    Ok(EngineTools {
-        tools,
-        activator,
-        subagents,
-    })
+    Ok(EngineTools { tools, subagents, mcp })
 }
 
 struct EngineTools {
     tools: Vec<Arc<dyn EngineTool>>,
-    activator: crate::mcp::DynamicToolActivator,
     subagents: Option<crate::tools::subagent::SubagentTool>,
+    mcp: crate::mcp::McpLoad,
 }
 
 impl AgentEngineBuilder {
@@ -249,6 +242,7 @@ impl AgentEngineBuilder {
             demotion_hook,
             agent_monitor: self.agent_monitor,
             workflows: None,
+            mcp: super::EngineMcp::default(),
         }
     }
 
@@ -261,11 +255,7 @@ impl AgentEngineBuilder {
         let history_messages = session_manager.active_messages().await.unwrap_or_default();
         let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
 
-        let EngineTools {
-            tools,
-            activator,
-            subagents,
-        } = build_engine_tools(
+        let EngineTools { tools, subagents, mcp } = build_engine_tools(
             &base_dir,
             &self.config,
             SubagentModels {
@@ -285,10 +275,14 @@ impl AgentEngineBuilder {
         let mut engine = self.into_engine(
             base_dir,
             (session_manager, shared_auth),
-            (tools_lock.clone(), tool_names, model),
+            (tools_lock, tool_names, model),
         );
         engine.workflows = workflows;
-        activator.attach(tools_lock, engine.tool_names.clone());
+        engine.mcp = super::EngineMcp {
+            diagnostics: mcp.diagnostics,
+            instructions: mcp.instructions,
+            runtime: mcp.runtime,
+        };
         Ok(engine)
     }
 }

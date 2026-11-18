@@ -12,7 +12,7 @@ pub use provider::{
     AuthMethod, prompt_auth_method, prompt_select_api_key_provider, prompt_select_auth_method,
     prompt_select_oauth_provider, resolve_provider_name,
 };
-pub use terminal::{prompt_password, read_key_from_reader, read_key_from_stdin};
+pub use terminal::{open_url_in_browser_async, prompt_password, read_key_from_reader, read_key_from_stdin};
 
 use crate::auth::AuthStore;
 use crate::config::Config;

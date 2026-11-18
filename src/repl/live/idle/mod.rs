@@ -25,6 +25,7 @@ struct IdleUi {
     frame: tokio::time::Interval,
     quota_rx: tokio::sync::watch::Receiver<u64>,
     bg_rx: tokio::sync::broadcast::Receiver<String>,
+    mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
 }
 
 impl IdleUi {
@@ -36,6 +37,7 @@ impl IdleUi {
             frame,
             quota_rx: engine.quota_subscribe(),
             bg_rx: crate::engine::runner::turn::types::subscribe_background_notifications(),
+            mcp: engine.mcp_runtime().cloned(),
         }
     }
 }
@@ -59,6 +61,14 @@ enum IdleSource {
     Tick(IdleTick),
     Input(Option<std::io::Result<Event>>),
     BackgroundNotification(String),
+    McpProblems,
+}
+
+async fn wait_mcp_problems(runtime: Option<&rho_engine::mcp::McpRuntime>) {
+    match runtime {
+        Some(runtime) => runtime.problems_ready().await,
+        None => std::future::pending().await,
+    }
 }
 
 async fn wait_bg_notif(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Option<String> {
@@ -74,6 +84,7 @@ async fn next_idle_step(
         biased;
         event = input.recv() => IdleSource::Input(event),
         Some(notif) = wait_bg_notif(&mut ui.bg_rx) => IdleSource::BackgroundNotification(notif),
+        () = wait_mcp_problems(ui.mcp.as_deref()) => IdleSource::McpProblems,
         _ = wait_quota(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         tick = next_frame_or_ui(&mut ui.frame, ui_events) => IdleSource::Tick(tick.into()),
     }
@@ -201,6 +212,10 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             Ok(map_input_result(res))
         }
         IdleSource::BackgroundNotification(notif) => handle_bg_notification(ctx.session, notif),
+        IdleSource::McpProblems => {
+            crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
+            Ok(IdleStepOutcome::Continue)
+        }
     }
 }
 
@@ -212,6 +227,7 @@ async fn drive_idle_loop<B: TerminalBackend>(
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<Option<QueuedMessage>> {
     let mut ui = IdleUi::new(ctx.engine);
+    crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
     loop {
         if ui.quota_rx.has_changed().is_err() {
             ui.quota_rx = ctx.engine.quota_subscribe();

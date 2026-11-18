@@ -5,6 +5,8 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
+const LOGIN_ACTION: &str = "login";
+
 fn format_server_option(
     name: &str,
     server: &rho_harness_core::config::McpServerConfig,
@@ -23,14 +25,22 @@ fn format_server_option(
         .unwrap_or("<unspecified>");
 
     let active_mark = if server.enabled { "  ✓" } else { "  (off)" };
-    let auth = match (server.uses_oauth(), tokens.is_signed_in(name)) {
-        (false, _) => String::new(),
-        (true, true) => " · signed in".to_string(),
-        (true, false) => format!(" · sign in: /mcp login {name}"),
+    let signed_in = tokens.is_signed_in(name);
+    let needs_login = server.enabled && server.uses_oauth() && !signed_in;
+    let auth = match (server.uses_oauth(), signed_in, needs_login) {
+        (false, _, _) => "",
+        (true, true, _) => " · signed in",
+        (true, false, true) => " · Enter to sign in",
+        (true, false, false) => " · not signed in",
     };
     let desc = format!("[{transport_str}] {target}{auth}{active_mark}");
 
-    ModalOption::new(format!("{name:16}"), Some(desc))
+    let option = ModalOption::new(format!("{name:16}"), Some(desc));
+    if needs_login {
+        option.with_value(LOGIN_ACTION)
+    } else {
+        option
+    }
 }
 
 fn build_mcp_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
@@ -63,8 +73,17 @@ pub fn handle_mcp_key<B: TerminalBackend>(
 ) -> Result<ModalKeyResult> {
     crate::repl::live::modal::dispatch_simple_selector(controller, key, |opt| {
         let raw = opt.label.trim();
-        (!raw.eq_ignore_ascii_case("none")).then(|| ModalKeyResult::McpServerToggled {
-            server: raw.to_string(),
+        if raw.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        Some(if opt.value.as_deref() == Some(LOGIN_ACTION) {
+            ModalKeyResult::LoginProviderSelected {
+                provider: format!("mcp:{raw}"),
+            }
+        } else {
+            ModalKeyResult::McpServerToggled {
+                server: raw.to_string(),
+            }
         })
     })
 }

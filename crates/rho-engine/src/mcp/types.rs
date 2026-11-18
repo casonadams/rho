@@ -67,14 +67,6 @@ impl std::fmt::Display for JsonRpcError {
 
 impl std::error::Error for JsonRpcError {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum JsonRpcIncoming {
-    Response(JsonRpcResponse),
-    Notification(JsonRpcNotification),
-    Request(JsonRpcRequest),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,14 +88,9 @@ mod tests {
     #[test]
     fn test_jsonrpc_response_deserialization() {
         let json_str = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
-        let incoming: JsonRpcIncoming = serde_json::from_str(json_str).unwrap();
-        match incoming {
-            JsonRpcIncoming::Response(resp) => {
-                assert_eq!(resp.id, serde_json::json!(1));
-                assert!(resp.result.is_some());
-                assert!(resp.error.is_none());
-            }
-            _ => panic!("expected response"),
-        }
+        let resp: JsonRpcResponse = serde_json::from_str(json_str).unwrap();
+        assert_eq!(resp.id, serde_json::json!(1));
+        assert!(resp.result.is_some());
+        assert!(resp.error.is_none());
     }
 }

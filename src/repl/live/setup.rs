@@ -57,7 +57,8 @@ pub(super) async fn build_completions(
         .with_templates(prompt_templates)
         .with_workflows(workflows)
         .with_models(models)
-        .with_custom_providers(custom_providers);
+        .with_custom_providers(custom_providers)
+        .with_mcp_servers(session.mcp_completions.clone());
     CompletionSet::from_sources(sources)
 }
 

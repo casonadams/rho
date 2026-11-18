@@ -65,7 +65,7 @@ fn bash_with_specialized_tools_adds_mcp_guideline() {
     assert_contains_all(
         &assembled,
         &[
-            "Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools and search for them with tool_search if not loaded",
+            "Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools, find unlisted MCP tools with tool_search, and call them through the mcp tool",
         ],
     );
 

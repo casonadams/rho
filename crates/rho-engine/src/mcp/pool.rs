@@ -27,11 +27,15 @@ pub struct ServerRegistration {
     connect_lock: Arc<Mutex<()>>,
 }
 
+/// Receives `(server, method)` for every notification an MCP server sends.
+pub type NotificationHook = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
 #[derive(Clone)]
 pub struct McpServerPool {
     servers: Arc<RwLock<BTreeMap<String, ServerRegistration>>>,
     default_idle_timeout: Duration,
     token_store: Option<McpTokenStore>,
+    notification_hook: Arc<std::sync::OnceLock<NotificationHook>>,
 }
 
 impl McpServerPool {
@@ -40,7 +44,18 @@ impl McpServerPool {
             servers: Arc::new(RwLock::new(BTreeMap::new())),
             default_idle_timeout: Duration::from_secs(default_idle_timeout_secs),
             token_store: None,
+            notification_hook: Arc::new(std::sync::OnceLock::new()),
         }
+    }
+
+    pub fn set_notification_hook(&self, hook: NotificationHook) {
+        let _ = self.notification_hook.set(hook);
+    }
+
+    fn server_notification_hook(&self, name: &str) -> Option<super::transport::TransportNotificationHook> {
+        let hook = Arc::clone(self.notification_hook.get()?);
+        let name = name.to_string();
+        Some(Arc::new(move |method: &str| hook(&name, method)))
     }
 
     #[must_use]
@@ -107,7 +122,12 @@ impl McpServerPool {
             (reg.config.clone(), reg.working_dir.clone())
         };
 
-        let client = connect_client(name, &config, &working_dir, self.token_store.as_ref()).await?;
+        let transport = build_transport(name, &config, &working_dir, self.token_store.as_ref()).await?;
+        if let Some(hook) = self.server_notification_hook(name) {
+            transport.set_notification_hook(hook);
+        }
+        let client = Arc::new(McpClient::new(name, transport));
+        client.initialize().await?;
         let in_flight = Arc::new(AtomicUsize::new(1));
         let is_stdio = config.url.is_none();
 
@@ -242,18 +262,6 @@ async fn resolve_headers(headers: &BTreeMap<String, String>) -> Result<BTreeMap<
         resolved.insert(name.clone(), value);
     }
     Ok(resolved)
-}
-
-async fn connect_client(
-    name: &str,
-    config: &McpServerConfig,
-    working_dir: &Path,
-    token_store: Option<&McpTokenStore>,
-) -> Result<Arc<McpClient>> {
-    let transport = build_transport(name, config, working_dir, token_store).await?;
-    let client = Arc::new(McpClient::new(name, transport));
-    client.initialize().await?;
-    Ok(client)
 }
 
 #[cfg(test)]

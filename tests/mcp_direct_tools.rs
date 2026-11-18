@@ -74,6 +74,7 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
             enabled: true,
             defer_threshold: 0,
             idle_timeout_seconds: 600,
+            startup_timeout_ms: 0,
             servers,
         },
         ..Default::default()
@@ -90,6 +91,7 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
     assert!(tool_names.contains(&"srv_direct_tool".to_string()));
     assert!(!tool_names.contains(&"srv_deferred_tool".to_string()));
     assert!(tool_names.contains(&"tool_search".to_string()));
+    assert!(tool_names.contains(&"mcp".to_string()));
 
     let tool_search = {
         let tools = engine.tools();
@@ -100,7 +102,12 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
         .execute(serde_json::json!({"query": "magic_alias"}))
         .await
         .unwrap();
-    assert!(res.content.contains("srv_deferred_tool"));
+    assert!(
+        res.content.contains("server `srv`, tool `deferred_tool`"),
+        "{}",
+        res.content
+    );
+    assert!(!engine.tool_names().contains(&"srv_deferred_tool".to_string()));
 
     let _ = std::fs::remove_dir_all(&workspace);
 }

@@ -13,11 +13,15 @@ use rho_harness_core::auth::OAuthLoginCallbacks;
 use rho_harness_core::config::McpOAuthConfig;
 use rho_harness_core::error::{AppError, Result};
 use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const CLIENT_NAME: &str = "rho";
+/// oh-my-pi's default callback port; clients registered through it expect `http://localhost:3000/callback`.
+const PINNED_CLIENT_PORT: u16 = 3000;
+pub(super) const ACCEPT_JSON: [(&str, &str); 1] = [("accept", "application/json")];
 
 pub struct LoginRequest<'a> {
     pub server: &'a str,
@@ -89,7 +93,7 @@ async fn resolve_client(
     let endpoint = metadata.registration_endpoint.as_deref().ok_or_else(|| {
         AppError::Auth(
             "The authorization server does not support dynamic client registration. Register an OAuth app with \
-             the provider and set `oauth.clientId` (and `oauth.redirectPort`) for this server in your MCP config."
+             the provider and set `oauth.clientId` (and `oauth.redirectUri`) for this server in your MCP config."
                 .to_string(),
         )
     })?;
@@ -116,6 +120,7 @@ struct AuthorizeUrl<'a> {
     state: &'a str,
     scope: Option<&'a str>,
     resource: &'a str,
+    extra: Option<&'a BTreeMap<String, String>>,
 }
 
 fn authorize_url(params: &AuthorizeUrl<'_>) -> Result<String> {
@@ -135,7 +140,41 @@ fn authorize_url(params: &AuthorizeUrl<'_>) -> Result<String> {
             query.append_pair("scope", scope);
         }
     }
+    let present: BTreeSet<String> = url.query_pairs().map(|(k, _)| k.into_owned()).collect();
+    let extra = params.extra.into_iter().flatten();
+    url.query_pairs_mut()
+        .extend_pairs(extra.filter(|(k, _)| !present.contains(*k)));
+    let wants_offline = params
+        .scope
+        .is_some_and(|s| s.split_whitespace().any(|s| s == "offline_access"));
+    if wants_offline && !url.query_pairs().any(|(k, _)| k == "prompt") {
+        // OpenID Connect Core 11: offline_access is ignored unless prompt includes consent.
+        url.query_pairs_mut().append_pair("prompt", "consent");
+    }
     Ok(url.to_string())
+}
+
+fn redirect_target(config: Option<&McpOAuthConfig>) -> Result<(u16, Option<String>)> {
+    if let Some(raw) = config.and_then(|c| c.redirect_uri.as_deref()) {
+        let url =
+            url::Url::parse(raw).map_err(|e| AppError::Auth(format!("Invalid oauth.redirectUri '{raw}': {e}")))?;
+        if url.scheme() != "http" || !matches!(url.host_str(), Some("localhost" | "127.0.0.1")) {
+            return Err(AppError::Auth(format!(
+                "oauth.redirectUri '{raw}' must be an http://localhost or http://127.0.0.1 URL so rho can receive the callback"
+            )));
+        }
+        return Ok((url.port_or_known_default().unwrap_or(80), Some(raw.to_string())));
+    }
+    let pinned_client = config.is_some_and(|c| c.client_id.is_some());
+    let default_port = if pinned_client { PINNED_CLIENT_PORT } else { 0 };
+    Ok((config.and_then(|c| c.redirect_port).unwrap_or(default_port), None))
+}
+
+async fn bind_redirect(config: Option<&McpOAuthConfig>) -> Result<(LoopbackServer, String)> {
+    let (port, exact) = redirect_target(config)?;
+    let loopback = LoopbackServer::bind_port(port).await?;
+    let redirect = exact.unwrap_or_else(|| loopback.redirect_uri("/callback"));
+    Ok((loopback, redirect))
 }
 
 pub async fn login(
@@ -156,8 +195,7 @@ pub async fn login(
     };
     let scope = choose_scope(config, &challenge, &resource_meta.scopes_supported);
 
-    let loopback = LoopbackServer::bind_port(config.and_then(|c| c.redirect_port).unwrap_or(0)).await?;
-    let redirect = loopback.redirect_uri("/callback");
+    let (loopback, redirect) = bind_redirect(config).await?;
     let client = resolve_client(config, &auth_meta, &redirect).await?;
     let pkce = PkceChallenge::generate();
     let state = generate_state();
@@ -169,6 +207,7 @@ pub async fn login(
         state: &state,
         scope: scope.as_deref(),
         resource: &resource,
+        extra: config.map(|c| &c.authorization_params),
     })?;
     callbacks
         .on_auth_url(&auth_url, Some(&format!("Authorize rho to use MCP server '{server}'")))
@@ -195,7 +234,7 @@ pub async fn login(
     let reply: TokenResponse = post_form_json(
         &auth_meta.token_endpoint,
         &form,
-        &[],
+        &ACCEPT_JSON,
         REQUEST_TIMEOUT,
         "MCP token exchange",
     )
@@ -240,5 +279,97 @@ mod tests {
             Some("x y")
         );
         assert_eq!(choose_scope(None, &Challenge::default(), &[]), None);
+    }
+
+    #[test]
+    fn redirect_target_prefers_exact_uri_then_port_then_pinned_default() {
+        let cfg = |client: Option<&str>, port: Option<u16>, uri: Option<&str>| McpOAuthConfig {
+            client_id: client.map(Into::into),
+            redirect_port: port,
+            redirect_uri: uri.map(Into::into),
+            ..Default::default()
+        };
+        let uri = "http://localhost:19876/callback";
+        let cases = [
+            (None, (0, None)),
+            (Some(cfg(None, None, None)), (0, None)),
+            (Some(cfg(Some("c"), None, None)), (PINNED_CLIENT_PORT, None)),
+            (Some(cfg(Some("c"), Some(8765), None)), (8765, None)),
+            (
+                Some(cfg(Some("c"), Some(8765), Some(uri))),
+                (19876, Some(uri.to_string())),
+            ),
+            (
+                Some(cfg(None, None, Some("http://127.0.0.1/cb"))),
+                (80, Some("http://127.0.0.1/cb".to_string())),
+            ),
+        ];
+        for (config, expected) in cases {
+            assert_eq!(redirect_target(config.as_ref()).unwrap(), expected, "{config:?}");
+        }
+        for bad in ["https://localhost:1/cb", "http://example.com/cb", "not a url"] {
+            assert!(redirect_target(Some(&cfg(None, None, Some(bad)))).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn offline_access_scope_adds_consent_prompt_unless_one_is_configured() {
+        let prompts = |scope: Option<&str>, extra: &[(&str, &str)]| {
+            let extra: BTreeMap<String, String> = extra.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let url = authorize_url(&AuthorizeUrl {
+                endpoint: "https://auth.example.com/authorize",
+                client_id: "cid",
+                redirect: "http://localhost:3000/callback",
+                challenge: "ch",
+                state: "st",
+                scope,
+                resource: "https://mcp.example.com/mcp",
+                extra: Some(&extra),
+            })
+            .unwrap();
+            url::Url::parse(&url)
+                .unwrap()
+                .query_pairs()
+                .filter(|(k, _)| k == "prompt")
+                .map(|(_, v)| v.into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(prompts(Some("openid offline_access"), &[]), ["consent"]);
+        assert_eq!(
+            prompts(Some("offline_access"), &[("prompt", "select_account consent")]),
+            ["select_account consent"]
+        );
+        assert!(prompts(Some("read"), &[]).is_empty());
+        assert!(prompts(None, &[]).is_empty());
+    }
+
+    #[test]
+    fn authorization_params_are_added_without_overriding_protocol_params() {
+        let extra = BTreeMap::from([
+            ("access_type".to_string(), "offline".to_string()),
+            ("state".to_string(), "hijack".to_string()),
+        ]);
+        let url = authorize_url(&AuthorizeUrl {
+            endpoint: "https://auth.example.com/authorize?tenant=t1",
+            client_id: "cid",
+            redirect: "http://localhost:3000/callback",
+            challenge: "ch",
+            state: "st",
+            scope: None,
+            resource: "https://mcp.example.com/mcp",
+            extra: Some(&extra),
+        })
+        .unwrap();
+        let pairs: Vec<(String, String)> = url::Url::parse(&url).unwrap().query_pairs().into_owned().collect();
+        let values = |key: &str| {
+            pairs
+                .iter()
+                .filter(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(values("access_type"), ["offline"]);
+        assert_eq!(values("state"), ["st"]);
+        assert_eq!(values("tenant"), ["t1"]);
     }
 }

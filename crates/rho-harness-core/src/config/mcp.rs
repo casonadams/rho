@@ -1,6 +1,6 @@
 use super::types::{
     McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind,
-    default_idle_timeout_seconds, dirs_fallback,
+    default_idle_timeout_seconds, default_startup_timeout_ms, dirs_fallback,
 };
 use crate::error::{AppError, Result};
 use crate::fs::write_atomic;
@@ -112,6 +112,13 @@ fn parse_search_keywords(val: Option<&Value>) -> BTreeMap<String, Vec<String>> {
         .unwrap_or_default()
 }
 
+fn parse_scopes(val: Option<&Value>) -> Vec<String> {
+    match val {
+        Some(Value::String(s)) => expand_env_vars(s).split_whitespace().map(str::to_string).collect(),
+        other => parse_string_vec(other),
+    }
+}
+
 fn parse_oauth(val: Option<&Value>) -> Option<McpOAuthConfig> {
     let obj = val?.as_object()?;
     let text = |camel: &str, snake: &str| {
@@ -121,11 +128,16 @@ fn parse_oauth(val: Option<&Value>) -> Option<McpOAuthConfig> {
             .map(expand_env_vars)
     };
     let port = obj.get("redirectPort").or_else(|| obj.get("redirect_port"));
+    let params = obj
+        .get("authorizationParams")
+        .or_else(|| obj.get("authorization_params"));
     Some(McpOAuthConfig {
         client_id: text("clientId", "client_id"),
         client_secret: text("clientSecret", "client_secret"),
-        scopes: parse_string_vec(obj.get("scopes")),
+        scopes: parse_scopes(obj.get("scopes").or_else(|| obj.get("scope"))),
         redirect_port: port.and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()),
+        redirect_uri: text("redirectUri", "redirect_uri"),
+        authorization_params: parse_string_map(params),
     })
 }
 
@@ -161,6 +173,7 @@ fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerCo
         .and_then(|v| v.as_u64());
     let search_keywords = parse_search_keywords(obj.get("searchKeywords").or_else(|| obj.get("search_keywords")));
     let oauth = parse_oauth(obj.get("oauth"));
+    let instructions = obj.get("instructions").and_then(Value::as_bool);
 
     McpServerConfig {
         command,
@@ -179,6 +192,7 @@ fn parse_single_server_json(obj: &serde_json::Map<String, Value>) -> McpServerCo
         idle_timeout_seconds,
         search_keywords,
         oauth,
+        instructions,
     }
 }
 
@@ -221,6 +235,7 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
         enabled: true,
         defer_threshold,
         idle_timeout_seconds,
+        startup_timeout_ms: default_startup_timeout_ms(),
         servers,
     })
 }
@@ -380,6 +395,7 @@ mod tests {
                 client_secret: Some("sec".into()),
                 scopes: vec!["read".into(), "write".into()],
                 redirect_port: Some(8765),
+                ..Default::default()
             })
         );
         let b = parsed.servers["b"].oauth.as_ref().unwrap();
@@ -387,6 +403,46 @@ mod tests {
         assert_eq!(b.redirect_port, None);
         assert_eq!(parsed.servers["c"].oauth, None);
         assert!(parsed.servers["c"].uses_oauth());
+    }
+
+    #[test]
+    fn configured_headers_mean_static_credentials_unless_oauth_is_explicit() {
+        let json = r#"{
+            "api_key": { "url": "https://m.example/mcp", "headers": { "x-api-key": "k" } },
+            "bearer": { "url": "https://b.example/mcp", "headers": { "Authorization": "Bearer t" } },
+            "both": { "url": "https://o.example/mcp", "headers": { "X-Client": "rho" }, "oauth": {} },
+            "bare": { "url": "https://c.example/mcp" },
+            "local": { "command": "echo" }
+        }"#;
+        let parsed = parse_mcp_json_str(json).unwrap();
+        let uses = |name: &str| parsed.servers[name].uses_oauth();
+        assert!(!uses("api_key"));
+        assert!(!uses("bearer"));
+        assert!(uses("both"));
+        assert!(uses("bare"));
+        assert!(!uses("local"));
+    }
+
+    #[test]
+    fn parses_oauth_redirect_uri_scope_string_and_authorization_params() {
+        let json = r#"{
+            "g": { "url": "https://g.example/mcp", "oauth": {
+                "clientId": "cid",
+                "redirectUri": "http://localhost:19876/callback",
+                "scope": "a  b",
+                "authorizationParams": { "access_type": "offline", "prompt": "consent" }
+            } },
+            "s": { "url": "https://s.example/mcp", "oauth": { "scopes": "x y" }, "instructions": false }
+        }"#;
+        let parsed = parse_mcp_json_str(json).unwrap();
+        let g = parsed.servers["g"].oauth.as_ref().unwrap();
+        assert_eq!(g.redirect_uri.as_deref(), Some("http://localhost:19876/callback"));
+        assert_eq!(g.scopes, ["a", "b"]);
+        assert_eq!(g.authorization_params["access_type"], "offline");
+        assert_eq!(g.authorization_params["prompt"], "consent");
+        assert_eq!(parsed.servers["s"].oauth.as_ref().unwrap().scopes, ["x", "y"]);
+        assert_eq!(parsed.servers["s"].instructions, Some(false));
+        assert_eq!(parsed.servers["g"].instructions, None);
     }
 
     #[test]

@@ -15,17 +15,19 @@ fn write_mock_mcp_server(workspace: &std::path::Path) -> PathBuf {
     server_script
 }
 
-fn mcp_fs_config(script: &std::path::Path) -> Config {
+fn mcp_fs_config(script: &std::path::Path, workspace: &std::path::Path) -> Config {
     let mut servers = BTreeMap::new();
     servers.insert(
         "filesystem".to_string(),
         McpServerConfig::stdio(script.to_str().unwrap(), Vec::new()),
     );
     Config {
+        config_dir: workspace.to_path_buf(),
         mcp: McpConfig {
             enabled: true,
             defer_threshold: 10,
             idle_timeout_seconds: 600,
+            startup_timeout_ms: 0,
             servers,
         },
         ..Config::default()
@@ -36,7 +38,7 @@ fn mcp_fs_config(script: &std::path::Path) -> Config {
 async fn test_mcp_server_discovery_and_tool_invocation_end_to_end() {
     let workspace = temp_dir("mcp_integration_test");
     let script = write_mock_mcp_server(&workspace);
-    let config = mcp_fs_config(&script);
+    let config = mcp_fs_config(&script, &workspace);
 
     let tools = load_mcp_tools(&config, &workspace).await;
     let tool_names: Vec<String> = tools.iter().map(|d| d.name().to_string()).collect();

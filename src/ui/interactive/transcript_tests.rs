@@ -589,12 +589,22 @@ fn render_transcript_welcome_with_mcp_servers() {
         resumed: false,
         location: ".".into(),
         agents: Vec::new(),
-        tools: vec!["read".into(), "write".into(), "mcp".into(), "mcpScript".into()],
+        tools: vec![
+            "read".into(),
+            "write".into(),
+            "mcp".into(),
+            "mcpScript".into(),
+            "tool_search".into(),
+        ],
         skills: Vec::new(),
         mcp: vec!["playwright".into()],
     });
 
     let rendered = render_tool_item(&item, &theme, false);
-    assert_welcome_content(&rendered, &["[tools]", "read, write", "[mcp]", "playwright"]);
+    assert_welcome_content(
+        &rendered,
+        &["[tools]", "read, write, tool_search", "[mcp]", "playwright"],
+    );
+    assert!(!rendered.contains("tool (1 tool)"), "{rendered}");
     assert!(!rendered.contains("mcpScript"));
 }

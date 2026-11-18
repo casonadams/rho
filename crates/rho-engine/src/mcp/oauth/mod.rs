@@ -147,9 +147,15 @@ async fn refresh_tokens(server: &str, tokens: &McpTokens) -> Result<McpTokens> {
     if let Some(secret) = &tokens.client_secret {
         form.push(("client_secret", secret));
     }
-    let reply: TokenResponse = post_form_json(&tokens.token_endpoint, &form, &[], TOKEN_TIMEOUT, "MCP token refresh")
-        .await
-        .map_err(|e| AppError::Auth(format!("{e}. {}", login_hint(server))))?;
+    let reply: TokenResponse = post_form_json(
+        &tokens.token_endpoint,
+        &form,
+        &login::ACCEPT_JSON,
+        TOKEN_TIMEOUT,
+        "MCP token refresh",
+    )
+    .await
+    .map_err(|e| AppError::Auth(format!("{e}. {}", login_hint(server))))?;
     Ok(tokens.with_reply(reply))
 }
 
@@ -188,11 +194,22 @@ impl McpOAuth {
             return Ok(None);
         };
         if tokens.is_expired() && tokens.refresh_token.is_some() {
-            let refreshed = refresh_tokens(&self.server, tokens).await?;
-            self.store.save(&self.server, refreshed.clone()).await?;
+            let refreshed = self.refresh(tokens).await?;
             *guard = Some(Some(refreshed));
         }
         Ok(guard.as_ref().and_then(Option::as_ref).map(|t| t.access_token.clone()))
+    }
+
+    async fn refresh(&self, tokens: &McpTokens) -> Result<McpTokens> {
+        let refreshed = refresh_tokens(&self.server, tokens).await.map_err(|e| {
+            AppError::Auth(format!(
+                "MCP server '{}' sign-in expired and could not be refreshed ({e}). {}",
+                self.server,
+                login_hint(&self.server)
+            ))
+        })?;
+        self.store.save(&self.server, refreshed.clone()).await?;
+        Ok(refreshed)
     }
 
     pub(crate) async fn refresh_after_rejection(&self, rejected: &str) -> Result<Option<String>> {
@@ -206,8 +223,7 @@ impl McpOAuth {
         if tokens.refresh_token.is_none() {
             return Ok(None);
         }
-        let refreshed = refresh_tokens(&self.server, tokens).await?;
-        self.store.save(&self.server, refreshed.clone()).await?;
+        let refreshed = self.refresh(tokens).await?;
         let access = refreshed.access_token.clone();
         *guard = Some(Some(refreshed));
         Ok(Some(access))

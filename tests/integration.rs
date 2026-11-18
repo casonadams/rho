@@ -22,6 +22,7 @@ pub(crate) fn mcp_config(
             enabled: true,
             defer_threshold: 10,
             idle_timeout_seconds: 600,
+            startup_timeout_ms: 0,
             servers,
         },
         config_dir: workspace.to_path_buf(),

@@ -100,6 +100,8 @@ pub struct McpConfigFile {
     pub enabled: Option<bool>,
     #[serde(default, alias = "deferThreshold")]
     pub defer_threshold: Option<usize>,
+    #[serde(default, alias = "startupTimeoutMs")]
+    pub startup_timeout_ms: Option<u64>,
     #[serde(default)]
     pub servers: BTreeMap<String, super::integrations::McpServerConfig>,
 }

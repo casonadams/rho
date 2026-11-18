@@ -239,7 +239,10 @@ async fn handle_login_result<B: TerminalBackend>(
             .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
             .await
         {
-            Ok(engine) => *ctx.engine = engine,
+            Ok(engine) => {
+                *ctx.engine = engine;
+                crate::repl::report_mcp_diagnostics(ctx.session, ctx.engine);
+            }
             Err(err) => ctx
                 .session
                 .renderer
@@ -257,8 +260,22 @@ async fn handle_login_provider_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     provider: String,
 ) -> Result<bool> {
-    let login_res = execute_suspended_login(ctx, &provider).await?;
-    handle_login_result(ctx, login_res).await?;
+    if let Some(server) = provider.strip_prefix("mcp:") {
+        let theme = ctx.session.renderer.theme.clone();
+        let mut ui = crate::repl::live::mcp_login::McpLoginUi {
+            controller: ctx.controller,
+            input: ctx.input,
+            theme: &theme,
+            open_url: crate::repl::live::mcp_login::system_browser(),
+        };
+        let signed_in = crate::repl::live::mcp_login::run_mcp_login(&mut ui, server, &ctx.session.config).await;
+        if signed_in.is_ok() {
+            handle_login_result(ctx, Ok(())).await?;
+        }
+    } else {
+        let login_res = execute_suspended_login(ctx, &provider).await?;
+        handle_login_result(ctx, login_res).await?;
+    }
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.controller.redraw()?;
     Ok(true)

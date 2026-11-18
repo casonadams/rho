@@ -19,6 +19,11 @@ const HELP_ENTRIES: &[(&str, &str)] = &[
     ("/clear", "Start a new session; preserve history (alias: /new)"),
     ("/mcp", "List configured MCP servers"),
     ("/mcp login <server>", "Sign in to an OAuth MCP server"),
+    ("/mcp prompts [server]", "List MCP server prompts"),
+    (
+        "/mcp prompt <server> <name>",
+        "Send an MCP prompt (key=value arguments)",
+    ),
     ("/login", "Add API-key or subscription auth"),
     ("/logout", "Remove stored provider auth"),
     ("/skill", "List or inspect skills"),

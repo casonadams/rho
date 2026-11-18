@@ -75,6 +75,42 @@ pub struct ProviderItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerItem {
+    pub name: String,
+    pub target: String,
+    pub oauth: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct McpServerList(std::sync::Arc<std::sync::RwLock<Vec<McpServerItem>>>);
+
+impl McpServerList {
+    pub fn set_from(&self, mcp: &rho_harness_core::config::McpConfig) {
+        *self.0.write().unwrap() = mcp
+            .servers
+            .iter()
+            .filter(|(_, cfg)| cfg.enabled)
+            .map(|(name, cfg)| McpServerItem {
+                name: name.clone(),
+                target: cfg.url.clone().or_else(|| cfg.command.clone()).unwrap_or_default(),
+                oauth: cfg.uses_oauth(),
+            })
+            .collect();
+    }
+
+    fn snapshot(&self) -> Vec<McpServerItem> {
+        self.0.read().unwrap().clone()
+    }
+}
+
+const MCP_SUBCOMMANDS: &[(&str, &str)] = &[
+    ("login", "Sign in to a remote MCP server <server>"),
+    ("logout", "Remove stored MCP sign-in <server>"),
+    ("prompts", "List MCP server prompts [server]"),
+    ("prompt", "Send an MCP prompt <server> <name> [key=value ...]"),
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Completion {
     pub value: String,
     pub description: Option<String>,
@@ -87,6 +123,7 @@ pub struct CompletionSet {
     pub(super) skills: Vec<SkillItem>,
     pub(super) models: Vec<ModelItem>,
     pub(super) providers: Vec<ProviderItem>,
+    pub(super) mcp_servers: McpServerList,
     pub(super) files: Vec<String>,
 }
 
@@ -163,6 +200,7 @@ impl CompletionSet {
             skills,
             models: sources.models,
             providers,
+            mcp_servers: sources.mcp_servers,
             files,
         }
     }
@@ -319,7 +357,55 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
     if let Some(argument) = prefix.strip_prefix("/thinking ") {
         return Some(complete_thinking(argument, cursor));
     }
+    if let Some(rest) = prefix.strip_prefix("/mcp ") {
+        return Some(complete_mcp(&set.mcp_servers.snapshot(), rest, cursor));
+    }
     complete_auth_args(set, prefix, cursor)
+}
+
+fn rank_by_name<'a, T>(items: &'a [T], query: &str, name: impl Fn(&T) -> &str) -> Vec<&'a T> {
+    let mut scored: Vec<(i64, &T)> = items
+        .iter()
+        .filter_map(|item| {
+            if query.is_empty() {
+                Some((0, item))
+            } else {
+                fuzzy_score(query, name(item)).map(|score| (score, item))
+            }
+        })
+        .collect();
+    scored.sort_by(|(a_score, a), (b_score, b)| b_score.cmp(a_score).then_with(|| name(a).cmp(name(b))));
+    scored.into_iter().map(|(_, item)| item).collect()
+}
+
+fn complete_mcp(servers: &[McpServerItem], rest: &str, cursor: usize) -> Vec<Completion> {
+    let Some((sub, argument)) = rest.split_once(' ') else {
+        return rank_by_name(MCP_SUBCOMMANDS, rest, |(name, _)| name)
+            .into_iter()
+            .map(|(name, desc)| Completion {
+                value: format!("/mcp {name} "),
+                description: Some((*desc).to_string()),
+                replacement: 0..cursor,
+            })
+            .collect();
+    };
+    let oauth_only = match sub {
+        "login" | "logout" => true,
+        "prompts" | "prompt" => false,
+        _ => return Vec::new(),
+    };
+    if argument.contains(' ') {
+        return Vec::new();
+    }
+    let candidates: Vec<McpServerItem> = servers.iter().filter(|s| s.oauth || !oauth_only).cloned().collect();
+    rank_by_name(&candidates, argument, |s| &s.name)
+        .into_iter()
+        .map(|s| Completion {
+            value: format!("/mcp {sub} {}", s.name),
+            description: Some(s.target.clone()),
+            replacement: 0..cursor,
+        })
+        .collect()
 }
 
 fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<Completion> {

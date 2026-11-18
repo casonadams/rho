@@ -64,16 +64,30 @@ Header values expand `${VAR}` and `env:VAR`. A value starting with `!` runs as a
 ### Server Lifecycles & Lazy Connections
 
 MCP servers default to lazy on-demand lifecycle (`lifecycle: "lazy"`):
-- No child processes are spawned on engine startup if metadata is cached in `~/.config/rho/mcp-cache.json`.
+- No child processes are spawned on engine startup if metadata is cached in `~/.config/rho/mcp-cache.json`. Cache entries older than 24 hours are still used at startup and refreshed in the background.
+- Uncached servers are discovered in parallel. Startup waits at most `[mcp] startup_timeout_ms` from `config.toml` (default 3000; `0` waits for every server). Servers still connecting after that are reported once ("MCP still connecting: ...") and their tools join `tool_search` when they finish.
+- A server that sends `notifications/tools/list_changed` has its tool list re-read and the cache updated. Over HTTP rho sees these notifications only inside streamed (SSE) responses to its own requests, because it does not open the optional standalone GET stream.
 - When an MCP tool is invoked, the server process spawns transparently.
 - Idle stdio server processes are automatically reaped after `idleTimeout` seconds of inactivity (default: 600s / 10m).
 - Supported lifecycles: `"lazy"` (reaped when idle), `"eager"` (connected at startup), `"keep-alive"` (persistent, never reaped), and `"lazy-keep-alive"` (connected on first call, never reaped).
+
+### Timeouts, Cancellation, and Reconnects
+
+- Tool calls may run for 600 seconds; other requests (`initialize`, listing tools, reading resources) time out after 30 seconds. A per-server `timeout` (seconds) replaces both.
+- rho sends a `progressToken` with every tool call. Each `notifications/progress` the server sends starts a fresh timeout window, up to one hour in total.
+- When a call times out or you press Esc, rho sends `notifications/cancelled` so the server can stop the work, over both stdio and HTTP.
+- If a stdio server exits or an HTTP session expires (`404` for a request carrying `Mcp-Session-Id`), rho reconnects and retries the request once. After 5 reconnects within 30 seconds it stops reconnecting that server until `/reload` and reports why.
+- Problems found after startup (a slow server that needs a sign-in, a refresh that fails, or a token that can no longer be refreshed mid-session) are shown as one warning when the REPL is idle; tool calls to such a server return an error that names the fix, such as `/mcp login <server>`.
+- Server instructions are read when the engine is built. Instructions from servers that finish connecting later, or that change on refresh, take effect at the next `/reload` or login, so the system prompt (and the provider's prompt cache) stays fixed within a session.
 
 ### Fine-Grained Tool Exposure & Discovery
 
 - `directTools`: Controls whether tools appear directly in the model's active tool schema or are deferred behind `tool_search`. Can be `true` (all direct), `false` (all deferred), a list of tool names `["read_file"]`, or `"search"`.
 - `includeTools` / `excludeTools`: Glob patterns to include or exclude specific tools from the server.
 - `searchKeywords`: Per-tool keyword aliases (e.g. `{"search_code": ["grep"]}`) boosting relevancy during `tool_search`.
+- `instructions`: Set to `false` to leave out the usage instructions the server returns from `initialize`. Otherwise rho adds them to the system prompt in an `<mcp_server_instructions>` block, attributed to the server, marked as server-controlled, and capped at 4 KB per server.
+
+Direct tools are named `<server>_<tool>`. Characters outside `[A-Za-z0-9_-]` become `_`, and names longer than 64 characters are shortened with a hash suffix. A direct tool whose name would collide with a built-in or another MCP tool stays behind `tool_search` and rho reports the conflict.
 
 ### Project Server Trust
 
@@ -104,6 +118,18 @@ rho mcp logout linear
 Or view and test active servers interactively inside the REPL with `/mcp`, and
 sign in with `/mcp login <server>` / `/mcp logout <server>`.
 
+### Prompts and Resources
+
+Server prompts are user-invoked: `/mcp prompts [server]` lists them with their
+arguments (`*` marks required ones), and `/mcp prompt <server> <name>
+[key=value ...]` fetches a prompt and sends its messages as your next prompt.
+Argument values cannot contain spaces. Tab completes the subcommands and
+server names.
+
+The model reads server resources through the `mcp` tool: `{"server": "docs",
+"action": "list_resources"}` lists them and `{"server": "docs", "action":
+"read_resource", "uri": "..."}` returns their contents.
+
 ### Remote Servers with OAuth
 
 Remote (URL) servers that require OAuth 2.1, per the MCP authorization spec,
@@ -121,14 +147,29 @@ Run `/mcp login linear` (or `rho mcp login linear`). rho reads the server's
 `401` challenge and protected resource metadata, discovers its authorization
 server, registers itself with dynamic client registration, and opens the
 browser for a PKCE sign-in that names the server as the token's `resource`.
+In the REPL the sign-in stays inside the TUI: progress and the authorization
+URL appear in the transcript, and Esc cancels. You can also start it by
+pressing Enter on a server marked as needing sign-in in the `/mcp` list.
+rho refuses authorization server metadata whose `issuer` differs from the
+issuer it asked for (a trailing slash is ignored), and when the requested
+scopes include `offline_access` it adds `prompt=consent` unless
+`authorizationParams` already sets `prompt`.
+A remote server counts as OAuth when it has an `oauth` block or configures no
+headers; a server with headers such as `x-api-key` uses those instead.
 Tokens are stored in `~/.config/rho/mcp-auth.json` (mode `0600`), sent as
 `Authorization: Bearer` on every request, refreshed before they expire, and
-refreshed once and retried if the server rejects one. When a server needs a
-sign-in, the error and the `/mcp` list say so.
+refreshed once and retried if the server rejects one. When servers need a
+sign-in, rho shows one warning after startup, `/reload`, or a login that lists
+them all, and the `/mcp` list marks them. Tab completes `/mcp login` and
+`/mcp logout` subcommands and the names of OAuth-capable remote servers.
 
 If the provider does not support dynamic registration, register an OAuth app
-with it and add an `oauth` block (`redirectPort` must match the redirect URI
-you registered, `http://localhost:<port>/callback`):
+with it and add an `oauth` block. `redirectUri` must exactly match the
+loopback redirect URI you registered (`http://localhost:<port>/<path>` or
+`http://127.0.0.1:...`); `redirectPort` is shorthand for
+`http://localhost:<port>/callback`. With a `clientId` and neither field, rho
+uses `http://localhost:3000/callback`, the URI oh-my-pi registers, so a
+shared `mcp.json` works in both tools:
 
 ```json
 "github": {
@@ -137,20 +178,28 @@ you registered, `http://localhost:<port>/callback`):
     "clientId": "Iv1.abc123",
     "clientSecret": "${GITHUB_MCP_CLIENT_SECRET}",
     "scopes": ["repo", "read:org"],
-    "redirectPort": 8765
+    "redirectUri": "http://localhost:8765/callback"
   }
 }
 ```
 
-`scopes` overrides the scopes the server asks for. A server with a static
+`scopes` (an array or a space-separated string; `scope` also works) overrides
+the scopes the server asks for. `authorizationParams` adds extra query
+parameters to the authorize URL without overriding protocol ones, for example
+`{ "access_type": "offline", "prompt": "consent" }` so Google issues a
+refresh token. A server with a static
 `Authorization` header (like `remote_jira` above) keeps using that header and
 never uses OAuth.
 
 ### Deferred Tool Search
 
-When configured MCP servers expose more tools than the deferral threshold (`defer_threshold`, default: 4), `rho` defers individual tool definitions behind a compact `tool_search` tool to conserve context tokens. When the model needs a tool, it calls `tool_search` with keywords or tool names, which dynamically loads the matching tools with their full JSON schemas for subsequent turns.
+When configured MCP servers expose more tools than the deferral threshold (`defer_threshold`, default: 4), `rho` keeps individual tool definitions out of the model's tool list to conserve context tokens. The model finds them with `tool_search`, which returns matching tools with their full input schemas, and calls them through the `mcp` tool with `{"server": ..., "tool": ..., "arguments": {...}}`. Calls through `mcp` go through the same permission checks as direct MCP tools (`mcp` rules such as `server:tool`).
 
-`tool_search` only searches and activates tools: matching tools join the active tool set for subsequent turns, and calling them goes through the normal permission checks. Tools already invoked in conversation history are automatically preserved and pre-activated upon session resumption.
+Searching never changes the tool list sent to the provider, so the provider's prompt cache stays valid for the whole session. Tools already invoked directly in conversation history stay direct when a session resumes.
+
+### Tool Results
+
+MCP results keep their text, embedded resources (`[Resource: uri]` plus text), resource links, and `structuredContent` (appended as a JSON block unless a text block already carries it). The first image is passed to models that accept tool-result images; other images and audio are summarized. Output larger than `output_max_bytes` is truncated and the full text is saved under `.rho/artifacts/`, with the path noted in the result.
 
 ---
 

@@ -203,7 +203,8 @@ impl AgentEngine {
         presenter: &Arc<dyn Presenter>,
     ) -> Result<PreparedTurnOutcome> {
         let context = self.project_context().await?;
-        let preamble = context.build_system_prompt();
+        let mut preamble = context.build_system_prompt();
+        crate::mcp::append_server_instructions(&mut preamble, &self.mcp.instructions);
         let effective_prompt = crate::engine::context::format_turn_prompt(prompt, context.git_status.as_deref());
         let mut loaded = self.load_initial_history().await?;
         if let Some(out) = self
@@ -291,7 +292,12 @@ impl AgentEngine {
 
         let permission_hook = if self.config.permission.enabled {
             let mcp_servers = if self.config.mcp.enabled {
-                self.config.mcp.servers.keys().cloned().collect()
+                self.config
+                    .mcp
+                    .servers
+                    .keys()
+                    .map(|name| crate::mcp::naming::sanitize_segment(name))
+                    .collect()
             } else {
                 Vec::new()
             };

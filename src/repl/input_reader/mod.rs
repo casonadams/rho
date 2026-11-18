@@ -50,6 +50,21 @@ impl TerminalInputReader {
     }
 
     #[cfg(test)]
+    pub(crate) fn spawn_gated(event: Event, gate: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        let mut pending = Some(event);
+        Self::spawn_with(Box::new(move |timeout| {
+            if gate.load(std::sync::atomic::Ordering::SeqCst)
+                && let Some(event) = pending.take()
+            {
+                return Ok(Some(event));
+            }
+            std::thread::sleep(timeout);
+            Ok(None)
+        }))
+        .expect("spawn gated reader")
+    }
+
+    #[cfg(test)]
     pub(crate) fn spawn_with_events(events: Vec<crossterm::event::Event>) -> Self {
         let events = std::sync::Mutex::new(events.into_iter());
         Self::spawn_with(Box::new(move |timeout| {

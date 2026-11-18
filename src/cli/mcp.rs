@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::config::cli::McpCommands;
 use rho_engine::mcp::oauth::{LoginRequest, McpTokenStore};
 use rho_engine::mcp::pool::build_transport;
-use rho_engine::mcp::{McpClient, McpTransport};
+use rho_engine::mcp::{McpClient, McpDiagnostic, McpTransport};
 use rho_harness_core::config::{McpExposureMode, McpServerConfig, McpTransportKind};
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,7 +25,78 @@ fn token_store(config: &Config) -> McpTokenStore {
     McpTokenStore::in_config_dir(&config.config_dir)
 }
 
+fn servers_where(diagnostics: &[McpDiagnostic], pick: fn(&McpDiagnostic) -> bool) -> Vec<&str> {
+    diagnostics
+        .iter()
+        .filter(|d| pick(d))
+        .map(McpDiagnostic::server)
+        .collect()
+}
+
+pub fn mcp_diagnostic_lines(diagnostics: &[McpDiagnostic]) -> Vec<String> {
+    let mut lines = Vec::new();
+    let needs_login = servers_where(diagnostics, |d| matches!(d, McpDiagnostic::NeedsLogin { .. }));
+    if !needs_login.is_empty() {
+        lines.push(format!(
+            "MCP sign-in needed: {} (run /mcp login <server>)",
+            needs_login.join(", ")
+        ));
+    }
+    let pending = servers_where(diagnostics, |d| matches!(d, McpDiagnostic::Pending { .. }));
+    if !pending.is_empty() {
+        lines.push(format!(
+            "MCP still connecting: {} (their tools join tool_search when ready)",
+            pending.join(", ")
+        ));
+    }
+    for diagnostic in diagnostics {
+        match diagnostic {
+            McpDiagnostic::NeedsLogin { .. } | McpDiagnostic::Pending { .. } => {}
+            McpDiagnostic::Untrusted { server } => lines.push(format!(
+                "MCP server '{server}' skipped: its project definition has not been approved"
+            )),
+            McpDiagnostic::Failed { server, message } => {
+                lines.push(format!("MCP server '{server}' unavailable: {message}"));
+            }
+            McpDiagnostic::NameConflict { server, .. } => {
+                lines.push(format!("MCP server '{server}': {}", diagnostic.message()));
+            }
+        }
+    }
+    lines
+}
+
+pub fn eprint_mcp_diagnostics(engine: &rho_engine::engine::AgentEngine) {
+    for line in mcp_diagnostic_lines(engine.mcp_diagnostics()) {
+        eprintln!("Warning: {line}");
+    }
+    let Some(runtime) = engine.mcp_runtime() else {
+        return;
+    };
+    let runtime = std::sync::Arc::downgrade(runtime);
+    tokio::spawn(async move {
+        while let Some(runtime) = runtime.upgrade() {
+            let ready = tokio::time::timeout(std::time::Duration::from_secs(5), runtime.problems_ready()).await;
+            if ready.is_ok() {
+                for line in mcp_diagnostic_lines(&runtime.take_problems()) {
+                    eprintln!("Warning: {line}");
+                }
+            }
+        }
+    });
+}
+
 pub async fn login_mcp_server(name: &str, config: &Config) -> crate::error::Result<()> {
+    login_mcp_server_with(name, config, &crate::cli::auth::TerminalOAuthCallbacks).await?;
+    println!("Signed in to MCP server '{name}'.");
+    Ok(())
+}
+
+pub async fn login_mcp_server_with(
+    name: &str,
+    config: &Config,
+    callbacks: &dyn rho_harness_core::auth::OAuthLoginCallbacks,
+) -> crate::error::Result<()> {
     let server = config
         .mcp
         .servers
@@ -37,16 +108,18 @@ pub async fn login_mcp_server(name: &str, config: &Config) -> crate::error::Resu
         ))
     })?;
     if !server.uses_oauth() {
-        println!("Note: '{name}' sets a static Authorization header, which rho sends instead of OAuth tokens.");
+        callbacks
+            .on_progress(&format!(
+                "Note: '{name}' configures headers and no `oauth` block, so rho sends those headers instead of OAuth tokens."
+            ))
+            .await?;
     }
     let request = LoginRequest {
         server: name,
         url,
         config: server.oauth.as_ref(),
     };
-    rho_engine::mcp::oauth::login(request, &token_store(config), &crate::cli::auth::TerminalOAuthCallbacks).await?;
-    println!("Signed in to MCP server '{name}'.");
-    Ok(())
+    rho_engine::mcp::oauth::login(request, &token_store(config), callbacks).await
 }
 
 pub fn logout_mcp_server(name: &str, config: &Config) -> crate::error::Result<()> {
@@ -218,6 +291,40 @@ fn remove_server(name: &str, config: &Config) -> Result<(), Box<dyn std::error::
 mod tests {
     use super::*;
 
+    #[test]
+    fn diagnostics_group_sign_ins_into_one_line() {
+        let server = |s: &str| s.to_string();
+        let diagnostics = [
+            McpDiagnostic::NeedsLogin {
+                server: server("figma"),
+            },
+            McpDiagnostic::Failed {
+                server: server("broken"),
+                message: "spawn failed".into(),
+            },
+            McpDiagnostic::NeedsLogin {
+                server: server("linear"),
+            },
+            McpDiagnostic::Untrusted { server: server("proj") },
+            McpDiagnostic::Pending { server: server("slow") },
+            McpDiagnostic::NameConflict {
+                server: server("dup"),
+                tool: "read".into(),
+                wire_name: "dup_read".into(),
+            },
+        ];
+        assert_eq!(
+            mcp_diagnostic_lines(&diagnostics),
+            [
+                "MCP sign-in needed: figma, linear (run /mcp login <server>)",
+                "MCP still connecting: slow (their tools join tool_search when ready)",
+                "MCP server 'broken' unavailable: spawn failed",
+                "MCP server 'proj' skipped: its project definition has not been approved",
+                "MCP server 'dup': tool 'read' kept behind tool_search: name 'dup_read' is already taken",
+            ]
+        );
+        assert!(mcp_diagnostic_lines(&[]).is_empty());
+    }
     #[test]
     fn test_format_server_helpers() {
         let stdio = McpServerConfig {

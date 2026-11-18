@@ -51,6 +51,14 @@ pub struct AgentEngine {
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
     pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
+    pub(crate) mcp: EngineMcp,
+}
+
+#[derive(Default)]
+pub(crate) struct EngineMcp {
+    pub(crate) diagnostics: Vec<crate::mcp::McpDiagnostic>,
+    pub(crate) instructions: Vec<crate::mcp::McpServerInstructions>,
+    pub(crate) runtime: Option<Arc<crate::mcp::McpRuntime>>,
 }
 
 impl AgentEngine {
@@ -63,6 +71,14 @@ impl AgentEngine {
 
     pub fn tool_names(&self) -> Vec<String> {
         self.tool_names.read().unwrap().clone()
+    }
+
+    pub fn mcp_diagnostics(&self) -> &[crate::mcp::McpDiagnostic] {
+        &self.mcp.diagnostics
+    }
+
+    pub fn mcp_runtime(&self) -> Option<&Arc<crate::mcp::McpRuntime>> {
+        self.mcp.runtime.as_ref()
     }
 
     pub fn tools(&self) -> Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>> {

@@ -9,6 +9,7 @@ pub struct CompletionSources {
     pub workflows: Vec<(String, String)>,
     pub models: Vec<ModelItem>,
     pub custom_providers: Vec<String>,
+    pub mcp_servers: super::McpServerList,
 }
 
 impl CompletionSources {
@@ -38,6 +39,11 @@ impl CompletionSources {
 
     pub fn with_custom_providers(mut self, providers: Vec<String>) -> Self {
         self.custom_providers = providers;
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, servers: super::McpServerList) -> Self {
+        self.mcp_servers = servers;
         self
     }
 }

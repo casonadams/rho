@@ -26,6 +26,8 @@ pub enum AppError {
     Cancelled(String),
     #[error("MCP error: {0}")]
     Mcp(String),
+    #[error("MCP connection lost: {0}")]
+    McpConnectionLost(String),
     #[error("Hook error: {0}")]
     Hook(String),
     #[error("Invalid tool call: {0}")]

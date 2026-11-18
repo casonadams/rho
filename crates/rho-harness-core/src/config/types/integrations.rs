@@ -61,6 +61,10 @@ pub fn default_defer_threshold() -> usize {
     4
 }
 
+pub fn default_startup_timeout_ms() -> u64 {
+    3000
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpConfig {
     #[serde(default = "default_true")]
@@ -69,6 +73,8 @@ pub struct McpConfig {
     pub defer_threshold: usize,
     #[serde(default = "default_idle_timeout_seconds", alias = "idleTimeout")]
     pub idle_timeout_seconds: u64,
+    #[serde(default = "default_startup_timeout_ms", alias = "startupTimeoutMs")]
+    pub startup_timeout_ms: u64,
     #[serde(default)]
     pub servers: BTreeMap<String, McpServerConfig>,
 }
@@ -79,6 +85,7 @@ impl Default for McpConfig {
             enabled: true,
             defer_threshold: 4,
             idle_timeout_seconds: default_idle_timeout_seconds(),
+            startup_timeout_ms: default_startup_timeout_ms(),
             servers: BTreeMap::new(),
         }
     }
@@ -118,6 +125,8 @@ pub struct McpServerConfig {
     pub search_keywords: BTreeMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth: Option<McpOAuthConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -130,6 +139,10 @@ pub struct McpOAuthConfig {
     pub scopes: Vec<String>,
     #[serde(default, alias = "redirectPort", skip_serializing_if = "Option::is_none")]
     pub redirect_port: Option<u16>,
+    #[serde(default, alias = "redirectUri", skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
+    #[serde(default, alias = "authorizationParams", skip_serializing_if = "BTreeMap::is_empty")]
+    pub authorization_params: BTreeMap<String, String>,
 }
 
 impl McpServerConfig {
@@ -148,7 +161,7 @@ impl McpServerConfig {
     }
 
     pub fn uses_oauth(&self) -> bool {
-        self.url.is_some() && !self.headers.keys().any(|k| k.eq_ignore_ascii_case("authorization"))
+        self.url.is_some() && (self.oauth.is_some() || self.headers.is_empty())
     }
 
     pub fn resolved_transport(&self) -> McpTransportKind {

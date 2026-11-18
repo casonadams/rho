@@ -114,6 +114,7 @@ pub(crate) async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let mut eng = ctx.engine.write().await;
     let resp = match eng.rebuild(cfg.clone(), auth).await {
         Ok(rebuilt) => {
+            crate::cli::mcp::eprint_mcp_diagnostics(&rebuilt);
             *eng = rebuilt;
             RpcResponse::success(req_id, "set_model", None)
         }
