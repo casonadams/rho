@@ -14,12 +14,21 @@ use tokio::process::Command;
 
 static TRACKED_PIDS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
-/// Places the child in its own process group so one group kill reaches every
-/// descendant. `sh -c` wrappers routinely spawn grandchildren that otherwise
-/// survive a direct-child kill and keep running in the background.
+/// Places the child in its own session and process group so one group kill
+/// reaches every descendant. `sh -c` wrappers routinely spawn grandchildren
+/// that otherwise survive a direct-child kill. Dropping the controlling
+/// terminal makes `/dev/tty` reads fail instead of stopping the group.
 pub fn isolate_group(cmd: &mut Command) {
     #[cfg(unix)]
-    cmd.process_group(0);
+    // SAFETY: setsid is async-signal-safe and the closure touches no other state.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     #[cfg(not(unix))]
     let _ = cmd;
 }

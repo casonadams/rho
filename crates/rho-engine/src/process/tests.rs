@@ -64,3 +64,19 @@ async fn drain_tasks_within_stops_waiting_for_a_grandchild_holding_the_pipes() {
     }
     assert!(output.contains("started"));
 }
+
+#[tokio::test]
+#[cfg(unix)]
+async fn isolated_child_leads_its_own_session_without_a_controlling_terminal() {
+    let mut cmd = Command::new("sleep");
+    cmd.arg("30");
+    isolate_group(&mut cmd);
+    let child = cmd.spawn().expect("spawn sleep");
+    let pid = child.id().expect("child pid");
+
+    let sid = unsafe { libc::getsid(pid as libc::pid_t) };
+    assert_eq!(sid, pid as libc::pid_t);
+
+    drop(ProcessTreeGuard::new(child));
+    wait_group_dead(pid).await;
+}
