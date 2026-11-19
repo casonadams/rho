@@ -1,7 +1,7 @@
 use super::template::references;
 use super::types::{
-    AgentNode, CallNode, ChooseNode, DEFAULT_TURNS, EachNode, InputSpec, Isolation, Items, LoopNode, ModelRole, Node,
-    NodeKind, OutputFormat, RunNode, Workflow,
+    AgentNode, CallNode, ChooseNode, DEFAULT_TURNS, EachNode, InputSpec, Items, LoopNode, ModelRole, Node, NodeKind,
+    OutputFormat, RunNode, Workflow,
 };
 use super::xml::{Element, parse_document};
 use std::collections::{BTreeMap, BTreeSet};
@@ -319,14 +319,12 @@ fn parse_outputs(root: &Element, b: &mut Builder<'_>) -> Vec<(String, String)> {
     outputs
 }
 
-fn parse_isolation(root: &Element, b: &mut Builder<'_>) -> Isolation {
-    match root.attr("isolation") {
-        None | Some("none") => Isolation::None,
-        Some("branch") => Isolation::Branch,
-        Some(other) => {
-            b.error(root, format!("isolation must be 'none' or 'branch' (got '{other}')"));
-            Isolation::None
-        }
+fn reject_isolation(root: &Element, b: &mut Builder<'_>) {
+    if root.attr("isolation").is_some() {
+        b.error(
+            root,
+            "the isolation attribute was removed: every workflow now runs in its own git worktree; delete the attribute".to_string(),
+        );
     }
 }
 
@@ -344,7 +342,7 @@ pub fn parse_workflow(default_name: &str, text: &str, read_file: FileReader<'_>)
         read_file,
     };
     b.check_attrs(&root, &["name", "description", "isolation"]);
-    let isolation = parse_isolation(&root, &mut b);
+    reject_isolation(&root, &mut b);
     let inputs = parse_inputs(&root, &mut b);
     let outputs = parse_outputs(&root, &mut b);
     let steps: Vec<Element> = root
@@ -360,7 +358,6 @@ pub fn parse_workflow(default_name: &str, text: &str, read_file: FileReader<'_>)
     let workflow = Workflow {
         name: name.clone(),
         description: root.attr("description").unwrap_or_default().to_string(),
-        isolation,
         inputs,
         body,
         outputs,

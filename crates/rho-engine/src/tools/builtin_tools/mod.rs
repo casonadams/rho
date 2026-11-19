@@ -56,14 +56,17 @@ pub fn build_builtin_tools_with_resolver(
     model: Option<crate::engine::compactor::llm::ModelHandle>,
     model_resolver: Option<SubagentModelResolver>,
 ) -> Result<Vec<Arc<dyn EngineTool>>> {
-    build_builtin_toolset(base_dir, config, model, model_resolver).map(|(tools, _)| tools)
+    build_builtin_toolset(base_dir, config, model, model_resolver, None).map(|(tools, _)| tools)
 }
 
+/// The built-in tools and the subagent tool. With a worktree `store`, every subagent works in its own
+/// worktree and the `worktree` tool lets the caller review and merge them.
 pub fn build_builtin_toolset(
     base_dir: &Path,
     config: &Config,
     model: Option<crate::engine::compactor::llm::ModelHandle>,
     model_resolver: Option<SubagentModelResolver>,
+    worktrees: Option<crate::worktree::WorktreeStore>,
 ) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
     let mut tools = build_workspace_native_tools(base_dir);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
@@ -106,6 +109,25 @@ pub fn build_builtin_toolset(
             .with_model_resolver(resolver)
             .with_model_roles(config.models.get("smol").cloned(), config.models.get("slow").cloned());
     }
+    if let Some(store) = worktrees {
+        subagent = subagent.with_worktrees(store.clone());
+        tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
+    }
     tools.push(Arc::new(subagent.clone()) as Arc<dyn EngineTool>);
     Ok((tools, subagent))
+}
+
+/// `tools` with the workspace-native ones (read, write, edit, bash, fd, rg) rooted at `root` instead.
+pub(crate) fn rerooted(tools: &[Arc<dyn EngineTool>], root: &Path) -> Vec<Arc<dyn EngineTool>> {
+    let native = build_workspace_native_tools(root);
+    tools
+        .iter()
+        .map(|tool| {
+            native
+                .iter()
+                .find(|n| n.name() == tool.name())
+                .cloned()
+                .unwrap_or_else(|| tool.clone())
+        })
+        .collect()
 }

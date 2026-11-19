@@ -1,6 +1,5 @@
 use super::workspace::{Fingerprint, WorkspaceChange, display, fingerprint};
 use crate::tools::traversal::walker_builder;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -10,11 +9,8 @@ const MAX_WALKED_FILES: usize = 20_000;
 
 /// The workspace files that could change, with fingerprints: uncommitted files in a git work tree
 /// (by content), or every non-ignored file found by a bounded walk elsewhere (by size and mtime).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Snapshot {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    head: Option<String>,
-    git: bool,
     files: BTreeMap<PathBuf, Fingerprint>,
     complete: bool,
 }
@@ -60,24 +56,17 @@ fn porcelain_entries(stdout: &[u8]) -> Vec<(String, String)> {
     entries
 }
 
-struct GitStatus {
-    top: PathBuf,
-    head: Option<String>,
-    entries: Vec<(String, PathBuf)>,
-}
-
-async fn git_status(root: &Path) -> Option<GitStatus> {
+/// Uncommitted paths of the git work tree containing `root`; `None` outside git.
+async fn git_status(root: &Path) -> Option<Vec<PathBuf>> {
     let top = git(root, &["rev-parse", "--show-toplevel"]).await?;
     let top = PathBuf::from(String::from_utf8_lossy(&top).trim());
-    let head = git(root, &["rev-parse", "--verify", "--quiet", "HEAD"])
-        .await
-        .map(|h| String::from_utf8_lossy(&h).trim().to_string());
     let status = git(root, &["status", "--porcelain=v1", "-z", "--untracked-files=all"]).await?;
-    let entries = porcelain_entries(&status)
-        .into_iter()
-        .map(|(code, path)| (code, top.join(path)))
-        .collect();
-    Some(GitStatus { top, head, entries })
+    Some(
+        porcelain_entries(&status)
+            .into_iter()
+            .map(|(_, path)| top.join(path))
+            .collect(),
+    )
 }
 
 fn stat_print(path: &Path) -> Fingerprint {
@@ -104,12 +93,7 @@ fn walk(root: &Path, extra: Vec<PathBuf>) -> Snapshot {
         let print = stat_print(&path);
         files.entry(path).or_insert(print);
     }
-    Snapshot {
-        head: None,
-        git: false,
-        files,
-        complete,
-    }
+    Snapshot { files, complete }
 }
 
 async fn fingerprints(paths: BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Fingerprint> {
@@ -138,17 +122,11 @@ impl Snapshot {
             let root = root.to_path_buf();
             return tokio::task::spawn_blocking(move || walk(&root, extra)).await.ok();
         };
-        let paths: BTreeSet<PathBuf> = status.entries.into_iter().map(|(_, p)| p).chain(extra).collect();
+        let paths: BTreeSet<PathBuf> = status.into_iter().chain(extra).collect();
         Some(Self {
-            head: status.head,
-            git: true,
             files: fingerprints(paths).await,
             complete: true,
         })
-    }
-
-    pub(crate) fn is_git(&self) -> bool {
-        self.git
     }
 
     pub(crate) fn changes_since(&self, before: &Self, root: &Path) -> Changes {
@@ -162,36 +140,6 @@ impl Snapshot {
             files,
             complete: self.complete && before.complete,
         }
-    }
-
-    /// Files whose content changed after this git snapshot was taken, compared against its `HEAD`
-    /// for files that were clean then; `None` outside git.
-    pub(crate) async fn changed_after(&self, root: &Path) -> Option<BTreeSet<WorkspaceChange>> {
-        if !self.git {
-            return None;
-        }
-        let status = git_status(root).await?;
-        let mut moved: BTreeSet<PathBuf> = status
-            .entries
-            .iter()
-            .filter(|(code, _)| code == "??")
-            .map(|(_, path)| path.clone())
-            .collect();
-        if let Some(head) = &self.head {
-            let diff = git(root, &["diff", "--no-renames", "--name-only", "-z", head, "--"]).await;
-            moved.extend(nul_separated(&diff.unwrap_or_default()).map(|p| status.top.join(p)));
-        }
-        let candidates: BTreeSet<PathBuf> = moved.iter().chain(self.files.keys()).cloned().collect();
-        let now = fingerprints(candidates).await;
-        let changed = now
-            .iter()
-            .filter(|(path, print)| match self.files.get(*path) {
-                Some(seen) => seen != *print,
-                None => moved.contains(*path),
-            })
-            .map(|(path, _)| change(root, path))
-            .collect();
-        Some(changed)
     }
 }
 
@@ -265,29 +213,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn changed_after_compares_clean_files_with_the_old_head() {
-        let (_dir, root, git_cmd) = repo();
-        std::fs::write(root.join("edited.rs"), "dirty").unwrap();
-        let saved = Snapshot::take(&root, None).await.unwrap();
-        let restored: Snapshot = serde_json::from_value(serde_json::to_value(&saved).unwrap()).unwrap();
-
-        std::fs::write(root.join("kept.rs"), "changed").unwrap();
-        git_cmd(&["commit", "--quiet", "-am", "later"]);
-        std::fs::write(root.join("fresh.rs"), "x").unwrap();
-        std::fs::remove_file(root.join("gone.rs")).unwrap();
-
-        let changed = restored.changed_after(&root).await.unwrap();
-        assert_eq!(labels(&changed), ["fresh.rs", "gone.rs (deleted)", "kept.rs"]);
-    }
-
-    #[tokio::test]
     async fn outside_git_a_bounded_walk_finds_edits_new_files_and_deletions() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         std::fs::write(root.join("a.rs"), "1").unwrap();
         std::fs::write(root.join("b.rs"), "1").unwrap();
         let before = Snapshot::take(&root, None).await.unwrap();
-        assert!(!before.is_git());
 
         std::fs::write(root.join("a.rs"), "22").unwrap();
         std::fs::remove_file(root.join("b.rs")).unwrap();
@@ -297,7 +228,6 @@ mod tests {
         let changes = after.changes_since(&before, &root);
         assert!(changes.complete);
         assert_eq!(labels(&changes.files), ["a.rs", "b.rs (deleted)", "c.rs"]);
-        assert!(after.changed_after(&root).await.is_none());
         assert!(Snapshot::take(&root.join("missing"), None).await.is_none());
     }
 }

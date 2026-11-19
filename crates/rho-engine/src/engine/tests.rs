@@ -109,7 +109,9 @@ fn assert_rebuilt_meta(rebuilt: &AgentEngine, sid: &str, tool_count: usize) {
         (rebuilt.config.max_turns, rebuilt.session_manager.session_id.as_str()),
         (7, sid)
     );
-    assert_eq!(rebuilt.tool_names().len(), tool_count);
+    let names = rebuilt.tool_names();
+    assert_eq!(names.len(), tool_count + 1, "{names:?}");
+    assert!(names.iter().any(|n| n == "worktree"), "{names:?}");
 }
 
 async fn assert_rebuilt_storage(
@@ -687,5 +689,5 @@ async fn a_handed_off_workflow_report_precedes_only_the_next_prompt() {
         prompts[0]
     );
     assert!(prompts[1].ends_with("thanks"));
-    assert!(!prompts[1].contains("refine"), "{}", prompts[1]);
+    assert!(!prompts[1].contains("[The user ran workflow"), "{}", prompts[1]);
 }

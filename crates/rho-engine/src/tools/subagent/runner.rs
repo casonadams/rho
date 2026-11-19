@@ -1,6 +1,6 @@
 use super::evidence::{OutcomeStatus, ToolOutcome, evidence, problem_count};
 use super::recovery::{attempt_recovery_synthesis, partial_result};
-use super::snapshot::{Changes, Snapshot};
+use super::snapshot::Snapshot;
 use super::workspace::{WorkspaceChange, bash_file_arguments, normalize};
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::StructuralUsage;
@@ -56,8 +56,6 @@ pub struct Round {
     pub workspace_changes: BTreeSet<WorkspaceChange>,
     /// False when the workspace comparison could not cover every file (a non-git walk hit its limit).
     pub workspace_complete: bool,
-    /// The workspace at the end of the round, kept so a continuation can report later changes.
-    pub(crate) workspace_after: Option<Snapshot>,
     pub tool_log: Vec<ToolOutcome>,
     /// Files the subagent read, wrote, or edited, relative to the workspace root.
     pub touched_files: BTreeSet<String>,
@@ -175,6 +173,7 @@ pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) 
     filtered
 }
 
+#[derive(Clone)]
 pub struct SubagentRunner {
     model: ModelHandle,
     instructions: String,
@@ -186,6 +185,8 @@ pub struct SubagentRunner {
     monitor_label: String,
     position: Option<String>,
     parent_channel: bool,
+    /// Runs in its own worktree, where nothing else writes.
+    isolated: bool,
 }
 
 struct RunState {
@@ -227,6 +228,19 @@ fn tool_result_text(message: &ChatMessage) -> String {
         .flat_map(|result| result.content.iter().filter_map(|part| part.as_text()))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Changes found by the per-command snapshots around the agent's bash calls.
+fn bash_changes(state: &RunState) -> BTreeSet<WorkspaceChange> {
+    state
+        .bash_changes
+        .iter()
+        .map(|(path, command)| WorkspaceChange {
+            path: path.clone(),
+            deleted: !state.root.join(path).exists(),
+            by: Some(command.clone()),
+        })
+        .collect()
 }
 
 fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
@@ -375,6 +389,7 @@ impl SubagentRunner {
             monitor_label: "subagent".to_string(),
             position: None,
             parent_channel: false,
+            isolated: false,
         }
     }
 
@@ -382,6 +397,23 @@ impl SubagentRunner {
     #[must_use]
     pub fn with_parent_channel(mut self) -> Self {
         self.parent_channel = true;
+        self
+    }
+
+    /// Runs the agent in `root` (its worktree): file tools, the environment it is told about, and
+    /// permission checks all treat `root` as the workspace.
+    #[must_use]
+    pub fn in_worktree(mut self, root: &std::path::Path) -> Self {
+        self.isolated = true;
+        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root);
+        if let Some(project) = &self.ctx.project {
+            let mut moved = (**project).clone();
+            moved.current_dir = root.to_path_buf();
+            self.ctx.project = Some(Arc::new(moved));
+        }
+        if let Some(hook) = &self.ctx.permission {
+            self.ctx.permission = Some(Arc::new(hook.for_working_dir(root.to_path_buf())));
+        }
         self
     }
 
@@ -483,6 +515,14 @@ impl SubagentRunner {
         }
     }
 
+    /// Round-level snapshots look for changes made outside the agent's tools, which a worktree rules out.
+    async fn round_snapshot(&self, root: &std::path::Path, previous: Option<&Snapshot>) -> Option<Snapshot> {
+        if self.isolated {
+            return None;
+        }
+        self.snapshot(root, previous).await
+    }
+
     pub(crate) fn with_evidence(body: &str, round: &Round) -> String {
         let evidence = evidence(
             &round.changed_files,
@@ -525,7 +565,8 @@ impl SubagentRunner {
             }
         };
         let root = self.workspace_root();
-        let before = self.snapshot(&root, None).await;
+        let before = self.round_snapshot(&root, None).await;
+        let mut complete = true;
         let mut state = RunState {
             task_pending: !task.is_empty(),
             task,
@@ -549,22 +590,22 @@ impl SubagentRunner {
         if let Some(tracker) = &state.tracker {
             tracker.finish(self.final_status(&end));
         }
-        let after = self.snapshot(&state.root, before.as_ref()).await;
-        let changes = match (&before, &after) {
-            (Some(before), Some(after)) => after.changes_since(before, &state.root),
-            _ => Changes {
-                files: BTreeSet::new(),
-                complete: true,
-            },
+        let after = self.round_snapshot(&state.root, before.as_ref()).await;
+        let workspace_changes = match (&before, &after) {
+            (Some(before), Some(after)) => {
+                let changes = after.changes_since(before, &state.root);
+                complete = changes.complete;
+                changes
+                    .files
+                    .into_iter()
+                    .map(|mut change| {
+                        change.by = state.bash_changes.get(&change.path).cloned();
+                        change
+                    })
+                    .collect()
+            }
+            _ => bash_changes(&state),
         };
-        let workspace_changes = changes
-            .files
-            .into_iter()
-            .map(|mut change| {
-                change.by = state.bash_changes.get(&change.path).cloned();
-                change
-            })
-            .collect();
         Round {
             end,
             transcript: state.messages,
@@ -573,8 +614,7 @@ impl SubagentRunner {
             tokens: state.usage.input_tokens + state.usage.output_tokens,
             changed_files: state.changed_files,
             workspace_changes,
-            workspace_complete: changes.complete,
-            workspace_after: after,
+            workspace_complete: complete,
             tool_log: state.tool_log,
             touched_files: state.touched_files,
         }

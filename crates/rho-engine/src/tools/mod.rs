@@ -20,6 +20,7 @@ pub mod truncate;
 pub mod types;
 pub mod web;
 pub mod workflow;
+pub mod worktree_tool;
 pub mod write;
 
 pub use artifact::{cleanup_artifacts, default_artifact_dir, format_artifact_notice, spill_artifact};
@@ -41,4 +42,5 @@ pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 pub use workflow::{WorkflowRun, WorkflowRunner};
+pub use worktree_tool::WorktreeTool;
 pub use write::{WriteArgs, WriteTool};

@@ -12,7 +12,7 @@ use crate::tools::subagent::SubagentTool;
 use executor::{Executor, Frame};
 use report::RunLog;
 use rho_harness_core::presentation::ToolStreamPort;
-use rho_harness_core::workflow::{ModelRole, Node, NodeKind, Workflow, WorkflowBundle, WorkflowCatalog};
+use rho_harness_core::workflow::{ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -138,17 +138,23 @@ impl WorkflowRunner {
             "run_started",
             json!({ "workflow": bundle.name, "location": bundle.location, "inputs": inputs }),
         );
-        let branch = match self.isolate(&bundle.entry).await {
-            Ok(branch) => branch,
-            Err(e) => {
-                let report = log.report(&format!("Workflow `{}` did not start: {e}", bundle.name), None);
-                return failed(report);
-            }
+        let workdir = match self.subagents.worktrees() {
+            Some(store) => match store.create(&self.base_dir, &format!("workflow {}", bundle.name)).await {
+                Ok(worktree) => worktree,
+                Err(e) => {
+                    let report = log.report(&format!("Workflow `{}` did not start: {e}", bundle.name), None);
+                    return failed(report);
+                }
+            },
+            None => None,
         };
+        let base_dir = workdir
+            .as_ref()
+            .map_or_else(|| self.base_dir.clone(), |w| w.path.clone());
         let executor = Executor {
             subagents: &self.subagents,
             catalog,
-            base_dir: &self.base_dir,
+            base_dir: &base_dir,
             log: &log,
         };
         let frame = Frame {
@@ -157,31 +163,44 @@ impl WorkflowRunner {
         };
         let result = executor.run_workflow(frame, &bundle.entry, inputs).await;
         log.event("run_finished", json!({ "ok": result.is_ok() }));
-        let on_branch = branch.map(|b| format!(" on branch `{b}`")).unwrap_or_default();
-        match result {
-            Ok(outputs) => WorkflowRun {
-                ok: true,
-                report: log.report(
-                    &format!("Workflow `{}` completed{on_branch}.", bundle.name),
-                    Some(&outputs),
-                ),
-                started: true,
-            },
-            Err(e) => WorkflowRun {
-                ok: false,
-                report: log.report(&format!("Workflow `{}` stopped{on_branch}: {e}", bundle.name), None),
-                started: true,
-            },
+        let handoff = match &workdir {
+            Some(worktree) => hand_off(worktree).await,
+            None => String::new(),
+        };
+        let (ok, report) = match result {
+            Ok(outputs) => (
+                true,
+                log.report(&format!("Workflow `{}` completed.", bundle.name), Some(&outputs)),
+            ),
+            Err(e) => (
+                false,
+                log.report(&format!("Workflow `{}` stopped: {e}", bundle.name), None),
+            ),
+        };
+        WorkflowRun {
+            ok,
+            report: format!("{report}{handoff}"),
+            started: true,
         }
     }
+}
 
-    async fn isolate(&self, workflow: &Workflow) -> Result<Option<String>, String> {
-        match workflow.isolation {
-            rho_harness_core::workflow::Isolation::None => Ok(None),
-            rho_harness_core::workflow::Isolation::Branch => {
-                command::start_branch(&self.base_dir, &workflow.name).await.map(Some)
-            }
-        }
+/// Where the run's changes are and how the parent lands them; a run without changes leaves nothing behind.
+async fn hand_off(worktree: &crate::worktree::Worktree) -> String {
+    match worktree.changes().await {
+        Ok((_, changes)) if changes.is_empty() => match worktree.remove().await {
+            Ok(()) => "\nThe workflow made no file changes.\n".to_string(),
+            Err(e) => format!("\nThe workflow made no file changes, but its worktree could not be removed: {e}\n"),
+        },
+        Ok((_, changes)) => format!(
+            "\nThe workflow's changes are in {}. Nothing has touched your working tree: review them (worktree action diff), then merge or discard the worktree with the worktree tool.\n",
+            worktree.summary(&changes)
+        ),
+        Err(e) => format!(
+            "\nThe workflow ran in worktree `{}` ({}), but its changes could not be listed: {e}\n",
+            worktree.id,
+            worktree.path.display()
+        ),
     }
 }
 

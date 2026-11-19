@@ -7,7 +7,18 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::SubagentArgs;
+use rho_harness_core::args::{SubagentArgs, WorktreeArgs};
+
+pub static PROMPT_WORKTREE: &str = "\
+Review and land work that subagents and workflows did in their own git worktrees.
+
+Usage:
+- Every subagent and workflow works in its own worktree, a separate checkout outside your working tree. Their changes reach your working tree only when you merge them.
+- `list` shows worktrees with unmerged changes; `diff` shows one worktree's changes.
+- Review before merging: read the diff, and run checks in the worktree directory if needed.
+- `merge` applies the changes to your working tree with a three-way merge against your current files (uncommitted edits included), then removes the worktree. Files changed on both sides get <<<<<<< conflict markers: resolve them with edit, then re-run checks.
+- `discard` deletes a worktree you do not want.
+- To have a subagent fix its work before merging, continue its task with the subagent tool's `task_id`; it keeps working in the same worktree.";
 
 pub static PROMPT_READ: &str = "\
 Read file contents with offset and limit safeguards.
@@ -187,6 +198,13 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_SUBAGENT,
         prompt_snippet: "Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')",
         schema: generated_schema::<SubagentArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "worktree",
+        capability: BuiltinToolKind::WorkspaceMutation,
+        prompt: PROMPT_WORKTREE,
+        prompt_snippet: "Review, merge, or discard the git worktrees where subagents and workflows did their work",
+        schema: generated_schema::<WorktreeArgs>,
     },
 ];
 

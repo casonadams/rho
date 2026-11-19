@@ -3,7 +3,9 @@ use super::executor::{Executor, Frame, Scope};
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::tools::subagent::RunnerSpec;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
+use crate::tools::subagent::handoff::settle;
 use crate::tools::subagent::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
+use crate::worktree::Worktree;
 use rho_harness_core::workflow::template::value_to_text;
 use rho_harness_core::workflow::{AgentNode, OutputFormat};
 use serde_json::{Value, json};
@@ -44,17 +46,31 @@ pub(crate) fn extract_json(text: &str) -> Option<Value> {
         .find(Value::is_object)
 }
 
+/// One workflow agent's round: its saved task, and the worktree (with its committed head) holding its
+/// changes if it made any.
+struct AgentRun {
+    round: Round,
+    task_id: Option<String>,
+    worktree: Option<(Worktree, String)>,
+}
+
 /// Why an agent step produced no value: the round did not end with a final answer.
-fn unfinished_step(round: &Round, task_id: Option<&str>) -> String {
-    let mut message = match &round.end {
+fn unfinished_step(run: &AgentRun) -> String {
+    let mut message = match &run.round.end {
         RoundEnd::Stopped { reason, summary } => format!("agent {reason} before finishing.\n\nWork so far:\n{summary}"),
-        _ => match round.body() {
+        _ => match run.round.body() {
             Ok(text) | Err(text) => text,
         },
     };
-    if let Some(id) = task_id {
+    if let Some(id) = &run.task_id {
         message.push_str(&format!(
             "\n\n(Agent task `{id}` was saved; continue it with the subagent tool.)"
+        ));
+    }
+    if let Some((worktree, _)) = &run.worktree {
+        message.push_str(&format!(
+            "\n(Its unmerged changes are in worktree `{}`; review, merge, or discard them with the worktree tool.)",
+            worktree.id
         ));
     }
     message
@@ -120,22 +136,25 @@ impl Executor<'_> {
                 .map(|a| a.location.clone()),
         };
         let started = std::time::Instant::now();
-        let (round, task_id) = self
+        let run = self
             .agent_round(&runner, &settings, &position, &build_prompt(agent, scope))
-            .await;
+            .await?;
         self.log
-            .agent_files(&position, &round, started..std::time::Instant::now());
-        if self.cancelled() || round.end == RoundEnd::Cancelled {
+            .agent_files(&position, &run.round, started..std::time::Instant::now());
+        if self.cancelled() || run.round.end == RoundEnd::Cancelled {
             return Err(CANCELLED.to_string());
         }
-        let RoundEnd::Answered(text) = &round.end else {
-            return Err(unfinished_step(&round, task_id.as_deref()));
+        let RoundEnd::Answered(text) = &run.round.end else {
+            return Err(unfinished_step(&run));
         };
         let value = match agent.output {
             OutputFormat::Text => Value::String(text.trim().to_string()),
             OutputFormat::Json => self.parse_json(text.trim()).await?,
         };
-        let problems = match round.problem_count() {
+        if let Some((worktree, head)) = &run.worktree {
+            self.land(&position, worktree, head).await?;
+        }
+        let problems = match run.round.problem_count() {
             0 => String::new(),
             1 => "1 failed tool call · ".to_string(),
             n => format!("{n} failed tool calls · "),
@@ -144,18 +163,43 @@ impl Executor<'_> {
         Ok((value, detail))
     }
 
-    /// Runs the agent, saving its round to the parent session as an A2A task when there is one.
+    /// Merges a finished agent's worktree into the workflow's working tree; overlapping edits from
+    /// agents that ran at the same time stop the workflow with conflict markers left to resolve.
+    async fn land(&self, position: &str, worktree: &Worktree, head: &str) -> Result<(), String> {
+        let outcome = worktree.merge_head_into(head, self.base_dir).await?;
+        let files: Vec<&str> = outcome.changed.iter().map(|c| c.path.as_str()).collect();
+        self.log.event(
+            "agent_merged",
+            json!({ "step": position, "worktree": worktree.id, "files": files, "conflicts": outcome.conflicts }),
+        );
+        if outcome.conflicts.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "{position}'s changes conflict with changes another agent already made: conflict markers were left in {} in {}. Resolve them, then merge the workflow's worktree.",
+            outcome.conflicts.join(", "),
+            self.base_dir.display()
+        ))
+    }
+
+    /// Runs the agent in its own worktree (when worktrees are available), saving its round to the parent
+    /// session as an A2A task when there is one.
     async fn agent_round(
         &self,
         runner: &SubagentRunner,
         settings: &ConversationSettings,
         position: &str,
         prompt: &str,
-    ) -> (Round, Option<String>) {
+    ) -> Result<AgentRun, String> {
+        let label = format!("workflow {position}");
         let Some(session) = &self.ctx().session else {
-            return (runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await, None);
+            return self.unsaved_round(runner, &label, prompt).await;
         };
-        let outcome = Exchange::start(settings).exchange(runner, session, prompt, None).await;
+        let mut exchange = Exchange::start(settings);
+        if let Some(store) = self.subagents.worktrees() {
+            exchange = exchange.with_worktree(store, self.base_dir, &label).await?;
+        }
+        let outcome = exchange.exchange(runner, session, prompt, None).await;
         let state = outcome.task.status.state;
         self.log.event(
             "agent_task",
@@ -167,8 +211,38 @@ impl Executor<'_> {
                 .warn(format!("agent task for {position} was not saved: {error}")),
             None => self.log.task(position, &outcome.task.id, state),
         }
-        let task_id = outcome.continuable_id().map(str::to_string);
-        (outcome.round, task_id)
+        if let Some(error) = &outcome.worktree_error {
+            return Err(format!("{position}'s worktree could not be committed: {error}"));
+        }
+        Ok(AgentRun {
+            task_id: outcome.continuable_id().map(str::to_string),
+            worktree: outcome.worktree.zip(outcome.record.map(|r| r.head)),
+            round: outcome.round,
+        })
+    }
+
+    async fn unsaved_round(&self, runner: &SubagentRunner, label: &str, prompt: &str) -> Result<AgentRun, String> {
+        let worktree = match self.subagents.worktrees() {
+            Some(store) => store.create(self.base_dir, label).await?,
+            None => None,
+        };
+        let runner = match &worktree {
+            Some(worktree) => runner.clone().in_worktree(&worktree.path),
+            None => runner.clone(),
+        };
+        let round = runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await;
+        let worktree = match worktree {
+            Some(worktree) => {
+                let record = settle(&worktree).await?;
+                (!record.removed).then_some((worktree, record.head))
+            }
+            None => None,
+        };
+        Ok(AgentRun {
+            round,
+            task_id: None,
+            worktree,
+        })
     }
 
     async fn parse_json(&self, text: &str) -> Result<Value, String> {

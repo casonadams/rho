@@ -14,7 +14,7 @@ fn wrap(body: &str) -> String {
 }
 
 const REFINE: &str = r#"
-<workflow name="refine" description="Scan and fix" isolation="branch">
+<workflow name="refine" description="Scan and fix">
   <input name="profile" choices="review security"/>
   <input name="rounds" default="6"/>
 
@@ -40,7 +40,6 @@ const REFINE: &str = r#"
 fn parses_a_nested_workflow_into_typed_nodes() {
     let wf = parse(REFINE).unwrap();
     assert_eq!(wf.name, "refine");
-    assert_eq!(wf.isolation, Isolation::Branch);
     assert_eq!(wf.inputs[1].default.as_deref(), Some("6"));
     assert_eq!(
         wf.outputs,
@@ -131,8 +130,8 @@ fn rejects_bad_documents_and_roots() {
         ("<steps/>", "root element must be <workflow>"),
         ("<workflow></workflow>", "has no steps"),
         (
-            "<workflow isolation=\"vm\"><run cmd=\"x\"/></workflow>",
-            "isolation must be",
+            "<workflow isolation=\"branch\"><run cmd=\"x\"/></workflow>",
+            "every workflow now runs in its own git worktree",
         ),
         ("<workflow><run cmd=\"x\">", "never closed"),
         (

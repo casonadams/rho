@@ -48,6 +48,28 @@ async fn test_denied_call_skipped_with_reason() {
 }
 
 #[tokio::test]
+async fn a_hook_for_a_worktree_treats_the_worktree_as_the_workspace() {
+    let main = tempdir().unwrap();
+    let worktree = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(false, None));
+    let hook = PermissionHook::with_policy(Some(main.path().to_path_buf()), presenter, build_policy(None, None));
+    let agent = hook.for_working_dir(worktree.path().to_path_buf());
+    let write = |path: std::path::PathBuf| json!({ "path": path.to_string_lossy(), "content": "x" });
+
+    let inside = agent
+        .check_permission("write", &write(worktree.path().join("a.rs")))
+        .await;
+    let relative = agent
+        .check_permission("write", &json!({ "path": "src/a.rs", "content": "x" }))
+        .await;
+    let into_main = agent.check_permission("write", &write(main.path().join("a.rs"))).await;
+
+    assert_eq!(inside, PermissionAction::Proceed);
+    assert_eq!(relative, PermissionAction::Proceed);
+    assert!(matches!(into_main, PermissionAction::Deny(_)), "{into_main:?}");
+}
+
+#[tokio::test]
 async fn test_ask_in_headless_mode_fails_closed() {
     let dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(false, None));

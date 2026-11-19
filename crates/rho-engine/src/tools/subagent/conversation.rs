@@ -1,8 +1,9 @@
+use super::handoff::{WORKTREE_ARTIFACT, WorktreeRecord, changed_since, moved_note, pending_note, settle};
 use super::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
-use super::snapshot::Snapshot;
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths, versions};
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::tools::types::ToolResult;
+use crate::worktree::{Worktree, WorktreeStore};
 use rho_harness_core::a2a::{Artifact, Message, Part, Role, Task, TaskState};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::{SessionManager, SubagentContext};
@@ -17,8 +18,6 @@ pub(crate) const WORKSPACE_CHANGES_ARTIFACT: &str = "workspace-changes";
 pub(crate) const TOOL_CALLS_ARTIFACT: &str = "tool-calls";
 /// Content fingerprints of the files the subagent has read or edited, checked when it is continued.
 pub(crate) const FILE_VERSIONS_ARTIFACT: &str = "file-versions";
-/// The git workspace state at the end of the task's last round, compared when it is continued.
-const WORKSPACE_STATE_ARTIFACT: &str = "workspace-state";
 const MAX_NOTED_OTHERS: usize = 20;
 
 pub(crate) fn artifact_data<'a>(task: &'a Task, name: &str) -> Option<&'a Value> {
@@ -41,6 +40,10 @@ fn file_versions(task: &Task) -> BTreeMap<String, Fingerprint> {
         .unwrap_or_default()
 }
 
+pub(crate) fn worktree_record(task: &Task) -> Option<WorktreeRecord> {
+    artifact_data(task, WORKTREE_ARTIFACT).and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
 fn others_note(others: &[WorkspaceChange]) -> String {
     if others.is_empty() {
         return String::new();
@@ -59,7 +62,10 @@ fn others_note(others: &[WorkspaceChange]) -> String {
     )
 }
 
-fn stale_note(stale: &[String]) -> String {
+fn stale_text(stale: &[String]) -> String {
+    if stale.is_empty() {
+        return String::new();
+    }
     format!(
         "[These files changed since you last read or edited them; re-read them before relying on what you saw earlier: {}]\n\n",
         stale.join(", ")
@@ -136,7 +142,9 @@ pub(crate) struct Exchange {
     saved_len: usize,
     continues_question: bool,
     versions: BTreeMap<String, Fingerprint>,
-    workspace: Option<Snapshot>,
+    /// The worktree recorded at the end of the conversation's last round.
+    previous: Option<WorktreeRecord>,
+    worktree: Option<Worktree>,
 }
 
 impl Exchange {
@@ -147,7 +155,8 @@ impl Exchange {
             saved_len: 0,
             continues_question: false,
             versions: BTreeMap::new(),
-            workspace: None,
+            previous: None,
+            worktree: None,
         }
     }
 
@@ -167,13 +176,32 @@ impl Exchange {
         };
         Ok(Self {
             versions: file_versions(latest),
-            workspace: artifact_data(latest, WORKSPACE_STATE_ARTIFACT)
-                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+            previous: worktree_record(latest),
             task,
             saved_len: context.transcript.len(),
             transcript: context.transcript,
             continues_question,
+            worktree: None,
         })
+    }
+
+    /// Gives the round a worktree: the conversation's existing one if it still has unmerged changes,
+    /// otherwise a new one from `source`. Outside git the agent runs in `source` itself.
+    pub(crate) async fn with_worktree(
+        mut self,
+        store: &WorktreeStore,
+        source: &std::path::Path,
+        label: &str,
+    ) -> Result<Self, String> {
+        let existing = match self.previous.as_ref().filter(|p| !p.removed) {
+            Some(record) => store.find(source, &record.id).await,
+            None => None,
+        };
+        self.worktree = match existing {
+            Some(worktree) => Some(worktree),
+            None => store.create(source, label).await?,
+        };
+        Ok(self)
     }
 
     pub(crate) fn settings(&self) -> ConversationSettings {
@@ -211,15 +239,19 @@ impl Exchange {
         reference: Option<&str>,
     ) -> Outcome {
         self.send(input, reference.filter(|_| !self.continues_question));
+        let runner = match &self.worktree {
+            Some(worktree) => runner.clone().in_worktree(&worktree.path),
+            None => runner.clone(),
+        };
         let root = runner.workspace_root();
         let stale = stale_paths(&root, &self.versions).await;
         let others = self.other_changes(&root, &stale).await;
-        let stale_text = if stale.is_empty() {
-            String::new()
-        } else {
-            stale_note(&stale)
-        };
-        let noted = format!("{stale_text}{}{input}", others_note(&others));
+        let noted = format!(
+            "{}{}{}{input}",
+            self.moved_text(),
+            stale_text(&stale),
+            others_note(&others)
+        );
         let round_input = if self.continues_question {
             RoundInput::Reply(&noted)
         } else {
@@ -229,7 +261,16 @@ impl Exchange {
         let round = runner.run_round(transcript, round_input).await;
         let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
         let file_versions = versions(&root, tracked).await;
-        self.finish(&round, &file_versions);
+        let worktree = match &self.worktree {
+            Some(worktree) => Some(settle(worktree).await),
+            None => None,
+        };
+        let (record, worktree_error) = match worktree {
+            Some(Ok(record)) => (Some(record), None),
+            Some(Err(error)) => (None, Some(error)),
+            None => (None, None),
+        };
+        self.finish(&round, &file_versions, record.as_ref());
         let saved = session
             .record_subagent_task(&self.task, self.new_messages(&round))
             .await;
@@ -239,24 +280,42 @@ impl Exchange {
             save_error: saved.err().map(|e| e.to_string()),
             stale,
             others,
+            worktree: self.worktree.filter(|_| record.as_ref().is_some_and(|r| !r.removed)),
+            record,
+            worktree_error,
         }
     }
 
-    /// Workspace files changed since the task's last round that are not among the files it read.
+    fn moved_text(&self) -> String {
+        match (&self.previous, &self.worktree) {
+            (Some(previous), Some(current)) if previous.id != current.id => moved_note(previous, current),
+            _ => String::new(),
+        }
+    }
+
+    /// Files that differ from what the subagent last saw, other than the ones it read.
     async fn other_changes(&self, root: &std::path::Path, stale: &[String]) -> Vec<WorkspaceChange> {
-        let Some(workspace) = &self.workspace else {
+        let Some(previous) = &self.previous else {
             return Vec::new();
         };
-        workspace
-            .changed_after(root)
+        let fresh_base = self
+            .worktree
+            .as_ref()
+            .filter(|w| w.id != previous.id)
+            .map(|w| w.base.as_str());
+        changed_since(root, &previous.head, fresh_base)
             .await
-            .unwrap_or_default()
             .into_iter()
             .filter(|change| !stale.contains(&change.path))
             .collect()
     }
 
-    fn finish(&mut self, round: &Round, file_versions: &BTreeMap<String, Fingerprint>) {
+    fn finish(
+        &mut self,
+        round: &Round,
+        file_versions: &BTreeMap<String, Fingerprint>,
+        worktree: Option<&WorktreeRecord>,
+    ) {
         let (state, text) = match &round.end {
             RoundEnd::Answered(text) => (TaskState::Completed, Some(text.trim().to_string())),
             RoundEnd::Asked(question) => (TaskState::InputRequired, Some(question.clone())),
@@ -294,8 +353,8 @@ impl Exchange {
         if !file_versions.is_empty() {
             self.add_artifact(FILE_VERSIONS_ARTIFACT, Part::data(serde_json::json!(file_versions)));
         }
-        if let Some(state) = round.workspace_after.as_ref().filter(|s| s.is_git()) {
-            self.add_artifact(WORKSPACE_STATE_ARTIFACT, Part::data(serde_json::json!(state)));
+        if let Some(record) = worktree {
+            self.add_artifact(WORKTREE_ARTIFACT, Part::data(serde_json::json!(record)));
         }
         self.task.set_status(state, message);
     }
@@ -327,6 +386,9 @@ pub(crate) struct Outcome {
     pub stale: Vec<String>,
     /// Other workspace files the subagent was told had changed since its last round.
     pub others: Vec<WorkspaceChange>,
+    pub worktree: Option<Worktree>,
+    pub record: Option<WorktreeRecord>,
+    pub worktree_error: Option<String>,
 }
 
 impl Outcome {
@@ -358,6 +420,14 @@ impl Outcome {
                 self.others.len()
             ));
         }
+        if let Some(record) = &self.record {
+            text.push_str(&pending_note(record));
+        }
+        if let Some(error) = &self.worktree_error {
+            text.push_str(&format!(
+                "\n\nWarning: the subagent's worktree could not be committed ({error}); check it with the worktree tool's list action."
+            ));
+        }
         match &self.save_error {
             Some(error) => text.push_str(&format!(
                 "\n\nWarning: this subagent task was not saved ({error}), so it cannot be continued."
@@ -379,7 +449,7 @@ impl Outcome {
                 "\n\nThe subagent is waiting. Reply with subagent {{\"task_id\": \"{id}\", \"prompt\": \"<answer or go-ahead>\"}}. Inspect its tool calls and evidence with {{\"task_id\": \"{id}\", \"inspect\": true}}."
             ),
             _ => format!(
-                "\n\nVerify before accepting: re-read the changed files and re-run your checks. Inspect its tool calls with subagent {{\"task_id\": \"{id}\", \"inspect\": true}}; request fixes with {{\"task_id\": \"{id}\", \"prompt\": \"<feedback>\"}}."
+                "\n\nVerify before accepting: review the changed files and re-run your checks. Inspect its tool calls with subagent {{\"task_id\": \"{id}\", \"inspect\": true}}; request fixes with {{\"task_id\": \"{id}\", \"prompt\": \"<feedback>\"}} (it continues in the same worktree until you merge or discard it)."
             ),
         }
     }
@@ -772,20 +842,134 @@ mod tests {
             first.contains("not by its tools (editors, other agents, or processes): notes.md\n"),
             "{first}"
         );
+    }
 
-        std::fs::write(root.join("other.rs"), "v2").unwrap();
-        adapter.add_turn(vec![Ok(ModelStreamEvent::Text("rechecked".into()))]);
-        let second = ask(&tool, json!({ "task_id": task_id(&first), "prompt": "again" })).await;
+    struct WorktreeSetup {
+        dir: tempfile::TempDir,
+        root: std::path::PathBuf,
+        store: crate::worktree::WorktreeStore,
+        adapter: MockAdapter,
+        tool: Arc<dyn EngineTool>,
+    }
 
-        let prompt = adapter.requests().pop().unwrap().prompt;
+    fn write_turn(path: &str, body: &str) -> Vec<ModelStreamEvent> {
+        call("write", json!({ "path": path, "content": body }))
+    }
+
+    /// A repository and a subagent tool whose `write` runs for real inside each subagent's worktree.
+    fn worktree_setup(turns: Vec<Vec<ModelStreamEvent>>) -> WorktreeSetup {
+        let (dir, root) = crate::worktree::git::test_repo::create(&[("a.rs", "base\n"), ("other.rs", "v1\n")]);
+        let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
+        let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
+        let placeholder: Arc<dyn EngineTool> = Arc::new(GenericTool::new(
+            "write",
+            "replaced in the worktree",
+            json!({}),
+            |_| async { Ok(ToolResult::error("the placeholder must never run")) },
+        ));
+        let adapter = MockAdapter::from_turns(turns);
+        let ctx = TurnToolContext {
+            session: Some(session),
+            project: Some(Arc::new(crate::engine::context::ProjectContext::for_tests(&root))),
+            ..Default::default()
+        };
+        let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![placeholder])
+            .with_worktrees(store.clone())
+            .bind_turn(&ctx)
+            .unwrap();
+        WorktreeSetup {
+            dir,
+            root,
+            store,
+            adapter,
+            tool,
+        }
+    }
+
+    #[tokio::test]
+    async fn subagents_work_in_their_own_worktree_and_feedback_continues_there() {
+        let s = worktree_setup(vec![write_turn("a.rs", "agent\n"), text("wrote a.rs")]);
+
+        let first = ask(
+            &s.tool,
+            json!({ "name": "fixer", "role": "general", "prompt": "fix a.rs" }),
+        )
+        .await;
+        let worktree = s.store.list(&s.root).await.pop().unwrap();
+
+        assert!(
+            first.contains(&format!("These changes are in worktree `{}`", worktree.id)),
+            "{first}"
+        );
         assert_eq!(
-            prompt,
-            "[Other files changed in the workspace since your last turn: other.rs.]\n\nagain"
+            std::fs::read_to_string(s.root.join("a.rs")).unwrap(),
+            "base\n",
+            "main is untouched"
+        );
+        assert_eq!(std::fs::read_to_string(worktree.path.join("a.rs")).unwrap(), "agent\n");
+
+        s.adapter
+            .add_turn(write_turn("b.rs", "more\n").into_iter().map(Ok).collect());
+        s.adapter
+            .add_turn(vec![Ok(ModelStreamEvent::Text("added b.rs".into()))]);
+        let second = ask(
+            &s.tool,
+            json!({ "task_id": task_id(&first), "prompt": "also add b.rs" }),
+        )
+        .await;
+
+        assert_eq!(
+            s.store.list(&s.root).await,
+            std::slice::from_ref(&worktree),
+            "feedback continues in the same worktree"
         );
         assert!(
-            second.contains("Told the subagent 1 other workspace file(s) changed since its last round."),
+            second.contains("not in your working tree: a.rs, b.rs (added)."),
             "{second}"
         );
+        assert!(second.contains("Files changed: b.rs\nTool outcomes"), "{second}");
+        assert!(!s.adapter.requests().pop().unwrap().prompt.contains("previous worktree"));
+    }
+
+    #[tokio::test]
+    async fn after_a_merge_a_continued_subagent_gets_a_fresh_worktree_and_hears_what_changed() {
+        let s = worktree_setup(vec![write_turn("a.rs", "agent\n"), text("wrote a.rs")]);
+        let first = ask(&s.tool, json!({ "role": "general", "prompt": "fix a.rs" })).await;
+        let worktree = s.store.list(&s.root).await.pop().unwrap();
+        std::fs::write(s.root.join("other.rs"), "parent edit\n").unwrap();
+        let parent = crate::tools::WorktreeTool::new(&s.root, s.store.clone());
+
+        let merged = parent
+            .execute(json!({ "action": "merge", "id": worktree.id }))
+            .await
+            .unwrap();
+        s.adapter
+            .add_turn(vec![Ok(ModelStreamEvent::Text("looked again".into()))]);
+        let again = ask(
+            &s.tool,
+            json!({ "task_id": task_id(&first), "prompt": "check other.rs" }),
+        )
+        .await;
+
+        assert!(
+            merged.content.starts_with("Merged 1 file(s): a.rs."),
+            "{}",
+            merged.content
+        );
+        assert_eq!(std::fs::read_to_string(s.root.join("a.rs")).unwrap(), "agent\n");
+        let prompt = s.adapter.requests().pop().unwrap().prompt;
+        assert!(prompt.starts_with("[Your previous worktree "), "{prompt}");
+        assert!(
+            prompt
+                .ends_with("[Other files changed in the workspace since your last turn: other.rs.]\n\ncheck other.rs"),
+            "{prompt}"
+        );
+        assert!(
+            !again.contains("These changes are in worktree"),
+            "no changes, no worktree: {again}"
+        );
+        assert!(s.store.list(&s.root).await.is_empty());
+        drop(s.dir);
     }
 
     #[test]

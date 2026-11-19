@@ -22,11 +22,14 @@ pub enum PermissionAction {
 
 pub struct PermissionHook {
     working_dir: Option<PathBuf>,
+    /// The project whose policy files are reloaded after a rule is saved; differs from
+    /// `working_dir` for agents running in a worktree.
+    policy_dir: Option<PathBuf>,
     presenter: Arc<dyn Presenter>,
     policy: Arc<RwLock<Policy>>,
     guard_evaluator: Option<GuardEvaluator>,
     mcp_servers: Vec<String>,
-    prompt_lock: tokio::sync::Mutex<()>,
+    prompt_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 fn settled(decision: Decision) -> Option<PermissionAction> {
@@ -41,24 +44,26 @@ impl PermissionHook {
     pub fn new(working_dir: Option<PathBuf>, presenter: Arc<dyn Presenter>) -> Self {
         let policy = load_policy(working_dir.as_deref());
         Self {
+            policy_dir: working_dir.clone(),
             working_dir,
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
             mcp_servers: Vec::new(),
-            prompt_lock: tokio::sync::Mutex::new(()),
+            prompt_lock: Arc::default(),
         }
     }
 
     #[cfg(test)]
     pub fn with_policy(working_dir: Option<PathBuf>, presenter: Arc<dyn Presenter>, policy: Policy) -> Self {
         Self {
+            policy_dir: working_dir.clone(),
             working_dir,
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
             mcp_servers: Vec::new(),
-            prompt_lock: tokio::sync::Mutex::new(()),
+            prompt_lock: Arc::default(),
         }
     }
 
@@ -70,6 +75,21 @@ impl PermissionHook {
     pub fn with_mcp_servers(mut self, servers: Vec<String>) -> Self {
         self.mcp_servers = servers;
         self
+    }
+
+    /// The same rules, approvals, and prompt queue, with paths judged relative to `working_dir`
+    /// (an agent's worktree), so its own files count as inside the workspace.
+    #[must_use]
+    pub fn for_working_dir(&self, working_dir: PathBuf) -> Self {
+        Self {
+            working_dir: Some(working_dir),
+            policy_dir: self.policy_dir.clone(),
+            presenter: self.presenter.clone(),
+            policy: self.policy.clone(),
+            guard_evaluator: self.guard_evaluator.clone(),
+            mcp_servers: self.mcp_servers.clone(),
+            prompt_lock: self.prompt_lock.clone(),
+        }
     }
 
     async fn map_interaction_action(
@@ -170,7 +190,7 @@ impl PermissionHook {
             Some(pattern) => save_custom_pattern(&target, req.tool, drafts, pattern)?,
             None => save_drafts_or_fallback(&target, req.tool, req.args, drafts)?,
         }
-        let new_policy = load_policy(req.working_dir);
+        let new_policy = load_policy(self.policy_dir.as_deref());
         let mut guard = self.policy.write().await;
         *guard = new_policy;
         Ok(())

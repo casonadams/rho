@@ -59,6 +59,9 @@ resume the exact session of each pane with `rho --resume <id>`.
   files, and bounds output.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents).
+  Each subagent works in its own git worktree.
+- **`worktree`**: Review, merge (three-way, leaving conflict markers to fix), or discard the
+  worktrees where subagents and workflows did their work.
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.

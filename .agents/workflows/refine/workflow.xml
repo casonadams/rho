@@ -1,4 +1,4 @@
-<workflow name="refine" description="Scan, fix, review, and verify rho until no actionable findings remain" isolation="branch">
+<workflow name="refine" description="Scan, fix, review, and verify rho until no actionable findings remain">
   <input name="profile" choices="review security performance reliability architecture" description="Review focus"/>
   <input name="rounds" default="6" description="Maximum scan and fix rounds"/>
 

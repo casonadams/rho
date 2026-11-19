@@ -502,3 +502,152 @@ async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent()
             )
     );
 }
+
+/// Answers each agent by its own prompt, so parallel agents get their scripted turns in any order:
+/// the first turn writes `a.rs` with the text after `WRITE `, later turns finish.
+#[derive(Debug, Default)]
+struct WritingModel;
+
+#[async_trait::async_trait]
+impl ModelAdapter for WritingModel {
+    fn model_name(&self) -> &str {
+        "writer"
+    }
+
+    fn provider_name(&self) -> &str {
+        "test"
+    }
+
+    async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
+        let body = request
+            .prompt
+            .strip_prefix("WRITE ")
+            .map(|rest| rest.lines().next().unwrap_or_default().to_string());
+        let tool_calls: Vec<rho_harness_core::model::ToolCall> = body
+            .iter()
+            .map(|body| {
+                rho_harness_core::model::ToolCall::new(
+                    format!("call-{body}"),
+                    rho_harness_core::model::ToolFunction::new(
+                        "write",
+                        serde_json::json!({ "path": "a.rs", "content": format!("{body}\n") }),
+                    ),
+                )
+            })
+            .collect();
+        Ok(ModelCompletionResponse {
+            content: if tool_calls.is_empty() {
+                "done".into()
+            } else {
+                String::new()
+            },
+            tool_calls,
+            usage: Default::default(),
+            finish_reason: None,
+        })
+    }
+
+    async fn stream(
+        &self,
+        _request: ModelCompletionRequest,
+    ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>
+    {
+        Err(AppError::Other(anyhow::anyhow!("writing model only completes")))
+    }
+}
+
+/// A repository holding `workflow`, and a workflow runner whose agents use `WritingModel` and real file tools.
+fn worktree_runner(
+    workflow: &str,
+) -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    crate::worktree::WorktreeStore,
+    WorkflowRunner,
+) {
+    let (dir, root) =
+        crate::worktree::git::test_repo::create(&[("a.rs", "base\n"), (".agents/workflows/w/workflow.xml", workflow)]);
+    let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
+    let placeholder: Arc<dyn crate::tools::EngineTool> = Arc::new(crate::tools::GenericTool::new(
+        "write",
+        "replaced by the real write tool in each worktree",
+        serde_json::json!({}),
+        |_| async { Ok(crate::tools::ToolResult::error("the placeholder must never run")) },
+    ));
+    let subagents = SubagentTool::new(Some(Arc::new(WritingModel)), vec![placeholder]).with_worktrees(store.clone());
+    let runner = WorkflowRunner::new(subagents, &root, None).bind(
+        ToolStreamPort::default(),
+        CancellationSignal::default(),
+        None,
+        None,
+        None,
+    );
+    (dir, root, store, runner)
+}
+
+#[tokio::test]
+async fn workflows_run_in_a_worktree_and_hand_their_changes_to_the_parent() {
+    let workflow = r#"<workflow name="w"><agent id="fix" use="general">WRITE agent</agent><run id="check" cmd="cat a.rs"/><output name="seen" value="{{check.output}}"/></workflow>"#;
+    let (_dir, root, store, runner) = worktree_runner(workflow);
+
+    let run = runner.run("w", BTreeMap::new()).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert!(
+        run.report.contains("\"seen\": \"agent\""),
+        "later steps see the agent's change: {}",
+        run.report
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.rs")).unwrap(),
+        "base\n",
+        "the working tree is untouched"
+    );
+    let worktrees = store.list(&root).await;
+    assert_eq!(
+        worktrees.len(),
+        1,
+        "the agent's worktree was merged into the run's and removed"
+    );
+    let run_worktree = &worktrees[0];
+    assert!(run_worktree.id.starts_with("workflow-w-"), "{}", run_worktree.id);
+    assert!(
+        run.report
+            .contains(&format!("The workflow's changes are in worktree `{}`", run_worktree.id)),
+        "{}",
+        run.report
+    );
+    assert_eq!(
+        std::fs::read_to_string(run_worktree.path.join("a.rs")).unwrap(),
+        "agent\n"
+    );
+}
+
+#[tokio::test]
+async fn parallel_agent_worktrees_with_overlapping_edits_stop_the_workflow() {
+    let workflow = r#"<workflow name="w"><parallel><agent id="left" use="general">WRITE one</agent><agent id="right" use="general">WRITE two</agent></parallel><run cmd="printf after"/></workflow>"#;
+    let (_dir, root, store, runner) = worktree_runner(workflow);
+
+    let run = runner.run("w", BTreeMap::new()).await;
+
+    assert!(!run.ok, "{}", run.report);
+    assert!(
+        run.report
+            .contains("changes conflict with changes another agent already made: conflict markers were left in a.rs"),
+        "{}",
+        run.report
+    );
+    assert!(!run.report.contains("after"), "{}", run.report);
+    assert_eq!(std::fs::read_to_string(root.join("a.rs")).unwrap(), "base\n");
+    let run_worktree = store
+        .list(&root)
+        .await
+        .into_iter()
+        .find(|w| w.id.starts_with("workflow-w-"))
+        .unwrap();
+    let merged = std::fs::read_to_string(run_worktree.path.join("a.rs")).unwrap();
+    assert!(
+        merged.contains("<<<<<<<") && merged.contains("one") && merged.contains("two"),
+        "{merged}"
+    );
+}

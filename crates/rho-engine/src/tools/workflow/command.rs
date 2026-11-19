@@ -78,31 +78,6 @@ pub(crate) async fn run_command(
     })
 }
 
-async fn git(cwd: &Path, args: &[&str]) -> Result<String, String> {
-    let argv: Vec<String> = std::iter::once("git")
-        .chain(args.iter().copied())
-        .map(str::to_string)
-        .collect();
-    let outcome = run_command(&argv, cwd, None).await?;
-    if outcome.ok() {
-        Ok(outcome.stdout.trim().to_string())
-    } else {
-        Err(format!("`git {}` failed: {}", args.join(" "), outcome.combined()))
-    }
-}
-
-pub(crate) async fn start_branch(cwd: &Path, workflow: &str) -> Result<String, String> {
-    let status = git(cwd, &["status", "--porcelain"]).await?;
-    if !status.is_empty() {
-        return Err(format!(
-            "workflow '{workflow}' runs on its own branch and needs a clean working tree; commit or stash these changes first:\n{status}"
-        ));
-    }
-    let branch = format!("rho/{workflow}-{}", chrono::Local::now().format("%Y%m%d-%H%M%S"));
-    git(cwd, &["switch", "--quiet", "-c", &branch]).await?;
-    Ok(branch)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,43 +126,5 @@ mod tests {
         let cut = tail(&text, MAX_OUTPUT_CHARS);
         assert!(cut.starts_with("[... 3 characters omitted]"));
         assert!(cut.ends_with("END"));
-    }
-
-    #[tokio::test]
-    async fn branch_isolation_needs_a_clean_tree() {
-        let dir = tempfile::tempdir().unwrap();
-        let git_cmd = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .current_dir(dir.path())
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .output()
-                .unwrap();
-        };
-        git_cmd(&["init", "--quiet", "-b", "main"]);
-        git_cmd(&[
-            "-c",
-            "user.email=t@e",
-            "-c",
-            "user.name=t",
-            "commit",
-            "--quiet",
-            "--allow-empty",
-            "-m",
-            "init",
-        ]);
-        std::fs::write(dir.path().join("dirty.rs"), "x").unwrap();
-        let err = start_branch(dir.path(), "refine").await.unwrap_err();
-        assert!(
-            err.contains("needs a clean working tree") && err.contains("dirty.rs"),
-            "{err}"
-        );
-        std::fs::remove_file(dir.path().join("dirty.rs")).unwrap();
-        assert!(
-            start_branch(dir.path(), "refine")
-                .await
-                .unwrap()
-                .starts_with("rho/refine-")
-        );
     }
 }

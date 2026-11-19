@@ -47,12 +47,16 @@ permission rules, approval prompts, the guard model, or lifecycle hooks. Every
 step and every agent tool call is still recorded in the run log
 (`.rho/workflows/<name>-<time>-<id>.jsonl`), and `Esc` cancels the whole run.
 
+A workflow never touches your working tree. Each run works in its own git
+[worktree](#worktrees), and its changes reach your files only when you or the
+main agent merge them.
+
 ---
 
 ## Format
 
 ```xml
-<workflow name="refine" description="Scan, fix, verify until clean" isolation="branch">
+<workflow name="refine" description="Scan, fix, verify until clean">
   <input name="profile" choices="review security performance"/>
   <input name="rounds" default="6"/>
 
@@ -66,7 +70,10 @@ step and every agent tool call is still recorded in the run log
 |---|---|
 | `name` | Defaults to the file or directory name |
 | `description` | Shown by `/workflow` |
-| `isolation="branch"` | Run on a new branch `rho/<name>-<time>`; refuses to start on a dirty working tree |
+
+The `isolation` attribute was removed: every run is isolated in its own
+worktree, so a workflow that still sets it fails to load with a message saying
+to delete it.
 
 `<input name choices default description/>` declares an input. An input without
 a `default` is required; `choices` is a space-separated list of allowed values.
@@ -174,23 +181,51 @@ Agent tasks (continue one with the subagent tool's `task_id` to review, fix, or 
 ```
 
 The report also lists the files each agent changed (through `write`, `edit`,
-or changes that appeared while its `bash` commands ran), other files that
-changed in the workspace while agents ran, and a warning when agents that ran
-at the same time (for example in `<parallel>` or `<each>`) changed the same
-file. A
-step whose agent had failed or denied tool calls says so in its detail
+or changes that appeared while its `bash` commands ran), and a step whose
+agent had failed or denied tool calls says so in its detail
 (`2 failed tool calls`).
 
 When a run finishes or stops, its report is added in front of your next prompt,
 so the main agent sees what happened, with an instruction to verify the work
-rather than trust the report. It can inspect any listed agent (`task_id` with
-`inspect: true`) and continue it with the `subagent` tool's `task_id`, for example to answer "the
-reviewer ran out of turns; finish the review" or "you missed the test, fix
-it". A continued agent keeps everything it read and did, but runs under the
-normal permission rules and hooks: only the workflow itself is trusted. Agents
-defined in a workflow's own `agents/` directory are reloaded from their file.
-The report is kept in memory until the next prompt, so it is not handed off if
-rho exits first; the saved tasks remain.
+rather than trust the report. It can review the run's worktree
+(`worktree` tool, `diff`), merge or discard it, inspect any listed agent
+(`task_id` with `inspect: true`), and continue it with the `subagent` tool's
+`task_id`, for example to answer "the reviewer ran out of turns; finish the
+review" or "you missed the test, fix it". A continued agent keeps everything it
+read and did, but runs under the normal permission rules and hooks: only the
+workflow itself is trusted. Agents defined in a workflow's own `agents/`
+directory are reloaded from their file. The report is kept in memory until the
+next prompt, so it is not handed off if rho exits first; the saved tasks and
+the worktree remain.
+
+---
+
+## Worktrees
+
+Every run, and every agent inside it, works in its own git worktree under
+`~/.config/rho/worktrees/<repository>/`, on a branch `rho/wt/<id>`:
+
+1. The run's worktree starts from a snapshot of your working tree, including
+   uncommitted and untracked files (your index and files are not touched).
+   `<run>` commands run there.
+2. Each `<agent>` gets its own worktree from the run's current state. When it
+   finishes, rho merges its changes into the run's worktree with a three-way
+   merge, so later steps see them. Agents that run at the same time (`<parallel>`,
+   `<each>`) are fully isolated; if two of them changed the same lines, the
+   merge leaves conflict markers in the run's worktree and the workflow stops,
+   handing the conflict to the main agent. An agent that stops before
+   finishing is not merged; the report names its worktree.
+3. The run's worktree is never merged automatically. The report ends with its
+   id, path, and changed files; the main agent (or you, asking it) reviews and
+   merges it with the `worktree` tool. A run that changed nothing leaves no
+   worktree.
+
+Top-level ignored entries of your project (`target/`, `node_modules/`, `.env`)
+are symlinked into every worktree, so builds reuse caches and dependencies
+instead of starting cold; rho adds matching `/<name>` lines to the
+repository's `.git/info/exclude` so the links are never committed. Outside a
+git repository there are no worktrees and workflows run in the project
+directory.
 
 ---
 
@@ -221,7 +256,7 @@ You fix validated findings...
 ## Example
 
 ```xml
-<workflow name="refine" isolation="branch">
+<workflow name="refine">
   <input name="profile" choices="review security performance reliability architecture"/>
   <input name="rounds" default="6"/>
 

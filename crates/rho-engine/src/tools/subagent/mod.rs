@@ -1,5 +1,6 @@
 pub(crate) mod conversation;
 pub(crate) mod evidence;
+pub(crate) mod handoff;
 mod inspect;
 mod recovery;
 pub mod runner;
@@ -34,6 +35,7 @@ pub struct SubagentTool {
     model_resolver: Option<SubagentModelResolver>,
     roles: BTreeMap<&'static str, String>,
     busy: conversation::BusyContexts,
+    worktrees: Option<crate::worktree::WorktreeStore>,
 }
 
 #[derive(serde::Deserialize)]
@@ -77,6 +79,7 @@ impl SubagentTool {
             model_resolver: None,
             roles: BTreeMap::new(),
             busy: conversation::BusyContexts::default(),
+            worktrees: None,
             description: crate::tools::ToolRegistry::builtin_description("subagent").to_string(),
         }
     }
@@ -98,6 +101,25 @@ impl SubagentTool {
     pub fn with_model_resolver(mut self, resolver: SubagentModelResolver) -> Self {
         self.model_resolver = Some(resolver);
         self
+    }
+
+    /// Where every subagent's worktree is created; without a store subagents work in the project itself.
+    #[must_use]
+    pub fn with_worktrees(mut self, store: crate::worktree::WorktreeStore) -> Self {
+        self.worktrees = Some(store);
+        self
+    }
+
+    pub(crate) fn worktrees(&self) -> Option<&crate::worktree::WorktreeStore> {
+        self.worktrees.as_ref()
+    }
+
+    async fn attach_worktree(&self, exchange: conversation::Exchange) -> Result<conversation::Exchange, String> {
+        let label = format!("subagent {}", exchange.settings().name.as_deref().unwrap_or("task"));
+        match (&self.worktrees, &self.ctx.project) {
+            (Some(store), Some(project)) => exchange.with_worktree(store, &project.current_dir, &label).await,
+            _ => Ok(exchange),
+        }
     }
 
     /// Configured model names for the `smol` and `slow` roles; `default` is always the session model.
@@ -279,6 +301,7 @@ impl SubagentTool {
         };
         let exchange = conversation::Exchange::start(&settings);
         let _claim = self.busy.claim(exchange.context_id())?;
+        let exchange = self.attach_worktree(exchange).await?;
         let input = runner::build_subagent_prompt(&args.prompt, context.as_deref());
         Ok(exchange
             .converse(&runner.with_parent_channel(), session, &input, None)
@@ -309,6 +332,7 @@ impl SubagentTool {
         settings.model = args.model.clone().or(settings.model);
         let runner = self.runner_for_settings(&settings, args.turns).await?;
         let _claim = self.busy.claim(exchange.context_id())?;
+        let exchange = self.attach_worktree(exchange).await?;
         let input = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
         Ok(exchange
             .converse(&runner.with_parent_channel(), session, &input, Some(task_id))

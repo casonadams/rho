@@ -260,6 +260,28 @@ pub struct SubagentArgs {
     pub inherit_context: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WorktreeAction {
+    /// List agent worktrees with unmerged changes
+    List,
+    /// Show a worktree's changes as a stat summary and patch
+    Diff,
+    /// Three-way merge a worktree's changes into your working tree, leaving conflict markers to fix, then remove it
+    Merge,
+    /// Delete a worktree and its changes
+    Discard,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct WorktreeArgs {
+    /// What to do
+    pub action: WorktreeAction,
+    /// Worktree id from a subagent result or workflow report (required except for list)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};
@@ -287,6 +309,9 @@ pub mod write {
 }
 pub mod subagent {
     pub use super::{SubagentArgs, SubagentRole};
+}
+pub mod worktree {
+    pub use super::{WorktreeAction, WorktreeArgs};
 }
 
 #[cfg(test)]

@@ -179,12 +179,29 @@ not made by its tools. In a git work tree the snapshot covers uncommitted files
 (committing a file without changing it is not a change). Elsewhere rho walks
 the project, respecting ignore files, for up to 150 ms and 20,000 files; when
 that limit is hit the result says `Workspace check incomplete`. Snapshots cost
-one `git status` per `bash` call. Two agents running `bash` at the same moment
-(possible only in workflow `<parallel>` or `<each>` blocks) can both be
-credited with each other's changes. `Tool outcomes` counts every call and
+one `git status` per `bash` call. Inside a worktree (below) the subagent is
+the only writer, so every change is its own; the "not by its tools" line only
+appears outside git, where subagents run in the project directory. `Tool
+outcomes` counts every call and
 lists the ones that failed or were denied; the footer then reads
 `1 failed tool call, ...`, a sign that the answer may describe work that did not
 happen.
+
+- **Worktrees**: in a git repository every subagent works in its own git
+  worktree under `~/.config/rho/worktrees/<repository>/<id>`, on a branch
+  `rho/wt/<id>`, started from a snapshot of your working tree (uncommitted and
+  untracked files included; your index and files are untouched). Its file
+  tools, permission checks, and environment are rooted there, so its own files
+  count as inside the workspace and a write into your working tree asks for
+  permission. Top-level ignored entries (`target/`, `node_modules/`, `.env`)
+  are symlinked in so builds stay warm. Nothing reaches your working tree until
+  the main agent merges it: the result names the worktree and its changed
+  files, and the `worktree` tool lists, diffs, merges (a three-way merge
+  against your current files that leaves `<<<<<<<` conflict markers to fix),
+  or discards it. Review feedback with the task's `task_id` continues in the
+  same worktree until it is merged or discarded; after that, a continued
+  subagent gets a fresh worktree and is told so. A round that changes nothing
+  leaves no worktree.
 
 - **Names**: pass `name` (camelCase, e.g. `performanceAudit`; other text such
   as `performance audit` is converted) to label the subagent's progress lines,
@@ -205,10 +222,10 @@ happen.
   reads or edits, including files named as arguments to its `bash` commands
   (`cat src/a.rs`). When the task is continued, any of those files that changed
   since are named at the top of the new message so the subagent re-reads them.
-  In a git work tree, rho also lists other workspace files that changed since
-  the subagent's last round (up to 20), which covers what it saw through
-  `rg` or other directory-wide commands. The result says what the subagent was
-  told.
+  In a git repository, rho also lists other files that differ from what the
+  subagent last saw (up to 20), for example your edits after its worktree was
+  merged, which covers what it saw through `rg` or other directory-wide
+  commands. The result says what the subagent was told.
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
   without a decision. Its task becomes `input-required` and its result is
   `Question for you: ...`; the main agent answers with the same `task_id`, and

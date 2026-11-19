@@ -38,6 +38,7 @@ pub mod repeat;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod tools;
+pub mod worktree;
 
 pub fn install_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();

@@ -7,17 +7,9 @@ pub const DEFAULT_PARALLEL: usize = 4;
 pub struct Workflow {
     pub name: String,
     pub description: String,
-    pub isolation: Isolation,
     pub inputs: Vec<InputSpec>,
     pub body: Vec<Node>,
     pub outputs: Vec<(String, String)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Isolation {
-    #[default]
-    None,
-    Branch,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -241,7 +233,6 @@ mod tests {
         Workflow {
             name: "refine".into(),
             description: String::new(),
-            isolation: Isolation::None,
             inputs: vec![
                 InputSpec {
                     name: "profile".into(),

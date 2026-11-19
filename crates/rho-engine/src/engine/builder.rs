@@ -173,6 +173,7 @@ async fn build_engine_tools(
                 config,
                 Some(models.default.clone()),
                 Some(models.resolver),
+                crate::worktree::WorktreeStore::default_location(),
             )?;
             t.extend(mcp_tools);
             (t, Some(subagents))

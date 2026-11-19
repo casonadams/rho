@@ -123,7 +123,6 @@ mod tests {
                 })
                 .collect(),
             workspace_complete: true,
-            workspace_after: None,
             tool_log: Vec::new(),
             touched_files: BTreeSet::new(),
         }
