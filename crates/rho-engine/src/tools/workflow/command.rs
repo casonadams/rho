@@ -59,6 +59,7 @@ pub(crate) async fn run_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    crate::process::isolate_group(&mut command);
     let child = command
         .spawn()
         .map_err(|e| format!("failed to start `{program}`: {e}"))?;

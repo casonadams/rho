@@ -80,3 +80,19 @@ async fn isolated_child_leads_its_own_session_without_a_controlling_terminal() {
     drop(ProcessTreeGuard::new(child));
     wait_group_dead(pid).await;
 }
+
+#[tokio::test]
+#[cfg(unix)]
+async fn isolated_child_cannot_open_the_controlling_terminal() {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c").arg("read line < /dev/tty");
+    isolate_group(&mut cmd);
+    let child = cmd.spawn().expect("spawn test shell");
+
+    let mut guard = ProcessTreeGuard::new(child);
+    let status = tokio::time::timeout(std::time::Duration::from_secs(2), guard.wait())
+        .await
+        .expect("tty read must fail immediately instead of stopping the child")
+        .expect("wait succeeds");
+    assert!(!status.success());
+}
