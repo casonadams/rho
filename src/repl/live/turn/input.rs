@@ -178,5 +178,8 @@ pub(super) fn reconcile_consumed_steering<B: TerminalBackend>(
     controller
         .state_mut()
         .retain_queued(|msg| msg.kind != QueueKind::Steering || !consumed.contains(&msg.text));
+    for text in consumed {
+        let _ = controller.push_transcript_item(crate::ui::interactive::TranscriptItem::UserMessage(text));
+    }
     true
 }

@@ -80,6 +80,11 @@ Messages submitted while the agent is busy are placed in an in-memory FIFO
 queue. Once the current turn settles, queued messages execute sequentially
 without losing context.
 
+A steering message (`Enter` while the agent runs) waits in the queue until the
+agent reaches its next tool boundary. When the agent takes it, it leaves the
+queue and appears in the transcript as your message, at the point where the
+agent read it.
+
 ---
 
 ## REPL Slash Commands

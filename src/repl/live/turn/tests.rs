@@ -604,7 +604,7 @@ async fn test_turn_quota_periodic_and_updated_events_sync_footer() {
 }
 
 #[tokio::test]
-async fn test_turn_loop_tick_retires_consumed_steering_from_queue() {
+async fn test_turn_loop_tick_moves_consumed_steering_from_queue_to_transcript() {
     let mut f = LoopFixture::new("steer this tool").await;
     let mut ctx = f.context();
     dispatch(
@@ -613,10 +613,30 @@ async fn test_turn_loop_tick_retires_consumed_steering_from_queue() {
     )
     .await;
     assert_eq!(ctx.loop_ctx.controller.state().queue().len(), 1);
+    let steered = |items: &[crate::ui::interactive::TranscriptItem]| {
+        items
+            .iter()
+            .filter(
+                |item| matches!(item, crate::ui::interactive::TranscriptItem::UserMessage(t) if t == "steer this tool"),
+            )
+            .count()
+    };
+    assert_eq!(
+        steered(ctx.loop_ctx.controller.transcript()),
+        0,
+        "not shown until the agent takes it"
+    );
 
     crate::engine::runner::SteeringQueueProvider::poll_steering(&*ctx.loop_ctx.steering).await;
     ctx.loop_ctx.on_tick().unwrap();
+    ctx.loop_ctx.on_tick().unwrap();
+
     assert_eq!(ctx.loop_ctx.controller.state().queue().len(), 0);
+    assert_eq!(
+        steered(ctx.loop_ctx.controller.transcript()),
+        1,
+        "shown once, when consumed"
+    );
 }
 
 #[tokio::test]
