@@ -134,7 +134,9 @@ async fn test_web_fetch_image_returns_error() {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         if let Ok((mut stream, _)) = listener.accept().await {
-            use tokio::io::AsyncWriteExt;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await;
             let response = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\n\r\nfake";
             let _ = stream.write_all(response.as_bytes()).await;
         }
