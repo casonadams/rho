@@ -22,79 +22,89 @@ Usage:
 - To have a subagent fix its work before merging, continue its task with the subagent tool's `task_id`; it keeps working in the same worktree.";
 
 pub static PROMPT_READ: &str = "\
-Read file contents with offset and limit safeguards.
+Read a text file with line numbers, or attach an image.
 
 Usage:
-- Use read to examine files instead of cat or sed.
-- Use offset and limit when reading large files.
-- Truncates lines when output exceeds maximum byte bounds.
-- Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text.";
+- Use read to examine files instead of cat or sed; path may be relative to the working directory or absolute.
+- Each line is prefixed with its line number and a tab; the prefix is not part of the file, so never include it in edit oldText.
+- Output is capped at 2000 lines or 50KB, whichever comes first. A trailing note ending in `Use offset=N to continue.` gives the next offset; pass it, optionally with limit, to page through large files.
+- For a known region, read it with offset and limit instead of the whole file.
+- Read a file before editing it so oldText matches exactly, and read independent files in parallel.
+- Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text. Files that are not valid UTF-8 text return an error.";
 
 pub static PROMPT_WRITE: &str = "\
-Create or overwrite files. Automatically creates parent directories.
+Create a file or completely overwrite an existing one. Parent directories are created automatically.
 
 Usage:
-- Use write only for new files or complete rewrites.
-- For small or targeted changes to existing files, prefer edit instead.
+- Use write only for new files or complete rewrites; content replaces the whole file, so include everything that should remain.
+- For small or targeted changes to existing files, use edit instead.
 - Use write instead of shell redirects, heredocs, or scripts to create files.";
 
 pub static PROMPT_EDIT: &str = "\
-Edit a file with exact text replacements, applied in order.
+Edit an existing file with exact text replacements, applied in order.
 
 Usage:
 - Each edits[] entry is one of:
-  - {oldText, newText}: oldText must match exactly once; keep it as small as possible while still unique.
+  - {oldText, newText}: oldText must match exactly once, including whitespace and indentation; keep it as small as possible while still unique.
   - {oldText, newText, replaceAll: true}: replace every occurrence, e.g. a rename within the file.
-  - {startText, endText, newText}: replace the region from startText through the first endText after it, inclusive; use this to delete or rewrite a block without copying it into oldText.
+  - {startText, endText, newText}: replace the region from startText through the first endText after it, inclusive; startText must match exactly once. Use this to delete or rewrite a block without copying it into oldText.
+- Entries apply sequentially, so each one matches against the result of the previous entry. If any entry fails, nothing is written; fix that entry and resend all of them.
 - Put all changes to one file in one call; for changes across files, make one edit call per file in the same response.
 - If two changes touch the same lines, merge them into one entry instead of emitting overlapping edits.
+- Line endings are matched and preserved automatically; to create a new file use write.
 - Use edit for every change to an existing file; never sed -i, perl -pi, python or awk scripts, or shell redirects.";
 
 pub static PROMPT_FD: &str = "\
 Find files and directories by workspace-relative path pattern.
 
 Usage:
-- pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched against workspace-relative paths; if omitted, all entries in the search root match.
-- Files and directories both match; results are sorted lexicographically by default and capped at limit (default 200, max 1000) with a 20,000-entry collection ceiling; output is byte-capped at 50KB.
-- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
+- pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched unanchored against workspace-relative paths, not a glob; if omitted, all entries in the search root match.
+- Files and directories both match. Results are sorted by path by default and capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path, pattern, type, or depth rather than raising limit.
+- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles and ignored paths.
 - Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. depth 2 for top-level layout.
-- Set stats: true to include line counts and byte sizes; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines', 'size', or 'path') to order results.";
+- Set stats: true to include line counts and byte sizes; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines' or 'size', both descending, or 'path') to order results.";
 
 pub static PROMPT_RG: &str = "\
-Search file contents with line-oriented results.
+Search file contents with a regex and return line-oriented matches.
 
 Usage:
-- pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against file contents.
-- Returns path:line: text lines sorted by path then line number; match lines are truncated at 500 characters.
-- Results are capped at limit (default 200, max 1000) with a 5,000-match collection ceiling; output is byte-capped at 50KB.
-- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
-- Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
+- pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against each line; escape regex metacharacters (e.g. `\\(`, `\\.`) when searching for literal text, and use `a|b` to search several terms at once.
+- Returns path:line: text lines sorted by path then line number; match lines are truncated at 500 characters. Use read with offset to see surrounding context.
+- Results are capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path or type rather than raising limit.
+- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles and ignored paths.
+- Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.
+- path may be a single file. Use fd instead to find files by name.";
 
 pub static PROMPT_BASH: &str = "\
-Execute bash commands in the current working directory.
+Execute a bash command in the working directory and return combined stdout and stderr.
 
 Usage:
-- Commands run directly in the working directory; do not prefix commands with cd.
+- Commands run directly in the working directory; do not prefix commands with cd. Each call is a fresh shell, so environment changes do not persist between calls.
 - Use fd for file discovery, rg for content search; use bash for git actions, cargo builds, tests, and linters.
 - Never read files with cat, sed, or awk, and never create or modify files with bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, tee, mv over a file); use read, edit, and write. Project formatters and generators (cargo fmt, make) are fine.
-- Captures combined stdout and stderr with output truncation safeguards.";
+- timeout is in seconds (default 30). A command that exceeds it is NOT killed: it moves to a background job and its output arrives later as a follow-up message. Set background: false to kill it on timeout instead.
+- Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep. Background jobs are killed after 1 hour.
+- Long output is truncated; filter with rg, head, or tail, or redirect noisy output away, instead of dumping everything.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
 Usage:
-- Prefer web_search for finding public documentation, repositories, package releases, and technical references.
-- Use recency ('day', 'week', 'month', 'year') to filter results by freshness.
+- Prefer web_search for finding public documentation, repositories, package releases, and technical references; then open the best results with web_fetch, since snippets alone are rarely authoritative.
+- Returns concise result summaries with title, URL, and snippet (default 5 results; raise limit for broader surveys).
+- Use recency ('day', 'week', 'month', 'year') to filter results by freshness; factor in today's date when asking about latest versions.
 - Use domains to limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com']).
-- Returns concise result summaries with title, URL, and snippet.";
+- Prefer primary sources (official docs, release notes, upstream repositories).";
 
 pub static PROMPT_WEB_FETCH: &str = "\
-Fetch HTML, JSON, Markdown, text, or PDF content from a URL and return clean text.
+Fetch HTML, JSON, Markdown, text, CSV, XML, or PDF content from a URL and return clean text.
 
 Usage:
-- Extracts clean markdown/text without navigation bloat or HTML tags.
-- Use mode: 'full' when navigation or sidebars are needed.
-- Respects byte limits, caching, and rate limiting safeguards.";
+- Extracts clean markdown/text without navigation bloat or HTML tags; the format is detected automatically, and format overrides it when detection is wrong.
+- Output is paginated by lines (default limit 200): pass offset to read further pages of long documents.
+- mode 'auto' (default) extracts the main article content when the page has a clear one and falls back to the full page; 'main' prefers main content; use mode: 'full' when navigation, sidebars, or other page chrome are needed.
+- Use it on URLs from the user or from web_search results; for local files use read.
+- Responses are cached briefly, so paging with offset or refetching the same URL is cheap.";
 
 pub static PROMPT_SUBAGENT: &str = "\
 Spawn a specialized subagent in an isolated context to perform focused research, code review, or planning.
@@ -104,6 +114,8 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
+- Default role is 'scout'. Tools by role: scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general adds write, edit, and bash. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
+- Subagents start with no memory of your conversation unless you pass `inherit_context`, so put everything they need in `prompt` or `context_slice`. Launch independent subagents in the same response so they run in parallel.
 - Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'; default smol) and return a concise summary to the parent.
 - Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, its task id, and its result.
 - Each result ends with a task id and state. Treat the answer as a claim, not proof: before accepting, re-read the files it changed and re-run the relevant checks yourself. If something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
