@@ -3,7 +3,7 @@ use super::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths, versions};
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::tools::types::ToolResult;
-use crate::worktree::{Worktree, WorktreeStore};
+use crate::worktree::{Worktree, WorktreeLease, WorktreeStore};
 use rho_harness_core::a2a::{Artifact, Message, Part, Role, Task, TaskState};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::{SessionManager, SubagentContext};
@@ -144,7 +144,7 @@ pub(crate) struct Exchange {
     versions: BTreeMap<String, Fingerprint>,
     /// The worktree recorded at the end of the conversation's last round.
     previous: Option<WorktreeRecord>,
-    worktree: Option<Worktree>,
+    worktree: Option<WorktreeLease>,
 }
 
 impl Exchange {
@@ -185,23 +185,29 @@ impl Exchange {
         })
     }
 
-    /// Gives the round a worktree: the conversation's existing one if it still has unmerged changes,
-    /// otherwise a new one from `source`. Outside git the agent runs in `source` itself.
+    /// Gives the round a worktree owned by session `owner`: the conversation's existing one if it still
+    /// has unmerged changes, otherwise a new one from `source`. Outside git the agent runs in `source`.
     pub(crate) async fn with_worktree(
         mut self,
         store: &WorktreeStore,
         source: &std::path::Path,
         label: &str,
+        owner: Option<&str>,
     ) -> Result<Self, String> {
         let existing = match self.previous.as_ref().filter(|p| !p.removed) {
             Some(record) => store.find(source, &record.id).await,
             None => None,
         };
-        self.worktree = match existing {
+        let worktree = match existing {
             Some(worktree) => Some(worktree),
-            None => store.create(source, label).await?,
+            None => store.create(source, label, owner).await?,
         };
+        self.worktree = worktree.map(WorktreeLease::new);
         Ok(self)
+    }
+
+    fn current_worktree(&self) -> Option<&Worktree> {
+        self.worktree.as_ref().map(WorktreeLease::worktree)
     }
 
     pub(crate) fn settings(&self) -> ConversationSettings {
@@ -239,7 +245,7 @@ impl Exchange {
         reference: Option<&str>,
     ) -> Outcome {
         self.send(input, reference.filter(|_| !self.continues_question));
-        let runner = match &self.worktree {
+        let runner = match self.current_worktree() {
             Some(worktree) => runner.clone().in_worktree(&worktree.path),
             None => runner.clone(),
         };
@@ -261,10 +267,11 @@ impl Exchange {
         let round = runner.run_round(transcript, round_input).await;
         let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
         let file_versions = versions(&root, tracked).await;
-        let worktree = match &self.worktree {
+        let worktree = match self.current_worktree() {
             Some(worktree) => Some(settle(worktree).await),
             None => None,
         };
+        let worktree_held = self.worktree.take().map(WorktreeLease::release);
         let (record, worktree_error) = match worktree {
             Some(Ok(record)) => (Some(record), None),
             Some(Err(error)) => (None, Some(error)),
@@ -280,14 +287,14 @@ impl Exchange {
             save_error: saved.err().map(|e| e.to_string()),
             stale,
             others,
-            worktree: self.worktree.filter(|_| record.as_ref().is_some_and(|r| !r.removed)),
+            worktree: worktree_held.filter(|_| record.as_ref().is_some_and(|r| !r.removed)),
             record,
             worktree_error,
         }
     }
 
     fn moved_text(&self) -> String {
-        match (&self.previous, &self.worktree) {
+        match (&self.previous, self.current_worktree()) {
             (Some(previous), Some(current)) if previous.id != current.id => moved_note(previous, current),
             _ => String::new(),
         }
@@ -299,8 +306,7 @@ impl Exchange {
             return Vec::new();
         };
         let fresh_base = self
-            .worktree
-            .as_ref()
+            .current_worktree()
             .filter(|w| w.id != previous.id)
             .map(|w| w.base.as_str());
         changed_since(root, &previous.head, fresh_base)

@@ -21,18 +21,14 @@ pub(crate) struct WorktreeRecord {
 
 /// Commits the worktree after a round; one without changes is removed since there is nothing to merge.
 pub(crate) async fn settle(worktree: &Worktree) -> Result<WorktreeRecord, String> {
-    let (head, changes) = worktree.changes().await?;
-    let removed = changes.is_empty();
-    if removed {
-        worktree.remove().await?;
-    }
+    let settled = worktree.settle().await?;
     Ok(WorktreeRecord {
         id: worktree.id.clone(),
         path: worktree.path.display().to_string(),
         branch: worktree.branch.clone(),
-        head,
-        changes,
-        removed,
+        head: settled.head,
+        changes: settled.changes,
+        removed: settled.removed,
     })
 }
 
@@ -74,7 +70,7 @@ pub(crate) fn pending_note(record: &WorktreeRecord) -> String {
     }
     let files: Vec<String> = record.changes.iter().map(FileChange::label).collect();
     format!(
-        "\n\nThese changes are in worktree `{id}` ({path}, branch {branch}), not in your working tree: {files}. Review them with worktree {{\"action\": \"diff\", \"id\": \"{id}\"}}, then merge with {{\"action\": \"merge\", \"id\": \"{id}\"}} (conflicts are left as markers for you to fix) or drop them with {{\"action\": \"discard\", \"id\": \"{id}\"}}.",
+        "\n\nThese changes are in worktree `{id}` ({path}, branch {branch}), not in your working tree: {files}. Review them with worktree {{\"action\": \"diff\", \"id\": \"{id}\"}}, then merge with {{\"action\": \"merge\", \"id\": \"{id}\"}} (conflicts are left as markers for you to fix) or drop them with {{\"action\": \"discard\", \"id\": \"{id}\"}}. You are responsible for this worktree: unmerged worktrees are deleted 24 hours after they were created.",
         id = record.id,
         path = record.path,
         branch = record.branch,

@@ -173,7 +173,7 @@ async fn build_engine_tools(
                 config,
                 Some(models.default.clone()),
                 Some(models.resolver),
-                crate::worktree::WorktreeStore::default_location(),
+                Some(crate::worktree::WorktreeStore::default_location()),
             )?;
             t.extend(mcp_tools);
             (t, Some(subagents))
@@ -251,6 +251,7 @@ impl AgentEngineBuilder {
             agent_monitor: self.agent_monitor,
             turn_notes: self.turn_notes,
             workflows: None,
+            worktrees: None,
             mcp: super::EngineMcp::default(),
         }
     }
@@ -281,12 +282,14 @@ impl AgentEngineBuilder {
         let tools_lock = Arc::new(tokio::sync::RwLock::new(tools));
         let home = rho_harness_core::config::home_dir();
         let workflows = subagents.map(|s| crate::tools::workflow::WorkflowRunner::new(s, base_dir.clone(), home));
+        let worktrees = workflows.as_ref().and_then(|w| w.worktrees().cloned());
         let mut engine = self.into_engine(
             base_dir,
             (session_manager, shared_auth),
             (tools_lock, tool_names, model),
         );
         engine.workflows = workflows;
+        engine.worktrees = worktrees;
         engine.mcp = super::EngineMcp {
             diagnostics: mcp.diagnostics,
             instructions: mcp.instructions,

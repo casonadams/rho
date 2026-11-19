@@ -54,6 +54,8 @@ pub struct AgentEngine {
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
     pub(crate) turn_notes: TurnNotes,
     pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
+    /// Where subagent and workflow worktrees live; the parent is reminded to merge or discard its own.
+    pub(crate) worktrees: Option<crate::worktree::WorktreeStore>,
     pub(crate) mcp: EngineMcp,
 }
 

@@ -202,8 +202,9 @@ the worktree remain.
 
 ## Worktrees
 
-Every run, and every agent inside it, works in its own git worktree under
-`~/.config/rho/worktrees/<repository>/`, on a branch `rho/wt/<id>`:
+Every run, and every agent inside it, works in its own git worktree, checked
+out under your temp directory (`$TMPDIR/rho-worktrees-<uid>/<repository>/`) on
+a branch `rho/wt/<id>`:
 
 1. The run's worktree starts from a snapshot of your working tree, including
    uncommitted and untracked files (your index and files are not touched).
@@ -226,6 +227,11 @@ instead of starting cold; rho adds matching `/<name>` lines to the
 repository's `.git/info/exclude` so the links are never committed. Outside a
 git repository there are no worktrees and workflows run in the project
 directory.
+
+The main agent's session owns the run's worktree and is reminded to merge or
+discard it; unmerged worktrees are deleted 24 hours after they were created.
+A cancelled run's worktrees are committed, and removed if empty. See
+[worktree cleanup](configuration.md#subagents--custom-agents) for the details.
 
 ---
 

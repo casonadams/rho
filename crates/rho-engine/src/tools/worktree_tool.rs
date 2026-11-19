@@ -119,9 +119,9 @@ mod tests {
         let (dir, root) = create(&[("a.rs", "fn a() {}\n")]);
         let store = WorktreeStore::new(dir.path().join("store"));
         let tool = WorktreeTool::new(&root, store.clone());
-        let keep = store.create(&root, "subagent fix").await.unwrap().unwrap();
+        let keep = store.create(&root, "subagent fix", None).await.unwrap().unwrap();
         write(&keep.path, "a.rs", "fn a() { fixed() }\n");
-        let drop = store.create(&root, "subagent spike").await.unwrap().unwrap();
+        let drop = store.create(&root, "subagent spike", None).await.unwrap().unwrap();
         write(&drop.path, "spike.rs", "x\n");
 
         let listed = call(&tool, json!({ "action": "list" })).await.content;

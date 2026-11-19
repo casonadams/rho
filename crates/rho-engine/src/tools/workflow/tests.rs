@@ -637,7 +637,11 @@ async fn parallel_agent_worktrees_with_overlapping_edits_stop_the_workflow() {
         "{}",
         run.report
     );
-    assert!(!run.report.contains("after"), "{}", run.report);
+    assert!(
+        !run.report.contains("w › run"),
+        "the later step never ran: {}",
+        run.report
+    );
     assert_eq!(std::fs::read_to_string(root.join("a.rs")).unwrap(), "base\n");
     let run_worktree = store
         .list(&root)

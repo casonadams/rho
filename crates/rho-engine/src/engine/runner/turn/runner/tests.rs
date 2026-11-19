@@ -323,6 +323,53 @@ async fn agent_loop_stops_calling_model_once_receiver_is_dropped() {
 }
 
 #[tokio::test]
+async fn a_turn_is_reminded_once_about_worktrees_its_session_still_owns() {
+    let model = Arc::new(MockAdapter::from_turns(vec![
+        vec![crate::provider::adapter::ModelStreamEvent::Text("done".into())],
+        vec![crate::provider::adapter::ModelStreamEvent::Text(
+            "kept for review".into(),
+        )],
+    ]));
+    let (runner, _temp, _, _) = test_agent_env(model.clone());
+    let (dir, root) = crate::worktree::git::test_repo::create(&[("a.rs", "base\n")]);
+    let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
+    let session = runner.session_manager.session_id.clone();
+    let mine = store
+        .create(&root, "subagent fix", Some(&session))
+        .await
+        .unwrap()
+        .unwrap();
+    store
+        .create(&root, "other session", Some("other"))
+        .await
+        .unwrap()
+        .unwrap();
+    let runner = runner.worktrees(Some(store)).working_dir(root);
+
+    let emitter = acking_emitter();
+    let result = run_agent_loop(runner, &emitter).await;
+
+    assert!(result.is_ok(), "{result:?}");
+    let requests = model.requests();
+    assert_eq!(requests.len(), 2, "one reminder, then the turn ends");
+    let reminder = requests[1]
+        .messages
+        .last()
+        .and_then(ChatMessage::text)
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        reminder.starts_with("[Before finishing: this session still owns unmerged agent worktrees: "),
+        "{reminder}"
+    );
+    assert!(
+        reminder.contains(&format!("`{}` (subagent fix)", mine.id)),
+        "{reminder}"
+    );
+    assert!(!reminder.contains("other session"), "{reminder}");
+}
+
+#[tokio::test]
 async fn agent_loop_does_not_call_model_after_cancellation() {
     let model = Arc::new(MockAdapter::text("unreachable"));
     let (runner, _temp, _, _) = test_agent_env(model.clone());

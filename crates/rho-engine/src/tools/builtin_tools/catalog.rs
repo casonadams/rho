@@ -18,6 +18,7 @@ Usage:
 - Review before merging: read the diff, and run checks in the worktree directory if needed.
 - `merge` applies the changes to your working tree with a three-way merge against your current files (uncommitted edits included), then removes the worktree. Files changed on both sides get <<<<<<< conflict markers: resolve them with edit, then re-run checks.
 - `discard` deletes a worktree you do not want.
+- You own the worktrees your subagents and workflows create: merge or discard each before you finish, or tell the user why one is kept. Unmerged worktrees are deleted 24 hours after they were created.
 - To have a subagent fix its work before merging, continue its task with the subagent tool's `task_id`; it keeps working in the same worktree.";
 
 pub static PROMPT_READ: &str = "\

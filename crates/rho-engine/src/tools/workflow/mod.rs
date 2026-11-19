@@ -62,6 +62,9 @@ fn missing_roles(bundle: &WorkflowBundle, subagents: &SubagentTool) -> Vec<&'sta
 }
 
 impl WorkflowRunner {
+    pub(crate) fn worktrees(&self) -> Option<&crate::worktree::WorktreeStore> {
+        self.subagents.worktrees()
+    }
     #[must_use]
     pub fn new(subagents: SubagentTool, base_dir: impl Into<PathBuf>, home_dir: Option<PathBuf>) -> Self {
         Self {
@@ -138,9 +141,16 @@ impl WorkflowRunner {
             "run_started",
             json!({ "workflow": bundle.name, "location": bundle.location, "inputs": inputs }),
         );
-        let workdir = match self.subagents.worktrees() {
-            Some(store) => match store.create(&self.base_dir, &format!("workflow {}", bundle.name)).await {
-                Ok(worktree) => worktree,
+        let owner = self
+            .subagents
+            .turn_context()
+            .session
+            .as_ref()
+            .map(|s| s.session_id.clone());
+        let label = format!("workflow {}", bundle.name);
+        let lease = match self.subagents.worktrees() {
+            Some(store) => match store.create(&self.base_dir, &label, owner.as_deref()).await {
+                Ok(worktree) => worktree.map(crate::worktree::WorktreeLease::new),
                 Err(e) => {
                     let report = log.report(&format!("Workflow `{}` did not start: {e}", bundle.name), None);
                     return failed(report);
@@ -148,9 +158,9 @@ impl WorkflowRunner {
             },
             None => None,
         };
-        let base_dir = workdir
+        let base_dir = lease
             .as_ref()
-            .map_or_else(|| self.base_dir.clone(), |w| w.path.clone());
+            .map_or_else(|| self.base_dir.clone(), |l| l.worktree().path.clone());
         let executor = Executor {
             subagents: &self.subagents,
             catalog,
@@ -163,8 +173,12 @@ impl WorkflowRunner {
         };
         let result = executor.run_workflow(frame, &bundle.entry, inputs).await;
         log.event("run_finished", json!({ "ok": result.is_ok() }));
-        let handoff = match &workdir {
-            Some(worktree) => hand_off(worktree).await,
+        let handoff = match lease {
+            Some(lease) => {
+                let text = hand_off(lease.worktree()).await;
+                let _ = lease.release();
+                text
+            }
             None => String::new(),
         };
         let (ok, report) = match result {
@@ -193,7 +207,7 @@ async fn hand_off(worktree: &crate::worktree::Worktree) -> String {
             Err(e) => format!("\nThe workflow made no file changes, but its worktree could not be removed: {e}\n"),
         },
         Ok((_, changes)) => format!(
-            "\nThe workflow's changes are in {}. Nothing has touched your working tree: review them (worktree action diff), then merge or discard the worktree with the worktree tool.\n",
+            "\nThe workflow's changes are in {}. Nothing has touched your working tree: review them (worktree action diff), then merge or discard the worktree with the worktree tool. Unmerged worktrees are deleted 24 hours after they were created.\n",
             worktree.summary(&changes)
         ),
         Err(e) => format!(

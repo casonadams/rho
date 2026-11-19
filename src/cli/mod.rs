@@ -94,7 +94,9 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
         return commands::handle_command(cmd, &config, &mut auth_store).await;
     }
 
-    dispatch_cli_run(cli, config, auth_store).await
+    let result = dispatch_cli_run(cli, config, auth_store).await;
+    rho_engine::worktree::settle_abandoned().await;
+    result
 }
 
 fn resolve_prompt_text(cli: &Cli) -> Option<String> {

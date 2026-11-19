@@ -132,6 +132,7 @@ pub struct AgentRunner {
     working_dir: std::path::PathBuf,
     monitor: Option<rho_harness_core::agents::AgentMonitor>,
     project: Option<Arc<crate::engine::context::ProjectContext>>,
+    worktrees: Option<crate::worktree::WorktreeStore>,
 }
 
 impl AgentRunner {
@@ -164,6 +165,7 @@ impl AgentRunner {
             working_dir,
             monitor: None,
             project: None,
+            worktrees: None,
         }
     }
 
@@ -219,6 +221,12 @@ impl AgentRunner {
 
     pub fn project_context(mut self, project: Option<Arc<crate::engine::context::ProjectContext>>) -> Self {
         self.project = project;
+        self
+    }
+
+    /// Reminds the model, once per turn, to merge or discard the worktrees its session still owns.
+    pub fn worktrees(mut self, store: Option<crate::worktree::WorktreeStore>) -> Self {
+        self.worktrees = store;
         self
     }
 
@@ -693,6 +701,26 @@ async fn execute_agent_step(
 /// <https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons>
 const EMPTY_COMPLETION_NUDGE: &str = "Please continue";
 
+/// A reminder that the session still owns unmerged worktrees, or `None` once given or when there are none.
+async fn worktree_reminder(runner: &AgentRunner, reminded: &mut bool) -> Option<ChatMessage> {
+    if *reminded {
+        return None;
+    }
+    let store = runner.worktrees.as_ref()?;
+    let pending = store
+        .owned(&runner.working_dir, &runner.session_manager.session_id)
+        .await;
+    if pending.is_empty() {
+        return None;
+    }
+    *reminded = true;
+    let listed: Vec<String> = pending.iter().map(|w| format!("`{}` ({})", w.id, w.label)).collect();
+    Some(ChatMessage::user(format!(
+        "[Before finishing: this session still owns unmerged agent worktrees: {}. You are responsible for them: review each with the worktree tool, then merge or discard it, or tell the user why it is being kept. Unmerged worktrees are deleted 24 hours after they were created.]",
+        listed.join(", ")
+    )))
+}
+
 async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>, Vec<ChatMessage>), AppError> {
     let mut current_messages = if runner.history.is_empty() {
         runner.session_manager.active_messages().await?
@@ -721,6 +749,7 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
     let mut request_count = 0;
     let mut all_completion_calls = Vec::new();
     let mut nudged = false;
+    let mut reminded = false;
 
     let tools_def = tool_definitions(&runner.tools);
 
@@ -742,6 +771,11 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
         };
         match step {
             StepExecutionResult::Complete(resp) => {
+                if let Some(reminder) = worktree_reminder(&runner, &mut reminded).await {
+                    current_messages.push(reminder.clone());
+                    new_turn_messages.push(reminder);
+                    continue;
+                }
                 emitter.ensure_live()?;
                 commit_turn_messages(&runner.session_manager, saved.unsaved(&new_turn_messages), saved.exists).await?;
                 return emitter.send(MultiTurnStreamItem::FinalResponse(resp)).await;

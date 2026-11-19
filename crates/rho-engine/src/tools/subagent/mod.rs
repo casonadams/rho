@@ -116,8 +116,13 @@ impl SubagentTool {
 
     async fn attach_worktree(&self, exchange: conversation::Exchange) -> Result<conversation::Exchange, String> {
         let label = format!("subagent {}", exchange.settings().name.as_deref().unwrap_or("task"));
+        let owner = self.ctx.session.as_ref().map(|s| s.session_id.clone());
         match (&self.worktrees, &self.ctx.project) {
-            (Some(store), Some(project)) => exchange.with_worktree(store, &project.current_dir, &label).await,
+            (Some(store), Some(project)) => {
+                exchange
+                    .with_worktree(store, &project.current_dir, &label, owner.as_deref())
+                    .await
+            }
             _ => Ok(exchange),
         }
     }

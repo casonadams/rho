@@ -2,10 +2,14 @@
 //! started it, and its changes reach that tree only when its parent merges them.
 
 pub(crate) mod git;
+mod lease;
 mod merge;
 mod share;
+mod sweep;
 
+pub use lease::{WorktreeLease, settle_abandoned};
 pub use merge::MergeOutcome;
+pub use sweep::EXPIRE_AFTER;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -31,6 +35,9 @@ pub struct Worktree {
     pub source: PathBuf,
     pub common_dir: PathBuf,
     pub created: DateTime<Utc>,
+    /// The session that created it and is responsible for merging or discarding it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,11 +57,12 @@ impl FileChange {
     }
 }
 
-/// Where worktrees are kept: one directory per repository under `dir`, outside every project.
+/// Where worktree checkouts are kept: one directory per repository under `dir`, outside every project.
+/// Checkouts are disposable; each worktree's branch and its metadata in `.git/rho/worktrees` are the record.
 #[derive(Debug, Clone)]
 pub struct WorktreeStore {
     dir: PathBuf,
-    /// Working directory -> (repository's worktree directory, git common dir); saves a git call per lookup.
+    /// Working directory -> (repository's checkout directory, git common dir); saves a git call per lookup.
     repos: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<PathBuf, (PathBuf, PathBuf)>>>,
 }
 
@@ -98,10 +106,9 @@ impl WorktreeStore {
         }
     }
 
-    /// `<rho config dir>/worktrees`.
     #[must_use]
-    pub fn default_location() -> Option<Self> {
-        rho_harness_core::config::config_dir().map(|dir| Self::new(dir.join("worktrees")))
+    pub fn default_location() -> Self {
+        Self::new(checkout_root())
     }
 
     async fn repo_dir(&self, root: &Path) -> Result<(PathBuf, PathBuf), String> {
@@ -126,13 +133,16 @@ impl WorktreeStore {
         Ok(found)
     }
 
-    /// Creates a worktree on a new branch from a snapshot of `source`'s working tree; `None` outside git.
-    pub async fn create(&self, source: &Path, label: &str) -> Result<Option<Worktree>, String> {
+    /// Creates a worktree on a new branch from a snapshot of `source`'s working tree, owned by session
+    /// `owner`; `None` outside git. A failure after `git worktree add` removes what was created.
+    pub async fn create(&self, source: &Path, label: &str, owner: Option<&str>) -> Result<Option<Worktree>, String> {
         let Some(repo) = git::repo(source).await else {
             return Ok(None);
         };
         let base = git::snapshot_repo(&repo).await?;
         let (source, common_dir) = (repo.top, repo.common_dir);
+        self.sweep_once(&common_dir).await;
+        private_dir(&self.dir).await?;
         let repo_dir = self.dir.join(repo_key(&common_dir));
         tokio::fs::create_dir_all(&repo_dir)
             .await
@@ -150,6 +160,7 @@ impl WorktreeStore {
             source: source.clone(),
             common_dir,
             created: Utc::now(),
+            owner: owner.map(str::to_string),
         };
         {
             let _guard = WORKTREE_LOCK.lock().await;
@@ -165,55 +176,173 @@ impl WorktreeStore {
             ];
             git::run(&source, &args, &[]).await?;
         }
-        share::share_ignored(&source, &worktree.path, &worktree.common_dir).await?;
-        worktree.save(&repo_dir).await?;
+        let finished = async {
+            share::share_ignored(&source, &worktree.path, &worktree.common_dir).await?;
+            worktree.save().await
+        }
+        .await;
+        if let Err(error) = finished {
+            let _ = worktree.remove().await;
+            return Err(error);
+        }
         Ok(Some(worktree))
     }
 
-    /// The worktree `id` of the repository containing `root`, if it still exists.
+    /// The worktree `id` of the repository containing `root`, recreating its checkout from its branch
+    /// if the temp directory was cleared; `None` once it is merged, discarded, or expired.
     pub async fn find(&self, root: &Path, id: &str) -> Option<Worktree> {
-        let (repo_dir, _) = self.repo_dir(root).await.ok()?;
-        let text = tokio::fs::read_to_string(repo_dir.join(format!("{id}.json")))
-            .await
-            .ok()?;
-        let worktree: Worktree = serde_json::from_str(&text).ok()?;
-        worktree.path.is_dir().then_some(worktree)
+        let (_, common_dir) = self.repo_dir(root).await.ok()?;
+        self.load(&meta_dir(&common_dir).join(format!("{id}.json"))).await
     }
 
-    /// Every existing worktree of the repository containing `root`, oldest first.
+    /// Every worktree of the repository containing `root`, oldest first.
     pub async fn list(&self, root: &Path) -> Vec<Worktree> {
-        let Ok((repo_dir, _)) = self.repo_dir(root).await else {
-            return Vec::new();
-        };
-        let Ok(mut entries) = tokio::fs::read_dir(&repo_dir).await else {
+        let Ok((_, common_dir)) = self.repo_dir(root).await else {
             return Vec::new();
         };
         let mut found = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "json")
-                && let Some(worktree) = read_worktree(&path).await
-            {
-                found.push(worktree);
-            }
+        for path in meta_files(&common_dir).await {
+            found.extend(self.load(&path).await);
         }
         found.sort_by_key(|w| w.created);
         found
     }
+
+    /// The worktrees created by session `owner`, read from their metadata without touching checkouts.
+    pub async fn owned(&self, root: &Path, owner: &str) -> Vec<Worktree> {
+        let Ok((_, common_dir)) = self.repo_dir(root).await else {
+            return Vec::new();
+        };
+        let mut owned = Vec::new();
+        for path in meta_files(&common_dir).await {
+            owned.extend(read_meta(&path).await.filter(|w| w.owner.as_deref() == Some(owner)));
+        }
+        owned.sort_by_key(|w| w.created);
+        owned
+    }
+
+    async fn load(&self, meta: &Path) -> Option<Worktree> {
+        let worktree = read_meta(meta).await?;
+        if worktree.path.is_dir() {
+            return Some(worktree);
+        }
+        match worktree.restore().await {
+            Ok(()) => Some(worktree),
+            Err(_) => {
+                let _ = worktree.remove().await;
+                None
+            }
+        }
+    }
 }
 
-async fn read_worktree(path: &Path) -> Option<Worktree> {
+pub(crate) fn meta_dir(common_dir: &Path) -> PathBuf {
+    common_dir.join("rho").join("worktrees")
+}
+
+pub(crate) async fn meta_files(common_dir: &Path) -> Vec<PathBuf> {
+    let Ok(mut entries) = tokio::fs::read_dir(meta_dir(common_dir)).await else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "json") {
+            files.push(path);
+        }
+    }
+    files
+}
+
+pub(crate) async fn read_meta(path: &Path) -> Option<Worktree> {
     let text = tokio::fs::read_to_string(path).await.ok()?;
-    let worktree: Worktree = serde_json::from_str(&text).ok()?;
-    worktree.path.is_dir().then_some(worktree)
+    serde_json::from_str(&text).ok()
+}
+
+/// `<temp>/rho-worktrees-<uid>`, private to the current user: temp directories may be shared (`/tmp`).
+fn checkout_root() -> PathBuf {
+    #[cfg(unix)]
+    let name = format!("rho-worktrees-{}", unsafe { libc::getuid() });
+    #[cfg(not(unix))]
+    let name = "rho-worktrees".to_string();
+    std::env::temp_dir().join(name)
+}
+
+/// Creates `dir` if needed and refuses one another user owns.
+async fn private_dir(dir: &Path) -> Result<(), String> {
+    tokio::fs::create_dir_all(dir)
+        .await
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = tokio::fs::symlink_metadata(dir).await.map_err(|e| e.to_string())?;
+        if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
+            return Err(format!(
+                "refusing to use {}: not a directory owned by you",
+                dir.display()
+            ));
+        }
+        tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .await
+            .map_err(|e| format!("could not restrict {}: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// A worktree after a round: its committed head and changes, or removed because it changed nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settled {
+    pub head: String,
+    pub changes: Vec<FileChange>,
+    pub removed: bool,
 }
 
 impl Worktree {
-    async fn save(&self, repo_dir: &Path) -> Result<(), String> {
+    fn meta_path(&self) -> PathBuf {
+        meta_dir(&self.common_dir).join(format!("{}.json", self.id))
+    }
+
+    async fn save(&self) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        tokio::fs::write(repo_dir.join(format!("{}.json", self.id)), text)
+        let path = self.meta_path();
+        if let Some(dir) = path.parent() {
+            tokio::fs::create_dir_all(dir).await.map_err(|e| e.to_string())?;
+        }
+        tokio::fs::write(&path, text)
             .await
             .map_err(|e| format!("could not save worktree metadata: {e}"))
+    }
+
+    fn git_dir_arg(&self) -> String {
+        format!("--git-dir={}", self.common_dir.display())
+    }
+
+    /// Checks the branch out again after the temp directory holding the checkout was cleared.
+    async fn restore(&self) -> Result<(), String> {
+        let git_dir = self.git_dir_arg();
+        let path = self.path.to_string_lossy().into_owned();
+        {
+            let _guard = WORKTREE_LOCK.lock().await;
+            git::run(&self.common_dir, &[&git_dir, "worktree", "prune"], &[]).await?;
+            if let Some(parent) = self.path.parent() {
+                private_dir(parent.parent().unwrap_or(parent)).await?;
+                tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
+            }
+            let args = [git_dir.as_str(), "worktree", "add", "--quiet", &path, &self.branch];
+            git::run(&self.common_dir, &args, &[]).await?;
+        }
+        share::share_ignored(&self.source, &self.path, &self.common_dir).await
+    }
+
+    /// Commits the worktree after a round and removes it if it changed nothing.
+    pub async fn settle(&self) -> Result<Settled, String> {
+        let (head, changes) = self.changes().await?;
+        let removed = changes.is_empty();
+        if removed {
+            self.remove().await?;
+        }
+        Ok(Settled { head, changes, removed })
     }
 
     /// Commits everything in the worktree to its branch; returns the new head commit.
@@ -261,29 +390,27 @@ impl Worktree {
         Ok(out)
     }
 
-    /// Deletes the worktree, its branch, and its metadata.
+    /// Deletes the checkout, its branch, and its metadata; parts already gone are skipped.
     pub async fn remove(&self) -> Result<(), String> {
         let path = self.path.to_string_lossy().into_owned();
-        let git_dir = format!("--git-dir={}", self.common_dir.display());
+        let git_dir = self.git_dir_arg();
         {
             let _guard = WORKTREE_LOCK.lock().await;
-            git::run(
-                &self.common_dir,
-                &[&git_dir, "worktree", "remove", "--force", &path],
-                &[],
-            )
-            .await?;
+            let args: &[&str] = if self.path.exists() {
+                &[&git_dir, "worktree", "remove", "--force", &path]
+            } else {
+                &[&git_dir, "worktree", "prune"]
+            };
+            git::run(&self.common_dir, args, &[]).await?;
         }
-        git::run(
-            &self.common_dir,
-            &[&git_dir, "branch", "-D", "--quiet", &self.branch],
-            &[],
-        )
-        .await?;
-        if let Some(repo_dir) = self.path.parent() {
-            let _ = tokio::fs::remove_file(repo_dir.join(format!("{}.json", self.id))).await;
+        let branch_ref = format!("refs/heads/{}", self.branch);
+        git::run(&self.common_dir, &[&git_dir, "update-ref", "-d", &branch_ref], &[]).await?;
+        match tokio::fs::remove_file(self.meta_path()).await {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(format!("could not delete worktree metadata: {e}"))
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Merges the worktree's changes into `target` (a working tree of the same repository) and removes
@@ -328,7 +455,7 @@ mod tests {
         write(&root, "node_modules/x/index.js", "js");
         let store = WorktreeStore::new(dir.path().join("store"));
 
-        let wt = store.create(&root, "subagent perf audit").await.unwrap().unwrap();
+        let wt = store.create(&root, "subagent perf audit", None).await.unwrap().unwrap();
 
         assert!(wt.id.starts_with("subagent-perf-audit-"), "{}", wt.id);
         assert!(!wt.path.starts_with(&root));
@@ -365,6 +492,6 @@ mod tests {
     async fn outside_git_there_is_no_worktree() {
         let dir = tempfile::tempdir().unwrap();
         let store = WorktreeStore::new(dir.path().join("store"));
-        assert_eq!(store.create(dir.path(), "x").await.unwrap(), None);
+        assert_eq!(store.create(dir.path(), "x", None).await.unwrap(), None);
     }
 }

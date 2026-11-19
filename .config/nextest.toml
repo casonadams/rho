@@ -1,4 +1,4 @@
 [[profile.default.overrides]]
 # Worktree tests spawn dozens of git processes; reserving threads keeps them under the 2.5 s per-test ceiling under full-suite load.
 filter = 'test(/worktree/)'
-threads-required = 4
+threads-required = 2

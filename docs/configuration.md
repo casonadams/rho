@@ -188,9 +188,11 @@ lists the ones that failed or were denied; the footer then reads
 happen.
 
 - **Worktrees**: in a git repository every subagent works in its own git
-  worktree under `~/.config/rho/worktrees/<repository>/<id>`, on a branch
-  `rho/wt/<id>`, started from a snapshot of your working tree (uncommitted and
-  untracked files included; your index and files are untouched). Its file
+  worktree, checked out under your temp directory
+  (`$TMPDIR/rho-worktrees-<uid>/<repository>/<id>`, private to you) on a
+  branch `rho/wt/<id>`, and started from a snapshot of your working tree
+  (uncommitted and untracked files included; your index and files are
+  untouched). Its file
   tools, permission checks, and environment are rooted there, so its own files
   count as inside the workspace and a write into your working tree asks for
   permission. Top-level ignored entries (`target/`, `node_modules/`, `.env`)
@@ -202,6 +204,23 @@ happen.
   same worktree until it is merged or discarded; after that, a continued
   subagent gets a fresh worktree and is told so. A round that changes nothing
   leaves no worktree.
+- **Worktree cleanup**: the checkout is disposable; each round's work is
+  committed to the worktree's branch, and its details are kept in
+  `.git/rho/worktrees/<id>.json`, so a checkout removed by the OS's temp
+  cleanup is checked out again when next needed. Cleanup happens at every
+  level:
+  - A round that ends normally commits its work and removes a worktree that
+    changed nothing. A round that is aborted or crashes does the same in the
+    background, and rho waits for those before exiting.
+  - A worktree that fails partway through creation is removed at once.
+  - The session that created a worktree owns it. When the main agent ends a
+    turn while its session still owns unmerged worktrees, it is reminded once
+    to merge or discard them or to tell you why one is kept.
+  - The first time rho creates a worktree in a repository, it sweeps that
+    repository: unmerged worktrees older than 24 hours are deleted, and
+    branches, checkouts, and details files left by interrupted runs are
+    removed (after a one-hour grace period, in case another rho process is
+    still creating them).
 
 - **Names**: pass `name` (camelCase, e.g. `performanceAudit`; other text such
   as `performance audit` is converted) to label the subagent's progress lines,

@@ -5,7 +5,7 @@ use crate::tools::subagent::RunnerSpec;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
 use crate::tools::subagent::handoff::settle;
 use crate::tools::subagent::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
-use crate::worktree::Worktree;
+use crate::worktree::{Worktree, WorktreeLease};
 use rho_harness_core::workflow::template::value_to_text;
 use rho_harness_core::workflow::{AgentNode, OutputFormat};
 use serde_json::{Value, json};
@@ -197,7 +197,10 @@ impl Executor<'_> {
         };
         let mut exchange = Exchange::start(settings);
         if let Some(store) = self.subagents.worktrees() {
-            exchange = exchange.with_worktree(store, self.base_dir, &label).await?;
+            let owner = session.session_id.as_str();
+            exchange = exchange
+                .with_worktree(store, self.base_dir, &label, Some(owner))
+                .await?;
         }
         let outcome = exchange.exchange(runner, session, prompt, None).await;
         let state = outcome.task.status.state;
@@ -222,18 +225,19 @@ impl Executor<'_> {
     }
 
     async fn unsaved_round(&self, runner: &SubagentRunner, label: &str, prompt: &str) -> Result<AgentRun, String> {
-        let worktree = match self.subagents.worktrees() {
-            Some(store) => store.create(self.base_dir, label).await?,
+        let lease = match self.subagents.worktrees() {
+            Some(store) => store.create(self.base_dir, label, None).await?.map(WorktreeLease::new),
             None => None,
         };
-        let runner = match &worktree {
-            Some(worktree) => runner.clone().in_worktree(&worktree.path),
+        let runner = match &lease {
+            Some(lease) => runner.clone().in_worktree(&lease.worktree().path),
             None => runner.clone(),
         };
         let round = runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await;
-        let worktree = match worktree {
-            Some(worktree) => {
-                let record = settle(&worktree).await?;
+        let worktree = match lease {
+            Some(lease) => {
+                let record = settle(lease.worktree()).await?;
+                let worktree = lease.release();
                 (!record.removed).then_some((worktree, record.head))
             }
             None => None,
