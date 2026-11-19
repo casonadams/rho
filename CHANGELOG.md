@@ -1,5 +1,100 @@
 # Changelog
 
+## [0.13.0](https://github.com/casonadams/rho/compare/v0.12.2...v0.13.0) (2026-11-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **workflow:** XML workflows started with /workflow
+* the removed commands, tools and config keys above no longer exist; `read` output no longer carries a [path#TAG] prefix.
+
+### Features
+
+* **cli:** add rho stats for tool error rates and bash file edits ([364ba43](https://github.com/casonadams/rho/commit/364ba4345eb055da4dbfa57f7b6b04d82d515173))
+* **engine:** serialize permission prompts and wire subagent model resolver ([ca75902](https://github.com/casonadams/rho/commit/ca759029f485d4a8c35d3a7451008d53fe715a3f))
+* **mcp:** align MCP auth and tool exposure with oh-my-pi ([8b74c63](https://github.com/casonadams/rho/commit/8b74c63e99822ae00723fba72b16158872c5fc47))
+* **mcp:** resolve !command values in HTTP server headers ([5cf3876](https://github.com/casonadams/rho/commit/5cf38768d915ad4dc7903a20541f9ac36bbde49c))
+* **mcp:** restore OAuth sign-in for remote MCP servers ([54ce085](https://github.com/casonadams/rho/commit/54ce0857fc38a0b812ea40531f1edb0edc4e5c34))
+* **platform:** record the session id per interactive terminal ([97cb541](https://github.com/casonadams/rho/commit/97cb54132d8684800d675abaed17b1087f6b2b96))
+* **provider:** type provider errors and honor Retry-After ([54c39c5](https://github.com/casonadams/rho/commit/54c39c575c70a2b4444e9397cdaffd296b771227))
+* **quota:** report quota used from 0% instead of remaining ([86257ca](https://github.com/casonadams/rho/commit/86257cacc7a5b49f6eacd0b7555f8336994c49ab))
+* **repl:** print resume command on exit and title /resume rows by content ([4fa05e2](https://github.com/casonadams/rho/commit/4fa05e2f6ed9cbb52170e7ac188ba253b2e93c18))
+* **subagent:** attribute bash changes, cover non-git workspaces, and catch every stale read ([43358cb](https://github.com/casonadams/rho/commit/43358cb20fb850bb0db36e0f480e90b9e1af2c7e))
+* **subagent:** default to the smol model when configured ([c9acfd1](https://github.com/casonadams/rho/commit/c9acfd11024663e8c34fc520c383a3bb9bf30e3e))
+* **subagent:** gate tool calls, add cancellation, model override and parallel runs ([57c766a](https://github.com/casonadams/rho/commit/57c766a7921d64139e1ca72de419255cdf5e3248))
+* **subagent:** give the parent verifiable evidence for subagent and workflow work ([e6734d2](https://github.com/casonadams/rho/commit/e6734d2b566e163ae4c423c6c93466a12f955047))
+* **subagent:** let subagents and the main agent talk through A2A tasks ([f3e8ede](https://github.com/casonadams/rho/commit/f3e8ede8f94ad9046cf4e746eebbb44d2382b627))
+* **subagent:** name subagents and keep their work when they stop early ([b546edc](https://github.com/casonadams/rho/commit/b546edc924ccc321d350d139764d84b59f2c0edc))
+* **tools:** steer file changes to edit and harden tool argument parsing ([26912f6](https://github.com/casonadams/rho/commit/26912f6b5d26148085ebd3000a9baca9f5cf1762))
+* **tools:** suggest close paths when read, edit, fd, or rg miss a path ([37724f6](https://github.com/casonadams/rho/commit/37724f6b3d7861d74a62552bd77d98f7d7bd9377))
+* **ui:** improve edit/write cards and show Took on every tool ([46e050a](https://github.com/casonadams/rho/commit/46e050a41a03a52220a90cb3be8ebf341aaf8222))
+* **ui:** polish thinking, assistant, tool card, notice and input output ([a3d5612](https://github.com/casonadams/rho/commit/a3d56125b8b5c2f41b30e76b476d4e250f2b7665))
+* **workflow:** add declarative workflow engine, /refine, and live agent viewer ([0c24e81](https://github.com/casonadams/rho/commit/0c24e8193f352c77f299dd6c419c5fd4efa92f0b))
+* **workflow:** review refine diffs before committing ([8a46a96](https://github.com/casonadams/rho/commit/8a46a96683ed03c017b3191d8ffe62b32ccc6a18))
+* **workflow:** show each agent's model in the viewer, report, and run log ([8c6a031](https://github.com/casonadams/rho/commit/8c6a031ad7c1adb334d583d5fae47215dcca5d14))
+* **workflow:** XML workflows started with /workflow ([d3b3cfb](https://github.com/casonadams/rho/commit/d3b3cfbe8b37d6bfa5634017333a3f80804910d9))
+* **worktree:** guarantee worktree cleanup and move checkouts to a private temp dir ([3050404](https://github.com/casonadams/rho/commit/30504042a8c77c23465870f691524ca74fabee7f))
+* **worktree:** run every subagent and workflow in its own git worktree ([5c20323](https://github.com/casonadams/rho/commit/5c20323042beac6db2da3d4f721f8f3b65df537f))
+
+
+### Bug Fixes
+
+* **auth:** adopt rotated OAuth credentials from disk and surface refresh failures ([6c729c5](https://github.com/casonadams/rho/commit/6c729c5b36d643f40957294ced9d684ae8e8c881))
+* **auth:** serialize OAuth refresh across rho processes ([5a40344](https://github.com/casonadams/rho/commit/5a4034476a5301453bbe947c0317dee4f408b353))
+* **auth:** stop !command secret lookups from stalling or hanging ([e3fc6af](https://github.com/casonadams/rho/commit/e3fc6af109a00bc0bf07700c5f4a297bc5c3fac6))
+* **claude:** replay signed thinking blocks and recover from empty completions ([b772c22](https://github.com/casonadams/rho/commit/b772c2222c735254e26387d1a73044910b36d525))
+* **cli:** make rho stats classify bash edits and errors accurately ([0d6c878](https://github.com/casonadams/rho/commit/0d6c8781b0ea5aac9daae89be7f12c5f73d46071))
+* **compaction:** compact past unfinished-turn checkpoints ([50c87c9](https://github.com/casonadams/rho/commit/50c87c9cbd908ecfe8b71d7ebeb2f3a945d7482c))
+* **compaction:** ignore stale usage after pruning and share the limit source ([7ef81a8](https://github.com/casonadams/rho/commit/7ef81a806279b21e6f5928294d4e7c86b2589aac))
+* **compaction:** tell users not to resubmit a prompt that was already saved ([6c92415](https://github.com/casonadams/rho/commit/6c92415c329d97cc54d8cd08e706f7d2d0c63262))
+* **config:** stop reading user-level ~/.claude directories ([14d67cf](https://github.com/casonadams/rho/commit/14d67cf061eba7a23e5a1b7bcfa91db544a45e04))
+* **engine:** drain queued display events before direct sink calls ([35e35f5](https://github.com/casonadams/rho/commit/35e35f5c23bf8cb967ad908de322cc079a759178))
+* **engine:** join reasoning deltas verbatim ([7293c43](https://github.com/casonadams/rho/commit/7293c43b296561d2da7a2e8b76de7691c8eeccd0))
+* **engine:** keep failed-turn work and retry dropped model requests ([1477d6a](https://github.com/casonadams/rho/commit/1477d6a06c02363a532497416975a138fd13691d))
+* **engine:** persist each finished turn step as it completes ([d21f9d5](https://github.com/casonadams/rho/commit/d21f9d58533ad7511d8b41025b233a998358aa6a))
+* **engine:** redact credentials split across streamed chunks ([0115431](https://github.com/casonadams/rho/commit/0115431582b3257373013f2e5c83a4701063194a))
+* **permission:** decode JSON-encoded tool arguments before hooks and permission checks ([89a628d](https://github.com/casonadams/rho/commit/89a628dd17cccb9928c210ef633eb929b001fa70))
+* **permission:** honor the action in inline-table rules ([bc994bf](https://github.com/casonadams/rho/commit/bc994bf175eb6b2a784dacdcee6031effb6e4e98))
+* **permission:** resolve config dir through core so RUST_AI_HOME protects auth.json ([3b66e25](https://github.com/casonadams/rho/commit/3b66e25dd606df823efb247282c1db84f4bc8c7a))
+* **provider:** classify quotas and long waits consistently across providers ([29c88db](https://github.com/casonadams/rho/commit/29c88db6e56d821a30d87f7e1f4e82ab6d426c60))
+* **provider:** saturate oversized retry-after-ms instead of panicking ([8a86544](https://github.com/casonadams/rho/commit/8a8654454a868032c176990cd31a3b2027a5f0f1))
+* **prune:** step the cutoff to keep the cache prefix and keep spill paths ([318914d](https://github.com/casonadams/rho/commit/318914da9576d9ce8098466eb2521199cd5a51d1))
+* **repl:** honor ignore rules in file completion ([eb00927](https://github.com/casonadams/rho/commit/eb00927c7aa116af5f6633613fa87af0ac0c3889))
+* **rpc:** reject compact while a turn is running ([3010bfe](https://github.com/casonadams/rho/commit/3010bfe54d6aa3d71e44b1fe3e2d107a8fc5ad9b))
+* **session:** use real creation time and share resume row format ([0c4613b](https://github.com/casonadams/rho/commit/0c4613b5c2966ec618a3dcb1d364d1cc166ef9cc))
+* **subagent:** keep head and tail of long parent messages ([0cc27b4](https://github.com/casonadams/rho/commit/0cc27b456f17da56834575d60e2f9358046a3f81))
+* **subagent:** keep the workflow tool away from custom agents ([2320127](https://github.com/casonadams/rho/commit/232012713907d895656e2ecd67fc7f51bdf49ff9))
+* **tools:** bound path suggestions and keep them off async threads ([44060a6](https://github.com/casonadams/rho/commit/44060a68a7fd986a381eb376e32c0aef84825b12))
+* **ui:** animate the working spinner while /workflow runs ([e5cdf4c](https://github.com/casonadams/rho/commit/e5cdf4ccffd394c351db08bba2740bcb8ed4f008))
+* **ui:** hold back line starts until their block type is known ([50a5226](https://github.com/casonadams/rho/commit/50a522689c165eee72a27c7dcb97dc4096f1aeae))
+* **ui:** render links, underscores and strikethrough the same when streamed ([0e8a608](https://github.com/casonadams/rho/commit/0e8a6086c38e29ff1b1b912f1eea341b3c365c94))
+* **ui:** replay full transcript on resize instead of duplicating replies ([45789cc](https://github.com/casonadams/rho/commit/45789cca650789723ff9e3517271a7513025b0dd))
+* **ui:** resolve chunk-boundary italic markers like in-chunk ones ([e312f08](https://github.com/casonadams/rho/commit/e312f089e7eaa9ff1e3449c044f0f285de34f51a))
+* **ui:** show steering messages in the transcript when the agent consumes them ([130e997](https://github.com/casonadams/rho/commit/130e997966970b476006f5f5abfb4ce3f09f7791))
+* **ui:** size horizontal rules to the markdown render width ([506e04a](https://github.com/casonadams/rho/commit/506e04a4c23fc72a354c135f58237f739397aa3a))
+* **workflow:** fail agent steps that stop early and hand runs off to the main agent ([1a58d08](https://github.com/casonadams/rho/commit/1a58d0864896dbab5ac8a66e45b4cf92722c8f93))
+
+
+### Performance Improvements
+
+* **engine:** resolve models and guard on the blocking pool ([eb3edea](https://github.com/casonadams/rho/commit/eb3edeaf282bf0c8d2926896f084752364f688d2))
+* **engine:** reuse memoized token sizes when pruning loaded history ([deab91f](https://github.com/casonadams/rho/commit/deab91f29952310b44950a23d467017fc594399d))
+* **fd:** count file lines only for rows that are emitted ([0dd89c9](https://github.com/casonadams/rho/commit/0dd89c9b9551b96401a5cd97e16b9a115fbb3d1d))
+* **mcp:** serialize first connects per server instead of pool-wide ([7acde76](https://github.com/casonadams/rho/commit/7acde767fe2a475578a22d7b4522bd15cd2c6317))
+* **provider:** stop rescanning buffered SSE bytes for line breaks ([40de0e6](https://github.com/casonadams/rho/commit/40de0e6e22871e0ba5d6f427c019338462df5a1d))
+* **prune:** count history tokens once and skip copying unchanged history ([35a68d6](https://github.com/casonadams/rho/commit/35a68d6b16eb3a152c0374c5588352d16b262d1c))
+* **read:** stop encoding image candidates once one fits the budget ([7c509fb](https://github.com/casonadams/rho/commit/7c509fb190d7ce743f51f1076819b03e4c3cb922))
+* **rpc:** look up the git branch and hostname off the async runtime ([14eeb72](https://github.com/casonadams/rho/commit/14eeb72f613fc1b82ccc53543e4aa0c077eb0820))
+* **session:** defer active-path rebuild during session replay ([6df9511](https://github.com/casonadams/rho/commit/6df9511eef2a6183dae3a4783bbe94441ec61387))
+* **session:** skip rescanning persisted history for known secrets ([6ee4360](https://github.com/casonadams/rho/commit/6ee4360959de8f2c8e34d8b71772e47c3050bdb0))
+* **session:** write forked history in a single durable append ([3b8f69f](https://github.com/casonadams/rho/commit/3b8f69f9618b89c070635cf761b5adcfee3f1736))
+* **stream:** decode streamed write content incrementally ([d32389c](https://github.com/casonadams/rho/commit/d32389c6019993fffbf50c0939e049ad16349358))
+
+
+### Code Refactoring
+
+* simplify code base and harden permission, trust and session handling ([3e1d1ea](https://github.com/casonadams/rho/commit/3e1d1ea140df5d872ebaceefce68946d2b825529))
+
 ## [0.12.2](https://github.com/casonadams/rho/compare/v0.12.1...v0.12.2) (2026-10-29)
 
 
