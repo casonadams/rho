@@ -99,17 +99,21 @@ async fn try_post_stream_refresh(
 }
 
 pub(super) fn classify_stream_error(res: HttpResult, last: &mut Option<HttpFailure>) -> Option<HttpResult> {
-    let failure = match res {
+    let mut failure = match res {
         Ok(resp) => return Some(Ok(resp)),
         Err(failure) => failure,
     };
     let fall_through = match &failure {
-        HttpFailure::Status { status: 429, body, .. } if body.contains("Individual quota reached") => false,
+        HttpFailure::Status { status: 429, body, .. } if crate::provider::error::is_hard_quota(body) => false,
         HttpFailure::Status { status, .. } => [403, 404, 429, 500, 502, 503, 504].contains(status),
         HttpFailure::Transport(_) => true,
         HttpFailure::Local(_) => false,
     };
     if fall_through {
+        let earlier_wait = last.as_ref().and_then(HttpFailure::retry_after);
+        if let HttpFailure::Status { retry_after, .. } = &mut failure {
+            *retry_after = (*retry_after).max(earlier_wait);
+        }
         *last = Some(failure);
         None
     } else {

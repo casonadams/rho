@@ -29,7 +29,10 @@ pub async fn post_json_checked(
         return Ok(response);
     }
     let retry_after = crate::provider::error::parse_retry_after(response.headers(), chrono::Utc::now());
-    let body = response.text().await.unwrap_or_default();
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|e| format!("(failed to read error body: {e})"));
     Err(HttpFailure::Status {
         status: status.as_u16(),
         body,

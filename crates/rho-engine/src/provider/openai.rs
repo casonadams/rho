@@ -417,7 +417,10 @@ impl ModelAdapter for OpenAiClient {
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let retry_after = crate::provider::error::parse_retry_after(resp.headers(), chrono::Utc::now());
-            let text = resp.text().await.unwrap_or_default();
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("(failed to read error body: {e})"));
             let failure = HttpFailure::Status {
                 status,
                 body: format!("HTTP {status} from {provider}: {text}"),

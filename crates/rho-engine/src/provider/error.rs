@@ -35,6 +35,13 @@ impl HttpFailure {
         }
     }
 
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::Status { retry_after, .. } => *retry_after,
+            Self::Transport(_) | Self::Local(_) => None,
+        }
+    }
+
     pub fn body(&self) -> &str {
         match self {
             Self::Status { body, .. } => body,
@@ -59,18 +66,19 @@ impl HttpFailure {
 /// Longest provider-requested wait rho will sit through; longer waits (quota resets) fail instead.
 pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 
-fn is_hard_quota(body: &str) -> bool {
-    body.contains("Individual quota reached")
+pub(crate) fn is_hard_quota(body: &str) -> bool {
+    const MARKERS: &[&str] = &["Individual quota reached", "insufficient_quota", "usage_limit_reached"];
+    MARKERS.iter().any(|marker| body.contains(marker))
 }
 
 fn classify_status(status: u16, body: &str, retry_after: Option<Duration>, message: String) -> AppError {
+    let wait_too_long = retry_after.is_some_and(|wait| wait > MAX_RETRY_AFTER);
     match status {
-        429 if is_hard_quota(body) || retry_after.is_some_and(|wait| wait > MAX_RETRY_AFTER) => {
-            AppError::Provider(message)
-        }
+        429 if is_hard_quota(body) || wait_too_long => AppError::Provider(message),
         429 => AppError::RateLimited { message, retry_after },
+        408 | 500 | 502 | 503 | 504 | 529 if wait_too_long => AppError::Provider(message),
         408 | 500 | 502 | 503 | 504 | 529 => AppError::ProviderUnavailable { message, retry_after },
-        _ => classify_message(message),
+        _ => classify_message(message, body),
     }
 }
 
@@ -88,12 +96,14 @@ pub fn classify_stream_error(error_type: Option<&str>, message: String) -> AppEr
                 retry_after: None,
             }
         }
-        _ => classify_message(message),
+        Some("insufficient_quota" | "usage_limit_reached") => AppError::Provider(message),
+        _ => classify_message(message, ""),
     }
 }
 
-fn classify_message(message: String) -> AppError {
-    let lower = message.to_lowercase();
+/// Classifies from the user-facing message and the raw provider body, since friendly messages drop error codes.
+fn classify_message(message: String, body: &str) -> AppError {
+    let lower = format!("{message}\n{body}").to_lowercase();
     if is_context_overflow_text(&lower) {
         AppError::ContextOverflow(message)
     } else if lower.contains("content_filter") || lower.contains("content filter") {
@@ -128,20 +138,29 @@ fn is_context_overflow_text(lower: &str) -> bool {
 /// Reads `retry-after-ms`, then `retry-after` as delay-seconds or an HTTP-date (RFC 9110 10.2.3).
 pub fn parse_retry_after(headers: &reqwest::header::HeaderMap, now: chrono::DateTime<chrono::Utc>) -> Option<Duration> {
     let text = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
-    if let Some(ms) = text("retry-after-ms").and_then(|v| v.parse::<f64>().ok()) {
-        return (ms.is_finite() && ms >= 0.0)
-            .then(|| Duration::try_from_secs_f64(ms / 1000.0).unwrap_or(Duration::MAX));
+    let ms = text("retry-after-ms")
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|ms| ms.is_finite() && *ms >= 0.0);
+    if let Some(ms) = ms {
+        return Some(Duration::try_from_secs_f64(ms / 1000.0).unwrap_or(Duration::MAX));
     }
     let value = text("retry-after")?;
     if let Ok(seconds) = value.parse::<u64>() {
         return Some(Duration::from_secs(seconds));
     }
-    let at = chrono::DateTime::parse_from_rfc2822(value).ok()?;
-    Some(
-        (at.with_timezone(&chrono::Utc) - now)
-            .to_std()
-            .unwrap_or(Duration::ZERO),
-    )
+    let at = parse_http_date(value)?;
+    Some((at - now).to_std().unwrap_or(Duration::ZERO))
+}
+
+/// IMF-fixdate plus the obsolete RFC 850 and asctime forms recipients must accept (RFC 9110 5.6.7).
+fn parse_http_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    if let Ok(at) = chrono::DateTime::parse_from_rfc2822(value) {
+        return Some(at.to_utc());
+    }
+    ["%A, %d-%b-%y %H:%M:%S GMT", "%a %b %e %H:%M:%S %Y"]
+        .iter()
+        .find_map(|format| chrono::NaiveDateTime::parse_from_str(value, format).ok())
+        .map(|at| at.and_utc())
 }
 
 #[cfg(test)]
@@ -245,12 +264,32 @@ mod tests {
 
     #[test]
     fn quota_resets_and_long_waits_are_not_retried() {
+        for body in [
+            "Individual quota reached",
+            r#"{"error":{"code":"insufficient_quota"}}"#,
+            r#"{"error":{"type":"usage_limit_reached"}}"#,
+        ] {
+            assert!(matches!(failure(429, body, None), AppError::Provider(_)), "{body}");
+        }
+        assert!(matches!(failure(429, "over limit", Some(3600)), AppError::Provider(_)));
+        assert!(matches!(failure(503, "down", Some(3600)), AppError::Provider(_)));
         assert!(matches!(
-            failure(429, "Individual quota reached", None),
+            classify_stream_error(Some("insufficient_quota"), "out of credit".into()),
             AppError::Provider(_)
         ));
-        assert!(matches!(failure(429, "over limit", Some(3600)), AppError::Provider(_)));
         assert!(!failure(400, "RESOURCE_EXHAUSTED: Quota exceeded for quota metric", None).is_transient());
+    }
+
+    #[test]
+    fn error_codes_in_the_raw_body_classify_even_when_the_message_drops_them() {
+        let friendly = |_: Option<u16>, _: &str| "Request rejected.".to_string();
+        let filtered = HttpFailure::status(400, r#"{"error":{"code":"content_filter","message":"no"}}"#);
+        assert!(matches!(filtered.into_app_error(friendly), AppError::ContentFiltered));
+        let overflow = HttpFailure::status(400, r#"{"error":{"code":"context_length_exceeded"}}"#);
+        assert!(matches!(
+            overflow.into_app_error(friendly),
+            AppError::ContextOverflow(_)
+        ));
     }
 
     #[test]
@@ -302,6 +341,18 @@ mod tests {
             ),
             (headers(&[("retry-after-ms", "1e30")]), Some(Duration::MAX)),
             (headers(&[("retry-after-ms", "-5")]), None),
+            (
+                headers(&[("retry-after-ms", "-5"), ("retry-after", "4")]),
+                Some(Duration::from_secs(4)),
+            ),
+            (
+                headers(&[("retry-after", "Wednesday, 21-Oct-15 07:28:20 GMT")]),
+                Some(Duration::from_secs(20)),
+            ),
+            (
+                headers(&[("retry-after", "Wed Oct 21 07:28:10 2015")]),
+                Some(Duration::from_secs(10)),
+            ),
             (headers(&[("retry-after", "soon")]), None),
             (HeaderMap::new(), None),
         ];

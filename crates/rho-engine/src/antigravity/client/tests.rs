@@ -291,6 +291,23 @@ fn classify_stream_error_quota_fails_fast() {
 }
 
 #[test]
+fn classify_stream_error_keeps_the_longest_wait_across_fallbacks() {
+    let mut last = None;
+    let limited = |wait: Option<u64>| HttpFailure::Status {
+        status: 429,
+        body: "slow down".into(),
+        retry_after: wait.map(std::time::Duration::from_secs),
+    };
+    for failure in [limited(Some(9)), limited(None), limited(Some(3))] {
+        assert!(classify_stream_error(Err(failure), &mut last).is_none());
+    }
+    assert_eq!(
+        last.and_then(|f| f.retry_after()),
+        Some(std::time::Duration::from_secs(9))
+    );
+}
+
+#[test]
 fn resolve_endpoints_order_and_overrides() {
     assert_eq!(DEFAULT_ENDPOINT, "https://daily-cloudcode-pa.googleapis.com");
     assert_eq!(
