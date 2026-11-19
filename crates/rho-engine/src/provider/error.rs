@@ -129,7 +129,8 @@ fn is_context_overflow_text(lower: &str) -> bool {
 pub fn parse_retry_after(headers: &reqwest::header::HeaderMap, now: chrono::DateTime<chrono::Utc>) -> Option<Duration> {
     let text = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
     if let Some(ms) = text("retry-after-ms").and_then(|v| v.parse::<f64>().ok()) {
-        return (ms.is_finite() && ms >= 0.0).then(|| Duration::from_secs_f64(ms / 1000.0));
+        return (ms.is_finite() && ms >= 0.0)
+            .then(|| Duration::try_from_secs_f64(ms / 1000.0).unwrap_or(Duration::MAX));
     }
     let value = text("retry-after")?;
     if let Ok(seconds) = value.parse::<u64>() {
@@ -299,6 +300,8 @@ mod tests {
                 headers(&[("retry-after", "Wed, 21 Oct 2015 07:27:00 GMT")]),
                 Some(Duration::ZERO),
             ),
+            (headers(&[("retry-after-ms", "1e30")]), Some(Duration::MAX)),
+            (headers(&[("retry-after-ms", "-5")]), None),
             (headers(&[("retry-after", "soon")]), None),
             (HeaderMap::new(), None),
         ];
