@@ -2264,7 +2264,7 @@ dependencies = [
 
 [[package]]
 name = "rho"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -2305,7 +2305,7 @@ dependencies = [
 
 [[package]]
 name = "rho-engine"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2347,7 +2347,7 @@ dependencies = [
 
 [[package]]
 name = "rho-harness-core"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "async-trait",
