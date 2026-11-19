@@ -237,6 +237,7 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
         idle_timeout_seconds,
         startup_timeout_ms: default_startup_timeout_ms(),
         servers,
+        project: None,
     })
 }
 

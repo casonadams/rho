@@ -2,7 +2,9 @@ use crate::config::Config;
 use crate::config::cli::McpCommands;
 use rho_engine::mcp::oauth::{LoginRequest, McpTokenStore};
 use rho_engine::mcp::pool::build_transport;
-use rho_engine::mcp::{McpClient, McpDiagnostic, McpTransport};
+use rho_engine::mcp::{
+    McpClient, McpDiagnostic, McpTransport, approve_server_definition, compute_definition_hash, project_server_approval,
+};
 use rho_harness_core::config::{McpExposureMode, McpServerConfig, McpTransportKind};
 use std::sync::Arc;
 use std::time::Instant;
@@ -18,6 +20,7 @@ pub async fn handle_mcp(action: Option<McpCommands>, config: &Config) -> Result<
         McpCommands::Remove { name } => remove_server(&name, config),
         McpCommands::Login { name } => Ok(login_mcp_server(&name, config).await?),
         McpCommands::Logout { name } => Ok(logout_mcp_server(&name, config)?),
+        McpCommands::Approve { names } => Ok(approve_project_servers(&names, config)?),
     }
 }
 
@@ -49,12 +52,16 @@ pub fn mcp_diagnostic_lines(diagnostics: &[McpDiagnostic]) -> Vec<String> {
             pending.join(", ")
         ));
     }
+    let unapproved = servers_where(diagnostics, |d| matches!(d, McpDiagnostic::Untrusted { .. }));
+    if !unapproved.is_empty() {
+        lines.push(format!(
+            "MCP project servers skipped until approved: {} (review them, then run rho mcp approve <server>)",
+            unapproved.join(", ")
+        ));
+    }
     for diagnostic in diagnostics {
         match diagnostic {
-            McpDiagnostic::NeedsLogin { .. } | McpDiagnostic::Pending { .. } => {}
-            McpDiagnostic::Untrusted { server } => lines.push(format!(
-                "MCP server '{server}' skipped: its project definition has not been approved"
-            )),
+            McpDiagnostic::NeedsLogin { .. } | McpDiagnostic::Pending { .. } | McpDiagnostic::Untrusted { .. } => {}
             McpDiagnostic::Failed { server, message } => {
                 lines.push(format!("MCP server '{server}' unavailable: {message}"));
             }
@@ -131,6 +138,45 @@ pub fn logout_mcp_server(name: &str, config: &Config) -> crate::error::Result<()
     Ok(())
 }
 
+fn approve_project_servers(names: &[String], config: &Config) -> crate::error::Result<()> {
+    let project = config.mcp.project.as_ref().ok_or_else(|| {
+        crate::error::AppError::Config(
+            "No project MCP servers here; only servers from .agents/mcp.json, .claude/mcp.json, or .mcp.json in the current directory need approval".into(),
+        )
+    })?;
+    let selected: Vec<&String> = if names.is_empty() {
+        project.names.iter().collect()
+    } else {
+        names.iter().collect()
+    };
+    let mut approvals = Vec::with_capacity(selected.len());
+    for name in selected {
+        match config.mcp.servers.get(name) {
+            Some(server) if project.names.contains(name) => approvals.push((name, server)),
+            Some(_) => {
+                return Err(crate::error::AppError::Config(format!(
+                    "MCP server '{name}' is not defined by this project, so it needs no approval"
+                )));
+            }
+            None => {
+                return Err(crate::error::AppError::Config(format!(
+                    "MCP server '{name}' is not configured"
+                )));
+            }
+        }
+    }
+    for (name, server) in approvals {
+        let hash = compute_definition_hash(server);
+        approve_server_definition(&project.workspace, name, &hash, &config.config_dir)?;
+        println!(
+            "Approved project MCP server '{name}' ({}) for {}",
+            server_target(server),
+            project.workspace.display()
+        );
+    }
+    Ok(())
+}
+
 fn list_servers(config: &Config) {
     println!("Configured MCP Servers ({} total):", config.mcp.servers.len());
     if config.mcp.servers.is_empty() {
@@ -140,7 +186,20 @@ fn list_servers(config: &Config) {
 
     for (name, server) in &config.mcp.servers {
         print_server_entry(name, server, &token_store(config));
+        match project_server_approval(config, name, server) {
+            Some(true) => println!("      project: approved"),
+            Some(false) => println!("      project: not approved (run rho mcp approve {name})"),
+            None => {}
+        }
     }
+}
+
+fn server_target(server: &McpServerConfig) -> &str {
+    server
+        .command
+        .as_deref()
+        .or(server.url.as_deref())
+        .unwrap_or("<unspecified>")
 }
 
 fn format_server_transport(server: &McpServerConfig) -> &'static str {
@@ -162,11 +221,7 @@ fn format_server_mode(server: &McpServerConfig) -> &'static str {
 fn print_server_entry(name: &str, server: &McpServerConfig, tokens: &McpTokenStore) {
     let transport = format_server_transport(server);
     let mode = format_server_mode(server);
-    let target = server
-        .command
-        .as_deref()
-        .or(server.url.as_deref())
-        .unwrap_or("<unspecified>");
+    let target = server_target(server);
     let status = if server.enabled { "enabled" } else { "disabled" };
 
     println!("  - {name:16} [{transport}] mode={mode} ({status}) target='{target}'");
@@ -290,6 +345,7 @@ fn remove_server(name: &str, config: &Config) -> Result<(), Box<dyn std::error::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rho_harness_core::config::ProjectMcpServers;
 
     #[test]
     fn diagnostics_group_sign_ins_into_one_line() {
@@ -318,8 +374,8 @@ mod tests {
             [
                 "MCP sign-in needed: figma, linear (run /mcp login <server>)",
                 "MCP still connecting: slow (their tools join tool_search when ready)",
+                "MCP project servers skipped until approved: proj (review them, then run rho mcp approve <server>)",
                 "MCP server 'broken' unavailable: spawn failed",
-                "MCP server 'proj' skipped: its project definition has not been approved",
                 "MCP server 'dup': tool 'read' kept behind tool_search: name 'dup_read' is already taken",
             ]
         );
@@ -447,5 +503,72 @@ mod tests {
         let stdio = build_server_config("echo", &["hello".into()]);
         assert_eq!(stdio.command, Some("echo".into()));
         assert_eq!(stdio.args, vec!["hello".to_string()]);
+    }
+
+    fn workspace_config(dir: &std::path::Path) -> Config {
+        let mut config = Config {
+            config_dir: dir.join("config"),
+            ..Config::default()
+        };
+        for name in ["global", "proj_a", "proj_b"] {
+            config
+                .mcp
+                .servers
+                .insert(name.into(), McpServerConfig::stdio(format!("{name}-cmd"), vec![]));
+        }
+        config.mcp.project = Some(ProjectMcpServers {
+            workspace: dir.to_path_buf(),
+            names: ["proj_a".to_string(), "proj_b".to_string()].into(),
+        });
+        config
+    }
+
+    fn approval(config: &Config, name: &str) -> Option<bool> {
+        project_server_approval(config, name, &config.mcp.servers[name])
+    }
+
+    #[test]
+    fn approve_marks_named_project_servers_approved() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = workspace_config(dir.path());
+
+        approve_project_servers(&["proj_a".into()], &config).unwrap();
+
+        assert_eq!(approval(&config, "proj_a"), Some(true));
+        assert_eq!(approval(&config, "proj_b"), Some(false));
+        assert_eq!(approval(&config, "global"), None);
+    }
+
+    #[test]
+    fn approve_without_names_approves_every_project_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = workspace_config(dir.path());
+
+        approve_project_servers(&[], &config).unwrap();
+
+        assert_eq!(approval(&config, "proj_a"), Some(true));
+        assert_eq!(approval(&config, "proj_b"), Some(true));
+    }
+
+    #[test]
+    fn approve_rejects_servers_outside_the_project_without_approving_any() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = workspace_config(dir.path());
+        let cases = [
+            ("global", "is not defined by this project"),
+            ("ghost", "is not configured"),
+        ];
+        for (name, expected) in cases {
+            let err = approve_project_servers(&["proj_a".into(), name.into()], &config).unwrap_err();
+            assert!(err.to_string().contains(expected), "{name}: {err}");
+            assert_eq!(approval(&config, "proj_a"), Some(false), "{name}");
+        }
+
+        let no_project = Config {
+            config_dir: dir.path().join("config"),
+            ..Config::default()
+        };
+        let err = approve_project_servers(&[], &no_project).unwrap_err();
+        assert!(err.to_string().contains("No project MCP servers here"), "{err}");
     }
 }

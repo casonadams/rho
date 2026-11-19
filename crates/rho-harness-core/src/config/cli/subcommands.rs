@@ -75,4 +75,9 @@ pub enum McpCommands {
         /// Server name
         name: String,
     },
+    /// Approve this workspace's project MCP servers (all of them when no name is given)
+    Approve {
+        /// Server names
+        names: Vec<String>,
+    },
 }

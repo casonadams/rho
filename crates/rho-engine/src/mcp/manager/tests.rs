@@ -2,6 +2,7 @@ use super::*;
 use crate::mcp::cache::{McpCache, compute_definition_hash};
 use crate::mcp::client::McpToolDefinition;
 use crate::mcp::test_server::{self, Handler, Reply, eventually, handler, init_result, tools_result};
+use rho_harness_core::config::ProjectMcpServers;
 use serde_json::{Value, json};
 use std::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -329,13 +330,61 @@ async fn untrusted_project_servers_are_never_contacted() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join(".mcp.json"), "{}").unwrap();
     let server = test_server::spawn(standard(&["a"], None)).await;
-    let config = config_with(dir.path(), vec![("proj", remote(&server.url))]);
+    let mut config = config_with(dir.path(), vec![("proj", remote(&server.url))]);
+    config.mcp.project = Some(project(dir.path(), &["proj"]));
 
     let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
 
     assert!(load.runtime.is_none());
     assert_eq!(load.diagnostics, [McpDiagnostic::Untrusted { server: "proj".into() }]);
     assert!(server.methods().is_empty());
+}
+
+fn project(workspace: &Path, names: &[&str]) -> ProjectMcpServers {
+    ProjectMcpServers {
+        workspace: workspace.to_path_buf(),
+        names: names.iter().map(|n| n.to_string()).collect(),
+    }
+}
+
+#[tokio::test]
+async fn global_servers_load_in_a_workspace_with_project_servers() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".mcp.json"), "{}").unwrap();
+    let global = test_server::spawn(standard(&["g"], None)).await;
+    let local = test_server::spawn(standard(&["p"], None)).await;
+    let mut config = config_with(
+        dir.path(),
+        vec![("global", remote(&global.url)), ("proj", remote(&local.url))],
+    );
+    config.mcp.project = Some(project(dir.path(), &["proj"]));
+
+    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+
+    assert_eq!(names(&load), ["global_g", "mcp"]);
+    assert_eq!(load.diagnostics, [McpDiagnostic::Untrusted { server: "proj".into() }]);
+    assert!(local.methods().is_empty());
+}
+
+#[tokio::test]
+async fn approved_project_servers_load_until_their_definition_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = test_server::spawn(standard(&["a"], None)).await;
+    let mut config = config_with(dir.path(), vec![("proj", remote(&server.url))]);
+    config.mcp.project = Some(project(dir.path(), &["proj"]));
+    let approved = compute_definition_hash(&config.mcp.servers["proj"]);
+    crate::mcp::approve_server_definition(dir.path(), "proj", &approved, &config.config_dir).unwrap();
+
+    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    assert_eq!(names(&load), ["proj_a", "mcp"]);
+    assert!(load.diagnostics.is_empty(), "{:?}", load.diagnostics);
+
+    config.mcp.servers.get_mut("proj").unwrap().url = Some(format!("{}?changed", server.url));
+    let changed = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    assert_eq!(
+        changed.diagnostics,
+        [McpDiagnostic::Untrusted { server: "proj".into() }]
+    );
 }
 
 fn crashing_server(crash_calls: usize) -> Handler {

@@ -29,6 +29,7 @@ fn mcp_fs_config(script: &std::path::Path, workspace: &std::path::Path) -> Confi
             idle_timeout_seconds: 600,
             startup_timeout_ms: 0,
             servers,
+            project: None,
         },
         ..Config::default()
     }

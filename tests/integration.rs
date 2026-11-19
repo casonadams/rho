@@ -24,6 +24,7 @@ pub(crate) fn mcp_config(
             idle_timeout_seconds: 600,
             startup_timeout_ms: 0,
             servers,
+            project: None,
         },
         config_dir: workspace.to_path_buf(),
         sessions_dir: workspace.join("sessions"),

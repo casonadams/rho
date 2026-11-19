@@ -225,6 +225,7 @@ rho mcp test filesystem
 rho mcp add db "https://mcp.db.example.com/mcp"
 rho mcp remove db
 rho mcp login linear
+rho mcp approve
 
 # Tool call/error rates and file edits made through bash, from local sessions
 rho stats
@@ -796,6 +797,7 @@ rho mcp list
 rho mcp test filesystem
 rho mcp add db "https://mcp.db.example.com/mcp"
 rho mcp login linear     # OAuth sign-in for a remote server
+rho mcp approve          # approve this directory's project servers
 
 # In the interactive REPL:
 /mcp
@@ -804,6 +806,10 @@ rho mcp login linear     # OAuth sign-in for a remote server
 
       <p>
         Remote servers that require OAuth need no token in the config. <code>/mcp login &lt;server&gt;</code> discovers the server's authorization server from its <code>401</code> challenge and protected resource metadata, registers rho dynamically, and runs a browser PKCE sign-in. In the REPL the sign-in stays inside the TUI with progress in the transcript, and Esc cancels; rho rejects authorization server metadata with a mismatched <code>issuer</code> and adds <code>prompt=consent</code> when requesting <code>offline_access</code>. Servers that still need a sign-in are listed in one warning after startup, <code>/reload</code>, or a login, and Tab completes <code>/mcp login &lt;server&gt;</code>. Tokens live in <code>~/.config/rho/mcp-auth.json</code> (mode <code>0600</code>) and are refreshed automatically. For providers without dynamic registration, add <code>"oauth": { "clientId": "...", "redirectUri": "http://localhost:8765/callback" }</code> to the server entry. Optional <code>scope</code>/<code>scopes</code> override requested scopes and <code>authorizationParams</code> adds extra authorize parameters such as Google's <code>access_type</code>.
+      </p>
+
+      <p>
+        Servers defined by the current directory's project file (<code>.agents/mcp.json</code>, <code>.claude/mcp.json</code>, or <code>.mcp.json</code>) are skipped until approved; global servers never need approval. <code>rho mcp list</code> shows each project server's approval state, and <code>rho mcp approve [server...]</code> approves the named servers, or all of them when none are named. An approval covers the hash of the server's command, arguments, environment, URL, and headers, so changing any of them requires approving it again. Approvals live in <code>~/.config/rho/mcp_approved_servers.json</code>; restart or <code>/reload</code> to load newly approved servers.
       </p>
 
       <div class="code-block-wrapper">

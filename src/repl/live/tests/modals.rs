@@ -766,6 +766,7 @@ fn mcp_controller(remote_enabled: bool) -> TerminalController<NullBackend> {
             idle_timeout_seconds: 600,
             startup_timeout_ms: 0,
             servers,
+            project: None,
         },
         config_dir: tempfile::tempdir().unwrap().keep(),
         ..Default::default()

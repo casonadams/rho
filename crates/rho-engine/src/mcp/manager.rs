@@ -3,7 +3,7 @@ use super::instructions::McpServerInstructions;
 use super::naming::NameRegistry;
 use super::runtime::{McpRuntime, ServerSnapshot};
 use super::search::{McpToolEntry, ServerState, build_tool_search_tool};
-use super::trust::is_server_definition_trusted;
+use super::trust::project_server_approval;
 use crate::tools::{EngineTool, GenericTool};
 use rho_harness_core::config::{Config, McpDirectTools, McpExposureMode, McpLifecycleMode, McpServerConfig};
 use std::collections::{BTreeMap, HashSet};
@@ -47,7 +47,9 @@ impl McpDiagnostic {
     pub fn message(&self) -> String {
         match self {
             Self::NeedsLogin { server } => format!("sign-in required; run /mcp login {server}"),
-            Self::Untrusted { .. } => "project definition has not been approved".to_string(),
+            Self::Untrusted { server } => {
+                format!("project definition has not been approved; run rho mcp approve {server}")
+            }
             Self::Failed { message, .. } => message.clone(),
             Self::Pending { .. } => "still connecting".to_string(),
             Self::NameConflict { tool, wire_name, .. } => {
@@ -75,22 +77,10 @@ impl McpLoad {
     }
 }
 
-fn is_project_scoped(working_dir: &Path) -> bool {
-    [".mcp.json", ".agents/mcp.json", ".claude/mcp.json"]
-        .iter()
-        .any(|p| working_dir.join(p).is_file())
-}
-
-fn trusted_servers(
-    config: &Config,
-    working_dir: &Path,
-    diagnostics: &mut Vec<McpDiagnostic>,
-) -> BTreeMap<String, McpServerConfig> {
-    let project_scoped = is_project_scoped(working_dir);
+fn trusted_servers(config: &Config, diagnostics: &mut Vec<McpDiagnostic>) -> BTreeMap<String, McpServerConfig> {
     let mut trusted = BTreeMap::new();
     for (name, cfg) in config.mcp.servers.iter().filter(|(_, cfg)| cfg.enabled) {
-        let hash = super::cache::compute_definition_hash(cfg);
-        if project_scoped && !is_server_definition_trusted(working_dir, name, &hash, &config.config_dir) {
+        if project_server_approval(config, name, cfg) == Some(false) {
             diagnostics.push(McpDiagnostic::Untrusted { server: name.clone() });
         } else {
             trusted.insert(name.clone(), cfg.clone());
@@ -281,7 +271,7 @@ pub async fn load_mcp(config: &Config, working_dir: &Path, active_history_tools:
         return McpLoad::empty();
     }
     let mut diagnostics = Vec::new();
-    let servers = trusted_servers(config, working_dir, &mut diagnostics);
+    let servers = trusted_servers(config, &mut diagnostics);
     if servers.is_empty() {
         return McpLoad {
             diagnostics,

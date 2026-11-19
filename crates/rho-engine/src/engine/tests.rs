@@ -63,6 +63,7 @@ fn with_mock_mcp(mut config: Config, command: String) -> Config {
         idle_timeout_seconds: 600,
         startup_timeout_ms: 0,
         servers,
+        project: None,
     };
     config
 }

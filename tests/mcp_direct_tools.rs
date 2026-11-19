@@ -76,6 +76,7 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
             idle_timeout_seconds: 600,
             startup_timeout_ms: 0,
             servers,
+            project: None,
         },
         ..Default::default()
     };

@@ -32,5 +32,5 @@ pub use process::{McpChildHandle, McpProcess};
 pub use runtime::McpRuntime;
 pub use search::{McpToolEntry, ServerState, ToolSearchCatalog, build_tool_search_tool, extract_invoked_tool_names};
 pub use transport::McpTransport;
-pub use trust::is_server_definition_trusted;
+pub use trust::{approve_server_definition, is_server_definition_trusted, project_server_approval};
 pub use types::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};

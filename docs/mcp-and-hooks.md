@@ -91,7 +91,18 @@ Direct tools are named `<server>_<tool>`. Characters outside `[A-Za-z0-9_-]` bec
 
 ### Project Server Trust
 
-To guard against malicious repositories, project-scoped MCP servers (`.mcp.json`) require authorization based on the SHA-256 hash of their execution command, arguments, and environment variables. Approved hashes are stored in `~/.config/rho/mcp_approved_servers.json`.
+To guard against malicious repositories, servers defined by the current directory's project file (`.agents/mcp.json`, `.claude/mcp.json`, or `.mcp.json`) are skipped until you approve them. Global servers never need approval, even when you run rho inside a project. An approval covers the SHA-256 hash of the server's command, arguments, environment variables, URL, and headers for that workspace, so editing any of them requires approving it again. Approvals are stored in `~/.config/rho/mcp_approved_servers.json`.
+
+```sh
+# Show which project servers are approved
+rho mcp list
+
+# Approve one project server, or every project server in this directory
+rho mcp approve playwright-test
+rho mcp approve
+```
+
+Restart rho or run `/reload` to load newly approved servers. `RHO_TRUST_PROJECT=1` trusts every project server (and project hooks) without approval.
 
 ### Managing MCP Servers via CLI
 
@@ -113,6 +124,9 @@ rho mcp remove db
 # Sign in to (or out of) a remote server that uses OAuth
 rho mcp login linear
 rho mcp logout linear
+
+# Approve this directory's project servers (see Project Server Trust)
+rho mcp approve
 ```
 
 Or view and test active servers interactively inside the REPL with `/mcp`, and

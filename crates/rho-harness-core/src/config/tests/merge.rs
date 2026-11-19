@@ -527,6 +527,40 @@ fn malformed_project_config_is_reported_as_warning() {
 }
 
 #[test]
+fn project_mcp_servers_are_recorded_with_their_workspace() {
+    let dir = crate::test_support::created_temp_dir();
+    std::fs::write(
+        dir.join(".mcp.json"),
+        r#"{"mcpServers": {"shared": {"command": "project-shared"}, "local": {"command": "echo"}}}"#,
+    )
+    .unwrap();
+    let mut cfg = Config::default();
+    for name in ["global", "shared"] {
+        cfg.mcp
+            .servers
+            .insert(name.into(), crate::config::McpServerConfig::stdio("global-cmd", vec![]));
+    }
+
+    super::super::merge_project_mcp(&mut cfg, &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let project = cfg.mcp.project.expect("project servers recorded");
+    assert_eq!(project.workspace, dir);
+    assert_eq!(project.names, ["local".to_string(), "shared".to_string()].into());
+    assert_eq!(cfg.mcp.servers["shared"].command.as_deref(), Some("project-shared"));
+    assert_eq!(cfg.mcp.servers["global"].command.as_deref(), Some("global-cmd"));
+}
+
+#[test]
+fn workspaces_without_project_mcp_record_no_project_servers() {
+    let dir = crate::test_support::created_temp_dir();
+    let mut cfg = Config::default();
+    super::super::merge_project_mcp(&mut cfg, &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(cfg.mcp.project.is_none());
+}
+
+#[test]
 fn file_settings_merge_into_every_section() {
     let file: FileConfig = toml::from_str(
         r#"

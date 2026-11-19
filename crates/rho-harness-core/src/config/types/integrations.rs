@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 pub(crate) fn default_true() -> bool {
     true
@@ -77,6 +78,14 @@ pub struct McpConfig {
     pub startup_timeout_ms: u64,
     #[serde(default)]
     pub servers: BTreeMap<String, McpServerConfig>,
+    #[serde(skip)]
+    pub project: Option<ProjectMcpServers>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectMcpServers {
+    pub workspace: PathBuf,
+    pub names: BTreeSet<String>,
 }
 
 impl Default for McpConfig {
@@ -87,6 +96,7 @@ impl Default for McpConfig {
             idle_timeout_seconds: default_idle_timeout_seconds(),
             startup_timeout_ms: default_startup_timeout_ms(),
             servers: BTreeMap::new(),
+            project: None,
         }
     }
 }

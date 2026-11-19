@@ -15,9 +15,9 @@ mod tests;
 
 pub use types::{
     Config, DEFAULT_MAX_TURNS, McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig,
-    McpServerConfig, McpTransportKind, ModelsConfig, PermissionConfig, ProviderConfig, ToolsConfig, UiConfig,
-    WebFetchConfig, WebSearchConfig, WebToolsConfig, config_dir, default_config_dir, default_idle_timeout_seconds,
-    dirs_fallback, home_dir,
+    McpServerConfig, McpTransportKind, ModelsConfig, PermissionConfig, ProjectMcpServers, ProviderConfig, ToolsConfig,
+    UiConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig, config_dir, default_config_dir,
+    default_idle_timeout_seconds, dirs_fallback, home_dir,
 };
 
 use crate::error::{AppError, Result};
@@ -47,16 +47,7 @@ impl Config {
             && cwd != types::dirs_fallback()
         {
             merge_project_config(&mut config, &cwd);
-            match mcp::load_project_mcp_config(&cwd) {
-                Ok(Some(project_mcp)) => {
-                    config.mcp.enabled = config.mcp.enabled && project_mcp.enabled;
-                    config.mcp.servers.extend(project_mcp.servers);
-                }
-                Ok(None) => {}
-                Err(e) => config
-                    .migration_warnings
-                    .push(format!("Ignoring project MCP config in {}: {e}", cwd.display())),
-            }
+            merge_project_mcp(&mut config, &cwd);
         }
 
         merge::apply_env_overrides(&mut config)?;
@@ -91,5 +82,22 @@ fn merge_project_config(config: &mut Config, workspace: &Path) {
         Err(e) => config
             .migration_warnings
             .push(format!("Ignoring project config {}: {e}", path.display())),
+    }
+}
+
+fn merge_project_mcp(config: &mut Config, workspace: &Path) {
+    match mcp::load_project_mcp_config(workspace) {
+        Ok(Some(project_mcp)) => {
+            config.mcp.enabled = config.mcp.enabled && project_mcp.enabled;
+            config.mcp.project = Some(ProjectMcpServers {
+                workspace: workspace.to_path_buf(),
+                names: project_mcp.servers.keys().cloned().collect(),
+            });
+            config.mcp.servers.extend(project_mcp.servers);
+        }
+        Ok(None) => {}
+        Err(e) => config
+            .migration_warnings
+            .push(format!("Ignoring project MCP config in {}: {e}", workspace.display())),
     }
 }
