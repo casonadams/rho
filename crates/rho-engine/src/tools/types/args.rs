@@ -76,20 +76,72 @@ pub fn try_parse_tool_args<T: DeserializeOwned>(args: &Value) -> Result<T, serde
         .ok_or(first_error)
 }
 
+fn coerce_scalar_string(text: &str, kind: &str) -> Option<Value> {
+    match (kind, text.trim()) {
+        ("boolean", "true") => Some(Value::Bool(true)),
+        ("boolean", "false") => Some(Value::Bool(false)),
+        ("integer", digits) => digits.parse::<u64>().ok().map(Value::from),
+        _ => None,
+    }
+}
+
+/// Models sometimes quote booleans and integers (`"true"`, `"30"`); convert them where the schema expects that type.
+fn coerce_to_schema(value: &mut Value, schema: &Value) -> bool {
+    let kind = schema["type"].as_str().unwrap_or_default();
+    match value {
+        Value::String(text) => match coerce_scalar_string(text, kind) {
+            Some(coerced) => {
+                *value = coerced;
+                true
+            }
+            None => false,
+        },
+        Value::Object(map) => {
+            map.iter_mut()
+                .map(|(key, field)| coerce_to_schema(field, &schema["properties"][key.as_str()]))
+                .filter(|&changed| changed)
+                .count()
+                > 0
+        }
+        Value::Array(items) => {
+            items
+                .iter_mut()
+                .map(|item| coerce_to_schema(item, &schema["items"]))
+                .filter(|&changed| changed)
+                .count()
+                > 0
+        }
+        _ => false,
+    }
+}
+
+fn invalid_arguments(tool: &str, error: &serde_json::Error, schema: &Value) -> ToolResult {
+    let error = error.to_string();
+    let shown = truncate_chars(&error, MAX_ERROR_CHARS);
+    let ellipsis = if shown.len() < error.len() { "..." } else { "" };
+    ToolResult::error(format!(
+        "Invalid arguments for {tool}: {shown}{ellipsis}. Pass a JSON object matching the schema ({}); arrays and objects must not be JSON-encoded strings.",
+        expected_shape(schema)
+    ))
+}
+
 pub fn parse_tool_args<T: DeserializeOwned>(
     tool: &str,
     args: Value,
     schema: impl FnOnce() -> Value,
 ) -> Result<T, ToolResult> {
-    try_parse_tool_args(&args).map_err(|error| {
-        let error = error.to_string();
-        let shown = truncate_chars(&error, MAX_ERROR_CHARS);
-        let ellipsis = if shown.len() < error.len() { "..." } else { "" };
-        ToolResult::error(format!(
-            "Invalid arguments for {tool}: {shown}{ellipsis}. Pass a JSON object matching the schema ({}); arrays and objects must not be JSON-encoded strings.",
-            expected_shape(&schema())
-        ))
-    })
+    let error = match try_parse_tool_args(&args) {
+        Ok(parsed) => return Ok(parsed),
+        Err(error) => error,
+    };
+    let schema = schema();
+    let mut coerced = coerce_json_strings(&args).unwrap_or(args);
+    if coerce_to_schema(&mut coerced, &schema)
+        && let Ok(parsed) = T::deserialize(&coerced)
+    {
+        return Ok(parsed);
+    }
+    Err(invalid_arguments(tool, &error, &schema))
 }
 
 #[cfg(test)]
@@ -172,6 +224,60 @@ mod tests {
             .unwrap_or_else(|| panic!("{}", err.content));
         assert_eq!(detail.chars().count(), MAX_ERROR_CHARS);
         assert!(err.content.contains("required: path, edits; optional: limit"));
+    }
+
+    #[test]
+    fn quoted_booleans_and_integers_are_coerced_where_the_schema_expects_them() {
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Typed {
+            pattern: String,
+            hidden: Option<bool>,
+            limit: Option<usize>,
+            edits: Vec<Entry>,
+        }
+        #[derive(Debug, Deserialize, PartialEq)]
+        struct Entry {
+            #[serde(rename = "replaceAll")]
+            replace_all: Option<bool>,
+        }
+        let typed_schema = || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string" },
+                    "hidden": { "type": "boolean" },
+                    "limit": { "type": "integer" },
+                    "edits": { "type": "array", "items": { "type": "object", "properties": { "replaceAll": { "type": "boolean" } } } }
+                }
+            })
+        };
+        let args =
+            json!({ "pattern": "true", "hidden": "true", "limit": " 20 ", "edits": [{ "replaceAll": "false" }] });
+        let parsed: Typed = parse_tool_args("fd", args, typed_schema).unwrap();
+        assert_eq!(
+            parsed,
+            Typed {
+                pattern: "true".into(),
+                hidden: Some(true),
+                limit: Some(20),
+                edits: vec![Entry {
+                    replace_all: Some(false)
+                }],
+            }
+        );
+
+        for bad in [
+            json!({ "pattern": "x", "hidden": "yes", "edits": [] }),
+            json!({ "pattern": "x", "limit": "-1", "edits": [] }),
+        ] {
+            let err = parse_tool_args::<Typed>("fd", bad.clone(), typed_schema).unwrap_err();
+            assert!(
+                err.content
+                    .starts_with("Invalid arguments for fd: invalid type: string"),
+                "{bad}: {}",
+                err.content
+            );
+        }
     }
 
     #[test]

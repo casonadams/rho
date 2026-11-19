@@ -90,6 +90,16 @@ async fn hidden_flag_includes_hidden_files_while_respecting_gitignore() {
 }
 
 #[tokio::test]
+async fn quoted_boolean_and_integer_arguments_are_accepted() {
+    use crate::tools::engine_tool::EngineTool;
+    let dir = fixture();
+    let args = serde_json::json!({ "pattern": "hidden", "hidden": "true", "limit": "5" });
+    let result = EngineTool::execute(&FdTool::new(dir.path()), args).await.unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert_eq!(result.content, ".hidden_file");
+}
+
+#[tokio::test]
 async fn no_pattern_or_empty_pattern_matches_all_files() {
     let dir = fixture();
     let no_pat = FdTool::new(dir.path()).execute(FdArgs::default()).await.unwrap();
