@@ -160,7 +160,19 @@ Each model request in a turn is retried on its own when it fails with a network 
 ## Subagents & Custom Agents
 
 The `subagent` tool hands a focused task to an isolated agent with its own
-context. It returns a summary with turn, tool-call, and token counts.
+context. It returns a summary with turn, tool-call, and token counts, plus the
+files it changed with `write` or `edit` (`Files changed: ...`).
+
+- **Names**: pass `name` (camelCase, e.g. `performanceAudit`; other text such
+  as `performance audit` is converted) to label the subagent's progress lines,
+  its entry in the agent list, and its result footer
+  (`[subagent performanceAudit: 12 turns, ...]`).
+- **Incomplete runs**: when a subagent hits its turn limit, ends without a final
+  answer, or loses its model mid-run, it is asked once more (without tools) to
+  summarize its work so far. The result starts with `Incomplete:` and its
+  footer says `incomplete`; if that summary also fails, the findings gathered
+  so far are returned instead. The agent list shows these runs as
+  `incomplete`.
 
 - **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`
   and `planner` (read, fd, rg), and `general` (read, write, edit, bash, fd, rg,

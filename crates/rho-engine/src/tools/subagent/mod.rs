@@ -5,7 +5,7 @@ mod tests;
 pub mod types;
 
 pub use runner::SubagentRunner;
-pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns};
+pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
 
 use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
@@ -33,6 +33,7 @@ pub struct SubagentTool {
 #[derive(serde::Deserialize)]
 struct RawSubagentArgs {
     prompt: String,
+    name: Option<String>,
     agent: Option<String>,
     role: Option<String>,
     context_slice: Option<String>,
@@ -48,6 +49,7 @@ pub(crate) struct RunnerSpec<'a> {
     pub turns: Option<usize>,
     pub model: Option<ModelRole>,
     pub position: Option<String>,
+    pub task_name: Option<String>,
 }
 
 enum Target<'a> {
@@ -164,6 +166,10 @@ impl SubagentTool {
             Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, turns),
         };
         let runner = runner.with_context(self.ctx.clone());
+        let runner = match spec.task_name {
+            Some(name) => runner.with_task_name(&name),
+            None => runner,
+        };
         Ok(match spec.position {
             Some(position) => runner.with_position(position),
             None => runner,
@@ -259,6 +265,7 @@ impl EngineTool for SubagentTool {
             turns: args.turns,
             model,
             position: None,
+            task_name: args.name.as_deref().and_then(types::task_name),
         };
         match self.runner_for(spec).await {
             Ok(runner) => Ok(runner.run(&args.prompt, self.compose_context(&args).as_deref()).await),

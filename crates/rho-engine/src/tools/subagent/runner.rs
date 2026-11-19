@@ -9,14 +9,16 @@ use crate::tools::types::ToolResult;
 use rho_harness_core::agents::{AgentEvent, AgentHandle, AgentStatus};
 use rho_harness_core::model::{AssistantContent, ChatMessage, TextContent, ToolCall, UserContent};
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
 const MAX_PARENT_MESSAGES: usize = 20;
 const MAX_PARENT_MESSAGE_CHARS: usize = 1_500;
-pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent: ";
+pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
 const DEFAULT_MONITOR_GROUP: &str = "subagents";
 pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
+const FILE_CHANGING_TOOLS: [&str; 2] = ["write", "edit"];
 
 pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> String {
     match context_slice {
@@ -54,6 +56,14 @@ struct RunState {
     turns: usize,
     tool_calls: usize,
     tracker: Option<AgentHandle>,
+    changed_files: BTreeSet<String>,
+    incomplete: bool,
+}
+
+struct CallOutcome {
+    message: ChatMessage,
+    stop: Option<String>,
+    is_error: bool,
 }
 
 fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
@@ -212,6 +222,13 @@ impl SubagentRunner {
     }
 
     #[must_use]
+    pub fn with_task_name(mut self, name: &str) -> Self {
+        self.label = format!("subagent {name}");
+        self.monitor_label = format!("{name} · {}", self.monitor_label);
+        self
+    }
+
+    #[must_use]
     pub fn with_monitor_identity(mut self, group: &str, label: &str) -> Self {
         self.monitor_group = group.to_string();
         self.monitor_label = label.to_string();
@@ -299,10 +316,12 @@ impl SubagentRunner {
             turns: 0,
             tool_calls: 0,
             tracker,
+            changed_files: BTreeSet::new(),
+            incomplete: false,
         };
         let result = self.run_turns(&preamble, &tools_def, &mut state).await;
         if let Some(tracker) = &state.tracker {
-            tracker.finish(self.final_status(&result));
+            tracker.finish(self.final_status(&result, state.incomplete));
         }
         result
     }
@@ -313,14 +332,17 @@ impl SubagentRunner {
                 return result;
             }
         }
-        self.finish_exhausted(state).await
+        self.salvage(&format!("reached the turn limit of {}", self.max_turns), state)
+            .await
     }
 
-    fn final_status(&self, result: &ToolResult) -> AgentStatus {
+    fn final_status(&self, result: &ToolResult, incomplete: bool) -> AgentStatus {
         if self.is_cancelled() {
             AgentStatus::Cancelled
         } else if result.is_error {
             AgentStatus::Failed
+        } else if incomplete {
+            AgentStatus::Incomplete
         } else {
             AgentStatus::Done
         }
@@ -349,7 +371,7 @@ impl SubagentRunner {
             None => return Some(interrupted()),
             Some(Err(e)) => {
                 let reason = format!("stopped after a model call failed ({e})");
-                return Some(partial_result(&reason, &state.messages));
+                return Some(self.partial(&reason, state));
             }
             Some(Ok(resp)) => resp,
         };
@@ -358,7 +380,10 @@ impl SubagentRunner {
         track_response(state.tracker.as_ref(), turn, &resp.content, &resp.tool_calls);
 
         if resp.tool_calls.is_empty() {
-            return Some(Self::finish(&resp.content, state));
+            if resp.content.trim().is_empty() {
+                return Some(self.salvage("ended without writing a final answer", state).await);
+            }
+            return Some(ToolResult::success(self.report(&resp.content, state)));
         }
         self.report_progress(turn, &resp.tool_calls);
         if state.messages.is_empty() {
@@ -380,19 +405,35 @@ impl SubagentRunner {
         ));
     }
 
-    fn finish(text: &str, state: &RunState) -> ToolResult {
-        let text = text.trim();
-        if text.is_empty() {
-            return ToolResult::error("Subagent completed without generating an output summary.");
+    /// The answer the parent receives: the subagent's text, the files it changed, and the run footer.
+    fn report(&self, body: &str, state: &RunState) -> String {
+        let mut text = body.trim().to_string();
+        if !state.changed_files.is_empty() {
+            let files: Vec<&str> = state.changed_files.iter().map(String::as_str).collect();
+            text.push_str(&format!("\n\nFiles changed: {}", files.join(", ")));
         }
         let tokens = state.usage.input_tokens + state.usage.output_tokens;
-        ToolResult::success(format!(
-            "{text}{RUN_FOOTER_PREFIX}{} turns, {} tool calls, {tokens} tokens]",
-            state.turns, state.tool_calls
-        ))
+        let progress = if state.incomplete { "incomplete, " } else { "" };
+        text.push_str(&format!(
+            "{RUN_FOOTER_PREFIX}{}: {progress}{} turns, {} tool calls, {tokens} tokens]",
+            self.label.strip_prefix("subagent").unwrap_or_default(),
+            state.turns,
+            state.tool_calls
+        ));
+        text
     }
 
-    async fn finish_exhausted(&self, state: &RunState) -> ToolResult {
+    fn partial(&self, reason: &str, state: &mut RunState) -> ToolResult {
+        state.incomplete = true;
+        let result = partial_result(reason, &state.messages);
+        if result.is_error {
+            return result;
+        }
+        ToolResult::success(self.report(&result.content, state))
+    }
+
+    /// Ends a run that stopped before a final answer, asking the model to summarize its work so far.
+    async fn salvage(&self, reason: &str, state: &mut RunState) -> ToolResult {
         if self.is_cancelled() {
             return interrupted();
         }
@@ -405,8 +446,14 @@ impl SubagentRunner {
             .await;
         match synthesis {
             None => interrupted(),
-            Some(Some(text)) => Self::finish(&text, state),
-            Some(None) => partial_result(&format!("reached turn limit of {}", self.max_turns), &state.messages),
+            Some(Some(text)) => {
+                state.incomplete = true;
+                let body = format!(
+                    "Incomplete: subagent {reason} before finishing; this summary covers its work so far.\n\n{text}"
+                );
+                ToolResult::success(self.report(&body, state))
+            }
+            Some(None) => self.partial(reason, state),
         }
     }
 
@@ -453,9 +500,12 @@ impl SubagentRunner {
         };
 
         let mut stop = None;
-        for ((index, _, _), (msg, stop_reason)) in approved.iter().zip(outcomes) {
-            slots[*index] = Some(msg);
-            stop = stop.or(stop_reason);
+        for ((index, call, args), outcome) in approved.iter().zip(outcomes) {
+            if !outcome.is_error && FILE_CHANGING_TOOLS.contains(&call.function.name.as_str()) {
+                state.changed_files.extend(args["path"].as_str().map(str::to_string));
+            }
+            slots[*index] = Some(outcome.message);
+            stop = stop.or(outcome.stop);
         }
         state.tool_calls += calls.len();
         state.messages.extend(slots.into_iter().flatten());
@@ -465,12 +515,7 @@ impl SubagentRunner {
         }
     }
 
-    async fn run_call(
-        &self,
-        call: &ToolCall,
-        args: &Value,
-        tracker: Option<&AgentHandle>,
-    ) -> (ChatMessage, Option<String>) {
+    async fn run_call(&self, call: &ToolCall, args: &Value, tracker: Option<&AgentHandle>) -> CallOutcome {
         let name = call.function.name.as_str();
         let (mut output, is_error) = self
             .cancellable(self.run_tool(name, args))
@@ -485,7 +530,11 @@ impl SubagentRunner {
                 is_error,
             });
         }
-        (tool_result_message(call, output), stop)
+        CallOutcome {
+            message: tool_result_message(call, output),
+            stop,
+            is_error,
+        }
     }
 
     async fn run_tool(&self, name: &str, args: &Value) -> (String, bool) {

@@ -228,6 +228,9 @@ impl std::str::FromStr for SubagentRole {
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SubagentArgs {
+    /// Short camelCase name for what this subagent is doing (e.g. 'performanceAudit'); labels its progress, /agents entry, and result
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// Role profile for the subagent ('scout', 'critic', 'planner', 'general')
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<SubagentRole>,

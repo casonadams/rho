@@ -29,6 +29,7 @@ fn status_word(status: AgentStatus) -> &'static str {
     match status {
         AgentStatus::Running => "running",
         AgentStatus::Done => "done",
+        AgentStatus::Incomplete => "incomplete",
         AgentStatus::Failed => "failed",
         AgentStatus::Cancelled => "cancelled",
     }

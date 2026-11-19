@@ -219,10 +219,19 @@ async fn test_subagent_runner_budget_exhaustion_scenarios() {
         0,
     );
     let ok_res = ok_runner.run("search", None).await;
+    assert!(!ok_res.is_error);
     assert!(
         ok_res
             .content
-            .starts_with("Synthesized findings after turn exhaustion.")
+            .starts_with("Incomplete: subagent reached the turn limit of 0 before finishing"),
+        "{}",
+        ok_res.content
+    );
+    assert!(ok_res.content.contains("Synthesized findings after turn exhaustion."));
+    assert!(
+        ok_res
+            .content
+            .ends_with("[subagent: incomplete, 0 turns, 0 tool calls, 0 tokens]")
     );
 
     let empty_runner = SubagentRunner::new(
@@ -734,4 +743,114 @@ fn long_parent_message_keeps_both_its_opening_and_its_closing_text() {
     assert!(rendered.contains("OPENING"));
     assert!(rendered.contains("kumquat CLOSING"));
     assert!(rendered.contains("characters omitted"));
+}
+
+#[tokio::test]
+async fn named_subagents_label_progress_the_monitor_and_the_result() {
+    let adapter = MockAdapter::from_turns([tool_call_turn(&[("read", "x")]), text_turn("done")]);
+    let progress = Arc::new(CollectedProgress::default());
+    let monitor = rho_harness_core::agents::AgentMonitor::default();
+    let ctx = TurnToolContext {
+        progress: ToolStreamPort::new(Some(progress.clone())),
+        monitor: Some(monitor.clone()),
+        ..Default::default()
+    };
+    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![named_tool("read")])
+        .bind_turn(&ctx)
+        .unwrap();
+
+    let result = tool
+        .execute(json!({ "name": "performance audit", "role": "scout", "prompt": "go" }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *progress.0.lock().unwrap(),
+        vec!["subagent performanceAudit turn 1/100: read\n"]
+    );
+    let summaries = monitor.summaries();
+    assert_eq!(summaries[0].label, "performanceAudit · scout");
+    assert_eq!(summaries[0].status, rho_harness_core::agents::AgentStatus::Done);
+    assert!(
+        result
+            .content
+            .ends_with("[subagent performanceAudit: 2 turns, 1 tool calls, 0 tokens]"),
+        "{}",
+        result.content
+    );
+}
+
+fn edit_tool(fails_for: &'static str) -> Arc<dyn EngineTool> {
+    Arc::new(GenericTool::new("edit", "edits", json!({}), move |args| async move {
+        if args["path"] == fails_for {
+            return Ok(ToolResult::error("oldText not found"));
+        }
+        Ok(ToolResult::success("edited"))
+    }))
+}
+
+fn edit_turn(paths: &[&str]) -> Vec<ModelStreamEvent> {
+    paths
+        .iter()
+        .enumerate()
+        .map(|(i, path)| {
+            ModelStreamEvent::ToolCall(ToolCall::new(
+                format!("call-{i}"),
+                ToolFunction::new("edit", json!({ "path": path })),
+            ))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn results_list_files_the_subagent_changed() {
+    let adapter = MockAdapter::from_turns([edit_turn(&["src/a.rs", "src/missing.rs"]), text_turn("fixed it")]);
+    let runner = SubagentRunner::new(
+        Arc::new(adapter),
+        SubagentRole::General,
+        &[edit_tool("src/missing.rs")],
+        5,
+    );
+
+    let result = runner.run("fix", None).await;
+
+    assert!(
+        result
+            .content
+            .starts_with("fixed it\n\nFiles changed: src/a.rs\n\n[subagent: "),
+        "{}",
+        result.content
+    );
+}
+
+#[tokio::test]
+async fn an_empty_final_answer_is_salvaged_instead_of_discarding_the_work() {
+    let adapter = MockAdapter::from_turns([
+        edit_turn(&["src/a.rs"]),
+        text_turn(""),
+        text_turn("Summary: edited src/a.rs to fix the parser."),
+    ]);
+    let monitor = rho_harness_core::agents::AgentMonitor::default();
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::General, &[edit_tool("")], 5)
+        .with_context(TurnToolContext {
+            monitor: Some(monitor.clone()),
+            ..Default::default()
+        });
+
+    let result = runner.run("fix the parser", None).await;
+
+    assert!(!result.is_error, "{}", result.content);
+    assert!(
+        result
+            .content
+            .starts_with("Incomplete: subagent ended without writing a final answer before finishing")
+    );
+    assert!(result.content.contains("Summary: edited src/a.rs to fix the parser."));
+    assert!(result.content.contains("Files changed: src/a.rs"));
+    assert!(result.content.contains("incomplete, 2 turns, 1 tool calls"));
+    assert_eq!(adapter.requests().len(), 3, "one extra call to summarize");
+    assert_eq!(
+        monitor.summaries()[0].status,
+        rho_harness_core::agents::AgentStatus::Incomplete
+    );
 }

@@ -86,6 +86,7 @@ impl Executor<'_> {
                 turns: Some(agent.turns),
                 model: agent.model,
                 position: Some(position.clone()),
+                task_name: None,
             })
             .await?
             .with_monitor_identity(&frame.path, &monitor_label);

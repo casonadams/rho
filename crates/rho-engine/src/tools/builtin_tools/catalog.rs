@@ -92,7 +92,9 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
-- Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'; default smol) and return a concise summary to the parent.";
+- Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'; default smol) and return a concise summary to the parent.
+- Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, and its result.
+- A result starting with 'Incomplete:' or a footer marked 'incomplete' means the subagent stopped early (turn limit, failed model call, or no final answer); its work so far and any 'Files changed' are still reported, so continue from them instead of redoing the task.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {
