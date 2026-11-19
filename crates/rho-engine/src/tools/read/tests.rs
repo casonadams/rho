@@ -51,19 +51,49 @@ fn numbered_lines(count: usize) -> String {
 }
 
 #[tokio::test]
-async fn test_read_first_line_exceeds_byte_limit_points_at_bash() {
+async fn test_read_oversized_line_shows_its_first_50kb() {
     let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
-    let result = read_text(
-        temp_dir.join("huge.txt"),
-        &"x".repeat(DEFAULT_MAX_BYTES * 2),
-        (None, None),
-    )
-    .await;
+    let line = format!(
+        "{}{}",
+        "x".repeat(DEFAULT_MAX_BYTES),
+        "TAIL".repeat(DEFAULT_MAX_BYTES / 4)
+    );
+    let result = read_text(temp_dir.join("huge.txt"), &format!("{line}\nnext"), (None, None)).await;
 
     assert!(!result.is_error);
-    assert!(result.content.contains("[Line 1 is 100.0KB, exceeds 50.0KB limit."));
-    assert!(result.content.contains("Use bash: sed -n '1p'"));
-    assert!(result.content.contains("| head -c 51200]"));
+    assert!(
+        result
+            .content
+            .starts_with(&format!("  1\t{}", "x".repeat(DEFAULT_MAX_BYTES)))
+    );
+    assert!(!result.content.contains("TAIL"));
+    assert!(
+        result
+            .content
+            .ends_with("[Line 1 is 100.0KB; showing its first 50.0KB. Use offset=2 to continue.]")
+    );
+}
+
+#[tokio::test]
+async fn test_read_oversized_line_reached_by_offset_cuts_on_char_boundary() {
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let content = format!("short\n{}", "é".repeat(DEFAULT_MAX_BYTES));
+    let result = read_text(temp_dir.join("wide.txt"), &content, (Some(2), None)).await;
+
+    assert!(!result.is_error);
+    let shown = result
+        .content
+        .strip_prefix("  2\t")
+        .unwrap()
+        .split('\n')
+        .next()
+        .unwrap();
+    assert_eq!(shown, "é".repeat(DEFAULT_MAX_BYTES / 2));
+    assert!(
+        result
+            .content
+            .ends_with("[Line 2 is 100.0KB; showing its first 50.0KB.]")
+    );
 }
 
 #[tokio::test]
@@ -152,16 +182,13 @@ async fn test_read_offset_beyond_end_of_file_errors() {
 }
 
 #[tokio::test]
-async fn test_read_empty_file_errors() {
+async fn test_read_empty_file_reports_empty() {
     let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
-    let result = read_text(temp_dir.join("empty.txt"), "", (None, None)).await;
-
-    assert!(result.is_error);
-    assert!(
-        result
-            .content
-            .contains("Offset 1 is beyond end of file (0 lines total)")
-    );
+    for offset in [None, Some(5)] {
+        let result = read_text(temp_dir.join("empty.txt"), "", (offset, None)).await;
+        assert!(!result.is_error, "{offset:?}");
+        assert_eq!(result.content, "[File is empty]");
+    }
 }
 
 #[tokio::test]

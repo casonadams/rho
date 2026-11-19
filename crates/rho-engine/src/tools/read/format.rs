@@ -29,12 +29,23 @@ fn build_user_limit_notice(start: usize, limit: usize, total: usize) -> Option<S
     }
 }
 
-fn check_first_line_oversized(first_line: &str, start_line: usize, clean_path: &str) -> ToolResult {
-    ToolResult::success(format!(
-        "[Line {start_line} is {}, exceeds {} limit. Use bash: sed -n '{start_line}p' {clean_path} | head -c {DEFAULT_MAX_BYTES}]",
-        format_size(first_line.len()),
+fn format_oversized_line(line: &str, line_no: usize, total_lines: usize) -> ToolResult {
+    let end = (0..=DEFAULT_MAX_BYTES)
+        .rev()
+        .find(|&i| line.is_char_boundary(i))
+        .unwrap_or(0);
+    let mut output = number_lines(&line[..end], line_no);
+    let next = if line_no < total_lines {
+        format!(" Use offset={} to continue.", line_no + 1)
+    } else {
+        String::new()
+    };
+    output.push_str(&format!(
+        "\n[Line {line_no} is {}; showing its first {}.{next}]",
+        format_size(line.len()),
         format_size(DEFAULT_MAX_BYTES),
-    ))
+    ));
+    ToolResult::success(output)
 }
 
 fn slice_content(content: &str, start_idx: usize, limit: Option<usize>) -> String {
@@ -45,9 +56,12 @@ fn slice_content(content: &str, start_idx: usize, limit: Option<usize>) -> Strin
     }
 }
 
-pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs, artifact_dir: Option<&Path>) -> ToolResult {
+pub fn format_content(content: &str, args: &ReadArgs, artifact_dir: Option<&Path>) -> ToolResult {
     let offset = args.offset.unwrap_or(1).max(1);
     let total_lines = content.lines().count();
+    if total_lines == 0 {
+        return ToolResult::success("[File is empty]");
+    }
     let start_idx = offset.saturating_sub(1);
     if start_idx >= total_lines {
         return ToolResult::error(format!(
@@ -59,7 +73,7 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs, artifact
     let start_line = start_idx + 1;
     if truncation.first_line_exceeds_limit {
         let first_line = content.lines().nth(start_idx).unwrap_or("");
-        return check_first_line_oversized(first_line, start_line, clean_path);
+        return format_oversized_line(first_line, start_line, total_lines);
     }
     let (text, spilled_notice) = split_artifact_notice(&truncation.content);
     let mut output = number_lines(text, start_line);

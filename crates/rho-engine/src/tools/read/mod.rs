@@ -108,12 +108,7 @@ impl ReadTool {
             return Ok(ToolResult::error(format!("File contains invalid UTF-8: {clean_path}")));
         };
 
-        Ok(format_content(
-            &content,
-            clean_path,
-            &args,
-            self.artifact_dir.as_deref(),
-        ))
+        Ok(format_content(&content, &args, self.artifact_dir.as_deref()))
     }
 }
 
