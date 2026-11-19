@@ -10,11 +10,16 @@ fn decode_json_text(value: &Value) -> Option<Value> {
     serde_json::from_str(text).ok()
 }
 
+/// Decodes arguments sent as one JSON-encoded object so hooks, permission checks, and the tool all see the same value.
+pub fn normalize_tool_arguments(args: Value) -> Value {
+    match decode_json_text(&args) {
+        Some(decoded @ Value::Object(_)) => decoded,
+        _ => args,
+    }
+}
+
 /// Models sometimes send nested arrays or objects as JSON-encoded strings; decode those before giving up.
 fn coerce_json_strings(args: &Value) -> Option<Value> {
-    if let Some(decoded) = decode_json_text(args) {
-        return Some(decoded);
-    }
     let mut map = args.as_object()?.clone();
     let mut changed = false;
     for value in map.values_mut() {
@@ -95,12 +100,25 @@ mod tests {
     fn json_encoded_nested_values_are_decoded() {
         let cases = [
             json!({ "path": "a", "edits": "[{\"oldText\":\"x\"}]" }),
-            json!("{\"path\": \"a\", \"edits\": [{\"oldText\": \"x\"}]}"),
+            normalize_tool_arguments(json!("{\"path\": \"a\", \"edits\": [{\"oldText\": \"x\"}]}")),
             json!({ "path": "a", "edits": [{ "oldText": "x" }] }),
         ];
         for args in cases {
             let parsed: Args = parse_tool_args("edit", args.clone(), schema).unwrap();
             assert_eq!(parsed.edits, [json!({ "oldText": "x" })], "{args}");
+        }
+    }
+
+    #[test]
+    fn only_json_encoded_objects_are_normalized() {
+        let cases = [
+            (json!("{\"path\": \"a\"}"), json!({ "path": "a" })),
+            (json!("[1]"), json!("[1]")),
+            (json!("plain"), json!("plain")),
+            (json!({ "path": "{x}" }), json!({ "path": "{x}" })),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(normalize_tool_arguments(input.clone()), expected, "{input}");
         }
     }
 

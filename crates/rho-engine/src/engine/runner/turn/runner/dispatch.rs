@@ -24,7 +24,7 @@ pub(crate) async fn evaluate_tool_dispatch(
     lifecycle: Option<&Arc<LifecycleHook>>,
     permission: Option<&Arc<crate::permission::PermissionHook>>,
 ) -> DispatchDecision {
-    let mut args = call.function.arguments.clone();
+    let mut args = crate::tools::types::normalize_tool_arguments(call.function.arguments.clone());
     if let Some(lifecycle) = lifecycle {
         match lifecycle.on_tool_dispatch(&call.function.name, &args).await {
             ToolDispatchAction::Stop(reason) => {

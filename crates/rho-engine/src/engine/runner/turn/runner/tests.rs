@@ -208,6 +208,27 @@ fn result_text(message: &ChatMessage) -> String {
 }
 
 #[tokio::test]
+async fn permission_checks_see_json_encoded_arguments_decoded() {
+    let dir = tempfile::tempdir().unwrap();
+    let presenter = Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None));
+    let policy = crate::permission::policy::build_policy(None, None);
+    let hook = Arc::new(crate::permission::PermissionHook::with_policy(
+        Some(dir.path().to_path_buf()),
+        presenter,
+        policy,
+    ));
+    let encoded = serde_json::json!("{\"path\": \"/etc/passwd\"}");
+    let call = ToolCall::new("call-0", ToolFunction::new("read", encoded));
+
+    let decision = evaluate_tool_dispatch(&call, None, Some(&hook)).await;
+
+    assert!(
+        matches!(decision, DispatchDecision::Deny(_)),
+        "outside-workspace read must not proceed"
+    );
+}
+
+#[tokio::test]
 async fn concurrency_safe_batches_run_together_and_keep_call_order() {
     let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let tools = rendezvous_tools(true);
