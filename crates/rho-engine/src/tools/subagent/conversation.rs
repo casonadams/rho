@@ -17,6 +17,9 @@ pub(crate) struct ConversationSettings {
     pub agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The agent file, for agents defined inside a workflow that the subagent tool does not know by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_file: Option<String>,
 }
 
 /// Subagent conversations with a round in progress; a second message to one of them is refused.
@@ -125,12 +128,23 @@ impl Exchange {
     }
 
     pub(crate) async fn converse(
-        mut self,
+        self,
         runner: &SubagentRunner,
         session: &SessionManager,
         input: &str,
         reference: Option<&str>,
     ) -> ToolResult {
+        self.exchange(runner, session, input, reference).await.render(runner)
+    }
+
+    /// Runs one round from the parent's message and saves the task with the subagent's new messages.
+    pub(crate) async fn exchange(
+        mut self,
+        runner: &SubagentRunner,
+        session: &SessionManager,
+        input: &str,
+        reference: Option<&str>,
+    ) -> Outcome {
         self.send(input, reference.filter(|_| !self.continues_question));
         let round_input = if self.continues_question {
             RoundInput::Reply(input)
@@ -143,7 +157,11 @@ impl Exchange {
         let saved = session
             .record_subagent_task(&self.task, self.new_messages(&round))
             .await;
-        self.render(runner, &round, saved.err().map(|e| e.to_string()))
+        Outcome {
+            round,
+            task: self.task,
+            save_error: saved.err().map(|e| e.to_string()),
+        }
     }
 
     fn finish(&mut self, round: &Round) {
@@ -182,8 +200,22 @@ impl Exchange {
         };
         round.transcript[self.saved_len.min(kept)..kept].to_vec()
     }
+}
 
-    fn render(&self, runner: &SubagentRunner, round: &Round, save_error: Option<String>) -> ToolResult {
+pub(crate) struct Outcome {
+    pub round: Round,
+    pub task: Task,
+    pub save_error: Option<String>,
+}
+
+impl Outcome {
+    /// The saved task id, which the main agent can continue with the subagent tool.
+    pub(crate) fn continuable_id(&self) -> Option<&str> {
+        self.save_error.is_none().then_some(self.task.id.as_str())
+    }
+
+    fn render(&self, runner: &SubagentRunner) -> ToolResult {
+        let round = &self.round;
         let state = self.task.status.state;
         let footer = runner.footer(
             round,
@@ -193,7 +225,7 @@ impl Exchange {
             Ok(body) => runner.with_changed_files(&body, round),
             Err(error) => error,
         };
-        match save_error {
+        match &self.save_error {
             Some(error) => text.push_str(&format!(
                 "\n\nWarning: this subagent task was not saved ({error}), so it cannot be continued."
             )),

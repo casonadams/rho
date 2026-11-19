@@ -2,7 +2,8 @@ use super::command::CANCELLED;
 use super::executor::{Executor, Frame, Scope};
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::tools::subagent::RunnerSpec;
-use crate::tools::subagent::runner::RUN_FOOTER_PREFIX;
+use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
+use crate::tools::subagent::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
 use rho_harness_core::workflow::template::value_to_text;
 use rho_harness_core::workflow::{AgentNode, OutputFormat};
 use serde_json::{Value, json};
@@ -43,8 +44,20 @@ pub(crate) fn extract_json(text: &str) -> Option<Value> {
         .find(Value::is_object)
 }
 
-fn strip_footer(text: &str) -> &str {
-    text.rsplit_once(RUN_FOOTER_PREFIX).map_or(text, |(body, _)| body)
+/// Why an agent step produced no value: the round did not end with a final answer.
+fn unfinished_step(round: &Round, task_id: Option<&str>) -> String {
+    let mut message = match &round.end {
+        RoundEnd::Stopped { reason, summary } => format!("agent {reason} before finishing.\n\nWork so far:\n{summary}"),
+        _ => match round.body() {
+            Ok(text) | Err(text) => text,
+        },
+    };
+    if let Some(id) = task_id {
+        message.push_str(&format!(
+            "\n\n(Agent task `{id}` was saved; continue it with the subagent tool.)"
+        ));
+    }
+    message
 }
 
 fn summarize(value: &Value) -> String {
@@ -95,20 +108,59 @@ impl Executor<'_> {
             "agent_started",
             json!({ "step": position, "agent": agent.agent, "model": model }),
         );
-        let result = runner.run(&build_prompt(agent, scope), None).await;
-        if self.cancelled() {
+        let settings = ConversationSettings {
+            name: crate::tools::subagent::task_name(label),
+            agent: Some(agent.agent.clone()),
+            model: agent.model.map(|m| m.as_str().to_string()),
+            agent_file: frame
+                .bundle
+                .agents
+                .iter()
+                .find(|a| a.name.eq_ignore_ascii_case(&agent.agent))
+                .map(|a| a.location.clone()),
+        };
+        let (round, task_id) = self
+            .agent_round(&runner, &settings, &position, &build_prompt(agent, scope))
+            .await;
+        if self.cancelled() || round.end == RoundEnd::Cancelled {
             return Err(CANCELLED.to_string());
         }
-        if result.is_error {
-            return Err(result.content);
-        }
-        let text = strip_footer(&result.content).trim();
+        let RoundEnd::Answered(text) = &round.end else {
+            return Err(unfinished_step(&round, task_id.as_deref()));
+        };
         let value = match agent.output {
-            OutputFormat::Text => Value::String(text.to_string()),
-            OutputFormat::Json => self.parse_json(text).await?,
+            OutputFormat::Text => Value::String(text.trim().to_string()),
+            OutputFormat::Json => self.parse_json(text.trim()).await?,
         };
         let detail = format!("{model} · {}", summarize(&value));
         Ok((value, detail))
+    }
+
+    /// Runs the agent, saving its round to the parent session as an A2A task when there is one.
+    async fn agent_round(
+        &self,
+        runner: &SubagentRunner,
+        settings: &ConversationSettings,
+        position: &str,
+        prompt: &str,
+    ) -> (Round, Option<String>) {
+        let Some(session) = &self.ctx().session else {
+            return (runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await, None);
+        };
+        let outcome = Exchange::start(settings).exchange(runner, session, prompt, None).await;
+        let state = outcome.task.status.state;
+        self.log.event(
+            "agent_task",
+            json!({ "step": position, "task": outcome.task.id, "state": state.label(), "saved": outcome.save_error.is_none() }),
+        );
+        match &outcome.save_error {
+            Some(error) => self
+                .log
+                .warn(format!("agent task for {position} was not saved: {error}")),
+            None => self.log.task(position, &outcome.task.id, state),
+        }
+        let task_id = outcome.continuable_id().map(str::to_string);
+        (outcome.round, task_id)
     }
 
     async fn parse_json(&self, text: &str) -> Result<Value, String> {
@@ -181,12 +233,5 @@ mod tests {
         for (text, expected) in cases {
             assert_eq!(extract_json(text), expected, "{text}");
         }
-    }
-
-    #[test]
-    fn strips_the_subagent_run_footer() {
-        let text = format!("answer{RUN_FOOTER_PREFIX}2 turns, 1 tool calls, 10 tokens]");
-        assert_eq!(strip_footer(&text), "answer");
-        assert_eq!(strip_footer("plain"), "plain");
     }
 }

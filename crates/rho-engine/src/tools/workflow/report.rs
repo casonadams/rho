@@ -1,9 +1,11 @@
+use rho_harness_core::a2a::TaskState;
 use serde_json::{Value, json};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 const MAX_OUTPUT_JSON_CHARS: usize = 6_000;
+const MAX_LISTED_TASKS: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StepStatus {
@@ -37,10 +39,18 @@ pub(crate) struct StepRecord {
     pub detail: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTask {
+    pub path: String,
+    pub id: String,
+    pub state: TaskState,
+}
+
 pub(crate) struct RunLog {
     path: PathBuf,
     file: Mutex<Option<std::fs::File>>,
     records: Mutex<Vec<StepRecord>>,
+    tasks: Mutex<Vec<AgentTask>>,
     warnings: Mutex<Vec<String>>,
 }
 
@@ -60,6 +70,7 @@ impl RunLog {
             path,
             file: Mutex::new(Some(file)),
             records: Mutex::new(Vec::new()),
+            tasks: Mutex::new(Vec::new()),
             warnings: Mutex::new(Vec::new()),
         })
     }
@@ -111,6 +122,47 @@ impl RunLog {
         self.records.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    pub(crate) fn task(&self, path: &str, id: &str, state: TaskState) {
+        self.tasks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(AgentTask {
+                path: path.to_string(),
+                id: id.to_string(),
+                state,
+            });
+    }
+
+    /// Saved agent tasks, unfinished ones first, then the most recent completed ones.
+    fn task_section(&self) -> String {
+        let tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if tasks.is_empty() {
+            return String::new();
+        }
+        let (completed, unfinished): (Vec<AgentTask>, Vec<AgentTask>) =
+            tasks.iter().cloned().partition(|t| t.state == TaskState::Completed);
+        let listed: Vec<&AgentTask> = unfinished
+            .iter()
+            .chain(completed.iter().rev())
+            .take(MAX_LISTED_TASKS)
+            .collect();
+        let mut out = String::from(
+            "\nAgent tasks (continue one with the subagent tool's `task_id` to review, fix, or finish its work):\n",
+        );
+        for task in &listed {
+            out.push_str(&format!(
+                "  {} — task `{}` · {}\n",
+                task.path,
+                task.id,
+                task.state.label()
+            ));
+        }
+        if tasks.len() > listed.len() {
+            out.push_str(&format!("  ... {} more in the run log\n", tasks.len() - listed.len()));
+        }
+        out
+    }
+
     pub(crate) fn report(&self, headline: &str, outputs: Option<&Value>) -> String {
         let mut out = format!("{headline}\n\nSteps:\n");
         for record in self.records() {
@@ -124,6 +176,7 @@ impl RunLog {
         if let Some(outputs) = outputs.filter(|o| o.as_object().is_some_and(|m| !m.is_empty())) {
             out.push_str(&format!("\nOutputs:\n```json\n{}\n```\n", clamp_json(outputs)));
         }
+        out.push_str(&self.task_section());
         for warning in self.warnings.lock().unwrap_or_else(PoisonError::into_inner).iter() {
             out.push_str(&format!("\nWarning: {warning}\n"));
         }

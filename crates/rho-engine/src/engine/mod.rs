@@ -15,6 +15,8 @@ pub mod context;
 mod display;
 pub mod metrics;
 mod model;
+mod notes;
+pub use notes::TurnNotes;
 pub(crate) mod quota_refresh;
 pub mod runner;
 pub mod tracking;
@@ -50,6 +52,7 @@ pub struct AgentEngine {
     pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
+    pub(crate) turn_notes: TurnNotes,
     pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
     pub(crate) mcp: EngineMcp,
 }
@@ -89,6 +92,13 @@ impl AgentEngine {
         &self.agent_monitor
     }
 
+    /// Shows the main agent a workflow's report, with its agent task ids, at the start of the next turn.
+    pub fn hand_off_workflow_report(&self, name: &str, report: &str) {
+        self.turn_notes.push(format!(
+            "[The user ran workflow `{name}`; its report follows. Review its work: continue any listed agent task with the subagent tool's `task_id` if something is missing or wrong.]\n{report}"
+        ));
+    }
+
     pub async fn workflow_runner(
         &self,
         progress: rho_harness_core::presentation::ToolStreamPort,
@@ -99,7 +109,13 @@ impl AgentEngine {
             .as_ref()
             .ok_or_else(|| "workflows are not available in this session".to_string())?;
         let project = self.project_context().await.ok().map(Arc::new);
-        Ok(runner.bind(progress, cancellation, Some(self.agent_monitor.clone()), project))
+        Ok(runner.bind(
+            progress,
+            cancellation,
+            Some(self.agent_monitor.clone()),
+            project,
+            Some(self.session_manager.clone()),
+        ))
     }
 
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {
@@ -111,6 +127,7 @@ impl AgentEngine {
         let mut builder = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
             .agent_monitor(self.agent_monitor.clone())
+            .turn_notes(self.turn_notes.clone())
             .base_dir(base_dir);
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));

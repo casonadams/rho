@@ -43,6 +43,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         compactor_model: None,
         demotion_hook: None,
         agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
+        turn_notes: crate::engine::TurnNotes::default(),
         workflows: None,
         mcp: crate::engine::EngineMcp::default(),
     }

@@ -185,8 +185,9 @@ files it changed with `write` or `edit` (`Files changed: ...`).
   agent list shows waiting subagents as `needs input`.
 - **Persistence**: each round is saved to the session file as a
   `subagent_task` record holding the A2A task and the subagent's new messages,
-  so a task can be continued after `--resume`. Workflow agents have no parent
-  to ask and are not saved.
+  so a task can be continued after `--resume`. Workflow agents are saved the
+  same way (see [Workflows](workflows.md#hand-off)), but cannot call
+  `ask_parent`: a workflow runs unattended.
 - **Model**: without a `model` role, subagents use `models.smol` (see below).
 
 - **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`

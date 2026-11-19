@@ -388,6 +388,9 @@ async fn run_workflow_plain(
             Some(chunk) = chunks.recv() => session.renderer.print_notice(&format!("  {chunk}")),
         }
     };
+    if result.started {
+        engine.hand_off_workflow_report(name, &result.report);
+    }
     session.renderer.print_notice(&format!("\n{}\n", result.report));
 }
 

@@ -122,7 +122,10 @@ previous pass, or at `max`. Inside the loop, `{{<loop id>.index}}` is the
 current pass, starting at 1.
 
 An `<agent>` or `<call>` that fails stops the workflow. A `<run>` whose command
-exits non-zero does not; it sets `ok` to false.
+exits non-zero does not; it sets `ok` to false. An agent that stops before a
+final answer (turn limit, empty reply, or a failed model call) fails its step
+with the reason and its work so far; its summary never becomes the step's
+value.
 
 ### Conditions
 
@@ -155,6 +158,30 @@ as-is; lists and objects as JSON.
 | `<parallel>` | an object keyed by each child's `id` |
 | `<loop>` | `{index, passes, stopped}` (`until`, `while`, `unchanged`, or `max`) |
 | `<choose>` | the matched case's value, `otherwise`, or empty |
+
+---
+
+## Hand-off
+
+Every `<agent>` run is saved to the session file as an
+[A2A](https://a2a-protocol.org/latest/specification/) task, like a
+[subagent](configuration.md#subagents--custom-agents). The report lists these
+under `Agent tasks`, unfinished ones first:
+
+```text
+Agent tasks (continue one with the subagent tool's `task_id` to review, fix, or finish its work):
+  refine › round 1 › review — task `review-3f9a1c2e` · input-required
+```
+
+When a run finishes or stops, its report is added in front of your next prompt,
+so the main agent sees what happened. It can review the work and continue any
+listed agent with the `subagent` tool's `task_id`, for example to answer "the
+reviewer ran out of turns; finish the review" or "you missed the test, fix
+it". A continued agent keeps everything it read and did, but runs under the
+normal permission rules and hooks: only the workflow itself is trusted. Agents
+defined in a workflow's own `agents/` directory are reloaded from their file.
+The report is kept in memory until the next prompt, so it is not handed off if
+rho exits first; the saved tasks remain.
 
 ---
 

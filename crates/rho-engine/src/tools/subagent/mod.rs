@@ -1,4 +1,4 @@
-mod conversation;
+pub(crate) mod conversation;
 mod recovery;
 pub mod runner;
 #[cfg(test)]
@@ -224,9 +224,15 @@ impl SubagentTool {
         turns: Option<usize>,
     ) -> Result<SubagentRunner, String> {
         let model = settings.model.as_deref().map(ModelRole::parse).transpose()?;
+        let local_agents: Vec<AgentMetadata> = settings
+            .agent_file
+            .as_deref()
+            .and_then(|file| rho_harness_core::agents::parse_agent_file(std::path::Path::new(file)))
+            .into_iter()
+            .collect();
         self.runner_for(RunnerSpec {
             agent: settings.agent.as_deref(),
-            local_agents: &[],
+            local_agents: &local_agents,
             turns,
             model,
             position: None,
@@ -240,6 +246,7 @@ impl SubagentTool {
             name: args.name.as_deref().and_then(types::task_name),
             agent: args.agent.clone().or_else(|| args.role.clone()),
             model: args.model.clone(),
+            agent_file: None,
         };
         let runner = self.runner_for_settings(&settings, args.turns).await?;
         let context = self.compose_context(args);

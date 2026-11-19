@@ -110,6 +110,7 @@ struct Fixture {
     dir: tempfile::TempDir,
     model: Arc<ScriptedModel>,
     monitor: AgentMonitor,
+    session: Option<rho_harness_core::session::SessionManager>,
 }
 
 impl Fixture {
@@ -124,6 +125,7 @@ impl Fixture {
             dir,
             model: ScriptedModel::with_validate(validate_replies),
             monitor: AgentMonitor::default(),
+            session: None,
         }
     }
 
@@ -137,6 +139,7 @@ impl Fixture {
             CancellationSignal::default(),
             Some(self.monitor.clone()),
             project,
+            self.session.clone(),
         )
     }
 
@@ -374,4 +377,128 @@ async fn a_failing_agent_stops_the_workflow_with_its_step_path() {
         run.report
     );
     assert!(!run.report.contains("after"), "{}", run.report);
+}
+
+fn read_tool() -> Arc<dyn crate::tools::EngineTool> {
+    Arc::new(crate::tools::GenericTool::new(
+        "read",
+        "reads",
+        serde_json::json!({}),
+        |_| async { Ok(crate::tools::ToolResult::success("fn diff() {}")) },
+    ))
+}
+
+fn read_call() -> Vec<ModelStreamEvent> {
+    vec![ModelStreamEvent::ToolCall(rho_harness_core::model::ToolCall::new(
+        "call-read",
+        rho_harness_core::model::ToolFunction::new("read", serde_json::json!({ "path": "a.rs" })),
+    ))]
+}
+
+fn text_turn(text: &str) -> Vec<ModelStreamEvent> {
+    vec![ModelStreamEvent::Text(text.to_string())]
+}
+
+const REVIEW: &str = r#"<workflow name="gate"><agent id="review" use="checker" turns="1" output="json">REVIEW the diff</agent><run cmd="printf after"/></workflow>"#;
+const CHECKER: &str = "---\nname: checker\ntools: read\n---\nYou review diffs.";
+
+#[tokio::test]
+async fn an_agent_that_stops_early_fails_its_step_instead_of_producing_a_value() {
+    let fx = Fixture::new(
+        &[CLEAN],
+        &[("gate/workflow.xml", REVIEW), ("gate/agents/checker.md", CHECKER)],
+    );
+    let adapter =
+        crate::provider::adapter::MockAdapter::from_turns([read_call(), text_turn("So far: a.rs looks fine.")]);
+    let subagents = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()]);
+
+    let run = fx.runner_with(subagents, None).run("gate", BTreeMap::new()).await;
+
+    assert!(!run.ok, "{}", run.report);
+    assert!(
+        run.report.contains(
+            "Workflow `gate` stopped: gate › review: agent reached the turn limit of 1 before finishing.\n\nWork so far:\nSo far: a.rs looks fine."
+        ),
+        "{}",
+        run.report
+    );
+    assert!(!run.report.contains("after"), "{}", run.report);
+    assert_eq!(
+        adapter.requests().len(),
+        2,
+        "no JSON repair call turns the summary into a value"
+    );
+    assert!(
+        !run.report.contains("Agent tasks"),
+        "nothing is saved without a session"
+    );
+}
+
+#[tokio::test]
+async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent() {
+    let mut fx = Fixture::new(
+        &[CLEAN],
+        &[("gate/workflow.xml", REVIEW), ("gate/agents/checker.md", CHECKER)],
+    );
+    let session = rho_harness_core::session::SessionManager::new(&fx.dir.path().join("sessions"), None).unwrap();
+    fx.session = Some(session.clone());
+    let adapter =
+        crate::provider::adapter::MockAdapter::from_turns([read_call(), text_turn("So far: a.rs looks fine.")]);
+    let subagents = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()]);
+
+    let run = fx.runner_with(subagents, None).run("gate", BTreeMap::new()).await;
+
+    let task_id = run
+        .report
+        .split("task `")
+        .nth(1)
+        .and_then(|rest| rest.split('`').next())
+        .unwrap()
+        .to_string();
+    assert!(task_id.starts_with("review-"), "{}", run.report);
+    assert!(run.report.contains("(Agent task `review-"), "{}", run.report);
+    assert!(
+        run.report
+            .contains("Agent tasks (continue one with the subagent tool's `task_id`"),
+        "{}",
+        run.report
+    );
+    assert!(
+        run.report
+            .contains(&format!("gate › review — task `{task_id}` · input-required")),
+        "{}",
+        run.report
+    );
+
+    adapter.add_turn(vec![Ok(ModelStreamEvent::Text("{\"approved\": true}".into()))]);
+    let main_agent_tool =
+        SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()]).with_turn_context(&TurnToolContext {
+            session: Some(session),
+            ..Default::default()
+        });
+    let continued = crate::tools::EngineTool::execute(
+        &main_agent_tool,
+        serde_json::json!({ "task_id": task_id, "prompt": "continue" }),
+    )
+    .await
+    .unwrap();
+
+    assert!(!continued.is_error, "{}", continued.content);
+    assert!(
+        continued.content.starts_with("{\"approved\": true}"),
+        "{}",
+        continued.content
+    );
+    let request = adapter.requests().pop().unwrap();
+    assert!(
+        request.preamble.unwrap_or_default().contains("You review diffs."),
+        "the workflow-local agent is reloaded from its file"
+    );
+    assert_eq!(request.prompt, "continue");
+    assert!(
+        request.messages[0]
+            == rho_harness_core::model::ChatMessage::user(
+                "REVIEW the diff\n\nRespond with exactly one JSON object in a ```json fenced block."
+            )
+    );
 }

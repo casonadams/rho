@@ -150,7 +150,11 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
     let run = joined.unwrap_or_else(|e| WorkflowRun {
         ok: false,
         report: format!("Workflow `{name}` crashed: {e}"),
+        started: true,
     });
+    if run.started {
+        engine.hand_off_workflow_report(name, &run.report);
+    }
     renderer.finish_tool_line(ToolLine {
         name: "workflow".to_string(),
         arguments,

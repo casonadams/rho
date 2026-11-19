@@ -22,6 +22,7 @@ pub struct AgentEngineBuilder {
     model: Option<ModelHandle>,
     demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     agent_monitor: rho_harness_core::agents::AgentMonitor,
+    turn_notes: super::TurnNotes,
 }
 
 type EngineAssembly = (
@@ -43,6 +44,7 @@ impl AgentEngineBuilder {
             model: None,
             demotion_hook: None,
             agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
+            turn_notes: super::TurnNotes::default(),
         }
     }
 
@@ -83,6 +85,11 @@ impl AgentEngineBuilder {
 
     pub fn agent_monitor(mut self, monitor: rho_harness_core::agents::AgentMonitor) -> Self {
         self.agent_monitor = monitor;
+        self
+    }
+
+    pub fn turn_notes(mut self, notes: super::TurnNotes) -> Self {
+        self.turn_notes = notes;
         self
     }
 }
@@ -241,6 +248,7 @@ impl AgentEngineBuilder {
             compactor_model: Some(model),
             demotion_hook,
             agent_monitor: self.agent_monitor,
+            turn_notes: self.turn_notes,
             workflows: None,
             mcp: super::EngineMcp::default(),
         }

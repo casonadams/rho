@@ -201,7 +201,11 @@ impl AgentEngine {
         let context = self.project_context().await?;
         let mut preamble = context.build_system_prompt();
         crate::mcp::append_server_instructions(&mut preamble, &self.mcp.instructions);
-        let effective_prompt = crate::engine::context::format_turn_prompt(prompt, context.git_status.as_deref());
+        let notes = self.turn_notes.pending();
+        let effective_prompt = crate::engine::context::format_turn_prompt(
+            &crate::engine::notes::with_notes(&notes, prompt),
+            context.git_status.as_deref(),
+        );
         let mut loaded = self.load_initial_history().await?;
         if let Some(out) = self
             .check_turn_proactive_compaction(
@@ -215,9 +219,11 @@ impl AgentEngine {
         {
             return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
         }
-        self.build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
-            .await
-            .map(PreparedTurnOutcome::Ready)
+        let ready = self
+            .build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
+            .await?;
+        self.turn_notes.consume(notes.len());
+        Ok(PreparedTurnOutcome::Ready(ready))
     }
 
     async fn build_turn_runner<'a>(

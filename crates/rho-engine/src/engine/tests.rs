@@ -639,3 +639,53 @@ async fn rate_limited_model_request_retries_and_succeeds() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn a_handed_off_workflow_report_precedes_only_the_next_prompt() {
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(MockAdapter::default());
+    for reply in ["reviewed", "next"] {
+        model.add_turn(vec![Ok(ModelStreamEvent::Text(reply.to_string()))]);
+    }
+    let engine = mock_engine(
+        model.clone(),
+        MockEngineConfig {
+            base_dir: dir.path(),
+            app_config: Config {
+                auth_file: dir.path().join("auth.json"),
+                ..Config::default()
+            },
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+    engine.hand_off_workflow_report("refine", "Workflow `refine` stopped.\n\nAgent tasks ...");
+    let presenter = Arc::new(crate::engine::eval::presenter::NoopPresenter);
+
+    for prompt in ["check it", "thanks"] {
+        engine
+            .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter.clone())
+            .await
+            .unwrap();
+    }
+
+    let prompts: Vec<String> = model
+        .requests()
+        .into_iter()
+        .map(|r| r.messages.last().and_then(|m| m.text()).unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        prompts[0].contains("[The user ran workflow `refine`; its report follows."),
+        "{}",
+        prompts[0]
+    );
+    assert!(
+        prompts[0].ends_with("Workflow `refine` stopped.\n\nAgent tasks ...\n\ncheck it"),
+        "{}",
+        prompts[0]
+    );
+    assert!(prompts[1].ends_with("thanks"));
+    assert!(!prompts[1].contains("refine"), "{}", prompts[1]);
+}

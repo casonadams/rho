@@ -20,6 +20,8 @@ use std::path::PathBuf;
 pub struct WorkflowRun {
     pub ok: bool,
     pub report: String,
+    /// The workflow started running; a run rejected before its first step has nothing to hand off.
+    pub started: bool,
 }
 
 /// Runs workflows started with `/workflow`. Workflows are trusted: no permission checks or hooks apply.
@@ -75,6 +77,7 @@ impl WorkflowRunner {
         cancellation: CancellationSignal,
         monitor: Option<rho_harness_core::agents::AgentMonitor>,
         project: Option<std::sync::Arc<crate::engine::context::ProjectContext>>,
+        session: Option<rho_harness_core::session::SessionManager>,
     ) -> Self {
         let ctx = TurnToolContext {
             permission: None,
@@ -84,7 +87,7 @@ impl WorkflowRunner {
             parent_history: std::sync::Arc::from(Vec::new()),
             monitor,
             project,
-            session: None,
+            session,
         };
         Self {
             subagents: self.subagents.with_turn_context(&ctx),
@@ -138,7 +141,7 @@ impl WorkflowRunner {
             Ok(branch) => branch,
             Err(e) => {
                 let report = log.report(&format!("Workflow `{}` did not start: {e}", bundle.name), None);
-                return WorkflowRun { ok: false, report };
+                return failed(report);
             }
         };
         let executor = Executor {
@@ -161,10 +164,12 @@ impl WorkflowRunner {
                     &format!("Workflow `{}` completed{on_branch}.", bundle.name),
                     Some(&outputs),
                 ),
+                started: true,
             },
             Err(e) => WorkflowRun {
                 ok: false,
                 report: log.report(&format!("Workflow `{}` stopped{on_branch}: {e}", bundle.name), None),
+                started: true,
             },
         }
     }
@@ -180,7 +185,11 @@ impl WorkflowRunner {
 }
 
 fn failed(report: String) -> WorkflowRun {
-    WorkflowRun { ok: false, report }
+    WorkflowRun {
+        ok: false,
+        report,
+        started: false,
+    }
 }
 
 fn unknown_workflow(name: &str, catalog: &WorkflowCatalog) -> String {
