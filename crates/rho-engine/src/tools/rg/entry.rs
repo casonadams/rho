@@ -23,9 +23,8 @@ pub fn render(matches: &[LineMatch]) -> String {
                 out.push('\n');
             }
             current_path = Some(&m.path);
-            let _ = writeln!(out, "{}:", m.path);
         }
-        let _ = writeln!(out, "  {}: {}", m.line, m.text);
+        let _ = writeln!(out, "{}:{}: {}", m.path, m.line, m.text);
     }
     if out.ends_with('\n') {
         out.pop();
