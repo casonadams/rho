@@ -240,7 +240,11 @@ pub struct SubagentArgs {
     /// Custom subagent name to invoke (e.g. defined in .claude/agents/ or .agents/agents/)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-    /// Task prompt or instructions for the subagent to execute
+    /// Read-only: with `task_id`, show that task's messages, final answer, every tool call and its outcome, and the files it changed; without, list the session's subagent tasks. Runs no model and needs no prompt
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inspect: Option<bool>,
+    /// Task prompt or instructions for the subagent to execute (required unless `inspect` is true)
+    #[serde(default)]
     pub prompt: String,
     /// Optional context slice or snippet to prime the subagent
     #[serde(default, skip_serializing_if = "Option::is_none")]

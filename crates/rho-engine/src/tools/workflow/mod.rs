@@ -1,6 +1,7 @@
 mod agent_step;
 mod command;
 mod executor;
+mod files;
 mod report;
 #[cfg(test)]
 mod tests;

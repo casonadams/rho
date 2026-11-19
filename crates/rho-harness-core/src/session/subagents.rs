@@ -41,6 +41,10 @@ impl SubagentContexts {
             .values()
             .find(|context| context.tasks.iter().any(|t| t.id == task_id))
     }
+
+    fn all(&self) -> Vec<SubagentContext> {
+        self.contexts.values().cloned().collect()
+    }
 }
 
 impl SessionManager {
@@ -64,6 +68,10 @@ impl SessionManager {
     /// The subagent conversation that contains `task_id`.
     pub async fn subagent_context(&self, task_id: &str) -> Option<SubagentContext> {
         self.state.lock().await.subagents.context_of_task(task_id).cloned()
+    }
+
+    pub async fn subagent_contexts(&self) -> Vec<SubagentContext> {
+        self.state.lock().await.subagents.all()
     }
 }
 
@@ -112,5 +120,6 @@ mod tests {
         assert_eq!(context.transcript, [first, second].concat());
         assert_eq!(reopened.subagent_context("t2").await, Some(context));
         assert!(reopened.subagent_context("missing").await.is_none());
+        assert_eq!(reopened.subagent_contexts().await.len(), 2);
     }
 }

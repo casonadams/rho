@@ -119,9 +119,12 @@ impl Executor<'_> {
                 .find(|a| a.name.eq_ignore_ascii_case(&agent.agent))
                 .map(|a| a.location.clone()),
         };
+        let started = std::time::Instant::now();
         let (round, task_id) = self
             .agent_round(&runner, &settings, &position, &build_prompt(agent, scope))
             .await;
+        self.log
+            .agent_files(&position, &round, started..std::time::Instant::now());
         if self.cancelled() || round.end == RoundEnd::Cancelled {
             return Err(CANCELLED.to_string());
         }
@@ -132,7 +135,12 @@ impl Executor<'_> {
             OutputFormat::Text => Value::String(text.trim().to_string()),
             OutputFormat::Json => self.parse_json(text.trim()).await?,
         };
-        let detail = format!("{model} · {}", summarize(&value));
+        let problems = match round.problem_count() {
+            0 => String::new(),
+            1 => "1 failed tool call · ".to_string(),
+            n => format!("{n} failed tool calls · "),
+        };
+        let detail = format!("{model} · {problems}{}", summarize(&value));
         Ok((value, detail))
     }
 

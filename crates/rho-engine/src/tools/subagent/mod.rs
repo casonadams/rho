@@ -1,9 +1,12 @@
 pub(crate) mod conversation;
+pub(crate) mod evidence;
+mod inspect;
 mod recovery;
 pub mod runner;
 #[cfg(test)]
 mod tests;
 pub mod types;
+pub(crate) mod workspace;
 
 pub use runner::SubagentRunner;
 pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
@@ -34,8 +37,10 @@ pub struct SubagentTool {
 
 #[derive(serde::Deserialize)]
 struct RawSubagentArgs {
+    #[serde(default)]
     prompt: String,
     task_id: Option<String>,
+    inspect: Option<bool>,
     name: Option<String>,
     agent: Option<String>,
     role: Option<String>,
@@ -241,6 +246,24 @@ impl SubagentTool {
         .await
     }
 
+    async fn inspect(&self, task_id: Option<&str>) -> ToolResult {
+        let Some(session) = &self.ctx.session else {
+            return ToolResult::error("inspecting subagent tasks needs a saved session");
+        };
+        let Some(task_id) = task_id.filter(|id| !id.is_empty()) else {
+            return ToolResult::success(inspect::render_list(&session.subagent_contexts().await));
+        };
+        let root = workspace::root_of(&self.ctx);
+        session
+            .subagent_context(task_id)
+            .await
+            .and_then(|context| inspect::render_task(&context, task_id, &root))
+            .map_or_else(
+                || ToolResult::error(format!("unknown subagent task '{task_id}'")),
+                ToolResult::success,
+            )
+    }
+
     async fn start_task(&self, args: &RawSubagentArgs) -> Result<ToolResult, String> {
         let settings = conversation::ConversationSettings {
             name: args.name.as_deref().and_then(types::task_name),
@@ -329,6 +352,9 @@ impl EngineTool for SubagentTool {
             Ok(parsed) => parsed,
             Err(e) => return Ok(e),
         };
+        if args.inspect.unwrap_or(false) {
+            return Ok(self.inspect(args.task_id.as_deref().map(str::trim)).await);
+        }
         if args.prompt.trim().is_empty() {
             return Ok(ToolResult::error("subagent prompt cannot be empty"));
         }
@@ -348,6 +374,9 @@ impl EngineTool for SubagentTool {
         let Ok(parsed) = crate::tools::types::try_parse_tool_args::<RawSubagentArgs>(&args) else {
             return false;
         };
+        if parsed.inspect.unwrap_or(false) {
+            return true;
+        }
         if parsed.task_id.is_some() {
             return false;
         }

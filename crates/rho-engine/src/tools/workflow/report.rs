@@ -51,6 +51,7 @@ pub(crate) struct RunLog {
     file: Mutex<Option<std::fs::File>>,
     records: Mutex<Vec<StepRecord>>,
     tasks: Mutex<Vec<AgentTask>>,
+    files: Mutex<super::files::AgentFileLog>,
     warnings: Mutex<Vec<String>>,
 }
 
@@ -71,6 +72,7 @@ impl RunLog {
             file: Mutex::new(Some(file)),
             records: Mutex::new(Vec::new()),
             tasks: Mutex::new(Vec::new()),
+            files: Mutex::default(),
             warnings: Mutex::new(Vec::new()),
         })
     }
@@ -133,6 +135,18 @@ impl RunLog {
             });
     }
 
+    pub(crate) fn agent_files(
+        &self,
+        step: &str,
+        round: &crate::tools::subagent::runner::Round,
+        ran: std::ops::Range<std::time::Instant>,
+    ) {
+        self.files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .add(step, round, ran);
+    }
+
     /// Saved agent tasks, unfinished ones first, then the most recent completed ones.
     fn task_section(&self) -> String {
         let tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner).clone();
@@ -176,6 +190,7 @@ impl RunLog {
         if let Some(outputs) = outputs.filter(|o| o.as_object().is_some_and(|m| !m.is_empty())) {
             out.push_str(&format!("\nOutputs:\n```json\n{}\n```\n", clamp_json(outputs)));
         }
+        out.push_str(&self.files.lock().unwrap_or_else(PoisonError::into_inner).section());
         out.push_str(&self.task_section());
         for warning in self.warnings.lock().unwrap_or_else(PoisonError::into_inner).iter() {
             out.push_str(&format!("\nWarning: {warning}\n"));

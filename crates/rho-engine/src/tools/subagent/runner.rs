@@ -1,4 +1,6 @@
+use super::evidence::{OutcomeStatus, ToolOutcome, evidence, problem_count};
 use super::recovery::{attempt_recovery_synthesis, partial_result};
+use super::workspace::{DirtySnapshot, WorkspaceChange, normalize};
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::StructuralUsage;
 use crate::engine::runner::history::without_unanswered_tool_calls;
@@ -20,6 +22,7 @@ pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
 const DEFAULT_MONITOR_GROUP: &str = "subagents";
 pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
 const FILE_CHANGING_TOOLS: [&str; 2] = ["write", "edit"];
+const FILE_READING_TOOLS: [&str; 3] = ["read", "write", "edit"];
 pub(crate) const ASK_PARENT_TOOL: &str = "ask_parent";
 const ASK_PARENT_DESCRIPTION: &str = "Ask the agent that delegated this task a question and pause until it replies. Use it only when you cannot proceed without a decision or information you cannot find yourself; the reply arrives as this tool's result.";
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
@@ -48,9 +51,19 @@ pub struct Round {
     pub tool_calls: usize,
     pub tokens: u64,
     pub changed_files: BTreeSet<String>,
+    /// Every uncommitted-file change in the git work tree during the round, whoever made it.
+    pub workspace_changes: BTreeSet<WorkspaceChange>,
+    pub tool_log: Vec<ToolOutcome>,
+    /// Files the subagent read, wrote, or edited, relative to the workspace root.
+    pub touched_files: BTreeSet<String>,
 }
 
 impl Round {
+    #[must_use]
+    pub fn problem_count(&self) -> usize {
+        problem_count(&self.tool_log)
+    }
+
     /// Ended early with work the parent can build on or continue.
     #[must_use]
     pub fn is_incomplete(&self) -> bool {
@@ -179,6 +192,9 @@ struct RunState {
     tool_calls: usize,
     tracker: Option<AgentHandle>,
     changed_files: BTreeSet<String>,
+    touched_files: BTreeSet<String>,
+    tool_log: Vec<ToolOutcome>,
+    root: std::path::PathBuf,
     question: Option<String>,
 }
 
@@ -186,6 +202,22 @@ struct CallOutcome {
     message: ChatMessage,
     stop: Option<String>,
     is_error: bool,
+    output: String,
+}
+
+fn tool_result_text(message: &ChatMessage) -> String {
+    let ChatMessage::User { content } = message else {
+        return String::new();
+    };
+    content
+        .iter()
+        .filter_map(|c| match c {
+            UserContent::ToolResult(result) => Some(result),
+            _ => None,
+        })
+        .flat_map(|result| result.content.iter().filter_map(|part| part.as_text()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
@@ -422,26 +454,44 @@ impl SubagentRunner {
         match round.body() {
             Ok(body) => ToolResult::success(format!(
                 "{}{}",
-                self.with_changed_files(&body, &round),
+                Self::with_evidence(&body, &round),
                 self.footer(&round, "")
             )),
             Err(error) => ToolResult::error(error),
         }
     }
 
-    pub(crate) fn with_changed_files(&self, body: &str, round: &Round) -> String {
-        if round.changed_files.is_empty() {
-            return body.to_string();
+    /// The directory tool paths are relative to.
+    pub(crate) fn workspace_root(&self) -> std::path::PathBuf {
+        super::workspace::root_of(&self.ctx)
+    }
+
+    async fn snapshot(&self, root: &std::path::Path) -> Option<DirtySnapshot> {
+        match self.ctx.project {
+            Some(_) => DirtySnapshot::take(root).await,
+            None => None,
         }
-        let files: Vec<&str> = round.changed_files.iter().map(String::as_str).collect();
-        format!("{body}\n\nFiles changed: {}", files.join(", "))
+    }
+
+    pub(crate) fn with_evidence(body: &str, round: &Round) -> String {
+        let evidence = evidence(&round.changed_files, &round.workspace_changes, &round.tool_log);
+        if evidence.is_empty() {
+            body.to_string()
+        } else {
+            format!("{body}\n\n{evidence}")
+        }
     }
 
     /// The run footer, e.g. `[subagent audit: 3 turns, 5 tool calls, 900 tokens]`; `detail` follows the name.
     pub(crate) fn footer(&self, round: &Round, detail: &str) -> String {
-        let progress = if round.is_incomplete() { "incomplete, " } else { "" };
+        let incomplete = if round.is_incomplete() { "incomplete, " } else { "" };
+        let problems = match round.problem_count() {
+            0 => String::new(),
+            1 => "1 failed tool call, ".to_string(),
+            n => format!("{n} failed tool calls, "),
+        };
         format!(
-            "{RUN_FOOTER_PREFIX}{}{detail}: {progress}{} turns, {} tool calls, {} tokens]",
+            "{RUN_FOOTER_PREFIX}{}{detail}: {incomplete}{problems}{} turns, {} tool calls, {} tokens]",
             self.label.strip_prefix("subagent").unwrap_or_default(),
             round.turns,
             round.tool_calls,
@@ -459,6 +509,8 @@ impl SubagentRunner {
                 (text, text.trim().to_string())
             }
         };
+        let root = self.workspace_root();
+        let before = self.snapshot(&root).await;
         let mut state = RunState {
             task_pending: !task.is_empty(),
             task,
@@ -468,6 +520,9 @@ impl SubagentRunner {
             tool_calls: 0,
             tracker: self.start_tracking(text),
             changed_files: BTreeSet::new(),
+            touched_files: BTreeSet::new(),
+            tool_log: Vec::new(),
+            root,
             question: None,
         };
         let end = if state.task_pending || !state.messages.is_empty() {
@@ -478,6 +533,10 @@ impl SubagentRunner {
         if let Some(tracker) = &state.tracker {
             tracker.finish(self.final_status(&end));
         }
+        let workspace_changes = match (before, self.snapshot(&state.root).await) {
+            (Some(before), Some(after)) => after.changes_since(&before, &state.root),
+            _ => BTreeSet::new(),
+        };
         Round {
             end,
             transcript: state.messages,
@@ -485,6 +544,9 @@ impl SubagentRunner {
             tool_calls: state.tool_calls,
             tokens: state.usage.input_tokens + state.usage.output_tokens,
             changed_files: state.changed_files,
+            workspace_changes,
+            tool_log: state.tool_log,
+            touched_files: state.touched_files,
         }
     }
 
@@ -679,7 +741,16 @@ impl SubagentRunner {
                 .ok_or_else(interrupted)?;
             match decision {
                 DispatchDecision::Proceed(args) => approved.push((index, call, args)),
-                DispatchDecision::Deny(msg) => slots[index] = Some(msg),
+                DispatchDecision::Deny(msg) => {
+                    let reason = tool_result_text(&msg);
+                    state.tool_log.push(ToolOutcome::new(
+                        &call.function.name,
+                        &call.function.arguments,
+                        OutcomeStatus::Denied,
+                        &reason,
+                    ));
+                    slots[index] = Some(msg);
+                }
                 DispatchDecision::Stop(_, reason) => {
                     return Err(RoundEnd::Failed(format!("Subagent stopped by hook: {reason}")));
                 }
@@ -708,9 +779,7 @@ impl SubagentRunner {
 
         let mut stop = None;
         for ((index, call, args), outcome) in approved.iter().zip(outcomes) {
-            if !outcome.is_error && FILE_CHANGING_TOOLS.contains(&call.function.name.as_str()) {
-                state.changed_files.extend(args["path"].as_str().map(str::to_string));
-            }
+            Self::record_outcome(state, &call.function.name, args, &outcome);
             slots[*index] = Some(outcome.message);
             stop = stop.or(outcome.stop);
         }
@@ -719,6 +788,32 @@ impl SubagentRunner {
         match stop {
             Some(reason) => Err(RoundEnd::Failed(format!("Subagent stopped by hook: {reason}"))),
             None => Ok(()),
+        }
+    }
+
+    fn record_outcome(state: &mut RunState, name: &str, args: &Value, outcome: &CallOutcome) {
+        let status = if outcome.is_error {
+            OutcomeStatus::Error
+        } else {
+            OutcomeStatus::Ok
+        };
+        let mut logged = ToolOutcome::new(name, args, status, &outcome.output);
+        let path = args["path"]
+            .as_str()
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| normalize(&state.root, p));
+        if let Some(path) = &path {
+            logged.target.clone_from(path);
+        }
+        state.tool_log.push(logged);
+        let Some(path) = path else {
+            return;
+        };
+        if FILE_READING_TOOLS.contains(&name) {
+            state.touched_files.insert(path.clone());
+        }
+        if !outcome.is_error && FILE_CHANGING_TOOLS.contains(&name) {
+            state.changed_files.insert(path);
         }
     }
 
@@ -738,9 +833,10 @@ impl SubagentRunner {
             });
         }
         CallOutcome {
-            message: tool_result_message(call, output),
+            message: tool_result_message(call, output.clone()),
             stop,
             is_error,
+            output,
         }
     }
 

@@ -95,7 +95,7 @@ impl AgentEngine {
     /// Shows the main agent a workflow's report, with its agent task ids, at the start of the next turn.
     pub fn hand_off_workflow_report(&self, name: &str, report: &str) {
         self.turn_notes.push(format!(
-            "[The user ran workflow `{name}`; its report follows. Review its work: continue any listed agent task with the subagent tool's `task_id` if something is missing or wrong.]\n{report}"
+            "[The user ran workflow `{name}`; its report follows. Verify its work before relying on it: re-read the files agents changed and re-run the relevant checks. Inspect any listed agent task with the subagent tool's `task_id` and `inspect: true`, and continue it with `task_id` and feedback if something is missing or wrong.]\n{report}"
         ));
     }
 

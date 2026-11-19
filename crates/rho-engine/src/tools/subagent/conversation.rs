@@ -1,12 +1,48 @@
 use super::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
+use super::workspace::{Fingerprint, stale_paths, versions};
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::tools::types::ToolResult;
 use rho_harness_core::a2a::{Artifact, Message, Part, Role, Task, TaskState};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::{SessionManager, SubagentContext};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
+
+pub(crate) const RESULT_ARTIFACT: &str = "result";
+pub(crate) const FILES_CHANGED_ARTIFACT: &str = "files-changed";
+pub(crate) const WORKSPACE_CHANGES_ARTIFACT: &str = "workspace-changes";
+pub(crate) const TOOL_CALLS_ARTIFACT: &str = "tool-calls";
+/// Content fingerprints of the files the subagent has read or edited, checked when it is continued.
+pub(crate) const FILE_VERSIONS_ARTIFACT: &str = "file-versions";
+
+pub(crate) fn artifact_data<'a>(task: &'a Task, name: &str) -> Option<&'a Value> {
+    task.artifacts
+        .iter()
+        .find(|a| a.name.as_deref() == Some(name))
+        .and_then(|a| a.parts.iter().find_map(|p| p.data.as_ref()))
+}
+
+pub(crate) fn artifact_text<'a>(task: &'a Task, name: &str) -> Option<&'a str> {
+    task.artifacts
+        .iter()
+        .find(|a| a.name.as_deref() == Some(name))
+        .and_then(|a| a.parts.iter().find_map(|p| p.text.as_deref()))
+}
+
+fn file_versions(task: &Task) -> BTreeMap<String, Fingerprint> {
+    artifact_data(task, FILE_VERSIONS_ARTIFACT)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+fn stale_note(stale: &[String]) -> String {
+    format!(
+        "[These files changed since you last read or edited them; re-read them before relying on what you saw earlier: {}]\n\n",
+        stale.join(", ")
+    )
+}
 
 /// What a subagent conversation keeps across tasks, stored as the A2A task metadata.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +113,7 @@ pub(crate) struct Exchange {
     transcript: Vec<ChatMessage>,
     saved_len: usize,
     continues_question: bool,
+    versions: BTreeMap<String, Fingerprint>,
 }
 
 impl Exchange {
@@ -86,6 +123,7 @@ impl Exchange {
             transcript: Vec::new(),
             saved_len: 0,
             continues_question: false,
+            versions: BTreeMap::new(),
         }
     }
 
@@ -104,6 +142,7 @@ impl Exchange {
             new_task(referenced.context_id.clone(), &task_settings(latest))
         };
         Ok(Self {
+            versions: file_versions(latest),
             task,
             saved_len: context.transcript.len(),
             transcript: context.transcript,
@@ -146,14 +185,21 @@ impl Exchange {
         reference: Option<&str>,
     ) -> Outcome {
         self.send(input, reference.filter(|_| !self.continues_question));
-        let round_input = if self.continues_question {
-            RoundInput::Reply(input)
+        let root = runner.workspace_root();
+        let stale = stale_paths(&root, &self.versions);
+        let noted = if stale.is_empty() {
+            input.to_string()
         } else {
-            RoundInput::Prompt(input)
+            format!("{}{input}", stale_note(&stale))
+        };
+        let round_input = if self.continues_question {
+            RoundInput::Reply(&noted)
+        } else {
+            RoundInput::Prompt(&noted)
         };
         let transcript = std::mem::take(&mut self.transcript);
         let round = runner.run_round(transcript, round_input).await;
-        self.finish(&round);
+        self.finish(&round, &root);
         let saved = session
             .record_subagent_task(&self.task, self.new_messages(&round))
             .await;
@@ -161,10 +207,11 @@ impl Exchange {
             round,
             task: self.task,
             save_error: saved.err().map(|e| e.to_string()),
+            stale,
         }
     }
 
-    fn finish(&mut self, round: &Round) {
+    fn finish(&mut self, round: &Round, root: &std::path::Path) {
         let (state, text) = match &round.end {
             RoundEnd::Answered(text) => (TaskState::Completed, Some(text.trim().to_string())),
             RoundEnd::Asked(question) => (TaskState::InputRequired, Some(question.clone())),
@@ -175,10 +222,34 @@ impl Exchange {
         let message = text.map(|text| Message::text(Role::Agent, &self.task, text));
         self.task.history.extend(message.clone());
         if let RoundEnd::Answered(text) = &round.end {
-            self.add_artifact("result", Part::text(text.trim()));
+            self.add_artifact(RESULT_ARTIFACT, Part::text(text.trim()));
         }
-        if !round.changed_files.is_empty() {
-            self.add_artifact("files-changed", Part::data(serde_json::json!(round.changed_files)));
+        let data = [
+            (
+                FILES_CHANGED_ARTIFACT,
+                serde_json::json!(round.changed_files),
+                round.changed_files.is_empty(),
+            ),
+            (
+                WORKSPACE_CHANGES_ARTIFACT,
+                serde_json::json!(round.workspace_changes),
+                round.workspace_changes.is_empty(),
+            ),
+            (
+                TOOL_CALLS_ARTIFACT,
+                serde_json::json!(round.tool_log),
+                round.tool_log.is_empty(),
+            ),
+        ];
+        for (name, value, empty) in data {
+            if !empty {
+                self.add_artifact(name, Part::data(value));
+            }
+        }
+        let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
+        if !tracked.is_empty() {
+            let versions = serde_json::json!(versions(root, &tracked));
+            self.add_artifact(FILE_VERSIONS_ARTIFACT, Part::data(versions));
         }
         self.task.set_status(state, message);
     }
@@ -206,6 +277,8 @@ pub(crate) struct Outcome {
     pub round: Round,
     pub task: Task,
     pub save_error: Option<String>,
+    /// Files the subagent was told had changed since it last saw them.
+    pub stale: Vec<String>,
 }
 
 impl Outcome {
@@ -222,9 +295,15 @@ impl Outcome {
             &format!(" \u{b7} task {} \u{b7} {}", self.task.id, state.label()),
         );
         let mut text = match round.body() {
-            Ok(body) => runner.with_changed_files(&body, round),
+            Ok(body) => SubagentRunner::with_evidence(&body, round),
             Err(error) => error,
         };
+        if !self.stale.is_empty() {
+            text.push_str(&format!(
+                "\nTold the subagent these files changed since it last saw them: {}",
+                self.stale.join(", ")
+            ));
+        }
         match &self.save_error {
             Some(error) => text.push_str(&format!(
                 "\n\nWarning: this subagent task was not saved ({error}), so it cannot be continued."
@@ -243,10 +322,10 @@ impl Outcome {
         let id = &self.task.id;
         match state {
             TaskState::InputRequired => format!(
-                "\n\nThe subagent is waiting. Reply with subagent {{\"task_id\": \"{id}\", \"prompt\": \"<answer or go-ahead>\"}}."
+                "\n\nThe subagent is waiting. Reply with subagent {{\"task_id\": \"{id}\", \"prompt\": \"<answer or go-ahead>\"}}. Inspect its tool calls and evidence with {{\"task_id\": \"{id}\", \"inspect\": true}}."
             ),
             _ => format!(
-                "\n\nTo request fixes or more work with its full context, call subagent {{\"task_id\": \"{id}\", \"prompt\": \"<feedback>\"}}."
+                "\n\nVerify before accepting: re-read the changed files and re-run your checks. Inspect its tool calls with subagent {{\"task_id\": \"{id}\", \"inspect\": true}}; request fixes with {{\"task_id\": \"{id}\", \"prompt\": \"<feedback>\"}}."
             ),
         }
     }
@@ -355,7 +434,10 @@ mod tests {
         assert_eq!(task.status.state, TaskState::Completed);
         let roles: Vec<Role> = task.history.iter().map(|m| m.role).collect();
         assert_eq!(roles, [Role::User, Role::Agent, Role::User, Role::Agent]);
-        assert_eq!(task.artifacts[0].name.as_deref(), Some("result"));
+        assert_eq!(
+            artifact_text(task, RESULT_ARTIFACT),
+            Some("Latency: hoisted the allocation out of hot().")
+        );
     }
 
     #[tokio::test]
@@ -372,7 +454,11 @@ mod tests {
         )
         .await;
         let first_id = task_id(&first);
-        assert!(first.contains("call subagent {\"task_id\""), "{first}");
+        assert!(
+            first.contains(&format!("{{\"task_id\": \"{first_id}\", \"prompt\"")),
+            "{first}"
+        );
+        assert!(first.contains("Verify before accepting"), "{first}");
         let session_id = session.session_id.clone();
         drop(session);
 
@@ -459,6 +545,104 @@ mod tests {
         }
         let without_session = ask(&bound_tool(&adapter, None), json!({ "task_id": id, "prompt": "x" })).await;
         assert!(without_session.contains("needs a saved session"), "{without_session}");
+    }
+
+    #[tokio::test]
+    async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionManager::new(dir.path(), None).unwrap();
+        let secret = dir.path().join("app.env");
+        let adapter = MockAdapter::from_turns([
+            vec![
+                ModelStreamEvent::ToolCall(ToolCall::new(
+                    "c1",
+                    ToolFunction::new("read", json!({ "path": "src/hot.rs" })),
+                )),
+                ModelStreamEvent::ToolCall(ToolCall::new(
+                    "c2",
+                    ToolFunction::new("read", json!({ "path": secret.to_string_lossy() })),
+                )),
+            ],
+            text("hot() allocates in a loop."),
+        ]);
+        let scope = crate::permission::policy::parse_scope_from_str(
+            "[permission.path]\n\"*.env\" = { action = \"deny\", reason = \"secrets\" }\n",
+        )
+        .unwrap();
+        let hook = crate::permission::PermissionHook::with_policy(
+            Some(dir.path().to_path_buf()),
+            Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None)),
+            crate::permission::policy::build_policy(None, Some(scope)),
+        );
+        let ctx = TurnToolContext {
+            session: Some(session.clone()),
+            permission: Some(Arc::new(hook)),
+            ..Default::default()
+        };
+        let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+            .bind_turn(&ctx)
+            .unwrap();
+
+        let result = ask(&tool, json!({ "name": "audit", "prompt": "Audit hot.rs" })).await;
+        let id = task_id(&result);
+        assert!(result.contains("Tool outcomes: 1 ok, 1 denied (read "), "{result}");
+        assert!(result.contains("1 failed tool call, "), "{result}");
+        let requests = adapter.requests().len();
+
+        let inspected = ask(&tool, json!({ "task_id": id, "inspect": true })).await;
+        let listed = ask(&tool, json!({ "inspect": true })).await;
+
+        assert_eq!(adapter.requests().len(), requests, "inspecting runs no model");
+        for expected in [
+            format!("Task `{id}` \u{b7} completed \u{b7} agent scout, name audit (task 1 of 1"),
+            "[parent] Audit hot.rs".to_string(),
+            "Final answer:\nhot() allocates in a loop.".to_string(),
+            "ok      read src/hot.rs".to_string(),
+            "denied  read ".to_string(),
+            "Files read or edited so far: ".to_string(),
+        ] {
+            assert!(inspected.contains(&expected), "missing {expected:?} in:\n{inspected}");
+        }
+        let summary = format!(
+            "`{id}` \u{b7} completed, 1 failed tool calls \u{b7} agent scout, name audit \u{b7} 1 task(s) \u{b7} \"Audit hot.rs\""
+        );
+        assert!(listed.contains(&summary), "{listed}");
+        let unknown = tool
+            .execute(json!({ "task_id": "nope", "inspect": true }))
+            .await
+            .unwrap();
+        assert!(unknown.is_error && unknown.content.contains("unknown subagent task 'nope'"));
+        let no_session = ask(&bound_tool(&adapter, None), json!({ "inspect": true })).await;
+        assert!(no_session.contains("needs a saved session"), "{no_session}");
+    }
+
+    #[tokio::test]
+    async fn a_continued_subagent_is_told_which_files_changed_since_it_read_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
+        let watched = dir.path().join("lib.rs");
+        let untouched = dir.path().join("other.rs");
+        std::fs::write(&watched, "fn a() {}").unwrap();
+        std::fs::write(&untouched, "fn b() {}").unwrap();
+        let read = |path: &std::path::Path| call("read", json!({ "path": path.to_string_lossy() }));
+        let adapter = MockAdapter::from_turns([read(&watched), read(&untouched), text("reviewed")]);
+        let tool = bound_tool(&adapter, Some(session));
+        let first = ask(&tool, json!({ "prompt": "Review lib.rs" })).await;
+
+        std::fs::write(&watched, "fn a() { changed() }").unwrap();
+        adapter.add_turn(vec![Ok(ModelStreamEvent::Text("re-reviewed".into()))]);
+        let second = ask(&tool, json!({ "task_id": task_id(&first), "prompt": "Check again" })).await;
+
+        let shown = watched.to_string_lossy().to_string();
+        let prompt = adapter.requests().pop().unwrap().prompt;
+        assert_eq!(
+            prompt,
+            format!(
+                "[These files changed since you last read or edited them; re-read them before relying on what you saw earlier: {shown}]\n\nCheck again"
+            )
+        );
+        let told = format!("Told the subagent these files changed since it last saw them: {shown}\n");
+        assert!(second.contains(&told), "{second}");
     }
 
     #[test]

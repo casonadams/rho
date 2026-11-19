@@ -160,8 +160,23 @@ Each model request in a turn is retried on its own when it fails with a network 
 ## Subagents & Custom Agents
 
 The `subagent` tool hands a focused task to an isolated agent with its own
-context. It returns a summary with turn, tool-call, and token counts, plus the
-files it changed with `write` or `edit` (`Files changed: ...`).
+context. It returns the subagent's answer followed by evidence the parent can
+check, and a footer with turn, tool-call, and token counts:
+
+```text
+Files changed: src/a.rs
+Also changed in the workspace during this run (bash, formatters, or other agents): src/fmt.rs, old.rs (deleted)
+Tool outcomes: 12 ok, 1 error (edit src/b.rs: oldText not found), 1 denied (bash rm -rf build)
+```
+
+`Files changed` comes from the subagent's successful `write` and `edit` calls,
+with paths relative to the project. In a git work tree, rho also compares the
+uncommitted files before and after the round, so edits made through `bash`,
+formatters, and deletions are listed too; that comparison cannot tell who made
+a change, so concurrent work shows up there as well. `Tool outcomes` counts
+every call and lists the ones that failed or were denied; the footer then reads
+`1 failed tool call, ...`, a sign that the answer may describe work that did not
+happen.
 
 - **Names**: pass `name` (camelCase, e.g. `performanceAudit`; other text such
   as `performance audit` is converted) to label the subagent's progress lines,
@@ -173,6 +188,15 @@ files it changed with `write` or `edit` (`Files changed: ...`).
   The main agent reviews the work and can call `subagent` again with that
   `task_id` and feedback ("you missed X, fix it"); the subagent continues with
   everything it already read and did, in a new task of the same A2A context.
+- **Inspecting**: `{"task_id": "...", "inspect": true}` shows a task's
+  messages, final answer, every tool call with its outcome, the files it
+  changed, and the files it has read, without running the subagent.
+  `{"inspect": true}` lists the latest task of every saved subagent
+  conversation, so task ids can be recovered after compaction.
+- **Stale reads**: rho records a fingerprint of every file a subagent reads or
+  edits. When the task is continued, any of those files that changed since are
+  named at the top of the new message so the subagent re-reads them, and the
+  result says so (`Told the subagent these files changed ...`).
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
   without a decision. Its task becomes `input-required` and its result is
   `Question for you: ...`; the main agent answers with the same `task_id`, and

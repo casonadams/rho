@@ -94,7 +94,9 @@ Usage:
 - Use role 'general' for self-contained multi-step tasks.
 - Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'; default smol) and return a concise summary to the parent.
 - Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, its task id, and its result.
-- Each result ends with a task id and state. Review the work: if something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
+- Each result ends with a task id and state. Treat the answer as a claim, not proof: before accepting, re-read the files it changed and re-run the relevant checks yourself. If something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
+- Results list 'Files changed' (its write/edit calls), 'Also changed in the workspace' (bash, formatters, other agents), and 'Tool outcomes' (errors and permission denials). A footer with 'failed tool calls' means part of the work may not have happened even if the answer says it did.
+- Pass `inspect: true` without `task_id` to list the session's subagent tasks (use it to recover task ids after compaction); with a `task_id` it shows that task's messages, final answer, every tool call with its outcome, and its files, without running it.
 - State 'input-required' means the subagent is waiting: it asked you a question ('Question for you: ...') or stopped early (turn limit or no final answer) with a summary. Reply with the same `task_id` and your answer or 'continue'. Do not redo its work yourself.
 - State 'failed' still reports any findings and 'Files changed'; build on them or send the `task_id` follow-up instead of starting over.";
 

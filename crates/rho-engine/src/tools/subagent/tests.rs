@@ -803,23 +803,23 @@ fn edit_turn(paths: &[&str]) -> Vec<ModelStreamEvent> {
 }
 
 #[tokio::test]
-async fn results_list_files_the_subagent_changed() {
-    let adapter = MockAdapter::from_turns([edit_turn(&["src/a.rs", "src/missing.rs"]), text_turn("fixed it")]);
+async fn results_list_changed_files_and_failed_tool_calls() {
+    let adapter = MockAdapter::from_turns([
+        edit_turn(&["src/a.rs", "./src/../src/missing.rs"]),
+        text_turn("fixed it"),
+    ]);
     let runner = SubagentRunner::new(
         Arc::new(adapter),
         SubagentRole::General,
-        &[edit_tool("src/missing.rs")],
+        &[edit_tool("./src/../src/missing.rs")],
         5,
     );
 
     let result = runner.run("fix", None).await;
 
-    assert!(
-        result
-            .content
-            .starts_with("fixed it\n\nFiles changed: src/a.rs\n\n[subagent: "),
-        "{}",
-        result.content
+    assert_eq!(
+        result.content,
+        "fixed it\n\nFiles changed: src/a.rs\nTool outcomes: 1 ok, 1 error (edit src/missing.rs: oldText not found)\n\n[subagent: 1 failed tool call, 2 turns, 2 tool calls, 0 tokens]"
     );
 }
 

@@ -173,9 +173,16 @@ Agent tasks (continue one with the subagent tool's `task_id` to review, fix, or 
   refine › round 1 › review — task `review-3f9a1c2e` · input-required
 ```
 
+The report also lists the files each agent changed, other files that changed
+in the workspace while agents ran, and a warning when agents that ran at the
+same time (for example in `<parallel>` or `<each>`) changed the same file. A
+step whose agent had failed or denied tool calls says so in its detail
+(`2 failed tool calls`).
+
 When a run finishes or stops, its report is added in front of your next prompt,
-so the main agent sees what happened. It can review the work and continue any
-listed agent with the `subagent` tool's `task_id`, for example to answer "the
+so the main agent sees what happened, with an instruction to verify the work
+rather than trust the report. It can inspect any listed agent (`task_id` with
+`inspect: true`) and continue it with the `subagent` tool's `task_id`, for example to answer "the
 reviewer ran out of turns; finish the review" or "you missed the test, fix
 it". A continued agent keeps everything it read and did, but runs under the
 normal permission rules and hooks: only the workflow itself is trusted. Agents
