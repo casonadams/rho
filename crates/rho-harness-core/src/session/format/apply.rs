@@ -36,6 +36,9 @@ macro_rules! extract_record_ident {
             }
             | SessionRecord::SessionNamed {
                 sequence, session_id, ..
+            }
+            | SessionRecord::SubagentTask {
+                sequence, session_id, ..
             } => (*sequence, session_id.as_str()),
         }
     };
@@ -148,6 +151,7 @@ fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
         SessionRecord::SessionNamed { name, .. } => {
             state.tree.set_session_name(name);
         }
+        SessionRecord::SubagentTask { task, transcript, .. } => state.subagents.record(task, transcript),
         _ => {}
     }
     false

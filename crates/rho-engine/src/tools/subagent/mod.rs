@@ -1,3 +1,4 @@
+mod conversation;
 mod recovery;
 pub mod runner;
 #[cfg(test)]
@@ -28,11 +29,13 @@ pub struct SubagentTool {
     ctx: TurnToolContext,
     model_resolver: Option<SubagentModelResolver>,
     roles: BTreeMap<&'static str, String>,
+    busy: conversation::BusyContexts,
 }
 
 #[derive(serde::Deserialize)]
 struct RawSubagentArgs {
     prompt: String,
+    task_id: Option<String>,
     name: Option<String>,
     agent: Option<String>,
     role: Option<String>,
@@ -67,6 +70,7 @@ impl SubagentTool {
             ctx: TurnToolContext::default(),
             model_resolver: None,
             roles: BTreeMap::new(),
+            busy: conversation::BusyContexts::default(),
             description: crate::tools::ToolRegistry::builtin_description("subagent").to_string(),
         }
     }
@@ -213,6 +217,72 @@ impl SubagentTool {
         valid.extend(self.agents.iter().map(|a| a.name.as_str()));
         format!("unknown subagent '{name}'; valid: {}", valid.join(", "))
     }
+
+    async fn runner_for_settings(
+        &self,
+        settings: &conversation::ConversationSettings,
+        turns: Option<usize>,
+    ) -> Result<SubagentRunner, String> {
+        let model = settings.model.as_deref().map(ModelRole::parse).transpose()?;
+        self.runner_for(RunnerSpec {
+            agent: settings.agent.as_deref(),
+            local_agents: &[],
+            turns,
+            model,
+            position: None,
+            task_name: settings.name.clone(),
+        })
+        .await
+    }
+
+    async fn start_task(&self, args: &RawSubagentArgs) -> Result<ToolResult, String> {
+        let settings = conversation::ConversationSettings {
+            name: args.name.as_deref().and_then(types::task_name),
+            agent: args.agent.clone().or_else(|| args.role.clone()),
+            model: args.model.clone(),
+        };
+        let runner = self.runner_for_settings(&settings, args.turns).await?;
+        let context = self.compose_context(args);
+        let Some(session) = &self.ctx.session else {
+            return Ok(runner.run(&args.prompt, context.as_deref()).await);
+        };
+        let exchange = conversation::Exchange::start(&settings);
+        let _claim = self.busy.claim(exchange.context_id())?;
+        let input = runner::build_subagent_prompt(&args.prompt, context.as_deref());
+        Ok(exchange
+            .converse(&runner.with_parent_channel(), session, &input, None)
+            .await)
+    }
+
+    async fn continue_task(&self, args: &RawSubagentArgs, task_id: &str) -> Result<ToolResult, String> {
+        let session = self
+            .ctx
+            .session
+            .as_ref()
+            .ok_or("continuing a subagent task needs a saved session")?;
+        let context = session
+            .subagent_context(task_id)
+            .await
+            .ok_or_else(|| format!("unknown subagent task '{task_id}'"))?;
+        let exchange = conversation::Exchange::resume(context, task_id)?;
+        let mut settings = exchange.settings();
+        let requested = args.agent.as_deref().or(args.role.as_deref());
+        if let Some(requested) =
+            requested.filter(|r| !settings.agent.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(r)))
+        {
+            return Err(format!(
+                "task '{task_id}' runs as '{}', not '{requested}'; omit role and agent when continuing a task",
+                settings.agent.as_deref().unwrap_or("scout")
+            ));
+        }
+        settings.model = args.model.clone().or(settings.model);
+        let runner = self.runner_for_settings(&settings, args.turns).await?;
+        let _claim = self.busy.claim(exchange.context_id())?;
+        let input = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
+        Ok(exchange
+            .converse(&runner.with_parent_channel(), session, &input, Some(task_id))
+            .await)
+    }
 }
 
 fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) -> Vec<Arc<dyn EngineTool>> {
@@ -255,22 +325,11 @@ impl EngineTool for SubagentTool {
         if args.prompt.trim().is_empty() {
             return Ok(ToolResult::error("subagent prompt cannot be empty"));
         }
-        let model = match args.model.as_deref().map(ModelRole::parse).transpose() {
-            Ok(model) => model,
-            Err(message) => return Ok(ToolResult::error(message)),
+        let result = match args.task_id.as_deref().map(str::trim) {
+            Some(task_id) if !task_id.is_empty() => self.continue_task(&args, task_id).await,
+            _ => self.start_task(&args).await,
         };
-        let spec = RunnerSpec {
-            agent: args.agent.as_deref().or(args.role.as_deref()),
-            local_agents: &[],
-            turns: args.turns,
-            model,
-            position: None,
-            task_name: args.name.as_deref().and_then(types::task_name),
-        };
-        match self.runner_for(spec).await {
-            Ok(runner) => Ok(runner.run(&args.prompt, self.compose_context(&args).as_deref()).await),
-            Err(message) => Ok(ToolResult::error(message)),
-        }
+        Ok(result.unwrap_or_else(ToolResult::error))
     }
 
     fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
@@ -282,6 +341,9 @@ impl EngineTool for SubagentTool {
         let Ok(parsed) = crate::tools::types::try_parse_tool_args::<RawSubagentArgs>(&args) else {
             return false;
         };
+        if parsed.task_id.is_some() {
+            return false;
+        }
         let Ok(target) = self.resolve_target(parsed.agent.as_deref().or(parsed.role.as_deref()), &[]) else {
             return false;
         };

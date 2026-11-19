@@ -18,6 +18,8 @@ pub struct TurnToolContext {
     pub parent_history: Arc<[ChatMessage]>,
     pub monitor: Option<AgentMonitor>,
     pub project: Option<Arc<crate::engine::context::ProjectContext>>,
+    /// The parent session, where subagent tasks are saved so they can be continued.
+    pub session: Option<rho_harness_core::session::SessionManager>,
 }
 
 #[async_trait::async_trait]

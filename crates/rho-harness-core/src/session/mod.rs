@@ -14,6 +14,7 @@ mod lock;
 mod memory;
 pub mod prune;
 mod secrets;
+mod subagents;
 pub mod summary;
 #[cfg(test)]
 mod tests;
@@ -40,6 +41,7 @@ pub(crate) use fs::{
     validate_session_id,
 };
 pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
+pub use subagents::{SubagentContext, SubagentContexts};
 pub use summary::{SessionSummary, delete_session_async, list_session_summaries, list_session_summaries_async};
 pub use tree::{SessionTree, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
@@ -83,6 +85,7 @@ fn empty_store_state() -> StoreState {
         checkpoint: None,
         events: Vec::new(),
         tree: SessionTree::new(),
+        subagents: SubagentContexts::default(),
         integrity: CanonicalHistory::new(),
     }
 }

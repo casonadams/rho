@@ -84,6 +84,7 @@ impl WorkflowRunner {
             parent_history: std::sync::Arc::from(Vec::new()),
             monitor,
             project,
+            session: None,
         };
         Self {
             subagents: self.subagents.with_turn_context(&ctx),

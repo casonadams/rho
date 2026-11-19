@@ -165,14 +165,29 @@ files it changed with `write` or `edit` (`Files changed: ...`).
 
 - **Names**: pass `name` (camelCase, e.g. `performanceAudit`; other text such
   as `performance audit` is converted) to label the subagent's progress lines,
-  its entry in the agent list, and its result footer
-  (`[subagent performanceAudit: 12 turns, ...]`).
-- **Incomplete runs**: when a subagent hits its turn limit, ends without a final
-  answer, or loses its model mid-run, it is asked once more (without tools) to
-  summarize its work so far. The result starts with `Incomplete:` and its
-  footer says `incomplete`; if that summary also fails, the findings gathered
-  so far are returned instead. The agent list shows these runs as
-  `incomplete`.
+  its entry in the agent list, its task ids, and its result footer.
+- **Conversations**: subagents started by the main agent talk to it using the
+  [A2A](https://a2a-protocol.org/latest/specification/) task model (no server
+  or network is involved). Each result ends with a task id and state, e.g.
+  `[subagent performanceAudit · task performanceAudit-3f9a1c2e · completed: 12 turns, ...]`.
+  The main agent reviews the work and can call `subagent` again with that
+  `task_id` and feedback ("you missed X, fix it"); the subagent continues with
+  everything it already read and did, in a new task of the same A2A context.
+- **Questions**: a subagent can call `ask_parent` when it cannot proceed
+  without a decision. Its task becomes `input-required` and its result is
+  `Question for you: ...`; the main agent answers with the same `task_id`, and
+  the answer is delivered as the `ask_parent` result.
+- **Incomplete runs**: when a subagent hits its turn limit or ends without a
+  final answer, it is asked once more (without tools) to summarize its work so
+  far; the result starts with `Incomplete:` and the task is `input-required`,
+  so replying `continue` with its `task_id` resumes it. If a model call fails,
+  the task is `failed` but the findings gathered so far are still returned. The
+  agent list shows waiting subagents as `needs input`.
+- **Persistence**: each round is saved to the session file as a
+  `subagent_task` record holding the A2A task and the subagent's new messages,
+  so a task can be continued after `--resume`. Workflow agents have no parent
+  to ask and are not saved.
+- **Model**: without a `model` role, subagents use `models.smol` (see below).
 
 - **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`
   and `planner` (read, fd, rg), and `general` (read, write, edit, bash, fd, rg,

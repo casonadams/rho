@@ -93,8 +93,10 @@ Usage:
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
 - Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'; default smol) and return a concise summary to the parent.
-- Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, and its result.
-- A result starting with 'Incomplete:' or a footer marked 'incomplete' means the subagent stopped early (turn limit, failed model call, or no final answer); its work so far and any 'Files changed' are still reported, so continue from them instead of redoing the task.";
+- Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, its task id, and its result.
+- Each result ends with a task id and state. Review the work: if something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
+- State 'input-required' means the subagent is waiting: it asked you a question ('Question for you: ...') or stopped early (turn limit or no final answer) with a summary. Reply with the same `task_id` and your answer or 'continue'. Do not redo its work yourself.
+- State 'failed' still reports any findings and 'Files changed'; build on them or send the `task_id` follow-up instead of starting over.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {

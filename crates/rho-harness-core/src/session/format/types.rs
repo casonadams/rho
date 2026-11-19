@@ -84,6 +84,14 @@ pub enum SessionRecord {
         timestamp: DateTime<Utc>,
         name: String,
     },
+    /// A subagent task snapshot plus the subagent messages added since its context's previous record.
+    SubagentTask {
+        sequence: u64,
+        session_id: String,
+        timestamp: DateTime<Utc>,
+        task: crate::a2a::Task,
+        transcript: Vec<ChatMessage>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -118,5 +126,6 @@ pub struct StoreState {
     pub checkpoint: Option<Vec<ChatMessage>>,
     pub events: Vec<SessionEvent>,
     pub tree: SessionTree,
+    pub subagents: super::super::subagents::SubagentContexts,
     pub(crate) integrity: CanonicalHistory,
 }

@@ -10,8 +10,8 @@ const MAX_RETAINED_AGENTS: usize = 200;
 pub enum AgentStatus {
     Running,
     Done,
-    /// Stopped before finishing (turn limit, failed model call, or no final answer) but returned its work so far.
-    Incomplete,
+    /// Paused for the parent: it asked a question, or stopped early and summarized its work so far.
+    InputRequired,
     Failed,
     Cancelled,
 }
@@ -22,7 +22,7 @@ impl AgentStatus {
         match self {
             Self::Running => "⟳",
             Self::Done => "✓",
-            Self::Incomplete => "◐",
+            Self::InputRequired => "◐",
             Self::Failed => "✗",
             Self::Cancelled => "⊘",
         }

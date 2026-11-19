@@ -244,6 +244,7 @@ impl AgentRunner {
             parent_history: self.parent_history_snapshot(),
             monitor: self.monitor.clone(),
             project: self.project.clone(),
+            session: Some(self.session_manager.clone()),
         };
         self.tools = self
             .tools

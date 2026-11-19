@@ -851,6 +851,6 @@ async fn an_empty_final_answer_is_salvaged_instead_of_discarding_the_work() {
     assert_eq!(adapter.requests().len(), 3, "one extra call to summarize");
     assert_eq!(
         monitor.summaries()[0].status,
-        rho_harness_core::agents::AgentStatus::Incomplete
+        rho_harness_core::agents::AgentStatus::InputRequired
     );
 }
