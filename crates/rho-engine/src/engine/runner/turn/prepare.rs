@@ -150,7 +150,7 @@ impl AgentEngine {
             .await?
             .is_some()
         {
-            return self.compacted_turn_output().await.map(Some);
+            return self.compacted_turn_output(super::RunStatus::Compacted).await.map(Some);
         }
         Ok(None)
     }

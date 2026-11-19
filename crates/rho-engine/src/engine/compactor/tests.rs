@@ -940,7 +940,7 @@ mod recovery {
         let notices = presenter.notices.lock().unwrap().clone();
         let output = output.unwrap_or_else(|e| panic!("{e}; notices: {notices:?}"));
 
-        assert_eq!(output.status, crate::engine::runner::RunStatus::Compacted);
+        assert_eq!(output.status, crate::engine::runner::RunStatus::CompactedMidTurn);
         assert_recovery_presenter(&presenter);
         let sm = &engine.session_manager;
         assert!(sm.load_checkpoint().await.unwrap().is_none());
@@ -948,8 +948,17 @@ mod recovery {
         let summary = format!("{:?}", messages.remove(0));
         let kept = format!("{messages:?}");
         let everything = format!("{summary}{kept}");
-        assert!(everything.contains("Long task that overflows mid-turn"), "{everything}");
-        assert!(everything.contains("Turn stopped before finishing"), "{everything}");
+        assert_eq!(
+            everything.matches("Long task that overflows mid-turn").count(),
+            1,
+            "{everything}"
+        );
+        assert!(
+            everything.contains("This turn stopped before finishing"),
+            "{everything}"
+        );
+        let notices = presenter.notices.lock().unwrap().join("\n");
+        assert!(notices.contains("the turn's work so far was kept"), "{notices}");
     }
 
     #[tokio::test]
@@ -972,7 +981,7 @@ mod recovery {
         let history = format!("{:?}", sm.load_messages().await.unwrap());
         assert!(history.contains("Unfinished request"), "{history}");
         assert!(
-            !history.contains("Turn stopped before finishing"),
+            !history.contains("This turn stopped before finishing"),
             "turns ending in an answer need no note"
         );
     }

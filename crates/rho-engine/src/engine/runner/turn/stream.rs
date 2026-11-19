@@ -9,6 +9,7 @@ use rho_harness_core::presentation::presenter::Presenter;
 use super::prepare::TurnLoopState;
 use super::runner::{AgentRunner, ModelRetry, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
+use super::types::RunStatus;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse};
 use crate::engine::runner::history::DisplayEvent;
@@ -36,7 +37,7 @@ impl TurnStreamState {
 }
 
 pub(super) enum StreamRunResult {
-    Compacted,
+    Compacted(RunStatus),
     Complete(Box<TurnStreamState>),
     ContentFiltered(Box<TurnStreamState>),
 }
@@ -147,13 +148,22 @@ fn handle_completion_stream_item(
     }
 }
 
-fn print_overflow_compaction_notices(presenter: &dyn Presenter, stats: &crate::engine::CompactionStats) {
+fn print_overflow_compaction_notices(
+    presenter: &dyn Presenter,
+    stats: &crate::engine::CompactionStats,
+    status: RunStatus,
+) {
     presenter.print_notice("[Context overflow detected]");
     presenter.print_notice(&format!(
         "[Compacted context: {} -> {} tokens (saved {})]",
         stats.tokens_before, stats.tokens_after, stats.saved_tokens
     ));
-    presenter.print_notice("Context was compacted after overflow. Review context and re-submit prompt.");
+    presenter.print_notice(match status {
+        RunStatus::CompactedMidTurn => {
+            "Context was compacted after overflow; the turn's work so far was kept. Send a follow-up to continue."
+        }
+        _ => "Context was compacted after overflow. Review context and re-submit prompt.",
+    });
 }
 
 impl AgentEngine {
@@ -210,19 +220,26 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         visible_history: &mut Vec<ChatMessage>,
         checkpoint: &mut Option<Vec<ChatMessage>>,
-    ) -> Result<bool> {
+    ) -> Result<Option<RunStatus>> {
         let _spinner = presenter.start_spinner("Compacting...");
+        let started_with = checkpoint.as_ref().map_or(0, Vec::len);
+        let saved_now = self.session_manager.load_checkpoint().await?.map_or(0, |c| c.len());
+        let status = if saved_now > started_with {
+            RunStatus::CompactedMidTurn
+        } else {
+            RunStatus::Compacted
+        };
         match self.compact_session(None).await {
             Ok(stats) if !stats.summary.is_empty() => {
                 *checkpoint = None;
                 *visible_history = self.session_manager.active_messages().await?;
-                print_overflow_compaction_notices(presenter, &stats);
-                Ok(true)
+                print_overflow_compaction_notices(presenter, &stats, status);
+                Ok(Some(status))
             }
-            Ok(_) => Ok(false),
+            Ok(_) => Ok(None),
             Err(e) => {
                 presenter.print_notice(&format!("[Auto-compaction failed: {e}]"));
-                Ok(false)
+                Ok(None)
             }
         }
     }
@@ -234,12 +251,12 @@ impl AgentEngine {
         visible_history: &mut Vec<ChatMessage>,
         checkpoint: &mut Option<Vec<ChatMessage>>,
         overflow_recovered: &mut bool,
-    ) -> Result<bool> {
+    ) -> Result<Option<RunStatus>> {
         if !*overflow_recovered && matches!(error, AppError::ContextOverflow(_)) {
             *overflow_recovered = true;
             return self.try_recover_overflow(presenter, visible_history, checkpoint).await;
         }
-        Ok(false)
+        Ok(None)
     }
 
     async fn handle_fatal_stream_error(
@@ -263,7 +280,7 @@ impl AgentEngine {
     ) -> Result<StreamRunResult> {
         sink.finish_spinner();
         sink.flush_display();
-        if self
+        if let Some(status) = self
             .try_context_overflow(
                 &error,
                 presenter,
@@ -273,7 +290,7 @@ impl AgentEngine {
             )
             .await?
         {
-            return Ok(StreamRunResult::Compacted);
+            return Ok(StreamRunResult::Compacted(status));
         }
         self.handle_fatal_stream_error(error, sink).await
     }

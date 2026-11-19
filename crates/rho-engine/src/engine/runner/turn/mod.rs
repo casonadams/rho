@@ -31,7 +31,7 @@ impl AgentEngine {
     ) -> Result<TurnOutput> {
         sink.record_tool_events().await?;
         match res {
-            StreamRunResult::Compacted => self.compacted_turn_output().await,
+            StreamRunResult::Compacted(status) => self.compacted_turn_output(status).await,
             StreamRunResult::Complete(state) => {
                 let elapsed = Self::elapsed_generation_ms(&state);
                 sink.finish_spinner();

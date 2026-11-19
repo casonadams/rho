@@ -104,13 +104,14 @@ pub(crate) fn handle_turn_completion(res: Result<crate::engine::runner::TurnOutp
     renderer.flush();
     renderer.write_output("\n");
     match res {
-        Ok(out) if out.status == crate::engine::runner::RunStatus::Compacted => {
-            renderer.write_output("Context was compacted. Submit your prompt to proceed with compacted context.\n");
+        Ok(out) => {
+            if let Some(guidance) = out.status.compaction_guidance() {
+                renderer.write_output(guidance);
+            }
         }
         Err(error) => {
             renderer.write_output(&format!("\nError: {error}\n"));
         }
-        _ => {}
     }
 }
 

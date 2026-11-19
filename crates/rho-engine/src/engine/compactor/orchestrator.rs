@@ -358,8 +358,7 @@ impl AgentEngine {
     }
 }
 
-const UNFINISHED_TURN_NOTE: &str =
-    "[Turn stopped before finishing; the work above was kept when the conversation was compacted.]";
+const UNFINISHED_TURN_NOTE: &str = "[This turn stopped before finishing; the work above was saved.]";
 
 pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, session_id: &str, messages: &[ChatMessage]) {
     if let Some(hook) = hook {
