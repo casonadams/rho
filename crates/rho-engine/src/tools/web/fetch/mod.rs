@@ -135,6 +135,10 @@ impl EngineTool for WebFetchTool {
         crate::tools::ToolRegistry::builtin_description("web_fetch")
     }
 
+    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<WebFetchArgs>()
     }

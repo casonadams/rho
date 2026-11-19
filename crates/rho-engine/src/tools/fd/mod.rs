@@ -155,6 +155,10 @@ impl EngineTool for FdTool {
         crate::tools::ToolRegistry::builtin_description("fd")
     }
 
+    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<FdArgs>()
     }

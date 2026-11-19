@@ -127,6 +127,10 @@ impl EngineTool for ReadTool {
         crate::tools::ToolRegistry::builtin_description("read")
     }
 
+    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<ReadArgs>()
     }

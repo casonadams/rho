@@ -51,3 +51,16 @@ fn builtin_tools_omit_web_when_disabled() {
     let tools = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
     assert_eq!(tools.len(), 7);
 }
+
+#[test]
+fn only_read_only_builtin_tools_run_concurrently() {
+    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None).unwrap();
+    let args = serde_json::json!({});
+    let mut parallel: Vec<_> = tools
+        .iter()
+        .filter(|t| t.name() != "subagent" && t.concurrency_safe(&args))
+        .map(|t| t.name())
+        .collect();
+    parallel.sort_unstable();
+    assert_eq!(parallel, ["fd", "read", "rg", "web_fetch", "web_search"]);
+}

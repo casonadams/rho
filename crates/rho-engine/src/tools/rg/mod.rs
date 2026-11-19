@@ -121,6 +121,10 @@ impl EngineTool for RgTool {
         crate::tools::ToolRegistry::builtin_description("rg")
     }
 
+    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        true
+    }
+
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<RgArgs>()
     }
