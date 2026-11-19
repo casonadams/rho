@@ -27,9 +27,14 @@ impl AgentFileLog {
         if round.changed_files.is_empty() && round.workspace_changes.is_empty() {
             return;
         }
+        let own_bash = round
+            .workspace_changes
+            .iter()
+            .filter(|c| c.by.is_some())
+            .map(|c| c.path.clone());
         self.agents.push(AgentFiles {
             step: step.to_string(),
-            changed: round.changed_files.clone(),
+            changed: round.changed_files.iter().cloned().chain(own_bash).collect(),
             workspace: round.workspace_changes.clone(),
             ran,
         });
@@ -101,7 +106,7 @@ mod tests {
     use crate::tools::subagent::runner::RoundEnd;
     use std::time::Duration;
 
-    fn round(changed: &[&str], workspace: &[&str]) -> Round {
+    fn round(changed: &[&str], workspace: &[(&str, Option<&str>)]) -> Round {
         Round {
             end: RoundEnd::Answered("ok".into()),
             transcript: Vec::new(),
@@ -111,11 +116,14 @@ mod tests {
             changed_files: changed.iter().map(|f| (*f).to_string()).collect(),
             workspace_changes: workspace
                 .iter()
-                .map(|f| WorkspaceChange {
+                .map(|(f, by)| WorkspaceChange {
                     path: (*f).to_string(),
                     deleted: false,
+                    by: by.map(str::to_string),
                 })
                 .collect(),
+            workspace_complete: true,
+            workspace_after: None,
             tool_log: Vec::new(),
             touched_files: BTreeSet::new(),
         }
@@ -128,17 +136,17 @@ mod tests {
         let mut log = AgentFileLog::default();
         log.add(
             "scan #1",
-            &round(&["a.rs", "shared.rs"], &["a.rs", "fmt.rs"]),
+            &round(&["a.rs", "shared.rs"], &[("a.rs", None), ("notes.md", None)]),
             at(0, 10),
         );
-        log.add("scan #2", &round(&["shared.rs"], &[]), at(5, 15));
+        log.add("scan #2", &round(&[], &[("shared.rs", Some("sed -i"))]), at(5, 15));
         log.add("later", &round(&["a.rs"], &[]), at(20, 30));
         log.add("idle", &round(&[], &[]), at(0, 30));
 
         assert_eq!(
             log.section(),
             "\nFiles changed by agents:\n  a.rs \u{2014} scan #1, later\n  shared.rs \u{2014} scan #1, scan #2\n\
-             Also changed in the workspace while agents ran (bash, formatters, or other processes): fmt.rs\n\
+             Also changed in the workspace while agents ran (bash, formatters, or other processes): notes.md\n\
              \nWarning: shared.rs was changed by agents that ran at the same time (scan #1, scan #2); check that one did not overwrite the other.\n"
         );
         assert_eq!(AgentFileLog::default().section(), "");

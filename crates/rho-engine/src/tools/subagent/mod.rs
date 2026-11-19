@@ -3,6 +3,7 @@ pub(crate) mod evidence;
 mod inspect;
 mod recovery;
 pub mod runner;
+mod snapshot;
 #[cfg(test)]
 mod tests;
 pub mod types;
@@ -254,14 +255,14 @@ impl SubagentTool {
             return ToolResult::success(inspect::render_list(&session.subagent_contexts().await));
         };
         let root = workspace::root_of(&self.ctx);
-        session
-            .subagent_context(task_id)
-            .await
-            .and_then(|context| inspect::render_task(&context, task_id, &root))
-            .map_or_else(
-                || ToolResult::error(format!("unknown subagent task '{task_id}'")),
-                ToolResult::success,
-            )
+        let rendered = match session.subagent_context(task_id).await {
+            Some(context) => inspect::render_task(&context, task_id, &root).await,
+            None => None,
+        };
+        rendered.map_or_else(
+            || ToolResult::error(format!("unknown subagent task '{task_id}'")),
+            ToolResult::success,
+        )
     }
 
     async fn start_task(&self, args: &RawSubagentArgs) -> Result<ToolResult, String> {

@@ -38,7 +38,7 @@ pub struct ToolOutcome {
     pub detail: Option<String>,
 }
 
-fn clip(text: &str, max: usize) -> String {
+pub(crate) fn clip(text: &str, max: usize) -> String {
     let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
     if line.chars().count() <= max {
         return line.to_string();
@@ -127,22 +127,36 @@ pub fn outcome_line(log: &[ToolOutcome]) -> Option<String> {
 
 /// The evidence lines appended to a subagent answer: files it changed, other workspace changes, and tool outcomes.
 #[must_use]
-pub fn evidence(changed: &BTreeSet<String>, workspace: &BTreeSet<WorkspaceChange>, log: &[ToolOutcome]) -> String {
+pub fn evidence(
+    changed: &BTreeSet<String>,
+    workspace: &BTreeSet<WorkspaceChange>,
+    workspace_complete: bool,
+    log: &[ToolOutcome],
+) -> String {
     let mut lines = Vec::new();
     if !changed.is_empty() {
         let files: Vec<&str> = changed.iter().map(String::as_str).collect();
         lines.push(format!("Files changed: {}", files.join(", ")));
     }
-    let others: Vec<String> = workspace
+    let (by_bash, others): (Vec<&WorkspaceChange>, Vec<&WorkspaceChange>) = workspace
         .iter()
         .filter(|c| !changed.contains(&c.path))
-        .map(WorkspaceChange::label)
-        .collect();
+        .partition(|c| c.by.is_some());
+    let labels = |changes: &[&WorkspaceChange]| changes.iter().map(|c| c.label()).collect::<Vec<_>>().join(", ");
+    if !by_bash.is_empty() {
+        lines.push(format!("Changed while its bash commands ran: {}", labels(&by_bash)));
+    }
     if !others.is_empty() {
         lines.push(format!(
-            "Also changed in the workspace during this run (bash, formatters, or other agents): {}",
-            others.join(", ")
+            "Also changed in the workspace during this run, not by its tools (editors, other agents, or processes): {}",
+            labels(&others)
         ));
+    }
+    if !workspace_complete {
+        lines.push(
+            "Workspace check incomplete: not a git work tree and too many files to compare, so changes made outside write/edit may be missing."
+                .to_string(),
+        );
     }
     lines.extend(outcome_line(log));
     lines.join("\n")
@@ -223,24 +237,23 @@ mod tests {
     #[test]
     fn evidence_separates_agent_edits_from_other_workspace_changes() {
         let changed = BTreeSet::from(["a.rs".to_string()]);
+        let change = |path: &str, deleted, by: Option<&str>| WorkspaceChange {
+            path: path.into(),
+            deleted,
+            by: by.map(str::to_string),
+        };
         let workspace = BTreeSet::from([
-            WorkspaceChange {
-                path: "a.rs".into(),
-                deleted: false,
-            },
-            WorkspaceChange {
-                path: "fmt.rs".into(),
-                deleted: false,
-            },
-            WorkspaceChange {
-                path: "old.rs".into(),
-                deleted: true,
-            },
+            change("a.rs", false, None),
+            change("fmt.rs", false, Some("cargo fmt")),
+            change("notes.md", false, None),
+            change("old.rs", true, None),
         ]);
         assert_eq!(
-            evidence(&changed, &workspace, &[]),
-            "Files changed: a.rs\nAlso changed in the workspace during this run (bash, formatters, or other agents): fmt.rs, old.rs (deleted)"
+            evidence(&changed, &workspace, true, &[]),
+            "Files changed: a.rs\nChanged while its bash commands ran: fmt.rs (bash: cargo fmt)\n\
+             Also changed in the workspace during this run, not by its tools (editors, other agents, or processes): notes.md, old.rs (deleted)"
         );
-        assert_eq!(evidence(&BTreeSet::new(), &BTreeSet::new(), &[]), "");
+        assert_eq!(evidence(&BTreeSet::new(), &BTreeSet::new(), true, &[]), "");
+        assert!(evidence(&BTreeSet::new(), &BTreeSet::new(), false, &[]).starts_with("Workspace check incomplete"));
     }
 }

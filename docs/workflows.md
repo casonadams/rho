@@ -173,9 +173,11 @@ Agent tasks (continue one with the subagent tool's `task_id` to review, fix, or 
   refine › round 1 › review — task `review-3f9a1c2e` · input-required
 ```
 
-The report also lists the files each agent changed, other files that changed
-in the workspace while agents ran, and a warning when agents that ran at the
-same time (for example in `<parallel>` or `<each>`) changed the same file. A
+The report also lists the files each agent changed (through `write`, `edit`,
+or changes that appeared while its `bash` commands ran), other files that
+changed in the workspace while agents ran, and a warning when agents that ran
+at the same time (for example in `<parallel>` or `<each>`) changed the same
+file. A
 step whose agent had failed or denied tool calls says so in its detail
 (`2 failed tool calls`).
 

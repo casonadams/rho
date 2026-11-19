@@ -1,6 +1,7 @@
 use super::evidence::{OutcomeStatus, ToolOutcome, evidence, problem_count};
 use super::recovery::{attempt_recovery_synthesis, partial_result};
-use super::workspace::{DirtySnapshot, WorkspaceChange, normalize};
+use super::snapshot::{Changes, Snapshot};
+use super::workspace::{WorkspaceChange, bash_file_arguments, normalize};
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::StructuralUsage;
 use crate::engine::runner::history::without_unanswered_tool_calls;
@@ -12,7 +13,7 @@ use crate::tools::types::ToolResult;
 use rho_harness_core::agents::{AgentEvent, AgentHandle, AgentStatus};
 use rho_harness_core::model::{AssistantContent, ChatMessage, TextContent, ToolCall, UserContent};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
@@ -53,6 +54,10 @@ pub struct Round {
     pub changed_files: BTreeSet<String>,
     /// Every uncommitted-file change in the git work tree during the round, whoever made it.
     pub workspace_changes: BTreeSet<WorkspaceChange>,
+    /// False when the workspace comparison could not cover every file (a non-git walk hit its limit).
+    pub workspace_complete: bool,
+    /// The workspace at the end of the round, kept so a continuation can report later changes.
+    pub(crate) workspace_after: Option<Snapshot>,
     pub tool_log: Vec<ToolOutcome>,
     /// Files the subagent read, wrote, or edited, relative to the workspace root.
     pub touched_files: BTreeSet<String>,
@@ -194,6 +199,8 @@ struct RunState {
     changed_files: BTreeSet<String>,
     touched_files: BTreeSet<String>,
     tool_log: Vec<ToolOutcome>,
+    /// Path -> the bash command that was running when the path changed.
+    bash_changes: BTreeMap<String, String>,
     root: std::path::PathBuf,
     question: Option<String>,
 }
@@ -203,6 +210,8 @@ struct CallOutcome {
     stop: Option<String>,
     is_error: bool,
     output: String,
+    bash_changes: Vec<String>,
+    bash_reads: Vec<String>,
 }
 
 fn tool_result_text(message: &ChatMessage) -> String {
@@ -466,15 +475,21 @@ impl SubagentRunner {
         super::workspace::root_of(&self.ctx)
     }
 
-    async fn snapshot(&self, root: &std::path::Path) -> Option<DirtySnapshot> {
+    /// Workspace snapshots run only in real sessions, which have a project directory.
+    async fn snapshot(&self, root: &std::path::Path, previous: Option<&Snapshot>) -> Option<Snapshot> {
         match self.ctx.project {
-            Some(_) => DirtySnapshot::take(root).await,
+            Some(_) => Snapshot::take(root, previous).await,
             None => None,
         }
     }
 
     pub(crate) fn with_evidence(body: &str, round: &Round) -> String {
-        let evidence = evidence(&round.changed_files, &round.workspace_changes, &round.tool_log);
+        let evidence = evidence(
+            &round.changed_files,
+            &round.workspace_changes,
+            round.workspace_complete,
+            &round.tool_log,
+        );
         if evidence.is_empty() {
             body.to_string()
         } else {
@@ -510,7 +525,7 @@ impl SubagentRunner {
             }
         };
         let root = self.workspace_root();
-        let before = self.snapshot(&root).await;
+        let before = self.snapshot(&root, None).await;
         let mut state = RunState {
             task_pending: !task.is_empty(),
             task,
@@ -522,6 +537,7 @@ impl SubagentRunner {
             changed_files: BTreeSet::new(),
             touched_files: BTreeSet::new(),
             tool_log: Vec::new(),
+            bash_changes: BTreeMap::new(),
             root,
             question: None,
         };
@@ -533,10 +549,22 @@ impl SubagentRunner {
         if let Some(tracker) = &state.tracker {
             tracker.finish(self.final_status(&end));
         }
-        let workspace_changes = match (before, self.snapshot(&state.root).await) {
-            (Some(before), Some(after)) => after.changes_since(&before, &state.root),
-            _ => BTreeSet::new(),
+        let after = self.snapshot(&state.root, before.as_ref()).await;
+        let changes = match (&before, &after) {
+            (Some(before), Some(after)) => after.changes_since(before, &state.root),
+            _ => Changes {
+                files: BTreeSet::new(),
+                complete: true,
+            },
         };
+        let workspace_changes = changes
+            .files
+            .into_iter()
+            .map(|mut change| {
+                change.by = state.bash_changes.get(&change.path).cloned();
+                change
+            })
+            .collect();
         Round {
             end,
             transcript: state.messages,
@@ -545,6 +573,8 @@ impl SubagentRunner {
             tokens: state.usage.input_tokens + state.usage.output_tokens,
             changed_files: state.changed_files,
             workspace_changes,
+            workspace_complete: changes.complete,
+            workspace_after: after,
             tool_log: state.tool_log,
             touched_files: state.touched_files,
         }
@@ -806,6 +836,13 @@ impl SubagentRunner {
             logged.target.clone_from(path);
         }
         state.tool_log.push(logged);
+        let command = args["command"].as_str().map(|c| super::evidence::clip(c, 60));
+        for path in &outcome.bash_changes {
+            state
+                .bash_changes
+                .insert(path.clone(), command.clone().unwrap_or_default());
+        }
+        state.touched_files.extend(outcome.bash_reads.iter().cloned());
         let Some(path) = path else {
             return;
         };
@@ -819,10 +856,35 @@ impl SubagentRunner {
 
     async fn run_call(&self, call: &ToolCall, args: &Value, tracker: Option<&AgentHandle>) -> CallOutcome {
         let name = call.function.name.as_str();
+        let bash_command = (name == "bash").then(|| args["command"].as_str().unwrap_or_default());
+        let root = self.workspace_root();
+        let before = match bash_command {
+            Some(_) => self.snapshot(&root, None).await,
+            None => None,
+        };
         let (mut output, is_error) = self
             .cancellable(self.run_tool(name, args))
             .await
             .unwrap_or_else(|| ("Cancelled by operator".to_string(), true));
+        let bash_changes = match &before {
+            Some(before) => self
+                .snapshot(&root, Some(before))
+                .await
+                .map(|after| {
+                    after
+                        .changes_since(before, &root)
+                        .files
+                        .into_iter()
+                        .map(|c| c.path)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let bash_reads = match bash_command {
+            Some(command) => bash_file_arguments(&root, command).await,
+            None => Vec::new(),
+        };
         let stop = apply_tool_outcome_hooks(self.ctx.lifecycle.as_ref(), name, args, &mut output, is_error).await;
         let output = truncate_output(output);
         if let Some(tracker) = tracker {
@@ -837,6 +899,8 @@ impl SubagentRunner {
             stop,
             is_error,
             output,
+            bash_changes,
+            bash_reads,
         }
     }
 

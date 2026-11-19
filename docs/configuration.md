@@ -165,16 +165,24 @@ check, and a footer with turn, tool-call, and token counts:
 
 ```text
 Files changed: src/a.rs
-Also changed in the workspace during this run (bash, formatters, or other agents): src/fmt.rs, old.rs (deleted)
+Changed while its bash commands ran: src/fmt.rs (bash: cargo fmt), old.rs (deleted; bash: rm old.rs)
+Also changed in the workspace during this run, not by its tools (editors, other agents, or processes): notes.md
 Tool outcomes: 12 ok, 1 error (edit src/b.rs: oldText not found), 1 denied (bash rm -rf build)
 ```
 
 `Files changed` comes from the subagent's successful `write` and `edit` calls,
-with paths relative to the project. In a git work tree, rho also compares the
-uncommitted files before and after the round, so edits made through `bash`,
-formatters, and deletions are listed too; that comparison cannot tell who made
-a change, so concurrent work shows up there as well. `Tool outcomes` counts
-every call and lists the ones that failed or were denied; the footer then reads
+with paths relative to the project. rho also snapshots the workspace before and
+after each round and around each `bash` call, comparing file contents: changes
+that appear while one of the subagent's `bash` commands runs are credited to
+that command, and anything else that changed during the round is listed as
+not made by its tools. In a git work tree the snapshot covers uncommitted files
+(committing a file without changing it is not a change). Elsewhere rho walks
+the project, respecting ignore files, for up to 150 ms and 20,000 files; when
+that limit is hit the result says `Workspace check incomplete`. Snapshots cost
+one `git status` per `bash` call. Two agents running `bash` at the same moment
+(possible only in workflow `<parallel>` or `<each>` blocks) can both be
+credited with each other's changes. `Tool outcomes` counts every call and
+lists the ones that failed or were denied; the footer then reads
 `1 failed tool call, ...`, a sign that the answer may describe work that did not
 happen.
 
@@ -193,10 +201,14 @@ happen.
   changed, and the files it has read, without running the subagent.
   `{"inspect": true}` lists the latest task of every saved subagent
   conversation, so task ids can be recovered after compaction.
-- **Stale reads**: rho records a fingerprint of every file a subagent reads or
-  edits. When the task is continued, any of those files that changed since are
-  named at the top of the new message so the subagent re-reads them, and the
-  result says so (`Told the subagent these files changed ...`).
+- **Stale reads**: rho records a content fingerprint of every file a subagent
+  reads or edits, including files named as arguments to its `bash` commands
+  (`cat src/a.rs`). When the task is continued, any of those files that changed
+  since are named at the top of the new message so the subagent re-reads them.
+  In a git work tree, rho also lists other workspace files that changed since
+  the subagent's last round (up to 20), which covers what it saw through
+  `rg` or other directory-wide commands. The result says what the subagent was
+  told.
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
   without a decision. Its task becomes `input-required` and its result is
   `Question for you: ...`; the main agent answers with the same `task_id`, and

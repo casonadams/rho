@@ -73,7 +73,7 @@ fn push_messages(out: &mut String, task: &Task) {
     }
 }
 
-fn push_evidence(out: &mut String, task: &Task, root: &Path) {
+async fn push_evidence(out: &mut String, task: &Task, root: &Path) {
     let log: Vec<ToolOutcome> = data(task, TOOL_CALLS_ARTIFACT);
     match outcome_line(&log) {
         Some(line) => {
@@ -97,7 +97,7 @@ fn push_evidence(out: &mut String, task: &Task, root: &Path) {
     if !versions.is_empty() {
         let names: Vec<&str> = versions.keys().map(String::as_str).collect();
         let _ = writeln!(out, "Files read or edited so far: {}", names.join(", "));
-        let stale = stale_paths(root, &versions);
+        let stale = stale_paths(root, &versions).await;
         if !stale.is_empty() {
             let _ = writeln!(out, "Changed since the agent last saw them: {}", stale.join(", "));
         }
@@ -106,7 +106,7 @@ fn push_evidence(out: &mut String, task: &Task, root: &Path) {
 
 /// Everything recorded about one task, without running the subagent.
 #[must_use]
-pub(crate) fn render_task(context: &SubagentContext, task_id: &str, root: &Path) -> Option<String> {
+pub(crate) async fn render_task(context: &SubagentContext, task_id: &str, root: &Path) -> Option<String> {
     let task = context.tasks.iter().find(|t| t.id == task_id)?;
     let position = context.tasks.iter().position(|t| t.id == task_id).unwrap_or_default();
     let mut out = format!(
@@ -130,7 +130,7 @@ pub(crate) fn render_task(context: &SubagentContext, task_id: &str, root: &Path)
     if let Some(result) = artifact_text(task, RESULT_ARTIFACT) {
         let _ = writeln!(out, "\nFinal answer:\n{}", clip(result, MAX_RESULT_CHARS));
     }
-    push_evidence(&mut out, task, root);
+    push_evidence(&mut out, task, root).await;
     Some(out)
 }
 

@@ -1,5 +1,6 @@
 use super::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
-use super::workspace::{Fingerprint, stale_paths, versions};
+use super::snapshot::Snapshot;
+use super::workspace::{Fingerprint, WorkspaceChange, stale_paths, versions};
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::tools::types::ToolResult;
 use rho_harness_core::a2a::{Artifact, Message, Part, Role, Task, TaskState};
@@ -16,6 +17,9 @@ pub(crate) const WORKSPACE_CHANGES_ARTIFACT: &str = "workspace-changes";
 pub(crate) const TOOL_CALLS_ARTIFACT: &str = "tool-calls";
 /// Content fingerprints of the files the subagent has read or edited, checked when it is continued.
 pub(crate) const FILE_VERSIONS_ARTIFACT: &str = "file-versions";
+/// The git workspace state at the end of the task's last round, compared when it is continued.
+const WORKSPACE_STATE_ARTIFACT: &str = "workspace-state";
+const MAX_NOTED_OTHERS: usize = 20;
 
 pub(crate) fn artifact_data<'a>(task: &'a Task, name: &str) -> Option<&'a Value> {
     task.artifacts
@@ -35,6 +39,24 @@ fn file_versions(task: &Task) -> BTreeMap<String, Fingerprint> {
     artifact_data(task, FILE_VERSIONS_ARTIFACT)
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default()
+}
+
+fn others_note(others: &[WorkspaceChange]) -> String {
+    if others.is_empty() {
+        return String::new();
+    }
+    let mut listed: Vec<String> = others
+        .iter()
+        .take(MAX_NOTED_OTHERS)
+        .map(WorkspaceChange::label)
+        .collect();
+    if others.len() > MAX_NOTED_OTHERS {
+        listed.push(format!("and {} more", others.len() - MAX_NOTED_OTHERS));
+    }
+    format!(
+        "[Other files changed in the workspace since your last turn: {}.]\n\n",
+        listed.join(", ")
+    )
 }
 
 fn stale_note(stale: &[String]) -> String {
@@ -114,6 +136,7 @@ pub(crate) struct Exchange {
     saved_len: usize,
     continues_question: bool,
     versions: BTreeMap<String, Fingerprint>,
+    workspace: Option<Snapshot>,
 }
 
 impl Exchange {
@@ -124,6 +147,7 @@ impl Exchange {
             saved_len: 0,
             continues_question: false,
             versions: BTreeMap::new(),
+            workspace: None,
         }
     }
 
@@ -143,6 +167,8 @@ impl Exchange {
         };
         Ok(Self {
             versions: file_versions(latest),
+            workspace: artifact_data(latest, WORKSPACE_STATE_ARTIFACT)
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
             task,
             saved_len: context.transcript.len(),
             transcript: context.transcript,
@@ -186,12 +212,14 @@ impl Exchange {
     ) -> Outcome {
         self.send(input, reference.filter(|_| !self.continues_question));
         let root = runner.workspace_root();
-        let stale = stale_paths(&root, &self.versions);
-        let noted = if stale.is_empty() {
-            input.to_string()
+        let stale = stale_paths(&root, &self.versions).await;
+        let others = self.other_changes(&root, &stale).await;
+        let stale_text = if stale.is_empty() {
+            String::new()
         } else {
-            format!("{}{input}", stale_note(&stale))
+            stale_note(&stale)
         };
+        let noted = format!("{stale_text}{}{input}", others_note(&others));
         let round_input = if self.continues_question {
             RoundInput::Reply(&noted)
         } else {
@@ -199,7 +227,9 @@ impl Exchange {
         };
         let transcript = std::mem::take(&mut self.transcript);
         let round = runner.run_round(transcript, round_input).await;
-        self.finish(&round, &root);
+        let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
+        let file_versions = versions(&root, tracked).await;
+        self.finish(&round, &file_versions);
         let saved = session
             .record_subagent_task(&self.task, self.new_messages(&round))
             .await;
@@ -208,10 +238,25 @@ impl Exchange {
             task: self.task,
             save_error: saved.err().map(|e| e.to_string()),
             stale,
+            others,
         }
     }
 
-    fn finish(&mut self, round: &Round, root: &std::path::Path) {
+    /// Workspace files changed since the task's last round that are not among the files it read.
+    async fn other_changes(&self, root: &std::path::Path, stale: &[String]) -> Vec<WorkspaceChange> {
+        let Some(workspace) = &self.workspace else {
+            return Vec::new();
+        };
+        workspace
+            .changed_after(root)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|change| !stale.contains(&change.path))
+            .collect()
+    }
+
+    fn finish(&mut self, round: &Round, file_versions: &BTreeMap<String, Fingerprint>) {
         let (state, text) = match &round.end {
             RoundEnd::Answered(text) => (TaskState::Completed, Some(text.trim().to_string())),
             RoundEnd::Asked(question) => (TaskState::InputRequired, Some(question.clone())),
@@ -246,10 +291,11 @@ impl Exchange {
                 self.add_artifact(name, Part::data(value));
             }
         }
-        let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
-        if !tracked.is_empty() {
-            let versions = serde_json::json!(versions(root, &tracked));
-            self.add_artifact(FILE_VERSIONS_ARTIFACT, Part::data(versions));
+        if !file_versions.is_empty() {
+            self.add_artifact(FILE_VERSIONS_ARTIFACT, Part::data(serde_json::json!(file_versions)));
+        }
+        if let Some(state) = round.workspace_after.as_ref().filter(|s| s.is_git()) {
+            self.add_artifact(WORKSPACE_STATE_ARTIFACT, Part::data(serde_json::json!(state)));
         }
         self.task.set_status(state, message);
     }
@@ -279,6 +325,8 @@ pub(crate) struct Outcome {
     pub save_error: Option<String>,
     /// Files the subagent was told had changed since it last saw them.
     pub stale: Vec<String>,
+    /// Other workspace files the subagent was told had changed since its last round.
+    pub others: Vec<WorkspaceChange>,
 }
 
 impl Outcome {
@@ -302,6 +350,12 @@ impl Outcome {
             text.push_str(&format!(
                 "\nTold the subagent these files changed since it last saw them: {}",
                 self.stale.join(", ")
+            ));
+        }
+        if !self.others.is_empty() {
+            text.push_str(&format!(
+                "\nTold the subagent {} other workspace file(s) changed since its last round.",
+                self.others.len()
             ));
         }
         match &self.save_error {
@@ -643,6 +697,113 @@ mod tests {
         );
         let told = format!("Told the subagent these files changed since it last saw them: {shown}\n");
         assert!(second.contains(&told), "{second}");
+    }
+
+    #[tokio::test]
+    async fn bash_changes_are_attributed_and_later_changes_reach_a_continued_subagent() {
+        let repo = tempfile::tempdir().unwrap();
+        let root = repo.path().canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.email=t@e", "-c", "user.name=t"])
+                .args(args)
+                .current_dir(&root)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}");
+        };
+        git(&["init", "--quiet", "-b", "main"]);
+        std::fs::write(root.join("other.rs"), "v1").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "--quiet", "-m", "init"]);
+        let sessions = tempfile::tempdir().unwrap();
+        let session = SessionManager::new(sessions.path(), None).unwrap();
+        let bash_root = root.clone();
+        let bash = GenericTool::new("bash", "runs", json!({}), move |_| {
+            let target = bash_root.join("gen.rs");
+            async move {
+                std::fs::write(target, "generated").unwrap();
+                Ok(ToolResult::success("done"))
+            }
+        });
+        let outside_root = root.clone();
+        let outside = GenericTool::new(
+            "web_fetch",
+            "stands in for a change made by another process",
+            json!({}),
+            move |_| {
+                let target = outside_root.join("notes.md");
+                async move {
+                    std::fs::write(target, "edited elsewhere").unwrap();
+                    Ok(ToolResult::success("ok"))
+                }
+            },
+        );
+        let adapter = MockAdapter::from_turns([
+            vec![
+                ModelStreamEvent::ToolCall(ToolCall::new(
+                    "b",
+                    ToolFunction::new("bash", json!({ "command": "make gen" })),
+                )),
+                ModelStreamEvent::ToolCall(ToolCall::new(
+                    "w",
+                    ToolFunction::new("web_fetch", json!({ "url": "x" })),
+                )),
+            ],
+            text("generated"),
+        ]);
+        let ctx = TurnToolContext {
+            session: Some(session),
+            project: Some(Arc::new(crate::engine::context::ProjectContext::for_tests(&root))),
+            ..Default::default()
+        };
+        let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![Arc::new(bash), Arc::new(outside)])
+            .bind_turn(&ctx)
+            .unwrap();
+
+        let first = ask(&tool, json!({ "role": "general", "prompt": "generate" })).await;
+
+        assert!(
+            first.contains("Changed while its bash commands ran: gen.rs (bash: make gen)\n"),
+            "{first}"
+        );
+        assert!(
+            first.contains("not by its tools (editors, other agents, or processes): notes.md\n"),
+            "{first}"
+        );
+
+        std::fs::write(root.join("other.rs"), "v2").unwrap();
+        adapter.add_turn(vec![Ok(ModelStreamEvent::Text("rechecked".into()))]);
+        let second = ask(&tool, json!({ "task_id": task_id(&first), "prompt": "again" })).await;
+
+        let prompt = adapter.requests().pop().unwrap().prompt;
+        assert_eq!(
+            prompt,
+            "[Other files changed in the workspace since your last turn: other.rs.]\n\nagain"
+        );
+        assert!(
+            second.contains("Told the subagent 1 other workspace file(s) changed since its last round."),
+            "{second}"
+        );
+    }
+
+    #[test]
+    fn only_subagents_limited_to_read_only_tools_run_in_parallel() {
+        let adapter = MockAdapter::from_turns([]);
+        let write: Arc<dyn EngineTool> = Arc::new(GenericTool::new("write", "writes", json!({}), |_| async {
+            Ok(ToolResult::success("written"))
+        }));
+        let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![read_tool(), write]);
+        let cases = [
+            (json!({ "role": "scout", "prompt": "x" }), true),
+            (json!({ "role": "general", "prompt": "x" }), false),
+            (json!({ "task_id": "t-1", "prompt": "x" }), false),
+            (json!({ "inspect": true }), true),
+        ];
+        for (args, parallel) in cases {
+            assert_eq!(tool.concurrency_safe(&args), parallel, "{args}");
+        }
     }
 
     #[test]

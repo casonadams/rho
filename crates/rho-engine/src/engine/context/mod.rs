@@ -47,6 +47,25 @@ async fn resolve_full_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> Strin
 }
 
 impl ProjectContext {
+    #[cfg(test)]
+    pub(crate) fn for_tests(dir: &std::path::Path) -> Self {
+        Self {
+            current_dir: dir.to_path_buf(),
+            base_system_prompt: String::new(),
+            instruction_files: Vec::new(),
+            skills: Vec::new(),
+            agents: Vec::new(),
+            active_tools: Vec::new(),
+            git_status: None,
+            os_info: String::new(),
+            date_str: String::new(),
+            seen_instruction_files: HashSet::new(),
+            no_context_files: true,
+            dynamic_instructions_count: 0,
+            dynamic_instructions_bytes: 0,
+            last_git_check: None,
+        }
+    }
     pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>) -> Self {
         let home = config_dir.and_then(|_| rho_harness_core::config::home_dir());
         Self::discover_with_dirs(
