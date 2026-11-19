@@ -167,6 +167,30 @@ async fn test_edit_rejects_directory() {
     assert!(res.content.contains("target path is a directory"));
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn test_edit_inaccessible_file_is_not_reported_as_missing() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = fixture("denied");
+    let locked = dir.path().join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    let file = locked.join("file.txt");
+    std::fs::write(&file, "a").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let denied = std::fs::metadata(&file).is_err();
+
+    let res = edit_file(dir.path(), &file, "a", "b").await;
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    if !denied {
+        return;
+    }
+    assert!(res.is_error);
+    assert!(res.content.starts_with("Failed to access"), "{}", res.content);
+    assert!(!res.content.contains("not found"), "{}", res.content);
+    assert!(!res.content.contains("Did you mean"), "{}", res.content);
+}
+
 #[tokio::test]
 async fn test_edit_external_file_successfully() {
     let workspace = fixture("ws");

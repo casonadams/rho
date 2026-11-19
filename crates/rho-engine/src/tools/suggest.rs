@@ -1,12 +1,14 @@
 //! "Did you mean" suggestions for paths that do not exist, ranked by name similarity.
 
 use super::traversal::walker_builder;
-use std::path::{Component, Path};
+use rho_harness_core::workspace::{canonicalize_path, clean_path_arg, expand_home};
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const MAX_ENTRIES: usize = 20_000;
 const WALK_BUDGET: Duration = Duration::from_millis(250);
 const MAX_SUGGESTIONS: usize = 3;
+const MAX_WANTED_CHARS: usize = 255;
 const MODULE_STEMS: [&str; 3] = ["mod", "index", "__init__"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,9 +44,10 @@ fn workspace_entries(root: &Path, kind: PathKind) -> Vec<Entry> {
 }
 
 fn stem(name: &str) -> &str {
-    name.rsplit_once('.')
-        .map_or(name, |(stem, _)| stem)
-        .trim_start_matches('.')
+    match name.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => name,
+    }
 }
 
 /// The name a path is known by: its stem, or its directory name for module files like `foo/mod.rs`.
@@ -91,21 +94,36 @@ fn shared_leading_dirs(missing_dirs: &[&str], candidate: &str) -> usize {
         .count()
 }
 
+/// `path` relative to `root`, also trying the canonical forms of both (e.g. macOS `/var` vs `/private/var`).
+fn strip_root(path: &Path, root: &Path) -> Option<PathBuf> {
+    let roots = [Some(root.to_path_buf()), root.canonicalize().ok()];
+    let paths = [canonicalize_path(path), path.to_path_buf()];
+    paths
+        .iter()
+        .find_map(|p| roots.iter().flatten().find_map(|r| p.strip_prefix(r).ok()))
+        .map(Path::to_path_buf)
+}
+
 /// Workspace-relative form of `raw`, or `None` when it points outside the workspace.
 fn relative_target(root: &Path, raw: &str) -> Option<String> {
-    let path = Path::new(raw.trim());
+    let expanded = expand_home(clean_path_arg(raw));
+    let path = Path::new(&expanded);
     let relative = if path.is_absolute() {
-        path.strip_prefix(root).ok()?
+        strip_root(path, root)?
     } else {
-        path
+        path.to_path_buf()
     };
-    let parts: Vec<String> = relative
-        .components()
-        .filter_map(|c| match c {
-            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
-            _ => None,
-        })
-        .collect();
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
     (!parts.is_empty()).then(|| parts.join("/"))
 }
 
@@ -116,13 +134,21 @@ pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
     let (target_dirs, target_last) = target.rsplit_once('/').unwrap_or(("", &target));
     let target_dirs: Vec<&str> = target_dirs.split('/').filter(|d| !d.is_empty()).collect();
     let wanted = display_name(&target, false);
+    let wanted_len = wanted.chars().count();
+    if wanted_len > MAX_WANTED_CHARS {
+        return Vec::new();
+    }
     let wanted_last = target_last.to_lowercase();
-    let tolerance = (wanted.chars().count() / 4).max(1);
+    let tolerance = (wanted_len / 4).max(1);
 
     let mut ranked: Vec<(usize, usize, bool, usize, String)> = workspace_entries(root, kind)
         .into_iter()
         .filter_map(|entry| {
-            let distance = edit_distance(&wanted, &display_name(&entry.path, entry.is_dir));
+            let name = display_name(&entry.path, entry.is_dir);
+            if name.chars().count().abs_diff(wanted_len) > tolerance {
+                return None;
+            }
+            let distance = edit_distance(&wanted, &name);
             (distance <= tolerance).then(|| {
                 let shared = shared_leading_dirs(&target_dirs, &entry.path);
                 let exact_name = entry
@@ -143,8 +169,16 @@ pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
 }
 
 /// A trailing "Did you mean" line for a not-found error, or an empty string when nothing is close.
-pub fn missing_path_hint(root: &Path, raw: &str, kind: PathKind) -> String {
-    let suggestions = suggest_paths(root, raw, kind);
+pub async fn missing_path_hint(root: &Path, raw: &str, kind: PathKind) -> String {
+    let (root, raw) = (root.to_path_buf(), raw.to_string());
+    match tokio::task::spawn_blocking(move || format_hint(&suggest_paths(&root, &raw, kind))).await {
+        Ok(hint) => hint,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => String::new(),
+    }
+}
+
+fn format_hint(suggestions: &[String]) -> String {
     if suggestions.is_empty() {
         return String::new();
     }
@@ -203,20 +237,67 @@ mod tests {
         }
     }
 
-    #[test]
-    fn unrelated_or_outside_paths_get_no_suggestions() {
+    #[tokio::test]
+    async fn unrelated_or_outside_paths_get_no_suggestions() {
         let dir = workspace(&["src/main.rs"]);
         assert!(suggest_paths(dir.path(), "totally/unrelated_thing.py", PathKind::Any).is_empty());
         assert!(suggest_paths(dir.path(), "/etc/hosts", PathKind::Any).is_empty());
-        assert_eq!(missing_path_hint(dir.path(), "nothing_close.rs", PathKind::File), "");
+        assert_eq!(
+            missing_path_hint(dir.path(), "nothing_close.rs", PathKind::File).await,
+            ""
+        );
     }
 
     #[test]
-    fn absolute_paths_inside_the_workspace_are_matched_and_hints_are_formatted() {
+    fn paths_escaping_the_workspace_get_no_suggestions() {
+        let dir = workspace(&["src/main.rs", "main.rs"]);
+        let escaping = dir.path().join("../src/main.rs");
+        for raw in ["../src/main.rs", "src/../../main.rs", escaping.to_str().unwrap()] {
+            assert!(suggest_paths(dir.path(), raw, PathKind::Any).is_empty(), "{raw}");
+        }
+        assert_eq!(
+            suggest_paths(dir.path(), "lib/../src/man.rs", PathKind::File)[0],
+            "src/main.rs"
+        );
+    }
+
+    #[test]
+    fn dotfile_typos_do_not_match_every_short_name() {
+        let dir = workspace(&["a.rs", "src/b.rs"]);
+        assert_eq!(display_name(".envrc", false), ".envrc");
+        assert_eq!(display_name("dir/.config.toml", false), ".config");
+        assert!(suggest_paths(dir.path(), ".envrx", PathKind::Any).is_empty());
+    }
+
+    #[test]
+    fn overlong_names_get_no_suggestions() {
+        let dir = workspace(&["src/main.rs"]);
+        let raw = "m".repeat(100_000);
+        assert!(suggest_paths(dir.path(), &raw, PathKind::Any).is_empty());
+    }
+
+    #[test]
+    fn absolute_paths_match_through_symlinked_roots() {
+        let dir = workspace(&["src/lib.rs"]);
+        let canonical = dir.path().canonicalize().unwrap();
+        let raw = dir.path().join("src/lb.rs");
+        assert_eq!(
+            suggest_paths(&canonical, raw.to_str().unwrap(), PathKind::File),
+            ["src/lib.rs"]
+        );
+        let canonical_raw = canonical.join("src/lb.rs");
+        assert_eq!(
+            suggest_paths(dir.path(), canonical_raw.to_str().unwrap(), PathKind::File),
+            ["src/lib.rs"]
+        );
+    }
+
+    #[tokio::test]
+    async fn absolute_paths_inside_the_workspace_are_matched_and_hints_are_formatted() {
         let dir = workspace(&["src/lib.rs"]);
         let raw = dir.path().join("src/lb.rs");
         assert_eq!(
-            missing_path_hint(dir.path(), raw.to_str().unwrap(), PathKind::File),
+            missing_path_hint(dir.path(), raw.to_str().unwrap(), PathKind::File).await,
             "\nDid you mean: src/lib.rs?"
         );
     }

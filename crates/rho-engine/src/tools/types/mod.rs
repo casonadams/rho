@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 mod args;
 mod schema;
 
-pub use args::{normalize_tool_arguments, parse_tool_args};
+pub use args::{normalize_tool_arguments, parse_tool_args, try_parse_tool_args};
 pub use schema::{generated_schema, normalize_schema};
 
 /// An inline image attached to a successful tool result. The turn runner keeps it

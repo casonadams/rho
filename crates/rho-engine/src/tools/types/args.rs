@@ -2,6 +2,8 @@ use super::ToolResult;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+const MAX_ERROR_CHARS: usize = 300;
+
 fn decode_json_text(value: &Value) -> Option<Value> {
     let text = value.as_str()?.trim();
     if !(text.starts_with('{') || text.starts_with('[')) {
@@ -60,22 +62,34 @@ fn expected_shape(schema: &Value) -> String {
     )
 }
 
+fn truncate_chars(text: &str, max_chars: usize) -> &str {
+    text.char_indices().nth(max_chars).map_or(text, |(end, _)| &text[..end])
+}
+
+pub fn try_parse_tool_args<T: DeserializeOwned>(args: &Value) -> Result<T, serde_json::Error> {
+    let first_error = match T::deserialize(args) {
+        Ok(parsed) => return Ok(parsed),
+        Err(e) => e,
+    };
+    coerce_json_strings(args)
+        .and_then(|coerced| T::deserialize(&coerced).ok())
+        .ok_or(first_error)
+}
+
 pub fn parse_tool_args<T: DeserializeOwned>(
     tool: &str,
     args: Value,
     schema: impl FnOnce() -> Value,
 ) -> Result<T, ToolResult> {
-    let first_error = match serde_json::from_value::<T>(args.clone()) {
-        Ok(parsed) => return Ok(parsed),
-        Err(e) => e,
-    };
-    if let Some(parsed) = coerce_json_strings(&args).and_then(|coerced| serde_json::from_value::<T>(coerced).ok()) {
-        return Ok(parsed);
-    }
-    Err(ToolResult::error(format!(
-        "Invalid arguments for {tool}: {first_error}. Pass a JSON object matching the schema ({}); arrays and objects must not be JSON-encoded strings.",
-        expected_shape(&schema())
-    )))
+    try_parse_tool_args(&args).map_err(|error| {
+        let error = error.to_string();
+        let shown = truncate_chars(&error, MAX_ERROR_CHARS);
+        let ellipsis = if shown.len() < error.len() { "..." } else { "" };
+        ToolResult::error(format!(
+            "Invalid arguments for {tool}: {shown}{ellipsis}. Pass a JSON object matching the schema ({}); arrays and objects must not be JSON-encoded strings.",
+            expected_shape(&schema())
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -143,5 +157,28 @@ mod tests {
             "{}",
             err.content
         );
+    }
+
+    #[test]
+    fn long_serde_errors_are_truncated_on_a_char_boundary() {
+        let long_value = "é".repeat(2_000);
+        let args = json!({ "path": "a", "edits": [], "limit": long_value });
+        let err = parse_tool_args::<Args>("edit", args, schema).unwrap_err();
+        let detail = err
+            .content
+            .strip_prefix("Invalid arguments for edit: ")
+            .and_then(|rest| rest.split_once(". Pass a JSON object"))
+            .and_then(|(detail, _)| detail.strip_suffix("..."))
+            .unwrap_or_else(|| panic!("{}", err.content));
+        assert_eq!(detail.chars().count(), MAX_ERROR_CHARS);
+        assert!(err.content.contains("required: path, edits; optional: limit"));
+    }
+
+    #[test]
+    fn try_parse_decodes_json_encoded_fields_without_consuming_args() {
+        let args = json!({ "path": "a", "edits": "[1]" });
+        let parsed: Args = try_parse_tool_args(&args).unwrap();
+        assert_eq!(parsed.edits, [json!(1)]);
+        assert!(try_parse_tool_args::<Args>(&json!({ "path": 1 })).is_err());
     }
 }

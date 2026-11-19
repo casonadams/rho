@@ -271,7 +271,8 @@ impl EngineTool for SubagentTool {
     }
 
     fn concurrency_safe(&self, args: &serde_json::Value) -> bool {
-        let Ok(parsed) = serde_json::from_value::<RawSubagentArgs>(args.clone()) else {
+        let args = crate::tools::types::normalize_tool_arguments(args.clone());
+        let Ok(parsed) = crate::tools::types::try_parse_tool_args::<RawSubagentArgs>(&args) else {
             return false;
         };
         let Ok(target) = self.resolve_target(parsed.agent.as_deref().or(parsed.role.as_deref()), &[]) else {

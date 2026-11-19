@@ -26,7 +26,7 @@ pub struct RgTool {
     artifact_dir: Option<PathBuf>,
 }
 
-fn validate_rg_params(
+async fn validate_rg_params(
     args: &RgArgs,
     base_dir: &Path,
 ) -> std::result::Result<(RegexMatcher, Option<ignore::types::Types>, PathBuf), ToolResult> {
@@ -37,7 +37,9 @@ fn validate_rg_params(
     let matcher = compile_matcher(pattern).map_err(ToolResult::error)?;
     let types = build_type_matcher(args.file_type.as_deref()).map_err(ToolResult::error)?;
     let workspace = Workspace::new(base_dir);
-    let search_root = search_root(&workspace, args.path.as_deref()).map_err(ToolResult::error)?;
+    let search_root = search_root(&workspace, args.path.as_deref())
+        .await
+        .map_err(ToolResult::error)?;
     Ok((matcher, types, search_root))
 }
 
@@ -61,7 +63,7 @@ impl RgTool {
     }
 
     pub async fn execute(&self, args: RgArgs) -> Result<ToolResult, AppError> {
-        let (matcher, types, search_root) = match validate_rg_params(&args, &self.base_dir) {
+        let (matcher, types, search_root) = match validate_rg_params(&args, &self.base_dir).await {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };

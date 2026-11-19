@@ -68,7 +68,7 @@ fn build_fd_query(
     }
 }
 
-fn validate_fd_params(
+async fn validate_fd_params(
     base_dir: &Path,
     args: &FdArgs,
 ) -> std::result::Result<(Option<Regex>, Option<ignore::types::Types>, PathBuf), ToolResult> {
@@ -76,7 +76,9 @@ fn validate_fd_params(
     let regex = build_fd_regex(pattern)?;
     let types = build_type_matcher(args.file_type.as_deref()).map_err(ToolResult::error)?;
     let workspace = Workspace::new(base_dir);
-    let search_root = search_root(&workspace, args.path.as_deref()).map_err(ToolResult::error)?;
+    let search_root = search_root(&workspace, args.path.as_deref())
+        .await
+        .map_err(ToolResult::error)?;
     Ok((regex, types, search_root))
 }
 
@@ -114,7 +116,7 @@ impl FdTool {
     }
 
     pub async fn execute(&self, args: FdArgs) -> Result<ToolResult, AppError> {
-        let (regex, types, search_root) = match validate_fd_params(&self.base_dir, &args) {
+        let (regex, types, search_root) = match validate_fd_params(&self.base_dir, &args).await {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };

@@ -122,7 +122,7 @@ pub fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, Stri
 
 /// Resolves the optional `path` argument to an absolute search root,
 /// rejecting paths that do not exist.
-pub fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf, String> {
+pub async fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf, String> {
     let Some(raw) = path.map(str::trim).filter(|raw| !raw.is_empty()) else {
         return Ok(workspace.root().to_path_buf());
     };
@@ -130,7 +130,7 @@ pub fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf,
         Some(root) if root.exists() => Ok(root),
         _ => Err(format!(
             "path not found: {raw}{}",
-            super::suggest::missing_path_hint(workspace.root(), raw, super::suggest::PathKind::Any)
+            super::suggest::missing_path_hint(workspace.root(), raw, super::suggest::PathKind::Any).await
         )),
     }
 }
