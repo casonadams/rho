@@ -40,6 +40,13 @@ fn test_cli_parsing_update() {
 }
 
 #[test]
+fn test_cli_stats_last_must_be_positive() {
+    let cli = Cli::try_parse_from(["rho", "stats", "--last", "3"]).unwrap();
+    assert_eq!(cli.command, Some(Commands::Stats { last: Some(3) }));
+    assert!(Cli::try_parse_from(["rho", "stats", "--last", "0"]).is_err());
+}
+
+#[test]
 fn test_cli_parses_runtime_limits() {
     let cli = Cli::try_parse_from(["rho", "--max-output-tokens", "8192", "--max-turns", "12"]).unwrap();
     assert_eq!(cli.max_output_tokens, Some(8192));

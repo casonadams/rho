@@ -34,7 +34,7 @@ pub enum Commands {
     /// Show tool call and error rates and file edits made through bash, from recorded sessions
     Stats {
         /// Only include the N most recently updated sessions
-        #[arg(long)]
+        #[arg(long, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..))]
         last: Option<usize>,
     },
 }
