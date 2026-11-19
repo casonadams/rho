@@ -265,7 +265,7 @@ fn render_line_mode_prompt(session: &ReplSession, engine: &AgentEngine) {
 
 fn handle_line_control_signal(sig: &Signal, renderer: &TerminalRenderer) -> Option<bool> {
     match sig {
-        Signal::CtrlC => {
+        Signal::CtrlC(_) => {
             renderer.write_output("\nCanceled input.\n");
             Some(true)
         }

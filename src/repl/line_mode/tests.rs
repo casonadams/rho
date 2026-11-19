@@ -319,7 +319,10 @@ fn test_handle_line_control_signal() {
     use reedline::Signal;
     let renderer = TerminalRenderer::default();
 
-    assert_eq!(super::handle_line_control_signal(&Signal::CtrlC, &renderer), Some(true));
+    assert_eq!(
+        super::handle_line_control_signal(&Signal::CtrlC(String::new()), &renderer),
+        Some(true)
+    );
     assert_eq!(
         super::handle_line_control_signal(&Signal::CtrlD, &renderer),
         Some(false)
@@ -344,7 +347,7 @@ async fn test_handle_line_signal_control_paths() {
     );
 
     assert!(
-        super::handle_line_signal(Ok(Signal::CtrlC), &mut session, &mut engine, false)
+        super::handle_line_signal(Ok(Signal::CtrlC(String::new())), &mut session, &mut engine, false)
             .await
             .unwrap()
     );
@@ -421,7 +424,7 @@ async fn run_line_event_loop_stops_on_exit_or_input_error() {
     let scripts: [Vec<std::io::Result<Signal>>; 2] = [
         vec![
             Ok(Signal::Success("   ".to_string())),
-            Ok(Signal::CtrlC),
+            Ok(Signal::CtrlC(String::new())),
             Ok(Signal::Success("/help".to_string())),
             Ok(Signal::Success("/exit".to_string())),
         ],
