@@ -9,10 +9,10 @@ pub const DEFAULT_READ_LIMIT: usize = 2000;
 pub struct BashArgs {
     /// Command to execute
     pub command: String,
-    /// Timeout in seconds (default: 30)
+    /// Timeout in seconds (default: 30). On timeout the command keeps running as a background job unless background is false
     #[serde(default)]
     pub timeout: Option<u64>,
-    /// Run command directly in background without waiting for completion (default: false)
+    /// true: run in the background and return a job id immediately. false: kill the command on timeout. Omitted: wait, then move to the background on timeout
     #[serde(default)]
     pub background: Option<bool>,
 }
@@ -72,7 +72,7 @@ pub struct FdArgs {
     /// Filter entries by type using default definitions (e.g. 'rust', 'py'); unknown names are rejected
     #[serde(rename = "type")]
     pub file_type: Option<String>,
-    /// Include hidden entries and paths excluded by ignore rules (.gitignore, .ignore)
+    /// Include hidden dotfiles; paths excluded by ignore rules (.gitignore, .ignore) stay excluded
     pub hidden: Option<bool>,
     /// Maximum traversal depth, clamped to 1-10 when provided (default: unlimited)
     pub depth: Option<usize>,
@@ -107,7 +107,7 @@ pub struct RgArgs {
     /// Filter files by type using default definitions (e.g. 'rust', 'py'); unknown names are rejected
     #[serde(rename = "type")]
     pub file_type: Option<String>,
-    /// Include hidden entries and paths excluded by ignore rules (.gitignore, .ignore)
+    /// Include hidden dotfiles; paths excluded by ignore rules (.gitignore, .ignore) stay excluded
     pub hidden: Option<bool>,
     /// Maximum number of matches to return (default: 100, max: 1000)
     pub limit: Option<usize>,
@@ -119,11 +119,11 @@ pub struct WebFetchArgs {
     pub url: String,
     /// Line number to start reading from (1-indexed, default 1)
     pub offset: Option<usize>,
-    /// Maximum number of lines to return (default 200)
+    /// Maximum number of lines to return (default 200 unless configured)
     pub limit: Option<usize>,
-    /// Extraction mode ("auto", "main", or "full", default "auto")
+    /// Extraction mode: "auto" (main content, falling back to the full page; default), "main" (main content or error), or "full"
     pub mode: Option<String>,
-    /// Optional format override ("html", "json", "markdown", "csv", "xml", "pdf")
+    /// Optional format override when detection is wrong ("html", "json", "markdown", "csv", "tsv", "xml", "rss", "atom", "pdf")
     pub format: Option<String>,
 }
 
@@ -140,7 +140,7 @@ pub enum WebSearchRecency {
 pub struct WebSearchArgs {
     /// Search query
     pub query: String,
-    /// Maximum number of search results to return (default: 5)
+    /// Maximum number of search results to return (default: 5, max: 20)
     pub limit: Option<usize>,
     /// Filter search results by time period: 'day', 'week', 'month', or 'year'
     pub recency: Option<WebSearchRecency>,
@@ -234,7 +234,7 @@ pub struct SubagentArgs {
     /// Short camelCase name for what this subagent is doing (e.g. 'performanceAudit'); labels its progress, /agents entry, and result
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Role profile for the subagent ('scout', 'critic', 'planner', 'general')
+    /// Role profile for the subagent ('scout', 'critic', 'planner', 'general'; default: scout). Only 'general' can write, edit, or run bash
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<SubagentRole>,
     /// Custom subagent name to invoke (e.g. defined in .claude/agents/ or .agents/agents/)
@@ -249,7 +249,7 @@ pub struct SubagentArgs {
     /// Optional context slice or snippet to prime the subagent
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_slice: Option<String>,
-    /// Model role from settings: 'default', 'smol', or 'slow' (default: smol)
+    /// Model role from settings: 'default', 'smol', or 'slow' (default: smol when configured, otherwise the session model)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Maximum model calls for the subagent (default: 100)
@@ -263,7 +263,7 @@ pub struct SubagentArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum WorktreeAction {
-    /// List agent worktrees with unmerged changes
+    /// List every agent worktree in this repository, oldest first
     List,
     /// Show a worktree's changes as a stat summary and patch
     Diff,

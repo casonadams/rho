@@ -14,7 +14,7 @@ Review and land work that subagents and workflows did in their own git worktrees
 
 Usage:
 - Every subagent and workflow works in its own worktree, a separate checkout outside your working tree. Their changes reach your working tree only when you merge them.
-- `list` shows worktrees with unmerged changes; `diff` shows one worktree's changes.
+- `list` shows every agent worktree in this repository, oldest first, including ones from other sessions; act only on ids your own subagents or workflows reported. `diff` shows one worktree's stat summary and patch (long patches are clipped; read the files in the worktree path for the rest).
 - Review before merging: read the diff, and run checks in the worktree directory if needed.
 - `merge` applies the changes to your working tree with a three-way merge against your current files (uncommitted edits included), then removes the worktree. Files changed on both sides get <<<<<<< conflict markers: resolve them with edit, then re-run checks.
 - `discard` deletes a worktree you do not want.
@@ -29,8 +29,8 @@ Usage:
 - Each line is prefixed with its line number and a tab; the prefix is not part of the file, so never include it in edit oldText.
 - Output is capped at 2000 lines or 50KB, whichever comes first. A trailing note ending in `Use offset=N to continue.` gives the next offset; pass it, optionally with limit, to page through large files.
 - For a known region, read it with offset and limit instead of the whole file.
-- Read a file before editing it so oldText matches exactly, and read independent files in parallel.
-- Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text. Files that are not valid UTF-8 text return an error.";
+- Read a file before editing it so oldText matches exactly. Reads run in parallel when every call in a response is read-only, so read independent files together.
+- Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text. Binary files return a short placeholder, and other non-UTF-8 files return an error. Use fd, not read, to list a directory.";
 
 pub static PROMPT_WRITE: &str = "\
 Create a file or completely overwrite an existing one. Parent directories are created automatically.
@@ -60,7 +60,7 @@ Find files and directories by workspace-relative path pattern.
 Usage:
 - pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched unanchored against workspace-relative paths, not a glob; if omitted, all entries in the search root match.
 - Files and directories both match. Results are sorted by path by default and capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path, pattern, type, or depth rather than raising limit.
-- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles and ignored paths.
+- Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
 - Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. depth 2 for top-level layout.
 - Set stats: true to include line counts and byte sizes; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines' or 'size', both descending, or 'path') to order results.";
 
@@ -69,9 +69,10 @@ Search file contents with a regex and return line-oriented matches.
 
 Usage:
 - pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against each line; escape regex metacharacters (e.g. `\\(`, `\\.`) when searching for literal text, and use `a|b` to search several terms at once.
-- Returns path:line: text lines sorted by path then line number; match lines are truncated at 500 characters. Use read with offset to see surrounding context.
+- Results are grouped by file, sorted by path then line number: a `path:` header followed by indented `LINE: text` rows. Match lines are truncated at 500 characters; use read with offset to see full lines and surrounding context.
 - Results are capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path or type rather than raising limit.
-- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles and ignored paths.
+- Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
+- Regex syntax is Rust regex: no lookaround or backreferences, and matches never span lines.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.
 - path may be a single file. Use fd instead to find files by name.";
 
@@ -79,19 +80,19 @@ pub static PROMPT_BASH: &str = "\
 Execute a bash command in the working directory and return combined stdout and stderr.
 
 Usage:
-- Commands run directly in the working directory; do not prefix commands with cd. Each call is a fresh shell, so environment changes do not persist between calls.
+- Commands run directly in the working directory; do not prefix commands with cd. Each call is a fresh, non-interactive shell: environment changes do not persist, stdin is closed, pagers and git prompts are disabled, and CI=true is set.
 - Use fd for file discovery, rg for content search; use bash for git actions, cargo builds, tests, and linters.
 - Never read files with cat, sed, or awk, and never create or modify files with bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, tee, mv over a file); use read, edit, and write. Project formatters and generators (cargo fmt, make) are fine.
 - timeout is in seconds (default 30). A command that exceeds it is NOT killed: it moves to a background job and its output arrives later as a follow-up message. Set background: false to kill it on timeout instead.
 - Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep. Background jobs are killed after 1 hour.
-- Long output is truncated; filter with rg, head, or tail, or redirect noisy output away, instead of dumping everything.";
+- Non-zero exit codes return an error result ending in `Command exited with code N`. Successful output over 50 lines shows only the first 10 and last 15 lines, and long or truncated output names a full log file (`Full log:` or `Full output:`) that you can search with rg or page with read. Filter output with rg, head, or tail instead of dumping everything.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
 Usage:
 - Prefer web_search for finding public documentation, repositories, package releases, and technical references; then open the best results with web_fetch, since snippets alone are rarely authoritative.
-- Returns concise result summaries with title, URL, and snippet (default 5 results; raise limit for broader surveys).
+- Returns concise result summaries with title, URL, and snippet (default 5 results, max 20; raise limit for broader surveys).
 - Use recency ('day', 'week', 'month', 'year') to filter results by freshness; factor in today's date when asking about latest versions.
 - Use domains to limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com']).
 - Prefer primary sources (official docs, release notes, upstream repositories).";
@@ -102,7 +103,8 @@ Fetch HTML, JSON, Markdown, text, CSV, XML, or PDF content from a URL and return
 Usage:
 - Extracts clean markdown/text without navigation bloat or HTML tags; the format is detected automatically, and format overrides it when detection is wrong.
 - Output is paginated by lines (default limit 200): pass offset to read further pages of long documents.
-- mode 'auto' (default) extracts the main article content when the page has a clear one and falls back to the full page; 'main' prefers main content; use mode: 'full' when navigation, sidebars, or other page chrome are needed.
+- mode 'auto' (default) extracts the main article content when the page has a clear one and falls back to the full page; 'main' requires main content and errors when there is none; use mode: 'full' when navigation, sidebars, or other page chrome are needed.
+- JavaScript is not executed: pages that render client-side return an error saying so. Private network addresses are blocked unless configured.
 - Use it on URLs from the user or from web_search results; for local files use read.
 - Responses are cached briefly, so paging with offset or refetching the same URL is cheap.";
 
@@ -114,15 +116,17 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
-- Default role is 'scout'. Tools by role: scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general adds write, edit, and bash. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
-- Subagents start with no memory of your conversation unless you pass `inherit_context`, so put everything they need in `prompt` or `context_slice`. Launch independent subagents in the same response so they run in parallel.
-- Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'; default smol) and return a concise summary to the parent.
+- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, and bash. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
+- In a git repository each subagent works in its own worktree, a snapshot of your working tree including uncommitted edits. Its changes do not appear in your files until you review and merge them with the worktree tool.
+- Subagents start with no memory of your conversation, so put everything they need in `prompt` or `context_slice`. `inherit_context` shares only the last 20 text messages, each clipped to 1,500 characters.
+- New read-only subagents (scout, critic, planner) launched in the same response run in parallel; 'general' subagents and `task_id` continuations run one at a time.
+- Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'); without one they use 'smol' when it is configured, otherwise the session model. They return a concise summary to the parent.
 - Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, its task id, and its result.
-- Each result ends with a task id and state. Treat the answer as a claim, not proof: before accepting, re-read the files it changed and re-run the relevant checks yourself. If something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
+- Each result ends with a task id and state. Treat the answer as a claim, not proof: before accepting, review its changes (worktree diff) and re-run the relevant checks yourself. If something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
 - Results list 'Files changed' (its write/edit calls), 'Also changed in the workspace' (bash, formatters, other agents), and 'Tool outcomes' (errors and permission denials). A footer with 'failed tool calls' means part of the work may not have happened even if the answer says it did.
 - Pass `inspect: true` without `task_id` to list the session's subagent tasks (use it to recover task ids after compaction); with a `task_id` it shows that task's messages, final answer, every tool call with its outcome, and its files, without running it.
 - State 'input-required' means the subagent is waiting: it asked you a question ('Question for you: ...') or stopped early (turn limit or no final answer) with a summary. Reply with the same `task_id` and your answer or 'continue'. Do not redo its work yourself.
-- State 'failed' still reports any findings and 'Files changed'; build on them or send the `task_id` follow-up instead of starting over.";
+- State 'failed' may still report findings and 'Files changed'; build on them or send the `task_id` follow-up instead of starting over.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {

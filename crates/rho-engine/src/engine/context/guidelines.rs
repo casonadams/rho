@@ -90,7 +90,7 @@ fn append_universal_guidelines(out: &mut Vec<&'static str>) {
     out.push(
         "Always verify your changes before finishing (run tests, check build diagnostics, or inspect command outputs); never claim success when checks fail",
     );
-    out.push("Make independent tool calls in the same response so they run in parallel");
+    out.push("Batch independent read-only calls (read, fd, rg, web_search, web_fetch) in one response so they run in parallel");
     out.push("Be concise in your responses");
     out.push("Show file paths clearly when working with files");
 }
