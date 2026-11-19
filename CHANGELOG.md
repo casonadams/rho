@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.13.1](https://github.com/casonadams/rho/compare/v0.13.0...v0.13.1) (2026-11-19)
+
+
+### Features
+
+* **fd:** mark directories with a trailing slash ([88edd7e](https://github.com/casonadams/rho/commit/88edd7e08f12c41b103120d3157e27216a4620f4))
+* **rg:** print each match as a self-contained path:line: text row ([12d66a2](https://github.com/casonadams/rho/commit/12d66a2823c59b51e0a3b8785761270afbd321b6))
+* **tools:** run batches of read-only builtin tool calls in parallel ([d8d3553](https://github.com/casonadams/rho/commit/d8d3553227aaf7d51741fc86f2790580c4f15f6f))
+
+
+### Bug Fixes
+
+* **process:** run commands in their own session so tty reads cannot stall a turn ([7950dc6](https://github.com/casonadams/rho/commit/7950dc6f9904771cecabadf6398ee2bc6a996d36))
+* **read:** show oversized lines and empty files instead of erroring or pointing at bash ([21af987](https://github.com/casonadams/rho/commit/21af987edffb7838c33e43791d2e072db5bad4ad))
+* **repl:** adapt line mode to reedline 0.53 CtrlC payload ([5399895](https://github.com/casonadams/rho/commit/53998953b411787a07e31c539cf1cdd06f433f3d))
+* **tools:** accept quoted booleans and integers where the schema expects them ([3c7c889](https://github.com/casonadams/rho/commit/3c7c889b7ac805caf46d2aa74c5fae4975f5f317))
+* **workflow:** isolate workflow commands from the controlling terminal ([e37aee5](https://github.com/casonadams/rho/commit/e37aee5e2914c9bd1c2cc4b225b52b78ba7f4e7a))
+
 ## [0.13.0](https://github.com/casonadams/rho/compare/v0.12.2...v0.13.0) (2026-11-19)
 
 
