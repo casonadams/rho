@@ -298,6 +298,29 @@ async fn test_rpc_config_update_handlers() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+#[tokio::test]
+async fn compact_is_rejected_while_a_turn_is_running() {
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_compact_busy");
+    let mut active_turn = Some(tokio::spawn(std::future::pending::<
+        crate::error::Result<rho_engine::engine::runner::TurnOutput>,
+    >()));
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+
+    handle_config_update_cmd(
+        RpcCommand::Compact { instructions: None },
+        Some("req-compact".to_string()),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    let resp = read_response(&mut client_reader).await;
+    assert_eq!(resp.command, "compact");
+    assert!(!resp.success);
+    assert!(resp.error.unwrap().contains("turn is in progress"));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
 #[test]
 fn test_extract_chat_messages_preserves_tools() {
     use rho_harness_core::model::{

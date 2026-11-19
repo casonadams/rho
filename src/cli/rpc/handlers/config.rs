@@ -146,6 +146,14 @@ pub(crate) async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     match cmd {
+        RpcCommand::Compact { .. } if ctx.active_turn.is_some() => {
+            let res = RpcResponse::failure(
+                req_id,
+                "compact",
+                "A turn is in progress. Wait for it to finish or abort it before compacting.",
+            );
+            ctx.writer.write_message(&res).await?;
+        }
         RpcCommand::Compact { instructions } => {
             let eng = ctx.engine.read().await;
             let res = handle_compact_cmd(&eng, instructions, req_id).await;
