@@ -50,7 +50,7 @@ async fn type_filter_keeps_only_matching_extensions() {
     let blank = find(&dir, ".", |args| args.file_type = Some("   ".to_string())).await;
     assert_eq!(
         blank.content,
-        "README.md\nsrc\nsrc/lib.rs\nsrc/main.rs\nsrc/ui\nsrc/ui/widget.rs"
+        "README.md\nsrc/\nsrc/lib.rs\nsrc/main.rs\nsrc/ui/\nsrc/ui/widget.rs"
     );
 
     let unknown = find(&dir, ".", |args| args.file_type = Some("nosuchtype".to_string())).await;
@@ -62,12 +62,12 @@ async fn type_filter_keeps_only_matching_extensions() {
 async fn depth_bounds_traversal() {
     let dir = fixture();
     let one = find(&dir, ".", |args| args.depth = Some(1)).await;
-    assert_eq!(one.content.lines().collect::<Vec<_>>(), ["README.md", "src"]);
+    assert_eq!(one.content.lines().collect::<Vec<_>>(), ["README.md", "src/"]);
 
     let two = find(&dir, ".", |args| args.depth = Some(2)).await;
     assert_eq!(
         two.content.lines().collect::<Vec<_>>(),
-        ["README.md", "src", "src/lib.rs", "src/main.rs", "src/ui"]
+        ["README.md", "src/", "src/lib.rs", "src/main.rs", "src/ui/"]
     );
 }
 

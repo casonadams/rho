@@ -59,7 +59,7 @@ Find files and directories by workspace-relative path pattern.
 
 Usage:
 - pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched unanchored against workspace-relative paths, not a glob; if omitted, all entries in the search root match.
-- Files and directories both match. Results are sorted by path by default and capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path, pattern, type, or depth rather than raising limit.
+- Files and directories both match; directories end with `/`. Results are sorted by path by default and capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path, pattern, type, or depth rather than raising limit.
 - Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
 - Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. depth 2 for top-level layout.
 - Set stats: true to include line counts and byte sizes; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines' or 'size', both descending, or 'path') to order results.";
@@ -69,7 +69,7 @@ Search file contents with a regex and return line-oriented matches.
 
 Usage:
 - pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against each line; escape regex metacharacters (e.g. `\\(`, `\\.`) when searching for literal text, and use `a|b` to search several terms at once.
-- Results are grouped by file, sorted by path then line number: a `path:` header followed by indented `LINE: text` rows. Match lines are truncated at 500 characters; use read with offset to see full lines and surrounding context.
+- Each match is one `path:LINE: text` row, sorted by path then line number, with a blank line between files; pass path and LINE straight to read as path and offset. Match lines are truncated at 500 characters; use read with offset to see full lines and surrounding context.
 - Results are capped at limit (default 100, max 1000); output is also byte-capped at 50KB. Narrow with path or type rather than raising limit.
 - Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
 - Regex syntax is Rust regex: no lookaround or backreferences, and matches never span lines.

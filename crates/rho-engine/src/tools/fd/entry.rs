@@ -53,7 +53,7 @@ fn render_fd_content(entries: Vec<FdEntry>, show_stats: bool) -> String {
             if i > 0 {
                 out.push('\n');
             }
-            out.push_str(&entry.relative);
+            out.push_str(&display_path(&entry));
         }
         out
     }
@@ -76,6 +76,14 @@ pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResul
     finish_listing(&content, limit_notice, None, artifact_dir.as_deref())
 }
 
+fn display_path(entry: &FdEntry) -> String {
+    if entry.is_dir {
+        format!("{}/", entry.relative)
+    } else {
+        entry.relative.clone()
+    }
+}
+
 fn format_table(entries: &[FdEntry]) -> String {
     let mut rows = Vec::with_capacity(entries.len() + 1);
     rows.push(format!("{:>7}  {:>7}  Path", "Lines", "Bytes"));
@@ -86,7 +94,7 @@ fn format_table(entries: &[FdEntry]) -> String {
                 rows.push(format!("{:>7}  {:>7}  {}", stats.lines, formatted_size, entry.relative));
             }
             None => {
-                rows.push(format!("{:>7}  {:>7}  {}", "-", "-", entry.relative));
+                rows.push(format!("{:>7}  {:>7}  {}", "-", "-", display_path(entry)));
             }
         }
     }

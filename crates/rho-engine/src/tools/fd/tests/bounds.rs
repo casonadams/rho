@@ -10,7 +10,7 @@ async fn limit_truncates_with_a_narrowing_notice() {
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "README.md\nsrc\n\n[showing first 2 of 6 matches; narrow with a tighter pattern, path, or type]"
+        "README.md\nsrc/\n\n[showing first 2 of 6 matches; narrow with a tighter pattern, path, or type]"
     );
 }
 

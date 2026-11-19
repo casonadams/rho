@@ -54,9 +54,9 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
-  matching.
+  matching; directories are listed with a trailing `/`.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
-  files, and bounds output.
+  files, and bounds output. Each match is a `path:line: text` row.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents).
   Each subagent works in its own git worktree.
