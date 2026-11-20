@@ -287,7 +287,11 @@ happen.
   before its next model call (also when it answers: it keeps working with the
   message). A `role`, `agent`, or `persona` that differs from the task's, or
   any `model` or `turns`, is refused instead of being ignored. Messages it
-  never read are listed with its result. Its
+  never read are listed with its result. At most 8 subagents run at once;
+  starting another is refused until one finishes. A result placed in a follow-up
+  message is clipped at 20 KB (the session keeps the full record) and is marked
+  as untrusted output, not instructions. Each result's footer names the model
+  that ran. Its
   progress lines stop in the tool card, but `Left` still watches it live, and
   `Esc` cancels it with the turn.
 - **Context**: `inherit_context: true` shares the recent text-only conversation

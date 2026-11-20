@@ -92,7 +92,11 @@ async fn test_subagent_tool_success() {
         let result = tool.execute(args).await.unwrap();
         assert!(!result.is_error);
         assert!(result.content.starts_with(answer));
-        assert!(result.content.contains("[subagent: 1 turns, 0 tool calls, 0 tokens]"));
+        assert!(
+            result
+                .content
+                .contains("[subagent: 1 turns, 0 tool calls, 0 tokens, test-provider/test-subagent-model]")
+        );
     }
 }
 
@@ -231,7 +235,7 @@ async fn test_subagent_runner_budget_exhaustion_scenarios() {
     assert!(
         ok_res
             .content
-            .ends_with("[subagent: incomplete, 0 turns, 0 tool calls, 0 tokens]")
+            .ends_with("[subagent: incomplete, 0 turns, 0 tool calls, 0 tokens, test-provider/test-subagent-model]")
     );
 
     let empty_runner = SubagentRunner::new(
@@ -941,7 +945,7 @@ async fn named_subagents_label_progress_the_monitor_and_the_result() {
     assert!(
         result
             .content
-            .ends_with("[subagent performanceAudit: 2 turns, 1 tool calls, 0 tokens]"),
+            .ends_with("[subagent performanceAudit: 2 turns, 1 tool calls, 0 tokens, mock-provider/mock-model]"),
         "{}",
         result.content
     );
@@ -986,7 +990,7 @@ async fn results_list_changed_files_and_failed_tool_calls() {
 
     assert_eq!(
         result.content,
-        "fixed it\n\nFiles changed: src/a.rs\nTool outcomes: 1 ok, 1 error (edit src/missing.rs: oldText not found)\n\n[subagent: 1 failed tool call, 2 turns, 2 tool calls, 0 tokens]"
+        "fixed it\n\nFiles changed: src/a.rs\nTool outcomes: 1 ok, 1 error (edit src/missing.rs: oldText not found)\n\n[subagent: 1 failed tool call, 2 turns, 2 tool calls, 0 tokens, mock-provider/mock-model]"
     );
 }
 
