@@ -20,6 +20,8 @@ pub struct TurnToolContext {
     pub project: Option<Arc<crate::engine::context::ProjectContext>>,
     /// The parent session, where subagent tasks are saved so they can be continued.
     pub session: Option<rho_harness_core::session::SessionManager>,
+    /// The running agent's mailbox; background work a tool starts reports to it.
+    pub inbox: Option<crate::mailbox::Mailbox>,
 }
 
 #[async_trait::async_trait]

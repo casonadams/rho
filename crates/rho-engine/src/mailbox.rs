@@ -73,6 +73,18 @@ impl Envelope {
     }
 
     /// How the message is introduced to the model; `parent` is the reader's delegating agent, if any.
+    /// How the message is shown to the model; `parent` is the reader's delegating agent, if any.
+    /// System notices carry their own framing, and the user speaks plainly to the top-level agent.
+    #[must_use]
+    pub fn for_model(&self, parent: Option<&str>) -> String {
+        let plain = matches!((&self.from, parent), (Party::System, _) | (Party::User, None));
+        if plain && self.kind != Kind::Request {
+            return self.body.clone();
+        }
+        format!("{}:\n{}", self.heading(parent), self.body.trim())
+    }
+
+    /// How the message is introduced to the model; `parent` is the reader's delegating agent, if any.
     #[must_use]
     pub fn heading(&self, parent: Option<&str>) -> String {
         let source = match &self.from {
@@ -144,12 +156,12 @@ impl Mailboxes {
                 wake: wake.clone(),
             },
         );
-        Mailbox {
+        Mailbox(Arc::new(Handle {
             registry: self.clone(),
             id: id.to_string(),
             generation,
             wake,
-        }
+        }))
     }
 
     #[must_use]
@@ -178,8 +190,11 @@ impl Mailboxes {
     }
 }
 
-/// An agent's own end of its mailbox. Dropping it closes the mailbox.
-pub struct Mailbox {
+/// An agent's own end of its mailbox. Clones read the same queue; dropping the last one closes it.
+#[derive(Clone)]
+pub struct Mailbox(Arc<Handle>);
+
+struct Handle {
     registry: Mailboxes,
     id: String,
     generation: u64,
@@ -189,16 +204,28 @@ pub struct Mailbox {
 impl Mailbox {
     #[must_use]
     pub fn id(&self) -> &str {
-        &self.id
+        &self.0.id
+    }
+
+    /// The registry this mailbox belongs to, for sending to other agents.
+    #[must_use]
+    pub fn registry(&self) -> &Mailboxes {
+        &self.0.registry
     }
 
     fn with_slot<R>(&self, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
-        let mut registry = self.registry.lock();
+        let mut registry = self.0.registry.lock();
         registry
             .slots
-            .get_mut(&self.id)
-            .filter(|slot| slot.generation == self.generation)
+            .get_mut(&self.0.id)
+            .filter(|slot| slot.generation == self.0.generation)
             .map(f)
+    }
+
+    /// The agent that delegated to this one, if any.
+    #[must_use]
+    pub fn parent(&self) -> Option<String> {
+        self.with_slot(|slot| slot.parent.clone()).flatten()
     }
 
     /// Every message waiting, oldest first.
@@ -216,7 +243,7 @@ impl Mailbox {
     /// Returns once at least one message is waiting.
     pub async fn wait(&self) {
         loop {
-            let notified = self.wake.notified();
+            let notified = self.0.wake.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             if self.pending() > 0 {
@@ -226,12 +253,20 @@ impl Mailbox {
         }
     }
 
-    /// Closes the mailbox, returning the messages the agent never read.
+    /// Closes the mailbox for every clone, returning the messages the agent never read.
     #[must_use]
     pub fn close(self) -> Vec<Envelope> {
-        self.shutdown()
+        self.0.shutdown()
     }
 
+    /// Whether `other` is a handle to this same mailbox.
+    #[must_use]
+    pub fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Handle {
     fn shutdown(&self) -> Vec<Envelope> {
         let mut registry = self.registry.lock();
         let ours = registry
@@ -249,7 +284,7 @@ impl Mailbox {
     }
 }
 
-impl Drop for Mailbox {
+impl Drop for Handle {
     fn drop(&mut self) {
         self.shutdown();
     }
@@ -419,6 +454,36 @@ mod tests {
             assert_eq!(to, Party::Agent(chain.to.clone()));
         }
         assert_eq!(boxes.send(chain), Err(SendError::TooManyHops));
+    }
+
+    #[test]
+    fn clones_share_the_queue_and_only_the_last_drop_closes_it() {
+        let boxes = Mailboxes::default();
+        let mailbox = boxes.open("a", Some("root"));
+        let clone = mailbox.clone();
+        boxes.send(command(Party::User, "a", "x")).unwrap();
+
+        assert_eq!(clone.take().len(), 1);
+        assert_eq!(mailbox.parent().as_deref(), Some("root"));
+        drop(mailbox);
+        assert!(boxes.is_open("a"), "a clone still holds it open");
+        drop(clone);
+        assert!(!boxes.is_open("a"));
+    }
+
+    #[test]
+    fn the_model_sees_notices_and_the_users_words_to_the_top_agent_unframed() {
+        let from = |party, kind| Envelope::new(party, "a", kind, "body");
+        assert_eq!(from(Party::System, Kind::Event).for_model(None), "body");
+        assert_eq!(from(Party::User, Kind::Command).for_model(None), "body");
+        assert_eq!(
+            from(Party::User, Kind::Command).for_model(Some("boss")),
+            "Message from the user:\nbody"
+        );
+        assert_eq!(
+            from(agent("boss"), Kind::Command).for_model(Some("boss")),
+            "Message from the delegating agent:\nbody"
+        );
     }
 
     #[test]

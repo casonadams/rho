@@ -330,11 +330,38 @@ fn deny_rm_context() -> TurnToolContext {
     }
 }
 
+/// A running round's mailbox `task`, whose delegating agent is `boss`, plus the registry to send through.
+fn round_mailbox() -> (
+    crate::mailbox::Mailboxes,
+    crate::mailbox::Mailbox,
+    crate::mailbox::Mailbox,
+) {
+    let boxes = crate::mailbox::Mailboxes::default();
+    let boss = boxes.open("boss", None);
+    let task = boxes.open("task", Some("boss"));
+    (boxes, boss, task)
+}
+
+fn send(boxes: &crate::mailbox::Mailboxes, from: crate::mailbox::Party, body: &str) {
+    boxes
+        .send(crate::mailbox::Envelope::new(
+            from,
+            "task",
+            crate::mailbox::Kind::Command,
+            body,
+        ))
+        .unwrap();
+}
+
 #[tokio::test]
 async fn a_message_waiting_at_the_final_answer_keeps_the_subagent_working() {
     let adapter = MockAdapter::from_turns([text_turn("first answer"), text_turn("revised answer")]);
-    let inbox = super::background::Inbox::default();
-    inbox.push("also cover the error path");
+    let (boxes, _boss, inbox) = round_mailbox();
+    send(
+        &boxes,
+        crate::mailbox::Party::Agent("boss".into()),
+        "also cover the error path",
+    );
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_inbox(inbox.clone());
 
     let result = runner.run("review", None).await;
@@ -354,8 +381,8 @@ async fn a_message_waiting_at_the_final_answer_keeps_the_subagent_working() {
 #[tokio::test]
 async fn a_message_arriving_with_the_answer_on_the_last_turn_leaves_the_answer_and_the_message() {
     let adapter = MockAdapter::from_turns([text_turn("final answer")]);
-    let inbox = super::background::Inbox::default();
-    inbox.push("too late");
+    let (boxes, _boss, inbox) = round_mailbox();
+    send(&boxes, crate::mailbox::Party::Agent("boss".into()), "too late");
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 1).with_inbox(inbox.clone());
 
     let result = runner.run("review", None).await;
@@ -363,14 +390,14 @@ async fn a_message_arriving_with_the_answer_on_the_last_turn_leaves_the_answer_a
     assert!(!result.is_error, "{}", result.content);
     assert!(result.content.starts_with("final answer"), "{}", result.content);
     assert_eq!(adapter.requests().len(), 1);
-    assert_eq!(inbox.take(), ["too late"], "left for the undelivered report");
+    assert_eq!(inbox.take()[0].body, "too late", "left for the undelivered report");
 }
 
 #[tokio::test]
 async fn a_message_from_the_user_reaches_the_round_labelled_as_from_the_user() {
     let adapter = MockAdapter::from_turns([text_turn("first answer"), text_turn("revised answer")]);
-    let inbox = super::background::Inbox::default();
-    inbox.push_from(super::background::Sender::User, "check the tests too");
+    let (boxes, _boss, inbox) = round_mailbox();
+    send(&boxes, crate::mailbox::Party::User, "check the tests too");
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_inbox(inbox);
 
     runner.run("review", None).await;

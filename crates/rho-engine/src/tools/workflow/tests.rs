@@ -1,4 +1,5 @@
 use super::*;
+use crate::engine::runner::turn::types::CancellationSignal;
 use crate::permission::PermissionHook;
 use crate::permission::policy::{build_policy, parse_scope_from_str};
 use crate::permission::tests::mock::MockHookPresenter;
@@ -134,13 +135,13 @@ impl Fixture {
         subagents: SubagentTool,
         project: Option<Arc<crate::engine::context::ProjectContext>>,
     ) -> WorkflowRunner {
-        WorkflowRunner::new(subagents, self.dir.path(), None).bind(
-            ToolStreamPort::default(),
-            CancellationSignal::default(),
-            Some(self.monitor.clone()),
+        WorkflowRunner::new(subagents, self.dir.path(), None).bind(&TurnToolContext {
+            cancellation: Some(CancellationSignal::default()),
+            monitor: Some(self.monitor.clone()),
             project,
-            self.session.clone(),
-        )
+            session: self.session.clone(),
+            ..TurnToolContext::default()
+        })
     }
 
     fn runner(&self) -> WorkflowRunner {
@@ -607,13 +608,10 @@ fn worktree_runner(
         |_| async { Ok(crate::tools::ToolResult::error("the placeholder must never run")) },
     ));
     let subagents = SubagentTool::new(Some(Arc::new(WritingModel)), vec![placeholder]).with_worktrees(store.clone());
-    let runner = WorkflowRunner::new(subagents, &root, None).bind(
-        ToolStreamPort::default(),
-        CancellationSignal::default(),
-        None,
-        None,
-        None,
-    );
+    let runner = WorkflowRunner::new(subagents, &root, None).bind(&TurnToolContext {
+        cancellation: Some(CancellationSignal::default()),
+        ..TurnToolContext::default()
+    });
     (dir, root, store, runner)
 }
 

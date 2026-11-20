@@ -57,15 +57,15 @@ async fn output_without_colors_needs_no_separate_display_text() {
 #[tokio::test]
 async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is_abandoned() {
     let dir = tempfile::tempdir().unwrap();
-    let session = rho_harness_core::session::SessionManager::new(dir.path(), None).unwrap();
-    let owner = session.session_id.clone();
+    let owner = "bash-owner-7c2".to_string();
+    let inbox = crate::mailbox::Mailboxes::default().open(&owner, None);
     let unbound = BashTool::new(dir.path());
     let tool = unbound
         .bind_turn(&TurnToolContext {
-            session: Some(session),
+            inbox: Some(inbox.clone()),
             ..TurnToolContext::default()
         })
-        .expect("a tool with a session binds to it");
+        .expect("a tool with a mailbox binds to it");
     assert!(unbound.bind_turn(&TurnToolContext::default()).is_none());
 
     let started = tool
@@ -95,7 +95,7 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         jobs.get(&job_id).unwrap().status,
         crate::tools::jobs::JobStatus::Failed { .. }
     ));
-    assert!(crate::engine::runner::turn::types::drain_background_notifications(&owner).is_empty());
+    assert!(inbox.take().is_empty(), "a stopped job reports nothing");
 }
 
 #[test]

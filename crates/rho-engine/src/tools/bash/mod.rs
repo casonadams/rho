@@ -20,15 +20,15 @@ mod tests;
 
 pub struct BashTool {
     pub base_dir: PathBuf,
-    /// Session that owns commands this tool moves to the background.
-    owner: String,
+    /// The agent whose mailbox hears about commands this tool moves to the background.
+    owner: Option<crate::mailbox::Mailbox>,
 }
 
 impl BashTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
-            owner: String::new(),
+            owner: None,
         }
     }
 
@@ -36,7 +36,7 @@ impl BashTool {
     where
         F: FnMut(&str) + Send + 'static,
     {
-        run_command_streaming(&self.base_dir, &self.owner, &args, on_chunk)
+        run_command_streaming(&self.base_dir, self.owner.as_ref(), &args, on_chunk)
             .await
             .map(plain_text_for_model)
     }
@@ -82,10 +82,10 @@ impl EngineTool for BashTool {
     }
 
     fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
-        let session = ctx.session.as_ref()?;
+        let owner = ctx.inbox.clone()?;
         Some(Arc::new(Self {
             base_dir: self.base_dir.clone(),
-            owner: session.session_id.clone(),
+            owner: Some(owner),
         }))
     }
 }

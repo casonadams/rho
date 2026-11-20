@@ -63,42 +63,6 @@ pub trait SteeringQueueProvider: Send + Sync {
     }
 }
 
-type NotificationQueues = std::collections::HashMap<String, Vec<String>>;
-
-static BACKGROUND_NOTIFICATIONS: std::sync::LazyLock<std::sync::Mutex<NotificationQueues>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(NotificationQueues::new()));
-
-static BACKGROUND_NOTIF_TX: std::sync::LazyLock<tokio::sync::broadcast::Sender<String>> =
-    std::sync::LazyLock::new(|| {
-        let (tx, _) = tokio::sync::broadcast::channel(64);
-        tx
-    });
-
-fn notification_queues() -> std::sync::MutexGuard<'static, NotificationQueues> {
-    BACKGROUND_NOTIFICATIONS.lock().unwrap_or_else(|p| p.into_inner())
-}
-
-pub fn enqueue_background_notification(owner: &str, notification: String) {
-    notification_queues()
-        .entry(owner.to_string())
-        .or_default()
-        .push(notification);
-    let _ = BACKGROUND_NOTIF_TX.send(owner.to_string());
-}
-
-pub fn drain_background_notifications(owner: &str) -> Vec<String> {
-    notification_queues().remove(owner).unwrap_or_default()
-}
-
-pub fn discard_background_notifications(owner: &str) {
-    notification_queues().remove(owner);
-}
-
-/// Wakes on any session's notice; each receiver drains only its own queue.
-pub fn subscribe_background_notifications() -> tokio::sync::broadcast::Receiver<String> {
-    BACKGROUND_NOTIF_TX.subscribe()
-}
-
 /// Serializes tests that touch the process-wide background jobs and notifications.
 #[cfg(test)]
 pub(crate) static BACKGROUND_QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

@@ -24,7 +24,6 @@ struct IdleUi {
     batch: LiveBatch,
     frame: tokio::time::Interval,
     quota_rx: tokio::sync::watch::Receiver<u64>,
-    bg_rx: tokio::sync::broadcast::Receiver<String>,
     mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
 }
 
@@ -36,7 +35,6 @@ impl IdleUi {
             batch: LiveBatch::new(),
             frame,
             quota_rx: engine.quota_subscribe(),
-            bg_rx: crate::engine::runner::turn::types::subscribe_background_notifications(),
             mcp: engine.mcp_runtime().cloned(),
         }
     }
@@ -60,7 +58,7 @@ impl From<FrameOrUi> for IdleTick {
 enum IdleSource {
     Tick(IdleTick),
     Input(Option<std::io::Result<Event>>),
-    BackgroundNotification(Option<String>),
+    Mail,
     McpProblems,
 }
 
@@ -71,25 +69,16 @@ async fn wait_mcp_problems(runtime: Option<&rho_engine::mcp::McpRuntime>) {
     }
 }
 
-/// The session a notice was queued for, or `None` when the channel overflowed and wake-ups were
-/// dropped, in which case this session's queue must be checked anyway.
-async fn wait_bg_notif(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Option<Option<String>> {
-    match rx.recv().await {
-        Ok(owner) => Some(Some(owner)),
-        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => Some(None),
-        Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
-    }
-}
-
 async fn next_idle_step(
     ui: &mut IdleUi,
+    inbox: &rho_engine::mailbox::Mailbox,
     input: &mut super::TerminalInputReader,
     ui_events: &mut UiEventReceiver,
 ) -> IdleSource {
     tokio::select! {
         biased;
         event = input.recv() => IdleSource::Input(event),
-        Some(notif) = wait_bg_notif(&mut ui.bg_rx) => IdleSource::BackgroundNotification(notif),
+        () = inbox.wait() => IdleSource::Mail,
         () = wait_mcp_problems(ui.mcp.as_deref()) => IdleSource::McpProblems,
         _ = wait_quota(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         tick = next_frame_or_ui(&mut ui.frame, ui_events) => IdleSource::Tick(tick.into()),
@@ -191,22 +180,19 @@ fn map_input_result(res: IdleInputResult) -> IdleStepOutcome {
     }
 }
 
-/// The follow-up that hands the model this session's finished background jobs, or `None` when the
-/// wake-up was for another session or a turn already delivered the results. A wake-up for no known
-/// session (missed wake-ups) checks this session's queue.
-fn background_follow_up(session_id: &str, woken_for: Option<&str>) -> Option<String> {
-    if woken_for.is_some_and(|owner| owner != session_id) {
-        return None;
-    }
-    let notices = crate::engine::runner::turn::types::drain_background_notifications(session_id);
-    (!notices.is_empty()).then(|| notices.join("\n\n"))
+/// The follow-up that hands the agent the messages waiting in its mailbox (finished background work,
+/// messages from its subagents), or `None` when a turn already delivered them.
+fn mail_follow_up(inbox: &rho_engine::mailbox::Mailbox) -> Option<String> {
+    let parent = inbox.parent();
+    let messages: Vec<String> = inbox.take().iter().map(|m| m.for_model(parent.as_deref())).collect();
+    (!messages.is_empty()).then(|| messages.join("\n\n"))
 }
 
-fn handle_bg_notification(ctx: &mut LiveIdleContext<'_, '_>, woken_for: Option<&str>) -> Result<IdleStepOutcome> {
-    let Some(text) = background_follow_up(&ctx.engine.session_manager.session_id, woken_for) else {
+fn handle_mail(ctx: &mut LiveIdleContext<'_, '_>) -> Result<IdleStepOutcome> {
+    let Some(text) = mail_follow_up(&ctx.engine.inbox()) else {
         return Ok(IdleStepOutcome::Continue);
     };
-    ctx.session.renderer.print_notice("\n● Background job completed\n");
+    ctx.session.renderer.print_notice("\n● Background work reported\n");
     Ok(IdleStepOutcome::Message(QueuedMessage {
         text,
         kind: crate::ui::interactive::QueueKind::FollowUp,
@@ -230,7 +216,7 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             let res = handle_input_source(controller, event, batch, resources, input, ctx).await?;
             Ok(map_input_result(res))
         }
-        IdleSource::BackgroundNotification(woken_for) => handle_bg_notification(ctx, woken_for.as_deref()),
+        IdleSource::Mail => handle_mail(ctx),
         IdleSource::McpProblems => {
             crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
             Ok(IdleStepOutcome::Continue)
@@ -251,7 +237,9 @@ async fn drive_idle_loop<B: TerminalBackend>(
         if ui.quota_rx.has_changed().is_err() {
             ui.quota_rx = ctx.engine.quota_subscribe();
         }
-        let step = next_idle_step(&mut ui, input, ui_events).await;
+        let inbox = ctx.engine.inbox();
+        let step = next_idle_step(&mut ui, &inbox, input, ui_events).await;
+        drop(inbox);
         match handle_idle_step_source(controller, &mut ui.batch, resources, input, ctx, step).await? {
             IdleStepOutcome::Message(msg) => return Ok(Some(msg)),
             IdleStepOutcome::Exit => return Ok(None),
@@ -318,12 +306,20 @@ mod tests {
 
     #[tokio::test]
     async fn an_idle_prompt_hands_the_model_only_its_own_sessions_finished_jobs_once() {
-        use crate::engine::runner::turn::types::{drain_background_notifications, enqueue_background_notification};
+        use rho_engine::mailbox::{Envelope, Kind, Party};
         let (_controller, _width, _batch, mut session, mut engine, _temp) = test_harness().await;
-        let own = engine.session_manager.session_id.clone();
-        enqueue_background_notification(&own, "first job done".into());
-        enqueue_background_notification(&own, "second job done".into());
-        enqueue_background_notification("idle-other-session", "foreign result".into());
+        let inbox = engine.inbox();
+        let other = inbox.registry().open("idle-other-session", None);
+        for (to, body) in [
+            (inbox.id(), "first job done"),
+            (inbox.id(), "second job done"),
+            (other.id(), "foreign result"),
+        ] {
+            inbox
+                .registry()
+                .send(Envelope::new(Party::System, to, Kind::Event, body))
+                .unwrap();
+        }
         let mut last_escape_time = None;
         let mut ctx = LiveIdleContext {
             session: &mut session,
@@ -331,42 +327,15 @@ mod tests {
             last_escape_time: &mut last_escape_time,
         };
 
-        assert!(matches!(
-            handle_bg_notification(&mut ctx, Some("idle-other-session")).unwrap(),
-            IdleStepOutcome::Continue
-        ));
-        let IdleStepOutcome::Message(message) = handle_bg_notification(&mut ctx, Some(&own)).unwrap() else {
+        let IdleStepOutcome::Message(message) = handle_mail(&mut ctx).unwrap() else {
             panic!("expected a follow-up message");
         };
         assert_eq!(message.text, "first job done\n\nsecond job done");
         assert!(
-            matches!(
-                handle_bg_notification(&mut ctx, Some(&own)).unwrap(),
-                IdleStepOutcome::Continue
-            ),
+            matches!(handle_mail(&mut ctx).unwrap(), IdleStepOutcome::Continue),
             "results already handed over are not sent again"
         );
-        enqueue_background_notification(&own, "third job done".into());
-        let IdleStepOutcome::Message(missed) = handle_bg_notification(&mut ctx, None).unwrap() else {
-            panic!("missed wake-ups still deliver this session's notices");
-        };
-        assert_eq!(missed.text, "third job done");
-        assert_eq!(drain_background_notifications("idle-other-session"), ["foreign result"]);
-    }
-
-    #[tokio::test]
-    async fn an_overflowed_notification_channel_wakes_the_idle_prompt_instead_of_going_quiet() {
-        let (tx, mut rx) = tokio::sync::broadcast::channel(1);
-        tx.send("a".to_string()).unwrap();
-        tx.send("b".to_string()).unwrap();
-        assert_eq!(
-            wait_bg_notif(&mut rx).await,
-            Some(None),
-            "overflow is a wake-up for no known session"
-        );
-        assert_eq!(wait_bg_notif(&mut rx).await, Some(Some("b".to_string())));
-        drop(tx);
-        assert_eq!(wait_bg_notif(&mut rx).await, None);
+        assert_eq!(other.take().len(), 1, "another agent's mail stays with it");
     }
 
     #[tokio::test]
@@ -425,15 +394,6 @@ mod tests {
             .await
             .unwrap();
         assert!(batch.ui.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_wait_bg_notif_channels() {
-        let (tx, mut rx) = tokio::sync::broadcast::channel(2);
-        tx.send("notif".to_string()).unwrap();
-        assert_eq!(wait_bg_notif(&mut rx).await, Some(Some("notif".to_string())));
-        drop(tx);
-        assert_eq!(wait_bg_notif(&mut rx).await, None);
     }
 
     #[test]

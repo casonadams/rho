@@ -129,6 +129,7 @@ pub struct AgentRunner {
     permission: Option<Arc<crate::permission::PermissionHook>>,
     stream_port: Option<ToolStreamPort>,
     steering: Option<Arc<dyn SteeringQueueProvider>>,
+    inbox: Option<crate::mailbox::Mailbox>,
     cancellation: Option<CancellationSignal>,
     working_dir: std::path::PathBuf,
     monitor: Option<rho_harness_core::agents::AgentMonitor>,
@@ -163,6 +164,7 @@ impl AgentRunner {
             permission: None,
             stream_port: None,
             steering: None,
+            inbox: None,
             cancellation: None,
             working_dir,
             monitor: None,
@@ -218,6 +220,13 @@ impl AgentRunner {
         self
     }
 
+    /// The agent's mailbox: read before each model call, and handed to its tools so the background
+    /// work they start reports back to it.
+    pub fn inbox(mut self, inbox: Option<crate::mailbox::Mailbox>) -> Self {
+        self.inbox = inbox;
+        self
+    }
+
     pub fn cancellation(mut self, cancellation: Option<CancellationSignal>) -> Self {
         self.cancellation = cancellation;
         self
@@ -262,6 +271,7 @@ impl AgentRunner {
             monitor: self.monitor.clone(),
             project: self.project.clone(),
             session: Some(self.session_manager.clone()),
+            inbox: self.inbox.clone(),
         };
         self.tools = self
             .tools
@@ -432,57 +442,38 @@ fn append_notification_messages(
     }
 }
 
-async fn check_steering(
-    owner: &str,
-    steering: Option<&Arc<dyn SteeringQueueProvider>>,
-    current_messages: &mut Vec<ChatMessage>,
-    new_turn_messages: &mut Vec<ChatMessage>,
-) {
-    let notifs = crate::engine::runner::turn::types::drain_background_notifications(owner);
-    append_notification_messages(notifs, current_messages, new_turn_messages);
-    if let Some(provider) = steering {
-        let steered = provider.poll_steering().await;
-        append_notification_messages(steered, current_messages, new_turn_messages);
+/// Adds the agent's waiting messages to the turn: its mailbox (background notices, messages from
+/// other agents and the user) and the user's queued steering. Returns whether any arrived.
+async fn deliver_messages(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> bool {
+    let mut messages: Vec<String> = Vec::new();
+    if let Some(inbox) = &runner.inbox {
+        let parent = inbox.parent();
+        messages.extend(inbox.take().iter().map(|m| m.for_model(parent.as_deref())));
     }
+    if let Some(provider) = &runner.steering {
+        messages.extend(provider.poll_steering().await);
+    }
+    let delivered = !messages.is_empty();
+    append_notification_messages(messages, ctx.current_messages, ctx.new_turn_messages);
+    delivered
 }
 
-fn drain_background_to_context(owner: &str, ctx: &mut RunnerStepContext<'_>) -> bool {
-    let notifs = crate::engine::runner::turn::types::drain_background_notifications(owner);
-    if notifs.is_empty() {
-        return false;
-    }
-    append_notification_messages(notifs, ctx.current_messages, ctx.new_turn_messages);
-    true
-}
-
-async fn drain_steering_to_context(
-    steering: Option<&Arc<dyn SteeringQueueProvider>>,
-    ctx: &mut RunnerStepContext<'_>,
-) -> bool {
-    let Some(provider) = steering else {
-        return false;
-    };
-    let steered = provider.poll_steering().await;
-    if steered.is_empty() {
-        return false;
-    }
-    append_notification_messages(steered, ctx.current_messages, ctx.new_turn_messages);
-    true
-}
-
-async fn wait_for_background_events(
-    notif_rx: &mut tokio::sync::broadcast::Receiver<String>,
-    cancellation: Option<&CancellationSignal>,
-) -> Result<(), AppError> {
+/// Waits for a message, a cancellation, or a short tick (a job can end without sending anything).
+async fn wait_for_message(runner: &AgentRunner) -> Result<(), AppError> {
     tokio::select! {
-        _ = notif_rx.recv() => Ok(()),
-        _ = async {
-            match cancellation {
+        () = async {
+            match &runner.inbox {
+                Some(inbox) => inbox.wait().await,
+                None => std::future::pending::<()>().await,
+            }
+        } => Ok(()),
+        () = async {
+            match runner.cancellation.as_ref() {
                 Some(c) => c.wait_cancelled().await,
                 None => std::future::pending::<()>().await,
             }
         } => Err(AppError::Cancelled("operator interrupt".to_string())),
-        _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(()),
+        () = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(()),
     }
 }
 
@@ -491,27 +482,22 @@ enum WaitStepResult {
     ContinueWaiting,
 }
 
-async fn wait_step(
-    runner: &AgentRunner,
-    notif_rx: &mut tokio::sync::broadcast::Receiver<String>,
-    ctx: &mut RunnerStepContext<'_>,
-) -> Result<WaitStepResult, AppError> {
+async fn wait_step(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> Result<WaitStepResult, AppError> {
     if runner.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
         return Err(AppError::Cancelled("operator interrupt".to_string()));
     }
-
-    let owner = runner.store.owner();
-    if drain_background_to_context(owner, ctx) || drain_steering_to_context(runner.steering.as_ref(), ctx).await {
+    if deliver_messages(runner, ctx).await {
         return Ok(WaitStepResult::EventDelivered);
     }
-
-    wait_for_background_events(notif_rx, runner.cancellation.as_ref()).await?;
-    if drain_background_to_context(owner, ctx) {
+    wait_for_message(runner).await?;
+    if deliver_messages(runner, ctx).await {
         return Ok(WaitStepResult::EventDelivered);
     }
     Ok(WaitStepResult::ContinueWaiting)
 }
 
+/// Before a turn ends: delivers waiting messages, and while the agent's background jobs run, waits
+/// for their notices. Returns whether anything arrived, so the agent continues instead of finishing.
 async fn wait_for_background_jobs(
     runner: &AgentRunner,
     ctx: &mut RunnerStepContext<'_>,
@@ -520,22 +506,20 @@ async fn wait_for_background_jobs(
     let owner = runner.store.owner();
     let jobs = crate::tools::jobs::JobManager::global();
     if !jobs.has_running(owner) {
-        return Ok(drain_background_to_context(owner, ctx));
+        return Ok(deliver_messages(runner, ctx).await);
     }
 
     emitter.wait_for_display_drain().await?;
     runner.sink.resume_spinner_with_message("waiting...");
-    let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
-
     while jobs.has_running(owner) {
-        if let WaitStepResult::EventDelivered = wait_step(runner, &mut notif_rx, ctx).await? {
+        if let WaitStepResult::EventDelivered = wait_step(runner, ctx).await? {
             runner.sink.resume_spinner_with_message("thinking...");
             return Ok(true);
         }
     }
 
     runner.sink.resume_spinner_with_message("thinking...");
-    Ok(drain_background_to_context(owner, ctx))
+    Ok(deliver_messages(runner, ctx).await)
 }
 
 struct RunnerStepContext<'a> {
@@ -673,7 +657,8 @@ async fn execute_agent_step(
     }
 
     if outcome.tool_calls.is_empty() {
-        if wait_for_background_jobs(runner, ctx, emitter).await? {
+        let last_turn = turn >= runner.budget;
+        if !last_turn && wait_for_background_jobs(runner, ctx, emitter).await? {
             return Ok(StepExecutionResult::Continue);
         }
         if empty {
@@ -689,13 +674,7 @@ async fn execute_agent_step(
     }
 
     dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await?;
-    check_steering(
-        runner.store.owner(),
-        runner.steering.as_ref(),
-        ctx.current_messages,
-        ctx.new_turn_messages,
-    )
-    .await;
+    deliver_messages(runner, ctx).await;
     Ok(StepExecutionResult::Continue)
 }
 

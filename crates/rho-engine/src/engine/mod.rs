@@ -101,6 +101,12 @@ impl AgentEngine {
         self.subagent_runtime.message_from_user(task_id, text)
     }
 
+    /// The top-level agent's mailbox: background notices and messages from its subagents wait here
+    /// until a turn reads them, or the idle prompt hands them to the agent.
+    pub fn inbox(&self) -> crate::mailbox::Mailbox {
+        self.subagent_runtime.inbox(&self.session_manager.session_id)
+    }
+
     /// Asks subagent task `task_id`'s running round to stop and save its work; `false` when none runs.
     pub fn stop_subagent(&self, task_id: &str) -> bool {
         self.subagent_runtime.stop(task_id)
@@ -132,13 +138,15 @@ impl AgentEngine {
             .as_ref()
             .ok_or_else(|| "workflows are not available in this session".to_string())?;
         let project = self.project_context().await.ok().map(Arc::new);
-        Ok(runner.bind(
+        Ok(runner.bind(&crate::tools::engine_tool::TurnToolContext {
+            cancellation: Some(cancellation),
             progress,
-            cancellation,
-            Some(self.agent_monitor.clone()),
+            monitor: Some(self.agent_monitor.clone()),
             project,
-            Some(self.session_manager.clone()),
-        ))
+            session: Some(self.session_manager.clone()),
+            inbox: Some(self.inbox()),
+            ..Default::default()
+        }))
     }
 
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {

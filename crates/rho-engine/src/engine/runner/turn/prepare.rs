@@ -240,6 +240,7 @@ impl AgentEngine {
             .budget(params.budget)
             .stream_port(params.stream_port)
             .steering(request.steering.clone())
+            .inbox(Some(self.inbox()))
             .monitor(Some(self.agent_monitor.clone()))
             .project_context(self.project_context().await.ok().map(Arc::new))
             .worktrees(self.worktrees.clone())

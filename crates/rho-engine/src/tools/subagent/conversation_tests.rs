@@ -125,12 +125,13 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
         text("Second pass found nothing new."),
     ]);
     let jobs = crate::tools::jobs::JobManager::new();
-    let (tx, mut notices) = tokio::sync::mpsc::unbounded_channel();
-    let background = super::super::background::Backgrounding::new(
-        jobs.clone(),
-        Arc::new(move |owner, notice| drop(tx.send((owner.to_string(), notice)))),
-        std::time::Duration::from_secs(60),
-    );
+    let background = super::super::background::Backgrounding::new(jobs.clone(), std::time::Duration::from_secs(60));
+    let parent_inbox = background.inbox(&owner);
+    let next_notice = || async {
+        parent_inbox.wait().await;
+        let first = parent_inbox.take().remove(0);
+        (first.to, first.body)
+    };
     let ctx = TurnToolContext {
         session: Some(session),
         ..Default::default()
@@ -169,7 +170,7 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
     assert!(inspected.contains("still running in the background"), "{inspected}");
 
     release.notify_one();
-    let (notice_owner, notice) = notices.recv().await.unwrap();
+    let (notice_owner, notice) = next_notice().await;
     assert_eq!(
         notice_owner, owner,
         "the notice is for the session that started the task"
@@ -188,7 +189,7 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
 
     let mut again = ask(&tool, json!({ "task_id": id, "prompt": "again" })).await;
     if again.contains("moved to the background") {
-        again = notices.recv().await.unwrap().1;
+        again = next_notice().await.1;
     }
     assert!(again.contains("Second pass found nothing new."), "{again}");
 }

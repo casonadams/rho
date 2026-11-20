@@ -1,6 +1,5 @@
-use crate::engine::runner::turn::types::{
-    CancellationSignal, discard_background_notifications, enqueue_background_notification,
-};
+use crate::engine::runner::turn::types::CancellationSignal;
+use crate::mailbox::{Envelope, Kind, Mailboxes, Party};
 use crate::tools::bash::runner::neutralize_notice_tags;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -34,22 +33,9 @@ struct Registry {
     finished: VecDeque<String>,
 }
 
-/// Delivers a finished job's notice to the session that owns it.
-pub(crate) type Notifier = Arc<dyn Fn(&str, String) + Send + Sync>;
-
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct JobManager {
     registry: Arc<Mutex<Registry>>,
-    deliver: Notifier,
-}
-
-impl Default for JobManager {
-    fn default() -> Self {
-        Self {
-            registry: Arc::default(),
-            deliver: Arc::new(enqueue_background_notification),
-        }
-    }
 }
 
 /// A job's notice: `heading`, then any output it produced, framed as untrusted data.
@@ -71,6 +57,9 @@ pub(crate) fn job_notice(heading: &str, output: Option<&str>) -> String {
 pub(crate) struct JobCompletion {
     jobs: JobManager,
     id: String,
+    owner: String,
+    /// Where the owner's notice goes; `None` for a job nobody is told about.
+    deliver: Option<Mailboxes>,
     cancel: CancellationSignal,
     finished: bool,
 }
@@ -85,11 +74,14 @@ impl JobCompletion {
         &self.cancel
     }
 
-    /// Records `status`; `notice` reaches the owner unless the job was stopped.
+    /// Records `status`; `notice` reaches the owner's mailbox unless the job was stopped. The notice
+    /// is sent before the job stops counting as running, so a waiting turn cannot miss it.
     pub(crate) fn finish(mut self, status: JobStatus, notice: Option<String>) {
         self.finished = true;
-        let notice = notice.filter(|_| !self.cancel.is_cancelled());
-        self.jobs.complete(&self.id, status, notice);
+        if let (Some(deliver), Some(notice)) = (&self.deliver, notice.filter(|_| !self.cancel.is_cancelled())) {
+            let _ = deliver.send(Envelope::new(Party::System, self.owner.clone(), Kind::Event, notice));
+        }
+        self.jobs.update_status(&self.id, status);
     }
 }
 
@@ -97,7 +89,7 @@ impl Drop for JobCompletion {
     fn drop(&mut self) {
         if !self.finished {
             let error = "stopped unexpectedly before reporting a result".to_string();
-            self.jobs.complete(&self.id, JobStatus::Failed { error }, None);
+            self.jobs.update_status(&self.id, JobStatus::Failed { error });
         }
     }
 }
@@ -126,13 +118,6 @@ impl JobManager {
         Self::default()
     }
 
-    /// Sends finished jobs' notices through `deliver` instead of the session notification queues.
-    #[cfg(test)]
-    pub(crate) fn delivering_to(mut self, deliver: Notifier) -> Self {
-        self.deliver = deliver;
-        self
-    }
-
     fn lock(&self) -> MutexGuard<'_, Registry> {
         self.registry.lock().unwrap_or_else(|p| p.into_inner())
     }
@@ -157,12 +142,15 @@ impl JobManager {
         cancel
     }
 
-    /// Registers a running job for `owner` and returns the handle that must finish it.
-    pub(crate) fn start(&self, owner: &str, id: String, command: String) -> JobCompletion {
+    /// Registers a running job for `owner` and returns the handle that must finish it; its notice
+    /// goes to `owner`'s mailbox in `deliver`.
+    pub(crate) fn start(&self, owner: &str, deliver: Option<Mailboxes>, id: String, command: String) -> JobCompletion {
         let cancel = self.register(owner, id.clone(), command);
         JobCompletion {
             jobs: self.clone(),
             id,
+            owner: owner.to_string(),
+            deliver,
             cancel,
             finished: false,
         }
@@ -222,22 +210,11 @@ impl JobManager {
             cancel.cancel();
         }
     }
-
-    /// Queues the notice for the owner before the job stops counting as running, so a waiting turn
-    /// that sees it done cannot miss the notice.
-    pub fn complete(&self, id: &str, status: JobStatus, notice: Option<String>) {
-        let owner = self.get(id).map(|job| job.owner);
-        if let (Some(owner), Some(notice)) = (owner, notice) {
-            (self.deliver)(&owner, notice);
-        }
-        self.update_status(id, status);
-    }
 }
 
-/// Stops a no-longer-active session's background work and drops its pending notices.
+/// Stops a no-longer-active session's background work. Its undelivered notices go with its mailbox.
 pub fn abandon_background_work(owner: &str) {
     JobManager::global().cancel_owner(owner);
-    discard_background_notifications(owner);
 }
 
 #[cfg(test)]
@@ -270,7 +247,7 @@ mod tests {
     #[tokio::test]
     async fn a_job_whose_task_dies_before_reporting_stops_blocking_its_session() {
         let mgr = JobManager::new();
-        let job = mgr.start("panicking-owner", "p1".into(), "cmd".into());
+        let job = mgr.start("panicking-owner", None, "p1".into(), "cmd".into());
         let task = tokio::spawn(async move {
             let _job = job;
             panic!("task died");
@@ -285,19 +262,26 @@ mod tests {
     }
 
     #[test]
-    fn a_finished_jobs_notice_is_withheld_once_the_job_was_told_to_stop() {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mgr = JobManager::new().delivering_to(Arc::new(move |owner, notice| {
-            drop(tx.send(format!("{owner}:{notice}")))
-        }));
-        mgr.start("o", "kept".into(), "cmd".into())
+    fn a_finished_jobs_notice_reaches_its_owners_mailbox_unless_the_job_was_told_to_stop() {
+        let boxes = Mailboxes::default();
+        let inbox = boxes.open("o", None);
+        let mgr = JobManager::new();
+        mgr.start("o", Some(boxes.clone()), "kept".into(), "cmd".into())
             .finish(done(0, "ok"), Some("kept notice".into()));
-        let stopped = mgr.start("o", "stopped".into(), "cmd".into());
+        let stopped = mgr.start("o", Some(boxes.clone()), "stopped".into(), "cmd".into());
         mgr.cancel_owner("o");
         stopped.finish(done(0, "ok"), Some("stale notice".into()));
+        mgr.start("gone", Some(boxes), "orphan".into(), "cmd".into())
+            .finish(done(0, "ok"), Some("nobody listens".into()));
 
-        assert_eq!(rx.try_iter().collect::<Vec<_>>(), ["o:kept notice"]);
-        assert!(!mgr.has_running("o"));
+        let notices = inbox.take();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(
+            (notices[0].body.as_str(), notices[0].kind),
+            ("kept notice", Kind::Event)
+        );
+        assert_eq!(notices[0].from, Party::System);
+        assert!(!mgr.has_running("o") && !mgr.has_running("gone"));
     }
 
     #[test]
@@ -343,41 +327,15 @@ mod tests {
     }
 
     #[test]
-    fn completing_a_job_queues_its_notice_for_its_owner_before_it_stops_running() {
-        let mgr = JobManager::new();
-        let mut wakeups = crate::engine::runner::turn::types::subscribe_background_notifications();
-        mgr.register("complete-owner", "c1".into(), "cmd".into());
-        mgr.register("complete-owner", "c2".into(), "cmd".into());
-
-        mgr.complete("c1", done(0, "ok"), Some("c1 finished".into()));
-        mgr.complete("c2", JobStatus::Failed { error: "x".into() }, None);
-
-        assert!(!mgr.has_running("complete-owner"));
-        assert!(std::iter::from_fn(|| wakeups.try_recv().ok()).any(|owner| owner == "complete-owner"));
-        assert_eq!(
-            crate::engine::runner::turn::types::drain_background_notifications("complete-owner"),
-            ["c1 finished"]
-        );
-        assert!(crate::engine::runner::turn::types::drain_background_notifications("complete-owner").is_empty());
-    }
-
-    #[test]
-    fn abandoning_a_session_cancels_its_jobs_and_drops_its_notices_but_not_another_sessions() {
+    fn abandoning_a_session_cancels_only_its_jobs() {
         let global = JobManager::global();
         let gone = global.register("abandon-gone", "abandon-job-gone".into(), "sleep".into());
         let kept = global.register("abandon-kept", "abandon-job-kept".into(), "sleep".into());
-        enqueue_background_notification("abandon-gone", "stale".into());
-        enqueue_background_notification("abandon-kept", "fresh".into());
 
         abandon_background_work("abandon-gone");
 
         assert!(gone.is_cancelled());
         assert!(!kept.is_cancelled());
-        assert!(crate::engine::runner::turn::types::drain_background_notifications("abandon-gone").is_empty());
-        assert_eq!(
-            crate::engine::runner::turn::types::drain_background_notifications("abandon-kept"),
-            ["fresh"]
-        );
         global.update_status("abandon-job-gone", done(0, ""));
         global.update_status("abandon-job-kept", done(0, ""));
     }

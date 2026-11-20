@@ -187,7 +187,7 @@ pub struct SubagentRunner {
     parent_channel: bool,
     /// Runs in its own worktree, where nothing else writes.
     isolated: bool,
-    inbox: Option<super::background::Inbox>,
+    inbox: Option<crate::mailbox::Mailbox>,
     /// The saved task the round belongs to, shown with it in the agent view.
     task_id: Option<String>,
 }
@@ -457,7 +457,7 @@ impl SubagentRunner {
 
     /// Reads messages the delegating agent sends while the round runs.
     #[must_use]
-    pub(crate) fn with_inbox(mut self, inbox: super::background::Inbox) -> Self {
+    pub(crate) fn with_inbox(mut self, inbox: crate::mailbox::Mailbox) -> Self {
         self.inbox = Some(inbox);
         self
     }
@@ -477,20 +477,18 @@ impl SubagentRunner {
 
     /// Adds queued messages (from the delegating agent or the user) to the conversation; `true` if any.
     fn deliver_messages(&self, state: &mut RunState) -> bool {
-        let messages = self
-            .inbox
-            .as_ref()
-            .map(super::background::Inbox::take_messages)
-            .unwrap_or_default();
+        let Some(inbox) = &self.inbox else {
+            return false;
+        };
+        let messages = inbox.take();
+        let parent = inbox.parent();
         for message in &messages {
             if let Some(tracker) = &state.tracker {
-                tracker.event(AgentEvent::Task(message.text.clone()));
+                tracker.event(AgentEvent::Task(message.body.clone()));
             }
-            state.messages.push(ChatMessage::user(format!(
-                "{}:\n{}",
-                message.from.heading(),
-                message.text.trim()
-            )));
+            state
+                .messages
+                .push(ChatMessage::user(message.for_model(parent.as_deref())));
         }
         !messages.is_empty()
     }

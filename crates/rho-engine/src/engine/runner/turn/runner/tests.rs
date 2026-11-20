@@ -41,7 +41,8 @@ fn test_agent_env_with(
         run_tracker: Default::default(),
     };
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
-    let runner = AgentRunner::new(model, Vec::new(), sm, sink);
+    let inbox = crate::mailbox::Mailboxes::default().open(&sm.session_id, None);
+    let runner = AgentRunner::new(model, Vec::new(), sm, sink).inbox(Some(inbox));
     (
         runner,
         temp,
@@ -51,6 +52,20 @@ fn test_agent_env_with(
 }
 
 use crate::engine::runner::turn::types::BACKGROUND_QUEUE_TEST_LOCK;
+
+/// Posts a system notice to agent `to` through the test runner's mailbox registry.
+fn notify(runner: &AgentRunner, to: &str, body: &str) {
+    let inbox = runner.inbox.as_ref().expect("test runners have a mailbox");
+    inbox
+        .registry()
+        .send(crate::mailbox::Envelope::new(
+            crate::mailbox::Party::System,
+            to,
+            crate::mailbox::Kind::Event,
+            body,
+        ))
+        .unwrap();
+}
 
 fn acking_emitter() -> TurnEmitter {
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
@@ -123,10 +138,10 @@ async fn test_wait_for_background_jobs_flow() {
     let emitter = acking_emitter();
 
     assert!(!wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
-    crate::tools::jobs::JobManager::global().register(&owner, "bg-1".into(), "echo 1".into());
-    tokio::spawn(async {
-        crate::tools::jobs::JobManager::global().complete(
-            "bg-1",
+    let registry = runner.inbox.as_ref().map(|inbox| inbox.registry().clone());
+    let job = crate::tools::jobs::JobManager::global().start(&owner, registry, "bg-1".into(), "echo 1".into());
+    tokio::spawn(async move {
+        job.finish(
             crate::tools::jobs::JobStatus::Completed {
                 exit_code: 0,
                 output: "ok".into(),
@@ -154,8 +169,14 @@ async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work(
     let emitter = acking_emitter();
     let jobs = crate::tools::jobs::JobManager::global();
     let elsewhere = jobs.register("other-session-3f1", "other-job-3f1".into(), "sleep".into());
-    crate::engine::runner::turn::types::enqueue_background_notification("other-session-3f1", "other-notice-3f1".into());
-    crate::engine::runner::turn::types::enqueue_background_notification(&owner, "own-notice-3f1".into());
+    let other_inbox = runner
+        .inbox
+        .as_ref()
+        .unwrap()
+        .registry()
+        .open("other-session-3f1", None);
+    notify(&runner, "other-session-3f1", "other-notice-3f1");
+    notify(&runner, &owner, "own-notice-3f1");
 
     let delivered = tokio::time::timeout(
         std::time::Duration::from_secs(2),
@@ -171,10 +192,7 @@ async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work(
     assert!(!messages.contains("other-notice-3f1"), "{messages}");
     assert!(!elsewhere.is_cancelled(), "another session's work is left alone");
     assert!(jobs.has_running("other-session-3f1"));
-    assert_eq!(
-        crate::engine::runner::turn::types::drain_background_notifications("other-session-3f1"),
-        ["other-notice-3f1"]
-    );
+    assert_eq!(other_inbox.take()[0].body, "other-notice-3f1");
     jobs.update_status(
         "other-job-3f1",
         crate::tools::jobs::JobStatus::Failed { error: "done".into() },
@@ -187,9 +205,10 @@ async fn a_job_that_finished_before_the_turn_ended_still_delivers_its_notificati
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
-    crate::engine::runner::turn::types::enqueue_background_notification(
-        &runner.session_manager.session_id,
-        "finished-early-4c2".into(),
+    notify(
+        &runner,
+        &runner.session_manager.session_id.clone(),
+        "finished-early-4c2",
     );
 
     assert!(wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
@@ -736,6 +755,45 @@ async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_
     assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
 }
 
+#[tokio::test]
+async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on_its_last_turn() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    for (budget, expected_requests) in [(5, 2), (1, 1)] {
+        let model = Arc::new(MockAdapter::from_turns(vec![
+            vec![ModelStreamEvent::Text("first answer".into())],
+            vec![ModelStreamEvent::Text("revised answer".into())],
+        ]));
+        let (runner, _temp, _, _) = test_agent_env(model.clone());
+        let owner = runner.session_manager.session_id.clone();
+        let runner = runner.prompt("review").budget(budget);
+        let inbox = runner.inbox.clone().unwrap();
+        inbox
+            .registry()
+            .send(crate::mailbox::Envelope::new(
+                crate::mailbox::Party::User,
+                owner,
+                crate::mailbox::Kind::Command,
+                "also check the tests",
+            ))
+            .unwrap();
+
+        run_agent_loop(runner, &acking_emitter()).await.unwrap();
+
+        let requests = model.requests();
+        assert_eq!(requests.len(), expected_requests, "budget {budget}");
+        if budget > 1 {
+            let sent = serde_json::to_string(&requests[1].messages).unwrap();
+            assert!(
+                sent.contains("first answer") && sent.contains("also check the tests"),
+                "{sent}"
+            );
+            assert_eq!(inbox.pending(), 0);
+        } else {
+            assert_eq!(inbox.pending(), 1, "the last turn leaves the message waiting");
+        }
+    }
+}
+
 #[test]
 fn retry_delay_honors_provider_waits_up_to_the_cap() {
     use std::time::Duration;
@@ -806,16 +864,22 @@ async fn background_notification_is_injected_once_when_woken() {
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let owner = runner.session_manager.session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
-    let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
-    let enqueue_owner = owner.clone();
+    let registry = runner.inbox.as_ref().unwrap().registry().clone();
     let enqueue = tokio::spawn(async move {
         tokio::task::yield_now().await;
-        crate::engine::runner::turn::types::enqueue_background_notification(&enqueue_owner, "bg-once-7d1".to_string());
+        registry
+            .send(crate::mailbox::Envelope::new(
+                crate::mailbox::Party::System,
+                owner,
+                crate::mailbox::Kind::Event,
+                "bg-once-7d1",
+            ))
+            .unwrap();
     });
 
-    let step = wait_step(&runner, &mut notif_rx, &mut ctx).await.unwrap();
+    let step = wait_step(&runner, &mut ctx).await.unwrap();
     enqueue.await.unwrap();
-    drain_background_to_context(&owner, &mut ctx);
+    deliver_messages(&runner, &mut ctx).await;
 
     assert!(matches!(step, WaitStepResult::EventDelivered));
     assert_eq!(

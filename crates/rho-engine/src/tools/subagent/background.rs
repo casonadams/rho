@@ -1,5 +1,6 @@
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
+use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
 use crate::tools::bash::runner::neutralize_notice_tags;
 use crate::tools::jobs::{JobManager, JobStatus, job_notice};
 use crate::tools::types::ToolResult;
@@ -7,7 +8,7 @@ use rho_harness_core::presentation::{ToolStreamPort, ToolStreamSink};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tokio::task::{AbortHandle, JoinHandle};
 
@@ -17,13 +18,15 @@ const MAX_ACTIVE_ROUNDS: usize = 8;
 /// Longest subagent result placed in a completion notice; the full record stays in the session.
 const MAX_NOTICE_BYTES: usize = 20_000;
 
-/// Subagent state that must survive rebuilding the engine's tools for the same session (a model or
-/// login change): which conversations are busy, running rounds' inboxes, and the round count.
+/// Agent state that must survive rebuilding the engine's tools for the same session (a model or
+/// login change): the mailboxes, which conversations are busy, the running rounds, and their count.
 #[derive(Clone, Default)]
 pub struct SubagentRuntime {
     busy: super::conversation::BusyContexts,
-    inboxes: Inboxes,
+    open: OpenRounds,
     rounds: Arc<Rounds>,
+    mailboxes: Mailboxes,
+    root: Arc<Mutex<Option<Mailbox>>>,
 }
 
 impl SubagentRuntime {
@@ -36,15 +39,33 @@ impl SubagentRuntime {
         Arc::ptr_eq(&self.rounds, &other.rounds)
     }
 
+    /// The mailbox of the top-level agent `owner` (its session id), opened on first use and kept, so
+    /// notices for it wait while no turn runs.
+    pub fn inbox(&self, owner: &str) -> Mailbox {
+        root_inbox(&self.root, &self.mailboxes, owner)
+    }
+
     /// Queues a message the user typed for task `task_id`'s running round; `false` if none is running.
     pub fn message_from_user(&self, task_id: &str, text: &str) -> bool {
-        self.inboxes.send(task_id, Sender::User, text)
+        self.mailboxes
+            .send(Envelope::new(Party::User, task_id, Kind::Command, text))
+            .is_ok()
     }
 
     /// Asks task `task_id`'s running round to stop and save what it has; `false` if none is running.
     pub fn stop(&self, task_id: &str) -> bool {
-        self.inboxes.stop(task_id)
+        self.open.stop(task_id)
     }
+}
+
+fn root_inbox(root: &Mutex<Option<Mailbox>>, mailboxes: &Mailboxes, owner: &str) -> Mailbox {
+    let mut root = root.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(inbox) = root.as_ref().filter(|inbox| inbox.id() == owner) {
+        return inbox.clone();
+    }
+    let inbox = mailboxes.open(owner, None);
+    *root = Some(inbox.clone());
+    inbox
 }
 
 /// Runs subagent rounds in the foreground up to a time budget, then moves them to the background.
@@ -52,8 +73,10 @@ impl SubagentRuntime {
 pub(crate) struct Backgrounding {
     jobs: JobManager,
     budget: Duration,
-    inboxes: Inboxes,
+    open: OpenRounds,
     rounds: Arc<Rounds>,
+    mailboxes: Mailboxes,
+    root: Arc<Mutex<Option<Mailbox>>>,
 }
 
 impl Default for Backgrounding {
@@ -61,139 +84,76 @@ impl Default for Backgrounding {
         Self {
             jobs: JobManager::global().clone(),
             budget: Duration::from_secs(DEFAULT_FOREGROUND_SECONDS),
-            inboxes: Inboxes::default(),
+            open: OpenRounds::default(),
             rounds: Arc::default(),
+            mailboxes: Mailboxes::default(),
+            root: Arc::default(),
         }
     }
 }
 
-/// Who sent a message to a running round.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Sender {
-    DelegatingAgent,
-    User,
-}
-
-impl Sender {
-    pub(crate) fn heading(self) -> &'static str {
-        match self {
-            Self::DelegatingAgent => "Message from the delegating agent",
-            Self::User => "Message from the user",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InboxMessage {
-    pub from: Sender,
-    pub text: String,
-}
-
-/// Messages sent to a running round; the subagent reads them before its next model call.
-#[derive(Clone, Default)]
-pub(crate) struct Inbox(Arc<Mutex<Vec<InboxMessage>>>);
-
-impl Inbox {
-    fn lock(&self) -> MutexGuard<'_, Vec<InboxMessage>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn push(&self, message: &str) {
-        self.push_from(Sender::DelegatingAgent, message);
-    }
-
-    pub(crate) fn push_from(&self, from: Sender, text: &str) {
-        self.lock().push(InboxMessage {
-            from,
-            text: text.to_string(),
-        });
-    }
-
-    pub(crate) fn take_messages(&self) -> Vec<InboxMessage> {
-        std::mem::take(&mut *self.lock())
-    }
-
-    pub(crate) fn take(&self) -> Vec<String> {
-        self.take_messages().into_iter().map(|m| m.text).collect()
-    }
-}
-
-/// A running round's inbox, the settings its task runs with, and the signal that stops it.
+/// A running round's mailbox, the settings its task runs with, and the signal that stops it.
 struct OpenRound {
-    inbox: Inbox,
+    mailbox: Mailbox,
     settings: ConversationSettings,
     stop: CancellationSignal,
 }
 
-/// The running rounds by task id. A closed inbox accepts nothing more.
+/// The running rounds by task id.
 #[derive(Clone, Default)]
-struct Inboxes(Arc<Mutex<HashMap<String, OpenRound>>>);
+struct OpenRounds(Arc<Mutex<HashMap<String, OpenRound>>>);
 
-impl Inboxes {
+impl OpenRounds {
     fn lock(&self) -> MutexGuard<'_, HashMap<String, OpenRound>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn open(&self, task_id: &str, settings: ConversationSettings, stop: CancellationSignal) -> Inbox {
-        let inbox = Inbox::default();
-        let round = OpenRound {
-            inbox: inbox.clone(),
-            settings,
-            stop,
-        };
+    fn insert(&self, task_id: &str, round: OpenRound) {
         self.lock().insert(task_id.to_string(), round);
-        inbox
     }
 
     fn settings(&self, task_id: &str) -> Option<ConversationSettings> {
         self.lock().get(task_id).map(|round| round.settings.clone())
     }
 
+    fn mailbox(&self, task_id: &str) -> Option<Mailbox> {
+        self.lock().get(task_id).map(|round| round.mailbox.clone())
+    }
+
     /// Asks task `task_id`'s running round to stop; `false` if none is running.
     fn stop(&self, task_id: &str) -> bool {
-        let inboxes = self.lock();
-        let Some(round) = inboxes.get(task_id) else {
+        let rounds = self.lock();
+        let Some(round) = rounds.get(task_id) else {
             return false;
         };
         round.stop.cancel();
         true
     }
 
-    fn send(&self, task_id: &str, from: Sender, message: &str) -> bool {
-        let inboxes = self.lock();
-        let Some(round) = inboxes.get(task_id) else {
-            return false;
-        };
-        round.inbox.push_from(from, message);
-        true
-    }
-
-    /// Closes `inbox` if it is still the task's open one, returning the messages the round never read.
-    fn close(&self, task_id: &str, inbox: &Inbox) -> Vec<String> {
-        let mut inboxes = self.lock();
-        if inboxes
-            .get(task_id)
-            .is_some_and(|round| Arc::ptr_eq(&round.inbox.0, &inbox.0))
-        {
-            inboxes.remove(task_id);
+    /// Forgets `mailbox`'s round if it is still the task's open one, closes the mailbox, and returns
+    /// the messages the round never read.
+    fn close(&self, task_id: &str, mailbox: Mailbox) -> Vec<String> {
+        let mut rounds = self.lock();
+        if rounds.get(task_id).is_some_and(|round| round.mailbox.same(&mailbox)) {
+            rounds.remove(task_id);
         }
-        inbox.take()
+        drop(rounds);
+        mailbox.close().into_iter().map(|m| m.body).collect()
     }
 }
 
-/// A round's inbox, closed when the round ends or is aborted.
+/// A round's mailbox, closed when the round ends or is aborted.
 struct OpenInbox {
-    inboxes: Inboxes,
+    open: OpenRounds,
     task_id: String,
-    inbox: Option<Inbox>,
+    mailbox: Option<Mailbox>,
 }
 
 impl OpenInbox {
     fn close(&mut self) -> Vec<String> {
-        self.inbox
+        self.mailbox
             .take()
-            .map(|inbox| self.inboxes.close(&self.task_id, &inbox))
+            .map(|mailbox| self.open.close(&self.task_id, mailbox))
             .unwrap_or_default()
     }
 }
@@ -228,11 +188,11 @@ pub(crate) struct BackgroundTask<'a> {
     pub settings: ConversationSettings,
 }
 
-/// What a running round works with: where to stream progress, the inbox of messages sent to it,
-/// and the signal asking it to stop (fired when its turn is interrupted or its session ends).
+/// What a running round works with: where to stream progress, its mailbox, and the signal asking it
+/// to stop (fired when its turn is interrupted or its session ends).
 pub(crate) struct RoundIo {
     pub progress: ToolStreamPort,
-    pub inbox: Inbox,
+    pub inbox: Mailbox,
     pub stop: CancellationSignal,
 }
 
@@ -365,31 +325,43 @@ impl Backgrounding {
     /// Counts rounds and routes messages through `runtime`, shared with other tools of the session.
     #[must_use]
     pub(crate) fn sharing(mut self, runtime: &SubagentRuntime) -> Self {
-        self.inboxes = runtime.inboxes.clone();
+        self.open = runtime.open.clone();
         self.rounds = runtime.rounds.clone();
+        self.mailboxes = runtime.mailboxes.clone();
+        self.root = runtime.root.clone();
         self
     }
 
     #[cfg(test)]
-    pub(crate) fn new(jobs: JobManager, notify: crate::tools::jobs::Notifier, budget: Duration) -> Self {
+    pub(crate) fn new(jobs: JobManager, budget: Duration) -> Self {
         Self {
-            jobs: jobs.delivering_to(notify),
+            jobs,
             budget,
-            inboxes: Inboxes::default(),
-            rounds: Arc::default(),
+            ..Self::default()
         }
+    }
+
+    /// The mailbox of the top-level agent `owner`, where finished background rounds report.
+    #[cfg(test)]
+    pub(crate) fn inbox(&self, owner: &str) -> Mailbox {
+        root_inbox(&self.root, &self.mailboxes, owner)
     }
 
     /// What task `task_id` runs as while one of its rounds is running.
     pub(crate) fn running_settings(&self, task_id: &str) -> Option<ConversationSettings> {
-        self.inboxes.settings(task_id)
+        self.open.settings(task_id)
     }
 
-    /// Queues `message` for task `task_id` if one of its rounds is running, returning the confirmation.
+    /// Queues `message` from the delegating agent for task `task_id` if one of its rounds is running,
+    /// returning the confirmation.
     pub(crate) fn steer(&self, task_id: &str, message: &str) -> Option<String> {
-        self.inboxes.send(task_id, Sender::DelegatingAgent, message).then(|| {
-            format!("Message queued for running subagent task '{task_id}'; it reads it before its next model call.")
-        })
+        let parent = self.open.mailbox(task_id)?.parent()?;
+        self.mailboxes
+            .send(Envelope::new(Party::Agent(parent), task_id, Kind::Command, message))
+            .ok()
+            .map(|()| {
+                format!("Message queued for running subagent task '{task_id}'; it reads it before its next model call.")
+            })
     }
 
     /// A message for task `task_id` while its round still runs in the background, otherwise `None`.
@@ -419,11 +391,20 @@ impl Backgrounding {
             open: open.clone(),
         })));
         let stop = CancellationSignal::default();
-        let inbox = self.inboxes.open(task.id, task.settings.clone(), stop.clone());
+        root_inbox(&self.root, &self.mailboxes, task.owner);
+        let inbox = self.mailboxes.open(task.id, Some(task.owner));
+        self.open.insert(
+            task.id,
+            OpenRound {
+                mailbox: inbox.clone(),
+                settings: task.settings.clone(),
+                stop: stop.clone(),
+            },
+        );
         let mut open_inbox = OpenInbox {
-            inboxes: self.inboxes.clone(),
+            open: self.open.clone(),
             task_id: task.id.to_string(),
-            inbox: Some(inbox.clone()),
+            mailbox: Some(inbox.clone()),
         };
         let forward_turn_stop = AbortOnDrop(task.cancellation.clone().map(|turn| {
             let stop = stop.clone();
@@ -459,7 +440,12 @@ impl Backgrounding {
     /// Tracks a round that moved to the background. Stopping its job asks the round to stop so it can
     /// save its transcript, and aborts it only if it has not finished after `STOP_GRACE`.
     fn detach(&self, mut handle: JoinHandle<ToolResult>, task: &BackgroundTask<'_>, stop: CancellationSignal) {
-        let job = self.jobs.start(task.owner, task.id.to_string(), task.label.clone());
+        let job = self.jobs.start(
+            task.owner,
+            Some(self.mailboxes.clone()),
+            task.id.to_string(),
+            task.label.clone(),
+        );
         let cancellation = task.cancellation.clone();
         tokio::spawn(async move {
             let result = tokio::select! {

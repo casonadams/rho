@@ -6,12 +6,10 @@ mod report;
 #[cfg(test)]
 mod tests;
 
-use crate::engine::runner::turn::types::CancellationSignal;
 use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
 use executor::{Executor, Frame};
 use report::RunLog;
-use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::workflow::{AgentNode, ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -89,27 +87,11 @@ impl WorkflowRunner {
         }
     }
 
+    /// Binds the workflow's agents to `ctx`: its cancellation, progress, monitor, session, and mailbox.
     #[must_use]
-    pub fn bind(
-        &self,
-        progress: ToolStreamPort,
-        cancellation: CancellationSignal,
-        monitor: Option<rho_harness_core::agents::AgentMonitor>,
-        project: Option<std::sync::Arc<crate::engine::context::ProjectContext>>,
-        session: Option<rho_harness_core::session::SessionManager>,
-    ) -> Self {
-        let ctx = TurnToolContext {
-            permission: None,
-            lifecycle: None,
-            cancellation: Some(cancellation),
-            progress,
-            parent_history: std::sync::Arc::from(Vec::new()),
-            monitor,
-            project,
-            session,
-        };
+    pub fn bind(&self, ctx: &TurnToolContext) -> Self {
         Self {
-            subagents: self.subagents.with_turn_context(&ctx),
+            subagents: self.subagents.with_turn_context(ctx),
             ..self.clone()
         }
     }
