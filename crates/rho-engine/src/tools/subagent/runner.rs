@@ -9,6 +9,7 @@ use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::snapshot::Snapshot;
 use super::workspace::WorkspaceChange;
+use crate::engine::compactor::compact_messages;
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
@@ -36,6 +37,8 @@ const DEFAULT_MONITOR_GROUP: &str = "subagents";
 pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
 const REPLY_HEADING: &str = "Reply from the delegating agent";
+/// Times one round may compact its conversation after overflowing the model's context.
+const MAX_COMPACTIONS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoundEnd {
@@ -155,6 +158,8 @@ pub struct SubagentRunner {
     inbox: Option<crate::mailbox::Mailbox>,
     /// The saved task the round belongs to, shown with it in the agent view.
     task_id: Option<String>,
+    /// Recent conversation a compaction keeps word for word.
+    keep_recent_tokens: usize,
 }
 
 fn message_text(message: &ChatMessage) -> Option<(&'static str, String)> {
@@ -236,6 +241,33 @@ struct Tally {
     tokens: u64,
 }
 
+impl Tally {
+    fn add(&mut self, other: Self) {
+        self.turns += other.turns;
+        self.tool_calls += other.tool_calls;
+        self.tokens += other.tokens;
+    }
+}
+
+/// Where the next run of the turn loop starts: the conversation so far, the prompt to add (empty
+/// when continuing after a compaction), and the totals of the runs before it.
+struct Run {
+    transcript: Vec<ChatMessage>,
+    prompt: String,
+    tally: Tally,
+}
+
+/// What one run of the turn loop is built from.
+struct AgentSetup<'a> {
+    store: &'a MemoryStore,
+    sink: &'a Arc<TerminalApprovalSink>,
+    prompt: String,
+    turns_used: usize,
+    recorder: &'a Arc<Recorder>,
+    question_tool: Option<Arc<dyn EngineTool>>,
+    stop: &'a CancellationSignal,
+}
+
 /// The finished turn loop: how it ended, the conversation it left, and its totals.
 struct Drive {
     end: RoundEnd,
@@ -282,7 +314,15 @@ impl SubagentRunner {
             isolated: false,
             inbox: None,
             task_id: None,
+            keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
         }
+    }
+
+    /// How much recent conversation a compaction keeps word for word.
+    #[must_use]
+    pub fn with_keep_recent_tokens(mut self, tokens: usize) -> Self {
+        self.keep_recent_tokens = tokens;
+        self
     }
 
     /// Lets the subagent pause with a question for the agent that started it (the `ask_parent` tool).
@@ -528,7 +568,9 @@ impl SubagentRunner {
         }
     }
 
-    /// Runs the subagent's turns on the shared turn loop and turns how it ended into a round end.
+    /// Runs the subagent's turns on the shared turn loop and turns how it ended into a round end. When
+    /// a turn overflows the model's context, the older conversation is compacted into a summary and the
+    /// round continues with the turns it has left.
     async fn drive(
         &self,
         transcript: Vec<ChatMessage>,
@@ -544,54 +586,49 @@ impl SubagentRunner {
                 tally: Tally::default(),
             };
         }
-        let owner = self.inbox.as_ref().map_or_else(
-            || format!("subagent-{}", uuid::Uuid::new_v4()),
-            |inbox| inbox.id().to_string(),
-        );
-        let store = MemoryStore::new(owner, transcript);
         let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned(), self.ctx.progress.clone()));
-        let sink = TerminalApprovalSink::with_session(
-            &presenter,
-            TerminalSinkConfig {
-                model_label: self.model_label(),
-                run_tracker: RunTracker::default(),
-            },
-            self.ctx.session.clone(),
-        );
-        let mut tools: Vec<Arc<dyn EngineTool>> = self
-            .tools
-            .iter()
-            .map(|tool| RecordedTool::wrap(tool.clone(), recorder))
-            .collect();
-        let question = self.parent_channel.then(|| {
-            let (tool, question) = AskParentTool::with_question_slot();
-            tools.push(tool);
-            question
-        });
-        let denials = recorder.clone();
-        let agent = AgentRunner::with_store(
-            self.model.clone(),
-            tools,
-            Arc::new(store.clone()),
-            sink.clone(),
-            self.workspace_root(),
-        )
-        .session(self.ctx.session.clone())
-        .preamble(self.preamble())
-        .prompt(prompt)
-        .budget(self.max_turns)
-        .lifecycle(self.ctx.lifecycle.clone())
-        .permission(self.ctx.permission.clone())
-        .stream_port(self.ctx.progress.clone())
-        .inbox(self.inbox.clone())
-        .cancellation(Some(stop.clone()))
-        .monitor(self.ctx.monitor.clone())
-        .project_context(self.ctx.project.clone())
-        .on_denied(Some(Arc::new(move |call, reason| denials.denied(call, reason))));
-
-        let (finish, tally) = self.consume(agent, &sink, tracker, &stop).await;
-        let mut transcript = store.messages();
-        let asked = question.and_then(|q| q.lock().unwrap_or_else(PoisonError::into_inner).take());
+        let (question_tool, question) = AskParentTool::with_question_slot();
+        let question_tool = self.parent_channel.then_some(question_tool);
+        let mut run = Run {
+            transcript,
+            prompt,
+            tally: Tally::default(),
+        };
+        let mut compactions = 0;
+        let (finish, mut transcript) = loop {
+            let store = MemoryStore::new(self.owner(), std::mem::take(&mut run.transcript));
+            let sink = TerminalApprovalSink::with_session(
+                &presenter,
+                TerminalSinkConfig {
+                    model_label: self.model_label(),
+                    run_tracker: RunTracker::default(),
+                },
+                self.ctx.session.clone(),
+            );
+            let agent = self.agent(AgentSetup {
+                store: &store,
+                sink: &sink,
+                prompt: std::mem::take(&mut run.prompt),
+                turns_used: run.tally.turns,
+                recorder,
+                question_tool: question_tool.clone(),
+                stop: &stop,
+            });
+            let (finish, tally) = self.consume(agent, &sink, tracker, &stop).await;
+            run.tally.add(tally);
+            let messages = store.messages();
+            if !matches!(finish, Finish::Failed(AppError::ContextOverflow(_))) || compactions == MAX_COMPACTIONS {
+                break (finish, messages);
+            }
+            match compact_messages(&self.model, &messages, self.keep_recent_tokens).await {
+                Some(compacted) => {
+                    compactions += 1;
+                    run.transcript = compacted;
+                }
+                None => break (finish, messages),
+            }
+        };
+        let asked = question.lock().unwrap_or_else(PoisonError::into_inner).take();
         let end = match finish {
             Finish::Stopped => interrupted(),
             Finish::Done(_) if asked.is_some() => RoundEnd::Asked(asked.unwrap_or_default()),
@@ -602,7 +639,50 @@ impl SubagentRunner {
             Finish::Done(text) => RoundEnd::Answered(text),
             Finish::Failed(error) => self.ended_by(error, &mut transcript, &stop).await,
         };
-        Drive { end, transcript, tally }
+        Drive {
+            end,
+            transcript,
+            tally: run.tally,
+        }
+    }
+
+    /// Owns the round's background work and messages: its mailbox, or a one-off id without one.
+    fn owner(&self) -> String {
+        self.inbox.as_ref().map_or_else(
+            || format!("subagent-{}", uuid::Uuid::new_v4()),
+            |inbox| inbox.id().to_string(),
+        )
+    }
+
+    /// The turn loop for this subagent: its tools recorded as evidence, its conversation in the setup's
+    /// store, and the turns it has left.
+    fn agent(&self, setup: AgentSetup<'_>) -> AgentRunner {
+        let mut tools: Vec<Arc<dyn EngineTool>> = self
+            .tools
+            .iter()
+            .map(|tool| RecordedTool::wrap(tool.clone(), setup.recorder))
+            .collect();
+        tools.extend(setup.question_tool);
+        let denials = setup.recorder.clone();
+        AgentRunner::with_store(
+            self.model.clone(),
+            tools,
+            Arc::new(setup.store.clone()),
+            setup.sink.clone(),
+            self.workspace_root(),
+        )
+        .session(self.ctx.session.clone())
+        .preamble(self.preamble())
+        .prompt(setup.prompt)
+        .budget(self.max_turns.saturating_sub(setup.turns_used))
+        .lifecycle(self.ctx.lifecycle.clone())
+        .permission(self.ctx.permission.clone())
+        .stream_port(self.ctx.progress.clone())
+        .inbox(self.inbox.clone())
+        .cancellation(Some(setup.stop.clone()))
+        .monitor(self.ctx.monitor.clone())
+        .project_context(self.ctx.project.clone())
+        .on_denied(Some(Arc::new(move |call, reason| denials.denied(call, reason))))
     }
 
     /// The round end for a turn loop that stopped with `error`.

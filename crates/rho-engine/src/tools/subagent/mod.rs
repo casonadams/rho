@@ -44,6 +44,8 @@ pub struct SubagentTool {
     busy: conversation::BusyContexts,
     worktrees: Option<crate::worktree::WorktreeStore>,
     background: background::Backgrounding,
+    /// Recent conversation a subagent keeps word for word when it compacts.
+    keep_recent_tokens: usize,
 }
 
 #[derive(serde::Deserialize)]
@@ -93,8 +95,16 @@ impl SubagentTool {
             busy: conversation::BusyContexts::default(),
             worktrees: None,
             background: background::Backgrounding::default(),
+            keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
             description: crate::tools::ToolRegistry::builtin_description("subagent").to_string(),
         }
+    }
+
+    /// How much recent conversation a subagent keeps word for word when it compacts.
+    #[must_use]
+    pub fn with_keep_recent_tokens(mut self, tokens: usize) -> Self {
+        self.keep_recent_tokens = tokens;
+        self
     }
 
     #[must_use]
@@ -336,7 +346,9 @@ impl SubagentTool {
             }
             Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, turns),
         };
-        let runner = runner.with_context(self.ctx.clone());
+        let runner = runner
+            .with_context(self.ctx.clone())
+            .with_keep_recent_tokens(self.keep_recent_tokens);
         let runner = match persona {
             Some(persona) => runner.with_persona(persona),
             None => runner,

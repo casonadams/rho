@@ -53,6 +53,41 @@ fn noop_stats(tokens: usize) -> CompactionStats {
     }
 }
 
+/// Folds the older part of an in-memory conversation (one with no session tree, such as a
+/// subagent's) into a summary, keeping its most recent `keep_recent_tokens` as they are. The result
+/// starts with the summary, like a session's history after compaction. `None` when nothing can be
+/// folded or no summary could be written.
+pub async fn compact_messages(
+    model: &ModelHandle,
+    messages: &[ChatMessage],
+    keep_recent_tokens: usize,
+) -> Option<Vec<ChatMessage>> {
+    let cut = find_token_cut_point(messages, keep_recent_tokens, model.model_name());
+    if cut.cut_index == 0 {
+        return None;
+    }
+    let (folded, kept) = messages.split_at(cut.cut_index);
+    let summary = LlmCompactor::new(Some(model.clone()))
+        .summarize(
+            folded,
+            super::llm::SummarizeOptions {
+                prior_summary: None,
+                custom_instructions: None,
+                is_split_turn: cut.is_split_turn,
+                structured: false,
+            },
+        )
+        .await;
+    if summary.trim().is_empty() {
+        return None;
+    }
+    let files = extract_file_ops(folded, None);
+    let summary = compose_compaction_summary(&summary, &render_file_lists_xml(&files));
+    let mut compacted = vec![compaction_summary_message(&summary)];
+    compacted.extend_from_slice(kept);
+    Some(compacted)
+}
+
 fn resolve_prior_compaction<'a>(
     ancestor_nodes: &'a [&'a TreeNodeData],
 ) -> (

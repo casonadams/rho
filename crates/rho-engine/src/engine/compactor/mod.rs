@@ -8,4 +8,4 @@ mod tests;
 
 pub use artifact_spill::{ArtifactDemotionHook, DemotionHook};
 pub use llm::LlmCompactor;
-pub use orchestrator::{CompactionStats, SessionCompactor};
+pub use orchestrator::{CompactionStats, SessionCompactor, compact_messages};

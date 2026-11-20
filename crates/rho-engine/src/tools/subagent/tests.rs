@@ -1023,6 +1023,74 @@ fn long_parent_message_keeps_both_its_opening_and_its_closing_text() {
 }
 
 #[tokio::test]
+async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round() {
+    let adapter = MockAdapter::from_result_turns([
+        tool_call_turn(&[("read", "big")]).into_iter().map(Ok).collect(),
+        tool_call_turn(&[("read", "bigger")]).into_iter().map(Ok).collect(),
+        vec![Err(AppError::ContextOverflow("prompt is too long".into()))],
+        vec![Ok(ModelStreamEvent::Text(
+            "Read big and bigger; both were fine.".into(),
+        ))],
+        vec![Ok(ModelStreamEvent::Text("Done after compacting.".into()))],
+    ]);
+    let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
+    let runner =
+        SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5).with_keep_recent_tokens(1);
+
+    let round = runner.run_round(Vec::new(), runner::RoundInput::Prompt("look")).await;
+
+    assert_eq!(round.end, runner::RoundEnd::Answered("Done after compacting.".into()));
+    assert_eq!(round.turns, 3, "turns before and after the compaction add up");
+    assert!(
+        matches!(&round.transcript[0], ChatMessage::System { content } if content.contains("Read big and bigger")),
+        "{:?}",
+        round.transcript[0]
+    );
+    let last = adapter.requests().pop().unwrap();
+    assert!(matches!(&last.messages[0], ChatMessage::System { .. }));
+    assert!(
+        last.messages.len() < 6,
+        "older turns were folded: {}",
+        last.messages.len()
+    );
+}
+
+#[tokio::test]
+async fn the_agent_view_gets_the_reply_and_reasoning_from_the_model_stream() {
+    let adapter = MockAdapter::from_turns([vec![
+        ModelStreamEvent::Reasoning("check the file first. ".into()),
+        ModelStreamEvent::Reasoning("then answer".into()),
+        ModelStreamEvent::Text("The file ".into()),
+        ModelStreamEvent::Text("is fine.".into()),
+        ModelStreamEvent::Finish(crate::provider::adapter::FinishReason::Stop),
+    ]]);
+    let monitor = rho_harness_core::agents::AgentMonitor::default();
+    let ctx = TurnToolContext {
+        monitor: Some(monitor.clone()),
+        ..Default::default()
+    };
+    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![named_tool("read")])
+        .bind_turn(&ctx)
+        .unwrap();
+
+    let result = tool
+        .execute(json!({ "role": "scout", "prompt": "look" }))
+        .await
+        .unwrap();
+
+    assert!(result.content.starts_with("The file is fine."), "{}", result.content);
+    let record = monitor.record(monitor.summaries()[0].id).unwrap();
+    assert_eq!(
+        record.events,
+        [
+            rho_harness_core::agents::AgentEvent::Task("look".into()),
+            rho_harness_core::agents::AgentEvent::Thinking("check the file first. then answer".into()),
+            rho_harness_core::agents::AgentEvent::Text("The file is fine.".into()),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn named_subagents_label_progress_the_monitor_and_the_result() {
     let adapter = MockAdapter::from_turns([tool_call_turn(&[("read", "x")]), text_turn("done")]);
     let progress = Arc::new(CollectedProgress::default());
