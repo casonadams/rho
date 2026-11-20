@@ -261,7 +261,7 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let messages = extract_chat_messages(&raw_msgs);
             new_eng.spawn_refresh_quota();
             let payload = build_engine_session_payload(&new_eng, Some(messages)).await;
-            *ctx.engine.write().await = new_eng;
+            ctx.engine.write().await.switch_to(new_eng);
             Ok(Some(payload))
         }
         Err(e) => Err(e),
@@ -327,7 +327,7 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
         Ok(new_eng) => {
             new_eng.spawn_refresh_quota();
             let payload = build_engine_session_payload(&new_eng, None).await;
-            *ctx.engine.write().await = new_eng;
+            ctx.engine.write().await.switch_to(new_eng);
             *ctx.config.write().await = cfg;
             Ok(Some(payload))
         }

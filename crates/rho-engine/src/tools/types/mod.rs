@@ -19,12 +19,16 @@ pub struct ToolImage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
+    /// What the model sees.
     pub content: String,
     pub is_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<Box<ToolImage>>,
+    /// What the user sees when it differs from `content`, such as the same output with terminal colors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
 }
 
 impl ToolResult {
@@ -34,6 +38,7 @@ impl ToolResult {
             is_error: false,
             metadata: None,
             image: None,
+            display: None,
         }
     }
 
@@ -45,6 +50,7 @@ impl ToolResult {
             is_error: false,
             metadata: None,
             image: Some(Box::new(image)),
+            display: None,
         }
     }
 
@@ -54,6 +60,7 @@ impl ToolResult {
             is_error: true,
             metadata: None,
             image: None,
+            display: None,
         }
     }
 }

@@ -424,11 +424,12 @@ fn append_notification_messages(
 }
 
 async fn check_steering(
+    owner: &str,
     steering: Option<&Arc<dyn SteeringQueueProvider>>,
     current_messages: &mut Vec<ChatMessage>,
     new_turn_messages: &mut Vec<ChatMessage>,
 ) {
-    let notifs = crate::engine::runner::turn::types::drain_background_notifications();
+    let notifs = crate::engine::runner::turn::types::drain_background_notifications(owner);
     append_notification_messages(notifs, current_messages, new_turn_messages);
     if let Some(provider) = steering {
         let steered = provider.poll_steering().await;
@@ -436,8 +437,8 @@ async fn check_steering(
     }
 }
 
-fn drain_background_to_context(ctx: &mut RunnerStepContext<'_>) -> bool {
-    let notifs = crate::engine::runner::turn::types::drain_background_notifications();
+fn drain_background_to_context(owner: &str, ctx: &mut RunnerStepContext<'_>) -> bool {
+    let notifs = crate::engine::runner::turn::types::drain_background_notifications(owner);
     if notifs.is_empty() {
         return false;
     }
@@ -490,12 +491,13 @@ async fn wait_step(
         return Err(AppError::Cancelled("operator interrupt".to_string()));
     }
 
-    if drain_background_to_context(ctx) || drain_steering_to_context(runner.steering.as_ref(), ctx).await {
+    let owner = runner.session_manager.session_id.as_str();
+    if drain_background_to_context(owner, ctx) || drain_steering_to_context(runner.steering.as_ref(), ctx).await {
         return Ok(WaitStepResult::EventDelivered);
     }
 
     wait_for_background_events(notif_rx, runner.cancellation.as_ref()).await?;
-    if drain_background_to_context(ctx) {
+    if drain_background_to_context(owner, ctx) {
         return Ok(WaitStepResult::EventDelivered);
     }
     Ok(WaitStepResult::ContinueWaiting)
@@ -506,15 +508,17 @@ async fn wait_for_background_jobs(
     ctx: &mut RunnerStepContext<'_>,
     emitter: &TurnEmitter,
 ) -> Result<bool, AppError> {
-    if !crate::tools::jobs::JobManager::global().has_running() {
-        return Ok(drain_background_to_context(ctx));
+    let owner = runner.session_manager.session_id.as_str();
+    let jobs = crate::tools::jobs::JobManager::global();
+    if !jobs.has_running(owner) {
+        return Ok(drain_background_to_context(owner, ctx));
     }
 
     emitter.wait_for_display_drain().await?;
     runner.sink.resume_spinner_with_message("waiting...");
     let mut notif_rx = crate::engine::runner::turn::types::subscribe_background_notifications();
 
-    while crate::tools::jobs::JobManager::global().has_running() {
+    while jobs.has_running(owner) {
         if let WaitStepResult::EventDelivered = wait_step(runner, &mut notif_rx, ctx).await? {
             runner.sink.resume_spinner_with_message("thinking...");
             return Ok(true);
@@ -522,7 +526,7 @@ async fn wait_for_background_jobs(
     }
 
     runner.sink.resume_spinner_with_message("thinking...");
-    Ok(drain_background_to_context(ctx))
+    Ok(drain_background_to_context(owner, ctx))
 }
 
 async fn commit_turn_messages(
@@ -693,7 +697,13 @@ async fn execute_agent_step(
     }
 
     dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await?;
-    check_steering(runner.steering.as_ref(), ctx.current_messages, ctx.new_turn_messages).await;
+    check_steering(
+        &runner.session_manager.session_id,
+        runner.steering.as_ref(),
+        ctx.current_messages,
+        ctx.new_turn_messages,
+    )
+    .await;
     Ok(StepExecutionResult::Continue)
 }
 

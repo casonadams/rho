@@ -185,11 +185,23 @@ fn map_input_result(res: IdleInputResult) -> IdleStepOutcome {
     }
 }
 
-fn handle_bg_notification(session: &mut crate::repl::ReplSession, notif: String) -> Result<IdleStepOutcome> {
-    crate::engine::runner::turn::types::drain_background_notifications();
-    session.renderer.print_notice("\n● Background job completed\n");
+/// The follow-up that hands the model this session's finished background jobs, or `None` when the
+/// wake-up was for another session or a turn already delivered the results.
+fn background_follow_up(session_id: &str, woken_for: &str) -> Option<String> {
+    if woken_for != session_id {
+        return None;
+    }
+    let notices = crate::engine::runner::turn::types::drain_background_notifications(session_id);
+    (!notices.is_empty()).then(|| notices.join("\n\n"))
+}
+
+fn handle_bg_notification(ctx: &mut LiveIdleContext<'_, '_>, woken_for: &str) -> Result<IdleStepOutcome> {
+    let Some(text) = background_follow_up(&ctx.engine.session_manager.session_id, woken_for) else {
+        return Ok(IdleStepOutcome::Continue);
+    };
+    ctx.session.renderer.print_notice("\n● Background job completed\n");
     Ok(IdleStepOutcome::Message(QueuedMessage {
-        text: notif,
+        text,
         kind: crate::ui::interactive::QueueKind::FollowUp,
     }))
 }
@@ -211,7 +223,7 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             let res = handle_input_source(controller, event, batch, resources, input, ctx).await?;
             Ok(map_input_result(res))
         }
-        IdleSource::BackgroundNotification(notif) => handle_bg_notification(ctx.session, notif),
+        IdleSource::BackgroundNotification(woken_for) => handle_bg_notification(ctx, &woken_for),
         IdleSource::McpProblems => {
             crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
             Ok(IdleStepOutcome::Continue)
@@ -295,6 +307,39 @@ mod tests {
         let controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
         let batch = LiveBatch::new();
         (controller, shared_width, batch, session, engine, temp)
+    }
+
+    #[tokio::test]
+    async fn an_idle_prompt_hands_the_model_only_its_own_sessions_finished_jobs_once() {
+        use crate::engine::runner::turn::types::{drain_background_notifications, enqueue_background_notification};
+        let (_controller, _width, _batch, mut session, mut engine, _temp) = test_harness().await;
+        let own = engine.session_manager.session_id.clone();
+        enqueue_background_notification(&own, "first job done".into());
+        enqueue_background_notification(&own, "second job done".into());
+        enqueue_background_notification("idle-other-session", "foreign result".into());
+        let mut last_escape_time = None;
+        let mut ctx = LiveIdleContext {
+            session: &mut session,
+            engine: &mut engine,
+            last_escape_time: &mut last_escape_time,
+        };
+
+        assert!(matches!(
+            handle_bg_notification(&mut ctx, "idle-other-session").unwrap(),
+            IdleStepOutcome::Continue
+        ));
+        let IdleStepOutcome::Message(message) = handle_bg_notification(&mut ctx, &own).unwrap() else {
+            panic!("expected a follow-up message");
+        };
+        assert_eq!(message.text, "first job done\n\nsecond job done");
+        assert!(
+            matches!(
+                handle_bg_notification(&mut ctx, &own).unwrap(),
+                IdleStepOutcome::Continue
+            ),
+            "results already handed over are not sent again"
+        );
+        assert_eq!(drain_background_notifications("idle-other-session"), ["foreign result"]);
     }
 
     #[tokio::test]

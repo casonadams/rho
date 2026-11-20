@@ -52,7 +52,9 @@ resume the exact session of each pane with `rho --resume <id>`.
   directories.
 - **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
-  protection, and binary sanitization.
+  protection, and binary sanitization. Commands run with color enabled so you
+  see it in the terminal; the model receives the same output without escape
+  codes.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching; directories are listed with a trailing `/`.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary

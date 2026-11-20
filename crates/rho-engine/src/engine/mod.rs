@@ -94,6 +94,15 @@ impl AgentEngine {
         &self.agent_monitor
     }
 
+    /// Replaces this engine with `next`. Leaving a different session stops its background work, since
+    /// nothing could deliver the results; rebuilding the same session keeps it.
+    pub fn switch_to(&mut self, next: Self) {
+        if self.session_manager.session_id != next.session_manager.session_id {
+            crate::tools::jobs::abandon_background_work(&self.session_manager.session_id);
+        }
+        *self = next;
+    }
+
     /// Shows the main agent a workflow's report, with its agent task ids, at the start of the next turn.
     pub fn hand_off_workflow_report(&self, name: &str, report: &str) {
         self.turn_notes.push(format!(

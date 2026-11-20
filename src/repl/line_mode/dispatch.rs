@@ -152,7 +152,8 @@ pub(crate) async fn resume_session(
     engine: &mut AgentEngine,
 ) -> Result<()> {
     let next_config = session.config.clone();
-    *engine = crate::platform::agent_engine(next_config, session.auth_store.clone(), Some(session_id)).await?;
+    let next = crate::platform::agent_engine(next_config, session.auth_store.clone(), Some(session_id)).await?;
+    engine.switch_to(next);
     session.config = engine.config.clone();
     session.resume_id = Some(session_id.to_string());
     session.renderer.print_status(&format!("Resumed session: {session_id}"));
@@ -286,7 +287,8 @@ pub(crate) async fn handle_config_auth_result(
     }
     match cmd_res {
         CommandResult::ClearContext => {
-            *engine = crate::platform::agent_engine(session.config.clone(), session.auth_store.clone(), None).await?;
+            let next = crate::platform::agent_engine(session.config.clone(), session.auth_store.clone(), None).await?;
+            engine.switch_to(next);
         }
         CommandResult::ModelChanged {
             new_model,

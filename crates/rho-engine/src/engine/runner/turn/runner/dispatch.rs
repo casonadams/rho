@@ -101,27 +101,51 @@ async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> 
     }
 }
 
-async fn run_planned_tool(tools: &[Arc<dyn EngineTool>], call: &ToolCall, args: &serde_json::Value) -> (String, bool) {
+struct ToolRun {
+    output: String,
+    display: Option<String>,
+    is_error: bool,
+}
+
+impl ToolRun {
+    fn failed(output: String) -> Self {
+        Self {
+            output,
+            display: None,
+            is_error: true,
+        }
+    }
+}
+
+async fn run_planned_tool(tools: &[Arc<dyn EngineTool>], call: &ToolCall, args: &serde_json::Value) -> ToolRun {
     match tools.iter().find(|t| t.name() == call.function.name) {
         Some(t) => match t.execute(args.clone()).await {
-            Ok(r) => (r.content, r.is_error),
-            Err(e) => (format!("Error: {e}"), true),
+            Ok(r) => ToolRun {
+                output: r.content,
+                display: r.display,
+                is_error: r.is_error,
+            },
+            Err(e) => ToolRun::failed(format!("Error: {e}")),
         },
-        None => (format!("Error: Tool '{}' not found", call.function.name), true),
+        None => ToolRun::failed(format!("Error: Tool '{}' not found", call.function.name)),
     }
 }
 
 async fn finish_tool_call(
     call: &ToolCall,
     args: &serde_json::Value,
-    result: (String, bool),
+    run: ToolRun,
     ctx: &ToolExecutionContext<'_>,
 ) -> CallOutcome {
-    let (mut output, is_error) = result;
+    let ToolRun {
+        mut output,
+        display,
+        is_error,
+    } = run;
     ctx.sink.tool_finished(crate::engine::runner::sink::ToolFinishDetails {
         name: &call.function.name,
         arguments: args,
-        output: &output,
+        output: display.as_deref().unwrap_or(&output),
         is_error,
     });
     let stop_reason = apply_tool_outcome_hooks(ctx.lifecycle, &call.function.name, args, &mut output, is_error).await;

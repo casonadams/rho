@@ -1001,6 +1001,7 @@ impl SubagentRunner {
         let Some(tool) = self.tools.iter().find(|t| t.name() == name) else {
             return (format!("Error: Unknown tool '{name}'"), true);
         };
+        let tool = tool.bind_turn(&self.ctx).unwrap_or_else(|| tool.clone());
         match tool.execute(args.clone()).await {
             Ok(res) => (res.content, res.is_error),
             Err(e) => (format!("Error: {e}"), true),

@@ -1,6 +1,103 @@
 use super::*;
 use crate::tools::truncate::DEFAULT_MAX_BYTES as MAX_BASH_BYTES;
 
+fn bash_args(command: &str) -> BashArgs {
+    BashArgs {
+        command: command.to_string(),
+        timeout: Some(10),
+        background: None,
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_model_gets_plain_text_while_the_colored_output_stays_for_the_display() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let streamed = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let cases = [
+        (
+            "printf '\\033[31mred\\033[0m\\n'",
+            false,
+            "red",
+            "\u{1b}[31mred\u{1b}[0m",
+        ),
+        (
+            "printf '\\033[1;32mbad\\033[0m\\n'; exit 3",
+            true,
+            "bad\n\nCommand exited with code 3",
+            "\u{1b}[1;32mbad\u{1b}[0m\n\nCommand exited with code 3",
+        ),
+    ];
+    for (command, is_error, plain, colored) in cases {
+        let sink = streamed.clone();
+        let res = tool
+            .execute_streaming(bash_args(command), move |chunk| sink.lock().unwrap().push_str(chunk))
+            .await
+            .unwrap();
+
+        assert_eq!(res.is_error, is_error, "{command}");
+        assert_eq!(res.content, plain, "{command}");
+        assert_eq!(res.display.as_deref(), Some(colored), "{command}");
+    }
+    assert!(
+        streamed.lock().unwrap().contains("\u{1b}[31mred"),
+        "the live stream keeps its colors"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn output_without_colors_needs_no_separate_display_text() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool.execute(bash_args("echo plain")).await.unwrap();
+    assert_eq!((res.content.as_str(), res.display), ("plain", None));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is_abandoned() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = rho_harness_core::session::SessionManager::new(dir.path(), None).unwrap();
+    let owner = session.session_id.clone();
+    let unbound = BashTool::new(dir.path());
+    let tool = unbound
+        .bind_turn(&TurnToolContext {
+            session: Some(session),
+            ..TurnToolContext::default()
+        })
+        .expect("a tool with a session binds to it");
+    assert!(unbound.bind_turn(&TurnToolContext::default()).is_none());
+
+    let started = tool
+        .execute(serde_json::json!({ "command": "sleep 30", "background": true }))
+        .await
+        .unwrap();
+    let job_id = started
+        .content
+        .lines()
+        .find_map(|line| line.strip_prefix("Job ID: "))
+        .expect("the result names the job")
+        .to_string();
+    let jobs = crate::tools::jobs::JobManager::global();
+    assert_eq!(jobs.get(&job_id).unwrap().owner, owner);
+    assert!(jobs.has_running(&owner));
+
+    crate::tools::jobs::abandon_background_work(&owner);
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while jobs.has_running(&owner) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the job stops promptly");
+    assert!(matches!(
+        jobs.get(&job_id).unwrap().status,
+        crate::tools::jobs::JobStatus::Failed { .. }
+    ));
+    assert!(crate::engine::runner::turn::types::drain_background_notifications(&owner).is_empty());
+}
+
 #[test]
 fn test_output_accumulator_creates_temp_file_when_truncated() {
     let mut acc = OutputAccumulator::new();

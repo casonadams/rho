@@ -37,12 +37,13 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     session_id: &str,
     io: &mut SessionCommandIo<'_, B>,
 ) -> Result<()> {
-    *ctx.engine = crate::platform::agent_engine(
+    let next = crate::platform::agent_engine(
         ctx.session.config.clone(),
         ctx.session.auth_store.clone(),
         Some(session_id),
     )
     .await?;
+    ctx.engine.switch_to(next);
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
         let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree, io.history);

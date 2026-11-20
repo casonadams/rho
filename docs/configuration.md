@@ -293,7 +293,9 @@ happen.
   as untrusted output, not instructions. Each result's footer names the model
   that ran. Its
   progress lines stop in the tool card, but `Left` still watches it live, and
-  `Esc` cancels it with the turn.
+  `Esc` cancels it with the turn. A background subagent belongs to the session
+  that started it: only that session's turns wait for it and receive its
+  result, and switching to another session (`/resume`, `/clear`) stops it.
 - **Context**: `inherit_context: true` shares the recent text-only conversation
   with the subagent (and its model provider).
 - **Watching**: press `Left` on an empty prompt to list subagents and watch one

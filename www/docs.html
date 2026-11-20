@@ -246,7 +246,7 @@ rho update</code></pre>
         <li><strong><code>read</code></strong>: Safe file inspection with line numbers, chunk offsets, limit bounds, and image sniffing.</li>
         <li><strong><code>write</code></strong>: Creates or overwrites files with automatic missing directory creation.</li>
         <li><strong><code>edit</code></strong>: Exact text replacements: a unique <code>oldText</code>, every match with <code>replaceAll</code>, or a whole block from <code>startText</code> through <code>endText</code>.</li>
-        <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization.</li>
+        <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization. Commands run with color enabled so the terminal shows it, while the model receives the same output without escape codes. A command that moves to the background belongs to its session: turns wait for and hear about only their own session's jobs, and switching sessions stops the old session's background work.</li>
         <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching; directories are listed with a trailing <code>/</code>.</li>
         <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines. Each match is a <code>path:line: text</code> row.</li>
         <li>When <code>read</code>, <code>edit</code>, <code>fd</code>, or <code>rg</code> gets a missing path, the error suggests up to three close workspace paths (<code>Did you mean: ...?</code>).</li>

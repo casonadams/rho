@@ -143,7 +143,7 @@ async fn handle_session_selected(
     )
     .await
     {
-        Ok(engine) => *ctx.engine = engine,
+        Ok(engine) => ctx.engine.switch_to(engine),
         Err(err) => {
             ctx.session
                 .renderer

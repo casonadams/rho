@@ -476,8 +476,10 @@ impl SubagentTool {
             settings.name.or(settings.agent).as_deref().unwrap_or("scout")
         );
         let runner = runner.with_parent_channel();
+        let owner = session.session_id.clone();
         let task = background::BackgroundTask {
             id: &task_id,
+            owner: &owner,
             label,
             cancellation: self.ctx.cancellation.clone(),
             settings: exchange.settings(),

@@ -87,6 +87,7 @@ async fn write_edit_result(
             is_error: false,
             metadata: Some(serde_json::json!({ "line_numbers": line_numbers })),
             image: None,
+            display: None,
         }),
         Err(e) => Ok(ToolResult::error(format!(
             "Failed to write updated file {clean_path}: {e}"

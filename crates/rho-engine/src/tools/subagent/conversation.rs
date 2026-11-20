@@ -590,6 +590,7 @@ mod tests {
     async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_continues_afterwards() {
         let dir = tempfile::tempdir().unwrap();
         let session = SessionManager::new(dir.path(), None).unwrap();
+        let owner = session.session_id.clone();
         let release = Arc::new(tokio::sync::Notify::new());
         let gate = release.clone();
         let slow_read: Arc<dyn EngineTool> = Arc::new(GenericTool::new("read", "reads", json!({}), move |_| {
@@ -608,7 +609,7 @@ mod tests {
         let (tx, mut notices) = tokio::sync::mpsc::unbounded_channel();
         let background = super::super::background::Backgrounding::new(
             jobs.clone(),
-            Arc::new(move |notice| drop(tx.send(notice))),
+            Arc::new(move |owner, notice| drop(tx.send((owner.to_string(), notice)))),
             std::time::Duration::from_secs(60),
         );
         let ctx = TurnToolContext {
@@ -649,7 +650,11 @@ mod tests {
         assert!(inspected.contains("still running in the background"), "{inspected}");
 
         release.notify_one();
-        let notice = notices.recv().await.unwrap();
+        let (notice_owner, notice) = notices.recv().await.unwrap();
+        assert_eq!(
+            notice_owner, owner,
+            "the notice is for the session that started the task"
+        );
         assert!(notice.contains("Found one hot loop."), "{notice}");
         assert!(notice.contains(&format!("task {id} \u{b7} completed")), "{notice}");
         assert!(!notice.contains("Not delivered"), "{notice}");
@@ -662,11 +667,11 @@ mod tests {
             "{last}"
         );
         tokio::task::yield_now().await;
-        assert!(!jobs.has_running());
+        assert!(!jobs.has_running(&owner));
 
         let mut again = ask(&tool, json!({ "task_id": id, "prompt": "again" })).await;
         if again.contains("moved to the background") {
-            again = notices.recv().await.unwrap();
+            again = notices.recv().await.unwrap().1;
         }
         assert!(again.contains("Second pass found nothing new."), "{again}");
     }

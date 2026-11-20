@@ -26,12 +26,12 @@ impl RunStatus {
 
 pub type UsageDetails = StructuralUsage;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct CancellationSignal {
     inner: std::sync::Arc<CancellationSignalInner>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct CancellationSignalInner {
     cancelled: AtomicBool,
     notify: tokio::sync::Notify,
@@ -63,8 +63,10 @@ pub trait SteeringQueueProvider: Send + Sync {
     }
 }
 
-static BACKGROUND_NOTIFICATIONS: std::sync::LazyLock<std::sync::Mutex<Vec<String>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+type NotificationQueues = std::collections::HashMap<String, Vec<String>>;
+
+static BACKGROUND_NOTIFICATIONS: std::sync::LazyLock<std::sync::Mutex<NotificationQueues>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(NotificationQueues::new()));
 
 static BACKGROUND_NOTIF_TX: std::sync::LazyLock<tokio::sync::broadcast::Sender<String>> =
     std::sync::LazyLock::new(|| {
@@ -72,21 +74,27 @@ static BACKGROUND_NOTIF_TX: std::sync::LazyLock<tokio::sync::broadcast::Sender<S
         tx
     });
 
-pub fn enqueue_background_notification(notification: String) {
-    if let Ok(mut lock) = BACKGROUND_NOTIFICATIONS.lock() {
-        lock.push(notification.clone());
-    }
-    let _ = BACKGROUND_NOTIF_TX.send(notification);
+fn notification_queues() -> std::sync::MutexGuard<'static, NotificationQueues> {
+    BACKGROUND_NOTIFICATIONS.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-pub fn drain_background_notifications() -> Vec<String> {
-    if let Ok(mut lock) = BACKGROUND_NOTIFICATIONS.lock() {
-        std::mem::take(&mut *lock)
-    } else {
-        Vec::new()
-    }
+pub fn enqueue_background_notification(owner: &str, notification: String) {
+    notification_queues()
+        .entry(owner.to_string())
+        .or_default()
+        .push(notification);
+    let _ = BACKGROUND_NOTIF_TX.send(owner.to_string());
 }
 
+pub fn drain_background_notifications(owner: &str) -> Vec<String> {
+    notification_queues().remove(owner).unwrap_or_default()
+}
+
+pub fn discard_background_notifications(owner: &str) {
+    notification_queues().remove(owner);
+}
+
+/// Wakes on any session's notice; each receiver drains only its own queue.
 pub fn subscribe_background_notifications() -> tokio::sync::broadcast::Receiver<String> {
     BACKGROUND_NOTIF_TX.subscribe()
 }

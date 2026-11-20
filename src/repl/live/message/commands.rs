@@ -92,8 +92,8 @@ pub(crate) async fn handle_compact<B: TerminalBackend>(
 }
 
 pub(crate) async fn clear_engine_context(ctx: &mut LiveCommandContext<'_, '_>) -> Result<()> {
-    *ctx.engine =
-        crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;
+    let next = crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;
+    ctx.engine.switch_to(next);
     Ok(())
 }
 

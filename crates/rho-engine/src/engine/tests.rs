@@ -692,3 +692,74 @@ async fn a_handed_off_workflow_report_precedes_only_the_next_prompt() {
     assert!(prompts[1].ends_with("thanks"));
     assert!(!prompts[1].contains("[The user ran workflow"), "{}", prompts[1]);
 }
+
+fn mock_engine_in(dir: &Path, session: Option<SessionManager>) -> AgentEngine {
+    crate::engine::eval::mock::mock_engine(
+        Arc::new(crate::provider::adapter::MockAdapter::default()),
+        crate::engine::eval::mock::MockEngineConfig {
+            base_dir: dir,
+            app_config: Config::default(),
+            session_manager: session,
+            built_in_tools: None,
+        },
+    )
+}
+
+#[tokio::test]
+async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_new_ones() {
+    use crate::engine::runner::turn::types::{drain_background_notifications, enqueue_background_notification};
+    use crate::tools::jobs::{JobManager, JobStatus};
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = mock_engine_in(&dir.path().join("a"), None);
+    let next = mock_engine_in(&dir.path().join("b"), None);
+    let (left, arrived) = (
+        engine.session_manager.session_id.clone(),
+        next.session_manager.session_id.clone(),
+    );
+    assert_ne!(left, arrived);
+    let jobs = JobManager::global();
+    let left_job = jobs.register(&left, format!("{left}-job"), "sleep".into());
+    let arrived_job = jobs.register(&arrived, format!("{arrived}-job"), "sleep".into());
+    enqueue_background_notification(&left, "stale notice".into());
+    enqueue_background_notification(&arrived, "fresh notice".into());
+
+    engine.switch_to(next);
+
+    assert_eq!(engine.session_manager.session_id, arrived);
+    assert!(left_job.is_cancelled());
+    assert!(!arrived_job.is_cancelled());
+    assert!(drain_background_notifications(&left).is_empty());
+    assert_eq!(drain_background_notifications(&arrived), ["fresh notice"]);
+    for id in [format!("{left}-job"), format!("{arrived}-job")] {
+        jobs.update_status(
+            &id,
+            JobStatus::Failed {
+                error: "test over".into(),
+            },
+        );
+    }
+}
+
+#[tokio::test]
+async fn rebuilding_the_same_session_keeps_its_background_work() {
+    use crate::engine::runner::turn::types::{drain_background_notifications, enqueue_background_notification};
+    use crate::tools::jobs::{JobManager, JobStatus};
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
+    let id = session.session_id.clone();
+    let mut engine = mock_engine_in(dir.path(), Some(session.clone()));
+    let rebuilt = mock_engine_in(dir.path(), Some(session));
+    let job = JobManager::global().register(&id, format!("{id}-job"), "sleep".into());
+    enqueue_background_notification(&id, "kept notice".into());
+
+    engine.switch_to(rebuilt);
+
+    assert!(!job.is_cancelled());
+    assert_eq!(drain_background_notifications(&id), ["kept notice"]);
+    JobManager::global().update_status(
+        &format!("{id}-job"),
+        JobStatus::Failed {
+            error: "test over".into(),
+        },
+    );
+}
