@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.0](https://github.com/casonadams/rho/compare/v0.13.3...v0.14.0) (2026-11-20)
+
+
+### Features
+
+* **models:** add gemini-4 carbon, neon, and hydrogen models ([3854c57](https://github.com/casonadams/rho/commit/3854c57b2a35991b71c959f966fe23dd0c3f44d8))
+* **models:** add gpt-6.2 astra/sol and gpt-6.1 terra, use 1.05M openai context ([f1df5ab](https://github.com/casonadams/rho/commit/f1df5ab1085a6d3c6a9e5543edf9d2436aa070f1))
+* **models:** match pi context windows for ChatGPT login gpt-6 models ([a407a57](https://github.com/casonadams/rho/commit/a407a57c9c9727d01e193f40a553edc757bf511f))
+
 ## [0.13.3](https://github.com/casonadams/rho/compare/v0.13.2...v0.13.3) (2026-11-20)
 
 
