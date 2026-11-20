@@ -18,6 +18,23 @@ fn minimal_request(history: Vec<ChatMessage>) -> ModelCompletionRequest {
     }
 }
 
+#[test]
+fn a_compaction_summary_in_the_history_reaches_the_model_as_user_text() {
+    let request = minimal_request(vec![
+        ChatMessage::System {
+            content: "Summary of earlier work".into(),
+        },
+        ChatMessage::user("continue"),
+    ]);
+
+    let contents = contents::convert_contents(&request, "gemini-3-pro");
+
+    assert_eq!(contents.len(), 1);
+    assert_eq!(contents[0].role, "user");
+    let texts: Vec<&str> = contents[0].parts.iter().filter_map(|p| p.text.as_deref()).collect();
+    assert_eq!(texts, ["Summary of earlier work", "continue"]);
+}
+
 fn envelope() -> Envelope {
     Envelope {
         request_id: "agent/test-id/123/traj/2".to_string(),

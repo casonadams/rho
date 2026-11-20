@@ -223,7 +223,7 @@ pub fn convert_contents(request: &ModelCompletionRequest, runtime_model: &str) -
 
     for message in &request.messages {
         match message {
-            ChatMessage::System { .. } => {}
+            ChatMessage::System { content } => append_turn(&mut contents, "user", vec![part_text(content)]),
             ChatMessage::User { content } => {
                 let parts = convert_antigravity_user(content, ctx.call_ids);
                 append_turn(&mut contents, "user", parts);

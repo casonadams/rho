@@ -79,7 +79,9 @@ pub fn convert_messages(request: &ModelCompletionRequest) -> Vec<Value> {
 
     for message in &request.messages {
         match message {
-            ChatMessage::System { .. } => {}
+            ChatMessage::System { content } => {
+                append_turn(&mut turns, "user", vec![json!({ "type": "text", "text": content })])
+            }
             ChatMessage::User { content } => {
                 let parts = convert_claude_user(content);
                 append_turn(&mut turns, "user", parts);

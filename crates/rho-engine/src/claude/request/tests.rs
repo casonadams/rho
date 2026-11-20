@@ -192,6 +192,31 @@ fn convert_messages_converts_user_and_assistant_images() {
 }
 
 #[test]
+fn a_compaction_summary_in_the_history_reaches_the_model_as_user_text() {
+    let req = ModelCompletionRequest {
+        messages: vec![
+            ChatMessage::System {
+                content: "Summary of earlier work".into(),
+            },
+            ChatMessage::user("continue"),
+        ],
+        ..ModelCompletionRequest::default()
+    };
+
+    let messages = contents::convert_messages(&req);
+
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0]["role"], "user");
+    let texts: Vec<&str> = messages[0]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|part| part["text"].as_str())
+        .collect();
+    assert_eq!(texts, ["Summary of earlier work", "continue"]);
+}
+
+#[test]
 fn convert_messages_replays_signed_and_redacted_thinking_and_drops_unsigned() {
     let asst_msg = ChatMessage::Assistant {
         id: None,
