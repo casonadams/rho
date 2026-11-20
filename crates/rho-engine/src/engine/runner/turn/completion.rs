@@ -29,6 +29,7 @@ fn assemble_turn_output(
 
 impl AgentEngine {
     pub async fn record_cancellation(&self, reason: &str) -> Result<()> {
+        crate::tools::jobs::JobManager::global().cancel_owner(&self.session_manager.session_id);
         self.session_manager
             .append_event(
                 SessionEventKind::Cancellation,

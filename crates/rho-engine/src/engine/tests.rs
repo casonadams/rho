@@ -706,6 +706,30 @@ fn mock_engine_in(dir: &Path, session: Option<SessionManager>) -> AgentEngine {
 }
 
 #[tokio::test]
+async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessions() {
+    use crate::tools::jobs::{JobManager, JobStatus};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = mock_engine_in(dir.path(), None);
+    let id = engine.session_manager.session_id.clone();
+    let jobs = JobManager::global();
+    let own = jobs.register(&id, format!("{id}-job"), "sleep".into());
+    let other = jobs.register("interrupt-other", "interrupt-other-job".into(), "sleep".into());
+
+    engine.record_cancellation("operator interrupt").await.unwrap();
+
+    assert!(own.is_cancelled());
+    assert!(!other.is_cancelled());
+    for job in [format!("{id}-job"), "interrupt-other-job".to_string()] {
+        jobs.update_status(
+            &job,
+            JobStatus::Failed {
+                error: "test over".into(),
+            },
+        );
+    }
+}
+
+#[tokio::test]
 async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_new_ones() {
     use crate::engine::runner::turn::types::{drain_background_notifications, enqueue_background_notification};
     use crate::tools::jobs::{JobManager, JobStatus};

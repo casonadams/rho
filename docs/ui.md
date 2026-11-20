@@ -125,7 +125,8 @@ commands that move to the background) belongs to the session that started it.
 A turn waits for, and is told about, only its own session's background jobs.
 Switching to another session with `/resume` or `/clear` stops the old session's
 background work and drops its undelivered results, because nothing could deliver
-them. Reloading (`/reload`, `/model`, `/login`) keeps the same session and its
+them. Pressing `Esc` to interrupt a turn also stops the session's running
+background work. Reloading (`/reload`, `/model`, `/login`) keeps the same session and its
 background work running.
 
 ---
