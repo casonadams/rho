@@ -408,6 +408,43 @@ async fn a_message_from_the_user_reaches_the_round_labelled_as_from_the_user() {
 }
 
 #[tokio::test]
+async fn a_subagents_permission_prompt_marks_it_waiting_for_approval_until_answered() {
+    let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "make")]), text_turn("done")]);
+    let monitor = rho_harness_core::agents::AgentMonitor::default();
+    let presenter = Arc::new(
+        MockHookPresenter::new(
+            true,
+            Some(rho_harness_core::presentation::InteractionResponse::Selected(0)),
+        )
+        .watching(monitor.clone()),
+    );
+    let scope = parse_scope_from_str("[permission.bash]\n\"make *\" = \"ask\"\n").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let hook = PermissionHook::with_policy(
+        Some(dir.path().to_path_buf()),
+        presenter.clone(),
+        build_policy(None, Some(scope)),
+    );
+    let tools = vec![counting_tool("bash", Arc::new(AtomicUsize::new(0)), "ok".into())];
+    let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::General, &tools, 5)
+        .with_label("builder")
+        .with_context(TurnToolContext {
+            permission: Some(Arc::new(hook)),
+            monitor: Some(monitor.clone()),
+            ..Default::default()
+        });
+
+    let result = runner.run("build", None).await;
+
+    assert!(result.content.starts_with("done"), "{}", result.content);
+    assert_eq!(
+        *presenter.waiting_when_asked.lock().unwrap(),
+        [vec!["builder".to_string()]]
+    );
+    assert!(!monitor.summaries()[0].awaiting_approval, "cleared once answered");
+}
+
+#[tokio::test]
 async fn subagent_tool_calls_pass_through_the_permission_gate() {
     let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "rm x")]), text_turn("done")]);
     let runs = Arc::new(AtomicUsize::new(0));

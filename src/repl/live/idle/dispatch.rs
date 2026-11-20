@@ -4,6 +4,7 @@ use super::modal_action::{ModalActionContext, apply_modal_key_result};
 use super::shortcut::{IdleShortcutContext, handle_shortcut_action};
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
+use crate::repl::live::agent_focus;
 use crate::repl::live::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::modal::{agents, handle_modal_key, handle_modal_paste};
@@ -315,14 +316,19 @@ async fn process_key_event<B: TerminalBackend>(
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
     let monitor = ctx.engine.agent_monitor();
-    let agent_key = agents::handle_agents_key(controller, key, monitor)?;
-    if let Some(text) = agents::apply_agent_key(controller, ctx.engine, &agent_key) {
+    if let Some(text) = agent_focus::take_submission(controller, &key) {
+        let routed = agent_focus::route(controller, ctx.engine, &text);
         batch.flush(controller, true)?;
-        return Ok(IdleInputResult::Message(QueuedMessage {
-            text,
-            kind: crate::ui::interactive::QueueKind::FollowUp,
-        }));
+        return Ok(match routed {
+            agent_focus::Routed::ContinueThroughMain(prompt) => IdleInputResult::Message(QueuedMessage {
+                text: prompt,
+                kind: crate::ui::interactive::QueueKind::FollowUp,
+            }),
+            agent_focus::Routed::Handled => IdleInputResult::None,
+        });
     }
+    let agent_key = agents::handle_agents_key(controller, key, monitor)?;
+    agents::apply_agent_key(controller, ctx.engine, &agent_key)?;
     if agent_key.consumed() || agents::try_open_agents(controller, &key, ctx.engine.agent_monitor())? {
         batch.flush(controller, true)?;
         return Ok(IdleInputResult::None);

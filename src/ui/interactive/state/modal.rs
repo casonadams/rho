@@ -70,14 +70,6 @@ pub enum ModalMode {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BodyAnchor {
-    #[default]
-    Top,
-    /// Shows the newest lines; `body_scroll` counts lines up from the bottom.
-    Bottom,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalState {
     pub title: String,
@@ -95,11 +87,7 @@ pub struct ModalState {
     pub input_option: Option<usize>,
     pub option_layout: OptionLayout,
     pub body_scroll: usize,
-    pub body_anchor: BodyAnchor,
-    pub subject: Option<String>,
     pub save_as_default: bool,
-    /// Takes the whole terminal height instead of at most two thirds of it.
-    pub full_screen: bool,
 }
 
 impl ModalState {
@@ -119,26 +107,8 @@ impl ModalState {
             input_option: None,
             option_layout: OptionLayout::Vertical,
             body_scroll: 0,
-            body_anchor: BodyAnchor::Top,
-            subject: None,
             save_as_default: false,
-            full_screen: false,
         }
-    }
-
-    pub fn with_full_screen(mut self) -> Self {
-        self.full_screen = true;
-        self
-    }
-
-    pub fn with_body_anchor(mut self, anchor: BodyAnchor) -> Self {
-        self.body_anchor = anchor;
-        self
-    }
-
-    pub fn with_subject(mut self, subject: impl Into<String>) -> Self {
-        self.subject = Some(subject.into());
-        self
     }
 
     pub fn with_save_as_default(mut self, save: bool) -> Self {

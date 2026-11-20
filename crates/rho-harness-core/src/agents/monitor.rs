@@ -58,6 +58,8 @@ pub struct AgentSummary {
     pub elapsed: Duration,
     /// The subagent task this round belongs to, when it is saved and can be continued.
     pub task_id: Option<String>,
+    /// A permission prompt for one of this agent's tool calls is waiting for the user.
+    pub awaiting_approval: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +83,7 @@ struct TrackedAgent {
     events: VecDeque<AgentEvent>,
     dropped_events: usize,
     task_id: Option<String>,
+    awaiting_approval: bool,
     /// The kind of event still growing from streamed deltas, until any other event arrives.
     streaming: Option<Streamed>,
 }
@@ -112,6 +115,7 @@ impl TrackedAgent {
             max_turns: self.max_turns,
             elapsed: self.finished_after.unwrap_or_else(|| self.started.elapsed()),
             task_id: self.task_id.clone(),
+            awaiting_approval: self.awaiting_approval,
         }
     }
 
@@ -213,6 +217,7 @@ impl AgentMonitor {
             events: VecDeque::new(),
             dropped_events: 0,
             task_id: None,
+            awaiting_approval: false,
             streaming: None,
         });
         evict_finished(&mut state.agents);
@@ -294,11 +299,29 @@ impl AgentHandle {
         self.monitor.update(self.id, |agent| agent.task_id = Some(task_id));
     }
 
+    /// Marks the agent as waiting for the user to answer a permission prompt, until the guard drops.
+    #[must_use]
+    pub fn awaiting_approval(&self) -> AwaitingApproval {
+        self.monitor.update(self.id, |agent| agent.awaiting_approval = true);
+        AwaitingApproval(self.clone())
+    }
+
     pub fn finish(&self, status: AgentStatus) {
         self.monitor.update(self.id, |agent| {
             agent.status = status;
             agent.finished_after = Some(agent.started.elapsed());
         });
+    }
+}
+
+/// Clears the agent's waiting-for-approval mark when the prompt is answered or abandoned.
+pub struct AwaitingApproval(AgentHandle);
+
+impl Drop for AwaitingApproval {
+    fn drop(&mut self) {
+        self.0
+            .monitor
+            .update(self.0.id, |agent| agent.awaiting_approval = false);
     }
 }
 
@@ -421,6 +444,16 @@ mod tests {
         });
         handle.stream(Streamed::Text, "after");
         assert_eq!(monitor.record(handle.id()).unwrap().events.len(), 3);
+    }
+
+    #[test]
+    fn an_agent_is_marked_waiting_for_approval_while_its_prompt_is_open() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        let waiting = handle.awaiting_approval();
+        assert!(monitor.record(handle.id()).unwrap().summary.awaiting_approval);
+        drop(waiting);
+        assert!(!monitor.record(handle.id()).unwrap().summary.awaiting_approval);
     }
 
     #[test]

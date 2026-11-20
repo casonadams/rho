@@ -6,6 +6,7 @@ pub mod paint;
 pub(crate) mod tests;
 pub mod tools;
 pub mod transcript;
+pub mod view;
 
 pub use ansi::OutputTracker;
 use ansi::terminal_newlines;
@@ -35,6 +36,9 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) cache: cache::TranscriptRenderCache,
     pub(super) system_message_expires_at: Option<std::time::Instant>,
     pub(super) focused: bool,
+    /// Another agent shown in place of the main agent.
+    pub(super) view: Option<view::AgentView>,
+    pub(super) approval_focus: rho_harness_core::config::ApprovalFocus,
 }
 
 fn init_terminal<B: TerminalBackend>(backend: &mut B) -> io::Result<(usize, usize)> {
@@ -74,6 +78,8 @@ impl<B: TerminalBackend> TerminalController<B> {
             cache: cache::TranscriptRenderCache::new(),
             system_message_expires_at: None,
             focused: true,
+            view: None,
+            approval_focus: rho_harness_core::config::ApprovalFocus::default(),
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
@@ -88,6 +94,15 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
+    }
+
+    /// What happens when an agent other than the one shown asks for a permission answer.
+    pub fn approval_focus(&self) -> rho_harness_core::config::ApprovalFocus {
+        self.approval_focus
+    }
+
+    pub fn set_approval_focus(&mut self, focus: rho_harness_core::config::ApprovalFocus) {
+        self.approval_focus = focus;
     }
 
     pub fn redraw(&mut self) -> io::Result<()> {

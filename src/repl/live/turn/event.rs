@@ -7,6 +7,7 @@ use super::runner::TurnLoop;
 use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
+use crate::repl::live::agent_focus;
 use crate::repl::live::modal::{ModalKeyResult, agents, handle_modal_key, handle_modal_paste};
 use crate::ui::interactive::{Activity, TerminalBackend, UiAction};
 
@@ -81,11 +82,17 @@ async fn dispatch_key_event<B: TerminalBackend>(
     key: KeyEvent,
 ) -> Result<bool> {
     let monitor = lp.engine.agent_monitor();
-    let agent_key = agents::handle_agents_key(lp.controller, key, monitor)?;
-    if let Some(text) = agents::apply_agent_key(lp.controller, lp.engine, &agent_key) {
-        lp.steering.enqueue(text);
+    if let Some(text) = agent_focus::take_submission(lp.controller, &key) {
+        if let agent_focus::Routed::ContinueThroughMain(prompt) = agent_focus::route(lp.controller, lp.engine, &text) {
+            lp.steering.enqueue(prompt);
+        }
+        lp.batch.flush(lp.controller, true)?;
+        return Ok(false);
     }
+    let agent_key = agents::handle_agents_key(lp.controller, key, monitor)?;
+    agents::apply_agent_key(lp.controller, lp.engine, &agent_key)?;
     if agent_key.consumed() || agents::try_open_agents(lp.controller, &key, lp.engine.agent_monitor())? {
+        lp.batch.flush(lp.controller, true)?;
         return Ok(false);
     }
     let modal_res = handle_modal_key(lp.controller, key, &mut lp.batch.modal)?;

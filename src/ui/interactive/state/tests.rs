@@ -546,6 +546,8 @@ fn footer_state_equality_and_inequality() {
         context: Some("ctx".into()),
         show_label: true,
         running_agents: 1,
+        viewing: None,
+        awaiting_approval: None,
     };
     assert_eq!(base, base.clone());
 

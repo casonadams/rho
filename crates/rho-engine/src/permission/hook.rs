@@ -30,6 +30,8 @@ pub struct PermissionHook {
     guard_evaluator: Option<GuardEvaluator>,
     mcp_servers: Vec<String>,
     prompt_lock: Arc<tokio::sync::Mutex<()>>,
+    /// The subagent whose tool calls this copy of the hook checks; its prompts mark it as waiting.
+    asker: Option<rho_harness_core::agents::AgentHandle>,
 }
 
 fn settled(decision: Decision) -> Option<PermissionAction> {
@@ -51,6 +53,7 @@ impl PermissionHook {
             guard_evaluator: None,
             mcp_servers: Vec::new(),
             prompt_lock: Arc::default(),
+            asker: None,
         }
     }
 
@@ -64,6 +67,7 @@ impl PermissionHook {
             guard_evaluator: None,
             mcp_servers: Vec::new(),
             prompt_lock: Arc::default(),
+            asker: None,
         }
     }
 
@@ -89,6 +93,23 @@ impl PermissionHook {
             guard_evaluator: self.guard_evaluator.clone(),
             mcp_servers: self.mcp_servers.clone(),
             prompt_lock: self.prompt_lock.clone(),
+            asker: self.asker.clone(),
+        }
+    }
+
+    /// The same hook for subagent `asker`: while one of its prompts is open, its monitor record says
+    /// it is waiting for approval, so the interface can show or switch to it.
+    #[must_use]
+    pub fn for_agent(&self, asker: rho_harness_core::agents::AgentHandle) -> Self {
+        Self {
+            working_dir: self.working_dir.clone(),
+            policy_dir: self.policy_dir.clone(),
+            presenter: self.presenter.clone(),
+            policy: self.policy.clone(),
+            guard_evaluator: self.guard_evaluator.clone(),
+            mcp_servers: self.mcp_servers.clone(),
+            prompt_lock: self.prompt_lock.clone(),
+            asker: Some(asker),
         }
     }
 
@@ -141,6 +162,10 @@ impl PermissionHook {
         }
 
         let prompt = build_permission_prompt_with_evaluator(req.tool, req.args, drafts, notice, risk, evaluator);
+        let _waiting = self
+            .asker
+            .as_ref()
+            .map(rho_harness_core::agents::AgentHandle::awaiting_approval);
         let response = self.presenter.request_interaction(prompt).await;
         self.map_interaction_action(response, req, drafts).await
     }

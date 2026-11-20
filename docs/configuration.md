@@ -306,11 +306,15 @@ happen.
   result, and switching to another session (`/resume`, `/clear`) stops it.
 - **Context**: `inherit_context: true` shares the recent text-only conversation
   with the subagent (and its model provider).
-- **Watching**: press `Left` on an empty prompt to list subagents and watch one
-  live (see [Workflows](workflows.md#watching-agents)). The view renders the
-  subagent like the main transcript: its prompts and messages as user blocks,
-  replies as markdown, and finished tools as tool cards with durations (`Ctrl+O`
-  expands them), and shows the task id to continue it.
+- **Watching**: press `Left` on an empty prompt to list subagents, and `Enter`
+  to show one in the main terminal in place of the main agent, the way the main
+  agent is shown (see [Workflows](workflows.md#watching-agents)). Text you type
+  goes to it; `Left` on an empty prompt returns, and the main agent's output
+  from meanwhile appears then.
+- **Approvals**: when an agent you are not looking at needs a permission
+  answer, the view switches to it (`approval_focus = "switch"`, the default).
+  With `approval_focus = "indicate"`, the footer names the agent instead and
+  its prompt opens when you show it.
 
 ### Custom agents
 
@@ -399,6 +403,7 @@ subagent tasks:
 ```toml
 [subagents]
 foreground_seconds = 60
+approval_focus = "switch"   # or "indicate"
 
 [subagents.models]
 scout = "smol"

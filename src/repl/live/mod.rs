@@ -1,3 +1,4 @@
+pub(crate) mod agent_focus;
 pub mod autocomplete;
 pub mod bash_runner;
 pub mod batch;

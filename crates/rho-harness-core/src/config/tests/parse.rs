@@ -52,6 +52,16 @@ fn parses_subagent_settings_and_project_overrides() {
     super::super::merge::merge_project_file(&mut config, &budget);
     assert_eq!(config.subagents.foreground_seconds, Some(30));
     assert_eq!(config.subagents.models.len(), 2, "other subagent settings are kept");
+
+    assert_eq!(config.subagents.approval_focus, None, "switch unless configured");
+    let indicate: FileConfig = toml::from_str("[subagents]\napproval_focus = \"indicate\"\n").unwrap();
+    super::super::merge::merge_project_file(&mut config, &indicate);
+    assert_eq!(
+        config.subagents.approval_focus,
+        Some(crate::config::ApprovalFocus::Indicate)
+    );
+    assert_eq!(config.subagents.foreground_seconds, Some(30));
+    assert!(toml::from_str::<FileConfig>("[subagents]\napproval_focus = \"popup\"\n").is_err());
 }
 
 #[test]

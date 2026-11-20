@@ -4,7 +4,7 @@ use crate::ui::block::visible_width;
 use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::editor::{render_editor_lines, window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::wrap_to_width;
-use crate::ui::interactive::{BodyAnchor, CursorPosition, ModalMode, ModalState, OptionLayout};
+use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
 
 fn input_prompt_width(modal: &ModalState) -> usize {
     let ModalMode::Input { prompt_label } = &modal.mode else {
@@ -48,7 +48,6 @@ pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize,
             total_editor_lines: desired,
             autocomplete_desired: 0,
             is_modal: true,
-            modal_full_screen: modal.full_screen,
         },
     );
     let (b_space, _, _, _) = modal_in_input_spaces(modal, draft_text, (budget.editor_max_lines, inner_width));
@@ -260,27 +259,6 @@ fn render_horizontal_body_lines(wrapped: Vec<String>, body_scroll: usize, space:
     lines
 }
 
-fn render_tail_body_lines(wrapped: Vec<String>, from_bottom: usize, space: usize) -> Vec<String> {
-    let total = wrapped.len();
-    let visible = space.saturating_sub(1);
-    let scroll = from_bottom.min(total.saturating_sub(visible));
-    let start = total - visible - scroll;
-    let state = if scroll == 0 { "following" } else { "End to follow" };
-    let indicator = format!(
-        "  \x1b[2m↑/↓ PgUp/PgDn scroll · {state} (lines {}-{} of {total})\x1b[0m",
-        start + 1,
-        start + visible
-    );
-    let mut lines: Vec<String> = wrapped
-        .into_iter()
-        .skip(start)
-        .take(visible)
-        .map(|l| format!("  {l}"))
-        .collect();
-    lines.push(indicator);
-    lines
-}
-
 fn render_vertical_omission_lines(wrapped: Vec<String>, space: usize) -> Vec<String> {
     let total = wrapped.len();
     if space == 1 {
@@ -305,8 +283,6 @@ fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) ->
     }
     if total <= space {
         wrapped.into_iter().map(|line| format!("  {line}")).collect()
-    } else if modal.body_anchor == BodyAnchor::Bottom {
-        render_tail_body_lines(wrapped, modal.body_scroll, space)
     } else if modal.option_layout == OptionLayout::Horizontal {
         render_horizontal_body_lines(wrapped, modal.body_scroll, space)
     } else {

@@ -1,6 +1,9 @@
 use super::modal::{PendingModal, install_interaction};
 use crate::error::Result;
+use crate::repl::live::agent_focus::show_agent;
 use crate::ui::interactive::{Activity, BatchDecision, PendingUiBatch, PendingUiDrain, TerminalController, UiEvent};
+use rho_harness_core::agents::{AgentMonitor, AgentSummary};
+use rho_harness_core::config::ApprovalFocus;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -12,6 +15,10 @@ pub struct LiveBatch {
     pub(crate) ui: PendingUiBatch,
     pub(crate) modal: Option<PendingModal>,
     pub(crate) active_turn: bool,
+    /// The engine's agents, to tell which one a permission prompt belongs to.
+    monitor: Option<AgentMonitor>,
+    /// A permission prompt waiting until the agent it belongs to is shown (`None`: the main agent).
+    held_interaction: Option<(UiEvent, Option<u64>)>,
 }
 
 impl LiveBatch {
@@ -20,15 +27,23 @@ impl LiveBatch {
             ui: PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES),
             modal: None,
             active_turn: false,
+            monitor: None,
+            held_interaction: None,
         }
     }
 
     pub fn turn() -> Self {
         Self {
-            ui: PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES),
-            modal: None,
             active_turn: true,
+            ..Self::new()
         }
+    }
+
+    /// Routes permission prompts to the agent that asked, using `monitor` to find it.
+    #[must_use]
+    pub fn with_monitor(mut self, monitor: AgentMonitor) -> Self {
+        self.monitor = Some(monitor);
+        self
     }
 
     pub fn push_event<B: crate::ui::interactive::TerminalBackend>(
@@ -38,7 +53,9 @@ impl LiveBatch {
     ) -> Result<bool> {
         if matches!(event, UiEvent::DismissInteraction) {
             self.modal = None;
-            if controller.state().active_modal().is_some() {
+            if self.held_interaction.take().is_some() {
+                controller.state_mut().footer_mut().awaiting_approval = None;
+            } else if controller.state().active_modal().is_some() {
                 controller.state_mut().pop_modal();
             }
             return Ok(true);
@@ -47,11 +64,64 @@ impl LiveBatch {
             BatchDecision::Pending => Ok(false),
             BatchDecision::Flush(_) => Ok(true),
             BatchDecision::Barrier(_, event) => {
-                install_interaction(controller, event, &mut self.modal);
+                self.route_interaction(controller, event)?;
                 self.flush(controller, true)?;
                 Ok(false)
             }
         }
+    }
+
+    /// The agent whose permission prompt is open, or `None` for the main agent.
+    fn asking_agent(&self) -> Option<AgentSummary> {
+        self.monitor
+            .as_ref()?
+            .summaries()
+            .into_iter()
+            .filter(|s| s.awaiting_approval)
+            .max_by_key(|s| s.id)
+    }
+
+    /// Shows a permission prompt over the agent that asked: at once when it is shown, after
+    /// switching to it under `ApprovalFocus::Switch`, or once the user views it under `Indicate`.
+    fn route_interaction<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+        event: UiEvent,
+    ) -> Result<()> {
+        let asker = self.asking_agent();
+        let target = asker.as_ref().map(|s| s.id);
+        if target == controller.viewed_agent() {
+            install_interaction(controller, event, &mut self.modal);
+            return Ok(());
+        }
+        match controller.approval_focus() {
+            ApprovalFocus::Switch => {
+                show_agent(controller, self.monitor.as_ref(), target)?;
+                install_interaction(controller, event, &mut self.modal);
+            }
+            ApprovalFocus::Indicate => {
+                let label = asker.map_or_else(|| "main agent".to_string(), |s| s.label);
+                controller.state_mut().footer_mut().awaiting_approval = Some(label);
+                self.held_interaction = Some((event, target));
+            }
+        }
+        Ok(())
+    }
+
+    /// Opens a held permission prompt once its agent is the one shown.
+    fn release_held_interaction<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+    ) -> bool {
+        if !matches!(&self.held_interaction, Some((_, target)) if *target == controller.viewed_agent()) {
+            return false;
+        }
+        let Some((event, _)) = self.held_interaction.take() else {
+            return false;
+        };
+        controller.state_mut().footer_mut().awaiting_approval = None;
+        install_interaction(controller, event, &mut self.modal);
+        true
     }
 
     pub fn enqueue<B: crate::ui::interactive::TerminalBackend>(
@@ -93,67 +163,25 @@ impl LiveBatch {
         Ok(changed)
     }
 
-    fn apply_tool_updates<B: crate::ui::interactive::TerminalBackend>(
-        &mut self,
-        controller: &mut TerminalController<B>,
-        drained: &mut PendingUiDrain,
-    ) -> Result<bool> {
-        let mut changed = false;
-        if let Some(request) = drained.tool_start.take() {
-            controller.start_tool(request)?;
-            changed = true;
-        }
-        if !drained.tool_chunks.is_empty() {
-            controller.append_tool_chunks(drained.tool_chunks.iter().map(String::as_str))?;
-        }
-
-        let has_tool_transcript = drained
-            .transcript_items
-            .iter()
-            .any(|item| matches!(item, crate::ui::interactive::TranscriptItem::Tool(_)));
-        if drained.tool_end && !has_tool_transcript {
-            controller.end_tool()?;
-            changed = true;
-        } else if !has_tool_transcript && let Some(running) = drained.running_tool.take() {
-            controller.state_mut().footer_mut().running_tool = running;
-            changed = true;
-        }
-        Ok(changed)
-    }
-
     pub fn flush<B: crate::ui::interactive::TerminalBackend>(
         &mut self,
         controller: &mut TerminalController<B>,
         redraw: bool,
     ) -> Result<()> {
-        if self.ui.is_empty() && !redraw {
+        let released = self.release_held_interaction(controller);
+        if self.ui.is_empty() && !redraw && !released {
             return Ok(());
         }
         let mut drained = self.ui.drain();
-        let mut changed = self.apply_status_updates(controller, &mut drained)?;
-        changed |= self.apply_tool_updates(controller, &mut drained)?;
+        let mut changed = released | self.apply_status_updates(controller, &mut drained)?;
         let mut wrote_output = false;
-
-        for output in drained.outputs {
-            match output {
-                crate::ui::interactive::OutputEvent::Text(text) => {
-                    controller.write_output(&text)?;
-                    wrote_output = true;
-                }
-                crate::ui::interactive::OutputEvent::StreamText(text) => {
-                    controller.write_stream_output(&text)?;
-                    wrote_output = true;
-                }
-            }
+        if controller.viewed_agent().is_some() {
+            controller.hold_output(drained);
+        } else {
+            let (applied, wrote) = controller.apply_output(drained)?;
+            changed |= applied;
+            wrote_output = wrote;
         }
-
-        for item in drained.transcript_items {
-            if controller.push_transcript_item(item)? {
-                wrote_output = true;
-            }
-            changed = true;
-        }
-
         if (changed || redraw) && !wrote_output {
             controller.redraw()?;
         }

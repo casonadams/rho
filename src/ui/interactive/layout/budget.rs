@@ -9,7 +9,6 @@ pub(crate) struct NormalBudgetInput {
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
     pub is_modal: bool,
-    pub modal_full_screen: bool,
 }
 
 pub(crate) struct NormalLayoutBudget {
@@ -119,7 +118,7 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     );
     let (autocomplete_max_lines, mut editor_max_lines) =
         allocate_editor_and_autocomplete(surplus, extra_ed, ac_desired);
-    if input.is_modal && !input.modal_full_screen {
+    if input.is_modal {
         let max_modal = ((input.terminal_height as f64) * MAX_MODAL_HEIGHT_RATIO).round() as usize;
         editor_max_lines = editor_max_lines.min(max_modal.max(1));
     }

@@ -48,19 +48,18 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         let agent_key = agents::handle_agents_key(self.io.controller, key, &self.monitor)?;
-        let unavailable = match &agent_key {
-            agents::AgentKey::Send(message) => Some(format!(
-                "Message {} after the workflow finishes, from the Agents list",
-                message.label
-            )),
-            agents::AgentKey::Stop { .. } => {
-                Some("Workflow agents stop with the workflow: press Esc to cancel it".to_string())
+        match &agent_key {
+            agents::AgentKey::Stop(_) => {
+                self.io
+                    .controller
+                    .set_system_message("Workflow agents stop with the workflow: press Esc to cancel it");
+                self.flush(true)?;
             }
-            agents::AgentKey::Ignored | agents::AgentKey::Handled => None,
-        };
-        if let Some(status) = unavailable {
-            self.io.controller.set_system_message(status);
-            self.flush(true)?;
+            agents::AgentKey::Escape(_) => {
+                self.io.controller.leave_agent_view()?;
+                self.flush(true)?;
+            }
+            agents::AgentKey::Ignored | agents::AgentKey::Handled => {}
         }
         if agent_key.consumed() || agents::try_open_agents(self.io.controller, &key, &self.monitor)? {
             return Ok(());
@@ -104,7 +103,7 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
         let resized = self.io.controller.refresh_size()?;
         sync_renderer_width(self.renderer, self.io.controller, resized);
         self.io.controller.check_system_message_expiration();
-        agents::refresh_agent_modals(self.io.controller, &self.monitor);
+        agents::refresh_agent_modals(self.io.controller, &self.monitor)?;
         self.flush(true)
     }
 }

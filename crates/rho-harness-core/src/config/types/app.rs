@@ -129,11 +129,25 @@ pub struct SubagentsConfig {
     /// Seconds a subagent call waits for its result before the subagent moves to the background.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreground_seconds: Option<u64>,
+    /// What happens when an agent you are not viewing needs a permission answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_focus: Option<ApprovalFocus>,
+}
+
+/// Where the view goes when an agent other than the one shown asks for a permission answer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalFocus {
+    /// Switch the view to the asking agent and show its prompt.
+    #[default]
+    Switch,
+    /// Keep the current view; the footer names the agent, and its prompt opens when you view it.
+    Indicate,
 }
 
 impl SubagentsConfig {
     pub fn is_empty(&self) -> bool {
-        self.models.is_empty() && self.foreground_seconds.is_none()
+        self.models.is_empty() && self.foreground_seconds.is_none() && self.approval_focus.is_none()
     }
 }
 

@@ -32,7 +32,7 @@ impl IdleUi {
         let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
         frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         Self {
-            batch: LiveBatch::new(),
+            batch: LiveBatch::new().with_monitor(engine.agent_monitor().clone()),
             frame,
             quota_rx: engine.quota_subscribe(),
             mcp: engine.mcp_runtime().cloned(),
@@ -124,7 +124,7 @@ fn handle_frame_tick<B: TerminalBackend>(
     if quota_changed {
         controller.state_mut().footer_mut().quota = quota;
     }
-    let agents = crate::repl::live::modal::agents::refresh_agent_modals(controller, engine.agent_monitor());
+    let agents = crate::repl::live::modal::agents::refresh_agent_modals(controller, engine.agent_monitor())?;
     let should_redraw = expired || resized || quota_changed || agents;
     if !batch.ui.is_empty() || should_redraw {
         batch.flush(controller, should_redraw)?;

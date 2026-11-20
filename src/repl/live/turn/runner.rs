@@ -31,13 +31,14 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         steering: Arc<SharedSteeringQueue>,
     ) -> Self {
         controller.state_mut().footer_mut().activity = Activity::Working;
+        controller.set_approval_focus(session.config.subagents.approval_focus.unwrap_or_default());
         sync_turn_footer(controller, engine);
         Self {
             session,
             engine,
             controller,
             steering,
-            batch: LiveBatch::turn(),
+            batch: LiveBatch::turn().with_monitor(engine.agent_monitor().clone()),
             last_spinner: std::time::Instant::now(),
         }
     }
@@ -48,7 +49,7 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         let resized = self.controller.refresh_size()?;
         let footer = sync_turn_footer(self.controller, self.engine);
         let agents =
-            crate::repl::live::modal::agents::refresh_agent_modals(self.controller, self.engine.agent_monitor());
+            crate::repl::live::modal::agents::refresh_agent_modals(self.controller, self.engine.agent_monitor())?;
         self.batch.flush(
             self.controller,
             spinner || footer || expired || steering || resized || agents,

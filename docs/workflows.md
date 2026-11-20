@@ -312,13 +312,24 @@ You fix validated findings...
 |---|---|---|
 | `Left` | empty prompt, or while a workflow runs | Open the **Agents** list |
 | type | Agents list | Fuzzy-filter agents |
-| `Enter` / `Right` | Agents list | Watch the selected agent full screen, rendered like the main transcript |
+| `Enter` / `Right` | Agents list | Show the selected agent in the main terminal, in place of the main agent |
 | `Delete` | Agents list | Stop the selected running agent; it saves its work and the task can be continued |
-| `Up`/`Down`, `PgUp`/`PgDn` | agent view | Scroll; `End` follows new output again |
-| type, then `Enter` | agent view | Message the agent: a running agent reads it before its next model call; for a finished one, the main agent is asked to continue its task (inside a normal, permission-checked turn). During a workflow, agents can be messaged once it finishes. |
-| `Ctrl+C` | agent view | Clear the typed message, or go back when there is none |
-| `Tab` / `Shift+Tab` | agent view | Jump to the next or previous agent |
-| `Left` / `Esc` | either | Go back one level (`Left` moves the cursor while a message is typed) |
+| `Left` / `Esc` | Agents list | Close the list |
+| type, then `Enter` | agent shown | Message the agent: a running agent reads it before its next model call; for a finished one, the main agent is asked to continue its task (inside a normal, permission-checked turn). Workflow agents cannot be messaged while the workflow runs. |
+| `Esc` | agent shown | Stop the agent if it is running (it saves its work first), otherwise return to the main agent |
+| `Left` | agent shown, empty prompt | Return to the main agent |
 
-The view follows the agent into the rounds that continue its task. While
-subagents run, the footer shows how many (`⟳ 2 agents (←)`).
+A shown agent looks like the main agent: its prompts, streamed reply, thinking,
+and tool cards with live output, and the footer names it and its model
+(`◉ audit · claude/claude-haiku-5-5 · turn 3/20`). The main agent keeps working
+unseen; its output appears when you return. Slash commands act on the main
+session, so they wait until you return. The view follows the agent into the
+rounds that continue its task. While subagents run, the footer shows how many
+(`⟳ 2 agents (←)`).
+
+When an agent you are not looking at needs a permission answer, the view
+switches to it and shows the prompt. With `approval_focus = "indicate"` in
+`[subagents]` (see [Configuration](configuration.md#subagents--custom-agents)),
+the view stays put, the footer says `⚠ <agent> needs approval`, and the prompt
+opens when you show that agent (or return to the main agent, for its own
+prompts).

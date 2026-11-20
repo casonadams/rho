@@ -72,7 +72,7 @@ and editor navigation, see
 | `Ctrl+G`                 | Open current input draft in external editor (`$EDITOR`).                                                              |
 | `Ctrl+Z`                 | Suspend process to background.                                                                                        |
 | `Tab`                    | Auto-complete slash commands, skill names, and file paths.                                                            |
-| `Left` (empty prompt)    | Open the Agents list to watch running and finished subagents live; `Left` or `Esc` goes back. See [Workflows](workflows.md#watching-agents). |
+| `Left` (empty prompt)    | Open the Agents list; `Enter` shows a subagent in the main terminal in place of the main agent, and `Left` on an empty prompt returns. See [Workflows](workflows.md#watching-agents). |
 
 ### Message Queueing
 

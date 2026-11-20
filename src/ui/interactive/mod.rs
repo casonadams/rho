@@ -13,6 +13,7 @@ pub mod tree_view;
 #[cfg(test)]
 pub(crate) use controller::NullBackend;
 pub use controller::cache;
+pub use controller::view::ViewFrame;
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
     BatchDecision, FlushBarrier, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder,
@@ -29,7 +30,7 @@ pub use layout::{
     modal_body_max_scroll, truncate_to_visual_lines, wrap_to_width,
 };
 pub use state::{
-    Activity, AutocompleteItem, AutocompleteState, BodyAnchor, EditorState, FooterState, InteractiveState,
+    Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,
     MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
     RunningTool, UiAction, UiEffect,
 };

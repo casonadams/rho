@@ -267,6 +267,8 @@ struct AgentSetup<'a> {
     recorder: &'a Arc<Recorder>,
     question_tool: Option<Arc<dyn EngineTool>>,
     stop: &'a CancellationSignal,
+    /// The agent's monitor record, which its permission prompts mark as waiting for approval.
+    tracker: Option<&'a AgentHandle>,
 }
 
 /// The finished turn loop: how it ended, the conversation it left, its totals, and whether that
@@ -671,6 +673,7 @@ impl SubagentRunner {
             recorder,
             question_tool: round.question_tool.clone(),
             stop,
+            tracker,
         });
         let finish = self.consume(agent, &sink, tracker, stop, &mut round.run.tally).await;
         let messages = store.messages();
@@ -719,7 +722,10 @@ impl SubagentRunner {
         .prompt(setup.prompt)
         .budget(self.max_turns.saturating_sub(setup.turns_used))
         .lifecycle(self.ctx.lifecycle.clone())
-        .permission(self.ctx.permission.clone())
+        .permission(self.ctx.permission.as_ref().map(|hook| match setup.tracker {
+            Some(tracker) => Arc::new(hook.for_agent(tracker.clone())),
+            None => hook.clone(),
+        }))
         .stream_port(self.ctx.progress.clone())
         .inbox(self.inbox.clone())
         .cancellation(Some(setup.stop.clone()))

@@ -11,6 +11,9 @@ pub struct MockHookPresenter {
     pub has_ui: bool,
     pub response: Mutex<Option<InteractionResponse>>,
     pub last_prompt: Mutex<Option<InteractionPrompt>>,
+    /// When set, each prompt records which agents were waiting for approval as it was shown.
+    pub watching: Option<rho_harness_core::agents::AgentMonitor>,
+    pub waiting_when_asked: Mutex<Vec<Vec<String>>>,
 }
 
 impl MockHookPresenter {
@@ -19,7 +22,14 @@ impl MockHookPresenter {
             has_ui,
             response: Mutex::new(response),
             last_prompt: Mutex::new(None),
+            watching: None,
+            waiting_when_asked: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn watching(mut self, monitor: rho_harness_core::agents::AgentMonitor) -> Self {
+        self.watching = Some(monitor);
+        self
     }
 }
 
@@ -51,6 +61,15 @@ impl Presenter for MockHookPresenter {
     async fn request_interaction(&self, prompt: InteractionPrompt) -> Option<InteractionResponse> {
         if let Ok(mut slot) = self.last_prompt.lock() {
             *slot = Some(prompt);
+        }
+        if let Some(monitor) = &self.watching {
+            let waiting = monitor
+                .summaries()
+                .into_iter()
+                .filter(|s| s.awaiting_approval)
+                .map(|s| s.label)
+                .collect();
+            self.waiting_when_asked.lock().unwrap().push(waiting);
         }
         self.response.lock().ok().and_then(|r| r.clone())
     }

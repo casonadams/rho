@@ -57,6 +57,10 @@ pub struct FooterState {
     pub show_label: bool,
     /// Subagents whose rounds are running; shown so the user knows to look with Left.
     pub running_agents: usize,
+    /// The agent shown in place of the main agent, as its footer title.
+    pub viewing: Option<String>,
+    /// The agent, not shown, whose permission prompt is waiting for the user.
+    pub awaiting_approval: Option<String>,
 }
 
 type IdentityKey<'a> = (
@@ -82,7 +86,7 @@ type MetricsKey<'a> = (
     Option<u64>,
 );
 
-type UiKey<'a> = (usize, Option<&'a str>, bool, usize);
+type UiKey<'a> = (usize, Option<&'a str>, bool, usize, Option<&'a str>, Option<&'a str>);
 
 impl FooterState {
     fn identity_key(&self) -> IdentityKey<'_> {
@@ -118,6 +122,8 @@ impl FooterState {
             self.context.as_deref(),
             self.show_label,
             self.running_agents,
+            self.viewing.as_deref(),
+            self.awaiting_approval.as_deref(),
         )
     }
 }

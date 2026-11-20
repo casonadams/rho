@@ -11,19 +11,7 @@ fn sample_budget_input(terminal_height: usize, total_editor_lines: usize, is_mod
         total_editor_lines,
         autocomplete_desired: 0,
         is_modal,
-        modal_full_screen: false,
     }
-}
-
-#[test]
-fn a_full_screen_modal_is_not_capped_at_two_thirds_of_the_terminal() {
-    let capped = compute_normal_budget(&sample_budget_input(30, 50, true));
-    let full = compute_normal_budget(&NormalBudgetInput {
-        modal_full_screen: true,
-        ..sample_budget_input(30, 50, true)
-    });
-    assert_eq!(capped.editor_max_lines, 20);
-    assert!(full.editor_max_lines > 24, "{}", full.editor_max_lines);
 }
 
 #[test]

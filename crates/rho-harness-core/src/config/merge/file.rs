@@ -164,6 +164,9 @@ fn merge_subagent_settings(config: &mut Config, file: &FileConfig) {
     if let Some(seconds) = file.subagents.foreground_seconds {
         config.subagents.foreground_seconds = Some(seconds);
     }
+    if let Some(focus) = file.subagents.approval_focus {
+        config.subagents.approval_focus = Some(focus);
+    }
 }
 
 fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {

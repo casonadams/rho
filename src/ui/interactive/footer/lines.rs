@@ -21,6 +21,22 @@ pub fn format_top_line(footer: &FooterState, width: usize, system_message: Optio
         .unwrap_or_else(|| PathBuf::from("."));
 
     let mut pwd = abbreviate_home(&cwd_path, home.as_deref());
+    if let Some(viewing) = footer.viewing.as_deref().filter(|v| !v.is_empty()) {
+        pwd = format!("◉ {viewing} • ← back to main");
+    } else {
+        push_location(footer, &mut pwd);
+    }
+    if let Some(asking) = footer.awaiting_approval.as_deref().filter(|a| !a.is_empty()) {
+        pwd.push_str(&format!(" • ⚠ {asking} needs approval"));
+    }
+
+    match resolve_status_text(footer, system_message) {
+        Some(text) => fit_right_aligned(&pwd, &text, width),
+        None => truncate_with_ellipsis(&pwd, width),
+    }
+}
+
+fn push_location(footer: &FooterState, pwd: &mut String) {
     if let Some(branch) = &footer.git_branch
         && !branch.is_empty()
     {
@@ -35,11 +51,6 @@ pub fn format_top_line(footer: &FooterState, width: usize, system_message: Optio
         0 => {}
         1 => pwd.push_str(" • ⟳ 1 agent (←)"),
         n => pwd.push_str(&format!(" • ⟳ {n} agents (←)")),
-    }
-
-    match resolve_status_text(footer, system_message) {
-        Some(text) => fit_right_aligned(&pwd, &text, width),
-        None => truncate_with_ellipsis(&pwd, width),
     }
 }
 
