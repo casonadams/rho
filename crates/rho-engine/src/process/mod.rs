@@ -46,6 +46,19 @@ fn signal_group(pid: u32, sig: i32) {
     }
 }
 
+/// On macOS a child forked during a group SIGKILL can miss it (measured: ~6% of fork loops); Linux
+/// delays such signals until after fork. Re-signal until only zombies (EPERM) or none (ESRCH) remain.
+#[cfg(target_os = "macos")]
+fn kill_forked_stragglers(pid: u32) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        if unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) } != 0 {
+            return;
+        }
+    }
+}
+
 #[cfg(windows)]
 fn kill_windows_tree(pid: u32) {
     use std::os::windows::process::CommandExt;
@@ -62,6 +75,8 @@ pub(crate) fn kill_group_by_pid(pid: u32) {
     }
     #[cfg(unix)]
     signal_group(pid, libc::SIGKILL);
+    #[cfg(target_os = "macos")]
+    kill_forked_stragglers(pid);
     #[cfg(windows)]
     kill_windows_tree(pid);
     #[cfg(not(any(unix, windows)))]

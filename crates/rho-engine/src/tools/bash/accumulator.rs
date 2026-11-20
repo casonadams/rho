@@ -32,7 +32,8 @@ pub struct OutputAccumulator {
     finished: bool,
     temp_file_path: Option<PathBuf>,
     temp_file_writer: Option<BufWriter<File>>,
-    raw_chunks: Vec<Vec<u8>>,
+    /// Plain log text held until the output is long enough to need a log file.
+    unwritten_log: String,
     pending_ansi: String,
 }
 
@@ -89,7 +90,7 @@ impl OutputAccumulator {
             finished: false,
             temp_file_path: None,
             temp_file_writer: None,
-            raw_chunks: Vec::new(),
+            unwritten_log: String::new(),
             pending_ansi: String::new(),
         }
     }
@@ -119,13 +120,7 @@ impl OutputAccumulator {
         if !complete.is_empty() {
             let sanitized = super::sanitize::sanitize_binary_output(complete);
             self.append_decoded_text(&sanitized);
-        }
-
-        if self.temp_file_writer.is_some() || self.should_use_temp_file() {
-            self.ensure_temp_file();
-            self.write_log(data);
-        } else {
-            self.raw_chunks.push(data.to_vec());
+            self.log(&sanitized);
         }
     }
 
@@ -138,6 +133,7 @@ impl OutputAccumulator {
             let leftover = std::mem::take(&mut self.pending_ansi);
             let sanitized = super::sanitize::sanitize_binary_output(&leftover);
             self.append_decoded_text(&sanitized);
+            self.log(&sanitized);
         }
         if self.should_use_temp_file() {
             self.ensure_temp_file();
@@ -196,6 +192,17 @@ impl OutputAccumulator {
         self.tail_text = self.tail_text[boundary..].to_string();
     }
 
+    /// The log is read back by the model, so it gets the decoded text without terminal colors.
+    fn log(&mut self, text: &str) {
+        let plain = super::sanitize::strip_ansi(text);
+        if self.temp_file_writer.is_some() || self.should_use_temp_file() {
+            self.ensure_temp_file();
+            self.write_log(plain.as_bytes());
+        } else {
+            self.unwritten_log.push_str(&plain);
+        }
+    }
+
     fn should_use_temp_file(&self) -> bool {
         self.total_raw_bytes > self.max_bytes
             || self.total_lines > self.max_lines
@@ -213,9 +220,8 @@ impl OutputAccumulator {
         };
         self.temp_file_path = Some(path);
         self.temp_file_writer = Some(BufWriter::new(file));
-        for chunk in std::mem::take(&mut self.raw_chunks) {
-            self.write_log(&chunk);
-        }
+        let unwritten = std::mem::take(&mut self.unwritten_log);
+        self.write_log(unwritten.as_bytes());
     }
 
     fn write_log(&mut self, data: &[u8]) {

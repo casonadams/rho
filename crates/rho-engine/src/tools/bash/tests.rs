@@ -133,6 +133,29 @@ fn test_output_accumulator_creates_temp_file_when_lines_exceed_threshold() {
 }
 
 #[test]
+fn the_full_output_log_has_no_terminal_colors_even_when_escapes_span_chunks() {
+    let mut acc = OutputAccumulator::new();
+    acc.append(b"\x1b[31mline 1\x1b[0m\n");
+    for i in 2..=20 {
+        acc.append(format!("\x1b[1;3{}mline {i}\x1b[0m\n", i % 8).as_bytes());
+    }
+    acc.append(b"tail \x1b[3");
+    acc.append(b"2mgreen\x1b[0m\n");
+    acc.finish();
+
+    let path = acc.snapshot().full_output_path.expect("over the line threshold");
+    let log = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(!log.contains('\u{1b}'), "{log:?}");
+    assert!(log.starts_with("line 1\nline 2\n"), "{log:?}");
+    assert!(log.ends_with("line 20\ntail green\n"), "{log:?}");
+    assert!(
+        acc.snapshot().formatted_text.contains("\x1b[32mgreen"),
+        "the live text keeps its colors"
+    );
+}
+
+#[test]
 fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     let mut acc = OutputAccumulator::new();
     acc.append(b"starting \x1b[4");
