@@ -1,0 +1,445 @@
+//! Per-agent mailboxes: one typed envelope and one bounded queue per agent, addressed by agent id.
+//!
+//! Steering, messages to a running subagent, replies to questions, and background notices all travel
+//! as [`Envelope`]s. An agent reads its [`Mailbox`] at a safe point (before its next model call); a
+//! wake signal only tells a waiting reader to look, so a missed wake-up never loses a message.
+
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use tokio::sync::Notify;
+
+/// Messages a mailbox holds before further sends are refused.
+pub const MAILBOX_CAPACITY: usize = 32;
+/// Longest chain of replies to replies; stops two agents from answering each other forever.
+pub const MAX_HOPS: u8 = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Party {
+    User,
+    System,
+    Agent(String),
+}
+
+/// What the recipient is expected to do with a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// An instruction to act on.
+    Command,
+    /// A report that something happened; it needs no action.
+    Event,
+    /// A question that waits for a [`Kind::Reply`] carrying its id as the correlation.
+    Request,
+    Reply,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Envelope {
+    pub id: String,
+    pub from: Party,
+    /// The recipient's agent id.
+    pub to: String,
+    pub kind: Kind,
+    pub body: String,
+    /// For a reply, the id of the request it answers.
+    pub correlation: Option<String>,
+    /// How many replies deep this message is.
+    pub hops: u8,
+}
+
+impl Envelope {
+    #[must_use]
+    pub fn new(from: Party, to: impl Into<String>, kind: Kind, body: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            from,
+            to: to.into(),
+            kind,
+            body: body.into(),
+            correlation: None,
+            hops: 0,
+        }
+    }
+
+    /// An answer to `request`, addressed to the agent that asked; `None` when the asker is not an agent.
+    #[must_use]
+    pub fn reply_to(request: &Self, from: Party, body: impl Into<String>) -> Option<Self> {
+        let Party::Agent(asker) = &request.from else {
+            return None;
+        };
+        let mut reply = Self::new(from, asker.clone(), Kind::Reply, body);
+        reply.correlation = Some(request.id.clone());
+        reply.hops = request.hops.saturating_add(1);
+        Some(reply)
+    }
+
+    /// How the message is introduced to the model; `parent` is the reader's delegating agent, if any.
+    #[must_use]
+    pub fn heading(&self, parent: Option<&str>) -> String {
+        let source = match &self.from {
+            Party::User => "Message from the user".to_string(),
+            Party::System => "System message".to_string(),
+            Party::Agent(id) if Some(id.as_str()) == parent => "Message from the delegating agent".to_string(),
+            Party::Agent(id) => format!("Message from agent {id}"),
+        };
+        match self.kind {
+            Kind::Request => format!("{source} (a reply is expected)"),
+            Kind::Command | Kind::Event | Kind::Reply => source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendError {
+    /// The recipient has no open mailbox: unknown, or its round has ended.
+    NoMailbox,
+    /// An agent may message its parent, its children, and its siblings, and nobody else.
+    NotAllowed,
+    Full,
+    TooManyHops,
+}
+
+struct Slot {
+    generation: u64,
+    parent: Option<String>,
+    queue: VecDeque<Envelope>,
+    wake: Arc<Notify>,
+}
+
+#[derive(Default)]
+struct Registry {
+    next_generation: u64,
+    slots: HashMap<String, Slot>,
+}
+
+/// Whether agent `from` may message agent `to`, given who `to`'s parent is.
+fn permitted(registry: &Registry, from: &str, to: &str, to_parent: Option<&str>) -> bool {
+    let Some(sender) = registry.slots.get(from) else {
+        return false;
+    };
+    let sender_parent = sender.parent.as_deref();
+    from != to && (to_parent == Some(from) || sender_parent == Some(to) || sender_parent == to_parent)
+}
+
+/// The mailboxes of every running agent of an engine.
+#[derive(Clone, Default)]
+pub struct Mailboxes(Arc<Mutex<Registry>>);
+
+impl Mailboxes {
+    fn lock(&self) -> MutexGuard<'_, Registry> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Opens agent `id`'s mailbox, replacing any earlier one; `parent` is the agent that delegated to it.
+    pub fn open(&self, id: &str, parent: Option<&str>) -> Mailbox {
+        let mut registry = self.lock();
+        registry.next_generation += 1;
+        let generation = registry.next_generation;
+        let wake = Arc::new(Notify::new());
+        registry.slots.insert(
+            id.to_string(),
+            Slot {
+                generation,
+                parent: parent.map(str::to_string),
+                queue: VecDeque::new(),
+                wake: wake.clone(),
+            },
+        );
+        Mailbox {
+            registry: self.clone(),
+            id: id.to_string(),
+            generation,
+            wake,
+        }
+    }
+
+    #[must_use]
+    pub fn is_open(&self, id: &str) -> bool {
+        self.lock().slots.contains_key(id)
+    }
+
+    pub fn send(&self, envelope: Envelope) -> Result<(), SendError> {
+        if envelope.hops > MAX_HOPS {
+            return Err(SendError::TooManyHops);
+        }
+        let mut registry = self.lock();
+        let target = registry.slots.get(&envelope.to).ok_or(SendError::NoMailbox)?;
+        if let Party::Agent(from) = &envelope.from
+            && !permitted(&registry, from, &envelope.to, target.parent.as_deref())
+        {
+            return Err(SendError::NotAllowed);
+        }
+        let slot = registry.slots.get_mut(&envelope.to).ok_or(SendError::NoMailbox)?;
+        if slot.queue.len() >= MAILBOX_CAPACITY {
+            return Err(SendError::Full);
+        }
+        slot.queue.push_back(envelope);
+        slot.wake.notify_waiters();
+        Ok(())
+    }
+}
+
+/// An agent's own end of its mailbox. Dropping it closes the mailbox.
+pub struct Mailbox {
+    registry: Mailboxes,
+    id: String,
+    generation: u64,
+    wake: Arc<Notify>,
+}
+
+impl Mailbox {
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn with_slot<R>(&self, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
+        let mut registry = self.registry.lock();
+        registry
+            .slots
+            .get_mut(&self.id)
+            .filter(|slot| slot.generation == self.generation)
+            .map(f)
+    }
+
+    /// Every message waiting, oldest first.
+    #[must_use]
+    pub fn take(&self) -> Vec<Envelope> {
+        self.with_slot(|slot| slot.queue.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn pending(&self) -> usize {
+        self.with_slot(|slot| slot.queue.len()).unwrap_or(0)
+    }
+
+    /// Returns once at least one message is waiting.
+    pub async fn wait(&self) {
+        loop {
+            let notified = self.wake.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.pending() > 0 {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    /// Closes the mailbox, returning the messages the agent never read.
+    #[must_use]
+    pub fn close(self) -> Vec<Envelope> {
+        self.shutdown()
+    }
+
+    fn shutdown(&self) -> Vec<Envelope> {
+        let mut registry = self.registry.lock();
+        let ours = registry
+            .slots
+            .get(&self.id)
+            .is_some_and(|slot| slot.generation == self.generation);
+        if !ours {
+            return Vec::new();
+        }
+        registry
+            .slots
+            .remove(&self.id)
+            .map(|slot| slot.queue.into_iter().collect())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for Mailbox {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn agent(id: &str) -> Party {
+        Party::Agent(id.to_string())
+    }
+
+    fn command(from: Party, to: &str, body: &str) -> Envelope {
+        Envelope::new(from, to, Kind::Command, body)
+    }
+
+    #[test]
+    fn messages_arrive_in_order_and_are_taken_once() {
+        let boxes = Mailboxes::default();
+        let mailbox = boxes.open("a", None);
+        for body in ["one", "two", "three"] {
+            boxes.send(command(Party::User, "a", body)).unwrap();
+        }
+
+        let bodies: Vec<String> = mailbox.take().into_iter().map(|m| m.body).collect();
+
+        assert_eq!(bodies, ["one", "two", "three"]);
+        assert!(mailbox.take().is_empty());
+        assert_eq!(mailbox.pending(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_waiting_reader_wakes_for_a_message_and_a_message_sent_earlier_is_never_missed() {
+        let boxes = Mailboxes::default();
+        let mailbox = boxes.open("a", None);
+        boxes.send(command(Party::User, "a", "early")).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), mailbox.wait())
+            .await
+            .expect("a waiting message returns at once");
+        let _ = mailbox.take();
+
+        let waiter = tokio::spawn(async move {
+            mailbox.wait().await;
+            mailbox.take()
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+        boxes.send(command(Party::System, "a", "late")).unwrap();
+
+        let got = tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].body, "late");
+    }
+
+    #[test]
+    fn a_full_mailbox_refuses_more_until_it_is_read() {
+        let boxes = Mailboxes::default();
+        let mailbox = boxes.open("a", None);
+        for _ in 0..MAILBOX_CAPACITY {
+            boxes.send(command(Party::User, "a", "x")).unwrap();
+        }
+        assert_eq!(boxes.send(command(Party::User, "a", "x")), Err(SendError::Full));
+
+        let _ = mailbox.take();
+
+        assert_eq!(boxes.send(command(Party::User, "a", "x")), Ok(()));
+    }
+
+    #[test]
+    fn closing_returns_unread_messages_and_refuses_new_ones() {
+        let boxes = Mailboxes::default();
+        let mailbox = boxes.open("a", None);
+        boxes.send(command(Party::User, "a", "unread")).unwrap();
+
+        let unread = mailbox.close();
+
+        assert_eq!(unread.len(), 1);
+        assert!(!boxes.is_open("a"));
+        assert_eq!(boxes.send(command(Party::User, "a", "late")), Err(SendError::NoMailbox));
+    }
+
+    #[test]
+    fn an_old_handle_closing_leaves_the_mailbox_that_replaced_it_open() {
+        let boxes = Mailboxes::default();
+        let old = boxes.open("task", None);
+        let new = boxes.open("task", None);
+        boxes.send(command(Party::User, "task", "for the new round")).unwrap();
+
+        assert!(old.take().is_empty(), "the replaced handle no longer reads");
+        drop(old);
+
+        assert!(boxes.is_open("task"));
+        assert_eq!(new.take().len(), 1);
+    }
+
+    #[test]
+    fn agents_may_message_their_parent_children_and_siblings_only() {
+        let boxes = Mailboxes::default();
+        let _root = boxes.open("root", None);
+        let _a = boxes.open("a", Some("root"));
+        let _b = boxes.open("b", Some("root"));
+        let _a_child = boxes.open("a1", Some("a"));
+        let _stranger = boxes.open("other-root", None);
+        let allowed = [
+            ("root", "a"),
+            ("a", "root"),
+            ("a", "b"),
+            ("b", "a"),
+            ("a", "a1"),
+            ("a1", "a"),
+        ];
+        let denied = [
+            ("a1", "root"),
+            ("root", "a1"),
+            ("a1", "b"),
+            ("a", "other-root"),
+            ("other-root", "a"),
+            ("a", "a"),
+            ("ghost", "a"),
+        ];
+
+        for (from, to) in allowed {
+            assert_eq!(boxes.send(command(agent(from), to, "hi")), Ok(()), "{from} -> {to}");
+        }
+        for (from, to) in denied {
+            assert_eq!(
+                boxes.send(command(agent(from), to, "hi")),
+                Err(SendError::NotAllowed),
+                "{from} -> {to}"
+            );
+        }
+        assert_eq!(
+            boxes.send(command(agent("a"), "missing", "hi")),
+            Err(SendError::NoMailbox)
+        );
+        assert_eq!(
+            boxes.send(command(Party::User, "a1", "hi")),
+            Ok(()),
+            "the user may reach any agent"
+        );
+    }
+
+    #[test]
+    fn replies_route_back_to_the_asker_and_stop_after_too_many_hops() {
+        let boxes = Mailboxes::default();
+        let _root = boxes.open("root", None);
+        let _child = boxes.open("child", Some("root"));
+        let question = Envelope::new(agent("child"), "root", Kind::Request, "which module?");
+        boxes.send(question.clone()).unwrap();
+
+        let reply = Envelope::reply_to(&question, agent("root"), "the parser").unwrap();
+
+        assert_eq!((reply.to.as_str(), reply.kind, reply.hops), ("child", Kind::Reply, 1));
+        assert_eq!(reply.correlation.as_deref(), Some(question.id.as_str()));
+        assert_eq!(boxes.send(reply.clone()), Ok(()));
+        assert!(Envelope::reply_to(&command(Party::User, "root", "x"), agent("root"), "?").is_none());
+
+        let mut chain = reply;
+        for _ in 0..MAX_HOPS {
+            let (from, to) = (chain.to.clone(), chain.from.clone());
+            chain = Envelope::reply_to(&chain, Party::Agent(from), "again").unwrap();
+            assert_eq!(to, Party::Agent(chain.to.clone()));
+        }
+        assert_eq!(boxes.send(chain), Err(SendError::TooManyHops));
+    }
+
+    #[test]
+    fn headings_say_who_sent_the_message_relative_to_the_reader() {
+        let from = |party, kind| Envelope::new(party, "a", kind, "x");
+        let cases = [
+            (from(Party::User, Kind::Command), "Message from the user"),
+            (from(Party::System, Kind::Event), "System message"),
+            (from(agent("boss"), Kind::Command), "Message from the delegating agent"),
+            (from(agent("peer"), Kind::Command), "Message from agent peer"),
+            (
+                from(agent("boss"), Kind::Request),
+                "Message from the delegating agent (a reply is expected)",
+            ),
+        ];
+        for (envelope, expected) in cases {
+            assert_eq!(envelope.heading(Some("boss")), expected);
+        }
+        assert_eq!(
+            from(agent("boss"), Kind::Command).heading(None),
+            "Message from agent boss"
+        );
+    }
+}

@@ -28,6 +28,7 @@ pub mod engine;
 pub mod gemini;
 pub mod hook;
 pub(crate) mod http;
+pub mod mailbox;
 pub mod mcp;
 pub mod ollama;
 pub mod permission;
