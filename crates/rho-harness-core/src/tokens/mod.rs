@@ -49,17 +49,25 @@ const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
 
 pub fn context_window_size_for_provider(model: &str, provider: &str) -> usize {
     let lower = model.to_ascii_lowercase();
-    if lower.starts_with("gpt-6") && provider.eq_ignore_ascii_case("openai") {
-        return 1_050_000;
+    if lower.starts_with("gpt-6") {
+        if provider.eq_ignore_ascii_case("openai") {
+            return 1_050_000;
+        }
+        if provider.eq_ignore_ascii_case("chatgpt") {
+            return chatgpt_gpt_6_window(&lower);
+        }
     }
     if lower.contains("astra") {
-        return if provider.eq_ignore_ascii_case("chatgpt") {
-            372_000
-        } else {
-            128_000
-        };
+        return 128_000;
     }
     context_window_size(model)
+}
+
+fn chatgpt_gpt_6_window(lower: &str) -> usize {
+    match lower {
+        "gpt-6.2-sol" | "gpt-6.1-sol" | "gpt-6.1-terra" => 500_000,
+        _ => 272_000,
+    }
 }
 
 pub fn context_window_size(model: &str) -> usize {

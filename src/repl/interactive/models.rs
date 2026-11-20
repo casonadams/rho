@@ -272,7 +272,7 @@ mod tests {
         assert!(merged.contains(&cached));
         assert!(merged.contains(&custom));
         assert!(ids.contains(&"gpt-6-luna"));
-        assert_eq!(ids.first(), Some(&"gpt-6.1-sol"));
+        assert_eq!(ids.first(), Some(&"gpt-6.2-astra"));
     }
 
     #[test]
@@ -313,7 +313,7 @@ mod tests {
             .filter(|m| m.provider == "chatgpt")
             .map(|m| m.id.as_str())
             .collect();
-        assert_eq!(chatgpt_ids.first(), Some(&"gpt-6.1-sol"));
+        assert_eq!(chatgpt_ids.first(), Some(&"gpt-6.2-astra"));
     }
 
     #[test]

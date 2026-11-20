@@ -203,7 +203,7 @@ fn test_context_window_size() {
 fn context_window_size_is_provider_aware_for_gpt_6_astra() {
     for model in ["gpt-6-astra", "gpt-6.2-astra"] {
         assert_eq!(context_window_size_for_provider(model, "openai"), 1_050_000);
-        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 372_000);
+        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 272_000);
     }
 }
 
@@ -218,7 +218,12 @@ fn context_window_size_for_gpt_6_reasoning_models_is_provider_aware() {
         "gpt-6-luna",
     ] {
         assert_eq!(context_window_size_for_provider(model, "openai"), 1_050_000);
-        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 372_000);
+    }
+    for model in ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.1-terra"] {
+        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 500_000);
+    }
+    for model in ["gpt-6-sol", "gpt-6-terra", "gpt-6-luna"] {
+        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 272_000);
     }
 }
 

@@ -70,11 +70,19 @@ pub fn antigravity_preset_models() -> Vec<DiscoveredModel> {
 }
 
 const CHATGPT_CODEX_PRESETS: &[(&str, &str, &str, &str)] = &[
-    ("gpt-6-astra", "GPT-6 Astra", "chatgpt", "372k ctx · deep reasoning"),
-    ("gpt-6.1-sol", "GPT-6.1 Sol", "chatgpt", "372k ctx · deep reasoning"),
-    ("gpt-6-sol", "GPT-6 Sol", "chatgpt", "372k ctx · deep reasoning"),
-    ("gpt-6-terra", "GPT-6 Terra", "chatgpt", "372k ctx · balanced reasoning"),
-    ("gpt-6-luna", "GPT-6 Luna", "chatgpt", "372k ctx · fast reasoning"),
+    ("gpt-6.2-astra", "GPT-6.2 Astra", "chatgpt", "272k ctx · deep reasoning"),
+    ("gpt-6.2-sol", "GPT-6.2 Sol", "chatgpt", "500k ctx · deep reasoning"),
+    (
+        "gpt-6.1-terra",
+        "GPT-6.1 Terra",
+        "chatgpt",
+        "500k ctx · balanced reasoning",
+    ),
+    ("gpt-6-astra", "GPT-6 Astra", "chatgpt", "272k ctx · deep reasoning"),
+    ("gpt-6.1-sol", "GPT-6.1 Sol", "chatgpt", "500k ctx · deep reasoning"),
+    ("gpt-6-sol", "GPT-6 Sol", "chatgpt", "272k ctx · deep reasoning"),
+    ("gpt-6-terra", "GPT-6 Terra", "chatgpt", "272k ctx · balanced reasoning"),
+    ("gpt-6-luna", "GPT-6 Luna", "chatgpt", "272k ctx · fast reasoning"),
     ("gpt-5.4", "GPT-5.4", "chatgpt", "272k ctx · reasoning"),
     ("gpt-5.4-pro", "GPT-5.4 Pro", "chatgpt", "272k ctx · deep reasoning"),
     ("gpt-5.3-codex", "GPT-5.3 Codex", "chatgpt", "128k ctx · coding"),
