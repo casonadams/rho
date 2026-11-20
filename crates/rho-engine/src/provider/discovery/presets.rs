@@ -161,11 +161,19 @@ pub fn anthropic_preset_models() -> Vec<DiscoveredModel> {
 }
 
 const OPENAI_PRESETS: &[(&str, &str, &str, &str)] = &[
+    ("gpt-6.2-astra", "GPT-6.2 Astra", "openai", "1.05M ctx · deep reasoning"),
+    ("gpt-6.2-sol", "GPT-6.2 Sol", "openai", "1.05M ctx · deep reasoning"),
+    (
+        "gpt-6.1-terra",
+        "GPT-6.1 Terra",
+        "openai",
+        "1.05M ctx · balanced reasoning",
+    ),
     ("gpt-6-astra", "GPT-6 Astra", "openai", "1.05M ctx · deep reasoning"),
-    ("gpt-6.1-sol", "GPT-6.1 Sol", "openai", "372k ctx · deep reasoning"),
-    ("gpt-6-sol", "GPT-6 Sol", "openai", "372k ctx · deep reasoning"),
-    ("gpt-6-terra", "GPT-6 Terra", "openai", "372k ctx · balanced reasoning"),
-    ("gpt-6-luna", "GPT-6 Luna", "openai", "372k ctx · fast reasoning"),
+    ("gpt-6.1-sol", "GPT-6.1 Sol", "openai", "1.05M ctx · deep reasoning"),
+    ("gpt-6-sol", "GPT-6 Sol", "openai", "1.05M ctx · deep reasoning"),
+    ("gpt-6-terra", "GPT-6 Terra", "openai", "1.05M ctx · balanced reasoning"),
+    ("gpt-6-luna", "GPT-6 Luna", "openai", "1.05M ctx · fast reasoning"),
     ("gpt-4o", "GPT-4o", "openai", "128k ctx · multimodal"),
     ("gpt-4o-mini", "GPT-4o mini", "openai", "128k ctx · fast"),
     ("o1", "o1", "openai", "200k ctx · deep reasoning"),

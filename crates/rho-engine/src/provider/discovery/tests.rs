@@ -155,10 +155,13 @@ fn openai_presets_include_gpt_6_astra() {
 fn openai_presets_include_gpt_6_reasoning_family() {
     let models = openai_preset_models();
     let expected = [
-        ("gpt-6.1-sol", "GPT-6.1 Sol", "372k ctx · deep reasoning"),
-        ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
-        ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
-        ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
+        ("gpt-6.2-astra", "GPT-6.2 Astra", "1.05M ctx · deep reasoning"),
+        ("gpt-6.2-sol", "GPT-6.2 Sol", "1.05M ctx · deep reasoning"),
+        ("gpt-6.1-terra", "GPT-6.1 Terra", "1.05M ctx · balanced reasoning"),
+        ("gpt-6.1-sol", "GPT-6.1 Sol", "1.05M ctx · deep reasoning"),
+        ("gpt-6-sol", "GPT-6 Sol", "1.05M ctx · deep reasoning"),
+        ("gpt-6-terra", "GPT-6 Terra", "1.05M ctx · balanced reasoning"),
+        ("gpt-6-luna", "GPT-6 Luna", "1.05M ctx · fast reasoning"),
     ];
     for (id, name, desc) in expected {
         let matched = models.iter().find(|m| m.id == id);
