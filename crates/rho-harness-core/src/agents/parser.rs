@@ -29,9 +29,9 @@ pub fn parse_tool_list(value: &str) -> Vec<String> {
 }
 
 #[derive(Default)]
-struct ParsedFrontmatter {
-    name: Option<String>,
-    description: Option<String>,
+pub(super) struct ParsedFrontmatter {
+    pub(super) name: Option<String>,
+    pub(super) description: Option<String>,
     tools: Option<Vec<String>>,
     disallowed_tools: Option<Vec<String>>,
 }
@@ -63,6 +63,19 @@ pub fn parse_agent_file(path: &Path) -> Option<AgentMetadata> {
 }
 
 pub fn parse_agent_content(content: &str, fallback_name: &str, location: &str) -> AgentMetadata {
+    let (frontmatter, body) = split_document(content);
+    AgentMetadata {
+        name: frontmatter.name.unwrap_or_else(|| fallback_name.to_string()),
+        description: frontmatter.description.unwrap_or_else(|| "Custom subagent".to_string()),
+        location: location.to_string(),
+        tools: frontmatter.tools,
+        disallowed_tools: frontmatter.disallowed_tools,
+        system_prompt: body,
+    }
+}
+
+/// The optional `---` frontmatter and the trimmed body of an agent or persona file.
+pub(super) fn split_document(content: &str) -> (ParsedFrontmatter, String) {
     let mut frontmatter = ParsedFrontmatter::default();
     let body = if content.starts_with("---") {
         let parts: Vec<&str> = content.splitn(3, "---").collect();
@@ -77,13 +90,5 @@ pub fn parse_agent_content(content: &str, fallback_name: &str, location: &str) -
     } else {
         content.trim().to_string()
     };
-
-    AgentMetadata {
-        name: frontmatter.name.unwrap_or_else(|| fallback_name.to_string()),
-        description: frontmatter.description.unwrap_or_else(|| "Custom subagent".to_string()),
-        location: location.to_string(),
-        tools: frontmatter.tools,
-        disallowed_tools: frontmatter.disallowed_tools,
-        system_prompt: body,
-    }
+    (frontmatter, body)
 }

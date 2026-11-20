@@ -116,6 +116,7 @@ impl Executor<'_> {
                 model: agent.model,
                 position: Some(position.clone()),
                 task_name: None,
+                persona: agent.persona.as_deref(),
             })
             .await?
             .with_monitor_identity(&frame.path, &monitor_label);
@@ -134,6 +135,7 @@ impl Executor<'_> {
                 .iter()
                 .find(|a| a.name.eq_ignore_ascii_case(&agent.agent))
                 .map(|a| a.location.clone()),
+            persona: agent.persona.clone(),
         };
         let started = std::time::Instant::now();
         let run = self
@@ -283,6 +285,7 @@ mod tests {
             agent: "critic".into(),
             prompt: "Check {{profile}}".into(),
             model: None,
+            persona: None,
             turns: 10,
             output,
             context: context.iter().map(|c| (*c).to_string()).collect(),

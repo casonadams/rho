@@ -53,6 +53,8 @@ pub struct Config {
     #[serde(default)]
     pub tools: ToolsConfig,
     #[serde(default)]
+    pub subagents: SubagentsConfig,
+    #[serde(default)]
     pub hook_dirs: Vec<PathBuf>,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
@@ -97,6 +99,7 @@ macro_rules! default_config_literal {
             permission: PermissionConfig::default(),
             ui: $crate::config::UiConfig::default(),
             tools: $crate::config::ToolsConfig::default(),
+            subagents: SubagentsConfig::default(),
             hook_dirs: Vec::new(),
             sessions_dir: $base_dir.join("sessions"),
             auth_file: $base_dir.join("auth.json"),
@@ -116,6 +119,22 @@ impl Default for Config {
 pub struct ToolsConfig {
     #[serde(default)]
     pub web: WebToolsConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubagentsConfig {
+    /// Model role per built-in role or custom agent name (lowercase), used when the caller passes none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, crate::workflow::ModelRole>,
+    /// Seconds a subagent call waits for its result before the subagent moves to the background.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_seconds: Option<u64>,
+}
+
+impl SubagentsConfig {
+    pub fn is_empty(&self) -> bool {
+        self.models.is_empty() && self.foreground_seconds.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -12,7 +12,7 @@ use crate::tools::subagent::SubagentTool;
 use executor::{Executor, Frame};
 use report::RunLog;
 use rho_harness_core::presentation::ToolStreamPort;
-use rho_harness_core::workflow::{ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
+use rho_harness_core::workflow::{AgentNode, ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -33,32 +33,47 @@ pub struct WorkflowRunner {
     home_dir: Option<PathBuf>,
 }
 
-fn collect_roles(nodes: &[Node], into: &mut Vec<ModelRole>) {
+fn collect_agents<'a>(nodes: &'a [Node], into: &mut Vec<&'a AgentNode>) {
     for node in nodes {
-        if let NodeKind::Agent(agent) = &node.kind
-            && let Some(role) = agent.model
-        {
-            into.push(role);
+        if let NodeKind::Agent(agent) = &node.kind {
+            into.push(agent);
         }
         for body in node.kind.bodies() {
-            collect_roles(body, into);
+            collect_agents(body, into);
         }
     }
 }
 
-fn missing_roles(bundle: &WorkflowBundle, subagents: &SubagentTool) -> Vec<&'static str> {
-    let mut roles = Vec::new();
+fn bundle_agents(bundle: &WorkflowBundle) -> Vec<&AgentNode> {
+    let mut agents = Vec::new();
     for wf in std::iter::once(&bundle.entry).chain(bundle.workflows.values()) {
-        collect_roles(&wf.body, &mut roles);
+        collect_agents(&wf.body, &mut agents);
     }
-    let mut missing: Vec<&'static str> = roles
-        .into_iter()
+    agents
+}
+
+/// Problems that would stop the workflow at an agent step, found before any step runs.
+fn preflight(name: &str, bundle: &WorkflowBundle, subagents: &SubagentTool) -> Result<(), String> {
+    let agents = bundle_agents(bundle);
+    let mut missing: Vec<&'static str> = agents
+        .iter()
+        .filter_map(|agent| agent.model)
         .filter(|role| !subagents.role_configured(*role))
         .map(ModelRole::as_str)
         .collect();
     missing.sort_unstable();
     missing.dedup();
-    missing
+    if !missing.is_empty() {
+        return Err(format!(
+            "workflow '{name}' uses model roles that are not configured: {} (set models.<role> in config.toml)",
+            missing.join(", ")
+        ));
+    }
+    agents
+        .iter()
+        .filter_map(|agent| agent.persona.as_deref())
+        .try_for_each(|persona| subagents.check_persona(persona))
+        .map_err(|e| format!("workflow '{name}': {e}"))
 }
 
 impl WorkflowRunner {
@@ -117,12 +132,8 @@ impl WorkflowRunner {
             Ok(inputs) => inputs,
             Err(e) => return failed(e),
         };
-        let missing = missing_roles(bundle, &self.subagents);
-        if !missing.is_empty() {
-            return failed(format!(
-                "workflow '{name}' uses model roles that are not configured: {} (set models.<role> in config.toml)",
-                missing.join(", ")
-            ));
+        if let Err(e) = preflight(name, bundle, &self.subagents) {
+            return failed(e);
         }
         self.execute(&catalog, bundle, &inputs).await
     }

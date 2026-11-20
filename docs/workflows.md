@@ -83,7 +83,7 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 
 | Element | Does | Value it produces |
 |---|---|---|
-| `<agent use="..." model="..." turns="..." output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
+| `<agent use="..." model="..." persona="..." turns="..." output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
 | `<run cmd="..." output="text\|json"/>` | Runs one command | `{ok, exit, output}`, plus `json` with `output="json"` |
 | `<call workflow="name" profile="..."/>` | Runs another workflow; other attributes are its inputs | That workflow's outputs |
 
@@ -93,7 +93,11 @@ a `default` is required; `choices` is a space-separated list of allowed values.
   `~/.agents/agents/`, or a built-in role (`scout`, `critic`, `planner`,
   `general`).
 - `model` is a model role from settings: `default`, `smol`, or `slow`
-  (default `smol`).
+  (default: the persona's or agent's pin in
+  [`[subagents.models]`](configuration.md#which-model-runs), else `smol`).
+- `persona` adds a [persona](configuration.md#personas)'s instructions to the
+  agent's, keeping the agent's tools. An unknown persona stops the workflow
+  before any step runs.
 - `turns` limits model calls (default 100).
 - The element's text is the prompt, taken verbatim up to `</agent>`, so it can
   contain `<`, `&`, and code. `prompt-file="prompts/x.md"` loads it from a file

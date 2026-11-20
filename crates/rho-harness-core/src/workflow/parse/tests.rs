@@ -25,7 +25,7 @@ const REFINE: &str = r#"
           Keep Vec<String> && <file> verbatim.
       </agent>
     </each>
-    <agent id="validate" use="validator" model="slow" output="json" context="scan">Validate.</agent>
+    <agent id="validate" use="validator" model="slow" persona="skeptic" output="json" context="scan">Validate.</agent>
     <loop id="attempt" max="3" until="{{verify.ok}}" when="{{validate.actionable}}">
       <agent id="implement" use="implementor">Fix {{validate.actionable}}; last failure: {{verify.output}}</agent>
       <run id="verify" cmd="make all"/>
@@ -61,11 +61,12 @@ fn parses_a_nested_workflow_into_typed_nodes() {
         scout.prompt,
         "Scan {{slice}} for {{profile}}.\n  Keep Vec<String> && <file> verbatim."
     );
-    assert_eq!((scout.model, scout.turns), (None, 40));
+    assert_eq!((scout.model, scout.turns, scout.persona.as_deref()), (None, 40, None));
     let NodeKind::Agent(validate) = &round.body[1].kind else {
         panic!("expected agent");
     };
     assert_eq!((validate.model, validate.turns), (Some(ModelRole::Slow), 100));
+    assert_eq!(validate.persona.as_deref(), Some("skeptic"));
     assert_eq!(validate.output, OutputFormat::Json);
     let NodeKind::Run(commit) = &round.body[3].kind else {
         panic!("expected run");

@@ -84,6 +84,8 @@ pub(crate) struct ConversationSettings {
     /// The agent file, for agents defined inside a workflow that the subagent tool does not know by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
 }
 
 /// Subagent conversations with a round in progress; a second message to one of them is refused.
@@ -145,6 +147,8 @@ pub(crate) struct Exchange {
     /// The worktree recorded at the end of the conversation's last round.
     previous: Option<WorktreeRecord>,
     worktree: Option<WorktreeLease>,
+    /// Keeps the conversation marked busy until the round ends.
+    claim: Option<BusyClaim>,
 }
 
 impl Exchange {
@@ -157,6 +161,7 @@ impl Exchange {
             versions: BTreeMap::new(),
             previous: None,
             worktree: None,
+            claim: None,
         }
     }
 
@@ -182,7 +187,14 @@ impl Exchange {
             transcript: context.transcript,
             continues_question,
             worktree: None,
+            claim: None,
         })
+    }
+
+    /// Marks the conversation busy for this round, refusing a second message while it runs.
+    pub(crate) fn claimed(mut self, busy: &BusyContexts) -> Result<Self, String> {
+        self.claim = Some(busy.claim(self.context_id())?);
+        Ok(self)
     }
 
     /// Gives the round a worktree owned by session `owner`: the conversation's existing one if it still
@@ -216,6 +228,10 @@ impl Exchange {
 
     pub(crate) fn context_id(&self) -> &str {
         &self.task.context_id
+    }
+
+    pub(crate) fn task_id(&self) -> &str {
+        &self.task.id
     }
 
     /// Records the parent's message on the task; `reference` links a new task to the one it follows up.
@@ -568,6 +584,122 @@ mod tests {
             artifact_text(task, RESULT_ARTIFACT),
             Some("Latency: hoisted the allocation out of hot().")
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_continues_afterwards() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionManager::new(dir.path(), None).unwrap();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let gate = release.clone();
+        let slow_read: Arc<dyn EngineTool> = Arc::new(GenericTool::new("read", "reads", json!({}), move |_| {
+            let gate = gate.clone();
+            async move {
+                gate.notified().await;
+                Ok(ToolResult::success("fn hot() {}"))
+            }
+        }));
+        let adapter = MockAdapter::from_turns([
+            call("read", json!({ "path": "src/hot.rs" })),
+            text("Found one hot loop."),
+            text("Second pass found nothing new."),
+        ]);
+        let jobs = crate::tools::jobs::JobManager::new();
+        let (tx, mut notices) = tokio::sync::mpsc::unbounded_channel();
+        let background = super::super::background::Backgrounding::new(
+            jobs.clone(),
+            Arc::new(move |notice| drop(tx.send(notice))),
+            std::time::Duration::from_secs(60),
+        );
+        let ctx = TurnToolContext {
+            session: Some(session),
+            ..Default::default()
+        };
+        let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![slow_read])
+            .with_backgrounding(background)
+            .bind_turn(&ctx)
+            .unwrap();
+
+        let moved = ask(&tool, json!({ "name": "audit", "prompt": "Audit hot.rs" })).await;
+        let id = moved.split('\'').nth(1).unwrap().to_string();
+        assert!(moved.contains("moved to the background"), "{moved}");
+        assert!(id.starts_with("audit-"), "{id}");
+        let refused = [
+            (json!({ "role": "general" }), "runs as 'scout', not 'general'"),
+            (json!({ "persona": "skeptic" }), "does not use persona 'skeptic'"),
+            (json!({ "model": "default" }), "`model` and `turns` cannot change"),
+            (json!({ "turns": 5 }), "`model` and `turns` cannot change"),
+        ];
+        for (extra, expected) in refused {
+            let mut args = json!({ "task_id": id, "prompt": "ignored" });
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let result = ask(&tool, args.clone()).await;
+            assert!(result.contains(expected), "{args}: {result}");
+        }
+        let queued = ask(
+            &tool,
+            json!({ "task_id": id, "role": "scout", "prompt": "Also check cold.rs", "context_slice": "cold.rs is new" }),
+        )
+        .await;
+        assert!(
+            queued.starts_with("Message queued for running subagent task"),
+            "{queued}"
+        );
+        let inspected = ask(&tool, json!({ "task_id": id, "inspect": true })).await;
+        assert!(inspected.contains("still running in the background"), "{inspected}");
+
+        release.notify_one();
+        let notice = notices.recv().await.unwrap();
+        assert!(notice.contains("Found one hot loop."), "{notice}");
+        assert!(notice.contains(&format!("task {id} \u{b7} completed")), "{notice}");
+        assert!(!notice.contains("Not delivered"), "{notice}");
+        let steered = adapter.requests().pop().unwrap();
+        let last = serde_json::to_string(steered.messages.last().unwrap()).unwrap();
+        assert!(
+            last.contains(
+                "Message from the delegating agent:\\nContext:\\ncold.rs is new\\n\\nTask:\\nAlso check cold.rs"
+            ),
+            "{last}"
+        );
+        tokio::task::yield_now().await;
+        assert!(!jobs.has_running());
+
+        let mut again = ask(&tool, json!({ "task_id": id, "prompt": "again" })).await;
+        if again.contains("moved to the background") {
+            again = notices.recv().await.unwrap();
+        }
+        assert!(again.contains("Second pass found nothing new."), "{again}");
+    }
+
+    #[tokio::test]
+    async fn a_continued_task_keeps_its_persona_and_refuses_a_different_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionManager::new(dir.path(), None).unwrap();
+        let adapter = MockAdapter::from_turns([text("Looks fine."), text("Still fine.")]);
+        let ctx = TurnToolContext {
+            session: Some(session),
+            ..Default::default()
+        };
+        let skeptic = rho_harness_core::agents::PersonaMetadata {
+            name: "skeptic".into(),
+            description: String::new(),
+            location: String::new(),
+            instructions: "Demand evidence.".into(),
+        };
+        let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+            .with_personas(vec![skeptic])
+            .bind_turn(&ctx)
+            .unwrap();
+        let first = ask(&tool, json!({ "persona": "skeptic", "prompt": "Review" })).await;
+        let id = task_id(&first);
+
+        let refused = ask(&tool, json!({ "task_id": id, "persona": "terse", "prompt": "Again" })).await;
+        assert!(refused.contains("does not use persona 'terse'"), "{refused}");
+        let second = ask(&tool, json!({ "task_id": id, "prompt": "Again" })).await;
+
+        assert!(second.starts_with("Still fine."), "{second}");
+        let preamble = adapter.requests().pop().unwrap().preamble.unwrap();
+        assert!(preamble.contains("## Persona: skeptic\nDemand evidence."), "{preamble}");
     }
 
     #[tokio::test]

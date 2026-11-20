@@ -31,7 +31,7 @@ pub fn format_background_notice(job_id: &str) -> String {
     )
 }
 
-fn neutralize_notice_tags(text: &str) -> String {
+pub(crate) fn neutralize_notice_tags(text: &str) -> String {
     NOTICE_TAG.replace_all(text, "&lt;$1").into_owned()
 }
 
@@ -278,6 +278,9 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn background_job_is_killed_after_max_runtime() {
+        let _queue = crate::engine::runner::turn::types::BACKGROUND_QUEUE_TEST_LOCK
+            .lock()
+            .await;
         let job_id = format!("bash-test-{}", uuid::Uuid::new_v4().simple());
         let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), "sleep 1000") else {
             panic!("failed to spawn test command");
@@ -293,5 +296,6 @@ mod tests {
         handle.await.unwrap();
         let job = JobManager::global().get(&job_id).unwrap();
         assert!(matches!(&job.status, JobStatus::Failed { error } if error.contains("max runtime")));
+        crate::engine::runner::turn::types::drain_background_notifications();
     }
 }

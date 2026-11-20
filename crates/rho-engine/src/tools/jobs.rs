@@ -62,7 +62,9 @@ impl JobManager {
     }
 
     pub fn register(&self, id: String, command: String) {
-        self.lock().jobs.insert(
+        let mut registry = self.lock();
+        registry.finished.retain(|finished| *finished != id);
+        registry.jobs.insert(
             id.clone(),
             BackgroundJobInfo {
                 id,
@@ -144,6 +146,21 @@ mod tests {
         assert_eq!(mgr.running_count(), 0);
 
         assert!(!mgr.list().is_empty());
+    }
+
+    #[test]
+    fn a_reregistered_job_runs_again_and_is_not_evicted_as_finished() {
+        let mgr = JobManager::new();
+        mgr.register("task".into(), "subagent".into());
+        mgr.update_status("task", done(0, "first round"));
+        mgr.register("task".into(), "subagent".into());
+        for i in 0..MAX_FINISHED_JOBS {
+            let id = format!("job-{i}");
+            mgr.register(id.clone(), "cmd".into());
+            mgr.update_status(&id, done(0, "ok"));
+        }
+        assert_eq!(mgr.get("task").unwrap().status, JobStatus::Running);
+        assert!(mgr.has_running());
     }
 
     #[test]

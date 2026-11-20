@@ -15,9 +15,9 @@ mod tests;
 
 pub use types::{
     Config, DEFAULT_MAX_TURNS, McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig,
-    McpServerConfig, McpTransportKind, ModelsConfig, PermissionConfig, ProjectMcpServers, ProviderConfig, ToolsConfig,
-    UiConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig, config_dir, default_config_dir,
-    default_idle_timeout_seconds, dirs_fallback, home_dir,
+    McpServerConfig, McpTransportKind, ModelsConfig, PermissionConfig, ProjectMcpServers, ProviderConfig,
+    SubagentsConfig, ToolsConfig, UiConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig, config_dir,
+    default_config_dir, default_idle_timeout_seconds, dirs_fallback, home_dir,
 };
 
 use crate::error::{AppError, Result};

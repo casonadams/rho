@@ -316,6 +316,38 @@ async fn agents_are_grounded_with_project_instructions_environment_and_position(
 }
 
 #[tokio::test]
+async fn an_agent_step_persona_adds_its_instructions_and_unknown_personas_stop_before_running() {
+    let wf = r#"<workflow name="greet"><agent id="hello" use="critic" persona="skeptic">HELLO</agent></workflow>"#;
+    let fx = Fixture::new(&[CLEAN], &[("greet/workflow.xml", wf)]);
+    let skeptic = rho_harness_core::agents::PersonaMetadata {
+        name: "skeptic".into(),
+        description: String::new(),
+        location: String::new(),
+        instructions: "Demand evidence.".into(),
+    };
+    let without = SubagentTool::new(Some(fx.model.clone()), Vec::new());
+    let refused = fx
+        .runner_with(without.clone(), None)
+        .run("greet", BTreeMap::new())
+        .await;
+    assert!(!refused.ok && !refused.started, "{}", refused.report);
+    assert!(
+        refused.report.contains("workflow 'greet': unknown persona 'skeptic'"),
+        "{}",
+        refused.report
+    );
+    assert!(fx.model.requests.lock().unwrap().is_empty());
+
+    let run = fx
+        .runner_with(without.with_personas(vec![skeptic]), None)
+        .run("greet", BTreeMap::new())
+        .await;
+    assert!(run.ok, "{}", run.report);
+    let preamble = fx.model.preamble_for("HELLO");
+    assert!(preamble.contains("## Persona: skeptic\nDemand evidence."), "{preamble}");
+}
+
+#[tokio::test]
 async fn blocks_and_calls_compose_without_any_agent() {
     let main = r#"
 <workflow name="compose">

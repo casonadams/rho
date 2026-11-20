@@ -77,3 +77,39 @@ async fn test_agent_resolution_precedence() {
 
     let _ = std::fs::remove_dir_all(p);
 }
+
+#[test]
+fn personas_resolve_from_user_and_project_with_project_precedence() {
+    let p = std::env::temp_dir().join(format!("persona_res_{}", uuid::Uuid::new_v4()));
+    let (home, project) = (p.join("home"), p.join("prj"));
+    write_agent(&home.join(".agents/personas"), "terse", "Answer in one line.\n");
+    write_agent(
+        &home.join(".agents/personas"),
+        "skeptic",
+        "---\nname: Skeptic\ndescription: old\n---\nDoubt.\n",
+    );
+    write_agent(
+        &project.join(".agents/personas/review"),
+        "skeptic",
+        "---\nname: Skeptic\ndescription: Assume every claim is wrong\n---\nDemand evidence.\n",
+    );
+    write_agent(&project.join(".agents/agents"), "not-a-persona", "x\n");
+
+    let personas = resolved_personas_for_paths(AgentResolutionPaths {
+        project_dir: Some(&project),
+        home_dir: Some(&home),
+    });
+
+    let summary: Vec<(&str, &str, &str)> = personas
+        .iter()
+        .map(|p| (p.name.as_str(), p.description.as_str(), p.instructions.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("Skeptic", "Assume every claim is wrong", "Demand evidence."),
+            ("terse", "", "Answer in one line."),
+        ]
+    );
+    let _ = std::fs::remove_dir_all(p);
+}

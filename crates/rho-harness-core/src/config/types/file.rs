@@ -1,3 +1,4 @@
+use super::app::SubagentsConfig;
 use super::integrations::{PermissionConfig, ProviderConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -62,6 +63,8 @@ pub(crate) struct FileConfig {
     pub models: ModelsConfig,
     #[serde(default)]
     pub tools: Option<ToolsConfigFile>,
+    #[serde(default, skip_serializing_if = "SubagentsConfig::is_empty")]
+    pub subagents: SubagentsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

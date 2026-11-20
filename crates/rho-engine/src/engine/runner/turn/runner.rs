@@ -507,7 +507,7 @@ async fn wait_for_background_jobs(
     emitter: &TurnEmitter,
 ) -> Result<bool, AppError> {
     if !crate::tools::jobs::JobManager::global().has_running() {
-        return Ok(false);
+        return Ok(drain_background_to_context(ctx));
     }
 
     emitter.wait_for_display_drain().await?;

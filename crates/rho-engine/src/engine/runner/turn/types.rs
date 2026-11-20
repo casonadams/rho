@@ -91,6 +91,10 @@ pub fn subscribe_background_notifications() -> tokio::sync::broadcast::Receiver<
     BACKGROUND_NOTIF_TX.subscribe()
 }
 
+/// Serializes tests that touch the process-wide background jobs and notifications.
+#[cfg(test)]
+pub(crate) static BACKGROUND_QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,

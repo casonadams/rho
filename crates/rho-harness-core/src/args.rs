@@ -228,7 +228,7 @@ impl std::str::FromStr for SubagentRole {
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SubagentArgs {
-    /// Continue an earlier subagent task by the id its result reported: answer its question or send review feedback (e.g. 'you missed X, fix it'). It keeps its full history; role, agent, and name come from that task
+    /// Continue an earlier subagent task by the id its result reported: answer its question or send review feedback (e.g. 'you missed X, fix it'). It keeps its full history; role, agent, persona, and name come from that task. While the task still runs, the prompt is queued as a message it reads before its next model call
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     /// Short camelCase name for what this subagent is doing (e.g. 'performanceAudit'); labels its progress, /agents entry, and result
@@ -240,6 +240,9 @@ pub struct SubagentArgs {
     /// Custom subagent name to invoke (e.g. defined in .claude/agents/ or .agents/agents/)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Persona whose instructions are layered onto the role or agent (see the personas listed in this tool's description); tools still come from the role or agent
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona: Option<String>,
     /// Read-only: with `task_id`, show that task's messages, final answer, every tool call and its outcome, and the files it changed; without, list the session's subagent tasks. Runs no model and needs no prompt
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inspect: Option<bool>,
@@ -249,7 +252,7 @@ pub struct SubagentArgs {
     /// Optional context slice or snippet to prime the subagent
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_slice: Option<String>,
-    /// Model role from settings: 'default', 'smol', or 'slow' (default: smol when configured, otherwise the session model)
+    /// Model role from settings: 'default', 'smol', or 'slow' (default: the configured model for the persona, role, or agent, else smol when configured, otherwise the session model)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Maximum model calls for the subagent (default: 100)

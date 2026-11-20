@@ -1,4 +1,5 @@
 use super::parser::parse_agent_file;
+use super::persona::{PersonaMetadata, parse_persona_file};
 use super::types::{AgentOrigin, AgentResolutionPaths, ResolvedAgent};
 use std::path::{Path, PathBuf};
 
@@ -33,29 +34,70 @@ pub async fn resolved_agents_for_paths_async(
     .unwrap_or_default()
 }
 
-fn collect_agents(paths: AgentResolutionPaths<'_>, resolved: &mut Vec<ResolvedAgent>) {
-    let mut search_dirs = Vec::new();
+/// Personas from `~/.agents/personas` and the project's `.agents/personas`; a project persona
+/// replaces a user persona with the same name.
+pub fn resolved_personas(project_dir: Option<&Path>) -> Vec<PersonaMetadata> {
+    let fallback = crate::config::dirs_fallback();
+    resolved_personas_for_paths(AgentResolutionPaths {
+        project_dir,
+        home_dir: Some(&fallback),
+    })
+}
+
+pub fn resolved_personas_for_paths(paths: AgentResolutionPaths<'_>) -> Vec<PersonaMetadata> {
+    let mut resolved: Vec<PersonaMetadata> = Vec::new();
+    for (dir, _) in search_dirs(paths, ".agents/personas", &[".agents/personas"]) {
+        scan_recursive(&dir, &mut |path| {
+            if let Some(persona) = parse_persona_file(path) {
+                replace_or_push(&mut resolved, persona, |p| &p.name);
+            }
+        });
+    }
+    resolved.sort_by(|left, right| left.name.cmp(&right.name));
+    resolved
+}
+
+fn search_dirs(
+    paths: AgentResolutionPaths<'_>,
+    home_subdir: &str,
+    project_subdirs: &[&str],
+) -> Vec<(PathBuf, AgentOrigin)> {
+    let mut dirs = Vec::new();
     if let Some(home) = paths.home_dir {
-        search_dirs.push((home.join(".agents/agents"), AgentOrigin::User));
+        dirs.push((home.join(home_subdir), AgentOrigin::User));
     }
     if let Some(project) = paths.project_dir
         && paths.home_dir != Some(project)
     {
-        search_dirs.push((project.join(".claude/agents"), AgentOrigin::Project));
-        search_dirs.push((project.join(".agents/agents"), AgentOrigin::Project));
+        dirs.extend(
+            project_subdirs
+                .iter()
+                .map(|sub| (project.join(sub), AgentOrigin::Project)),
+        );
     }
+    dirs
+}
 
-    for (dir, origin) in search_dirs {
-        scan_agent_directory_recursive(&dir, origin, resolved);
+fn collect_agents(paths: AgentResolutionPaths<'_>, resolved: &mut Vec<ResolvedAgent>) {
+    for (dir, origin) in search_dirs(paths, ".agents/agents", &[".claude/agents", ".agents/agents"]) {
+        scan_recursive(&dir, &mut |path| {
+            if let Some(metadata) = parse_agent_file(path) {
+                replace_or_push(resolved, ResolvedAgent { metadata, origin }, |a| &a.metadata.name);
+            }
+        });
     }
-
     resolved.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
 }
 
-fn scan_agent_directory_recursive(dir: &Path, origin: AgentOrigin, resolved: &mut Vec<ResolvedAgent>) {
-    if !dir.is_dir() {
-        return;
+fn replace_or_push<T>(resolved: &mut Vec<T>, item: T, name: impl Fn(&T) -> &String) {
+    match resolved.iter().position(|existing| name(existing) == name(&item)) {
+        Some(idx) => resolved[idx] = item,
+        None => resolved.push(item),
     }
+}
+
+/// Visits every Markdown file under `dir` in sorted order.
+fn scan_recursive(dir: &Path, visit: &mut dyn FnMut(&Path)) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -63,16 +105,9 @@ fn scan_agent_directory_recursive(dir: &Path, origin: AgentOrigin, resolved: &mu
     entries.sort();
     for entry in entries {
         if entry.is_dir() {
-            scan_agent_directory_recursive(&entry, origin, resolved);
-        } else if entry.extension().is_some_and(|ext| ext == "md")
-            && let Some(meta) = parse_agent_file(&entry)
-        {
-            let name = &meta.name;
-            if let Some(idx) = resolved.iter().position(|a| &a.metadata.name == name) {
-                resolved[idx] = ResolvedAgent { metadata: meta, origin };
-            } else {
-                resolved.push(ResolvedAgent { metadata: meta, origin });
-            }
+            scan_recursive(&entry, visit);
+        } else if entry.extension().is_some_and(|ext| ext == "md") {
+            visit(&entry);
         }
     }
 }

@@ -327,6 +327,27 @@ fn deny_rm_context() -> TurnToolContext {
 }
 
 #[tokio::test]
+async fn a_message_waiting_at_the_final_answer_keeps_the_subagent_working() {
+    let adapter = MockAdapter::from_turns([text_turn("first answer"), text_turn("revised answer")]);
+    let inbox = super::background::Inbox::default();
+    inbox.push("also cover the error path");
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_inbox(inbox.clone());
+
+    let result = runner.run("review", None).await;
+
+    assert!(result.content.starts_with("revised answer"), "{}", result.content);
+    let requests = adapter.requests();
+    assert_eq!(requests.len(), 2);
+    let sent = serde_json::to_string(&requests[1].messages).unwrap();
+    assert!(sent.contains("first answer"), "{sent}");
+    assert!(
+        sent.contains("Message from the delegating agent:\\nalso cover the error path"),
+        "{sent}"
+    );
+    assert!(inbox.take().is_empty());
+}
+
+#[tokio::test]
 async fn subagent_tool_calls_pass_through_the_permission_gate() {
     let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "rm x")]), text_turn("done")]);
     let runs = Arc::new(AtomicUsize::new(0));
@@ -535,6 +556,121 @@ fn acme_resolver() -> SubagentModelResolver {
     })
 }
 
+fn persona(name: &str, instructions: &str) -> rho_harness_core::agents::PersonaMetadata {
+    rho_harness_core::agents::PersonaMetadata {
+        name: name.to_string(),
+        description: format!("{name} behavior"),
+        location: String::new(),
+        instructions: instructions.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn a_persona_adds_its_instructions_to_the_role_and_keeps_the_role_tools() {
+    let adapter = MockAdapter::text("reviewed");
+    let tool = SubagentTool::new(
+        Some(Arc::new(adapter.clone())),
+        vec![named_tool("read"), named_tool("write")],
+    )
+    .with_personas(vec![persona("skeptic", "Demand evidence for every claim.")]);
+    assert!(
+        tool.description().contains("- Personas (pass the name as `persona`"),
+        "{}",
+        tool.description()
+    );
+    assert!(tool.description().contains("skeptic (skeptic behavior)"));
+
+    let result = tool
+        .execute(json!({ "role": "critic", "persona": "Skeptic", "prompt": "review" }))
+        .await
+        .unwrap();
+
+    assert!(result.content.starts_with("reviewed"), "{}", result.content);
+    let request = &adapter.requests()[0];
+    let preamble = request.preamble.as_deref().unwrap();
+    let critic = SubagentRole::Critic.system_instructions().trim();
+    assert!(
+        preamble.starts_with(&format!(
+            "{critic}\n\n## Persona: skeptic\nDemand evidence for every claim."
+        )),
+        "{preamble}"
+    );
+    let tools: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(tools, ["read"]);
+}
+
+#[tokio::test]
+async fn unknown_personas_are_rejected_with_valid_options() {
+    let bare = SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new());
+    let with_one = bare.clone().with_personas(vec![persona("skeptic", "doubt")]);
+    let cases = [
+        (&bare, "none are defined (add .agents/personas/<name>.md)"),
+        (&with_one, "valid: skeptic"),
+    ];
+    for (tool, expected) in cases {
+        let result = tool
+            .execute(json!({ "persona": "cynic", "prompt": "go" }))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("unknown persona 'cynic'"), "{}", result.content);
+        assert!(result.content.contains(expected), "{}", result.content);
+    }
+}
+
+#[tokio::test]
+async fn a_persona_pin_outranks_the_role_pin_but_not_an_explicit_model() {
+    let pins: BTreeMap<String, ModelRole> = [
+        ("skeptic".to_string(), ModelRole::Slow),
+        ("critic".to_string(), ModelRole::Default),
+    ]
+    .into();
+    let cases = [
+        (
+            json!({ "role": "critic", "persona": "skeptic", "prompt": "go" }),
+            "from slow",
+        ),
+        (
+            json!({ "role": "critic", "persona": "skeptic", "prompt": "go", "model": "smol" }),
+            "from smol",
+        ),
+        (
+            json!({ "role": "critic", "persona": "terse", "prompt": "go" }),
+            "from session",
+        ),
+    ];
+    for (args, expected) in cases {
+        let tool = role_tool(acme_resolver(), Some("acme/smol"), Some("acme/slow"))
+            .with_pinned_models(pins.clone())
+            .with_personas(vec![persona("skeptic", "doubt"), persona("terse", "short")]);
+        let result = tool.execute(args.clone()).await.unwrap();
+        assert!(result.content.starts_with(expected), "{args}: {}", result.content);
+    }
+}
+
+#[tokio::test]
+async fn configured_pins_pick_the_model_role_unless_the_caller_passes_one() {
+    let pins: BTreeMap<String, ModelRole> = [
+        ("reviewer".to_string(), ModelRole::Slow),
+        ("critic".to_string(), ModelRole::Default),
+    ]
+    .into();
+    let cases = [
+        (json!({ "agent": "Reviewer", "prompt": "go" }), "from slow"),
+        (
+            json!({ "agent": "reviewer", "prompt": "go", "model": "smol" }),
+            "from smol",
+        ),
+        (json!({ "role": "critic", "prompt": "go" }), "from session"),
+        (json!({ "role": "scout", "prompt": "go" }), "from smol"),
+    ];
+    for (args, expected) in cases {
+        let tool = role_tool(acme_resolver(), Some("acme/smol"), Some("acme/slow")).with_pinned_models(pins.clone());
+        let result = tool.execute(args.clone()).await.unwrap();
+        assert!(result.content.starts_with(expected), "{args}: {}", result.content);
+    }
+}
+
 #[tokio::test]
 async fn subagent_models_are_chosen_by_role() {
     let cases = [
@@ -630,6 +766,37 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
     for (args, expected) in cases {
         assert_eq!(tool.concurrency_safe(&args), expected, "{args}");
     }
+}
+
+#[test]
+fn subagents_with_their_own_worktrees_all_run_in_parallel() {
+    let tool = SubagentTool::new(None, vec![named_tool("read"), named_tool("write")]).with_worktrees(
+        crate::worktree::WorktreeStore::new(std::env::temp_dir().join("rho-unused")),
+    );
+    let in_project = |git_status: Option<&str>| {
+        let mut project = crate::engine::context::ProjectContext::for_tests(std::path::Path::new("."));
+        project.git_status = git_status.map(str::to_string);
+        tool.with_turn_context(&TurnToolContext {
+            project: Some(Arc::new(project)),
+            ..TurnToolContext::default()
+        })
+    };
+    let in_git = in_project(Some("## main"));
+    let outside_git = in_project(None);
+    let cases = [
+        (json!({ "role": "general", "prompt": "p" }), true, false),
+        (json!({ "task_id": "t-1", "prompt": "p" }), true, false),
+        (json!({ "role": "scout", "prompt": "p" }), true, true),
+        (json!({ "prompt": 7 }), false, false),
+    ];
+    for (args, git, plain) in cases {
+        assert_eq!(in_git.concurrency_safe(&args), git, "in git: {args}");
+        assert_eq!(outside_git.concurrency_safe(&args), plain, "outside git: {args}");
+    }
+    assert!(
+        !tool.concurrency_safe(&json!({ "role": "general", "prompt": "p" })),
+        "no project"
+    );
 }
 
 fn parent_history_context() -> TurnToolContext {

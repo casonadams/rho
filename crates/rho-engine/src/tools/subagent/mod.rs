@@ -1,3 +1,4 @@
+mod background;
 pub(crate) mod conversation;
 pub(crate) mod evidence;
 pub(crate) mod handoff;
@@ -10,13 +11,14 @@ mod tests;
 pub mod types;
 pub(crate) mod workspace;
 
+pub use background::DEFAULT_FOREGROUND_SECONDS;
 pub use runner::SubagentRunner;
 pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
 
 use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::{ToolResult, generated_schema};
-use rho_harness_core::agents::AgentMetadata;
+use rho_harness_core::agents::{AgentMetadata, PersonaMetadata};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workflow::ModelRole;
 use std::collections::BTreeMap;
@@ -30,12 +32,15 @@ pub struct SubagentTool {
     model: Option<ModelHandle>,
     tools: Vec<Arc<dyn EngineTool>>,
     agents: Vec<AgentMetadata>,
+    personas: Vec<PersonaMetadata>,
     description: String,
     ctx: TurnToolContext,
     model_resolver: Option<SubagentModelResolver>,
     roles: BTreeMap<&'static str, String>,
+    pinned_models: BTreeMap<String, ModelRole>,
     busy: conversation::BusyContexts,
     worktrees: Option<crate::worktree::WorktreeStore>,
+    background: background::Backgrounding,
 }
 
 #[derive(serde::Deserialize)]
@@ -46,6 +51,7 @@ struct RawSubagentArgs {
     inspect: Option<bool>,
     name: Option<String>,
     agent: Option<String>,
+    persona: Option<String>,
     role: Option<String>,
     context_slice: Option<String>,
     model: Option<String>,
@@ -61,6 +67,7 @@ pub(crate) struct RunnerSpec<'a> {
     pub model: Option<ModelRole>,
     pub position: Option<String>,
     pub task_name: Option<String>,
+    pub persona: Option<&'a str>,
 }
 
 enum Target<'a> {
@@ -75,25 +82,57 @@ impl SubagentTool {
             model,
             tools,
             agents: Vec::new(),
+            personas: Vec::new(),
             ctx: TurnToolContext::default(),
             model_resolver: None,
             roles: BTreeMap::new(),
+            pinned_models: BTreeMap::new(),
             busy: conversation::BusyContexts::default(),
             worktrees: None,
+            background: background::Backgrounding::default(),
             description: crate::tools::ToolRegistry::builtin_description("subagent").to_string(),
         }
     }
 
     #[must_use]
     pub fn with_agents(mut self, agents: Vec<AgentMetadata>) -> Self {
-        if !agents.is_empty() {
-            let names = agents.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ");
-            self.description = format!(
-                "{}\n- Custom agents (pass the name as `agent`): {names}.",
-                crate::tools::ToolRegistry::builtin_description("subagent")
-            );
-        }
         self.agents = agents;
+        self.describe()
+    }
+
+    /// Personas the caller can layer onto any role or agent with `persona`.
+    #[must_use]
+    pub fn with_personas(mut self, personas: Vec<PersonaMetadata>) -> Self {
+        self.personas = personas;
+        self.describe()
+    }
+
+    fn describe(mut self) -> Self {
+        let mut description = crate::tools::ToolRegistry::builtin_description("subagent").to_string();
+        if !self.agents.is_empty() {
+            let names = self
+                .agents
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            description.push_str(&format!("\n- Custom agents (pass the name as `agent`): {names}."));
+        }
+        if !self.personas.is_empty() {
+            let listed: Vec<String> = self
+                .personas
+                .iter()
+                .map(|p| match p.description.trim() {
+                    "" => p.name.clone(),
+                    description => format!("{} ({description})", p.name),
+                })
+                .collect();
+            description.push_str(&format!(
+                "\n- Personas (pass the name as `persona` to add its behavior instructions to any role or agent; tools stay the role's or agent's): {}.",
+                listed.join(", ")
+            ));
+        }
+        self.description = description;
         self
     }
 
@@ -110,8 +149,31 @@ impl SubagentTool {
         self
     }
 
+    /// How long a subagent call waits for the round before moving it to the background.
+    #[must_use]
+    pub fn with_foreground_budget(mut self, budget: std::time::Duration) -> Self {
+        self.background = self.background.with_budget(budget);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_backgrounding(mut self, background: background::Backgrounding) -> Self {
+        self.background = background;
+        self
+    }
+
     pub(crate) fn worktrees(&self) -> Option<&crate::worktree::WorktreeStore> {
         self.worktrees.as_ref()
+    }
+
+    /// Every subagent gets its own worktree: the store is set and the project is in git.
+    fn isolated(&self) -> bool {
+        self.worktrees.is_some()
+            && self
+                .ctx
+                .project
+                .as_ref()
+                .is_some_and(|project| project.git_status.is_some())
     }
 
     async fn attach_worktree(&self, exchange: conversation::Exchange) -> Result<conversation::Exchange, String> {
@@ -137,6 +199,44 @@ impl SubagentTool {
             }
         }
         self
+    }
+
+    /// Model roles by lowercase built-in role or custom agent name, used when the caller passes none.
+    #[must_use]
+    pub fn with_pinned_models(mut self, pinned: BTreeMap<String, ModelRole>) -> Self {
+        self.pinned_models = pinned;
+        self
+    }
+
+    fn pinned_model(&self, target: &Target<'_>) -> Option<ModelRole> {
+        let name = match target {
+            Target::Agent(agent) => agent.name.to_ascii_lowercase(),
+            Target::Role(role) => role.as_str().to_string(),
+        };
+        self.pinned_models.get(&name).copied()
+    }
+
+    /// `Ok` if `name` is a defined persona, otherwise the error listing the valid ones.
+    pub(crate) fn check_persona(&self, name: &str) -> Result<(), String> {
+        self.resolve_persona(Some(name)).map(|_| ())
+    }
+
+    fn resolve_persona(&self, name: Option<&str>) -> Result<Option<&PersonaMetadata>, String> {
+        let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+            return Ok(None);
+        };
+        self.personas
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
+            .map(Some)
+            .ok_or_else(|| {
+                let valid: Vec<&str> = self.personas.iter().map(|p| p.name.as_str()).collect();
+                if valid.is_empty() {
+                    format!("unknown persona '{name}'; none are defined (add .agents/personas/<name>.md)")
+                } else {
+                    format!("unknown persona '{name}'; valid: {}", valid.join(", "))
+                }
+            })
     }
 
     fn resolve_target<'a>(&'a self, name: Option<&str>, local: &'a [AgentMetadata]) -> Result<Target<'a>, String> {
@@ -193,7 +293,11 @@ impl SubagentTool {
             .as_ref()
             .ok_or_else(|| "No model handle configured for subagent execution.".to_string())?;
         let target = self.resolve_target(spec.agent, spec.local_agents)?;
-        let model = self.model_for(spec.model, default_model).await?;
+        let persona = self.resolve_persona(spec.persona)?;
+        let pinned = persona
+            .and_then(|p| self.pinned_models.get(&p.name.to_ascii_lowercase()).copied())
+            .or_else(|| self.pinned_model(&target));
+        let model = self.model_for(spec.model.or(pinned), default_model).await?;
         let turns = resolve_turns(spec.turns);
         let runner = match &target {
             Target::Agent(agent) => {
@@ -203,6 +307,10 @@ impl SubagentTool {
             Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, turns),
         };
         let runner = runner.with_context(self.ctx.clone());
+        let runner = match persona {
+            Some(persona) => runner.with_persona(persona),
+            None => runner,
+        };
         let runner = match spec.task_name {
             Some(name) => runner.with_task_name(&name),
             None => runner,
@@ -270,6 +378,7 @@ impl SubagentTool {
             model,
             position: None,
             task_name: settings.name.clone(),
+            persona: settings.persona.as_deref(),
         })
         .await
     }
@@ -281,6 +390,9 @@ impl SubagentTool {
         let Some(task_id) = task_id.filter(|id| !id.is_empty()) else {
             return ToolResult::success(inspect::render_list(&session.subagent_contexts().await));
         };
+        if let Some(running) = self.background.still_running(task_id) {
+            return ToolResult::error(running);
+        }
         let root = workspace::root_of(&self.ctx);
         let rendered = match session.subagent_context(task_id).await {
             Some(context) => inspect::render_task(&context, task_id, &root).await,
@@ -298,19 +410,17 @@ impl SubagentTool {
             agent: args.agent.clone().or_else(|| args.role.clone()),
             model: args.model.clone(),
             agent_file: None,
+            persona: args.persona.clone(),
         };
         let runner = self.runner_for_settings(&settings, args.turns).await?;
         let context = self.compose_context(args);
         let Some(session) = &self.ctx.session else {
             return Ok(runner.run(&args.prompt, context.as_deref()).await);
         };
-        let exchange = conversation::Exchange::start(&settings);
-        let _claim = self.busy.claim(exchange.context_id())?;
+        let exchange = conversation::Exchange::start(&settings).claimed(&self.busy)?;
         let exchange = self.attach_worktree(exchange).await?;
         let input = runner::build_subagent_prompt(&args.prompt, context.as_deref());
-        Ok(exchange
-            .converse(&runner.with_parent_channel(), session, &input, None)
-            .await)
+        Ok(self.converse(exchange, runner, input, None, session.clone()).await)
     }
 
     async fn continue_task(&self, args: &RawSubagentArgs, task_id: &str) -> Result<ToolResult, String> {
@@ -319,29 +429,65 @@ impl SubagentTool {
             .session
             .as_ref()
             .ok_or("continuing a subagent task needs a saved session")?;
+        if let Some(settings) = self.background.running_settings(task_id) {
+            check_continuation(&settings, args, task_id)?;
+            if args.model.is_some() || args.turns.is_some() {
+                return Err(format!(
+                    "task '{task_id}' is still running, so `model` and `turns` cannot change; omit them to send it a message, or pass them after its result arrives"
+                ));
+            }
+            let message = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
+            if let Some(queued) = self.background.steer(task_id, &message) {
+                return Ok(ToolResult::success(queued));
+            }
+        }
+        if let Some(running) = self.background.still_running(task_id) {
+            return Err(running);
+        }
         let context = session
             .subagent_context(task_id)
             .await
             .ok_or_else(|| format!("unknown subagent task '{task_id}'"))?;
         let exchange = conversation::Exchange::resume(context, task_id)?;
         let mut settings = exchange.settings();
-        let requested = args.agent.as_deref().or(args.role.as_deref());
-        if let Some(requested) =
-            requested.filter(|r| !settings.agent.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(r)))
-        {
-            return Err(format!(
-                "task '{task_id}' runs as '{}', not '{requested}'; omit role and agent when continuing a task",
-                settings.agent.as_deref().unwrap_or("scout")
-            ));
-        }
+        check_continuation(&settings, args, task_id)?;
         settings.model = args.model.clone().or(settings.model);
         let runner = self.runner_for_settings(&settings, args.turns).await?;
-        let _claim = self.busy.claim(exchange.context_id())?;
-        let exchange = self.attach_worktree(exchange).await?;
+        let exchange = self.attach_worktree(exchange.claimed(&self.busy)?).await?;
         let input = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
-        Ok(exchange
-            .converse(&runner.with_parent_channel(), session, &input, Some(task_id))
+        Ok(self
+            .converse(exchange, runner, input, Some(task_id.to_string()), session.clone())
             .await)
+    }
+
+    /// Runs one round on its own task, which moves to the background if it outlasts the foreground budget.
+    async fn converse(
+        &self,
+        exchange: conversation::Exchange,
+        runner: SubagentRunner,
+        input: String,
+        reference: Option<String>,
+        session: rho_harness_core::session::SessionManager,
+    ) -> ToolResult {
+        let task_id = exchange.task_id().to_string();
+        let settings = exchange.settings();
+        let label = format!(
+            "subagent {}",
+            settings.name.or(settings.agent).as_deref().unwrap_or("scout")
+        );
+        let runner = runner.with_parent_channel();
+        let task = background::BackgroundTask {
+            id: &task_id,
+            label,
+            cancellation: self.ctx.cancellation.clone(),
+            settings: exchange.settings(),
+        };
+        self.background
+            .run(task, &self.ctx.progress, move |progress, inbox| async move {
+                let runner = runner.with_progress(progress).with_inbox(inbox);
+                exchange.converse(&runner, &session, &input, reference.as_deref()).await
+            })
+            .await
     }
 }
 
@@ -361,6 +507,36 @@ fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) 
     filtered.retain(|t| t.name() != "subagent");
     filtered.sort_by(|a, b| a.name().cmp(b.name()));
     filtered
+}
+
+/// Refuses a role, agent, or persona that differs from the one the task already runs as.
+fn check_continuation(
+    settings: &conversation::ConversationSettings,
+    args: &RawSubagentArgs,
+    task_id: &str,
+) -> Result<(), String> {
+    let differs = |requested: &str, current: Option<&str>| !current.is_some_and(|c| c.eq_ignore_ascii_case(requested));
+    let agent = settings.agent.as_deref().unwrap_or("scout");
+    if let Some(requested) = args
+        .agent
+        .as_deref()
+        .or(args.role.as_deref())
+        .filter(|r| differs(r, Some(agent)))
+    {
+        return Err(format!(
+            "task '{task_id}' runs as '{agent}', not '{requested}'; omit role and agent when continuing a task"
+        ));
+    }
+    if let Some(requested) = args
+        .persona
+        .as_deref()
+        .filter(|r| differs(r, settings.persona.as_deref()))
+    {
+        return Err(format!(
+            "task '{task_id}' does not use persona '{requested}'; omit persona when continuing a task"
+        ));
+    }
+    Ok(())
 }
 
 #[async_trait::async_trait]
@@ -404,7 +580,7 @@ impl EngineTool for SubagentTool {
         let Ok(parsed) = crate::tools::types::try_parse_tool_args::<RawSubagentArgs>(&args) else {
             return false;
         };
-        if parsed.inspect.unwrap_or(false) {
+        if parsed.inspect.unwrap_or(false) || self.isolated() {
             return true;
         }
         if parsed.task_id.is_some() {

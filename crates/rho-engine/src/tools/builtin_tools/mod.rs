@@ -103,7 +103,16 @@ pub fn build_builtin_toolset(
     }
     let resolved_agents = rho_harness_core::agents::resolved_agents(Some(base_dir));
     let agent_metas: Vec<_> = resolved_agents.into_iter().map(|a| a.metadata).collect();
-    let mut subagent = crate::tools::subagent::SubagentTool::new(model, tools.clone()).with_agents(agent_metas);
+    let mut subagent = crate::tools::subagent::SubagentTool::new(model, tools.clone())
+        .with_agents(agent_metas)
+        .with_personas(rho_harness_core::agents::resolved_personas(Some(base_dir)))
+        .with_pinned_models(config.subagents.models.clone())
+        .with_foreground_budget(std::time::Duration::from_secs(
+            config
+                .subagents
+                .foreground_seconds
+                .unwrap_or(crate::tools::subagent::DEFAULT_FOREGROUND_SECONDS),
+        ));
     if let Some(resolver) = model_resolver {
         subagent = subagent
             .with_model_resolver(resolver)

@@ -58,7 +58,8 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files, and bounds output. Each match is a `path:line: text` row.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
-  `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents).
+  `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents),
+  optionally with a [persona](docs/configuration.md#personas) that changes how it behaves.
   Each subagent works in its own git worktree.
 - **`worktree`**: Review, merge (three-way, leaving conflict markers to fix), or discard the
   worktrees where subagents and workflows did their work.
@@ -72,6 +73,11 @@ moved files, typos, and `foo.rs` versus `foo/mod.rs`.
 
 When every tool call in one model response is read-only (`read`, `fd`, `rg`,
 `web_search`, `web_fetch`, or read-only subagents), the calls run in parallel.
+In a git repository, every subagent has its own worktree, so a response's
+subagent calls all run in parallel. A subagent still running after 60 seconds
+(configurable) moves to the background: the main agent keeps working, can send
+it more instructions with its `task_id`, and gets its result as a follow-up
+message.
 
 `rho stats [--last N]` reports per-tool call and error counts, the most common
 errors, and file edits made through bash (`sed -i`, scripts, redirects) instead

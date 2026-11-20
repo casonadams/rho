@@ -68,7 +68,8 @@ impl NodeKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ModelRole {
     Default,
     Smol,
@@ -112,6 +113,7 @@ pub struct AgentNode {
     pub agent: String,
     pub prompt: String,
     pub model: Option<ModelRole>,
+    pub persona: Option<String>,
     pub turns: usize,
     pub output: OutputFormat,
     pub context: Vec<String>,

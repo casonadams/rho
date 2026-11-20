@@ -260,7 +260,9 @@ happen.
   so a task can be continued after `--resume`. Workflow agents are saved the
   same way (see [Workflows](workflows.md#hand-off)), but cannot call
   `ask_parent`: a workflow runs unattended.
-- **Model**: without a `model` role, subagents use `models.smol` (see below).
+- **Model**: without a `model` role, subagents use the role pinned for their
+  persona, role, or agent in `[subagents.models]`, else `models.smol` (see
+  below).
 
 - **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`
   and `planner` (read, fd, rg), and `general` (read, write, edit, bash, fd, rg,
@@ -271,8 +273,23 @@ happen.
 - **Grounding**: every subagent's system prompt adds usage guidelines for its own
   tools, the `AGENTS.md` instructions, and the current directory, date,
   platform, and git status to the agent's own instructions.
-- **Concurrency**: several subagent calls in one turn run in parallel when every
-  tool they can use is read-only. Permission prompts still appear one at a time.
+- **Concurrency**: several subagent calls in one turn run in parallel. In a git
+  repository that is every call, because each subagent has its own worktree;
+  elsewhere only subagents whose tools are all read-only. Parallel subagents
+  still share ignored build and dependency directories, ports, and the machine.
+  Permission prompts still appear one at a time.
+- **Background**: a subagent still running after `subagents.foreground_seconds`
+  (default 60) moves to the background. The call returns its task id at once so
+  the main agent can keep working; the result arrives as a follow-up message
+  when the subagent finishes, and the turn waits for it before ending. Until
+  then, inspecting that task says it is still running, and continuing it
+  queues the prompt (with any `context_slice`) as a message the subagent reads
+  before its next model call (also when it answers: it keeps working with the
+  message). A `role`, `agent`, or `persona` that differs from the task's, or
+  any `model` or `turns`, is refused instead of being ignored. Messages it
+  never read are listed with its result. Its
+  progress lines stop in the tool card, but `Left` still watches it live, and
+  `Esc` cancels it with the turn.
 - **Context**: `inherit_context: true` shares the recent text-only conversation
   with the subagent (and its model provider).
 - **Watching**: press `Left` on an empty prompt to list subagents and watch one
@@ -309,6 +326,31 @@ the same `name` replaces an earlier one. Asking for an agent name or role that
 doesn't exist is an error. Agents never get the `subagent` tool themselves,
 even without a `tools` list.
 
+### Personas
+
+A persona changes how a subagent behaves without changing what it can do. Its
+body is added to the role's or agent's instructions under a `## Persona:
+<name>` heading, and its tools still come from the role or agent. The main
+agent picks one with the `subagent` tool's `persona` argument and sees each
+persona's name and description in the tool description:
+
+```markdown
+---
+name: skeptic
+description: Assumes every claim is wrong until shown evidence
+---
+Treat every claim in the task as unverified. Ask for file:line evidence and
+say plainly when something cannot be confirmed.
+```
+
+Personas load from `~/.agents/personas/`, then `.agents/personas/` in the
+project (subdirectories included); a project persona replaces a user persona
+with the same `name`. A persona works with any role or custom agent (for
+example `critic` behavior with `general` tools), stays with the task when it is
+continued, and asking for one that doesn't exist is an error. Workflow
+`<agent>` blocks take one with `persona="..."` (see
+[Workflows](workflows.md)).
+
 ### Which model runs
 
 The caller picks a **model role** from settings, never a model name: the
@@ -321,10 +363,28 @@ The caller picks a **model role** from settings, never a model name: the
 | `smol` | `models.smol` |
 | `slow` | `models.slow` |
 
-Without a role, a subagent uses `smol` if `models.smol` is set, otherwise the
-main session's model. Asking for `smol` or `slow` when it is not configured, or
-for any other name, is an error. The turn limit is the caller's `turns`
-(default 100).
+Without a role, a subagent uses the role pinned for its persona, then for its
+role or agent, in `[subagents.models]`, then `smol` if `models.smol` is set,
+otherwise the main session's model. Asking
+for `smol` or `slow` when it is not configured, or for any other name, is an
+error. The turn limit is the caller's `turns` (default 100).
+
+Pin a model role per persona, built-in role, or custom agent name
+(case-insensitive) in
+`config.toml` or the project's `.rho/config.toml`; a project entry replaces the
+user entry with the same name. Values must be `default`, `smol`, or `slow`, and
+the pins also apply to workflow `<agent>` blocks without a `model`:
+
+```toml
+[subagents]
+foreground_seconds = 60
+
+[subagents.models]
+scout = "smol"
+critic = "slow"
+reviewer = "default"
+skeptic = "slow"
+```
 
 ---
 

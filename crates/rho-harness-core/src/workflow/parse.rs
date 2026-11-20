@@ -111,7 +111,10 @@ impl Builder<'_> {
     }
 
     fn agent(&mut self, el: &Element) -> Option<AgentNode> {
-        self.check_attrs(el, &["use", "model", "turns", "output", "context", "prompt-file"]);
+        self.check_attrs(
+            el,
+            &["use", "model", "persona", "turns", "output", "context", "prompt-file"],
+        );
         let agent = self.required(el, "use");
         let model = el.attr("model").map(ModelRole::parse).transpose().unwrap_or_else(|e| {
             self.error(el, e);
@@ -125,6 +128,11 @@ impl Builder<'_> {
             agent: agent?,
             prompt: prompt?,
             model,
+            persona: el
+                .attr("persona")
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_string),
             turns,
             output,
             context,

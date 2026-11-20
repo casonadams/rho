@@ -157,6 +157,15 @@ fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_subagent_settings(config: &mut Config, file: &FileConfig) {
+    for (name, role) in &file.subagents.models {
+        config.subagents.models.insert(name.trim().to_ascii_lowercase(), *role);
+    }
+    if let Some(seconds) = file.subagents.foreground_seconds {
+        config.subagents.foreground_seconds = Some(seconds);
+    }
+}
+
 fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
     if let Some(ref mcp) = file.mcp {
         if let Some(enabled) = mcp.enabled {
@@ -186,6 +195,7 @@ pub(crate) fn merge_project_file(config: &mut Config, file: &FileConfig) {
     merge_retention(config, file);
     merge_ui_settings(config, file);
     merge_tools_settings(config, file);
+    merge_subagent_settings(config, file);
 }
 
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {

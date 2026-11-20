@@ -50,7 +50,7 @@ fn test_agent_env_with(
     )
 }
 
-static BACKGROUND_QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+use crate::engine::runner::turn::types::BACKGROUND_QUEUE_TEST_LOCK;
 
 fn acking_emitter() -> TurnEmitter {
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
@@ -144,6 +144,22 @@ async fn test_wait_for_background_jobs_flow() {
     ));
     crate::tools::jobs::JobManager::global()
         .update_status("bg-2", crate::tools::jobs::JobStatus::Failed { error: "a".into() });
+}
+
+#[tokio::test]
+async fn a_job_that_finished_before_the_turn_ended_still_delivers_its_notification() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+    let emitter = acking_emitter();
+    crate::engine::runner::turn::types::enqueue_background_notification("finished-early-4c2".into());
+
+    assert!(wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
+    assert!(
+        serde_json::to_string(&*ctx.current_messages)
+            .unwrap()
+            .contains("finished-early-4c2")
+    );
 }
 
 struct RendezvousTool {

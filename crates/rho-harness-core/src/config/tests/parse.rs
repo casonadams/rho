@@ -31,6 +31,30 @@ base_url = "http://127.0.0.1:8080/v1"
 }
 
 #[test]
+fn parses_subagent_settings_and_project_overrides() {
+    use crate::workflow::ModelRole;
+    let user: FileConfig = toml::from_str("[subagents.models]\nscout = \"smol\"\nReviewer = \"slow\"\n").unwrap();
+    let project: FileConfig = toml::from_str("[subagents.models]\nscout = \"default\"\n").unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, user);
+    super::super::merge::merge_project_file(&mut config, &project);
+    let expected = [
+        ("reviewer".to_string(), ModelRole::Slow),
+        ("scout".to_string(), ModelRole::Default),
+    ]
+    .into();
+    assert_eq!(config.subagents.models, expected);
+
+    let invalid = toml::from_str::<FileConfig>("[subagents.models]\nscout = \"gpt-5\"\n").unwrap_err();
+    assert!(invalid.to_string().contains("unknown variant `gpt-5`"), "{invalid}");
+
+    let budget: FileConfig = toml::from_str("[subagents]\nforeground_seconds = 30\n").unwrap();
+    super::super::merge::merge_project_file(&mut config, &budget);
+    assert_eq!(config.subagents.foreground_seconds, Some(30));
+    assert_eq!(config.subagents.models.len(), 2, "other subagent settings are kept");
+}
+
+#[test]
 fn parses_permission_config_disabled() {
     let toml_disabled = "[permission]\nenabled = false\n";
     let file: FileConfig = toml::from_str(toml_disabled).unwrap();

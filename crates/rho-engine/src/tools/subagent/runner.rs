@@ -187,6 +187,7 @@ pub struct SubagentRunner {
     parent_channel: bool,
     /// Runs in its own worktree, where nothing else writes.
     isolated: bool,
+    inbox: Option<super::background::Inbox>,
 }
 
 struct RunState {
@@ -390,6 +391,7 @@ impl SubagentRunner {
             position: None,
             parent_channel: false,
             isolated: false,
+            inbox: None,
         }
     }
 
@@ -445,8 +447,52 @@ impl SubagentRunner {
     }
 
     #[must_use]
+    pub(crate) fn with_progress(mut self, progress: rho_harness_core::presentation::ToolStreamPort) -> Self {
+        self.ctx.progress = progress;
+        self
+    }
+
+    /// Reads messages the delegating agent sends while the round runs.
+    #[must_use]
+    pub(crate) fn with_inbox(mut self, inbox: super::background::Inbox) -> Self {
+        self.inbox = Some(inbox);
+        self
+    }
+
+    /// Adds the delegating agent's queued messages to the conversation; `true` if there were any.
+    fn deliver_messages(&self, state: &mut RunState) -> bool {
+        let messages = self
+            .inbox
+            .as_ref()
+            .map(super::background::Inbox::take)
+            .unwrap_or_default();
+        for message in &messages {
+            if let Some(tracker) = &state.tracker {
+                tracker.event(AgentEvent::Task(message.clone()));
+            }
+            state.messages.push(ChatMessage::user(format!(
+                "Message from the delegating agent:\n{}",
+                message.trim()
+            )));
+        }
+        !messages.is_empty()
+    }
+
+    #[must_use]
     pub fn with_position(mut self, position: impl Into<String>) -> Self {
         self.position = Some(position.into());
+        self
+    }
+
+    /// Layers a persona's behavior instructions after the role or agent instructions.
+    #[must_use]
+    pub(crate) fn with_persona(mut self, persona: &rho_harness_core::agents::PersonaMetadata) -> Self {
+        self.instructions = format!(
+            "{}\n\n## Persona: {}\n{}",
+            self.instructions.trim(),
+            persona.name,
+            persona.instructions.trim()
+        );
         self
     }
 
@@ -688,6 +734,9 @@ impl SubagentRunner {
         if self.is_cancelled() {
             return Some(interrupted());
         }
+        if !state.task_pending {
+            self.deliver_messages(state);
+        }
         let req = ModelCompletionRequest {
             preamble: Some(preamble.to_string()),
             prompt: if state.task_pending {
@@ -721,6 +770,9 @@ impl SubagentRunner {
                 return Some(self.salvage("ended without writing a final answer", state).await);
             }
             state.messages.push(ChatMessage::assistant(resp.content.trim()));
+            if self.deliver_messages(state) {
+                return None;
+            }
             return Some(RoundEnd::Answered(resp.content));
         }
         self.report_progress(turn, &resp.tool_calls);
