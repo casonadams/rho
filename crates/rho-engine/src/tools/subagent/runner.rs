@@ -188,6 +188,8 @@ pub struct SubagentRunner {
     /// Runs in its own worktree, where nothing else writes.
     isolated: bool,
     inbox: Option<super::background::Inbox>,
+    /// The saved task the round belongs to, shown with it in the agent view.
+    task_id: Option<String>,
 }
 
 struct RunState {
@@ -392,6 +394,7 @@ impl SubagentRunner {
             parent_channel: false,
             isolated: false,
             inbox: None,
+            task_id: None,
         }
     }
 
@@ -456,6 +459,12 @@ impl SubagentRunner {
     #[must_use]
     pub(crate) fn with_inbox(mut self, inbox: super::background::Inbox) -> Self {
         self.inbox = Some(inbox);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn with_task_id(mut self, task_id: &str) -> Self {
+        self.task_id = Some(task_id.to_string());
         self
     }
 
@@ -685,6 +694,9 @@ impl SubagentRunner {
                 self.max_turns,
             );
             handle.event(AgentEvent::Task(input.to_string()));
+            if let Some(task_id) = &self.task_id {
+                handle.set_task(task_id);
+            }
             handle
         })
     }
@@ -958,6 +970,7 @@ impl SubagentRunner {
 
     async fn run_call(&self, call: &ToolCall, args: &Value, tracker: Option<&AgentHandle>) -> CallOutcome {
         let name = call.function.name.as_str();
+        let started = std::time::Instant::now();
         let bash_command = (name == "bash").then(|| args["command"].as_str().unwrap_or_default());
         let root = self.workspace_root();
         let before = match bash_command {
@@ -990,11 +1003,15 @@ impl SubagentRunner {
         let stop = apply_tool_outcome_hooks(self.ctx.lifecycle.as_ref(), name, args, &mut output, is_error).await;
         let output = truncate_output(output);
         if let Some(tracker) = tracker {
-            tracker.event(AgentEvent::ToolResult {
+            tracker.event(AgentEvent::Tool(rho_harness_core::presentation::ToolLine {
                 name: name.to_string(),
-                output: output.clone(),
+                arguments: call.function.arguments.clone(),
                 is_error,
-            });
+                output_summary: rho_harness_core::presentation::summarize_tool_output(&output),
+                output: output.clone(),
+                duration_ms: u64::try_from(started.elapsed().as_millis()).ok(),
+                file_change: None,
+            }));
         }
         CallOutcome {
             message: tool_result_message(call, output.clone()),

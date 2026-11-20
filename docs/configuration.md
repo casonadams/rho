@@ -299,7 +299,10 @@ happen.
 - **Context**: `inherit_context: true` shares the recent text-only conversation
   with the subagent (and its model provider).
 - **Watching**: press `Left` on an empty prompt to list subagents and watch one
-  live (see [Workflows](workflows.md#watching-agents)).
+  live (see [Workflows](workflows.md#watching-agents)). The view renders the
+  subagent like the main transcript: its prompts and messages as user blocks,
+  replies as markdown, and finished tools as tool cards with durations (`Ctrl+O`
+  expands them), and shows the task id to continue it.
 
 ### Custom agents
 

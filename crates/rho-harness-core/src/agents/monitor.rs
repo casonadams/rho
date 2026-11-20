@@ -1,9 +1,12 @@
+use crate::presentation::ToolLine;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 const MAX_EVENTS_PER_AGENT: usize = 500;
 const MAX_EVENT_CHARS: usize = 4_000;
+/// Assistant text is shown as rendered markdown, so it keeps more than tool output does.
+const MAX_TEXT_CHARS: usize = 16_000;
 const MAX_RETAINED_AGENTS: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,15 +36,13 @@ impl AgentStatus {
 pub enum AgentEvent {
     Task(String),
     Text(String),
+    /// A tool call that has started and not finished yet.
     ToolCall {
         name: String,
         args: String,
     },
-    ToolResult {
-        name: String,
-        output: String,
-        is_error: bool,
-    },
+    /// A finished tool call; it replaces the matching pending `ToolCall`.
+    Tool(ToolLine),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +55,8 @@ pub struct AgentSummary {
     pub turn: usize,
     pub max_turns: usize,
     pub elapsed: Duration,
+    /// The subagent task this round belongs to, when it is saved and can be continued.
+    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +79,7 @@ struct TrackedAgent {
     finished_after: Option<Duration>,
     events: VecDeque<AgentEvent>,
     dropped_events: usize,
+    task_id: Option<String>,
 }
 
 impl TrackedAgent {
@@ -89,15 +93,31 @@ impl TrackedAgent {
             turn: self.turn,
             max_turns: self.max_turns,
             elapsed: self.finished_after.unwrap_or_else(|| self.started.elapsed()),
+            task_id: self.task_id.clone(),
         }
     }
 
     fn push(&mut self, event: AgentEvent) {
+        let event = clamp_event(event);
+        if let AgentEvent::Tool(line) = &event
+            && let Some(pending) = self.pending_call(line)
+        {
+            self.events[pending] = event;
+            return;
+        }
         if self.events.len() == MAX_EVENTS_PER_AGENT {
             self.events.pop_front();
             self.dropped_events += 1;
         }
-        self.events.push_back(clamp_event(event));
+        self.events.push_back(event);
+    }
+
+    /// The earliest started call that `line` finishes: same tool, same arguments.
+    fn pending_call(&self, line: &ToolLine) -> Option<usize> {
+        let args = line.arguments.to_string();
+        self.events
+            .iter()
+            .position(|e| matches!(e, AgentEvent::ToolCall { name, args: a } if *name == line.name && *a == args))
     }
 }
 
@@ -143,6 +163,7 @@ impl AgentMonitor {
             finished_after: None,
             events: VecDeque::new(),
             dropped_events: 0,
+            task_id: None,
         });
         evict_finished(&mut state.agents);
         state.version += 1;
@@ -207,6 +228,12 @@ impl AgentHandle {
         self.monitor.update(self.id, |agent| agent.turn = turn);
     }
 
+    /// Links the round to its saved subagent task, so the view can continue it.
+    pub fn set_task(&self, task_id: &str) {
+        let task_id = task_id.to_string();
+        self.monitor.update(self.id, |agent| agent.task_id = Some(task_id));
+    }
+
     pub fn finish(&self, status: AgentStatus) {
         self.monitor.update(self.id, |agent| {
             agent.status = status;
@@ -224,27 +251,26 @@ fn evict_finished(agents: &mut Vec<TrackedAgent>) {
     }
 }
 
-fn clamp_text(text: String) -> String {
-    if text.chars().count() <= MAX_EVENT_CHARS {
+fn clamp_text(text: String, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
         return text;
     }
-    let kept: String = text.chars().take(MAX_EVENT_CHARS).collect();
+    let kept: String = text.chars().take(max_chars).collect();
     format!("{kept}\n[... truncated]")
 }
 
 fn clamp_event(event: AgentEvent) -> AgentEvent {
     match event {
-        AgentEvent::Task(text) => AgentEvent::Task(clamp_text(text)),
-        AgentEvent::Text(text) => AgentEvent::Text(clamp_text(text)),
+        AgentEvent::Task(text) => AgentEvent::Task(clamp_text(text, MAX_EVENT_CHARS)),
+        AgentEvent::Text(text) => AgentEvent::Text(clamp_text(text, MAX_TEXT_CHARS)),
         AgentEvent::ToolCall { name, args } => AgentEvent::ToolCall {
             name,
-            args: clamp_text(args),
+            args: clamp_text(args, MAX_EVENT_CHARS),
         },
-        AgentEvent::ToolResult { name, output, is_error } => AgentEvent::ToolResult {
-            name,
-            output: clamp_text(output),
-            is_error,
-        },
+        AgentEvent::Tool(mut line) => {
+            line.output = clamp_text(line.output, MAX_EVENT_CHARS);
+            AgentEvent::Tool(line)
+        }
     }
 }
 
@@ -288,12 +314,57 @@ mod tests {
     fn truncates_long_event_text() {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
-        handle.event(AgentEvent::Text("x".repeat(MAX_EVENT_CHARS + 10)));
+        handle.event(AgentEvent::Task("x".repeat(MAX_EVENT_CHARS + 10)));
+        handle.event(AgentEvent::Text("y".repeat(MAX_TEXT_CHARS + 10)));
         let record = monitor.record(handle.id()).unwrap();
-        let AgentEvent::Text(text) = &record.events[0] else {
-            panic!("expected text event");
+        let [AgentEvent::Task(task), AgentEvent::Text(text)] = &record.events[..] else {
+            panic!("expected task and text events");
         };
-        assert!(text.ends_with("[... truncated]"));
+        assert!(task.ends_with("[... truncated]") && task.chars().count() < MAX_EVENT_CHARS + 20);
+        assert!(text.ends_with("[... truncated]") && text.chars().count() > MAX_EVENT_CHARS);
+    }
+
+    fn line(name: &str, args: serde_json::Value, output: &str) -> ToolLine {
+        ToolLine {
+            name: name.into(),
+            arguments: args,
+            is_error: false,
+            output: output.into(),
+            output_summary: output.into(),
+            duration_ms: Some(5),
+            file_change: None,
+        }
+    }
+
+    #[test]
+    fn a_finished_tool_replaces_its_pending_call_in_place() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        let (a, b) = (
+            serde_json::json!({ "path": "a.rs" }),
+            serde_json::json!({ "path": "b.rs" }),
+        );
+        for args in [&a, &b] {
+            handle.event(AgentEvent::ToolCall {
+                name: "read".into(),
+                args: args.to_string(),
+            });
+        }
+        handle.event(AgentEvent::Tool(line("read", b.clone(), "B")));
+        handle.event(AgentEvent::Text("after".into()));
+        handle.event(AgentEvent::Tool(line("read", a.clone(), "A")));
+        handle.set_task("scan-1234");
+
+        let record = monitor.record(handle.id()).unwrap();
+        assert_eq!(
+            record.events,
+            [
+                AgentEvent::Tool(line("read", a, "A")),
+                AgentEvent::Tool(line("read", b, "B")),
+                AgentEvent::Text("after".into()),
+            ]
+        );
+        assert_eq!(record.summary.task_id.as_deref(), Some("scan-1234"));
     }
 
     #[test]

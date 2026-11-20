@@ -187,10 +187,15 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn render_transcript_item(&self, item: &TranscriptItem) -> String {
+        self.render_detached(item, self.width)
+    }
+
+    /// Renders `item` the way the transcript would at `width`, without adding it to the transcript.
+    pub fn render_detached(&self, item: &TranscriptItem, width: usize) -> String {
         render_transcript_item(TranscriptRenderInput {
             item,
             theme: &self.theme,
-            width: self.width,
+            width,
             tools_expanded: self.state.tools_expanded(),
             hide_thinking: self.state.hide_thinking(),
         })

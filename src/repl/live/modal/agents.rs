@@ -3,14 +3,16 @@ use rho_harness_core::agents::{AgentEvent, AgentMonitor, AgentRecord, AgentStatu
 use std::time::Duration;
 
 use crate::error::Result;
-use crate::ui::interactive::{BodyAnchor, ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{
+    BodyAnchor, ModalOption, ModalState, TerminalBackend, TerminalController, TranscriptItem,
+};
 
 pub const AGENTS_TITLE: &str = "Agents";
 const AGENT_VIEW_PREFIX: &str = "Agent: ";
-const TASK_PREVIEW_LINES: usize = 12;
-const OUTPUT_PREVIEW_LINES: usize = 4;
 const ARGS_PREVIEW_CHARS: usize = 160;
 const PAGE_LINES: usize = 10;
+/// Columns the modal frame takes from the terminal width.
+const MODAL_FRAME_COLUMNS: usize = 4;
 
 fn is_agent_view(modal: &ModalState) -> bool {
     modal.title.starts_with(AGENT_VIEW_PREFIX)
@@ -62,15 +64,6 @@ fn list_options(monitor: &AgentMonitor) -> Vec<ModalOption> {
         .collect()
 }
 
-fn preview_lines(text: &str, max: usize, indent: &str) -> String {
-    let lines: Vec<&str> = text.trim_end().lines().collect();
-    let mut out: Vec<String> = lines.iter().take(max).map(|l| format!("{indent}{l}")).collect();
-    if lines.len() > max {
-        out.push(format!("{indent}… {} more lines", lines.len() - max));
-    }
-    out.join("\n")
-}
-
 fn one_line(text: &str, max: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
@@ -80,24 +73,9 @@ fn one_line(text: &str, max: usize) -> String {
     format!("{kept}…")
 }
 
-fn render_event(event: &AgentEvent) -> String {
-    match event {
-        AgentEvent::Task(text) => format!("▍Task\n{}", preview_lines(text, TASK_PREVIEW_LINES, "  ")),
-        AgentEvent::Text(text) => format!("● {}", text.trim()),
-        AgentEvent::ToolCall { name, args } => format!("→ {name} {}", one_line(args, ARGS_PREVIEW_CHARS)),
-        AgentEvent::ToolResult { name, output, is_error } => {
-            let mark = if *is_error { "✗" } else { "←" };
-            format!(
-                "  {mark} {name}\n{}",
-                preview_lines(output, OUTPUT_PREVIEW_LINES, "    ")
-            )
-        }
-    }
-}
-
-pub fn render_agent_body(record: &AgentRecord) -> String {
+fn status_line(record: &AgentRecord) -> String {
     let s = &record.summary;
-    let mut sections = vec![format!(
+    let mut line = format!(
         "{} {} · {} · {} · {} · {}",
         s.status.symbol(),
         status_word(s.status),
@@ -105,18 +83,49 @@ pub fn render_agent_body(record: &AgentRecord) -> String {
         progress(s),
         format_elapsed(s.elapsed),
         s.group
-    )];
-    if record.dropped_events > 0 {
-        sections.push(format!("({} earlier events not kept)", record.dropped_events));
+    );
+    if let Some(task_id) = &s.task_id {
+        line.push_str(&format!(" · task {task_id}"));
     }
-    sections.extend(record.events.iter().map(render_event));
-    sections.join("\n\n")
+    line
 }
 
-fn agent_view(record: &AgentRecord) -> ModalState {
+/// The agent's record as the items the main transcript is made of: its prompts and messages as user
+/// blocks, its replies as assistant text, finished tools as tool cards, and running tools as notices.
+pub fn agent_items(record: &AgentRecord) -> Vec<TranscriptItem> {
+    let mut items = vec![TranscriptItem::Notice(status_line(record))];
+    if record.dropped_events > 0 {
+        items.push(TranscriptItem::Notice(format!(
+            "({} earlier events not kept)",
+            record.dropped_events
+        )));
+    }
+    items.extend(record.events.iter().map(|event| match event {
+        AgentEvent::Task(text) => TranscriptItem::UserMessage(text.trim().to_string()),
+        AgentEvent::Text(text) => TranscriptItem::AssistantText(text.clone()),
+        AgentEvent::ToolCall { name, args } => {
+            TranscriptItem::Notice(format!("⟳ {name} {}", one_line(args, ARGS_PREVIEW_CHARS)))
+        }
+        AgentEvent::Tool(line) => TranscriptItem::Tool(line.clone()),
+    }));
+    items
+}
+
+/// The agent view body: its transcript items rendered like the main transcript at the modal's width.
+fn render_agent_body<B: TerminalBackend>(controller: &TerminalController<B>, record: &AgentRecord) -> String {
+    let width = controller.terminal_width().saturating_sub(MODAL_FRAME_COLUMNS);
+    agent_items(record)
+        .iter()
+        .map(|item| controller.render_detached(item, width).trim_matches('\n').to_string())
+        .filter(|rendered| !rendered.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn agent_view<B: TerminalBackend>(controller: &TerminalController<B>, record: &AgentRecord) -> ModalState {
     ModalState::new(
         format!("{AGENT_VIEW_PREFIX}{}", record.summary.label),
-        render_agent_body(record),
+        render_agent_body(controller, record),
         Vec::new(),
     )
     .with_body_anchor(BodyAnchor::Bottom)
@@ -131,7 +140,8 @@ fn open_selected<B: TerminalBackend>(controller: &mut TerminalController<B>, mon
         .and_then(|o| o.value.as_deref())
         .and_then(|v| v.parse::<u64>().ok());
     if let Some(record) = id.and_then(|id| monitor.record(id)) {
-        controller.state_mut().push_modal(agent_view(&record));
+        let view = agent_view(controller, &record);
+        controller.state_mut().push_modal(view);
     }
 }
 
@@ -267,16 +277,20 @@ fn refresh_list(modal: &mut ModalState, monitor: &AgentMonitor) -> bool {
     true
 }
 
-fn refresh_view(modal: &mut ModalState, monitor: &AgentMonitor) -> bool {
-    let record = modal
-        .subject
-        .as_deref()
+fn refresh_view<B: TerminalBackend>(controller: &mut TerminalController<B>, monitor: &AgentMonitor) -> bool {
+    let record = controller
+        .state()
+        .active_modal()
+        .and_then(|modal| modal.subject.as_deref())
         .and_then(|id| id.parse::<u64>().ok())
         .and_then(|id| monitor.record(id));
     let Some(record) = record else {
         return false;
     };
-    let body = render_agent_body(&record);
+    let body = render_agent_body(controller, &record);
+    let Some(modal) = controller.state_mut().active_modal_mut() else {
+        return false;
+    };
     if body == modal.body {
         return false;
     }
@@ -299,7 +313,7 @@ pub fn refresh_agent_modals<B: TerminalBackend>(
     if modal.title == AGENTS_TITLE {
         refresh_list(modal, monitor)
     } else if is_agent_view(modal) {
-        refresh_view(modal, monitor)
+        refresh_view(controller, monitor)
     } else {
         false
     }

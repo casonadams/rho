@@ -79,9 +79,9 @@ fn enter_opens_a_view_and_left_walks_back_to_the_prompt() {
     try_open_agents(&mut c, &key(KeyCode::Left), &monitor).unwrap();
     assert!(handle_agents_key(&mut c, key(KeyCode::Enter), &monitor).unwrap());
     assert_eq!(active_title(&c).as_deref(), Some("Agent: scan #2 · scout"));
-    let body = &c.state().active_modal().unwrap().body;
-    assert!(body.contains("▍Task\n  Scan crates/"), "{body}");
-    assert!(body.contains("→ rg {\"pattern\": \"unwrap\"}"), "{body}");
+    let body = crate::ui::block::strip_ansi(&c.state().active_modal().unwrap().body);
+    assert!(body.contains("Scan crates/"), "{body}");
+    assert!(body.contains("⟳ rg {\"pattern\": \"unwrap\"}"), "{body}");
 
     assert!(handle_agents_key(&mut c, key(KeyCode::Left), &monitor).unwrap());
     assert_eq!(active_title(&c).as_deref(), Some(AGENTS_TITLE));
@@ -118,8 +118,8 @@ fn refresh_tracks_new_agents_and_follows_the_viewed_agent() {
     );
     assert!(!refresh_agent_modals(&mut c, &monitor));
 
-    c.state_mut()
-        .push_modal(agent_view(&monitor.record(running.id()).unwrap()));
+    let view = agent_view(&c, &monitor.record(running.id()).unwrap());
+    c.state_mut().push_modal(view);
     late.finish(AgentStatus::Done);
     assert!(
         !refresh_agent_modals(&mut c, &monitor),
@@ -127,40 +127,54 @@ fn refresh_tracks_new_agents_and_follows_the_viewed_agent() {
     );
     running.event(AgentEvent::Text("found it".into()));
     assert!(refresh_agent_modals(&mut c, &monitor));
-    assert!(c.state().active_modal().unwrap().body.ends_with("● found it"));
+    let body = crate::ui::block::strip_ansi(&c.state().active_modal().unwrap().body);
+    assert!(body.trim_end().ends_with("found it"), "{body}");
+}
+
+fn tool(name: &str, output: &str, is_error: bool) -> rho_harness_core::presentation::ToolLine {
+    rho_harness_core::presentation::ToolLine {
+        name: name.into(),
+        arguments: serde_json::json!({ "path": "src/parser.rs" }),
+        is_error,
+        output: output.into(),
+        output_summary: output.lines().next().unwrap_or_default().into(),
+        duration_ms: Some(12),
+        file_change: None,
+    }
 }
 
 #[test]
-fn body_shows_status_tool_results_and_dropped_events() {
+fn the_view_is_built_from_the_same_items_as_the_main_transcript() {
     let monitor = AgentMonitor::default();
     let handle = monitor.start("g", "a", "local/qwen", 5);
+    handle.set_task("audit-1234");
+    handle.event(AgentEvent::Task("Audit the parser".into()));
     handle.event(AgentEvent::Text("Looking at the parser".into()));
-    handle.event(AgentEvent::ToolResult {
-        name: "read".into(),
-        output: "1\n2\n3\n4\n5\n6".into(),
-        is_error: false,
-    });
-    handle.event(AgentEvent::ToolResult {
+    handle.event(AgentEvent::Tool(tool("read", "1\n2", false)));
+    handle.event(AgentEvent::ToolCall {
         name: "bash".into(),
-        output: "boom".into(),
-        is_error: true,
+        args: "{\"command\": \"make\"}".into(),
     });
     handle.turn(3);
     handle.finish(AgentStatus::Failed);
     let mut record = monitor.record(handle.id()).unwrap();
     record.dropped_events = 2;
-    let body = render_agent_body(&record);
-    assert!(
-        body.starts_with("✗ failed · local/qwen · failed after 3 turns · 0s · g"),
-        "{body}"
+
+    assert_eq!(
+        agent_items(&record),
+        [
+            TranscriptItem::Notice("✗ failed · local/qwen · failed after 3 turns · 0s · g · task audit-1234".into()),
+            TranscriptItem::Notice("(2 earlier events not kept)".into()),
+            TranscriptItem::UserMessage("Audit the parser".into()),
+            TranscriptItem::AssistantText("Looking at the parser".into()),
+            TranscriptItem::Tool(tool("read", "1\n2", false)),
+            TranscriptItem::Notice("⟳ bash {\"command\": \"make\"}".into()),
+        ]
     );
-    assert!(body.contains("(2 earlier events not kept)"));
-    assert!(body.contains("● Looking at the parser"));
-    assert!(
-        body.contains("  ← read\n    1\n    2\n    3\n    4\n    … 2 more lines"),
-        "{body}"
-    );
-    assert!(body.contains("  ✗ bash\n    boom"));
+    let body = crate::ui::block::strip_ansi(&render_agent_body(&controller(), &record));
+    for expected in ["Audit the parser", "Looking at the parser", "read", "src/parser.rs"] {
+        assert!(body.contains(expected), "{expected}: {body}");
+    }
 }
 
 #[test]

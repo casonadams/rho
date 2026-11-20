@@ -273,7 +273,8 @@ impl Exchange {
         let runner = match self.current_worktree() {
             Some(worktree) => runner.clone().in_worktree(&worktree.path),
             None => runner.clone(),
-        };
+        }
+        .with_task_id(&self.task.id);
         let root = runner.workspace_root();
         let stale = stale_paths(&root, &self.versions).await;
         let others = self.other_changes(&root, &stale).await;
