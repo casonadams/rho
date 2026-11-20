@@ -148,6 +148,16 @@ fn thinking_config_tracks_claude_headers() {
 }
 
 #[test]
+fn gemini_4_family_ids_use_thinking_level_and_fallback() {
+    for id in ["gemini-4-carbon", "gemini-4-neon", "gemini-4-hydrogen"] {
+        assert!(is_gemini_4(id));
+        assert_eq!(thinking_config(id, Effort::High), json!({ "thinkingLevel": "HIGH" }));
+        assert_eq!(resolve_runtime_model(id, Effort::High), id);
+        assert_eq!(fallback_runtime_model(id).as_deref(), Some("gemini-3.8-flash-medium"));
+    }
+}
+
+#[test]
 fn gemini_4_argon_thinking_config_and_envelope() {
     assert!(is_gemini_4("gemini-4-argon"));
     assert!(is_gemini_4("gemini-4-argon-cyber-permissive"));

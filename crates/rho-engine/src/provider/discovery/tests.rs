@@ -44,6 +44,9 @@ fn test_sort_models_newest_first_descending_and_stable() {
 #[test]
 fn test_antigravity_display_name_token_conversion() {
     let cases = [
+        ("gemini-4-carbon", "Gemini 4 Carbon"),
+        ("gemini-4-neon", "Gemini 4 Neon"),
+        ("gemini-4-hydrogen", "Gemini 4 Hydrogen"),
         ("gemini-4-argon", "Gemini 4 Argon"),
         ("gemini-4-argon-cyber-permissive", "Gemini 4 Argon Cyber Permissive"),
         ("gemini-3.8-flash", "Gemini 3.8 Flash"),
@@ -201,7 +204,10 @@ fn test_gemini_presets_use_active_models() {
     assert_eq!(
         ids,
         vec![
+            "gemini-4-carbon".to_string(),
+            "gemini-4-neon".to_string(),
             "gemini-4-argon".to_string(),
+            "gemini-4-hydrogen".to_string(),
             "gemini-2.5-flash".to_string(),
             "gemini-2.5-pro".to_string(),
             "gemini-2.5-flash-lite".to_string(),

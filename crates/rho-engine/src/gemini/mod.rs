@@ -25,10 +25,13 @@ pub fn billing_windows(now: DateTime<Utc>) -> BillingWindows {
 
 pub fn calculate_gemini_cost(model: &str, input_tokens: u64, output_tokens: u64, cached_tokens: u64) -> f64 {
     let lower = model.to_ascii_lowercase();
-    let is_argon = lower.contains("argon");
     let is_pro = lower.contains("pro");
-    let (input_per_m, output_per_m, cached_per_m) = if is_argon {
+    let (input_per_m, output_per_m, cached_per_m) = if lower.contains("argon") || lower.contains("carbon") {
         (2.00, 10.00, 0.50)
+    } else if lower.contains("neon") {
+        (3.00, 15.00, 0.15)
+    } else if lower.contains("hydrogen") {
+        (1.50, 7.50, 0.075)
     } else if is_pro {
         (1.25, 5.00, 0.3125)
     } else {
@@ -178,6 +181,15 @@ mod tests {
 
         let argon_cost = calculate_gemini_cost("gemini-4-argon", 1_000_000, 1_000_000, 1_000_000);
         assert!((argon_cost - 12.5).abs() < 1e-6);
+
+        let carbon_cost = calculate_gemini_cost("gemini-4-carbon", 1_000_000, 1_000_000, 1_000_000);
+        assert!((carbon_cost - 12.5).abs() < 1e-6);
+
+        let neon_cost = calculate_gemini_cost("gemini-4-neon", 1_000_000, 1_000_000, 1_000_000);
+        assert!((neon_cost - 18.15).abs() < 1e-6);
+
+        let hydrogen_cost = calculate_gemini_cost("gemini-4-hydrogen", 1_000_000, 1_000_000, 1_000_000);
+        assert!((hydrogen_cost - 9.075).abs() < 1e-6);
     }
 
     #[test]
