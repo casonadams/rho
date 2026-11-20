@@ -133,7 +133,7 @@ async fn test_wait_for_background_jobs_flow() {
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let sig = CancellationSignal::default();
     let runner = runner.cancellation(Some(sig.clone()));
-    let owner = runner.session_manager.session_id.clone();
+    let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
 
@@ -164,7 +164,7 @@ async fn test_wait_for_background_jobs_flow() {
 async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_manager.session_id.clone();
+    let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
     let jobs = crate::tools::jobs::JobManager::global();
@@ -205,11 +205,7 @@ async fn a_job_that_finished_before_the_turn_ended_still_delivers_its_notificati
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
-    notify(
-        &runner,
-        &runner.session_manager.session_id.clone(),
-        "finished-early-4c2",
-    );
+    notify(&runner, &runner.session_file().session_id.clone(), "finished-early-4c2");
 
     assert!(wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
     assert!(
@@ -243,6 +239,108 @@ impl EngineTool for RendezvousTool {
     fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
         self.safe
     }
+}
+
+struct ScriptedTool {
+    name: &'static str,
+    result: crate::tools::ToolResult,
+}
+
+#[async_trait::async_trait]
+impl EngineTool for ScriptedTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "returns a fixed result"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+    async fn execute(&self, _args: serde_json::Value) -> Result<crate::tools::ToolResult, AppError> {
+        Ok(self.result.clone())
+    }
+}
+
+#[tokio::test]
+async fn a_tool_can_end_the_turn_once_its_batch_is_answered() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let model = Arc::new(MockAdapter::from_turns(vec![
+        vec![
+            ModelStreamEvent::Text("asking".into()),
+            ModelStreamEvent::ToolCall(ToolCall::new("c1", ToolFunction::new("pause", serde_json::json!({})))),
+        ],
+        vec![ModelStreamEvent::Text("never reached".into())],
+    ]));
+    let (runner, _temp, _, _) = test_agent_env(model.clone());
+    let pause = crate::tools::ToolResult {
+        ends_turn: true,
+        ..crate::tools::ToolResult::success("question sent")
+    };
+    let store = crate::engine::runner::turn::MemoryStore::new("pauser", Vec::new());
+    let runner = AgentRunner {
+        tools: vec![Arc::new(ScriptedTool {
+            name: "pause",
+            result: pause,
+        })],
+        ..runner
+    }
+    .store(Arc::new(store.clone()))
+    .prompt("go");
+
+    let mut stream = runner.stream();
+    let mut final_output = None;
+    while let Some(item) = stream.next().await {
+        match item.unwrap() {
+            MultiTurnStreamItem::DisplayBarrier(drained) => drained.notify_one(),
+            MultiTurnStreamItem::FinalResponse(resp) => final_output = Some(resp.output),
+            _ => {}
+        }
+    }
+
+    assert_eq!(model.requests().len(), 1, "the turn ended after the batch");
+    assert_eq!(final_output.as_deref(), Some("asking"));
+    let messages = store.messages();
+    assert_eq!(messages.len(), 3, "prompt, call, and its answer are kept: {messages:?}");
+    assert_eq!(result_text(&messages[2]), "question sent");
+}
+
+#[tokio::test]
+async fn refused_calls_are_reported_to_the_denial_observer() {
+    let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let scope = crate::permission::policy::parse_scope_from_str("[permission.bash]\n\"rm *\" = \"deny\"\n").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let hook = Arc::new(crate::permission::PermissionHook::with_policy(
+        Some(dir.path().to_path_buf()),
+        Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None)),
+        crate::permission::policy::build_policy(None, Some(scope)),
+    ));
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = seen.clone();
+    let observer: DenialObserver = Arc::new(move |call: &ToolCall, reason: &str| {
+        record.lock().unwrap().push(format!("{}: {reason}", call.function.name));
+    });
+    let call = ToolCall::new(
+        "c1",
+        ToolFunction::new("bash", serde_json::json!({ "command": "rm x" })),
+    );
+    let tools: Vec<Arc<dyn EngineTool>> = Vec::new();
+    let mut ctx = ToolExecutionContext {
+        tools: &tools,
+        sink: &runner.sink,
+        repeat_tracker: &mut tracker,
+        lifecycle: None,
+        permission: Some(&hook),
+        on_denied: Some(&observer),
+    };
+
+    let (message, control) = execute_single_tool_call(&call, &mut ctx).await;
+
+    assert_eq!(control, CallControl::Continue);
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].starts_with("bash: Permission denied"), "{seen:?}");
+    assert_eq!(seen[0], format!("bash: {}", result_text(&message)));
 }
 
 fn rendezvous_tools(safe: bool) -> Vec<Arc<dyn EngineTool>> {
@@ -313,6 +411,7 @@ async fn concurrency_safe_batches_run_together_and_keep_call_order() {
         repeat_tracker: &mut tracker,
         lifecycle: None,
         permission: None,
+        on_denied: None,
     };
 
     let outcomes = tokio::time::timeout(
@@ -324,7 +423,7 @@ async fn concurrency_safe_batches_run_together_and_keep_call_order() {
 
     let texts: Vec<String> = outcomes.iter().map(|(m, _)| result_text(m)).collect();
     assert_eq!(texts, vec!["alpha done", "beta done"]);
-    assert!(outcomes.iter().all(|(_, stop)| stop.is_none()));
+    assert!(outcomes.iter().all(|(_, control)| *control == CallControl::Continue));
 }
 
 #[test]
@@ -357,6 +456,7 @@ async fn concurrent_batch_repeats_are_settled_without_running_the_tool() {
         repeat_tracker: &mut tracker,
         lifecycle: None,
         permission: None,
+        on_denied: None,
     };
 
     let outcomes = execute_concurrent_tool_calls(&calls, &mut ctx).await;
@@ -392,7 +492,7 @@ async fn agent_loop_stops_calling_model_once_receiver_is_dropped() {
 
     assert!(matches!(result, Err(AppError::Cancelled(_))));
     assert_eq!(model.requests().len(), 1);
-    assert!(runner.session_manager.active_messages().await.unwrap().is_empty());
+    assert!(runner.session_file().active_messages().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -406,7 +506,7 @@ async fn a_turn_is_reminded_once_about_worktrees_its_session_still_owns() {
     let (runner, _temp, _, _) = test_agent_env(model.clone());
     let (dir, root) = crate::worktree::git::test_repo::create(&[("a.rs", "base\n")]);
     let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
-    let session = runner.session_manager.session_id.clone();
+    let session = runner.session_file().session_id.clone();
     let mine = store
         .create(&root, "subagent fix", Some(&session))
         .await
@@ -466,7 +566,7 @@ async fn agent_loop_reports_failed_commit_instead_of_completing() {
     let model = Arc::new(MockAdapter::text("answer with sk-live-secret-42"));
     let (runner, _temp, _, _) = test_agent_env(model);
     runner
-        .session_manager
+        .session_file()
         .add_secrets_async(["sk-live-secret-42".to_string()])
         .await
         .unwrap();
@@ -527,7 +627,7 @@ async fn tool_loop_replays_signed_reasoning_and_nudges_once_after_empty_completi
         requests[2].messages.last(),
         Some(&ChatMessage::user(EMPTY_COMPLETION_NUDGE))
     );
-    let history = runner.session_manager.active_messages().await.unwrap();
+    let history = runner.session_file().active_messages().await.unwrap();
     assert!(has_signed_reasoning(&history));
     assert_eq!(history.last(), Some(&ChatMessage::assistant("done")));
 }
@@ -542,11 +642,11 @@ async fn repeated_empty_completion_keeps_tool_work_as_checkpoint() {
     let (runner, result, _temp) = run_prompt(model).await;
 
     assert!(matches!(&result, Err(AppError::Provider(m)) if m.contains("empty response")));
-    let checkpoint = runner.session_manager.load_checkpoint().await.unwrap().unwrap();
+    let checkpoint = runner.session_file().load_checkpoint().await.unwrap().unwrap();
     assert_eq!(checkpoint.len(), 4);
     assert_eq!(checkpoint.last(), Some(&ChatMessage::user(EMPTY_COMPLETION_NUDGE)));
     runner
-        .session_manager
+        .session_file()
         .promote_checkpoint(vec![ChatMessage::user("next"), ChatMessage::assistant("done")])
         .await
         .unwrap();
@@ -591,7 +691,7 @@ async fn failed_turns_keep_completed_tool_work_as_checkpoint() {
         assert!(result.is_err(), "{name}");
         assert_eq!(model.requests().len(), expected_requests, "{name}");
         let checkpoint = runner
-            .session_manager
+            .session_file()
             .load_checkpoint()
             .await
             .unwrap()
@@ -615,7 +715,7 @@ async fn failures_before_any_model_output_leave_no_checkpoint() {
     let (runner, result, _temp) = run_prompt(model).await;
 
     assert!(result.is_err());
-    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+    assert!(runner.session_file().load_checkpoint().await.unwrap().is_none());
 }
 
 #[derive(Debug)]
@@ -654,7 +754,7 @@ async fn finished_steps_survive_a_turn_that_is_killed_mid_flight() {
         )),
     ]]);
     let (runner, temp, _, _) = test_agent_env(Arc::new(MockAdapter::default()));
-    let session_id = runner.session_manager.session_id.clone();
+    let session_id = runner.session_file().session_id.clone();
     let mut runner = runner.prompt("do it");
     runner.model = Arc::new(HangsAfterScript(script.clone()));
 
@@ -703,13 +803,13 @@ async fn completing_after_checkpointed_steps_promotes_them_once() {
     let (runner, result, _temp) = run_prompt(model).await;
 
     result.unwrap();
-    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
-    let history = runner.session_manager.active_messages().await.unwrap();
+    assert!(runner.session_file().load_checkpoint().await.unwrap().is_none());
+    let history = runner.session_file().active_messages().await.unwrap();
     assert_eq!(history.len(), 4, "{history:?}");
     assert_eq!(history.first(), Some(&ChatMessage::user("do it")));
     assert_eq!(history.last(), Some(&ChatMessage::assistant("done")));
     let tool_calls = runner
-        .session_manager
+        .session_file()
         .load_events()
         .await
         .unwrap()
@@ -724,7 +824,7 @@ async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let model = tool_turn_then(vec![vec![Ok(ModelStreamEvent::Text("done".into()))]]);
     let (runner, _temp, _, _) = test_agent_env(model.clone());
-    let session_id = runner.session_manager.session_id.clone();
+    let session_id = runner.session_file().session_id.clone();
     let store = crate::engine::runner::turn::MemoryStore::new("child-task-9", vec![ChatMessage::user("earlier")]);
     let jobs = crate::tools::jobs::JobManager::global();
     jobs.register(&session_id, "memstore-parent-job".into(), "sleep".into());
@@ -751,8 +851,8 @@ async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_
         model.requests()[0].messages.first(),
         Some(&ChatMessage::user("earlier"))
     );
-    assert!(runner.session_manager.active_messages().await.unwrap().is_empty());
-    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+    assert!(runner.session_file().active_messages().await.unwrap().is_empty());
+    assert!(runner.session_file().load_checkpoint().await.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -764,7 +864,7 @@ async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on
             vec![ModelStreamEvent::Text("revised answer".into())],
         ]));
         let (runner, _temp, _, _) = test_agent_env(model.clone());
-        let owner = runner.session_manager.session_id.clone();
+        let owner = runner.session_file().session_id.clone();
         let runner = runner.prompt("review").budget(budget);
         let inbox = runner.inbox.clone().unwrap();
         inbox
@@ -852,17 +952,17 @@ async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
     assert!(retries[0].reason.contains("connection reset"));
     assert_eq!(model.requests().len(), 3);
     assert_eq!(model.requests()[1].messages, model.requests()[2].messages);
-    let history = runner.session_manager.active_messages().await.unwrap();
+    let history = runner.session_file().active_messages().await.unwrap();
     assert!(has_signed_reasoning(&history));
     assert_eq!(history.last(), Some(&ChatMessage::assistant("done")));
-    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+    assert!(runner.session_file().load_checkpoint().await.unwrap().is_none());
 }
 
 #[tokio::test(start_paused = true)]
 async fn background_notification_is_injected_once_when_woken() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_manager.session_id.clone();
+    let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let registry = runner.inbox.as_ref().unwrap().registry().clone();
     let enqueue = tokio::spawn(async move {
@@ -877,9 +977,10 @@ async fn background_notification_is_injected_once_when_woken() {
             .unwrap();
     });
 
-    let step = wait_step(&runner, &mut ctx).await.unwrap();
+    let emitter = acking_emitter();
+    let step = wait_step(&runner, &mut ctx, &emitter).await.unwrap();
     enqueue.await.unwrap();
-    deliver_messages(&runner, &mut ctx).await;
+    deliver_messages(&runner, &mut ctx, &emitter).await;
 
     assert!(matches!(step, WaitStepResult::EventDelivered));
     assert_eq!(

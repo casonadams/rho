@@ -5,12 +5,16 @@ use crate::tools::EngineTool;
 use rho_harness_core::model::{ChatMessage, ToolCall};
 use std::sync::Arc;
 
+/// Told about every call refused by a hook or the permission policy: the call and the refusal text.
+pub type DenialObserver = Arc<dyn Fn(&ToolCall, &str) + Send + Sync>;
+
 pub(super) struct ToolExecutionContext<'a> {
     pub(super) tools: &'a [Arc<dyn EngineTool>],
     pub(super) sink: &'a Arc<TerminalApprovalSink>,
     pub(super) repeat_tracker: &'a mut RepeatedCallTracker,
     pub(super) lifecycle: Option<&'a Arc<LifecycleHook>>,
     pub(super) permission: Option<&'a Arc<crate::permission::PermissionHook>>,
+    pub(super) on_denied: Option<&'a DenialObserver>,
 }
 
 pub(crate) enum DispatchDecision {
@@ -72,7 +76,17 @@ pub(crate) async fn apply_tool_outcome_hooks(
     }
 }
 
-type CallOutcome = (ChatMessage, Option<String>);
+/// What the turn does after a call is answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CallControl {
+    Continue,
+    /// The tool asked to end the turn once its batch is answered.
+    EndTurn,
+    /// A hook stopped the turn, for this reason.
+    Stop(String),
+}
+
+pub(super) type CallOutcome = (ChatMessage, CallControl);
 
 fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
     ChatMessage::User {
@@ -82,6 +96,21 @@ fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
     }
 }
 
+fn message_text(message: &ChatMessage) -> String {
+    let ChatMessage::User { content } = message else {
+        return String::new();
+    };
+    content
+        .iter()
+        .filter_map(|c| match c {
+            rho_harness_core::model::UserContent::ToolResult(result) => Some(result),
+            _ => None,
+        })
+        .flat_map(|result| result.content.iter().filter_map(|part| part.as_text()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 enum PlannedCall {
     Ready(serde_json::Value),
     Settled(CallOutcome),
@@ -89,15 +118,20 @@ enum PlannedCall {
 
 async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> PlannedCall {
     if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
-        return PlannedCall::Settled((tool_result_message(call, msg.to_string()), None));
+        return PlannedCall::Settled((tool_result_message(call, msg.to_string()), CallControl::Continue));
     }
     match evaluate_tool_dispatch(call, ctx.lifecycle, ctx.permission).await {
         DispatchDecision::Proceed(args) => {
             ctx.sink.tool_start(&call.function.name, &args);
             PlannedCall::Ready(args)
         }
-        DispatchDecision::Deny(msg) => PlannedCall::Settled((msg, None)),
-        DispatchDecision::Stop(msg, reason) => PlannedCall::Settled((msg, Some(reason))),
+        DispatchDecision::Deny(msg) => {
+            if let Some(observer) = ctx.on_denied {
+                observer(call, &message_text(&msg));
+            }
+            PlannedCall::Settled((msg, CallControl::Continue))
+        }
+        DispatchDecision::Stop(msg, reason) => PlannedCall::Settled((msg, CallControl::Stop(reason))),
     }
 }
 
@@ -105,6 +139,7 @@ struct ToolRun {
     output: String,
     display: Option<String>,
     is_error: bool,
+    ends_turn: bool,
 }
 
 impl ToolRun {
@@ -113,6 +148,7 @@ impl ToolRun {
             output,
             display: None,
             is_error: true,
+            ends_turn: false,
         }
     }
 }
@@ -124,6 +160,7 @@ async fn run_planned_tool(tools: &[Arc<dyn EngineTool>], call: &ToolCall, args: 
                 output: r.content,
                 display: r.display,
                 is_error: r.is_error,
+                ends_turn: r.ends_turn,
             },
             Err(e) => ToolRun::failed(format!("Error: {e}")),
         },
@@ -141,6 +178,7 @@ async fn finish_tool_call(
         mut output,
         display,
         is_error,
+        ends_turn,
     } = run;
     ctx.sink.tool_finished(crate::engine::runner::sink::ToolFinishDetails {
         name: &call.function.name,
@@ -149,7 +187,12 @@ async fn finish_tool_call(
         is_error,
     });
     let stop_reason = apply_tool_outcome_hooks(ctx.lifecycle, &call.function.name, args, &mut output, is_error).await;
-    (tool_result_message(call, output), stop_reason)
+    let control = match stop_reason {
+        Some(reason) => CallControl::Stop(reason),
+        None if ends_turn => CallControl::EndTurn,
+        None => CallControl::Continue,
+    };
+    (tool_result_message(call, output), control)
 }
 
 pub(super) async fn execute_single_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> CallOutcome {
@@ -170,7 +213,7 @@ pub(super) async fn execute_concurrent_tool_calls(
     let mut planned = Vec::with_capacity(calls.len());
     for call in calls {
         let plan = plan_tool_call(call, ctx).await;
-        let stops = matches!(&plan, PlannedCall::Settled((_, Some(_))));
+        let stops = matches!(&plan, PlannedCall::Settled((_, CallControl::Stop(_))));
         planned.push(plan);
         if stops {
             break;

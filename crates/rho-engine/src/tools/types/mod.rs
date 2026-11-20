@@ -29,6 +29,9 @@ pub struct ToolResult {
     /// What the user sees when it differs from `content`, such as the same output with terminal colors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display: Option<String>,
+    /// Ends the agent's turn once this call's batch is answered, as if the model had finished.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ends_turn: bool,
 }
 
 impl ToolResult {
@@ -39,6 +42,7 @@ impl ToolResult {
             metadata: None,
             image: None,
             display: None,
+            ends_turn: false,
         }
     }
 
@@ -51,6 +55,7 @@ impl ToolResult {
             metadata: None,
             image: Some(Box::new(image)),
             display: None,
+            ends_turn: false,
         }
     }
 
@@ -61,6 +66,7 @@ impl ToolResult {
             metadata: None,
             image: None,
             display: None,
+            ends_turn: false,
         }
     }
 }

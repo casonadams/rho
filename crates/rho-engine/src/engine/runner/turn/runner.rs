@@ -18,10 +18,12 @@ use std::sync::Arc;
 
 mod dispatch;
 
-pub(crate) use dispatch::{DispatchDecision, apply_tool_outcome_hooks, evaluate_tool_dispatch};
+pub use dispatch::DenialObserver;
 use dispatch::{
-    ToolExecutionContext, batch_is_concurrency_safe, execute_concurrent_tool_calls, execute_single_tool_call,
+    CallControl, ToolExecutionContext, batch_is_concurrency_safe, execute_concurrent_tool_calls,
+    execute_single_tool_call,
 };
+pub(crate) use dispatch::{DispatchDecision, apply_tool_outcome_hooks, evaluate_tool_dispatch};
 
 #[derive(Clone, Debug)]
 pub enum StreamEvent {
@@ -33,12 +35,16 @@ pub enum StreamEvent {
 #[derive(Clone, Debug)]
 pub enum MultiTurnStreamItem {
     StreamAssistantItem(StreamEvent),
-    ToolCall { tool_call: ToolCall },
+    ToolCall {
+        tool_call: ToolCall,
+    },
     ToolExecutionCommitted,
     ModelTurnRetried(ModelRetry),
     CompletionCall(CompletionCall),
     FinalResponse(PromptResponse),
     DisplayBarrier(Arc<tokio::sync::Notify>),
+    /// Messages from the agent's mailbox or the user's steering, as the model received them.
+    MessagesDelivered(Vec<String>),
 }
 
 type TurnItem = Result<MultiTurnStreamItem, AppError>;
@@ -117,7 +123,8 @@ impl TurnEmitter {
 pub struct AgentRunner {
     model: ModelHandle,
     tools: Vec<Arc<dyn EngineTool>>,
-    session_manager: SessionManager,
+    /// The session tools see; absent for an agent without one.
+    session_manager: Option<SessionManager>,
     store: Arc<dyn super::store::TurnStore>,
     preamble: String,
     prompt: String,
@@ -131,6 +138,7 @@ pub struct AgentRunner {
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     inbox: Option<crate::mailbox::Mailbox>,
     cancellation: Option<CancellationSignal>,
+    on_denied: Option<DenialObserver>,
     working_dir: std::path::PathBuf,
     monitor: Option<rho_harness_core::agents::AgentMonitor>,
     project: Option<Arc<crate::engine::context::ProjectContext>>,
@@ -149,11 +157,34 @@ impl AgentRunner {
             .parent()
             .unwrap_or(std::path::Path::new("."))
             .to_path_buf();
+        let store: Arc<dyn super::store::TurnStore> = Arc::new(session_manager.clone());
+        Self::assemble(model, tools, store, sink, working_dir).session(Some(session_manager))
+    }
+
+    /// A runner whose conversation lives in `store` (an agent with no session file of its own),
+    /// working in `working_dir`.
+    pub fn with_store(
+        model: ModelHandle,
+        tools: Vec<Arc<dyn EngineTool>>,
+        store: Arc<dyn super::store::TurnStore>,
+        sink: Arc<TerminalApprovalSink>,
+        working_dir: std::path::PathBuf,
+    ) -> Self {
+        Self::assemble(model, tools, store, sink, working_dir)
+    }
+
+    fn assemble(
+        model: ModelHandle,
+        tools: Vec<Arc<dyn EngineTool>>,
+        store: Arc<dyn super::store::TurnStore>,
+        sink: Arc<TerminalApprovalSink>,
+        working_dir: std::path::PathBuf,
+    ) -> Self {
         Self {
             model,
             tools,
-            store: Arc::new(session_manager.clone()),
-            session_manager,
+            store,
+            session_manager: None,
             preamble: String::new(),
             prompt: String::new(),
             budget: 10,
@@ -166,6 +197,7 @@ impl AgentRunner {
             steering: None,
             inbox: None,
             cancellation: None,
+            on_denied: None,
             working_dir,
             monitor: None,
             project: None,
@@ -198,6 +230,23 @@ impl AgentRunner {
     pub fn store(mut self, store: Arc<dyn super::store::TurnStore>) -> Self {
         self.store = store;
         self
+    }
+
+    /// The session the turn's tools see (where subagent tasks are saved).
+    pub fn session(mut self, session: Option<SessionManager>) -> Self {
+        self.session_manager = session;
+        self
+    }
+
+    /// Tells `observer` about every call a hook or the permission policy refuses.
+    pub fn on_denied(mut self, observer: Option<DenialObserver>) -> Self {
+        self.on_denied = observer;
+        self
+    }
+
+    #[cfg(test)]
+    fn session_file(&self) -> &SessionManager {
+        self.session_manager.as_ref().expect("test runners have a session")
     }
 
     pub fn lifecycle(mut self, lifecycle: Option<Arc<LifecycleHook>>) -> Self {
@@ -270,7 +319,7 @@ impl AgentRunner {
             parent_history: self.parent_history_snapshot(),
             monitor: self.monitor.clone(),
             project: self.project.clone(),
-            session: Some(self.session_manager.clone()),
+            session: self.session_manager.clone(),
             inbox: self.inbox.clone(),
         };
         self.tools = self
@@ -444,7 +493,7 @@ fn append_notification_messages(
 
 /// Adds the agent's waiting messages to the turn: its mailbox (background notices, messages from
 /// other agents and the user) and the user's queued steering. Returns whether any arrived.
-async fn deliver_messages(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> bool {
+async fn deliver_messages(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>, emitter: &TurnEmitter) -> bool {
     let mut messages: Vec<String> = Vec::new();
     if let Some(inbox) = &runner.inbox {
         let parent = inbox.parent();
@@ -454,6 +503,11 @@ async fn deliver_messages(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>)
         messages.extend(provider.poll_steering().await);
     }
     let delivered = !messages.is_empty();
+    if delivered {
+        let _ = emitter
+            .send(MultiTurnStreamItem::MessagesDelivered(messages.clone()))
+            .await;
+    }
     append_notification_messages(messages, ctx.current_messages, ctx.new_turn_messages);
     delivered
 }
@@ -482,15 +536,19 @@ enum WaitStepResult {
     ContinueWaiting,
 }
 
-async fn wait_step(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>) -> Result<WaitStepResult, AppError> {
+async fn wait_step(
+    runner: &AgentRunner,
+    ctx: &mut RunnerStepContext<'_>,
+    emitter: &TurnEmitter,
+) -> Result<WaitStepResult, AppError> {
     if runner.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
         return Err(AppError::Cancelled("operator interrupt".to_string()));
     }
-    if deliver_messages(runner, ctx).await {
+    if deliver_messages(runner, ctx, emitter).await {
         return Ok(WaitStepResult::EventDelivered);
     }
     wait_for_message(runner).await?;
-    if deliver_messages(runner, ctx).await {
+    if deliver_messages(runner, ctx, emitter).await {
         return Ok(WaitStepResult::EventDelivered);
     }
     Ok(WaitStepResult::ContinueWaiting)
@@ -506,20 +564,20 @@ async fn wait_for_background_jobs(
     let owner = runner.store.owner();
     let jobs = crate::tools::jobs::JobManager::global();
     if !jobs.has_running(owner) {
-        return Ok(deliver_messages(runner, ctx).await);
+        return Ok(deliver_messages(runner, ctx, emitter).await);
     }
 
     emitter.wait_for_display_drain().await?;
     runner.sink.resume_spinner_with_message("waiting...");
     while jobs.has_running(owner) {
-        if let WaitStepResult::EventDelivered = wait_step(runner, ctx).await? {
+        if let WaitStepResult::EventDelivered = wait_step(runner, ctx, emitter).await? {
             runner.sink.resume_spinner_with_message("thinking...");
             return Ok(true);
         }
     }
 
     runner.sink.resume_spinner_with_message("thinking...");
-    Ok(deliver_messages(runner, ctx).await)
+    Ok(deliver_messages(runner, ctx, emitter).await)
 }
 
 struct RunnerStepContext<'a> {
@@ -544,18 +602,20 @@ fn tool_result_contents(message: ChatMessage) -> Vec<rho_harness_core::model::Us
     }
 }
 
+/// Runs the batch and adds its results to the turn; returns whether a tool ended the turn.
 async fn dispatch_tool_calls(
     outcome_calls: &[ToolCall],
     runner: &AgentRunner,
     ctx: &mut RunnerStepContext<'_>,
     emitter: &TurnEmitter,
-) -> Result<(), AppError> {
+) -> Result<bool, AppError> {
     let mut exec_ctx = ToolExecutionContext {
         tools: &runner.tools,
         sink: &runner.sink,
         repeat_tracker: ctx.repeat_tracker,
         lifecycle: runner.lifecycle.as_ref(),
         permission: runner.permission.as_ref(),
+        on_denied: runner.on_denied.as_ref(),
     };
 
     emitter.wait_for_display_drain().await?;
@@ -566,7 +626,7 @@ async fn dispatch_tool_calls(
         for call in outcome_calls {
             emitter.ensure_live()?;
             let outcome = execute_single_tool_call(call, &mut exec_ctx).await;
-            let stopped = outcome.1.is_some();
+            let stopped = matches!(outcome.1, CallControl::Stop(_));
             sequential.push(outcome);
             if stopped {
                 break;
@@ -576,17 +636,20 @@ async fn dispatch_tool_calls(
     };
 
     let mut results = Vec::with_capacity(outcomes.len());
-    for (res_msg, stop_reason) in outcomes {
+    let mut ends_turn = false;
+    for (res_msg, control) in outcomes {
         results.extend(tool_result_contents(res_msg));
         emitter.send(MultiTurnStreamItem::ToolExecutionCommitted).await?;
-        if let Some(reason) = stop_reason {
-            return Err(AppError::Cancelled(reason));
+        match control {
+            CallControl::Stop(reason) => return Err(AppError::Cancelled(reason)),
+            CallControl::EndTurn => ends_turn = true,
+            CallControl::Continue => {}
         }
     }
     let batch = ChatMessage::User { content: results };
     ctx.current_messages.push(batch.clone());
     ctx.new_turn_messages.push(batch);
-    Ok(())
+    Ok(ends_turn)
 }
 
 fn build_assistant_message(outcome: &TurnStreamOutcome) -> ChatMessage {
@@ -664,18 +727,23 @@ async fn execute_agent_step(
         if empty {
             return Ok(StepExecutionResult::EmptyCompletion);
         }
-        let resp = PromptResponse {
-            output: outcome.text,
-            usage: *ctx.total_usage,
-            requests: *ctx.request_count,
-            completion_calls: ctx.all_completion_calls.clone(),
-        };
-        return Ok(StepExecutionResult::Complete(resp));
+        return Ok(StepExecutionResult::Complete(prompt_response(outcome.text, ctx)));
     }
 
-    dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await?;
-    deliver_messages(runner, ctx).await;
+    if dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await? {
+        return Ok(StepExecutionResult::Complete(prompt_response(outcome.text, ctx)));
+    }
+    deliver_messages(runner, ctx, emitter).await;
     Ok(StepExecutionResult::Continue)
+}
+
+fn prompt_response(output: String, ctx: &RunnerStepContext<'_>) -> PromptResponse {
+    PromptResponse {
+        output,
+        usage: *ctx.total_usage,
+        requests: *ctx.request_count,
+        completion_calls: ctx.all_completion_calls.clone(),
+    }
 }
 
 /// Anthropic's documented recovery for empty `end_turn` responses after tool results:
@@ -765,7 +833,9 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
             StepExecutionResult::Continue => {
                 nudged = false;
                 saved.persist(runner.store.as_ref(), &new_turn_messages).await?;
-                runner.sink.record_tool_events().await?;
+                if runner.store.keeps_tool_events() {
+                    runner.sink.record_tool_events().await?;
+                }
             }
             StepExecutionResult::EmptyCompletion if !nudged => {
                 nudged = true;

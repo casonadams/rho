@@ -55,7 +55,8 @@ fn update_reasoning_state(state: &mut TerminalSinkState, text_to_stream: &str) -
 pub struct TerminalApprovalSink {
     pub presenter: std::sync::Arc<dyn Presenter>,
     pub model_label: String,
-    pub session_manager: SessionManager,
+    /// Supplies the secrets to redact and the log tool events go to; absent for an agent without a session.
+    pub session_manager: Option<SessionManager>,
     pub run_tracker: RunTracker,
     pub state: Mutex<TerminalSinkState>,
 }
@@ -65,6 +66,14 @@ impl TerminalApprovalSink {
         presenter: &std::sync::Arc<dyn Presenter>,
         config: TerminalSinkConfig,
         session_manager: SessionManager,
+    ) -> std::sync::Arc<Self> {
+        Self::with_session(presenter, config, Some(session_manager))
+    }
+
+    pub fn with_session(
+        presenter: &std::sync::Arc<dyn Presenter>,
+        config: TerminalSinkConfig,
+        session_manager: Option<SessionManager>,
     ) -> std::sync::Arc<Self> {
         let spinner = presenter.start_spinner("thinking...");
         std::sync::Arc::new(Self {
@@ -124,13 +133,37 @@ impl TerminalApprovalSink {
     }
 
     pub async fn record_tool_events(&self) -> rho_harness_core::error::Result<()> {
+        let Some(session_manager) = &self.session_manager else {
+            return Ok(());
+        };
         for tool in self.unrecorded() {
-            append_tool_events(&self.session_manager, &tool).await?;
+            append_tool_events(session_manager, &tool).await?;
             if let Ok(mut state) = self.state.lock() {
                 state.recorded_events += 1;
             }
         }
         Ok(())
+    }
+
+    fn redact(&self, text: &str) -> String {
+        match &self.session_manager {
+            Some(session) => session.redact_credentials(text),
+            None => text.to_string(),
+        }
+    }
+
+    fn redact_streamed(&self, carry: &mut String, chunk: &str) -> String {
+        match &self.session_manager {
+            Some(session) => session.redact_credentials_streamed(carry, chunk),
+            None => chunk.to_string(),
+        }
+    }
+
+    fn redact_arguments(&self, arguments: &Value) -> Value {
+        match &self.session_manager {
+            Some(session) => redact_value(session, arguments),
+            None => arguments.clone(),
+        }
     }
 
     pub fn flush_reasoning(&self) {
@@ -216,9 +249,7 @@ impl TerminalApprovalSink {
         self.ensure_reasoning_spinner();
         let plan = {
             let Ok(mut state) = self.state.lock() else { return };
-            let redacted = self
-                .session_manager
-                .redact_credentials_streamed(&mut state.reasoning_carry, text);
+            let redacted = self.redact_streamed(&mut state.reasoning_carry, text);
             update_reasoning_state(&mut state, &redacted)
         };
         self.present_reasoning_plan(plan);
@@ -239,9 +270,7 @@ impl TerminalApprovalSink {
                 prefix_blank = true;
             }
             state.last_display = DisplayKind::Text;
-            redacted = self
-                .session_manager
-                .redact_credentials_streamed(&mut state.text_carry, text);
+            redacted = self.redact_streamed(&mut state.text_carry, text);
         }
         if prefix_blank {
             self.presenter.write_output("\n");
@@ -260,7 +289,7 @@ impl TerminalApprovalSink {
         self.run_tracker.tool_called();
         self.flush_reasoning();
         self.presenter.flush();
-        let arguments = redact_value(&self.session_manager, arguments);
+        let arguments = self.redact_arguments(arguments);
         if let Ok(mut state) = self.state.lock() {
             disarm_spinner(&mut state);
             state
@@ -304,8 +333,8 @@ impl TerminalApprovalSink {
             .and_then(std::collections::VecDeque::pop_front)
             .and_then(|p| p.started)
             .map(|s| s.elapsed().as_millis() as u64);
-        let arguments = redact_value(&self.session_manager, details.arguments);
-        let output_redacted = self.session_manager.redact_credentials(details.output);
+        let arguments = self.redact_arguments(details.arguments);
+        let output_redacted = self.redact(details.output);
         self.finish_tool_presentation(&details, &arguments, &output_redacted, duration_ms);
         state.completed.push(CompletedTool {
             internal_call_id: uuid::Uuid::new_v4().to_string(),

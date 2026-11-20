@@ -18,6 +18,10 @@ pub trait TurnStore: Send + Sync {
     async fn extend_checkpoint(&self, messages: Vec<ChatMessage>) -> Result<(), AppError>;
     /// Adds the turn's remaining messages to the history, folding in the checkpoint if it has one.
     async fn commit(&self, messages: Vec<ChatMessage>, has_checkpoint: bool) -> Result<(), AppError>;
+    /// Whether finished tool calls are also written to the store's event log.
+    fn keeps_tool_events(&self) -> bool {
+        true
+    }
 }
 
 #[async_trait::async_trait]
@@ -115,6 +119,10 @@ impl TurnStore for MemoryStore {
         }
         memory.committed.extend(messages);
         Ok(())
+    }
+
+    fn keeps_tool_events(&self) -> bool {
+        false
     }
 }
 
