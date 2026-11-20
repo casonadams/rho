@@ -91,6 +91,9 @@ pub enum SessionRecord {
         timestamp: DateTime<Utc>,
         task: crate::a2a::Task,
         transcript: Vec<ChatMessage>,
+        /// The transcript is the context's whole conversation (it was compacted), not an addition.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        replaces_transcript: bool,
     },
 }
 

@@ -5,8 +5,12 @@ use crate::tools::EngineTool;
 use rho_harness_core::model::{ChatMessage, ToolCall};
 use std::sync::Arc;
 
-/// Told about every call refused by a hook or the permission policy: the call and the refusal text.
-pub type DenialObserver = Arc<dyn Fn(&ToolCall, &str) + Send + Sync>;
+/// Hears how each of the turn's tool calls ended: refused by a hook or the permission policy, or run
+/// (with the output the model receives, after outcome hooks).
+pub trait ToolObserver: Send + Sync {
+    fn denied(&self, call: &ToolCall, reason: &str);
+    fn finished(&self, call: &ToolCall, args: &serde_json::Value, output: &str, is_error: bool);
+}
 
 pub(super) struct ToolExecutionContext<'a> {
     pub(super) tools: &'a [Arc<dyn EngineTool>],
@@ -14,7 +18,7 @@ pub(super) struct ToolExecutionContext<'a> {
     pub(super) repeat_tracker: &'a mut RepeatedCallTracker,
     pub(super) lifecycle: Option<&'a Arc<LifecycleHook>>,
     pub(super) permission: Option<&'a Arc<crate::permission::PermissionHook>>,
-    pub(super) on_denied: Option<&'a DenialObserver>,
+    pub(super) observer: Option<&'a Arc<dyn ToolObserver>>,
 }
 
 pub(crate) enum DispatchDecision {
@@ -126,8 +130,8 @@ async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> 
             PlannedCall::Ready(args)
         }
         DispatchDecision::Deny(msg) => {
-            if let Some(observer) = ctx.on_denied {
-                observer(call, &message_text(&msg));
+            if let Some(observer) = ctx.observer {
+                observer.denied(call, &message_text(&msg));
             }
             PlannedCall::Settled((msg, CallControl::Continue))
         }
@@ -187,6 +191,9 @@ async fn finish_tool_call(
         is_error,
     });
     let stop_reason = apply_tool_outcome_hooks(ctx.lifecycle, &call.function.name, args, &mut output, is_error).await;
+    if let Some(observer) = ctx.observer {
+        observer.finished(call, args, &output, is_error);
+    }
     let control = match stop_reason {
         Some(reason) => CallControl::Stop(reason),
         None if ends_turn => CallControl::EndTurn,

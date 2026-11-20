@@ -304,9 +304,15 @@ impl Exchange {
             None => (None, None),
         };
         self.finish(&round, &file_versions, record.as_ref());
-        let saved = session
-            .record_subagent_task(&self.task, self.new_messages(&round))
-            .await;
+        let saved = if round.compacted {
+            session
+                .replace_subagent_transcript(&self.task, self.kept_messages(&round).to_vec())
+                .await
+        } else {
+            session
+                .record_subagent_task(&self.task, self.new_messages(&round))
+                .await
+        };
         Outcome {
             round,
             task: self.task,
@@ -400,13 +406,19 @@ impl Exchange {
         });
     }
 
-    /// The transcript messages this round added, without tool calls left unanswered by an interruption.
-    fn new_messages(&self, round: &Round) -> Vec<ChatMessage> {
+    /// The round's transcript without tool calls left unanswered by an interruption.
+    fn kept_messages<'a>(&self, round: &'a Round) -> &'a [ChatMessage] {
         let kept = match round.end {
             RoundEnd::Asked(_) => round.transcript.len(),
             _ => without_unanswered_tool_calls(&round.transcript).len(),
         };
-        round.transcript[self.saved_len.min(kept)..kept].to_vec()
+        &round.transcript[..kept]
+    }
+
+    /// The transcript messages this round added, without tool calls left unanswered by an interruption.
+    fn new_messages(&self, round: &Round) -> Vec<ChatMessage> {
+        let kept = self.kept_messages(round);
+        kept[self.saved_len.min(kept.len())..].to_vec()
     }
 }
 

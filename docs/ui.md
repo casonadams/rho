@@ -81,9 +81,10 @@ queue. Once the current turn settles, queued messages execute sequentially
 without losing context.
 
 A steering message (`Enter` while the agent runs) waits in the queue until the
-agent reaches its next tool boundary. When the agent takes it, it leaves the
-queue and appears in the transcript as your message, at the point where the
-agent read it.
+agent reaches its next tool boundary, or until it would otherwise finish its
+answer (then it keeps working with your message, unless it is on its last
+turn). When the agent takes it, it leaves the queue and appears in the
+transcript as your message, at the point where the agent read it.
 
 ---
 

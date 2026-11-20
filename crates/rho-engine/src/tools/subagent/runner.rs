@@ -4,7 +4,7 @@
 //! when it stops early, and a pause when it asks the delegating agent a question.
 
 use super::evidence::{ToolOutcome, evidence, problem_count};
-use super::observed::{AskParentTool, RecordedTool, Recorder};
+use super::observed::{AskParentTool, RecordedTool, Recorder, take_question};
 use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::snapshot::Snapshot;
@@ -15,7 +15,9 @@ use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::engine::runner::turn::MemoryStore;
-use crate::engine::runner::turn::runner::{AgentRunner, EMPTY_RESPONSE_ERROR, MultiTurnStreamItem, StreamEvent};
+use crate::engine::runner::turn::runner::{
+    AgentRunner, EMPTY_RESPONSE_ERROR, MultiTurnStreamItem, StreamEvent, ToolObserver,
+};
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
@@ -26,7 +28,7 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::model::{AssistantContent, ChatMessage, UserContent};
 use rho_harness_core::presentation::Presenter;
 use std::collections::BTreeSet;
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 pub(crate) use super::observed::ASK_PARENT_TOOL;
 
@@ -71,6 +73,8 @@ pub struct Round {
     pub tool_log: Vec<ToolOutcome>,
     /// Files the subagent read, wrote, or edited, relative to the workspace root.
     pub touched_files: BTreeSet<String>,
+    /// The transcript was compacted, so it replaces the saved conversation instead of extending it.
+    pub compacted: bool,
 }
 
 impl Round {
@@ -221,10 +225,6 @@ pub(crate) fn render_parent_conversation(history: &[ChatMessage]) -> String {
     format!("Parent conversation (most recent last):\n{}", recent.join("\n\n"))
 }
 
-fn interrupted() -> RoundEnd {
-    RoundEnd::Cancelled
-}
-
 /// How the turn loop finished: with the model's final text, stopped by the round's stop signal, or
 /// with an error.
 enum Finish {
@@ -241,12 +241,13 @@ struct Tally {
     tokens: u64,
 }
 
-impl Tally {
-    fn add(&mut self, other: Self) {
-        self.turns += other.turns;
-        self.tool_calls += other.tool_calls;
-        self.tokens += other.tokens;
-    }
+/// A round in progress across runs of the turn loop (one per compaction).
+struct RoundState {
+    run: Run,
+    owner: String,
+    presenter: Arc<dyn Presenter>,
+    question_tool: Option<Arc<dyn EngineTool>>,
+    compacted: bool,
 }
 
 /// Where the next run of the turn loop starts: the conversation so far, the prompt to add (empty
@@ -268,11 +269,13 @@ struct AgentSetup<'a> {
     stop: &'a CancellationSignal,
 }
 
-/// The finished turn loop: how it ended, the conversation it left, and its totals.
+/// The finished turn loop: how it ended, the conversation it left, its totals, and whether that
+/// conversation was compacted (so it replaces the saved one instead of extending it).
 struct Drive {
     end: RoundEnd,
     transcript: Vec<ChatMessage>,
     tally: Tally,
+    compacted: bool,
 }
 
 impl SubagentRunner {
@@ -530,6 +533,7 @@ impl SubagentRunner {
                 end: RoundEnd::Failed("subagent prompt cannot be empty".to_string()),
                 transcript,
                 tally: Tally::default(),
+                compacted: false,
             }
         } else {
             self.drive(transcript, prompt, tracker.as_ref(), &recorder).await
@@ -565,6 +569,7 @@ impl SubagentRunner {
             workspace_complete,
             tool_log: evidence.tool_log,
             touched_files: evidence.touched_files,
+            compacted: drive.compacted,
         }
     }
 
@@ -581,69 +586,107 @@ impl SubagentRunner {
         let stop = self.ctx.cancellation.clone().unwrap_or_default();
         if stop.is_cancelled() {
             return Drive {
-                end: interrupted(),
+                end: RoundEnd::Cancelled,
                 transcript,
                 tally: Tally::default(),
+                compacted: false,
             };
         }
         let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned(), self.ctx.progress.clone()));
-        let (question_tool, question) = AskParentTool::with_question_slot();
-        let question_tool = self.parent_channel.then_some(question_tool);
-        let mut run = Run {
-            transcript,
-            prompt,
-            tally: Tally::default(),
+        let (question_tool, questions) = AskParentTool::with_question_slot();
+        let mut round = RoundState {
+            run: Run {
+                transcript,
+                prompt,
+                tally: Tally::default(),
+            },
+            owner: self.owner(),
+            presenter,
+            question_tool: self.parent_channel.then_some(question_tool),
+            compacted: false,
         };
         let mut compactions = 0;
         let (finish, mut transcript) = loop {
-            let store = MemoryStore::new(self.owner(), std::mem::take(&mut run.transcript));
-            let sink = TerminalApprovalSink::with_session(
-                &presenter,
-                TerminalSinkConfig {
-                    model_label: self.model_label(),
-                    run_tracker: RunTracker::default(),
-                },
-                self.ctx.session.clone(),
-            );
-            let agent = self.agent(AgentSetup {
-                store: &store,
-                sink: &sink,
-                prompt: std::mem::take(&mut run.prompt),
-                turns_used: run.tally.turns,
-                recorder,
-                question_tool: question_tool.clone(),
-                stop: &stop,
-            });
-            let (finish, tally) = self.consume(agent, &sink, tracker, &stop).await;
-            run.tally.add(tally);
-            let messages = store.messages();
+            let (finish, messages) = self.run_once(&mut round, tracker, recorder, &stop).await;
             if !matches!(finish, Finish::Failed(AppError::ContextOverflow(_))) || compactions == MAX_COMPACTIONS {
                 break (finish, messages);
             }
-            match compact_messages(&self.model, &messages, self.keep_recent_tokens).await {
+            match self.compacted(&messages).await {
                 Some(compacted) => {
                     compactions += 1;
-                    run.transcript = compacted;
+                    round.compacted = true;
+                    round.run.transcript = compacted;
                 }
                 None => break (finish, messages),
             }
         };
-        let asked = question.lock().unwrap_or_else(PoisonError::into_inner).take();
+        crate::tools::jobs::JobManager::global().cancel_owner(&round.owner);
+        if !round.run.prompt.is_empty() {
+            transcript.push(ChatMessage::user(round.run.prompt.clone()));
+        }
         let end = match finish {
-            Finish::Stopped => interrupted(),
-            Finish::Done(_) if asked.is_some() => RoundEnd::Asked(asked.unwrap_or_default()),
-            Finish::Done(text) if text.trim().is_empty() => {
-                self.salvage("ended without writing a final answer", &mut transcript, &stop)
-                    .await
-            }
-            Finish::Done(text) => RoundEnd::Answered(text),
+            Finish::Stopped => RoundEnd::Cancelled,
+            Finish::Done(text) => match take_question(&questions) {
+                Some(question) => RoundEnd::Asked(question),
+                None if text.trim().is_empty() => {
+                    self.salvage("ended without writing a final answer", &mut transcript, &stop)
+                        .await
+                }
+                None => RoundEnd::Answered(text),
+            },
             Finish::Failed(error) => self.ended_by(error, &mut transcript, &stop).await,
         };
         Drive {
             end,
             transcript,
-            tally: run.tally,
+            tally: round.run.tally,
+            compacted: round.compacted,
         }
+    }
+
+    /// Runs the turn loop once from where `round` left off. A prompt the loop never saved (it failed
+    /// before its first reply) stays in `round` for a retry and is added to the returned conversation.
+    async fn run_once(
+        &self,
+        round: &mut RoundState,
+        tracker: Option<&AgentHandle>,
+        recorder: &Arc<Recorder>,
+        stop: &CancellationSignal,
+    ) -> (Finish, Vec<ChatMessage>) {
+        let started_with = round.run.transcript.len();
+        let store = MemoryStore::new(round.owner.clone(), std::mem::take(&mut round.run.transcript));
+        let sink = TerminalApprovalSink::with_session(
+            &round.presenter,
+            TerminalSinkConfig {
+                model_label: self.model_label(),
+                run_tracker: RunTracker::default(),
+            },
+            self.ctx.session.clone(),
+        );
+        let agent = self.agent(AgentSetup {
+            store: &store,
+            sink: &sink,
+            prompt: round.run.prompt.clone(),
+            turns_used: round.run.tally.turns,
+            recorder,
+            question_tool: round.question_tool.clone(),
+            stop,
+        });
+        let finish = self.consume(agent, &sink, tracker, stop, &mut round.run.tally).await;
+        let messages = store.messages();
+        if messages.len() > started_with {
+            round.run.prompt.clear();
+        }
+        (finish, messages)
+    }
+
+    /// `messages` compacted for another run, with the summary redacted like the session's.
+    async fn compacted(&self, messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
+        let mut compacted = compact_messages(&self.model, messages, self.keep_recent_tokens).await?;
+        if let (Some(session), Some(ChatMessage::System { content })) = (&self.ctx.session, compacted.first_mut()) {
+            *content = session.redact_credentials(content);
+        }
+        Some(compacted)
     }
 
     /// Owns the round's background work and messages: its mailbox, or a one-off id without one.
@@ -663,7 +706,7 @@ impl SubagentRunner {
             .map(|tool| RecordedTool::wrap(tool.clone(), setup.recorder))
             .collect();
         tools.extend(setup.question_tool);
-        let denials = setup.recorder.clone();
+        let observer: Arc<dyn ToolObserver> = setup.recorder.clone();
         AgentRunner::with_store(
             self.model.clone(),
             tools,
@@ -682,7 +725,7 @@ impl SubagentRunner {
         .cancellation(Some(setup.stop.clone()))
         .monitor(self.ctx.monitor.clone())
         .project_context(self.ctx.project.clone())
-        .on_denied(Some(Arc::new(move |call, reason| denials.denied(call, reason))))
+        .observer(Some(observer))
     }
 
     /// The round end for a turn loop that stopped with `error`.
@@ -693,11 +736,15 @@ impl SubagentRunner {
         stop: &CancellationSignal,
     ) -> RoundEnd {
         match error {
-            AppError::Cancelled(_) if stop.is_cancelled() => interrupted(),
+            AppError::Cancelled(_) if stop.is_cancelled() => RoundEnd::Cancelled,
             AppError::Cancelled(reason) => RoundEnd::Failed(format!("Subagent stopped by hook: {reason}")),
-            AppError::ModelBudgetExhausted { max_turns } => {
-                self.salvage(&format!("reached the turn limit of {max_turns}"), transcript, stop)
-                    .await
+            AppError::ModelBudgetExhausted { .. } => {
+                self.salvage(
+                    &format!("reached the turn limit of {}", self.max_turns),
+                    transcript,
+                    stop,
+                )
+                .await
             }
             AppError::Provider(message) if message == EMPTY_RESPONSE_ERROR => {
                 self.salvage("ended without writing a final answer", transcript, stop)
@@ -708,37 +755,38 @@ impl SubagentRunner {
     }
 
     /// Reads the turn loop's stream to its end: shows its output, releases its display barriers, and
-    /// counts turns, tool calls, and tokens. Stops early when `stop` fires.
+    /// adds its turns, tool calls, and tokens to `tally`. Stops early when `stop` fires.
     async fn consume(
         &self,
         agent: AgentRunner,
         sink: &Arc<TerminalApprovalSink>,
         tracker: Option<&AgentHandle>,
         stop: &CancellationSignal,
-    ) -> (Finish, Tally) {
+        tally: &mut Tally,
+    ) -> Finish {
         let mut stream = agent.stream();
-        let mut tally = Tally::default();
         let mut pending_names: Vec<String> = Vec::new();
         let mut output = None;
         loop {
             let Some(item) = Self::unless_stopped(stop, stream.next()).await else {
                 sink.flush_display();
-                return (Finish::Stopped, tally);
+                return Finish::Stopped;
             };
             match item {
                 None => break,
                 Some(Err(error)) => {
                     sink.flush_display();
-                    return (Finish::Failed(error), tally);
+                    return Finish::Failed(error);
                 }
                 Some(Ok(MultiTurnStreamItem::FinalResponse(resp))) => output = Some(resp.output),
-                Some(Ok(item)) => self.show(item, sink, tracker, &mut tally, &mut pending_names),
+                Some(Ok(item)) => self.show(item, sink, tracker, tally, &mut pending_names),
             }
         }
         sink.flush_display();
         match output {
-            Some(text) => (Finish::Done(text), tally),
-            None => (Finish::Stopped, tally),
+            Some(text) => Finish::Done(text),
+            None if stop.is_cancelled() => Finish::Stopped,
+            None => Finish::Failed(AppError::Other(anyhow::anyhow!("the turn ended unexpectedly"))),
         }
     }
 
@@ -836,7 +884,7 @@ impl SubagentRunner {
     /// Ends a round that stopped before a final answer, asking the model to summarize its work so far.
     async fn salvage(&self, reason: &str, transcript: &mut Vec<ChatMessage>, stop: &CancellationSignal) -> RoundEnd {
         if stop.is_cancelled() {
-            return interrupted();
+            return RoundEnd::Cancelled;
         }
         let synthesis = Self::unless_stopped(
             stop,
@@ -844,7 +892,7 @@ impl SubagentRunner {
         )
         .await;
         match synthesis {
-            None => interrupted(),
+            None => RoundEnd::Cancelled,
             Some(Some(summary)) => {
                 let kept = without_unanswered_tool_calls(transcript).len();
                 transcript.truncate(kept);

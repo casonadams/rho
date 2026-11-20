@@ -305,8 +305,26 @@ async fn a_tool_can_end_the_turn_once_its_batch_is_answered() {
     assert_eq!(result_text(&messages[2]), "question sent");
 }
 
+#[derive(Default)]
+struct SeenCalls(std::sync::Mutex<Vec<String>>);
+
+impl ToolObserver for SeenCalls {
+    fn denied(&self, call: &ToolCall, reason: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("denied {}: {reason}", call.function.name));
+    }
+    fn finished(&self, call: &ToolCall, _args: &serde_json::Value, output: &str, is_error: bool) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("finished {}: {output} (error: {is_error})", call.function.name));
+    }
+}
+
 #[tokio::test]
-async fn refused_calls_are_reported_to_the_denial_observer() {
+async fn the_tool_observer_hears_refused_and_finished_calls() {
     let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let scope = crate::permission::policy::parse_scope_from_str("[permission.bash]\n\"rm *\" = \"deny\"\n").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -315,32 +333,36 @@ async fn refused_calls_are_reported_to_the_denial_observer() {
         Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None)),
         crate::permission::policy::build_policy(None, Some(scope)),
     ));
-    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let record = seen.clone();
-    let observer: DenialObserver = Arc::new(move |call: &ToolCall, reason: &str| {
-        record.lock().unwrap().push(format!("{}: {reason}", call.function.name));
-    });
-    let call = ToolCall::new(
+    let seen = Arc::new(SeenCalls::default());
+    let observer: Arc<dyn ToolObserver> = seen.clone();
+    let refused = ToolCall::new(
         "c1",
         ToolFunction::new("bash", serde_json::json!({ "command": "rm x" })),
     );
-    let tools: Vec<Arc<dyn EngineTool>> = Vec::new();
+    let ran = ToolCall::new("c2", ToolFunction::new("echo", serde_json::json!({})));
+    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(ScriptedTool {
+        name: "echo",
+        result: crate::tools::ToolResult::success("hi"),
+    })];
     let mut ctx = ToolExecutionContext {
         tools: &tools,
         sink: &runner.sink,
         repeat_tracker: &mut tracker,
         lifecycle: None,
         permission: Some(&hook),
-        on_denied: Some(&observer),
+        observer: Some(&observer),
     };
 
-    let (message, control) = execute_single_tool_call(&call, &mut ctx).await;
+    let (message, control) = execute_single_tool_call(&refused, &mut ctx).await;
+    ctx.permission = None;
+    execute_single_tool_call(&ran, &mut ctx).await;
 
     assert_eq!(control, CallControl::Continue);
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen.len(), 1);
-    assert!(seen[0].starts_with("bash: Permission denied"), "{seen:?}");
-    assert_eq!(seen[0], format!("bash: {}", result_text(&message)));
+    let seen = seen.0.lock().unwrap();
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!(seen[0], format!("denied bash: {}", result_text(&message)));
+    assert!(seen[0].starts_with("denied bash: Permission denied"), "{seen:?}");
+    assert_eq!(seen[1], "finished echo: hi (error: false)");
 }
 
 fn rendezvous_tools(safe: bool) -> Vec<Arc<dyn EngineTool>> {
@@ -411,7 +433,7 @@ async fn concurrency_safe_batches_run_together_and_keep_call_order() {
         repeat_tracker: &mut tracker,
         lifecycle: None,
         permission: None,
-        on_denied: None,
+        observer: None,
     };
 
     let outcomes = tokio::time::timeout(
@@ -456,7 +478,7 @@ async fn concurrent_batch_repeats_are_settled_without_running_the_tool() {
         repeat_tracker: &mut tracker,
         lifecycle: None,
         permission: None,
-        on_denied: None,
+        observer: None,
     };
 
     let outcomes = execute_concurrent_tool_calls(&calls, &mut ctx).await;

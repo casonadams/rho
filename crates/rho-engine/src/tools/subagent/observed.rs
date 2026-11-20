@@ -5,12 +5,13 @@
 use super::evidence::{OutcomeStatus, ToolOutcome};
 use super::snapshot::Snapshot;
 use super::workspace::{WorkspaceChange, bash_file_arguments, normalize};
+use crate::engine::runner::turn::runner::ToolObserver;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::ToolResult;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ToolCall;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -41,18 +42,26 @@ pub(crate) struct Evidence {
     pub bash_changes: BTreeMap<String, String>,
 }
 
-/// Collects evidence for one round, shared by every wrapped tool.
+/// Collects evidence for one round: the wrapped tools report what bash commands changed or read,
+/// and the turn loop reports how each call ended, after outcome hooks.
 pub(crate) struct Recorder {
     evidence: Mutex<Evidence>,
+    /// Bash effects waiting for their call's outcome, by tool name and arguments, oldest first.
+    pending: Mutex<BTreeMap<String, VecDeque<BashEffects>>>,
     root: PathBuf,
     /// Snapshots run only in real sessions, which have a project directory.
     snapshots: bool,
+}
+
+fn call_key(name: &str, args: &Value) -> String {
+    format!("{name} {args}")
 }
 
 impl Recorder {
     pub(crate) fn new(root: PathBuf, snapshots: bool) -> Arc<Self> {
         Arc::new(Self {
             evidence: Mutex::default(),
+            pending: Mutex::default(),
             root,
             snapshots,
         })
@@ -66,23 +75,32 @@ impl Recorder {
         std::mem::take(&mut *self.lock())
     }
 
-    /// A call a hook or the permission policy refused.
-    pub(crate) fn denied(&self, call: &ToolCall, reason: &str) {
-        self.lock().tool_log.push(ToolOutcome::new(
-            &call.function.name,
-            &call.function.arguments,
-            OutcomeStatus::Denied,
-            reason,
-        ));
+    fn hold(&self, name: &str, args: &Value, bash: BashEffects) {
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(call_key(name, args))
+            .or_default()
+            .push_back(bash);
     }
 
-    fn record(&self, name: &str, args: &Value, result: &ToolResult, bash: BashEffects) {
-        let status = if result.is_error {
+    fn release(&self, name: &str, args: &Value) -> BashEffects {
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&call_key(name, args))
+            .and_then(VecDeque::pop_front)
+            .unwrap_or_default()
+    }
+
+    fn record(&self, name: &str, args: &Value, output: &str, is_error: bool) {
+        let bash = self.release(name, args);
+        let status = if is_error {
             OutcomeStatus::Error
         } else {
             OutcomeStatus::Ok
         };
-        let mut logged = ToolOutcome::new(name, args, status, &result.content);
+        let mut logged = ToolOutcome::new(name, args, status, output);
         let path = args["path"]
             .as_str()
             .filter(|p| !p.trim().is_empty())
@@ -105,9 +123,24 @@ impl Recorder {
         if FILE_READING_TOOLS.contains(&name) {
             evidence.touched_files.insert(path.clone());
         }
-        if !result.is_error && FILE_CHANGING_TOOLS.contains(&name) {
+        if !is_error && FILE_CHANGING_TOOLS.contains(&name) {
             evidence.changed_files.insert(path);
         }
+    }
+}
+
+impl ToolObserver for Recorder {
+    fn denied(&self, call: &ToolCall, reason: &str) {
+        self.lock().tool_log.push(ToolOutcome::new(
+            &call.function.name,
+            &call.function.arguments,
+            OutcomeStatus::Denied,
+            reason,
+        ));
+    }
+
+    fn finished(&self, call: &ToolCall, args: &Value, output: &str, is_error: bool) {
+        self.record(&call.function.name, args, output, is_error);
     }
 }
 
@@ -199,7 +232,7 @@ impl EngineTool for RecordedTool {
         }
         result.content = truncate_output(result.content);
         result.display = None;
-        self.recorder.record(name, &args, &result, bash);
+        self.recorder.hold(name, &args, bash);
         Ok(result)
     }
 
@@ -210,20 +243,34 @@ impl EngineTool for RecordedTool {
 }
 
 /// Lets the subagent ask the delegating agent a question: the call is answered at once and ends
-/// the turn, and the question is kept for the round's result.
+/// the turn, and every question asked is kept for the round's result.
 pub(crate) struct AskParentTool {
-    question: Arc<Mutex<Option<String>>>,
+    questions: Arc<Mutex<Vec<String>>>,
 }
 
 impl AskParentTool {
-    /// The tool, and where it keeps the question the subagent asks.
-    pub(crate) fn with_question_slot() -> (Arc<dyn EngineTool>, Arc<Mutex<Option<String>>>) {
-        let question = Arc::new(Mutex::new(None));
+    /// The tool, and where it keeps the questions the subagent asks.
+    pub(crate) fn with_question_slot() -> (Arc<dyn EngineTool>, Arc<Mutex<Vec<String>>>) {
+        let questions = Arc::new(Mutex::new(Vec::new()));
         let tool = Arc::new(Self {
-            question: question.clone(),
+            questions: questions.clone(),
         });
-        (tool, question)
+        (tool, questions)
     }
+}
+
+/// The questions asked this turn as one: blank asks only count when nothing real was asked.
+pub(crate) fn take_question(slot: &Mutex<Vec<String>>) -> Option<String> {
+    let asked = std::mem::take(&mut *slot.lock().unwrap_or_else(PoisonError::into_inner));
+    if asked.is_empty() {
+        return None;
+    }
+    let real: Vec<String> = asked.into_iter().filter(|q| !q.is_empty()).collect();
+    Some(if real.is_empty() {
+        NO_QUESTION.to_string()
+    } else {
+        real.join("\n")
+    })
 }
 
 #[async_trait::async_trait]
@@ -246,14 +293,10 @@ impl EngineTool for AskParentTool {
 
     async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
         let asked = args["question"].as_str().unwrap_or_default().trim().to_string();
-        let mut question = self.question.lock().unwrap_or_else(PoisonError::into_inner);
-        if !asked.is_empty() || question.is_none() {
-            *question = Some(if asked.is_empty() {
-                NO_QUESTION.to_string()
-            } else {
-                asked
-            });
-        }
+        self.questions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(asked);
         Ok(ToolResult {
             ends_turn: true,
             ..ToolResult::success(QUESTION_SENT)
@@ -286,26 +329,40 @@ mod tests {
         }
     }
 
+    fn call(name: &str, args: &Value) -> ToolCall {
+        ToolCall::new("c", rho_harness_core::model::ToolFunction::new(name, args.clone()))
+    }
+
+    /// Runs `tool` and reports its outcome to `recorder` the way the turn loop does, after a hook
+    /// that rewrites `secret` in the output.
+    async fn run(recorder: &Recorder, tool: &Arc<dyn EngineTool>, args: Value) -> ToolResult {
+        let result = tool.execute(args.clone()).await.unwrap();
+        let hooked = result.content.replace("secret", "[REDACTED]");
+        recorder.finished(&call(tool.name(), &args), &args, &hooked, result.is_error);
+        result
+    }
+
     #[tokio::test]
-    async fn every_call_is_recorded_with_the_files_it_read_or_changed() {
+    async fn every_call_is_recorded_with_its_final_output_and_the_files_it_read_or_changed() {
         let recorder = Recorder::new(PathBuf::from("/repo"), false);
         let edit = RecordedTool::wrap(Arc::new(Echo("edit")), &recorder);
         let read = RecordedTool::wrap(Arc::new(Echo("read")), &recorder);
 
-        let edited = edit.execute(serde_json::json!({ "path": "src/a.rs" })).await.unwrap();
-        read.execute(serde_json::json!({ "path": "/repo/src/b.rs" }))
-            .await
-            .unwrap();
-        let failed = edit
-            .execute(serde_json::json!({ "path": "src/c.rs", "fail": true }))
-            .await
-            .unwrap();
-        recorder.denied(
-            &ToolCall::new(
-                "d",
-                rho_harness_core::model::ToolFunction::new("bash", serde_json::json!({})),
-            ),
-            "Permission denied: no",
+        let edited = run(&recorder, &edit, serde_json::json!({ "path": "src/a.rs" })).await;
+        run(&recorder, &read, serde_json::json!({ "path": "/repo/src/b.rs" })).await;
+        let failed = run(
+            &recorder,
+            &edit,
+            serde_json::json!({ "path": "src/c.rs", "fail": true }),
+        )
+        .await;
+        recorder.denied(&call("bash", &serde_json::json!({})), "Permission denied: no");
+        let secretive = Recorder::new(PathBuf::from("/repo"), false);
+        secretive.finished(
+            &call("read", &serde_json::json!({})),
+            &serde_json::json!({}),
+            "failed: [REDACTED]",
+            true,
         );
 
         assert!(edited.content.ends_with("[truncated 3 characters]"));
@@ -326,27 +383,36 @@ mod tests {
                 OutcomeStatus::Denied
             ]
         );
+        let logged = serde_json::to_string(&secretive.take().tool_log).unwrap();
+        assert!(
+            logged.contains("[REDACTED]"),
+            "evidence keeps the output after hooks: {logged}"
+        );
     }
 
     #[tokio::test]
-    async fn asking_the_parent_keeps_the_question_and_ends_the_turn() {
-        let (tool, question) = AskParentTool::with_question_slot();
+    async fn asking_the_parent_keeps_every_question_and_ends_the_turn() {
+        let (tool, questions) = AskParentTool::with_question_slot();
         let first = tool
             .execute(serde_json::json!({ "question": " Which module? " }))
             .await
             .unwrap();
         tool.execute(serde_json::json!({})).await.unwrap();
+        tool.execute(serde_json::json!({ "question": "Latency or memory?" }))
+            .await
+            .unwrap();
 
         assert!(first.ends_turn);
         assert_eq!(first.content, QUESTION_SENT);
         assert_eq!(
-            question.lock().unwrap().as_deref(),
-            Some("Which module?"),
-            "a blank ask keeps the real question"
+            take_question(&questions).as_deref(),
+            Some("Which module?\nLatency or memory?"),
+            "blank asks are dropped when real ones exist"
         );
+        assert_eq!(take_question(&questions), None, "taken once");
 
         let (blank, only_blank) = AskParentTool::with_question_slot();
         blank.execute(serde_json::json!({})).await.unwrap();
-        assert_eq!(only_blank.lock().unwrap().as_deref(), Some(NO_QUESTION));
+        assert_eq!(take_question(&only_blank).as_deref(), Some(NO_QUESTION));
     }
 }

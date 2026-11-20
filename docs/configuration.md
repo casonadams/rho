@@ -246,9 +246,17 @@ happen.
   merged, which covers what it saw through `rg` or other directory-wide
   commands. The result says what the subagent was told.
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
-  without a decision. Its task becomes `input-required` and its result is
-  `Question for you: ...`; the main agent answers with the same `task_id`, and
-  the answer is delivered as the `ask_parent` result.
+  without a decision. The call ends its turn; its task becomes `input-required`
+  and its result is `Question for you: ...`. The main agent answers with the
+  same `task_id`, and the answer reaches the subagent as its next message,
+  marked as a reply from the delegating agent.
+- **Same loop as the main agent**: a subagent runs on the main agent's turn
+  loop with its own tools, instructions, and turn limit. It gets the same
+  request retries, repeated-call guard, "Please continue" nudge after an empty
+  reply, waiting for its own background `bash` jobs, and message delivery. When
+  a request overflows the model's context, its older conversation is compacted
+  into a summary (keeping `keep_recent_tokens` of recent conversation) and it
+  continues with the turns it has left, up to three times per round.
 - **Incomplete runs**: when a subagent hits its turn limit or ends without a
   final answer, it is asked once more (without tools) to summarize its work so
   far; the result starts with `Incomplete:` and the task is `input-required`,

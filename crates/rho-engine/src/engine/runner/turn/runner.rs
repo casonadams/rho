@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 mod dispatch;
 
-pub use dispatch::DenialObserver;
+pub use dispatch::ToolObserver;
 use dispatch::{
     CallControl, ToolExecutionContext, batch_is_concurrency_safe, execute_concurrent_tool_calls,
     execute_single_tool_call,
@@ -139,7 +139,7 @@ pub struct AgentRunner {
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     inbox: Option<crate::mailbox::Mailbox>,
     cancellation: Option<CancellationSignal>,
-    on_denied: Option<DenialObserver>,
+    tool_observer: Option<Arc<dyn ToolObserver>>,
     working_dir: std::path::PathBuf,
     monitor: Option<rho_harness_core::agents::AgentMonitor>,
     project: Option<Arc<crate::engine::context::ProjectContext>>,
@@ -198,7 +198,7 @@ impl AgentRunner {
             steering: None,
             inbox: None,
             cancellation: None,
-            on_denied: None,
+            tool_observer: None,
             working_dir,
             monitor: None,
             project: None,
@@ -239,9 +239,9 @@ impl AgentRunner {
         self
     }
 
-    /// Tells `observer` about every call a hook or the permission policy refuses.
-    pub fn on_denied(mut self, observer: Option<DenialObserver>) -> Self {
-        self.on_denied = observer;
+    /// Tells `observer` how each tool call ended: refused, or run with the output the model receives.
+    pub fn observer(mut self, observer: Option<Arc<dyn ToolObserver>>) -> Self {
+        self.tool_observer = observer;
         self
     }
 
@@ -616,7 +616,7 @@ async fn dispatch_tool_calls(
         repeat_tracker: ctx.repeat_tracker,
         lifecycle: runner.lifecycle.as_ref(),
         permission: runner.permission.as_ref(),
-        on_denied: runner.on_denied.as_ref(),
+        observer: runner.tool_observer.as_ref(),
     };
 
     emitter.wait_for_display_drain().await?;

@@ -702,6 +702,61 @@ fn a_busy_conversation_refuses_a_second_message_until_the_first_finishes() {
 }
 
 #[tokio::test]
+async fn a_compacted_round_replaces_the_saved_conversation_and_the_next_round_continues_from_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::new(dir.path(), None).unwrap();
+    let adapter = MockAdapter::from_result_turns([
+        call("read", json!({ "path": "a.rs" })).into_iter().map(Ok).collect(),
+        call("read", json!({ "path": "b.rs" })).into_iter().map(Ok).collect(),
+        vec![Ok(ModelStreamEvent::Text("first done".into()))],
+        vec![Err(rho_harness_core::error::AppError::ContextOverflow(
+            "too long".into(),
+        ))],
+        vec![Ok(ModelStreamEvent::Text("Summary: read a.rs and b.rs.".into()))],
+        vec![Ok(ModelStreamEvent::Text("second done".into()))],
+        vec![Ok(ModelStreamEvent::Text("third done".into()))],
+    ]);
+    let ctx = TurnToolContext {
+        session: Some(session.clone()),
+        ..Default::default()
+    };
+    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+        .with_keep_recent_tokens(1)
+        .bind_turn(&ctx)
+        .unwrap();
+
+    let first = ask(&tool, json!({ "prompt": "Audit" })).await;
+    let second = ask(&tool, json!({ "task_id": task_id(&first), "prompt": "Go on" })).await;
+    assert!(second.starts_with("second done"), "{second}");
+
+    let saved = session.subagent_context(&task_id(&second)).await.unwrap().transcript;
+    assert!(
+        matches!(&saved[0], ChatMessage::System { content } if content.contains("Summary")),
+        "{saved:?}"
+    );
+    assert_eq!(
+        saved
+            .iter()
+            .filter(|m| **m == ChatMessage::assistant("first done"))
+            .count(),
+        1,
+        "kept once as recent context, never duplicated"
+    );
+    assert!(saved.len() < 6, "older turns were folded: {saved:?}");
+    assert_eq!(saved.iter().filter(|m| **m == ChatMessage::user("Go on")).count(), 1);
+    assert_eq!(saved.last(), Some(&ChatMessage::assistant("second done")));
+
+    let third = ask(&tool, json!({ "task_id": task_id(&second), "prompt": "Once more" })).await;
+    assert!(third.starts_with("third done"), "{third}");
+    let request = adapter.requests().pop().unwrap();
+    assert!(
+        matches!(&request.messages[0], ChatMessage::System { .. }),
+        "continues from the compacted conversation"
+    );
+    assert_eq!(request.asked(), "Once more");
+}
+
+#[tokio::test]
 async fn subagents_without_a_parent_session_get_no_ask_parent_tool() {
     let adapter = MockAdapter::from_turns([text("done")]);
     let result = ask(&bound_tool(&adapter, None), json!({ "prompt": "look" })).await;

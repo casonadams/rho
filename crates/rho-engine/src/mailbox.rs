@@ -72,7 +72,6 @@ impl Envelope {
         Some(reply)
     }
 
-    /// How the message is introduced to the model; `parent` is the reader's delegating agent, if any.
     /// How the message is shown to the model; `parent` is the reader's delegating agent, if any.
     /// System notices carry their own framing, and the user speaks plainly to the top-level agent.
     #[must_use]

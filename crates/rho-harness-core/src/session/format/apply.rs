@@ -151,7 +151,12 @@ fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
         SessionRecord::SessionNamed { name, .. } => {
             state.tree.set_session_name(name);
         }
-        SessionRecord::SubagentTask { task, transcript, .. } => state.subagents.record(task, transcript),
+        SessionRecord::SubagentTask {
+            task,
+            transcript,
+            replaces_transcript,
+            ..
+        } => state.subagents.record(task, transcript, replaces_transcript),
         _ => {}
     }
     false

@@ -1056,6 +1056,127 @@ async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round()
 }
 
 #[tokio::test]
+async fn a_failure_before_the_first_reply_keeps_the_instruction_in_the_transcript() {
+    let adapter = MockAdapter::from_result_turns([vec![Err(AppError::Other(anyhow::anyhow!("boom")))]]);
+    let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5);
+
+    let round = runner
+        .run_round(
+            vec![ChatMessage::user("earlier")],
+            runner::RoundInput::Prompt("check the lexer"),
+        )
+        .await;
+
+    assert!(matches!(round.end, runner::RoundEnd::Failed(_)), "{:?}", round.end);
+    assert_eq!(round.transcript.last(), Some(&ChatMessage::user("check the lexer")));
+    assert_eq!(round.transcript.len(), 2);
+}
+
+#[tokio::test]
+async fn an_overflow_on_the_first_call_compacts_and_still_gives_the_model_the_instruction() {
+    let adapter = MockAdapter::from_result_turns([
+        vec![Err(AppError::ContextOverflow("prompt is too long".into()))],
+        vec![Ok(ModelStreamEvent::Text("Earlier: the parser was reviewed.".into()))],
+        vec![Ok(ModelStreamEvent::Text("Lexer checked.".into()))],
+    ]);
+    let mut history: Vec<ChatMessage> = (0..6)
+        .flat_map(|i| {
+            [
+                ChatMessage::user(format!("step {i}")),
+                ChatMessage::assistant("x".repeat(2_000)),
+            ]
+        })
+        .collect();
+    history.push(ChatMessage::user("the plan is settled"));
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_keep_recent_tokens(1);
+
+    let round = runner
+        .run_round(history, runner::RoundInput::Prompt("check the lexer"))
+        .await;
+
+    assert_eq!(round.end, runner::RoundEnd::Answered("Lexer checked.".into()));
+    assert!(round.compacted);
+    let last = adapter.requests().pop().unwrap();
+    assert_eq!(last.asked(), "check the lexer");
+    assert!(matches!(&last.messages[0], ChatMessage::System { .. }));
+    assert_eq!(
+        round
+            .transcript
+            .iter()
+            .filter(|m| **m == ChatMessage::user("check the lexer"))
+            .count(),
+        1,
+        "the instruction is in the conversation once"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
+    let adapter = MockAdapter::from_turns([text_turn("done")]);
+    let boxes = crate::mailbox::Mailboxes::default();
+    let inbox = boxes.open("round-jobs-7a1", None);
+    let job = crate::tools::jobs::JobManager::global().register(
+        "round-jobs-7a1",
+        "round-jobs-7a1-job".into(),
+        "sleep".into(),
+    );
+    let stop = CancellationSignal::default();
+    let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5)
+        .with_inbox(inbox)
+        .with_cancellation(stop.clone());
+
+    let round = tokio::spawn(async move { runner.run_round(Vec::new(), runner::RoundInput::Prompt("look")).await });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    assert!(!round.is_finished(), "the round waits for its own background job");
+    stop.cancel();
+    let round = tokio::time::timeout(std::time::Duration::from_secs(5), round)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(round.end, runner::RoundEnd::Cancelled);
+    assert!(job.is_cancelled(), "the round's own job is stopped with it");
+    crate::tools::jobs::JobManager::global().update_status(
+        "round-jobs-7a1-job",
+        crate::tools::jobs::JobStatus::Failed {
+            error: "test over".into(),
+        },
+    );
+}
+
+#[derive(Debug)]
+struct CrashingModel;
+
+#[async_trait::async_trait]
+impl ModelAdapter for CrashingModel {
+    fn model_name(&self) -> &str {
+        "crash"
+    }
+    fn provider_name(&self) -> &str {
+        "test"
+    }
+    async fn stream(
+        &self,
+        _request: ModelCompletionRequest,
+    ) -> Result<crate::provider::adapter::ModelEventStream, AppError> {
+        panic!("the provider client crashed");
+    }
+}
+
+#[tokio::test]
+async fn a_turn_that_dies_is_reported_as_a_failure_not_an_interruption() {
+    let runner = SubagentRunner::new(Arc::new(CrashingModel), SubagentRole::Scout, &[], 5);
+
+    let round = runner.run_round(Vec::new(), runner::RoundInput::Prompt("go")).await;
+
+    assert!(
+        matches!(&round.end, runner::RoundEnd::Failed(text) if text.contains("ended unexpectedly")),
+        "{:?}",
+        round.end
+    );
+}
+
+#[tokio::test]
 async fn the_agent_view_gets_the_reply_and_reasoning_from_the_model_stream() {
     let adapter = MockAdapter::from_turns([vec![
         ModelStreamEvent::Reasoning("check the file first. ".into()),
