@@ -77,17 +77,148 @@ fn enter_opens_a_view_and_left_walks_back_to_the_prompt() {
     let (monitor, _, _) = monitor_with_two_agents();
     let mut c = controller();
     try_open_agents(&mut c, &key(KeyCode::Left), &monitor).unwrap();
-    assert!(handle_agents_key(&mut c, key(KeyCode::Enter), &monitor).unwrap());
+    assert!(
+        handle_agents_key(&mut c, key(KeyCode::Enter), &monitor)
+            .unwrap()
+            .consumed()
+    );
     assert_eq!(active_title(&c).as_deref(), Some("Agent: scan #2 · scout"));
     let body = crate::ui::block::strip_ansi(&c.state().active_modal().unwrap().body);
     assert!(body.contains("Scan crates/"), "{body}");
     assert!(body.contains("⟳ rg {\"pattern\": \"unwrap\"}"), "{body}");
 
-    assert!(handle_agents_key(&mut c, key(KeyCode::Left), &monitor).unwrap());
+    assert!(
+        handle_agents_key(&mut c, key(KeyCode::Left), &monitor)
+            .unwrap()
+            .consumed()
+    );
     assert_eq!(active_title(&c).as_deref(), Some(AGENTS_TITLE));
-    assert!(handle_agents_key(&mut c, key(KeyCode::Left), &monitor).unwrap());
+    assert!(
+        handle_agents_key(&mut c, key(KeyCode::Left), &monitor)
+            .unwrap()
+            .consumed()
+    );
     assert!(c.state().active_modal().is_none());
-    assert!(!handle_agents_key(&mut c, key(KeyCode::Left), &monitor).unwrap());
+    assert!(
+        !handle_agents_key(&mut c, key(KeyCode::Left), &monitor)
+            .unwrap()
+            .consumed()
+    );
+}
+
+fn type_text(c: &mut TerminalController<NullBackend>, monitor: &AgentMonitor, text: &str) {
+    for ch in text.chars() {
+        assert_eq!(
+            handle_agents_key(c, key(KeyCode::Char(ch)), monitor).unwrap(),
+            AgentKey::Handled
+        );
+    }
+}
+
+#[test]
+fn the_view_is_full_screen_and_typing_in_it_sends_a_message_for_the_agents_task() {
+    let (monitor, done, running) = monitor_with_two_agents();
+    running.set_task("scan2-abcd");
+    let mut c = controller();
+    try_open_agents(&mut c, &key(KeyCode::Left), &monitor).unwrap();
+    handle_agents_key(&mut c, key(KeyCode::Enter), &monitor).unwrap();
+    assert!(c.state().active_modal().unwrap().full_screen);
+
+    type_text(&mut c, &monitor, "jk also check tests");
+    assert_eq!(
+        c.state().active_modal().unwrap().body_scroll,
+        0,
+        "j and k type instead of scrolling"
+    );
+    handle_agents_key(&mut c, key(KeyCode::Left), &monitor).unwrap();
+    assert_eq!(
+        active_title(&c).as_deref(),
+        Some("Agent: scan #2 · scout"),
+        "Left moves the cursor while typing"
+    );
+
+    let sent = handle_agents_key(&mut c, key(KeyCode::Enter), &monitor).unwrap();
+    assert_eq!(
+        sent,
+        AgentKey::Send(AgentMessage {
+            task_id: "scan2-abcd".into(),
+            label: "scan #2 · scout".into(),
+            running: true,
+            text: "jk also check tests".into(),
+        })
+    );
+    assert!(c.state().active_modal().unwrap().input.text().is_empty());
+
+    handle_agents_key(&mut c, key(KeyCode::Tab), &monitor).unwrap();
+    assert_eq!(
+        c.state().active_modal().unwrap().subject.as_deref(),
+        Some(done.id().to_string().as_str())
+    );
+    type_text(&mut c, &monitor, "hi");
+    assert_eq!(
+        handle_agents_key(&mut c, key(KeyCode::Enter), &monitor).unwrap(),
+        AgentKey::Handled
+    );
+    assert!(
+        c.state().system_message().is_some_and(|m| m.contains("not saved")),
+        "a round without a task cannot be messaged"
+    );
+}
+
+#[test]
+fn ctrl_c_clears_a_typed_message_before_closing_the_view() {
+    let (monitor, _, _) = monitor_with_two_agents();
+    let mut c = controller();
+    try_open_agents(&mut c, &key(KeyCode::Left), &monitor).unwrap();
+    handle_agents_key(&mut c, key(KeyCode::Enter), &monitor).unwrap();
+    type_text(&mut c, &monitor, "draft");
+    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+    handle_agents_key(&mut c, ctrl_c, &monitor).unwrap();
+    assert!(c.state().active_modal().unwrap().input.text().is_empty());
+    assert!(c.state().active_modal().is_some_and(is_agent_view));
+    handle_agents_key(&mut c, ctrl_c, &monitor).unwrap();
+    assert_eq!(active_title(&c).as_deref(), Some(AGENTS_TITLE));
+}
+
+#[test]
+fn the_view_follows_the_agent_into_the_round_that_continues_its_task() {
+    let (monitor, done, _) = monitor_with_two_agents();
+    let mut c = controller();
+    let view = agent_view(&c, &monitor.record(done.id()).unwrap());
+    c.state_mut().push_modal(view);
+    let other = monitor.start("refine › round 1", "other · scout", "m", 5);
+    refresh_agent_modals(&mut c, &monitor);
+    assert_eq!(
+        c.state().active_modal().unwrap().subject.as_deref(),
+        Some(done.id().to_string().as_str()),
+        "another agent's round is not followed"
+    );
+
+    let next = monitor.start("refine › round 1", "scan #1 · scout", "m", 5);
+    next.event(AgentEvent::Task("Follow-up from the user".into()));
+    assert!(refresh_agent_modals(&mut c, &monitor));
+
+    let modal = c.state().active_modal().unwrap();
+    assert_eq!(modal.subject.as_deref(), Some(next.id().to_string().as_str()));
+    assert!(crate::ui::block::strip_ansi(&modal.body).contains("Follow-up from the user"));
+    assert_ne!(modal.subject.as_deref(), Some(other.id().to_string().as_str()));
+}
+
+#[test]
+fn a_message_for_a_finished_agent_asks_the_main_agent_to_continue_its_task() {
+    let message = AgentMessage {
+        task_id: "audit-1234".into(),
+        label: "audit · critic".into(),
+        running: false,
+        text: "Also check the error path".into(),
+    };
+    let prompt = continue_prompt(&message);
+    assert!(
+        prompt.starts_with("Continue subagent task `audit-1234` (audit · critic) with the subagent tool"),
+        "{prompt}"
+    );
+    assert!(prompt.ends_with("\n\nAlso check the error path"), "{prompt}");
 }
 
 #[test]

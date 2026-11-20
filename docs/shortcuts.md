@@ -58,7 +58,7 @@ Shortcuts for inspecting tools and copying or pasting content:
 | `Ctrl+O` | **Toggle Tool Outputs**   | Expands or collapses tool result cards (diffs, bash stdout, file reads) in the transcript. |
 | `Ctrl+V` | **Paste Clipboard Image** | Detects an image in the system clipboard and attaches it to the session.                   |
 | `Ctrl+X` | **Copy Last Response**    | Copies the assistant's latest message to the system clipboard.                             |
-| `Left`   | **Watch Agents**          | On an empty prompt, opens the Agents list. `Enter`/`Right` watches one agent live, `Tab`/`Shift+Tab` jumps between agents, `Left`/`Esc` goes back. See [Workflows](workflows.md#watching-agents). |
+| `Left`   | **Watch Agents**          | On an empty prompt, opens the Agents list. `Enter`/`Right` watches one agent full screen, where typing and `Enter` messages it; `Tab`/`Shift+Tab` jumps between agents, `Left`/`Esc` goes back. See [Workflows](workflows.md#watching-agents). |
 
 ---
 

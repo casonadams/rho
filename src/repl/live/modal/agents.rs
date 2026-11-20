@@ -9,10 +9,69 @@ use crate::ui::interactive::{
 
 pub const AGENTS_TITLE: &str = "Agents";
 const AGENT_VIEW_PREFIX: &str = "Agent: ";
+const MESSAGE_PROMPT: &str = "message";
 const ARGS_PREVIEW_CHARS: usize = 160;
 const PAGE_LINES: usize = 10;
 /// Columns the modal frame takes from the terminal width.
 const MODAL_FRAME_COLUMNS: usize = 4;
+
+/// A message the user typed in an agent view, for the agent's saved task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentMessage {
+    pub task_id: String,
+    pub label: String,
+    /// The agent's round was still running when the message was sent.
+    pub running: bool,
+    pub text: String,
+}
+
+/// What a key did in the agent list or view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentKey {
+    /// Neither is open; the key belongs to someone else.
+    Ignored,
+    Handled,
+    Send(AgentMessage),
+}
+
+impl AgentKey {
+    #[must_use]
+    pub fn consumed(&self) -> bool {
+        *self != Self::Ignored
+    }
+}
+
+/// Where an agent-view message goes: straight to the running round, or, once the round has ended,
+/// to the main agent as a request to continue the task (so it runs inside a permission-checked turn).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentDelivery {
+    Sent,
+    ContinueThroughMainAgent(String),
+}
+
+/// Delivers `message`, returning where it went and setting a status line saying so.
+pub fn deliver_agent_message<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    engine: &crate::engine::AgentEngine,
+    message: &AgentMessage,
+) -> AgentDelivery {
+    if message.running && engine.message_running_subagent(&message.task_id, &message.text) {
+        controller.set_system_message(format!(
+            "Sent to {}; it reads it before its next model call",
+            message.label
+        ));
+        return AgentDelivery::Sent;
+    }
+    controller.set_system_message(format!("Asking the main agent to continue {}", message.label));
+    AgentDelivery::ContinueThroughMainAgent(continue_prompt(message))
+}
+
+fn continue_prompt(message: &AgentMessage) -> String {
+    format!(
+        "Continue subagent task `{}` ({}) with the subagent tool, passing it my message below as the prompt, then report what it did.\n\n{}",
+        message.task_id, message.label, message.text
+    )
+}
 
 fn is_agent_view(modal: &ModalState) -> bool {
     modal.title.starts_with(AGENT_VIEW_PREFIX)
@@ -123,13 +182,16 @@ fn render_agent_body<B: TerminalBackend>(controller: &TerminalController<B>, rec
 }
 
 fn agent_view<B: TerminalBackend>(controller: &TerminalController<B>, record: &AgentRecord) -> ModalState {
-    ModalState::new(
+    let mut view = ModalState::new(
         format!("{AGENT_VIEW_PREFIX}{}", record.summary.label),
         render_agent_body(controller, record),
         Vec::new(),
     )
     .with_body_anchor(BodyAnchor::Bottom)
     .with_subject(record.summary.id.to_string())
+    .with_full_screen();
+    view.enter_input_mode(MESSAGE_PROMPT);
+    view
 }
 
 fn open_selected<B: TerminalBackend>(controller: &mut TerminalController<B>, monitor: &AgentMonitor) {
@@ -169,24 +231,25 @@ pub fn try_open_agents<B: TerminalBackend>(
     Ok(true)
 }
 
-/// Handles keys for the agent list and agent view; returns false when neither is active.
+/// Handles keys for the agent list and agent view.
 pub fn handle_agents_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
     monitor: &AgentMonitor,
-) -> Result<bool> {
+) -> Result<AgentKey> {
     let Some(active) = controller.state().active_modal() else {
-        return Ok(false);
+        return Ok(AgentKey::Ignored);
     };
-    if active.title == AGENTS_TITLE {
+    let outcome = if active.title == AGENTS_TITLE {
         handle_list_key(controller, key, monitor)?;
+        AgentKey::Handled
     } else if is_agent_view(active) {
-        handle_view_key(controller, key, monitor);
+        handle_view_key(controller, key, monitor)
     } else {
-        return Ok(false);
-    }
+        return Ok(AgentKey::Ignored);
+    };
     controller.redraw()?;
-    Ok(true)
+    Ok(outcome)
 }
 
 fn handle_list_key<B: TerminalBackend>(
@@ -214,32 +277,110 @@ fn scroll_by(modal: &mut ModalState, up: bool, lines: usize) {
     };
 }
 
-fn handle_view_key<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent, monitor: &AgentMonitor) {
-    let ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+fn viewed_record<B: TerminalBackend>(
+    controller: &TerminalController<B>,
+    monitor: &AgentMonitor,
+) -> Option<AgentRecord> {
+    controller
+        .state()
+        .active_modal()
+        .and_then(|modal| modal.subject.as_deref())
+        .and_then(|id| id.parse::<u64>().ok())
+        .and_then(|id| monitor.record(id))
+}
+
+fn view_input(controller: &TerminalController<impl TerminalBackend>) -> String {
+    controller
+        .state()
+        .active_modal()
+        .map(|modal| modal.input.text().to_string())
+        .unwrap_or_default()
+}
+
+fn edit_view_input<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    action: crate::ui::interactive::UiAction,
+) {
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        crate::repl::live::modal::apply_input_edit(&mut modal.input, action);
+    }
+}
+
+/// Takes the typed message for the viewed agent, or explains why it cannot be messaged.
+fn send_from_view<B: TerminalBackend>(controller: &mut TerminalController<B>, monitor: &AgentMonitor) -> AgentKey {
+    let text = view_input(controller).trim().to_string();
+    if text.is_empty() {
+        return AgentKey::Handled;
+    }
+    let Some(record) = viewed_record(controller, monitor) else {
+        return AgentKey::Handled;
+    };
+    let Some(task_id) = record.summary.task_id.clone() else {
+        controller.set_system_message("This agent's round was not saved, so it cannot be messaged");
+        return AgentKey::Handled;
+    };
+    edit_view_input_clear(controller);
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        modal.body_scroll = 0;
+    }
+    AgentKey::Send(AgentMessage {
+        task_id,
+        label: record.summary.label.clone(),
+        running: record.summary.status == AgentStatus::Running,
+        text,
+    })
+}
+
+fn handle_view_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: KeyEvent,
+    monitor: &AgentMonitor,
+) -> AgentKey {
+    use crate::ui::interactive::UiAction;
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let typing = !view_input(controller).is_empty();
     match key.code {
-        KeyCode::Left | KeyCode::Esc => {
-            controller.state_mut().pop_modal();
-        }
-        _ if ctrl_c => {
-            controller.state_mut().pop_modal();
-        }
+        KeyCode::Char('c') if ctrl && typing => edit_view_input_clear(controller),
+        KeyCode::Char('c') if ctrl => pop_view(controller),
+        KeyCode::Esc => pop_view(controller),
+        KeyCode::Left if !typing => pop_view(controller),
+        KeyCode::Enter => return send_from_view(controller, monitor),
         KeyCode::Tab => switch_sibling(controller, monitor, false),
         KeyCode::BackTab => switch_sibling(controller, monitor, true),
+        KeyCode::Char(c) if !ctrl && !key.modifiers.contains(KeyModifiers::ALT) => {
+            edit_view_input(controller, UiAction::Insert(c));
+        }
+        KeyCode::Backspace => edit_view_input(controller, UiAction::Backspace),
+        KeyCode::Delete => edit_view_input(controller, UiAction::Delete),
+        KeyCode::Left => edit_view_input(controller, UiAction::MoveLeft),
+        KeyCode::Right => edit_view_input(controller, UiAction::MoveRight),
+        KeyCode::Home => edit_view_input(controller, UiAction::MoveToStart),
         code => {
             if let Some(modal) = controller.state_mut().active_modal_mut() {
                 scroll_view(modal, code);
             }
         }
     }
+    AgentKey::Handled
+}
+
+fn edit_view_input_clear<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        modal.input.set_text("");
+    }
+}
+
+fn pop_view<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    controller.state_mut().pop_modal();
 }
 
 fn scroll_view(modal: &mut ModalState, code: KeyCode) {
     match code {
-        KeyCode::Up | KeyCode::Char('k') => scroll_by(modal, true, 1),
-        KeyCode::Down | KeyCode::Char('j') => scroll_by(modal, false, 1),
+        KeyCode::Up => scroll_by(modal, true, 1),
+        KeyCode::Down => scroll_by(modal, false, 1),
         KeyCode::PageUp => scroll_by(modal, true, PAGE_LINES),
         KeyCode::PageDown => scroll_by(modal, false, PAGE_LINES),
-        KeyCode::End | KeyCode::Char('G') => modal.body_scroll = 0,
+        KeyCode::End => modal.body_scroll = 0,
         _ => {}
     }
 }
@@ -277,22 +418,36 @@ fn refresh_list(modal: &mut ModalState, monitor: &AgentMonitor) -> bool {
     true
 }
 
+/// The newest round of the same agent (same group and label) started after `record`, if any: a view
+/// follows the agent into the rounds that continue its task.
+fn newer_round(monitor: &AgentMonitor, record: &AgentRecord) -> Option<AgentRecord> {
+    monitor
+        .summaries()
+        .into_iter()
+        .filter(|s| s.id > record.summary.id && s.group == record.summary.group && s.label == record.summary.label)
+        .max_by_key(|s| s.id)
+        .and_then(|s| monitor.record(s.id))
+}
+
 fn refresh_view<B: TerminalBackend>(controller: &mut TerminalController<B>, monitor: &AgentMonitor) -> bool {
-    let record = controller
-        .state()
-        .active_modal()
-        .and_then(|modal| modal.subject.as_deref())
-        .and_then(|id| id.parse::<u64>().ok())
-        .and_then(|id| monitor.record(id));
-    let Some(record) = record else {
+    let Some(mut record) = viewed_record(controller, monitor) else {
         return false;
     };
+    let mut followed = false;
+    if let Some(newer) = newer_round(monitor, &record) {
+        record = newer;
+        followed = true;
+    }
     let body = render_agent_body(controller, &record);
     let Some(modal) = controller.state_mut().active_modal_mut() else {
         return false;
     };
+    if followed {
+        modal.subject = Some(record.summary.id.to_string());
+        modal.body_scroll = 0;
+    }
     if body == modal.body {
-        return false;
+        return followed;
     }
     if modal.body_scroll > 0 {
         let added = body.lines().count().saturating_sub(modal.body.lines().count());

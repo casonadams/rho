@@ -315,7 +315,18 @@ async fn process_key_event<B: TerminalBackend>(
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
     let monitor = ctx.engine.agent_monitor();
-    if agents::handle_agents_key(controller, key, monitor)? || agents::try_open_agents(controller, &key, monitor)? {
+    let agent_key = agents::handle_agents_key(controller, key, monitor)?;
+    if let agents::AgentKey::Send(message) = &agent_key
+        && let agents::AgentDelivery::ContinueThroughMainAgent(text) =
+            agents::deliver_agent_message(controller, ctx.engine, message)
+    {
+        batch.flush(controller, true)?;
+        return Ok(IdleInputResult::Message(QueuedMessage {
+            text,
+            kind: crate::ui::interactive::QueueKind::FollowUp,
+        }));
+    }
+    if agent_key.consumed() || agents::try_open_agents(controller, &key, ctx.engine.agent_monitor())? {
         batch.flush(controller, true)?;
         return Ok(IdleInputResult::None);
     }

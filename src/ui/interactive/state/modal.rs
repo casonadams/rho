@@ -98,6 +98,8 @@ pub struct ModalState {
     pub body_anchor: BodyAnchor,
     pub subject: Option<String>,
     pub save_as_default: bool,
+    /// Takes the whole terminal height instead of at most two thirds of it.
+    pub full_screen: bool,
 }
 
 impl ModalState {
@@ -120,7 +122,13 @@ impl ModalState {
             body_anchor: BodyAnchor::Top,
             subject: None,
             save_as_default: false,
+            full_screen: false,
         }
+    }
+
+    pub fn with_full_screen(mut self) -> Self {
+        self.full_screen = true;
+        self
     }
 
     pub fn with_body_anchor(mut self, anchor: BodyAnchor) -> Self {

@@ -367,6 +367,20 @@ async fn a_message_arriving_with_the_answer_on_the_last_turn_leaves_the_answer_a
 }
 
 #[tokio::test]
+async fn a_message_from_the_user_reaches_the_round_labelled_as_from_the_user() {
+    let adapter = MockAdapter::from_turns([text_turn("first answer"), text_turn("revised answer")]);
+    let inbox = super::background::Inbox::default();
+    inbox.push_from(super::background::Sender::User, "check the tests too");
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_inbox(inbox);
+
+    runner.run("review", None).await;
+
+    let sent = serde_json::to_string(&adapter.requests()[1].messages).unwrap();
+    assert!(sent.contains("Message from the user:\\ncheck the tests too"), "{sent}");
+    assert!(!sent.contains("delegating agent"), "{sent}");
+}
+
+#[tokio::test]
 async fn subagent_tool_calls_pass_through_the_permission_gate() {
     let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "rm x")]), text_turn("done")]);
     let runs = Arc::new(AtomicUsize::new(0));

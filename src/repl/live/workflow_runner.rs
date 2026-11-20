@@ -47,9 +47,15 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
-        if agents::handle_agents_key(self.io.controller, key, &self.monitor)?
-            || agents::try_open_agents(self.io.controller, &key, &self.monitor)?
-        {
+        let agent_key = agents::handle_agents_key(self.io.controller, key, &self.monitor)?;
+        if let agents::AgentKey::Send(message) = &agent_key {
+            self.io.controller.set_system_message(format!(
+                "Message {} after the workflow finishes, from the Agents list",
+                message.label
+            ));
+            self.flush(true)?;
+        }
+        if agent_key.consumed() || agents::try_open_agents(self.io.controller, &key, &self.monitor)? {
             return Ok(());
         }
         if map_key(key) == InputAction::Cancel {

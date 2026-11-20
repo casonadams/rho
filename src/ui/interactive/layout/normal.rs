@@ -125,6 +125,7 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
         autocomplete_desired: ac_desired,
         raw_footer_count: ft_lines.len(),
         is_modal: input.modal.is_some(),
+        modal_full_screen: input.modal.is_some_and(|m| m.full_screen),
     });
     LayoutPieces {
         working,

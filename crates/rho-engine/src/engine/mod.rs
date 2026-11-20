@@ -95,6 +95,12 @@ impl AgentEngine {
         &self.agent_monitor
     }
 
+    /// Sends `text` from the user to the running round of subagent task `task_id`; `false` when that
+    /// round has already ended.
+    pub fn message_running_subagent(&self, task_id: &str, text: &str) -> bool {
+        self.subagent_runtime.message_from_user(task_id, text)
+    }
+
     /// Replaces this engine with `next`. Leaving a different session stops its background work, since
     /// nothing could deliver the results; rebuilding the same session keeps it.
     pub fn switch_to(&mut self, next: Self) {

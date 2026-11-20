@@ -81,8 +81,14 @@ async fn dispatch_key_event<B: TerminalBackend>(
     key: KeyEvent,
 ) -> Result<bool> {
     let monitor = lp.engine.agent_monitor();
-    if agents::handle_agents_key(lp.controller, key, monitor)? || agents::try_open_agents(lp.controller, &key, monitor)?
+    let agent_key = agents::handle_agents_key(lp.controller, key, monitor)?;
+    if let agents::AgentKey::Send(message) = &agent_key
+        && let agents::AgentDelivery::ContinueThroughMainAgent(text) =
+            agents::deliver_agent_message(lp.controller, lp.engine, message)
     {
+        lp.steering.enqueue(text);
+    }
+    if agent_key.consumed() || agents::try_open_agents(lp.controller, &key, lp.engine.agent_monitor())? {
         return Ok(false);
     }
     let modal_res = handle_modal_key(lp.controller, key, &mut lp.batch.modal)?;

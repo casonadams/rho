@@ -35,6 +35,11 @@ impl SubagentRuntime {
     pub(crate) fn shares_state_with(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.rounds, &other.rounds)
     }
+
+    /// Queues a message the user typed for task `task_id`'s running round; `false` if none is running.
+    pub fn message_from_user(&self, task_id: &str, text: &str) -> bool {
+        self.inboxes.send(task_id, Sender::User, text)
+    }
 }
 
 /// Runs subagent rounds in the foreground up to a time budget, then moves them to the background.
@@ -57,20 +62,55 @@ impl Default for Backgrounding {
     }
 }
 
-/// Messages the delegating agent sent a running round; the subagent reads them before its next model call.
+/// Who sent a message to a running round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Sender {
+    DelegatingAgent,
+    User,
+}
+
+impl Sender {
+    pub(crate) fn heading(self) -> &'static str {
+        match self {
+            Self::DelegatingAgent => "Message from the delegating agent",
+            Self::User => "Message from the user",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InboxMessage {
+    pub from: Sender,
+    pub text: String,
+}
+
+/// Messages sent to a running round; the subagent reads them before its next model call.
 #[derive(Clone, Default)]
-pub(crate) struct Inbox(Arc<Mutex<Vec<String>>>);
+pub(crate) struct Inbox(Arc<Mutex<Vec<InboxMessage>>>);
 
 impl Inbox {
+    fn lock(&self) -> MutexGuard<'_, Vec<InboxMessage>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg(test)]
     pub(crate) fn push(&self, message: &str) {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(message.to_string());
+        self.push_from(Sender::DelegatingAgent, message);
+    }
+
+    pub(crate) fn push_from(&self, from: Sender, text: &str) {
+        self.lock().push(InboxMessage {
+            from,
+            text: text.to_string(),
+        });
+    }
+
+    pub(crate) fn take_messages(&self) -> Vec<InboxMessage> {
+        std::mem::take(&mut *self.lock())
     }
 
     pub(crate) fn take(&self) -> Vec<String> {
-        std::mem::take(&mut *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+        self.take_messages().into_iter().map(|m| m.text).collect()
     }
 }
 
@@ -94,12 +134,12 @@ impl Inboxes {
         self.lock().get(task_id).map(|(_, settings)| settings.clone())
     }
 
-    fn send(&self, task_id: &str, message: &str) -> bool {
+    fn send(&self, task_id: &str, from: Sender, message: &str) -> bool {
         let inboxes = self.lock();
         let Some((inbox, _)) = inboxes.get(task_id) else {
             return false;
         };
-        inbox.push(message);
+        inbox.push_from(from, message);
         true
     }
 
@@ -321,7 +361,7 @@ impl Backgrounding {
 
     /// Queues `message` for task `task_id` if one of its rounds is running, returning the confirmation.
     pub(crate) fn steer(&self, task_id: &str, message: &str) -> Option<String> {
-        self.inboxes.send(task_id, message).then(|| {
+        self.inboxes.send(task_id, Sender::DelegatingAgent, message).then(|| {
             format!("Message queued for running subagent task '{task_id}'; it reads it before its next model call.")
         })
     }

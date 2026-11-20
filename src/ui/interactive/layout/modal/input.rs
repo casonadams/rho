@@ -48,6 +48,7 @@ pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize,
             total_editor_lines: desired,
             autocomplete_desired: 0,
             is_modal: true,
+            modal_full_screen: modal.full_screen,
         },
     );
     let (b_space, _, _, _) = modal_in_input_spaces(modal, draft_text, (budget.editor_max_lines, inner_width));

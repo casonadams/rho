@@ -475,20 +475,21 @@ impl SubagentRunner {
         self
     }
 
-    /// Adds the delegating agent's queued messages to the conversation; `true` if there were any.
+    /// Adds queued messages (from the delegating agent or the user) to the conversation; `true` if any.
     fn deliver_messages(&self, state: &mut RunState) -> bool {
         let messages = self
             .inbox
             .as_ref()
-            .map(super::background::Inbox::take)
+            .map(super::background::Inbox::take_messages)
             .unwrap_or_default();
         for message in &messages {
             if let Some(tracker) = &state.tracker {
-                tracker.event(AgentEvent::Task(message.clone()));
+                tracker.event(AgentEvent::Task(message.text.clone()));
             }
             state.messages.push(ChatMessage::user(format!(
-                "Message from the delegating agent:\n{}",
-                message.trim()
+                "{}:\n{}",
+                message.from.heading(),
+                message.text.trim()
             )));
         }
         !messages.is_empty()

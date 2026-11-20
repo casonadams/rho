@@ -312,7 +312,11 @@ You fix validated findings...
 |---|---|---|
 | `Left` | empty prompt, or while a workflow runs | Open the **Agents** list |
 | type | Agents list | Fuzzy-filter agents |
-| `Enter` / `Right` | Agents list | Watch the selected agent's live transcript |
-| `Up`/`Down`, `PgUp`/`PgDn` | agent view | Scroll; `End` (or `G`) follows new output again |
+| `Enter` / `Right` | Agents list | Watch the selected agent full screen, rendered like the main transcript |
+| `Up`/`Down`, `PgUp`/`PgDn` | agent view | Scroll; `End` follows new output again |
+| type, then `Enter` | agent view | Message the agent: a running agent reads it before its next model call; for a finished one, the main agent is asked to continue its task (inside a normal, permission-checked turn). During a workflow, agents can be messaged once it finishes. |
+| `Ctrl+C` | agent view | Clear the typed message, or go back when there is none |
 | `Tab` / `Shift+Tab` | agent view | Jump to the next or previous agent |
-| `Left` / `Esc` | either | Go back one level |
+| `Left` / `Esc` | either | Go back one level (`Left` moves the cursor while a message is typed) |
+
+The view follows the agent into the rounds that continue its task.
