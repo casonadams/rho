@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.3](https://github.com/casonadams/rho/compare/v0.13.2...v0.13.3) (2026-11-20)
+
+
+### Features
+
+* **agents:** full-screen agent view that can message the agent ([500e0c0](https://github.com/casonadams/rho/commit/500e0c0bcb49fe733b6170f24e23a193f692782e))
+* **agents:** render the agent view like the main transcript ([f15ee06](https://github.com/casonadams/rho/commit/f15ee0635ff7ae55747540fedf9eac2999f39809))
+* **agents:** show a subagent in the main terminal in place of the main agent ([7eda9bd](https://github.com/casonadams/rho/commit/7eda9bd389990b494c5398b51ba5fd4f86c2a7f2))
+* **agents:** stop one subagent from the Agents list and count running agents in the footer ([fd71ad7](https://github.com/casonadams/rho/commit/fd71ad701c5f522502c143aa313c793d47582e0a))
+* **mailbox:** typed envelopes and per-agent mailboxes ([b4dfefc](https://github.com/casonadams/rho/commit/b4dfefce2088f710197d179b0b8c4ebca8d8387e))
+* **subagent:** compact a subagent's conversation when it overflows the context ([d524fe9](https://github.com/casonadams/rho/commit/d524fe92439813a729ea8ed76a52446d946a3213))
+
+
+### Bug Fixes
+
+* **bash:** keep terminal colors out of full output logs and kill fork-race stragglers on macOS ([623fba5](https://github.com/casonadams/rho/commit/623fba5a76d92b4671c8a863831d3edb32a2c6ec))
+* **provider:** send compaction summaries to Claude and Antigravity ([085ee4e](https://github.com/casonadams/rho/commit/085ee4e55a900564b44f8d656e8c33853ea0b4c4))
+* **subagent:** explain pinned-model errors, keep continuation settings, sturdier parsing ([de1ddf0](https://github.com/casonadams/rho/commit/de1ddf0b6c09b80c464392949bb4c5563420a240))
+* **subagent:** fixes from reviewing the shared-loop migration ([64a647f](https://github.com/casonadams/rho/commit/64a647fe208128dd76cce5ada2422fd9c95d70e1))
+* **subagent:** keep subagent state across rebuilds, honor last-turn answers, sweep bash logs ([db325fb](https://github.com/casonadams/rho/commit/db325fbcb0d4bfd5721d732f546b070066617727))
+* **subagent:** one job completion path, workflow round cap, cooperative stop, worktree notes ([68bf6c1](https://github.com/casonadams/rho/commit/68bf6c1823a7c33cf3ab121d10f2160e2764f30d))
+
 ## [0.13.2](https://github.com/casonadams/rho/compare/v0.13.1...v0.13.2) (2026-11-20)
 
 
