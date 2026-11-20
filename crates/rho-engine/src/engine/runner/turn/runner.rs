@@ -118,6 +118,7 @@ pub struct AgentRunner {
     model: ModelHandle,
     tools: Vec<Arc<dyn EngineTool>>,
     session_manager: SessionManager,
+    store: Arc<dyn super::store::TurnStore>,
     preamble: String,
     prompt: String,
     budget: usize,
@@ -150,6 +151,7 @@ impl AgentRunner {
         Self {
             model,
             tools,
+            store: Arc::new(session_manager.clone()),
             session_manager,
             preamble: String::new(),
             prompt: String::new(),
@@ -186,6 +188,13 @@ impl AgentRunner {
 
     pub fn history(mut self, history: Vec<ChatMessage>) -> Self {
         self.history = history;
+        self
+    }
+
+    /// Keeps the turn's conversation in `store` instead of the session, and makes the store's owner
+    /// own the turn's background work. The session still reaches tools through their context.
+    pub fn store(mut self, store: Arc<dyn super::store::TurnStore>) -> Self {
+        self.store = store;
         self
     }
 
@@ -491,7 +500,7 @@ async fn wait_step(
         return Err(AppError::Cancelled("operator interrupt".to_string()));
     }
 
-    let owner = runner.session_manager.session_id.as_str();
+    let owner = runner.store.owner();
     if drain_background_to_context(owner, ctx) || drain_steering_to_context(runner.steering.as_ref(), ctx).await {
         return Ok(WaitStepResult::EventDelivered);
     }
@@ -508,7 +517,7 @@ async fn wait_for_background_jobs(
     ctx: &mut RunnerStepContext<'_>,
     emitter: &TurnEmitter,
 ) -> Result<bool, AppError> {
-    let owner = runner.session_manager.session_id.as_str();
+    let owner = runner.store.owner();
     let jobs = crate::tools::jobs::JobManager::global();
     if !jobs.has_running(owner) {
         return Ok(drain_background_to_context(owner, ctx));
@@ -527,23 +536,6 @@ async fn wait_for_background_jobs(
 
     runner.sink.resume_spinner_with_message("thinking...");
     Ok(drain_background_to_context(owner, ctx))
-}
-
-async fn commit_turn_messages(
-    session_manager: &SessionManager,
-    new_messages: Vec<ChatMessage>,
-    has_checkpoint: bool,
-) -> Result<(), AppError> {
-    if new_messages.is_empty() {
-        return Ok(());
-    }
-    if has_checkpoint {
-        session_manager.promote_checkpoint(new_messages).await
-    } else {
-        session_manager
-            .append_messages(&session_manager.session_id, new_messages)
-            .await
-    }
 }
 
 struct RunnerStepContext<'a> {
@@ -698,7 +690,7 @@ async fn execute_agent_step(
 
     dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await?;
     check_steering(
-        &runner.session_manager.session_id,
+        runner.store.owner(),
         runner.steering.as_ref(),
         ctx.current_messages,
         ctx.new_turn_messages,
@@ -717,9 +709,7 @@ async fn worktree_reminder(runner: &AgentRunner, reminded: &mut bool) -> Option<
         return None;
     }
     let store = runner.worktrees.as_ref()?;
-    let pending = store
-        .owned(&runner.working_dir, &runner.session_manager.session_id)
-        .await;
+    let pending = store.owned(&runner.working_dir, runner.store.owner()).await;
     if pending.is_empty() {
         return None;
     }
@@ -733,7 +723,7 @@ async fn worktree_reminder(runner: &AgentRunner, reminded: &mut bool) -> Option<
 
 async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>, Vec<ChatMessage>), AppError> {
     let mut current_messages = if runner.history.is_empty() {
-        runner.session_manager.active_messages().await?
+        runner.store.active_messages().await?
     } else {
         runner.history.clone()
     };
@@ -748,7 +738,7 @@ async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>
 
 async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
     let mut saved = TurnCheckpoint {
-        exists: runner.session_manager.load_checkpoint().await?.is_some(),
+        exists: runner.store.has_checkpoint().await?,
         len: 0,
     };
     let (mut current_messages, mut new_turn_messages) = initial_turn_messages(&runner).await?;
@@ -776,7 +766,7 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
         let step = match execute_agent_step(&runner, turn, &tools_def, &mut step_ctx, emitter).await {
             Ok(step) => step,
             Err(error) => {
-                return Err(keep_partial_turn(&runner.session_manager, &mut saved, &new_turn_messages, error).await);
+                return Err(keep_partial_turn(runner.store.as_ref(), &mut saved, &new_turn_messages, error).await);
             }
         };
         match step {
@@ -787,12 +777,15 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
                     continue;
                 }
                 emitter.ensure_live()?;
-                commit_turn_messages(&runner.session_manager, saved.unsaved(&new_turn_messages), saved.exists).await?;
+                runner
+                    .store
+                    .commit(saved.unsaved(&new_turn_messages), saved.exists)
+                    .await?;
                 return emitter.send(MultiTurnStreamItem::FinalResponse(resp)).await;
             }
             StepExecutionResult::Continue => {
                 nudged = false;
-                saved.persist(&runner.session_manager, &new_turn_messages).await?;
+                saved.persist(runner.store.as_ref(), &new_turn_messages).await?;
                 runner.sink.record_tool_events().await?;
             }
             StepExecutionResult::EmptyCompletion if !nudged => {
@@ -802,13 +795,13 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
                 new_turn_messages.push(nudge);
             }
             StepExecutionResult::EmptyCompletion => {
-                saved.persist(&runner.session_manager, &new_turn_messages).await?;
+                saved.persist(runner.store.as_ref(), &new_turn_messages).await?;
                 return Err(AppError::Provider("model returned an empty response".to_string()));
             }
         }
     }
 
-    saved.persist(&runner.session_manager, &new_turn_messages).await?;
+    saved.persist(runner.store.as_ref(), &new_turn_messages).await?;
     Err(AppError::ModelBudgetExhausted {
         max_turns: runner.budget,
     })
@@ -826,14 +819,14 @@ impl TurnCheckpoint {
 
     async fn persist(
         &mut self,
-        session_manager: &SessionManager,
+        store: &dyn super::store::TurnStore,
         new_turn_messages: &[ChatMessage],
     ) -> Result<(), AppError> {
         let complete = crate::engine::runner::history::without_unanswered_tool_calls(new_turn_messages);
         if complete.len() <= self.len {
             return Ok(());
         }
-        session_manager.extend_checkpoint(complete[self.len..].to_vec()).await?;
+        store.extend_checkpoint(complete[self.len..].to_vec()).await?;
         self.exists = true;
         self.len = complete.len();
         Ok(())
@@ -841,7 +834,7 @@ impl TurnCheckpoint {
 }
 
 async fn keep_partial_turn(
-    session_manager: &SessionManager,
+    store: &dyn super::store::TurnStore,
     saved: &mut TurnCheckpoint,
     new_turn_messages: &[ChatMessage],
     error: AppError,
@@ -852,7 +845,7 @@ async fn keep_partial_turn(
     {
         return error;
     }
-    match saved.persist(session_manager, new_turn_messages).await {
+    match saved.persist(store, new_turn_messages).await {
         Ok(()) => error,
         Err(save_error) => AppError::Session(format!(
             "{error}; the turn's completed work could not be kept: {save_error}"

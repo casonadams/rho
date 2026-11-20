@@ -700,6 +700,42 @@ async fn completing_after_checkpointed_steps_promotes_them_once() {
     assert_eq!(tool_calls, 1, "each tool is audited once");
 }
 
+#[tokio::test]
+async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_background_work() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let model = tool_turn_then(vec![vec![Ok(ModelStreamEvent::Text("done".into()))]]);
+    let (runner, _temp, _, _) = test_agent_env(model.clone());
+    let session_id = runner.session_manager.session_id.clone();
+    let store = crate::engine::runner::turn::MemoryStore::new("child-task-9", vec![ChatMessage::user("earlier")]);
+    let jobs = crate::tools::jobs::JobManager::global();
+    jobs.register(&session_id, "memstore-parent-job".into(), "sleep".into());
+    let runner = runner.store(Arc::new(store.clone())).prompt("do it");
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        run_agent_loop(runner.clone(), &acking_emitter()),
+    )
+    .await
+    .expect("the turn does not wait for the session's own jobs")
+    .unwrap();
+
+    jobs.update_status(
+        "memstore-parent-job",
+        crate::tools::jobs::JobStatus::Failed { error: "over".into() },
+    );
+    let messages = store.messages();
+    assert_eq!(messages.first(), Some(&ChatMessage::user("earlier")));
+    assert_eq!(messages.get(1), Some(&ChatMessage::user("do it")));
+    assert_eq!(messages.last(), Some(&ChatMessage::assistant("done")));
+    assert_eq!(messages.len(), 5, "{messages:?}");
+    assert_eq!(
+        model.requests()[0].messages.first(),
+        Some(&ChatMessage::user("earlier"))
+    );
+    assert!(runner.session_manager.active_messages().await.unwrap().is_empty());
+    assert!(runner.session_manager.load_checkpoint().await.unwrap().is_none());
+}
+
 #[test]
 fn retry_delay_honors_provider_waits_up_to_the_cap() {
     use std::time::Duration;

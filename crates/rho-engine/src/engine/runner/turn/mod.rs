@@ -2,11 +2,13 @@ mod completion;
 mod prepare;
 pub(crate) mod prune;
 pub mod runner;
+pub mod store;
 mod stream;
 mod streaming_tool;
 pub mod types;
 
 pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PrunePolicy, prune_historical_tool_outputs_with_policy};
+pub use store::{MemoryStore, TurnStore};
 pub use types::{
     CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, SteeringQueueProvider, TurnOutput,
     TurnRequest, UsageDetails,
