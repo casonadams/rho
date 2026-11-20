@@ -60,7 +60,7 @@ impl From<FrameOrUi> for IdleTick {
 enum IdleSource {
     Tick(IdleTick),
     Input(Option<std::io::Result<Event>>),
-    BackgroundNotification(String),
+    BackgroundNotification(Option<String>),
     McpProblems,
 }
 
@@ -71,8 +71,14 @@ async fn wait_mcp_problems(runtime: Option<&rho_engine::mcp::McpRuntime>) {
     }
 }
 
-async fn wait_bg_notif(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Option<String> {
-    rx.recv().await.ok()
+/// The session a notice was queued for, or `None` when the channel overflowed and wake-ups were
+/// dropped, in which case this session's queue must be checked anyway.
+async fn wait_bg_notif(rx: &mut tokio::sync::broadcast::Receiver<String>) -> Option<Option<String>> {
+    match rx.recv().await {
+        Ok(owner) => Some(Some(owner)),
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => Some(None),
+        Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+    }
 }
 
 async fn next_idle_step(
@@ -186,16 +192,17 @@ fn map_input_result(res: IdleInputResult) -> IdleStepOutcome {
 }
 
 /// The follow-up that hands the model this session's finished background jobs, or `None` when the
-/// wake-up was for another session or a turn already delivered the results.
-fn background_follow_up(session_id: &str, woken_for: &str) -> Option<String> {
-    if woken_for != session_id {
+/// wake-up was for another session or a turn already delivered the results. A wake-up for no known
+/// session (missed wake-ups) checks this session's queue.
+fn background_follow_up(session_id: &str, woken_for: Option<&str>) -> Option<String> {
+    if woken_for.is_some_and(|owner| owner != session_id) {
         return None;
     }
     let notices = crate::engine::runner::turn::types::drain_background_notifications(session_id);
     (!notices.is_empty()).then(|| notices.join("\n\n"))
 }
 
-fn handle_bg_notification(ctx: &mut LiveIdleContext<'_, '_>, woken_for: &str) -> Result<IdleStepOutcome> {
+fn handle_bg_notification(ctx: &mut LiveIdleContext<'_, '_>, woken_for: Option<&str>) -> Result<IdleStepOutcome> {
     let Some(text) = background_follow_up(&ctx.engine.session_manager.session_id, woken_for) else {
         return Ok(IdleStepOutcome::Continue);
     };
@@ -223,7 +230,7 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             let res = handle_input_source(controller, event, batch, resources, input, ctx).await?;
             Ok(map_input_result(res))
         }
-        IdleSource::BackgroundNotification(woken_for) => handle_bg_notification(ctx, &woken_for),
+        IdleSource::BackgroundNotification(woken_for) => handle_bg_notification(ctx, woken_for.as_deref()),
         IdleSource::McpProblems => {
             crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
             Ok(IdleStepOutcome::Continue)
@@ -325,21 +332,41 @@ mod tests {
         };
 
         assert!(matches!(
-            handle_bg_notification(&mut ctx, "idle-other-session").unwrap(),
+            handle_bg_notification(&mut ctx, Some("idle-other-session")).unwrap(),
             IdleStepOutcome::Continue
         ));
-        let IdleStepOutcome::Message(message) = handle_bg_notification(&mut ctx, &own).unwrap() else {
+        let IdleStepOutcome::Message(message) = handle_bg_notification(&mut ctx, Some(&own)).unwrap() else {
             panic!("expected a follow-up message");
         };
         assert_eq!(message.text, "first job done\n\nsecond job done");
         assert!(
             matches!(
-                handle_bg_notification(&mut ctx, &own).unwrap(),
+                handle_bg_notification(&mut ctx, Some(&own)).unwrap(),
                 IdleStepOutcome::Continue
             ),
             "results already handed over are not sent again"
         );
+        enqueue_background_notification(&own, "third job done".into());
+        let IdleStepOutcome::Message(missed) = handle_bg_notification(&mut ctx, None).unwrap() else {
+            panic!("missed wake-ups still deliver this session's notices");
+        };
+        assert_eq!(missed.text, "third job done");
         assert_eq!(drain_background_notifications("idle-other-session"), ["foreign result"]);
+    }
+
+    #[tokio::test]
+    async fn an_overflowed_notification_channel_wakes_the_idle_prompt_instead_of_going_quiet() {
+        let (tx, mut rx) = tokio::sync::broadcast::channel(1);
+        tx.send("a".to_string()).unwrap();
+        tx.send("b".to_string()).unwrap();
+        assert_eq!(
+            wait_bg_notif(&mut rx).await,
+            Some(None),
+            "overflow is a wake-up for no known session"
+        );
+        assert_eq!(wait_bg_notif(&mut rx).await, Some(Some("b".to_string())));
+        drop(tx);
+        assert_eq!(wait_bg_notif(&mut rx).await, None);
     }
 
     #[tokio::test]
@@ -404,7 +431,7 @@ mod tests {
     async fn test_wait_bg_notif_channels() {
         let (tx, mut rx) = tokio::sync::broadcast::channel(2);
         tx.send("notif".to_string()).unwrap();
-        assert_eq!(wait_bg_notif(&mut rx).await, Some("notif".to_string()));
+        assert_eq!(wait_bg_notif(&mut rx).await, Some(Some("notif".to_string())));
         drop(tx);
         assert_eq!(wait_bg_notif(&mut rx).await, None);
     }

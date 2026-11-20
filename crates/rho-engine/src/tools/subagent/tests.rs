@@ -638,6 +638,44 @@ async fn unknown_personas_are_rejected_with_valid_options() {
 }
 
 #[tokio::test]
+async fn a_pin_to_an_unconfigured_model_role_names_the_pin_in_the_error() {
+    let pins: BTreeMap<String, ModelRole> = [("critic".to_string(), ModelRole::Slow)].into();
+    let tool = role_tool(acme_resolver(), Some("acme/smol"), None).with_pinned_models(pins);
+
+    let pinned = tool.execute(json!({ "role": "critic", "prompt": "go" })).await.unwrap();
+    let asked = tool
+        .execute(json!({ "role": "critic", "prompt": "go", "model": "slow" }))
+        .await
+        .unwrap();
+
+    assert!(pinned.is_error);
+    assert!(
+        pinned
+            .content
+            .ends_with("model role 'slow' is not configured (set models.slow in config.toml); it is pinned for 'critic' in [subagents.models]"),
+        "{}",
+        pinned.content
+    );
+    assert!(asked.is_error && !asked.content.contains("pinned"), "{}", asked.content);
+}
+
+#[test]
+fn pins_that_match_no_role_agent_or_persona_are_reported_as_unused() {
+    let pins: BTreeMap<String, ModelRole> = [
+        ("critic".to_string(), ModelRole::Slow),
+        ("reviewer".to_string(), ModelRole::Slow),
+        ("skeptic".to_string(), ModelRole::Slow),
+        ("typo-scuot".to_string(), ModelRole::Slow),
+    ]
+    .into();
+    let tool = role_tool(acme_resolver(), None, None)
+        .with_personas(vec![persona("Skeptic", "doubt")])
+        .with_pinned_models(pins);
+
+    assert_eq!(tool.unused_pins(), ["typo-scuot"]);
+}
+
+#[tokio::test]
 async fn a_persona_pin_outranks_the_role_pin_but_not_an_explicit_model() {
     let pins: BTreeMap<String, ModelRole> = [
         ("skeptic".to_string(), ModelRole::Slow),

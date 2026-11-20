@@ -167,6 +167,8 @@ pub enum SubagentRole {
 }
 
 impl SubagentRole {
+    pub const ALL: [Self; 4] = [Self::Scout, Self::Critic, Self::Planner, Self::General];
+
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -211,18 +213,10 @@ impl std::str::FromStr for SubagentRole {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let norm = s.trim().to_ascii_lowercase();
-        const ROLES: [(&str, SubagentRole); 4] = [
-            ("scout", SubagentRole::Scout),
-            ("critic", SubagentRole::Critic),
-            ("planner", SubagentRole::Planner),
-            ("general", SubagentRole::General),
-        ];
-        for (name, role) in ROLES {
-            if name == norm {
-                return Ok(role);
-            }
-        }
-        Err(format!("unknown subagent role: '{s}'"))
+        Self::ALL
+            .into_iter()
+            .find(|role| role.as_str() == norm)
+            .ok_or_else(|| format!("unknown subagent role: '{s}'"))
     }
 }
 

@@ -88,6 +88,15 @@ pub fn problem_count(log: &[ToolOutcome]) -> usize {
     log.iter().filter(|o| o.status != OutcomeStatus::Ok).count()
 }
 
+/// `"1 failed tool call"` or `"N failed tool calls"`, or `None` when nothing failed.
+pub(crate) fn failed_calls_text(problems: usize) -> Option<String> {
+    match problems {
+        0 => None,
+        1 => Some("1 failed tool call".to_string()),
+        n => Some(format!("{n} failed tool calls")),
+    }
+}
+
 fn count(log: &[ToolOutcome], status: OutcomeStatus) -> usize {
     log.iter().filter(|o| o.status == status).count()
 }

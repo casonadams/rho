@@ -7,6 +7,37 @@ fn write_agent(dir: &Path, name: &str, content: &str) {
 }
 
 #[test]
+fn frontmatter_ends_only_at_a_line_that_is_exactly_three_dashes() {
+    let cases = [
+        (
+            "---\nname: a\ndescription: x---y\n---\nBody --- with dashes\n\n---\nmore",
+            ("a", "x---y", "Body --- with dashes\n\n---\nmore"),
+        ),
+        ("---\nname: b\n---\n", ("b", "Custom subagent", "")),
+        (
+            "no frontmatter --- here",
+            ("fallback", "Custom subagent", "no frontmatter --- here"),
+        ),
+        (
+            "---\nname: c\nnever closed",
+            ("fallback", "Custom subagent", "---\nname: c\nnever closed"),
+        ),
+    ];
+    for (content, (name, description, body)) in cases {
+        let agent = parser::parse_agent_content(content, "fallback", "loc");
+        assert_eq!(
+            (
+                agent.name.as_str(),
+                agent.description.as_str(),
+                agent.system_prompt.as_str()
+            ),
+            (name, description, body),
+            "{content:?}"
+        );
+    }
+}
+
+#[test]
 fn test_normalize_tool_name() {
     assert!(
         normalize_tool_name("Glob") == "fd"

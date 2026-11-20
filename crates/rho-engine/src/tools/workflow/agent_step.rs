@@ -142,6 +142,7 @@ impl Executor<'_> {
                 .find(|a| a.name.eq_ignore_ascii_case(&agent.agent))
                 .map(|a| a.location.clone()),
             persona: agent.persona.clone(),
+            turns: Some(agent.turns),
         };
         let started = std::time::Instant::now();
         let run = self
@@ -169,11 +170,9 @@ impl Executor<'_> {
         if let Some((worktree, head)) = &run.worktree {
             self.land(&position, worktree, head).await?;
         }
-        let problems = match run.round.problem_count() {
-            0 => String::new(),
-            1 => "1 failed tool call · ".to_string(),
-            n => format!("{n} failed tool calls · "),
-        };
+        let problems = crate::tools::subagent::evidence::failed_calls_text(run.round.problem_count())
+            .map(|text| format!("{text} · "))
+            .unwrap_or_default();
         let detail = format!("{model} · {problems}{}", summarize(&value));
         Ok((value, detail))
     }

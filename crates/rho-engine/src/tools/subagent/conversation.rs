@@ -86,6 +86,8 @@ pub(crate) struct ConversationSettings {
     pub agent_file: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turns: Option<usize>,
 }
 
 /// Subagent conversations with a round in progress; a second message to one of them is refused.
@@ -224,6 +226,13 @@ impl Exchange {
 
     pub(crate) fn settings(&self) -> ConversationSettings {
         task_settings(&self.task)
+    }
+
+    /// Records `settings` on the task, so later continuations run the same way.
+    #[must_use]
+    pub(crate) fn with_settings(mut self, settings: &ConversationSettings) -> Self {
+        self.task.metadata = serde_json::to_value(settings).ok();
+        self
     }
 
     pub(crate) fn context_id(&self) -> &str {
@@ -708,6 +717,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_model_chosen_when_continuing_a_task_is_kept_for_later_continuations() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = SessionManager::new(dir.path(), None).unwrap();
+        let resolver: crate::tools::subagent::SubagentModelResolver = Arc::new(|model: &str| {
+            let reply = format!("answered by {model}");
+            Ok(Arc::new(MockAdapter::text(&reply)) as crate::provider::adapter::ModelHandle)
+        });
+        let ctx = TurnToolContext {
+            session: Some(session),
+            ..Default::default()
+        };
+        let tool = SubagentTool::new(
+            Some(Arc::new(MockAdapter::text("answered by session"))),
+            vec![read_tool()],
+        )
+        .with_model_resolver(resolver)
+        .with_model_roles(Some("acme/smol".into()), Some("acme/slow".into()))
+        .bind_turn(&ctx)
+        .unwrap();
+
+        let first = ask(&tool, json!({ "prompt": "Review" })).await;
+        let id = task_id(&first);
+        let switched = ask(&tool, json!({ "task_id": id, "model": "slow", "prompt": "Again" })).await;
+        let kept = ask(&tool, json!({ "task_id": task_id(&switched), "prompt": "Once more" })).await;
+
+        assert!(first.starts_with("answered by acme/smol"), "{first}");
+        assert!(switched.starts_with("answered by acme/slow"), "{switched}");
+        assert!(kept.starts_with("answered by acme/slow"), "{kept}");
+    }
+
+    #[tokio::test]
     async fn review_feedback_starts_a_new_task_that_keeps_the_subagent_history() {
         let dir = tempfile::tempdir().unwrap();
         let session = SessionManager::new(dir.path(), None).unwrap();
@@ -871,7 +911,7 @@ mod tests {
             assert!(inspected.contains(&expected), "missing {expected:?} in:\n{inspected}");
         }
         let summary = format!(
-            "`{id}` \u{b7} completed, 1 failed tool calls \u{b7} agent scout, name audit \u{b7} 1 task(s) \u{b7} \"Audit hot.rs\""
+            "`{id}` \u{b7} completed, 1 failed tool call \u{b7} agent scout, name audit \u{b7} 1 task(s) \u{b7} \"Audit hot.rs\""
         );
         assert!(listed.contains(&summary), "{listed}");
         let unknown = tool

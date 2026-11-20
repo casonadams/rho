@@ -150,11 +150,9 @@ pub(crate) fn render_list(contexts: &[SubagentContext]) -> String {
     );
     for (task, count) in latest.iter().take(MAX_LISTED_CONTEXTS) {
         let problems = super::evidence::problem_count(&data::<Vec<ToolOutcome>>(task, TOOL_CALLS_ARTIFACT));
-        let flag = if problems > 0 {
-            format!(", {problems} failed tool calls")
-        } else {
-            String::new()
-        };
+        let flag = super::evidence::failed_calls_text(problems)
+            .map(|text| format!(", {text}"))
+            .unwrap_or_default();
         let _ = writeln!(
             out,
             "  `{}` \u{b7} {}{flag} \u{b7} {} \u{b7} {count} task(s) \u{b7} \"{}\"",

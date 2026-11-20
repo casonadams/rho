@@ -74,21 +74,24 @@ pub fn parse_agent_content(content: &str, fallback_name: &str, location: &str) -
     }
 }
 
-/// The optional `---` frontmatter and the trimmed body of an agent or persona file.
+/// The optional frontmatter (between a first line `---` and the next line that is only `---`) and the
+/// trimmed body of an agent or persona file.
 pub(super) fn split_document(content: &str) -> (ParsedFrontmatter, String) {
     let mut frontmatter = ParsedFrontmatter::default();
-    let body = if content.starts_with("---") {
-        let parts: Vec<&str> = content.splitn(3, "---").collect();
-        if parts.len() >= 3 {
-            for line in parts[1].lines() {
-                parse_frontmatter_field(line.trim(), &mut frontmatter);
+    let mut lines = content.lines();
+    if lines.next().map(str::trim_end) != Some("---") {
+        return (frontmatter, content.trim().to_string());
+    }
+    let mut header = Vec::new();
+    for line in lines.by_ref() {
+        if line.trim_end() == "---" {
+            for field in header {
+                parse_frontmatter_field(field, &mut frontmatter);
             }
-            parts[2].trim().to_string()
-        } else {
-            content.trim().to_string()
+            let body: Vec<&str> = lines.collect();
+            return (frontmatter, body.join("\n").trim().to_string());
         }
-    } else {
-        content.trim().to_string()
-    };
-    (frontmatter, body)
+        header.push(line.trim());
+    }
+    (ParsedFrontmatter::default(), content.trim().to_string())
 }

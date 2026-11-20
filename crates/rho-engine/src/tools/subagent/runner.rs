@@ -597,11 +597,9 @@ impl SubagentRunner {
     /// The run footer, e.g. `[subagent audit: 3 turns, 5 tool calls, 900 tokens, acme/smol]`; `detail` follows the name.
     pub(crate) fn footer(&self, round: &Round, detail: &str) -> String {
         let incomplete = if round.is_incomplete() { "incomplete, " } else { "" };
-        let problems = match round.problem_count() {
-            0 => String::new(),
-            1 => "1 failed tool call, ".to_string(),
-            n => format!("{n} failed tool calls, "),
-        };
+        let problems = super::evidence::failed_calls_text(round.problem_count())
+            .map(|text| format!("{text}, "))
+            .unwrap_or_default();
         format!(
             "{RUN_FOOTER_PREFIX}{}{detail}: {incomplete}{problems}{} turns, {} tool calls, {} tokens, {}]",
             self.label.strip_prefix("subagent").unwrap_or_default(),

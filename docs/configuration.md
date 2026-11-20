@@ -373,13 +373,17 @@ Without a role, a subagent uses the role pinned for its persona, then for its
 role or agent, in `[subagents.models]`, then `smol` if `models.smol` is set,
 otherwise the main session's model. Asking
 for `smol` or `slow` when it is not configured, or for any other name, is an
-error. The turn limit is the caller's `turns` (default 100).
+error. The turn limit is the caller's `turns` (default 100). A `model` or `turns`
+passed when continuing a task is saved with it and used by later continuations.
 
 Pin a model role per persona, built-in role, or custom agent name
 (case-insensitive) in
 `config.toml` or the project's `.rho/config.toml`; a project entry replaces the
 user entry with the same name. Values must be `default`, `smol`, or `slow`, and
-the pins also apply to workflow `<agent>` blocks without a `model`:
+the pins also apply to workflow `<agent>` blocks without a `model`. A pin to a
+role that is not configured fails with an error naming the pin, and keys that
+match no role, agent, or persona are listed when the main agent inspects its
+subagent tasks:
 
 ```toml
 [subagents]

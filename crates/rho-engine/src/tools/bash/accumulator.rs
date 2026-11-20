@@ -82,7 +82,8 @@ impl Default for OutputAccumulator {
 fn format_truncation_notice(
     truncation: &Truncation,
     path_str: &str,
-    (current_line_bytes, max_bytes): (usize, usize),
+    current_line_bytes: usize,
+    max_bytes: usize,
 ) -> String {
     let end_line = truncation.total_lines;
     let start_line = truncation
@@ -286,7 +287,7 @@ impl OutputAccumulator {
                 .as_ref()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| "temp log".to_string());
-            let notice = format_truncation_notice(truncation, &path_str, (self.current_line_bytes, self.max_bytes));
+            let notice = format_truncation_notice(truncation, &path_str, self.current_line_bytes, self.max_bytes);
             text.push_str(&notice);
         }
         text

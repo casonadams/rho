@@ -224,12 +224,17 @@ impl SubagentTool {
         self
     }
 
-    fn pinned_model(&self, target: &Target<'_>) -> Option<ModelRole> {
-        let name = match target {
-            Target::Agent(agent) => agent.name.to_ascii_lowercase(),
-            Target::Role(role) => role.as_str().to_string(),
-        };
-        self.pinned_models.get(&name).copied()
+    /// The pin in `[subagents.models]` for `name` (a role, agent, or persona), with the key it came from.
+    fn pin_for(&self, name: &str) -> Option<(ModelRole, String)> {
+        let key = name.to_ascii_lowercase();
+        self.pinned_models.get(&key).map(|role| (*role, key))
+    }
+
+    fn pinned_model(&self, target: &Target<'_>) -> Option<(ModelRole, String)> {
+        match target {
+            Target::Agent(agent) => self.pin_for(&agent.name),
+            Target::Role(role) => self.pin_for(role.as_str()),
+        }
     }
 
     /// `Ok` if `name` is a defined persona, otherwise the error listing the valid ones.
@@ -311,9 +316,16 @@ impl SubagentTool {
         let target = self.resolve_target(spec.agent, spec.local_agents)?;
         let persona = self.resolve_persona(spec.persona)?;
         let pinned = persona
-            .and_then(|p| self.pinned_models.get(&p.name.to_ascii_lowercase()).copied())
+            .and_then(|p| self.pin_for(&p.name))
             .or_else(|| self.pinned_model(&target));
-        let model = self.model_for(spec.model.or(pinned), default_model).await?;
+        let requested = spec.model.or(pinned.as_ref().map(|(role, _)| *role));
+        let model = self
+            .model_for(requested, default_model)
+            .await
+            .map_err(|e| match (&spec.model, &pinned) {
+                (None, Some((_, key))) => format!("{e}; it is pinned for '{key}' in [subagents.models]"),
+                _ => e,
+            })?;
         let turns = resolve_turns(spec.turns);
         let runner = match &target {
             Target::Agent(agent) => {
@@ -366,15 +378,28 @@ impl SubagentTool {
     }
 
     fn unknown_target(&self, name: &str) -> String {
-        let mut valid: Vec<&str> = vec!["scout", "critic", "planner", "general"];
+        let mut valid: Vec<&str> = SubagentRole::ALL.iter().map(SubagentRole::as_str).collect();
         valid.extend(self.agents.iter().map(|a| a.name.as_str()));
         format!("unknown subagent '{name}'; valid: {}", valid.join(", "))
+    }
+
+    /// `[subagents.models]` keys that name no built-in role, custom agent, or persona.
+    fn unused_pins(&self) -> Vec<&str> {
+        let known = |key: &str| {
+            key.parse::<SubagentRole>().is_ok()
+                || self.agents.iter().any(|a| a.name.eq_ignore_ascii_case(key))
+                || self.personas.iter().any(|p| p.name.eq_ignore_ascii_case(key))
+        };
+        self.pinned_models
+            .keys()
+            .map(String::as_str)
+            .filter(|key| !known(key))
+            .collect()
     }
 
     async fn runner_for_settings(
         &self,
         settings: &conversation::ConversationSettings,
-        turns: Option<usize>,
     ) -> Result<SubagentRunner, String> {
         let model = settings.model.as_deref().map(ModelRole::parse).transpose()?;
         let local_agents: Vec<AgentMetadata> = settings
@@ -386,7 +411,7 @@ impl SubagentTool {
         self.runner_for(RunnerSpec {
             agent: settings.agent.as_deref(),
             local_agents: &local_agents,
-            turns,
+            turns: settings.turns,
             model,
             position: None,
             task_name: settings.name.clone(),
@@ -400,7 +425,15 @@ impl SubagentTool {
             return ToolResult::error("inspecting subagent tasks needs a saved session");
         };
         let Some(task_id) = task_id.filter(|id| !id.is_empty()) else {
-            return ToolResult::success(inspect::render_list(&session.subagent_contexts().await));
+            let mut listing = inspect::render_list(&session.subagent_contexts().await);
+            let unused = self.unused_pins();
+            if !unused.is_empty() {
+                listing.push_str(&format!(
+                    "\n\n[subagents.models] keys that match no role, agent, or persona (ignored): {}",
+                    unused.join(", ")
+                ));
+            }
+            return ToolResult::success(listing);
         };
         if let Some(running) = self.background.still_running(task_id) {
             return ToolResult::error(running);
@@ -423,8 +456,9 @@ impl SubagentTool {
             model: args.model.clone(),
             agent_file: None,
             persona: args.persona.clone(),
+            turns: args.turns,
         };
-        let runner = self.runner_for_settings(&settings, args.turns).await?;
+        let runner = self.runner_for_settings(&settings).await?;
         let context = self.compose_context(args);
         let slot = self.background.reserve()?;
         if self.ctx.session.is_none() {
@@ -467,9 +501,12 @@ impl SubagentTool {
         let mut settings = exchange.settings();
         check_continuation(&settings, args, task_id)?;
         settings.model = args.model.clone().or(settings.model);
-        let runner = self.runner_for_settings(&settings, args.turns).await?;
+        settings.turns = args.turns.or(settings.turns);
+        let runner = self.runner_for_settings(&settings).await?;
         let slot = self.background.reserve()?;
-        let exchange = self.attach_worktree(exchange.claimed(&self.busy)?).await?;
+        let exchange = self
+            .attach_worktree(exchange.with_settings(&settings).claimed(&self.busy)?)
+            .await?;
         let input = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
         Ok(self
             .converse(slot, exchange, runner, input, Some(task_id.to_string()))
@@ -492,7 +529,11 @@ impl SubagentTool {
         let settings = exchange.settings();
         let label = format!(
             "subagent {}",
-            settings.name.or(settings.agent).as_deref().unwrap_or("scout")
+            settings
+                .name
+                .or(settings.agent)
+                .as_deref()
+                .unwrap_or(SubagentRole::default().as_str())
         );
         let runner = runner.with_parent_channel();
         let owner = session.session_id.clone();
@@ -540,7 +581,7 @@ fn check_continuation(
     task_id: &str,
 ) -> Result<(), String> {
     let differs = |requested: &str, current: Option<&str>| !current.is_some_and(|c| c.eq_ignore_ascii_case(requested));
-    let agent = settings.agent.as_deref().unwrap_or("scout");
+    let agent = settings.agent.as_deref().unwrap_or(SubagentRole::default().as_str());
     if let Some(requested) = args
         .agent
         .as_deref()
