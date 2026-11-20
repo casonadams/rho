@@ -526,7 +526,10 @@ async fn unknown_tool_call_is_reported_back_to_the_model() {
 
     runner.run("look", None).await;
 
-    assert_eq!(tool_outputs(&adapter.requests()[1]), vec!["Error: Unknown tool 'nope'"]);
+    assert_eq!(
+        tool_outputs(&adapter.requests()[1]),
+        vec!["Error: Tool 'nope' not found"]
+    );
 }
 
 #[derive(Default)]
@@ -941,7 +944,7 @@ async fn inherit_context_shares_a_text_only_parent_transcript() {
 
         bound.execute(args.clone()).await.unwrap();
 
-        let prompt = adapter.requests()[0].prompt.clone();
+        let prompt = adapter.requests()[0].asked();
         assert_eq!(prompt.contains("Parent conversation"), shared, "{args}");
         if shared {
             assert!(prompt.contains("User: fix the parser"));
@@ -979,7 +982,7 @@ async fn inherit_context_and_slice_are_combined() {
         .await
         .unwrap();
 
-    let prompt = adapter.requests()[0].prompt.clone();
+    let prompt = adapter.requests()[0].asked();
     assert!(prompt.contains("User: fix the parser"));
     assert!(prompt.contains("extra notes"));
 }

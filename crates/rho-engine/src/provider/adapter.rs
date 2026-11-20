@@ -36,6 +36,28 @@ pub struct ModelCompletionRequest {
     pub temperature: Option<f64>,
 }
 
+#[cfg(test)]
+impl ModelCompletionRequest {
+    /// What the request asked: a one-shot completion's prompt, or the user text a turn ends with
+    /// (empty when the turn continues after tool results).
+    pub fn asked(&self) -> String {
+        if !self.prompt.is_empty() {
+            return self.prompt.clone();
+        }
+        match self.messages.last() {
+            Some(ChatMessage::User { content }) => content
+                .iter()
+                .filter_map(|c| match c {
+                    rho_harness_core::model::UserContent::Text(t) => Some(t.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModelCompletionResponse {
     pub content: String,

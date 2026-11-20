@@ -192,6 +192,7 @@ pub fn agent_items(record: &AgentRecord) -> Vec<TranscriptItem> {
     items.extend(record.events.iter().map(|event| match event {
         AgentEvent::Task(text) => TranscriptItem::UserMessage(text.trim().to_string()),
         AgentEvent::Text(text) => TranscriptItem::AssistantText(text.clone()),
+        AgentEvent::Thinking(text) => TranscriptItem::Thinking(text.clone()),
         AgentEvent::ToolCall { name, args } => {
             TranscriptItem::Notice(format!("⟳ {name} {}", one_line(args, ARGS_PREVIEW_CHARS)))
         }

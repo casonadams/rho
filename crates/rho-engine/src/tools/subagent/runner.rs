@@ -1,32 +1,41 @@
-use super::evidence::{OutcomeStatus, ToolOutcome, evidence, problem_count};
+//! A subagent round: the subagent's instructions, tools, and budget run on the main agent's turn
+//! loop, with its conversation in memory and its output shown in its monitor record. The round
+//! adds what a delegated task needs around that loop: evidence of what its tools did, a summary
+//! when it stops early, and a pause when it asks the delegating agent a question.
+
+use super::evidence::{ToolOutcome, evidence, problem_count};
+use super::observed::{AskParentTool, RecordedTool, Recorder};
+use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::snapshot::Snapshot;
-use super::workspace::{WorkspaceChange, bash_file_arguments, normalize};
+use super::workspace::WorkspaceChange;
 use crate::engine::compactor::llm::ModelHandle;
-use crate::engine::metrics::StructuralUsage;
+use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
-use crate::engine::runner::turn::runner::{DispatchDecision, apply_tool_outcome_hooks, evaluate_tool_dispatch};
-use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
+use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
+use crate::engine::runner::turn::MemoryStore;
+use crate::engine::runner::turn::runner::{AgentRunner, EMPTY_RESPONSE_ERROR, MultiTurnStreamItem, StreamEvent};
+use crate::engine::runner::turn::types::CancellationSignal;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
+use futures::StreamExt;
 use rho_harness_core::agents::{AgentEvent, AgentHandle, AgentStatus};
-use rho_harness_core::model::{AssistantContent, ChatMessage, TextContent, ToolCall, UserContent};
-use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use rho_harness_core::error::AppError;
+use rho_harness_core::model::{AssistantContent, ChatMessage, UserContent};
+use rho_harness_core::presentation::Presenter;
+use std::collections::BTreeSet;
+use std::sync::{Arc, PoisonError};
 
-const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
+pub(crate) use super::observed::ASK_PARENT_TOOL;
+
 const MAX_PARENT_MESSAGES: usize = 20;
 const MAX_PARENT_MESSAGE_CHARS: usize = 1_500;
 pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
 const DEFAULT_MONITOR_GROUP: &str = "subagents";
 pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
-const FILE_CHANGING_TOOLS: [&str; 2] = ["write", "edit"];
-const FILE_READING_TOOLS: [&str; 3] = ["read", "write", "edit"];
-pub(crate) const ASK_PARENT_TOOL: &str = "ask_parent";
-const ASK_PARENT_DESCRIPTION: &str = "Ask the agent that delegated this task a question and pause until it replies. Use it only when you cannot proceed without a decision or information you cannot find yourself; the reply arrives as this tool's result.";
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
+const REPLY_HEADING: &str = "Reply from the delegating agent";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoundEnd {
@@ -91,70 +100,26 @@ impl Round {
     }
 }
 
-fn ask_parent_definition() -> ModelToolDefinition {
-    ModelToolDefinition {
-        name: ASK_PARENT_TOOL.to_string(),
-        description: ASK_PARENT_DESCRIPTION.to_string(),
-        parameters: serde_json::json!({
-            "type": "object",
-            "properties": { "question": { "type": "string", "description": "The specific question to ask" } },
-            "required": ["question"]
-        }),
-    }
-}
-
-fn asked_calls(message: &ChatMessage) -> Vec<&ToolCall> {
-    let ChatMessage::Assistant { content, .. } = message else {
-        return Vec::new();
-    };
-    content
-        .iter()
-        .filter_map(|c| match c {
-            AssistantContent::ToolCall(call) if call.function.name == ASK_PARENT_TOOL => Some(call),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Answers the `ask_parent` calls still open in the last assistant message; returns whether any were open.
-pub(crate) fn answer_pending_questions(transcript: &mut Vec<ChatMessage>, answer: &str) -> bool {
-    let Some(asked_at) = transcript
-        .iter()
-        .rposition(|m| matches!(m, ChatMessage::Assistant { .. }))
-    else {
-        return false;
-    };
-    let answered: BTreeSet<&str> = transcript[asked_at + 1..]
-        .iter()
-        .filter_map(|m| match m {
-            ChatMessage::User { content } => Some(content),
-            _ => None,
-        })
-        .flatten()
-        .filter_map(|c| match c {
-            UserContent::ToolResult(result) => Some(result.call.as_str()),
-            _ => None,
-        })
-        .collect();
-    let open: Vec<ToolCall> = asked_calls(&transcript[asked_at])
-        .into_iter()
-        .filter(|call| !answered.contains(call.id.as_str()))
-        .cloned()
-        .collect();
-    for call in &open {
-        transcript.push(tool_result_message(call, answer.to_string()));
-    }
-    !open.is_empty()
-}
-
-/// What a round starts from: a new instruction, or a reply to the subagent's open `ask_parent` question.
+/// What a round starts from: a new instruction, or a reply to the subagent's `ask_parent` question.
 #[derive(Debug, Clone, Copy)]
 pub enum RoundInput<'a> {
     Prompt(&'a str),
     Reply(&'a str),
 }
 
-const NO_REPLY: &str = "No reply; the delegating agent sent new instructions instead.";
+/// Whether the conversation's last assistant message asked the delegating agent a question.
+fn ended_with_question(transcript: &[ChatMessage]) -> bool {
+    let last_assistant = transcript
+        .iter()
+        .rev()
+        .find(|m| matches!(m, ChatMessage::Assistant { .. }));
+    let Some(ChatMessage::Assistant { content, .. }) = last_assistant else {
+        return false;
+    };
+    content
+        .iter()
+        .any(|c| matches!(c, AssistantContent::ToolCall(call) if call.function.name == ASK_PARENT_TOOL))
+}
 
 pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> String {
     match context_slice {
@@ -190,91 +155,6 @@ pub struct SubagentRunner {
     inbox: Option<crate::mailbox::Mailbox>,
     /// The saved task the round belongs to, shown with it in the agent view.
     task_id: Option<String>,
-}
-
-struct RunState {
-    task: String,
-    task_pending: bool,
-    messages: Vec<ChatMessage>,
-    usage: StructuralUsage,
-    turns: usize,
-    tool_calls: usize,
-    tracker: Option<AgentHandle>,
-    changed_files: BTreeSet<String>,
-    touched_files: BTreeSet<String>,
-    tool_log: Vec<ToolOutcome>,
-    /// Path -> the bash command that was running when the path changed.
-    bash_changes: BTreeMap<String, String>,
-    root: std::path::PathBuf,
-    question: Option<String>,
-}
-
-struct CallOutcome {
-    message: ChatMessage,
-    stop: Option<String>,
-    is_error: bool,
-    output: String,
-    bash_changes: Vec<String>,
-    bash_reads: Vec<String>,
-}
-
-fn tool_result_text(message: &ChatMessage) -> String {
-    let ChatMessage::User { content } = message else {
-        return String::new();
-    };
-    content
-        .iter()
-        .filter_map(|c| match c {
-            UserContent::ToolResult(result) => Some(result),
-            _ => None,
-        })
-        .flat_map(|result| result.content.iter().filter_map(|part| part.as_text()))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Changes found by the per-command snapshots around the agent's bash calls.
-fn bash_changes(state: &RunState) -> BTreeSet<WorkspaceChange> {
-    state
-        .bash_changes
-        .iter()
-        .map(|(path, command)| WorkspaceChange {
-            path: path.clone(),
-            deleted: !state.root.join(path).exists(),
-            by: Some(command.clone()),
-        })
-        .collect()
-}
-
-fn tool_result_message(call: &ToolCall, output: String) -> ChatMessage {
-    ChatMessage::User {
-        content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
-            call.id.clone(),
-            call.function.name.clone(),
-            output,
-        ))],
-    }
-}
-
-fn assistant_tool_message(content: &str, calls: &[ToolCall]) -> ChatMessage {
-    let mut parts = Vec::new();
-    if !content.is_empty() {
-        parts.push(AssistantContent::Text(TextContent::new(content)));
-    }
-    parts.extend(calls.iter().cloned().map(AssistantContent::ToolCall));
-    ChatMessage::Assistant {
-        id: None,
-        content: parts,
-    }
-}
-
-fn truncate_output(output: String) -> String {
-    let total = output.chars().count();
-    if total <= MAX_TOOL_OUTPUT_CHARS {
-        return output;
-    }
-    let kept: String = output.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
-    format!("{kept}\n[truncated {} characters]", total - MAX_TOOL_OUTPUT_CHARS)
 }
 
 fn message_text(message: &ChatMessage) -> Option<(&'static str, String)> {
@@ -336,24 +216,31 @@ pub(crate) fn render_parent_conversation(history: &[ChatMessage]) -> String {
     format!("Parent conversation (most recent last):\n{}", recent.join("\n\n"))
 }
 
-fn track_response(tracker: Option<&AgentHandle>, turn: usize, content: &str, calls: &[ToolCall]) {
-    let Some(tracker) = tracker else {
-        return;
-    };
-    tracker.turn(turn);
-    if !content.trim().is_empty() {
-        tracker.event(AgentEvent::Text(content.trim().to_string()));
-    }
-    for call in calls {
-        tracker.event(AgentEvent::ToolCall {
-            name: call.function.name.clone(),
-            args: call.function.arguments.to_string(),
-        });
-    }
-}
-
 fn interrupted() -> RoundEnd {
     RoundEnd::Cancelled
+}
+
+/// How the turn loop finished: with the model's final text, stopped by the round's stop signal, or
+/// with an error.
+enum Finish {
+    Done(String),
+    Stopped,
+    Failed(AppError),
+}
+
+/// What the round's turns added up to.
+#[derive(Default)]
+struct Tally {
+    turns: usize,
+    tool_calls: usize,
+    tokens: u64,
+}
+
+/// The finished turn loop: how it ended, the conversation it left, and its totals.
+struct Drive {
+    end: RoundEnd,
+    transcript: Vec<ChatMessage>,
+    tally: Tally,
 }
 
 impl SubagentRunner {
@@ -455,7 +342,7 @@ impl SubagentRunner {
         self
     }
 
-    /// Reads messages the delegating agent sends while the round runs.
+    /// Reads messages the delegating agent and the user send while the round runs.
     #[must_use]
     pub(crate) fn with_inbox(mut self, inbox: crate::mailbox::Mailbox) -> Self {
         self.inbox = Some(inbox);
@@ -470,27 +357,9 @@ impl SubagentRunner {
 
     /// Stops the round, and its tools, when `stop` fires instead of the turn's own signal.
     #[must_use]
-    pub(crate) fn with_cancellation(mut self, stop: crate::engine::runner::turn::types::CancellationSignal) -> Self {
+    pub(crate) fn with_cancellation(mut self, stop: CancellationSignal) -> Self {
         self.ctx.cancellation = Some(stop);
         self
-    }
-
-    /// Adds queued messages (from the delegating agent or the user) to the conversation; `true` if any.
-    fn deliver_messages(&self, state: &mut RunState) -> bool {
-        let Some(inbox) = &self.inbox else {
-            return false;
-        };
-        let messages = inbox.take();
-        let parent = inbox.parent();
-        for message in &messages {
-            if let Some(tracker) = &state.tracker {
-                tracker.event(AgentEvent::Task(message.body.clone()));
-            }
-            state
-                .messages
-                .push(ChatMessage::user(message.for_model(parent.as_deref())));
-        }
-        !messages.is_empty()
     }
 
     #[must_use]
@@ -539,18 +408,11 @@ impl SubagentRunner {
         &self.model
     }
 
-    fn is_cancelled(&self) -> bool {
-        self.ctx.cancellation.as_ref().is_some_and(|c| c.is_cancelled())
-    }
-
-    /// Resolves to `None` when the operator cancels before `fut` completes.
-    async fn cancellable<T>(&self, fut: impl std::future::Future<Output = T>) -> Option<T> {
-        let Some(cancel) = &self.ctx.cancellation else {
-            return Some(fut.await);
-        };
+    /// Resolves to `None` when `stop` fires before `fut` completes.
+    async fn unless_stopped<T>(stop: &CancellationSignal, fut: impl std::future::Future<Output = T>) -> Option<T> {
         tokio::select! {
             value = fut => Some(value),
-            () = cancel.wait_cancelled() => None,
+            () = stop.wait_cancelled() => None,
         }
     }
 
@@ -572,20 +434,13 @@ impl SubagentRunner {
         super::workspace::root_of(&self.ctx)
     }
 
-    /// Workspace snapshots run only in real sessions, which have a project directory.
-    async fn snapshot(&self, root: &std::path::Path, previous: Option<&Snapshot>) -> Option<Snapshot> {
-        match self.ctx.project {
-            Some(_) => Snapshot::take(root, previous).await,
-            None => None,
-        }
-    }
-
-    /// Round-level snapshots look for changes made outside the agent's tools, which a worktree rules out.
+    /// Round-level snapshots look for changes made outside the agent's tools, which a worktree rules
+    /// out; they run only in real sessions, which have a project directory.
     async fn round_snapshot(&self, root: &std::path::Path, previous: Option<&Snapshot>) -> Option<Snapshot> {
-        if self.isolated {
+        if self.isolated || self.ctx.project.is_none() {
             return None;
         }
-        self.snapshot(root, previous).await
+        Snapshot::take(root, previous).await
     }
 
     pub(crate) fn with_evidence(body: &str, round: &Round) -> String {
@@ -618,69 +473,240 @@ impl SubagentRunner {
         )
     }
 
-    /// Continues `transcript` from `input` until the round ends, closing any question the subagent left open.
-    pub async fn run_round(&self, mut transcript: Vec<ChatMessage>, input: RoundInput<'_>) -> Round {
-        let (text, task) = match input {
-            RoundInput::Reply(text) if answer_pending_questions(&mut transcript, text) => (text, String::new()),
-            RoundInput::Reply(text) => (text, text.trim().to_string()),
-            RoundInput::Prompt(text) => {
-                answer_pending_questions(&mut transcript, NO_REPLY);
-                (text, text.trim().to_string())
+    /// Continues `transcript` from `input` until the round ends.
+    pub async fn run_round(&self, transcript: Vec<ChatMessage>, input: RoundInput<'_>) -> Round {
+        let (shown, prompt) = match input {
+            RoundInput::Reply(text) if ended_with_question(&transcript) => {
+                (text, format!("{REPLY_HEADING}:\n{}", text.trim()))
             }
+            RoundInput::Reply(text) | RoundInput::Prompt(text) => (text, text.trim().to_string()),
         };
         let root = self.workspace_root();
         let before = self.round_snapshot(&root, None).await;
-        let mut complete = true;
-        let mut state = RunState {
-            task_pending: !task.is_empty(),
-            task,
-            messages: transcript,
-            usage: StructuralUsage::default(),
-            turns: 0,
-            tool_calls: 0,
-            tracker: self.start_tracking(text),
-            changed_files: BTreeSet::new(),
-            touched_files: BTreeSet::new(),
-            tool_log: Vec::new(),
-            bash_changes: BTreeMap::new(),
-            root,
-            question: None,
-        };
-        let end = if state.task_pending || !state.messages.is_empty() {
-            self.run_turns(&mut state).await
+        let tracker = self.start_tracking(shown);
+        let recorder = Recorder::new(root.clone(), self.ctx.project.is_some());
+        let drive = if prompt.is_empty() && transcript.is_empty() {
+            Drive {
+                end: RoundEnd::Failed("subagent prompt cannot be empty".to_string()),
+                transcript,
+                tally: Tally::default(),
+            }
         } else {
-            RoundEnd::Failed("subagent prompt cannot be empty".to_string())
+            self.drive(transcript, prompt, tracker.as_ref(), &recorder).await
         };
-        if let Some(tracker) = &state.tracker {
-            tracker.finish(self.final_status(&end));
+        if let Some(tracker) = &tracker {
+            tracker.finish(self.final_status(&drive.end));
         }
-        let after = self.round_snapshot(&state.root, before.as_ref()).await;
-        let workspace_changes = match (&before, &after) {
+        let evidence = recorder.take();
+        let after = self.round_snapshot(&root, before.as_ref()).await;
+        let (workspace_changes, workspace_complete) = match (&before, &after) {
             (Some(before), Some(after)) => {
-                let changes = after.changes_since(before, &state.root);
-                complete = changes.complete;
-                changes
+                let changes = after.changes_since(before, &root);
+                let files = changes
                     .files
                     .into_iter()
                     .map(|mut change| {
-                        change.by = state.bash_changes.get(&change.path).cloned();
+                        change.by = evidence.bash_changes.get(&change.path).cloned();
                         change
                     })
-                    .collect()
+                    .collect();
+                (files, changes.complete)
             }
-            _ => bash_changes(&state),
+            _ => (evidence.bash_workspace_changes(&root), true),
         };
         Round {
-            end,
-            transcript: state.messages,
-            turns: state.turns,
-            tool_calls: state.tool_calls,
-            tokens: state.usage.input_tokens + state.usage.output_tokens,
-            changed_files: state.changed_files,
+            end: drive.end,
+            transcript: drive.transcript,
+            turns: drive.tally.turns,
+            tool_calls: drive.tally.tool_calls,
+            tokens: drive.tally.tokens,
+            changed_files: evidence.changed_files,
             workspace_changes,
-            workspace_complete: complete,
-            tool_log: state.tool_log,
-            touched_files: state.touched_files,
+            workspace_complete,
+            tool_log: evidence.tool_log,
+            touched_files: evidence.touched_files,
+        }
+    }
+
+    /// Runs the subagent's turns on the shared turn loop and turns how it ended into a round end.
+    async fn drive(
+        &self,
+        transcript: Vec<ChatMessage>,
+        prompt: String,
+        tracker: Option<&AgentHandle>,
+        recorder: &Arc<Recorder>,
+    ) -> Drive {
+        let stop = self.ctx.cancellation.clone().unwrap_or_default();
+        if stop.is_cancelled() {
+            return Drive {
+                end: interrupted(),
+                transcript,
+                tally: Tally::default(),
+            };
+        }
+        let owner = self.inbox.as_ref().map_or_else(
+            || format!("subagent-{}", uuid::Uuid::new_v4()),
+            |inbox| inbox.id().to_string(),
+        );
+        let store = MemoryStore::new(owner, transcript);
+        let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned(), self.ctx.progress.clone()));
+        let sink = TerminalApprovalSink::with_session(
+            &presenter,
+            TerminalSinkConfig {
+                model_label: self.model_label(),
+                run_tracker: RunTracker::default(),
+            },
+            self.ctx.session.clone(),
+        );
+        let mut tools: Vec<Arc<dyn EngineTool>> = self
+            .tools
+            .iter()
+            .map(|tool| RecordedTool::wrap(tool.clone(), recorder))
+            .collect();
+        let question = self.parent_channel.then(|| {
+            let (tool, question) = AskParentTool::with_question_slot();
+            tools.push(tool);
+            question
+        });
+        let denials = recorder.clone();
+        let agent = AgentRunner::with_store(
+            self.model.clone(),
+            tools,
+            Arc::new(store.clone()),
+            sink.clone(),
+            self.workspace_root(),
+        )
+        .session(self.ctx.session.clone())
+        .preamble(self.preamble())
+        .prompt(prompt)
+        .budget(self.max_turns)
+        .lifecycle(self.ctx.lifecycle.clone())
+        .permission(self.ctx.permission.clone())
+        .stream_port(self.ctx.progress.clone())
+        .inbox(self.inbox.clone())
+        .cancellation(Some(stop.clone()))
+        .monitor(self.ctx.monitor.clone())
+        .project_context(self.ctx.project.clone())
+        .on_denied(Some(Arc::new(move |call, reason| denials.denied(call, reason))));
+
+        let (finish, tally) = self.consume(agent, &sink, tracker, &stop).await;
+        let mut transcript = store.messages();
+        let asked = question.and_then(|q| q.lock().unwrap_or_else(PoisonError::into_inner).take());
+        let end = match finish {
+            Finish::Stopped => interrupted(),
+            Finish::Done(_) if asked.is_some() => RoundEnd::Asked(asked.unwrap_or_default()),
+            Finish::Done(text) if text.trim().is_empty() => {
+                self.salvage("ended without writing a final answer", &mut transcript, &stop)
+                    .await
+            }
+            Finish::Done(text) => RoundEnd::Answered(text),
+            Finish::Failed(error) => self.ended_by(error, &mut transcript, &stop).await,
+        };
+        Drive { end, transcript, tally }
+    }
+
+    /// The round end for a turn loop that stopped with `error`.
+    async fn ended_by(
+        &self,
+        error: AppError,
+        transcript: &mut Vec<ChatMessage>,
+        stop: &CancellationSignal,
+    ) -> RoundEnd {
+        match error {
+            AppError::Cancelled(_) if stop.is_cancelled() => interrupted(),
+            AppError::Cancelled(reason) => RoundEnd::Failed(format!("Subagent stopped by hook: {reason}")),
+            AppError::ModelBudgetExhausted { max_turns } => {
+                self.salvage(&format!("reached the turn limit of {max_turns}"), transcript, stop)
+                    .await
+            }
+            AppError::Provider(message) if message == EMPTY_RESPONSE_ERROR => {
+                self.salvage("ended without writing a final answer", transcript, stop)
+                    .await
+            }
+            error => Self::partial(&format!("stopped after a model call failed ({error})"), transcript),
+        }
+    }
+
+    /// Reads the turn loop's stream to its end: shows its output, releases its display barriers, and
+    /// counts turns, tool calls, and tokens. Stops early when `stop` fires.
+    async fn consume(
+        &self,
+        agent: AgentRunner,
+        sink: &Arc<TerminalApprovalSink>,
+        tracker: Option<&AgentHandle>,
+        stop: &CancellationSignal,
+    ) -> (Finish, Tally) {
+        let mut stream = agent.stream();
+        let mut tally = Tally::default();
+        let mut pending_names: Vec<String> = Vec::new();
+        let mut output = None;
+        loop {
+            let Some(item) = Self::unless_stopped(stop, stream.next()).await else {
+                sink.flush_display();
+                return (Finish::Stopped, tally);
+            };
+            match item {
+                None => break,
+                Some(Err(error)) => {
+                    sink.flush_display();
+                    return (Finish::Failed(error), tally);
+                }
+                Some(Ok(MultiTurnStreamItem::FinalResponse(resp))) => output = Some(resp.output),
+                Some(Ok(item)) => self.show(item, sink, tracker, &mut tally, &mut pending_names),
+            }
+        }
+        sink.flush_display();
+        match output {
+            Some(text) => (Finish::Done(text), tally),
+            None => (Finish::Stopped, tally),
+        }
+    }
+
+    fn show(
+        &self,
+        item: MultiTurnStreamItem,
+        sink: &Arc<TerminalApprovalSink>,
+        tracker: Option<&AgentHandle>,
+        tally: &mut Tally,
+        pending_names: &mut Vec<String>,
+    ) {
+        match item {
+            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(text)) => sink.emit_text(&text),
+            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(text)) => sink.emit_reasoning(&text),
+            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments { .. }) => sink.flush_reasoning(),
+            MultiTurnStreamItem::ToolCall { tool_call } => {
+                tally.tool_calls += 1;
+                pending_names.push(tool_call.function.name);
+            }
+            MultiTurnStreamItem::ModelTurnRetried(retry) => {
+                tally.tool_calls = tally.tool_calls.saturating_sub(retry.discarded_tool_calls);
+                pending_names.clear();
+                sink.flush_display();
+            }
+            MultiTurnStreamItem::CompletionCall(call) => {
+                tally.turns += 1;
+                tally.tokens += call.usage.input_tokens + call.usage.output_tokens;
+                sink.flush_display();
+                if let Some(tracker) = tracker {
+                    tracker.turn(tally.turns);
+                }
+                if !pending_names.is_empty() {
+                    self.report_progress(tally.turns, pending_names);
+                    pending_names.clear();
+                }
+            }
+            MultiTurnStreamItem::DisplayBarrier(drained) => {
+                sink.flush_display();
+                drained.notify_one();
+            }
+            MultiTurnStreamItem::MessagesDelivered(messages) => {
+                if let Some(tracker) = tracker {
+                    for message in messages {
+                        tracker.event(AgentEvent::Task(message));
+                    }
+                }
+            }
+            MultiTurnStreamItem::ToolExecutionCommitted | MultiTurnStreamItem::FinalResponse(_) => {}
         }
     }
 
@@ -700,34 +726,6 @@ impl SubagentRunner {
         })
     }
 
-    fn tool_definitions(&self) -> Vec<ModelToolDefinition> {
-        let mut defs: Vec<ModelToolDefinition> = self
-            .tools
-            .iter()
-            .map(|t| ModelToolDefinition {
-                name: t.name().to_string(),
-                description: t.description().to_string(),
-                parameters: t.parameters(),
-            })
-            .collect();
-        if self.parent_channel {
-            defs.push(ask_parent_definition());
-        }
-        defs
-    }
-
-    async fn run_turns(&self, state: &mut RunState) -> RoundEnd {
-        let preamble = self.preamble();
-        let tools_def = self.tool_definitions();
-        for turn in 1..=self.max_turns {
-            if let Some(end) = self.step(turn, &preamble, &tools_def, state).await {
-                return end;
-            }
-        }
-        self.salvage(&format!("reached the turn limit of {}", self.max_turns), state)
-            .await
-    }
-
     fn final_status(&self, end: &RoundEnd) -> AgentStatus {
         match end {
             RoundEnd::Answered(_) => AgentStatus::Done,
@@ -737,77 +735,7 @@ impl SubagentRunner {
         }
     }
 
-    fn record_input(state: &mut RunState) {
-        if state.task_pending {
-            state.messages.push(ChatMessage::user(state.task.clone()));
-            state.task_pending = false;
-        }
-    }
-
-    /// Runs one model turn; `Some` ends the run.
-    async fn step(
-        &self,
-        turn: usize,
-        preamble: &str,
-        tools_def: &[ModelToolDefinition],
-        state: &mut RunState,
-    ) -> Option<RoundEnd> {
-        if self.is_cancelled() {
-            return Some(interrupted());
-        }
-        if !state.task_pending {
-            self.deliver_messages(state);
-        }
-        let req = ModelCompletionRequest {
-            preamble: Some(preamble.to_string()),
-            prompt: if state.task_pending {
-                state.task.clone()
-            } else {
-                String::new()
-            },
-            messages: state.messages.clone(),
-            tools: tools_def.to_vec(),
-            max_tokens: None,
-            temperature: Some(0.0),
-        };
-        let resp = match self.cancellable(self.model.complete(req)).await {
-            None => return Some(interrupted()),
-            Some(Err(e)) => {
-                Self::record_input(state);
-                return Some(Self::partial(
-                    &format!("stopped after a model call failed ({e})"),
-                    state,
-                ));
-            }
-            Some(Ok(resp)) => resp,
-        };
-        state.usage = state.usage.merge(&resp.usage);
-        state.turns = turn;
-        track_response(state.tracker.as_ref(), turn, &resp.content, &resp.tool_calls);
-        Self::record_input(state);
-
-        if resp.tool_calls.is_empty() {
-            if resp.content.trim().is_empty() {
-                return Some(self.salvage("ended without writing a final answer", state).await);
-            }
-            state.messages.push(ChatMessage::assistant(resp.content.trim()));
-            if turn < self.max_turns && self.deliver_messages(state) {
-                return None;
-            }
-            return Some(RoundEnd::Answered(resp.content));
-        }
-        self.report_progress(turn, &resp.tool_calls);
-        state
-            .messages
-            .push(assistant_tool_message(&resp.content, &resp.tool_calls));
-        if let Err(end) = self.dispatch(&resp.tool_calls, state).await {
-            return Some(end);
-        }
-        state.question.take().map(RoundEnd::Asked)
-    }
-
-    fn report_progress(&self, turn: usize, calls: &[ToolCall]) {
-        let names: Vec<&str> = calls.iter().map(|c| c.function.name.as_str()).collect();
+    fn report_progress(&self, turn: usize, names: &[String]) {
         self.ctx.progress.stream_chunk(&format!(
             "{} turn {turn}/{}: {}\n",
             self.label,
@@ -816,8 +744,8 @@ impl SubagentRunner {
         ));
     }
 
-    fn partial(reason: &str, state: &RunState) -> RoundEnd {
-        let result = partial_result(reason, &state.messages);
+    fn partial(reason: &str, transcript: &[ChatMessage]) -> RoundEnd {
+        let result = partial_result(reason, transcript);
         if result.is_error {
             RoundEnd::Failed(result.content)
         } else {
@@ -826,210 +754,27 @@ impl SubagentRunner {
     }
 
     /// Ends a round that stopped before a final answer, asking the model to summarize its work so far.
-    async fn salvage(&self, reason: &str, state: &mut RunState) -> RoundEnd {
-        if self.is_cancelled() {
+    async fn salvage(&self, reason: &str, transcript: &mut Vec<ChatMessage>, stop: &CancellationSignal) -> RoundEnd {
+        if stop.is_cancelled() {
             return interrupted();
         }
-        let synthesis = self
-            .cancellable(attempt_recovery_synthesis(
-                &self.model,
-                &self.instructions,
-                &state.messages,
-            ))
-            .await;
+        let synthesis = Self::unless_stopped(
+            stop,
+            attempt_recovery_synthesis(&self.model, &self.instructions, transcript),
+        )
+        .await;
         match synthesis {
             None => interrupted(),
             Some(Some(summary)) => {
-                let kept = without_unanswered_tool_calls(&state.messages).len();
-                state.messages.truncate(kept);
-                state.messages.push(ChatMessage::assistant(summary.clone()));
+                let kept = without_unanswered_tool_calls(transcript).len();
+                transcript.truncate(kept);
+                transcript.push(ChatMessage::assistant(summary.clone()));
                 RoundEnd::Stopped {
                     reason: reason.to_string(),
                     summary,
                 }
             }
-            Some(None) => Self::partial(reason, state),
-        }
-    }
-
-    /// Records an `ask_parent` call's question; such calls stay open until the parent replies.
-    fn take_question(&self, call: &ToolCall, state: &mut RunState) -> bool {
-        if !self.parent_channel || call.function.name != ASK_PARENT_TOOL {
-            return false;
-        }
-        let question = call.function.arguments["question"].as_str().unwrap_or_default().trim();
-        let fallback = "(the subagent asked without a question)".to_string();
-        state.question = Some(question.to_string())
-            .filter(|q| !q.is_empty())
-            .or(state.question.take())
-            .or(Some(fallback));
-        true
-    }
-
-    /// Applies hooks and permissions to every call in order, then executes the approved ones.
-    async fn dispatch(&self, calls: &[ToolCall], state: &mut RunState) -> Result<(), RoundEnd> {
-        let mut slots: Vec<Option<ChatMessage>> = vec![None; calls.len()];
-        let mut approved: Vec<(usize, &ToolCall, Value)> = Vec::new();
-        for (index, call) in calls.iter().enumerate() {
-            if self.take_question(call, state) {
-                continue;
-            }
-            let decision = self
-                .cancellable(evaluate_tool_dispatch(
-                    call,
-                    self.ctx.lifecycle.as_ref(),
-                    self.ctx.permission.as_ref(),
-                ))
-                .await
-                .ok_or_else(interrupted)?;
-            match decision {
-                DispatchDecision::Proceed(args) => approved.push((index, call, args)),
-                DispatchDecision::Deny(msg) => {
-                    let reason = tool_result_text(&msg);
-                    state.tool_log.push(ToolOutcome::new(
-                        &call.function.name,
-                        &call.function.arguments,
-                        OutcomeStatus::Denied,
-                        &reason,
-                    ));
-                    slots[index] = Some(msg);
-                }
-                DispatchDecision::Stop(_, reason) => {
-                    return Err(RoundEnd::Failed(format!("Subagent stopped by hook: {reason}")));
-                }
-            }
-        }
-
-        let concurrent = approved.len() > 1
-            && approved
-                .iter()
-                .all(|(_, call, _)| READ_ONLY_TOOLS.contains(&call.function.name.as_str()));
-        let tracker = state.tracker.as_ref();
-        let outcomes = if concurrent {
-            futures::future::join_all(
-                approved
-                    .iter()
-                    .map(|(_, call, args)| self.run_call(call, args, tracker)),
-            )
-            .await
-        } else {
-            let mut sequential = Vec::with_capacity(approved.len());
-            for (_, call, args) in &approved {
-                sequential.push(self.run_call(call, args, tracker).await);
-            }
-            sequential
-        };
-
-        let mut stop = None;
-        for ((index, call, args), outcome) in approved.iter().zip(outcomes) {
-            Self::record_outcome(state, &call.function.name, args, &outcome);
-            slots[*index] = Some(outcome.message);
-            stop = stop.or(outcome.stop);
-        }
-        state.tool_calls += calls.len();
-        state.messages.extend(slots.into_iter().flatten());
-        match stop {
-            Some(reason) => Err(RoundEnd::Failed(format!("Subagent stopped by hook: {reason}"))),
-            None => Ok(()),
-        }
-    }
-
-    fn record_outcome(state: &mut RunState, name: &str, args: &Value, outcome: &CallOutcome) {
-        let status = if outcome.is_error {
-            OutcomeStatus::Error
-        } else {
-            OutcomeStatus::Ok
-        };
-        let mut logged = ToolOutcome::new(name, args, status, &outcome.output);
-        let path = args["path"]
-            .as_str()
-            .filter(|p| !p.trim().is_empty())
-            .map(|p| normalize(&state.root, p));
-        if let Some(path) = &path {
-            logged.target.clone_from(path);
-        }
-        state.tool_log.push(logged);
-        let command = args["command"].as_str().map(|c| super::evidence::clip(c, 60));
-        for path in &outcome.bash_changes {
-            state
-                .bash_changes
-                .insert(path.clone(), command.clone().unwrap_or_default());
-        }
-        state.touched_files.extend(outcome.bash_reads.iter().cloned());
-        let Some(path) = path else {
-            return;
-        };
-        if FILE_READING_TOOLS.contains(&name) {
-            state.touched_files.insert(path.clone());
-        }
-        if !outcome.is_error && FILE_CHANGING_TOOLS.contains(&name) {
-            state.changed_files.insert(path);
-        }
-    }
-
-    async fn run_call(&self, call: &ToolCall, args: &Value, tracker: Option<&AgentHandle>) -> CallOutcome {
-        let name = call.function.name.as_str();
-        let started = std::time::Instant::now();
-        let bash_command = (name == "bash").then(|| args["command"].as_str().unwrap_or_default());
-        let root = self.workspace_root();
-        let before = match bash_command {
-            Some(_) => self.snapshot(&root, None).await,
-            None => None,
-        };
-        let (mut output, is_error) = self
-            .cancellable(self.run_tool(name, args))
-            .await
-            .unwrap_or_else(|| ("Cancelled by operator".to_string(), true));
-        let bash_changes = match &before {
-            Some(before) => self
-                .snapshot(&root, Some(before))
-                .await
-                .map(|after| {
-                    after
-                        .changes_since(before, &root)
-                        .files
-                        .into_iter()
-                        .map(|c| c.path)
-                        .collect()
-                })
-                .unwrap_or_default(),
-            None => Vec::new(),
-        };
-        let bash_reads = match bash_command {
-            Some(command) => bash_file_arguments(&root, command).await,
-            None => Vec::new(),
-        };
-        let stop = apply_tool_outcome_hooks(self.ctx.lifecycle.as_ref(), name, args, &mut output, is_error).await;
-        let output = truncate_output(output);
-        if let Some(tracker) = tracker {
-            tracker.event(AgentEvent::Tool(rho_harness_core::presentation::ToolLine {
-                name: name.to_string(),
-                arguments: call.function.arguments.clone(),
-                is_error,
-                output_summary: rho_harness_core::presentation::summarize_tool_output(&output),
-                output: output.clone(),
-                duration_ms: u64::try_from(started.elapsed().as_millis()).ok(),
-                file_change: None,
-            }));
-        }
-        CallOutcome {
-            message: tool_result_message(call, output.clone()),
-            stop,
-            is_error,
-            output,
-            bash_changes,
-            bash_reads,
-        }
-    }
-
-    async fn run_tool(&self, name: &str, args: &Value) -> (String, bool) {
-        let Some(tool) = self.tools.iter().find(|t| t.name() == name) else {
-            return (format!("Error: Unknown tool '{name}'"), true);
-        };
-        let tool = tool.bind_turn(&self.ctx).unwrap_or_else(|| tool.clone());
-        match tool.execute(args.clone()).await {
-            Ok(res) => (res.content, res.is_error),
-            Err(e) => (format!("Error: {e}"), true),
+            Some(None) => Self::partial(reason, transcript),
         }
     }
 }
@@ -1049,13 +794,16 @@ mod tests {
     }
 
     #[test]
-    fn truncate_output_caps_length_on_char_boundaries() {
-        let short = "héllo".to_string();
-        assert_eq!(truncate_output(short.clone()), short);
-
-        let long = "é".repeat(MAX_TOOL_OUTPUT_CHARS + 5);
-        let cut = truncate_output(long);
-        assert!(cut.ends_with("\n[truncated 5 characters]"));
-        assert_eq!(cut.chars().filter(|c| *c == 'é').count(), MAX_TOOL_OUTPUT_CHARS);
+    fn a_reply_is_framed_as_one_only_after_a_question() {
+        let asked = ChatMessage::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(rho_harness_core::model::ToolCall::new(
+                "q1",
+                rho_harness_core::model::ToolFunction::new(ASK_PARENT_TOOL, serde_json::json!({})),
+            ))],
+        };
+        assert!(ended_with_question(&[ChatMessage::user("task"), asked.clone()]));
+        assert!(!ended_with_question(&[asked, ChatMessage::assistant("answer")]));
+        assert!(!ended_with_question(&[]));
     }
 }

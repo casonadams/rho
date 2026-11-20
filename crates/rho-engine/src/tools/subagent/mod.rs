@@ -3,6 +3,8 @@ pub(crate) mod conversation;
 pub(crate) mod evidence;
 pub(crate) mod handoff;
 mod inspect;
+mod observed;
+mod presenter;
 mod recovery;
 pub mod runner;
 mod snapshot;

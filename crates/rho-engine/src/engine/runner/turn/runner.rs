@@ -23,7 +23,8 @@ use dispatch::{
     CallControl, ToolExecutionContext, batch_is_concurrency_safe, execute_concurrent_tool_calls,
     execute_single_tool_call,
 };
-pub(crate) use dispatch::{DispatchDecision, apply_tool_outcome_hooks, evaluate_tool_dispatch};
+#[cfg(test)]
+use dispatch::{DispatchDecision, evaluate_tool_dispatch};
 
 #[derive(Clone, Debug)]
 pub enum StreamEvent {
@@ -746,6 +747,9 @@ fn prompt_response(output: String, ctx: &RunnerStepContext<'_>) -> PromptRespons
     }
 }
 
+/// The error a turn ends with when the model answers with nothing, even after a nudge.
+pub(crate) const EMPTY_RESPONSE_ERROR: &str = "model returned an empty response";
+
 /// Anthropic's documented recovery for empty `end_turn` responses after tool results:
 /// <https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons>
 const EMPTY_COMPLETION_NUDGE: &str = "Please continue";
@@ -845,7 +849,7 @@ async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<()
             }
             StepExecutionResult::EmptyCompletion => {
                 saved.persist(runner.store.as_ref(), &new_turn_messages).await?;
-                return Err(AppError::Provider("model returned an empty response".to_string()));
+                return Err(AppError::Provider(EMPTY_RESPONSE_ERROR.to_string()));
             }
         }
     }

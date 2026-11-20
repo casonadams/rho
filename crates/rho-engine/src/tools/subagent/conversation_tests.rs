@@ -3,7 +3,7 @@ use super::*;
 use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::{GenericTool, ToolResult};
-use rho_harness_core::model::{AssistantContent, ToolCall, ToolFunction, UserContent};
+use rho_harness_core::model::{ToolCall, ToolFunction, UserContent};
 use serde_json::json;
 
 fn call(name: &str, args: serde_json::Value) -> Vec<ModelStreamEvent> {
@@ -86,11 +86,14 @@ async fn a_question_pauses_the_task_and_the_reply_resumes_it() {
     assert_eq!(task_id(&done), id, "a reply continues the same task");
     assert!(done.contains("\u{b7} completed: 1 turns"), "{done}");
     let last = adapter.requests().pop().unwrap();
-    assert!(last.prompt.is_empty());
+    assert_eq!(last.asked(), "Reply from the delegating agent:\nLatency.");
     let results = tool_results(&last.messages);
     assert_eq!(results.len(), 2, "{results:?}");
     assert_eq!(results[1].0, ASK_PARENT_TOOL);
-    assert!(results[1].1.contains("Latency."));
+    assert!(
+        results[1].1.contains("Question sent to the delegating agent"),
+        "{results:?}"
+    );
     assert!(last.tools.iter().any(|t| t.name == ASK_PARENT_TOOL));
 
     let context = session.subagent_context(&id).await.unwrap();
@@ -295,10 +298,10 @@ async fn review_feedback_starts_a_new_task_that_keeps_the_subagent_history() {
     assert_ne!(second_id, first_id, "a finished task is never restarted");
     assert!(second_id.starts_with("perfAudit-"), "{second_id}");
     let request = adapter.requests().pop().unwrap();
-    assert_eq!(request.prompt, "You missed cold(); check it.");
+    assert_eq!(request.asked(), "You missed cold(); check it.");
     assert_eq!(request.messages[0], ChatMessage::user("Audit hot.rs"));
     assert_eq!(
-        request.messages.last(),
+        request.messages.iter().rev().nth(1),
         Some(&ChatMessage::assistant("Found one hot loop."))
     );
     let context = reopened.subagent_context(&second_id).await.unwrap();
@@ -329,9 +332,9 @@ async fn a_turn_limit_waits_for_a_go_ahead_and_continues_with_its_history() {
     assert!(done.starts_with("Finished: b.rs is clean too."), "{done}");
     assert_eq!(task_id(&done), task_id(&stopped));
     let request = adapter.requests().pop().unwrap();
-    assert_eq!(request.prompt, "continue");
+    assert_eq!(request.asked(), "continue");
     assert_eq!(
-        request.messages.last(),
+        request.messages.iter().rev().nth(1),
         Some(&ChatMessage::assistant("So far: a.rs is clean."))
     );
 }
@@ -450,7 +453,7 @@ async fn a_continued_subagent_is_told_which_files_changed_since_it_read_them() {
     let second = ask(&tool, json!({ "task_id": task_id(&first), "prompt": "Check again" })).await;
 
     let shown = watched.to_string_lossy().to_string();
-    let prompt = adapter.requests().pop().unwrap().prompt;
+    let prompt = adapter.requests().pop().unwrap().asked();
     assert_eq!(
         prompt,
         format!(
@@ -620,7 +623,14 @@ async fn subagents_work_in_their_own_worktree_and_feedback_continues_there() {
         "{second}"
     );
     assert!(second.contains("Files changed: b.rs\nTool outcomes"), "{second}");
-    assert!(!s.adapter.requests().pop().unwrap().prompt.contains("previous worktree"));
+    assert!(
+        !s.adapter
+            .requests()
+            .pop()
+            .unwrap()
+            .asked()
+            .contains("previous worktree")
+    );
 }
 
 #[tokio::test]
@@ -649,7 +659,7 @@ async fn after_a_merge_a_continued_subagent_gets_a_fresh_worktree_and_hears_what
         merged.content
     );
     assert_eq!(std::fs::read_to_string(s.root.join("a.rs")).unwrap(), "agent\n");
-    let prompt = s.adapter.requests().pop().unwrap().prompt;
+    let prompt = s.adapter.requests().pop().unwrap().asked();
     assert!(prompt.starts_with("[Your previous worktree "), "{prompt}");
     assert!(
         prompt.ends_with("[Other files changed in the workspace since your last turn: other.rs.]\n\ncheck other.rs"),
@@ -698,28 +708,4 @@ async fn subagents_without_a_parent_session_get_no_ask_parent_tool() {
 
     assert!(!result.contains("task "), "{result}");
     assert!(!adapter.requests()[0].tools.iter().any(|t| t.name == ASK_PARENT_TOOL));
-}
-
-#[test]
-fn only_open_questions_are_answered() {
-    let asked = ChatMessage::Assistant {
-        id: None,
-        content: vec![
-            AssistantContent::ToolCall(ToolCall::new("q1", ToolFunction::new(ASK_PARENT_TOOL, json!({})))),
-            AssistantContent::ToolCall(ToolCall::new("r1", ToolFunction::new("read", json!({})))),
-        ],
-    };
-    let read_result = ChatMessage::User {
-        content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
-            "r1", "read", "body",
-        ))],
-    };
-    let mut transcript = vec![asked, read_result];
-
-    assert!(super::super::runner::answer_pending_questions(&mut transcript, "yes"));
-    assert!(!super::super::runner::answer_pending_questions(
-        &mut transcript,
-        "again"
-    ));
-    assert_eq!(tool_results(&transcript).len(), 2);
 }

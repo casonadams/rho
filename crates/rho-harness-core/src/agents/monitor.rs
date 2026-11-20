@@ -36,6 +36,7 @@ impl AgentStatus {
 pub enum AgentEvent {
     Task(String),
     Text(String),
+    Thinking(String),
     /// A tool call that has started and not finished yet.
     ToolCall {
         name: String,
@@ -80,6 +81,23 @@ struct TrackedAgent {
     events: VecDeque<AgentEvent>,
     dropped_events: usize,
     task_id: Option<String>,
+    /// The kind of event still growing from streamed deltas, until any other event arrives.
+    streaming: Option<Streamed>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Streamed {
+    Text,
+    Thinking,
+}
+
+impl Streamed {
+    fn event(self, text: String) -> AgentEvent {
+        match self {
+            Self::Text => AgentEvent::Text(text),
+            Self::Thinking => AgentEvent::Thinking(text),
+        }
+    }
 }
 
 impl TrackedAgent {
@@ -98,6 +116,7 @@ impl TrackedAgent {
     }
 
     fn push(&mut self, event: AgentEvent) {
+        self.streaming = None;
         let event = clamp_event(event);
         if let AgentEvent::Tool(line) = &event
             && let Some(pending) = self.pending_call(line)
@@ -110,6 +129,36 @@ impl TrackedAgent {
             self.dropped_events += 1;
         }
         self.events.push_back(event);
+    }
+
+    /// Grows the streamed text or thinking at the end of the events, starting it if none is open.
+    fn stream(&mut self, kind: Streamed, delta: &str) {
+        if self.streaming == Some(kind)
+            && let Some(last) = self.events.back_mut()
+            && let AgentEvent::Text(text) | AgentEvent::Thinking(text) = last
+        {
+            if text.chars().count() < MAX_TEXT_CHARS {
+                text.push_str(delta);
+            }
+            return;
+        }
+        self.push(kind.event(delta.to_string()));
+        self.streaming = Some(kind);
+    }
+
+    /// Ends any streamed event, replacing streamed text with `final_text` (the model's whole reply).
+    fn finish_text(&mut self, final_text: &str) {
+        let streamed_text = self.streaming == Some(Streamed::Text);
+        self.streaming = None;
+        let final_text = final_text.trim();
+        if final_text.is_empty() {
+            return;
+        }
+        if streamed_text && let Some(AgentEvent::Text(text)) = self.events.back_mut() {
+            *text = clamp_text(final_text.to_string(), MAX_TEXT_CHARS);
+            return;
+        }
+        self.push(AgentEvent::Text(final_text.to_string()));
     }
 
     /// The earliest started call that `line` finishes: same tool, same arguments.
@@ -164,6 +213,7 @@ impl AgentMonitor {
             events: VecDeque::new(),
             dropped_events: 0,
             task_id: None,
+            streaming: None,
         });
         evict_finished(&mut state.agents);
         state.version += 1;
@@ -224,6 +274,16 @@ impl AgentHandle {
         self.monitor.update(self.id, |agent| agent.push(event));
     }
 
+    /// Adds a streamed piece of the model's reply, or of its reasoning, to the view.
+    pub fn stream(&self, kind: Streamed, delta: &str) {
+        self.monitor.update(self.id, |agent| agent.stream(kind, delta));
+    }
+
+    /// Ends the streamed reply and sets its final text.
+    pub fn finish_text(&self, final_text: &str) {
+        self.monitor.update(self.id, |agent| agent.finish_text(final_text));
+    }
+
     pub fn turn(&self, turn: usize) {
         self.monitor.update(self.id, |agent| agent.turn = turn);
     }
@@ -263,6 +323,7 @@ fn clamp_event(event: AgentEvent) -> AgentEvent {
     match event {
         AgentEvent::Task(text) => AgentEvent::Task(clamp_text(text, MAX_EVENT_CHARS)),
         AgentEvent::Text(text) => AgentEvent::Text(clamp_text(text, MAX_TEXT_CHARS)),
+        AgentEvent::Thinking(text) => AgentEvent::Thinking(clamp_text(text, MAX_TEXT_CHARS)),
         AgentEvent::ToolCall { name, args } => AgentEvent::ToolCall {
             name,
             args: clamp_text(args, MAX_EVENT_CHARS),
@@ -308,6 +369,58 @@ mod tests {
         assert_eq!(record.events.len(), MAX_EVENTS_PER_AGENT);
         assert_eq!(record.dropped_events, 3);
         assert_eq!(record.events[0], AgentEvent::Text("3".into()));
+    }
+
+    #[test]
+    fn streamed_text_and_thinking_grow_in_place_and_the_final_reply_replaces_the_text() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        handle.stream(Streamed::Thinking, "hmm ");
+        handle.stream(Streamed::Thinking, "ok");
+        handle.stream(Streamed::Text, "Hel");
+        handle.stream(Streamed::Text, "lo");
+        assert_eq!(
+            monitor.record(handle.id()).unwrap().events,
+            [AgentEvent::Thinking("hmm ok".into()), AgentEvent::Text("Hello".into())]
+        );
+
+        handle.finish_text("  Hello there  ");
+        handle.stream(Streamed::Text, "next");
+        let events = monitor.record(handle.id()).unwrap().events;
+        assert_eq!(
+            events,
+            [
+                AgentEvent::Thinking("hmm ok".into()),
+                AgentEvent::Text("Hello there".into()),
+                AgentEvent::Text("next".into()),
+            ],
+            "a new delta after the reply ended starts a new block"
+        );
+    }
+
+    #[test]
+    fn a_reply_that_never_streamed_is_added_whole_and_an_empty_one_adds_nothing() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        handle.finish_text("   ");
+        handle.finish_text(" whole reply ");
+        assert_eq!(
+            monitor.record(handle.id()).unwrap().events,
+            [AgentEvent::Text("whole reply".into())]
+        );
+    }
+
+    #[test]
+    fn a_tool_call_ends_the_streamed_block() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        handle.stream(Streamed::Text, "before");
+        handle.event(AgentEvent::ToolCall {
+            name: "rg".into(),
+            args: "{}".into(),
+        });
+        handle.stream(Streamed::Text, "after");
+        assert_eq!(monitor.record(handle.id()).unwrap().events.len(), 3);
     }
 
     #[test]

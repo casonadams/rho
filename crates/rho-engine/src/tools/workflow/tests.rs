@@ -8,6 +8,21 @@ use rho_harness_core::agents::AgentMonitor;
 use rho_harness_core::error::AppError;
 use std::sync::{Arc, Mutex};
 
+/// A completion delivered the way a streaming provider sends it.
+fn as_stream(response: ModelCompletionResponse) -> crate::provider::adapter::ModelEventStream {
+    let mut events = Vec::new();
+    if !response.content.is_empty() {
+        events.push(Ok(ModelStreamEvent::Text(response.content)));
+    }
+    events.extend(
+        response
+            .tool_calls
+            .into_iter()
+            .map(|call| Ok(ModelStreamEvent::ToolCall(call))),
+    );
+    Box::pin(futures::stream::iter(events))
+}
+
 #[derive(Debug, Default)]
 struct ScriptedModel {
     validate_replies: Mutex<Vec<String>>,
@@ -68,9 +83,10 @@ impl ModelAdapter for ScriptedModel {
 
     async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
         let preamble = request.preamble.clone().unwrap_or_default();
-        self.requests.lock().unwrap().push((preamble, request.prompt.clone()));
+        let prompt = request.asked();
+        self.requests.lock().unwrap().push((preamble, prompt.clone()));
         Ok(ModelCompletionResponse {
-            content: self.reply(&request.prompt),
+            content: self.reply(&prompt),
             tool_calls: Vec::new(),
             usage: Default::default(),
             finish_reason: None,
@@ -79,10 +95,10 @@ impl ModelAdapter for ScriptedModel {
 
     async fn stream(
         &self,
-        _request: ModelCompletionRequest,
+        request: ModelCompletionRequest,
     ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>
     {
-        Err(AppError::Other(anyhow::anyhow!("scripted model only completes")))
+        Ok(as_stream(self.complete(request).await?))
     }
 }
 
@@ -524,10 +540,14 @@ async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent()
     );
     let request = adapter.requests().pop().unwrap();
     assert!(
-        request.preamble.unwrap_or_default().contains("You review diffs."),
+        request
+            .preamble
+            .clone()
+            .unwrap_or_default()
+            .contains("You review diffs."),
         "the workflow-local agent is reloaded from its file"
     );
-    assert_eq!(request.prompt, "continue");
+    assert_eq!(request.asked(), "continue");
     assert!(
         request.messages[0]
             == rho_harness_core::model::ChatMessage::user(
@@ -553,7 +573,7 @@ impl ModelAdapter for WritingModel {
 
     async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
         let body = request
-            .prompt
+            .asked()
             .strip_prefix("WRITE ")
             .map(|rest| rest.lines().next().unwrap_or_default().to_string());
         let tool_calls: Vec<rho_harness_core::model::ToolCall> = body
@@ -582,10 +602,10 @@ impl ModelAdapter for WritingModel {
 
     async fn stream(
         &self,
-        _request: ModelCompletionRequest,
+        request: ModelCompletionRequest,
     ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError>
     {
-        Err(AppError::Other(anyhow::anyhow!("writing model only completes")))
+        Ok(as_stream(self.complete(request).await?))
     }
 }
 
