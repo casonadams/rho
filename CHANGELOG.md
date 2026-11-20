@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.2](https://github.com/casonadams/rho/compare/v0.13.1...v0.13.2) (2026-11-20)
+
+
+### Features
+
+* **subagent:** run in parallel, background long rounds, steer, and add personas ([9ee3e63](https://github.com/casonadams/rho/commit/9ee3e637d3090143bc88d5201e6fede6f8cc02cb))
+
+
+### Bug Fixes
+
+* **jobs:** scope background work to its session and keep bash color out of the model ([61ed88e](https://github.com/casonadams/rho/commit/61ed88ec84ab0f078bc034a3a92ab4bf19e4bf06))
+* **jobs:** stop the session's background jobs when a turn is interrupted ([1b1d9b7](https://github.com/casonadams/rho/commit/1b1d9b751350f937bdddf0d1db8960a22fe953ef))
+* **mcp:** require approval only for project-defined servers ([466e152](https://github.com/casonadams/rho/commit/466e152c1e06ad36f2f0a7b05975c10d3e0171af))
+* **subagent:** frame notices as untrusted, cap and clip background rounds, report model ([ac7e36d](https://github.com/casonadams/rho/commit/ac7e36d2827722042721438cace256ffddb0bb60))
+
 ## [0.13.1](https://github.com/casonadams/rho/compare/v0.13.0...v0.13.1) (2026-11-19)
 
 
