@@ -545,8 +545,13 @@ fn footer_state_equality_and_inequality() {
         hidden_status_count: 2,
         context: Some("ctx".into()),
         show_label: true,
+        running_agents: 1,
     };
     assert_eq!(base, base.clone());
+
+    let mut more_agents = base.clone();
+    more_agents.running_agents = 2;
+    assert_ne!(base, more_agents);
 
     let mut diff_id = base.clone();
     diff_id.model = "gpt-4o".into();

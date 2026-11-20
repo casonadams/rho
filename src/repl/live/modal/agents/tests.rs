@@ -206,6 +206,28 @@ fn the_view_follows_the_agent_into_the_round_that_continues_its_task() {
 }
 
 #[test]
+fn delete_in_the_list_asks_to_stop_the_selected_running_agent() {
+    let (monitor, _, running) = monitor_with_two_agents();
+    running.set_task("scan2-abcd");
+    let mut c = controller();
+    try_open_agents(&mut c, &key(KeyCode::Left), &monitor).unwrap();
+
+    assert_eq!(
+        handle_agents_key(&mut c, key(KeyCode::Delete), &monitor).unwrap(),
+        AgentKey::Stop {
+            task_id: "scan2-abcd".into(),
+            label: "scan #2 · scout".into()
+        }
+    );
+    handle_agents_key(&mut c, key(KeyCode::Down), &monitor).unwrap();
+    assert_eq!(
+        handle_agents_key(&mut c, key(KeyCode::Delete), &monitor).unwrap(),
+        AgentKey::Handled
+    );
+    assert!(c.state().system_message().is_some_and(|m| m.contains("is not running")));
+}
+
+#[test]
 fn a_message_for_a_finished_agent_asks_the_main_agent_to_continue_its_task() {
     let message = AgentMessage {
         task_id: "audit-1234".into(),
@@ -251,9 +273,12 @@ fn refresh_tracks_new_agents_and_follows_the_viewed_agent() {
 
     let view = agent_view(&c, &monitor.record(running.id()).unwrap());
     c.state_mut().push_modal(view);
+    let body_before = c.state().active_modal().unwrap().body.clone();
     late.finish(AgentStatus::Done);
-    assert!(
-        !refresh_agent_modals(&mut c, &monitor),
+    refresh_agent_modals(&mut c, &monitor);
+    assert_eq!(
+        c.state().active_modal().unwrap().body,
+        body_before,
         "other agents do not change the view"
     );
     running.event(AgentEvent::Text("found it".into()));

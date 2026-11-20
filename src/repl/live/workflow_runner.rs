@@ -48,11 +48,18 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<()> {
         let agent_key = agents::handle_agents_key(self.io.controller, key, &self.monitor)?;
-        if let agents::AgentKey::Send(message) = &agent_key {
-            self.io.controller.set_system_message(format!(
+        let unavailable = match &agent_key {
+            agents::AgentKey::Send(message) => Some(format!(
                 "Message {} after the workflow finishes, from the Agents list",
                 message.label
-            ));
+            )),
+            agents::AgentKey::Stop { .. } => {
+                Some("Workflow agents stop with the workflow: press Esc to cancel it".to_string())
+            }
+            agents::AgentKey::Ignored | agents::AgentKey::Handled => None,
+        };
+        if let Some(status) = unavailable {
+            self.io.controller.set_system_message(status);
             self.flush(true)?;
         }
         if agent_key.consumed() || agents::try_open_agents(self.io.controller, &key, &self.monitor)? {

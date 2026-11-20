@@ -40,6 +40,11 @@ impl SubagentRuntime {
     pub fn message_from_user(&self, task_id: &str, text: &str) -> bool {
         self.inboxes.send(task_id, Sender::User, text)
     }
+
+    /// Asks task `task_id`'s running round to stop and save what it has; `false` if none is running.
+    pub fn stop(&self, task_id: &str) -> bool {
+        self.inboxes.stop(task_id)
+    }
 }
 
 /// Runs subagent rounds in the foreground up to a time budget, then moves them to the background.
@@ -114,32 +119,53 @@ impl Inbox {
     }
 }
 
-/// The inboxes of running rounds, with the settings each task runs with, by task id.
-/// A closed inbox accepts nothing more.
+/// A running round's inbox, the settings its task runs with, and the signal that stops it.
+struct OpenRound {
+    inbox: Inbox,
+    settings: ConversationSettings,
+    stop: CancellationSignal,
+}
+
+/// The running rounds by task id. A closed inbox accepts nothing more.
 #[derive(Clone, Default)]
-struct Inboxes(Arc<Mutex<HashMap<String, (Inbox, ConversationSettings)>>>);
+struct Inboxes(Arc<Mutex<HashMap<String, OpenRound>>>);
 
 impl Inboxes {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, (Inbox, ConversationSettings)>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, OpenRound>> {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn open(&self, task_id: &str, settings: ConversationSettings) -> Inbox {
+    fn open(&self, task_id: &str, settings: ConversationSettings, stop: CancellationSignal) -> Inbox {
         let inbox = Inbox::default();
-        self.lock().insert(task_id.to_string(), (inbox.clone(), settings));
+        let round = OpenRound {
+            inbox: inbox.clone(),
+            settings,
+            stop,
+        };
+        self.lock().insert(task_id.to_string(), round);
         inbox
     }
 
     fn settings(&self, task_id: &str) -> Option<ConversationSettings> {
-        self.lock().get(task_id).map(|(_, settings)| settings.clone())
+        self.lock().get(task_id).map(|round| round.settings.clone())
+    }
+
+    /// Asks task `task_id`'s running round to stop; `false` if none is running.
+    fn stop(&self, task_id: &str) -> bool {
+        let inboxes = self.lock();
+        let Some(round) = inboxes.get(task_id) else {
+            return false;
+        };
+        round.stop.cancel();
+        true
     }
 
     fn send(&self, task_id: &str, from: Sender, message: &str) -> bool {
         let inboxes = self.lock();
-        let Some((inbox, _)) = inboxes.get(task_id) else {
+        let Some(round) = inboxes.get(task_id) else {
             return false;
         };
-        inbox.push_from(from, message);
+        round.inbox.push_from(from, message);
         true
     }
 
@@ -148,7 +174,7 @@ impl Inboxes {
         let mut inboxes = self.lock();
         if inboxes
             .get(task_id)
-            .is_some_and(|(open, _)| Arc::ptr_eq(&open.0, &inbox.0))
+            .is_some_and(|round| Arc::ptr_eq(&round.inbox.0, &inbox.0))
         {
             inboxes.remove(task_id);
         }
@@ -392,13 +418,13 @@ impl Backgrounding {
             port: progress.clone(),
             open: open.clone(),
         })));
-        let inbox = self.inboxes.open(task.id, task.settings.clone());
+        let stop = CancellationSignal::default();
+        let inbox = self.inboxes.open(task.id, task.settings.clone(), stop.clone());
         let mut open_inbox = OpenInbox {
             inboxes: self.inboxes.clone(),
             task_id: task.id.to_string(),
             inbox: Some(inbox.clone()),
         };
-        let stop = CancellationSignal::default();
         let forward_turn_stop = AbortOnDrop(task.cancellation.clone().map(|turn| {
             let stop = stop.clone();
             tokio::spawn(async move {
@@ -778,6 +804,40 @@ mod tests {
             "a finished round accepts nothing"
         );
         assert!(background.running_settings("t-5").is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn one_round_can_be_stopped_by_task_id_in_the_foreground_or_background() {
+        let runtime = SubagentRuntime::default();
+        let background =
+            Backgrounding::new(JobManager::new(), collecting().0, Duration::from_secs(60)).sharing(&runtime);
+        let port = ToolStreamPort::default();
+        assert!(!runtime.stop("none"), "nothing to stop");
+
+        let stopper = runtime.clone();
+        let foreground = background.start(task("fg", None), &port, |io| async move {
+            io.stop.wait_cancelled().await;
+            ToolResult::error("stopped in the foreground")
+        });
+        let (result, stopped) = tokio::join!(foreground, async {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            stopper.stop("fg")
+        });
+        assert!(stopped);
+        assert_eq!(result.content, "stopped in the foreground");
+
+        let moved = background
+            .start(task("bg", None), &port, |io| async move {
+                io.stop.wait_cancelled().await;
+                ToolResult::error("stopped in the background")
+            })
+            .await;
+        assert!(moved.content.contains("moved to the background"), "{}", moved.content);
+        assert!(runtime.stop("bg"));
+        while background.rounds.active() > 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(!runtime.stop("bg"), "a finished round has nothing to stop");
     }
 
     #[tokio::test(start_paused = true)]

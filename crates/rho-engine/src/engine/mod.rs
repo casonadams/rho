@@ -101,6 +101,11 @@ impl AgentEngine {
         self.subagent_runtime.message_from_user(task_id, text)
     }
 
+    /// Asks subagent task `task_id`'s running round to stop and save its work; `false` when none runs.
+    pub fn stop_subagent(&self, task_id: &str) -> bool {
+        self.subagent_runtime.stop(task_id)
+    }
+
     /// Replaces this engine with `next`. Leaving a different session stops its background work, since
     /// nothing could deliver the results; rebuilding the same session keeps it.
     pub fn switch_to(&mut self, next: Self) {

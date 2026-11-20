@@ -55,6 +55,8 @@ pub struct FooterState {
     pub hidden_status_count: usize,
     pub context: Option<String>,
     pub show_label: bool,
+    /// Subagents whose rounds are running; shown so the user knows to look with Left.
+    pub running_agents: usize,
 }
 
 type IdentityKey<'a> = (
@@ -80,7 +82,7 @@ type MetricsKey<'a> = (
     Option<u64>,
 );
 
-type UiKey<'a> = (usize, Option<&'a str>, bool);
+type UiKey<'a> = (usize, Option<&'a str>, bool, usize);
 
 impl FooterState {
     fn identity_key(&self) -> IdentityKey<'_> {
@@ -111,7 +113,12 @@ impl FooterState {
     }
 
     fn ui_key(&self) -> UiKey<'_> {
-        (self.hidden_status_count, self.context.as_deref(), self.show_label)
+        (
+            self.hidden_status_count,
+            self.context.as_deref(),
+            self.show_label,
+            self.running_agents,
+        )
     }
 }
 

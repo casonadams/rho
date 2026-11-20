@@ -31,6 +31,11 @@ pub fn format_top_line(footer: &FooterState, width: usize, system_message: Optio
     {
         pwd.push_str(&format!(" • {name}"));
     }
+    match footer.running_agents {
+        0 => {}
+        1 => pwd.push_str(" • ⟳ 1 agent (←)"),
+        n => pwd.push_str(&format!(" • ⟳ {n} agents (←)")),
+    }
 
     match resolve_status_text(footer, system_message) {
         Some(text) => fit_right_aligned(&pwd, &text, width),

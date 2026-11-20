@@ -316,10 +316,7 @@ async fn process_key_event<B: TerminalBackend>(
 ) -> Result<IdleInputResult> {
     let monitor = ctx.engine.agent_monitor();
     let agent_key = agents::handle_agents_key(controller, key, monitor)?;
-    if let agents::AgentKey::Send(message) = &agent_key
-        && let agents::AgentDelivery::ContinueThroughMainAgent(text) =
-            agents::deliver_agent_message(controller, ctx.engine, message)
-    {
+    if let Some(text) = agents::apply_agent_key(controller, ctx.engine, &agent_key) {
         batch.flush(controller, true)?;
         return Ok(IdleInputResult::Message(QueuedMessage {
             text,

@@ -32,6 +32,11 @@ pub enum AgentKey {
     Ignored,
     Handled,
     Send(AgentMessage),
+    /// Stop the running round of this task.
+    Stop {
+        task_id: String,
+        label: String,
+    },
 }
 
 impl AgentKey {
@@ -44,13 +49,38 @@ impl AgentKey {
 /// Where an agent-view message goes: straight to the running round, or, once the round has ended,
 /// to the main agent as a request to continue the task (so it runs inside a permission-checked turn).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AgentDelivery {
+enum AgentDelivery {
     Sent,
     ContinueThroughMainAgent(String),
 }
 
+/// Applies a key's outcome that needs the engine: messages and stop requests. Returns the prompt
+/// to hand the main agent when a finished agent's task should be continued.
+pub fn apply_agent_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    engine: &crate::engine::AgentEngine,
+    outcome: &AgentKey,
+) -> Option<String> {
+    match outcome {
+        AgentKey::Send(message) => match deliver_agent_message(controller, engine, message) {
+            AgentDelivery::Sent => None,
+            AgentDelivery::ContinueThroughMainAgent(prompt) => Some(prompt),
+        },
+        AgentKey::Stop { task_id, label } => {
+            let status = if engine.stop_subagent(task_id) {
+                format!("Stopping {label}; it saves its work first")
+            } else {
+                format!("{label} is not running")
+            };
+            controller.set_system_message(status);
+            None
+        }
+        AgentKey::Ignored | AgentKey::Handled => None,
+    }
+}
+
 /// Delivers `message`, returning where it went and setting a status line saying so.
-pub fn deliver_agent_message<B: TerminalBackend>(
+fn deliver_agent_message<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     engine: &crate::engine::AgentEngine,
     message: &AgentMessage,
@@ -241,8 +271,7 @@ pub fn handle_agents_key<B: TerminalBackend>(
         return Ok(AgentKey::Ignored);
     };
     let outcome = if active.title == AGENTS_TITLE {
-        handle_list_key(controller, key, monitor)?;
-        AgentKey::Handled
+        handle_list_key(controller, key, monitor)?
     } else if is_agent_view(active) {
         handle_view_key(controller, key, monitor)
     } else {
@@ -256,17 +285,47 @@ fn handle_list_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
     monitor: &AgentMonitor,
-) -> Result<()> {
+) -> Result<AgentKey> {
     match key.code {
         KeyCode::Enter | KeyCode::Right => open_selected(controller, monitor),
         KeyCode::Left | KeyCode::Esc => {
             controller.state_mut().pop_modal();
         }
+        KeyCode::Delete => return Ok(stop_selected(controller, monitor)),
         _ => {
             crate::repl::live::modal::handle_selector_nav(controller, &key)?;
         }
     }
-    Ok(())
+    Ok(AgentKey::Handled)
+}
+
+/// A stop request for the selected agent if its round is running and saved.
+fn stop_selected<B: TerminalBackend>(controller: &mut TerminalController<B>, monitor: &AgentMonitor) -> AgentKey {
+    let summary = controller
+        .state()
+        .active_modal()
+        .and_then(|m| m.selected_option())
+        .and_then(|o| o.value.as_deref())
+        .and_then(|v| v.parse::<u64>().ok())
+        .and_then(|id| monitor.record(id))
+        .map(|record| record.summary);
+    match summary {
+        Some(s) if s.status == AgentStatus::Running => match s.task_id {
+            Some(task_id) => AgentKey::Stop {
+                task_id,
+                label: s.label,
+            },
+            None => {
+                controller.set_system_message("This agent's round is not saved; Esc stops it with the turn");
+                AgentKey::Handled
+            }
+        },
+        Some(s) => {
+            controller.set_system_message(format!("{} is not running", s.label));
+            AgentKey::Handled
+        }
+        None => AgentKey::Handled,
+    }
 }
 
 fn scroll_by(modal: &mut ModalState, up: bool, lines: usize) {
@@ -457,21 +516,32 @@ fn refresh_view<B: TerminalBackend>(controller: &mut TerminalController<B>, moni
     true
 }
 
-/// Re-renders an open agent list or view from the monitor; returns whether anything changed.
+/// Re-renders an open agent list or view from the monitor and updates the footer's running-agent
+/// count; returns whether anything changed.
 pub fn refresh_agent_modals<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     monitor: &AgentMonitor,
 ) -> bool {
+    let running = monitor
+        .summaries()
+        .iter()
+        .filter(|s| s.status == AgentStatus::Running)
+        .count();
+    let count_changed = controller.state().footer().running_agents != running;
+    if count_changed {
+        controller.state_mut().footer_mut().running_agents = running;
+    }
     let Some(modal) = controller.state_mut().active_modal_mut() else {
-        return false;
+        return count_changed;
     };
-    if modal.title == AGENTS_TITLE {
+    let view_changed = if modal.title == AGENTS_TITLE {
         refresh_list(modal, monitor)
     } else if is_agent_view(modal) {
         refresh_view(controller, monitor)
     } else {
         false
-    }
+    };
+    count_changed || view_changed
 }
 
 #[cfg(test)]

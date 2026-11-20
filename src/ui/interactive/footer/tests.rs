@@ -54,6 +54,18 @@ fn top_line_contains_cwd_branch_session_and_quota() {
     assert!(line.ends_with("80% (3h22m)"));
 }
 
+#[test]
+fn top_line_counts_running_subagents() {
+    let footer = |running_agents| FooterState {
+        cwd: Some("/tmp/p".into()),
+        running_agents,
+        ..FooterState::default()
+    };
+    assert!(!format_top_line(&footer(0), 80, None).contains('⟳'));
+    assert!(format_top_line(&footer(1), 80, None).ends_with(" • ⟳ 1 agent (←)"));
+    assert!(format_top_line(&footer(3), 80, None).ends_with(" • ⟳ 3 agents (←)"));
+}
+
 fn sample_stats_footer() -> FooterState {
     FooterState {
         activity: Activity::Idle,
