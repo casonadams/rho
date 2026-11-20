@@ -11,7 +11,7 @@ mod tests;
 pub mod types;
 pub(crate) mod workspace;
 
-pub use background::DEFAULT_FOREGROUND_SECONDS;
+pub use background::{DEFAULT_FOREGROUND_SECONDS, SubagentRuntime};
 pub use runner::SubagentRunner;
 pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
 
@@ -153,6 +153,14 @@ impl SubagentTool {
     #[must_use]
     pub fn with_foreground_budget(mut self, budget: std::time::Duration) -> Self {
         self.background = self.background.with_budget(budget);
+        self
+    }
+
+    /// Shares busy markers, message inboxes, and the round count with every tool built for the session.
+    #[must_use]
+    pub fn with_runtime(mut self, runtime: &SubagentRuntime) -> Self {
+        self.busy = runtime.busy();
+        self.background = self.background.sharing(runtime);
         self
     }
 

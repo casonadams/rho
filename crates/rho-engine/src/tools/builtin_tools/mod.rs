@@ -13,7 +13,7 @@ use crate::tools::engine_tool::EngineTool;
 use crate::tools::fd::FdTool;
 use crate::tools::read::ReadTool;
 use crate::tools::rg::RgTool;
-use crate::tools::subagent::{SubagentModelResolver, SubagentTool};
+use crate::tools::subagent::{SubagentModelResolver, SubagentRuntime, SubagentTool};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
@@ -56,7 +56,15 @@ pub fn build_builtin_tools_with_resolver(
     model: Option<crate::engine::compactor::llm::ModelHandle>,
     model_resolver: Option<SubagentModelResolver>,
 ) -> Result<Vec<Arc<dyn EngineTool>>> {
-    build_builtin_toolset(base_dir, config, model, model_resolver, None).map(|(tools, _)| tools)
+    build_builtin_toolset(
+        base_dir,
+        config,
+        model,
+        model_resolver,
+        None,
+        &SubagentRuntime::default(),
+    )
+    .map(|(tools, _)| tools)
 }
 
 /// The built-in tools and the subagent tool. With a worktree `store`, every subagent works in its own
@@ -67,6 +75,7 @@ pub fn build_builtin_toolset(
     model: Option<crate::engine::compactor::llm::ModelHandle>,
     model_resolver: Option<SubagentModelResolver>,
     worktrees: Option<crate::worktree::WorktreeStore>,
+    runtime: &SubagentRuntime,
 ) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
     let mut tools = build_workspace_native_tools(base_dir);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
@@ -106,6 +115,7 @@ pub fn build_builtin_toolset(
     let mut subagent = crate::tools::subagent::SubagentTool::new(model, tools.clone())
         .with_agents(agent_metas)
         .with_personas(rho_harness_core::agents::resolved_personas(Some(base_dir)))
+        .with_runtime(runtime)
         .with_pinned_models(config.subagents.models.clone())
         .with_foreground_budget(std::time::Duration::from_secs(
             config

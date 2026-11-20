@@ -771,7 +771,7 @@ impl SubagentRunner {
                 return Some(self.salvage("ended without writing a final answer", state).await);
             }
             state.messages.push(ChatMessage::assistant(resp.content.trim()));
-            if self.deliver_messages(state) {
+            if turn < self.max_turns && self.deliver_messages(state) {
                 return None;
             }
             return Some(RoundEnd::Answered(resp.content));

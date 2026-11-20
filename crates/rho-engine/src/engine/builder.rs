@@ -22,6 +22,7 @@ pub struct AgentEngineBuilder {
     model: Option<ModelHandle>,
     demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     agent_monitor: rho_harness_core::agents::AgentMonitor,
+    subagent_runtime: crate::tools::subagent::SubagentRuntime,
     turn_notes: super::TurnNotes,
 }
 
@@ -44,6 +45,7 @@ impl AgentEngineBuilder {
             model: None,
             demotion_hook: None,
             agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
+            subagent_runtime: crate::tools::subagent::SubagentRuntime::default(),
             turn_notes: super::TurnNotes::default(),
         }
     }
@@ -85,6 +87,11 @@ impl AgentEngineBuilder {
 
     pub fn agent_monitor(mut self, monitor: rho_harness_core::agents::AgentMonitor) -> Self {
         self.agent_monitor = monitor;
+        self
+    }
+
+    pub fn subagent_runtime(mut self, runtime: crate::tools::subagent::SubagentRuntime) -> Self {
+        self.subagent_runtime = runtime;
         self
     }
 
@@ -152,6 +159,7 @@ fn subagent_model_resolver(
 struct SubagentModels<'a> {
     default: &'a ModelHandle,
     resolver: crate::tools::subagent::SubagentModelResolver,
+    runtime: &'a crate::tools::subagent::SubagentRuntime,
 }
 
 async fn build_engine_tools(
@@ -174,6 +182,7 @@ async fn build_engine_tools(
                 Some(models.default.clone()),
                 Some(models.resolver),
                 Some(crate::worktree::WorktreeStore::default_location()),
+                models.runtime,
             )?;
             t.extend(mcp_tools);
             (t, Some(subagents))
@@ -208,6 +217,10 @@ impl AgentEngineBuilder {
         {
             session_manager.spawn_auto_prune(days);
         }
+        static BASH_LOG_SWEEP: std::sync::Once = std::sync::Once::new();
+        BASH_LOG_SWEEP.call_once(|| {
+            tokio::task::spawn_blocking(|| crate::tools::bash::accumulator::sweep_logs(&std::env::temp_dir()));
+        });
         Ok(session_manager)
     }
 
@@ -249,6 +262,7 @@ impl AgentEngineBuilder {
             compactor_model: Some(model),
             demotion_hook,
             agent_monitor: self.agent_monitor,
+            subagent_runtime: self.subagent_runtime,
             turn_notes: self.turn_notes,
             workflows: None,
             worktrees: None,
@@ -271,6 +285,7 @@ impl AgentEngineBuilder {
             SubagentModels {
                 default: &model,
                 resolver: subagent_model_resolver(&self.config, &self.auth_store, shared_auth.clone()),
+                runtime: &self.subagent_runtime,
             },
             self.tools.take(),
             std::mem::take(&mut self.extra_tools),

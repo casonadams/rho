@@ -156,6 +156,31 @@ fn the_full_output_log_has_no_terminal_colors_even_when_escapes_span_chunks() {
 }
 
 #[test]
+fn the_log_sweep_removes_only_old_rho_logs() {
+    let root = tempfile::tempdir().unwrap();
+    let logs = root.path().join("rho-bash");
+    std::fs::create_dir_all(&logs).unwrap();
+    let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(25 * 60 * 60);
+    let make = |path: std::path::PathBuf, old: bool| {
+        let file = std::fs::File::create(&path).unwrap();
+        if old {
+            file.set_modified(day_ago).unwrap();
+        }
+        path
+    };
+    let old_log = make(logs.join("old.log"), true);
+    let new_log = make(logs.join("new.log"), false);
+    let old_loose = make(root.path().join("rho-bash-legacy.log"), true);
+    let new_loose = make(root.path().join("rho-bash-current.log"), false);
+    let foreign = make(root.path().join("someone-else.log"), true);
+
+    assert_eq!(accumulator::sweep_logs(root.path()), 2);
+
+    assert!(!old_log.exists() && !old_loose.exists());
+    assert!(new_log.exists() && new_loose.exists() && foreign.exists());
+}
+
+#[test]
 fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     let mut acc = OutputAccumulator::new();
     acc.append(b"starting \x1b[4");

@@ -86,7 +86,7 @@ fn personas_resolve_from_user_and_project_with_project_precedence() {
     write_agent(
         &home.join(".agents/personas"),
         "skeptic",
-        "---\nname: Skeptic\ndescription: old\n---\nDoubt.\n",
+        "---\nname: SKEPTIC\ndescription: old\n---\nDoubt.\n",
     );
     write_agent(
         &project.join(".agents/personas/review"),

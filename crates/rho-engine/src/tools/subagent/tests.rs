@@ -352,6 +352,21 @@ async fn a_message_waiting_at_the_final_answer_keeps_the_subagent_working() {
 }
 
 #[tokio::test]
+async fn a_message_arriving_with_the_answer_on_the_last_turn_leaves_the_answer_and_the_message() {
+    let adapter = MockAdapter::from_turns([text_turn("final answer")]);
+    let inbox = super::background::Inbox::default();
+    inbox.push("too late");
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 1).with_inbox(inbox.clone());
+
+    let result = runner.run("review", None).await;
+
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.starts_with("final answer"), "{}", result.content);
+    assert_eq!(adapter.requests().len(), 1);
+    assert_eq!(inbox.take(), ["too late"], "left for the undelivered report");
+}
+
+#[tokio::test]
 async fn subagent_tool_calls_pass_through_the_permission_gate() {
     let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "rm x")]), text_turn("done")]);
     let runs = Arc::new(AtomicUsize::new(0));

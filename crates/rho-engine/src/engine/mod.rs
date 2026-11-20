@@ -52,6 +52,7 @@ pub struct AgentEngine {
     pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
+    pub(crate) subagent_runtime: crate::tools::subagent::SubagentRuntime,
     pub(crate) turn_notes: TurnNotes,
     pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
     /// Where subagent and workflow worktrees live; the parent is reminded to merge or discard its own.
@@ -138,6 +139,7 @@ impl AgentEngine {
         let mut builder = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
             .agent_monitor(self.agent_monitor.clone())
+            .subagent_runtime(self.subagent_runtime.clone())
             .turn_notes(self.turn_notes.clone())
             .base_dir(base_dir);
         if let Some(hook) = &self.demotion_hook {

@@ -103,8 +103,8 @@ async fn test_user_bash_runner_large_output_spools_to_disk() {
         .await
         .unwrap();
     assert!(!res.is_cancelled && !res.is_error);
-    for fragment in ["[Showing lines ", "of 2500", "Full output: ", "rho-bash-"] {
-        assert!(res.output.contains(fragment));
+    for fragment in ["[Showing lines ", "of 2500", "Full output: ", "rho-bash/"] {
+        assert!(res.output.contains(fragment), "{fragment}: {}", res.output);
     }
     assert_spool_file(&res.output);
 }

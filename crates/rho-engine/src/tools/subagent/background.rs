@@ -20,6 +20,26 @@ const MAX_NOTICE_BYTES: usize = 20_000;
 /// Delivers a finished background subagent's result, given the owning session, to that session's conversation.
 pub(crate) type Notifier = Arc<dyn Fn(&str, String) + Send + Sync>;
 
+/// Subagent state that must survive rebuilding the engine's tools for the same session (a model or
+/// login change): which conversations are busy, running rounds' inboxes, and the round count.
+#[derive(Clone, Default)]
+pub struct SubagentRuntime {
+    busy: super::conversation::BusyContexts,
+    inboxes: Inboxes,
+    active: Arc<AtomicUsize>,
+}
+
+impl SubagentRuntime {
+    pub(crate) fn busy(&self) -> super::conversation::BusyContexts {
+        self.busy.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shares_state_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.active, &other.active)
+    }
+}
+
 /// Runs subagent rounds in the foreground up to a time budget, then moves them to the background.
 #[derive(Clone)]
 pub(crate) struct Backgrounding {
@@ -233,6 +253,14 @@ impl Backgrounding {
         self
     }
 
+    /// Counts rounds and routes messages through `runtime`, shared with other tools of the session.
+    #[must_use]
+    pub(crate) fn sharing(mut self, runtime: &SubagentRuntime) -> Self {
+        self.inboxes = runtime.inboxes.clone();
+        self.active = runtime.active.clone();
+        self
+    }
+
     #[cfg(test)]
     pub(crate) fn new(jobs: JobManager, notify: Notifier, budget: Duration) -> Self {
         Self {
@@ -323,7 +351,7 @@ impl Backgrounding {
                 result = &mut handle => joined(result),
                 () = stop.wait_cancelled() => {
                     abort.abort();
-                    ToolResult::error("subagent stopped because its session ended")
+                    ToolResult::error("subagent stopped: the turn was interrupted or its session ended")
                 }
             };
             let stopped = stop.is_cancelled() || cancellation.as_ref().is_some_and(CancellationSignal::is_cancelled);
@@ -445,6 +473,39 @@ mod tests {
             })
             .await;
         assert_eq!(allowed.content, "ok");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn tools_rebuilt_for_the_session_reach_and_count_rounds_the_old_tool_started() {
+        let runtime = SubagentRuntime::default();
+        let before = Backgrounding::new(JobManager::new(), collecting().0, Duration::from_secs(1)).sharing(&runtime);
+        let after = Backgrounding::new(JobManager::new(), collecting().0, Duration::from_secs(1)).sharing(&runtime);
+        let unrelated = Backgrounding::new(JobManager::new(), collecting().0, Duration::from_secs(1));
+        let port = ToolStreamPort::default();
+        let release = Arc::new(tokio::sync::Notify::new());
+        for i in 0..MAX_ACTIVE_ROUNDS {
+            let gate = release.clone();
+            before
+                .run(task(&format!("r-{i}"), None), &port, |_, _| async move {
+                    gate.notified().await;
+                    ToolResult::success("done")
+                })
+                .await;
+        }
+
+        assert!(after.steer("r-0", "new instructions").is_some());
+        assert!(unrelated.steer("r-0", "new instructions").is_none());
+        let refused = after
+            .run(task("r-extra", None), &port, |_, _| async {
+                ToolResult::success("never")
+            })
+            .await;
+        assert!(
+            refused.content.starts_with("8 subagents are already running"),
+            "{}",
+            refused.content
+        );
+        release.notify_waiters();
     }
 
     #[tokio::test(start_paused = true)]
@@ -614,7 +675,7 @@ mod tests {
         assert_eq!(
             jobs.get("t-8").unwrap().status,
             JobStatus::Failed {
-                error: "subagent stopped because its session ended".into()
+                error: "subagent stopped: the turn was interrupted or its session ended".into()
             }
         );
     }

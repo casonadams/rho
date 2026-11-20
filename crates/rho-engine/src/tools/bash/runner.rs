@@ -61,7 +61,7 @@ fn dispatch_background_task(
                 max_runtime,
                 execute_process_loop(&mut rx, &mut chunk_handler, &mut acc, &mut cmd),
             ) => run.map_err(|_| format!("exceeded max runtime of {}s", max_runtime.as_secs())),
-            () = job.cancel.wait_cancelled() => Err("cancelled because its session ended".to_string()),
+            () = job.cancel.wait_cancelled() => Err("cancelled: the turn was interrupted or its session ended".to_string()),
         };
         let status = match stopped {
             Ok(status) => status,
@@ -347,7 +347,7 @@ mod tests {
         crate::process::wait_group_dead(pid).await;
         let job = JobManager::global().get(&job_id).unwrap();
         assert!(
-            matches!(&job.status, JobStatus::Failed { error } if error.contains("its session ended")),
+            matches!(&job.status, JobStatus::Failed { error } if error.contains("interrupted or its session ended")),
             "{:?}",
             job.status
         );

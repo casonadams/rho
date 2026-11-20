@@ -177,6 +177,10 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
 
     assert_rebuilt_meta(&rebuilt, &session_id, tool_count);
     assert_rebuilt_storage(&rebuilt, &session_id, &history_before, &jsonl_before).await;
+    assert!(
+        rebuilt.subagent_runtime.shares_state_with(&engine.subagent_runtime),
+        "running subagents stay counted and reachable after a rebuild"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

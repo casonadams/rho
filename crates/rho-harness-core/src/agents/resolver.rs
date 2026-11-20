@@ -90,7 +90,10 @@ fn collect_agents(paths: AgentResolutionPaths<'_>, resolved: &mut Vec<ResolvedAg
 }
 
 fn replace_or_push<T>(resolved: &mut Vec<T>, item: T, name: impl Fn(&T) -> &String) {
-    match resolved.iter().position(|existing| name(existing) == name(&item)) {
+    match resolved
+        .iter()
+        .position(|existing| name(existing).eq_ignore_ascii_case(name(&item)))
+    {
         Some(idx) => resolved[idx] = item,
         None => resolved.push(item),
     }

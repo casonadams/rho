@@ -3,10 +3,47 @@ use crate::tools::truncate::{
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 pub const BASH_PRUNE_LINE_THRESHOLD: usize = 15;
 pub const BASH_MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
+const LOG_DIR_NAME: &str = "rho-bash";
+const LOG_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const LOG_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Removes full output logs under `temp_root` older than a day or beyond the total size cap, and
+/// day-old `rho-bash-*.log` files that earlier versions left loose in `temp_root`. Returns the count.
+pub fn sweep_logs(temp_root: &Path) -> usize {
+    let removed =
+        crate::tools::artifact::cleanup_artifacts(&temp_root.join(LOG_DIR_NAME), LOG_MAX_AGE, LOG_MAX_TOTAL_BYTES)
+            .unwrap_or(0);
+    removed + remove_loose_logs(temp_root)
+}
+
+fn remove_loose_logs(temp_root: &Path) -> usize {
+    let cutoff = SystemTime::now()
+        .checked_sub(LOG_MAX_AGE)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    let Ok(entries) = std::fs::read_dir(temp_root) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("rho-bash-") && name.ends_with(".log")
+        })
+        .filter(|entry| {
+            entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .is_ok_and(|modified| modified < cutoff)
+        })
+        .filter(|entry| std::fs::remove_file(entry.path()).is_ok())
+        .count()
+}
 
 #[derive(Debug, Clone)]
 pub struct OutputSnapshot {
@@ -23,7 +60,6 @@ pub struct OutputAccumulator {
     max_log_bytes: usize,
     log_bytes: usize,
     log_truncated: bool,
-    temp_file_prefix: String,
     tail_text: String,
     total_raw_bytes: usize,
     total_lines: usize,
@@ -81,7 +117,6 @@ impl OutputAccumulator {
             max_log_bytes: BASH_MAX_LOG_BYTES,
             log_bytes: 0,
             log_truncated: false,
-            temp_file_prefix: "rho-bash".to_string(),
             tail_text: String::new(),
             total_raw_bytes: 0,
             total_lines: 0,
@@ -213,9 +248,9 @@ impl OutputAccumulator {
         if self.temp_file_writer.is_some() {
             return;
         }
-        let id = uuid::Uuid::new_v4();
-        let path = std::env::temp_dir().join(format!("{}-{id}.log", self.temp_file_prefix));
-        let Ok(file) = File::create(&path) else {
+        let dir = std::env::temp_dir().join(LOG_DIR_NAME);
+        let path = dir.join(format!("{}.log", uuid::Uuid::new_v4()));
+        let Ok(file) = std::fs::create_dir_all(&dir).and_then(|()| File::create(&path)) else {
             return;
         };
         self.temp_file_path = Some(path);
