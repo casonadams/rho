@@ -11,6 +11,7 @@ mod tests;
 pub mod types;
 pub(crate) mod workspace;
 
+pub(crate) use background::RoundSlot;
 pub use background::{DEFAULT_FOREGROUND_SECONDS, SubagentRuntime};
 pub use runner::SubagentRunner;
 pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
@@ -164,6 +165,11 @@ impl SubagentTool {
         self
     }
 
+    /// Waits for a free round slot; workflow steps queue for one instead of failing at the cap.
+    pub(crate) async fn wait_for_round_slot(&self) -> RoundSlot {
+        self.background.wait_for_slot().await
+    }
+
     #[cfg(test)]
     pub(crate) fn with_backgrounding(mut self, background: background::Backgrounding) -> Self {
         self.background = background;
@@ -174,9 +180,11 @@ impl SubagentTool {
         self.worktrees.as_ref()
     }
 
-    /// Every subagent gets its own worktree: the store is set and the project is in git.
+    /// Every subagent gets its own worktree: the store is set, the project is in git, and there is a
+    /// session to save the round in (without one the round runs in the project itself).
     fn isolated(&self) -> bool {
         self.worktrees.is_some()
+            && self.ctx.session.is_some()
             && self
                 .ctx
                 .project
@@ -337,10 +345,6 @@ impl SubagentTool {
         role == ModelRole::Default || self.roles.contains_key(role.as_str())
     }
 
-    pub(crate) fn model(&self) -> Option<&ModelHandle> {
-        self.model.as_ref()
-    }
-
     pub(crate) fn with_turn_context(&self, ctx: &TurnToolContext) -> Self {
         Self {
             ctx: ctx.clone(),
@@ -422,13 +426,16 @@ impl SubagentTool {
         };
         let runner = self.runner_for_settings(&settings, args.turns).await?;
         let context = self.compose_context(args);
-        let Some(session) = &self.ctx.session else {
-            return Ok(runner.run(&args.prompt, context.as_deref()).await);
-        };
+        let slot = self.background.reserve()?;
+        if self.ctx.session.is_none() {
+            let result = runner.run(&args.prompt, context.as_deref()).await;
+            drop(slot);
+            return Ok(result);
+        }
         let exchange = conversation::Exchange::start(&settings).claimed(&self.busy)?;
         let exchange = self.attach_worktree(exchange).await?;
         let input = runner::build_subagent_prompt(&args.prompt, context.as_deref());
-        Ok(self.converse(exchange, runner, input, None, session.clone()).await)
+        Ok(self.converse(slot, exchange, runner, input, None).await)
     }
 
     async fn continue_task(&self, args: &RawSubagentArgs, task_id: &str) -> Result<ToolResult, String> {
@@ -461,22 +468,26 @@ impl SubagentTool {
         check_continuation(&settings, args, task_id)?;
         settings.model = args.model.clone().or(settings.model);
         let runner = self.runner_for_settings(&settings, args.turns).await?;
+        let slot = self.background.reserve()?;
         let exchange = self.attach_worktree(exchange.claimed(&self.busy)?).await?;
         let input = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
         Ok(self
-            .converse(exchange, runner, input, Some(task_id.to_string()), session.clone())
+            .converse(slot, exchange, runner, input, Some(task_id.to_string()))
             .await)
     }
 
     /// Runs one round on its own task, which moves to the background if it outlasts the foreground budget.
     async fn converse(
         &self,
+        slot: background::RoundSlot,
         exchange: conversation::Exchange,
         runner: SubagentRunner,
         input: String,
         reference: Option<String>,
-        session: rho_harness_core::session::SessionManager,
     ) -> ToolResult {
+        let Some(session) = self.ctx.session.clone() else {
+            return ToolResult::error("a subagent task needs a saved session");
+        };
         let task_id = exchange.task_id().to_string();
         let settings = exchange.settings();
         let label = format!(
@@ -493,8 +504,11 @@ impl SubagentTool {
             settings: exchange.settings(),
         };
         self.background
-            .run(task, &self.ctx.progress, move |progress, inbox| async move {
-                let runner = runner.with_progress(progress).with_inbox(inbox);
+            .run(slot, task, &self.ctx.progress, move |io| async move {
+                let runner = runner
+                    .with_progress(io.progress)
+                    .with_inbox(io.inbox)
+                    .with_cancellation(io.stop);
                 exchange.converse(&runner, &session, &input, reference.as_deref()).await
             })
             .await

@@ -459,6 +459,13 @@ impl SubagentRunner {
         self
     }
 
+    /// Stops the round, and its tools, when `stop` fires instead of the turn's own signal.
+    #[must_use]
+    pub(crate) fn with_cancellation(mut self, stop: crate::engine::runner::turn::types::CancellationSignal) -> Self {
+        self.ctx.cancellation = Some(stop);
+        self
+    }
+
     /// Adds the delegating agent's queued messages to the conversation; `true` if there were any.
     fn deliver_messages(&self, state: &mut RunState) -> bool {
         let messages = self
@@ -518,6 +525,10 @@ impl SubagentRunner {
 
     pub(crate) fn model_label(&self) -> String {
         format!("{}/{}", self.model.provider_name(), self.model.model_name())
+    }
+
+    pub(crate) fn model(&self) -> &ModelHandle {
+        &self.model
     }
 
     fn is_cancelled(&self) -> bool {

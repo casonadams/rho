@@ -656,6 +656,33 @@ async fn workflows_run_in_a_worktree_and_hand_their_changes_to_the_parent() {
 }
 
 #[tokio::test]
+async fn an_agent_whose_json_cannot_be_read_points_to_its_unmerged_worktree() {
+    let workflow = r#"<workflow name="w"><agent id="fix" use="general" output="json">WRITE agent</agent></workflow>"#;
+    let (_dir, root, store, runner) = worktree_runner(workflow);
+
+    let run = runner.run("w", BTreeMap::new()).await;
+
+    assert!(!run.ok, "{}", run.report);
+    assert!(
+        run.report.contains("the agent did not return a JSON object"),
+        "{}",
+        run.report
+    );
+    let listed = store.list(&root).await;
+    let ids: Vec<&str> = listed.iter().map(|w| w.id.as_str()).collect();
+    let agent_worktree = listed
+        .iter()
+        .find(|w| w.id.starts_with("workflow-w-fix-"))
+        .unwrap_or_else(|| panic!("no agent worktree in {ids:?}; report: {}", run.report));
+    assert!(
+        run.report
+            .contains(&format!("unmerged changes are in worktree `{}`", agent_worktree.id)),
+        "{}",
+        run.report
+    );
+}
+
+#[tokio::test]
 async fn parallel_agent_worktrees_with_overlapping_edits_stop_the_workflow() {
     let workflow = r#"<workflow name="w"><parallel><agent id="left" use="general">WRITE one</agent><agent id="right" use="general">WRITE two</agent></parallel><run cmd="printf after"/></workflow>"#;
     let (_dir, root, store, runner) = worktree_runner(workflow);

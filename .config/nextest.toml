@@ -1,3 +1,7 @@
+[profile.default]
+# AGENTS.md caps a test at 2.5 s; a test still running at 10 s is hung, so fail it by name instead of stalling `make all`.
+slow-timeout = { period = "5s", terminate-after = 2 }
+
 [[profile.default.overrides]]
 # Worktree tests spawn dozens of git processes; reserving threads keeps them under the 2.5 s per-test ceiling under full-suite load.
 filter = 'test(/worktree/)'

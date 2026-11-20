@@ -1,10 +1,10 @@
 use super::command::CANCELLED;
 use super::executor::{Executor, Frame, Scope};
 use crate::provider::adapter::ModelCompletionRequest;
-use crate::tools::subagent::RunnerSpec;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
 use crate::tools::subagent::handoff::settle;
 use crate::tools::subagent::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
+use crate::tools::subagent::{RoundSlot, RunnerSpec};
 use crate::worktree::{Worktree, WorktreeLease};
 use rho_harness_core::workflow::template::value_to_text;
 use rho_harness_core::workflow::{AgentNode, OutputFormat};
@@ -54,26 +54,32 @@ struct AgentRun {
     worktree: Option<(Worktree, String)>,
 }
 
+/// Where a stopped step's saved task and unmerged worktree can be found, if it has either.
+fn handoff_note(run: &AgentRun) -> String {
+    let mut note = String::new();
+    if let Some(id) = &run.task_id {
+        note.push_str(&format!(
+            "\n\n(Agent task `{id}` was saved; continue it with the subagent tool.)"
+        ));
+    }
+    if let Some((worktree, _)) = &run.worktree {
+        note.push_str(&format!(
+            "\n(Its unmerged changes are in worktree `{}`; review, merge, or discard them with the worktree tool.)",
+            worktree.id
+        ));
+    }
+    note
+}
+
 /// Why an agent step produced no value: the round did not end with a final answer.
 fn unfinished_step(run: &AgentRun) -> String {
-    let mut message = match &run.round.end {
+    let message = match &run.round.end {
         RoundEnd::Stopped { reason, summary } => format!("agent {reason} before finishing.\n\nWork so far:\n{summary}"),
         _ => match run.round.body() {
             Ok(text) | Err(text) => text,
         },
     };
-    if let Some(id) = &run.task_id {
-        message.push_str(&format!(
-            "\n\n(Agent task `{id}` was saved; continue it with the subagent tool.)"
-        ));
-    }
-    if let Some((worktree, _)) = &run.worktree {
-        message.push_str(&format!(
-            "\n(Its unmerged changes are in worktree `{}`; review, merge, or discard them with the worktree tool.)",
-            worktree.id
-        ));
-    }
-    message
+    message + &handoff_note(run)
 }
 
 fn summarize(value: &Value) -> String {
@@ -144,6 +150,10 @@ impl Executor<'_> {
         self.log
             .agent_files(&position, &run.round, started..std::time::Instant::now());
         if self.cancelled() || run.round.end == RoundEnd::Cancelled {
+            let note = handoff_note(&run);
+            if !note.is_empty() {
+                self.log.warn(format!("{position} was cancelled.{note}"));
+            }
             return Err(CANCELLED.to_string());
         }
         let RoundEnd::Answered(text) = &run.round.end else {
@@ -151,7 +161,10 @@ impl Executor<'_> {
         };
         let value = match agent.output {
             OutputFormat::Text => Value::String(text.trim().to_string()),
-            OutputFormat::Json => self.parse_json(text.trim()).await?,
+            OutputFormat::Json => self
+                .parse_json(&runner, text.trim())
+                .await
+                .map_err(|e| e + &handoff_note(&run))?,
         };
         if let Some((worktree, head)) = &run.worktree {
             self.land(&position, worktree, head).await?;
@@ -193,6 +206,7 @@ impl Executor<'_> {
         position: &str,
         prompt: &str,
     ) -> Result<AgentRun, String> {
+        let _slot = self.round_slot().await?;
         let label = format!("workflow {position}");
         let Some(session) = &self.ctx().session else {
             return self.unsaved_round(runner, &label, prompt).await;
@@ -251,17 +265,29 @@ impl Executor<'_> {
         })
     }
 
-    async fn parse_json(&self, text: &str) -> Result<Value, String> {
+    /// Waits for a free subagent round slot, giving up if the workflow is cancelled meanwhile.
+    async fn round_slot(&self) -> Result<RoundSlot, String> {
+        let wait = self.subagents.wait_for_round_slot();
+        match &self.ctx().cancellation {
+            Some(cancel) => tokio::select! {
+                slot = wait => Ok(slot),
+                () = cancel.wait_cancelled() => Err(CANCELLED.to_string()),
+            },
+            None => Ok(wait.await),
+        }
+    }
+
+    async fn parse_json(&self, runner: &SubagentRunner, text: &str) -> Result<Value, String> {
         if let Some(value) = extract_json(text) {
             return Ok(value);
         }
-        self.repair_json(text)
+        self.repair_json(runner, text)
             .await
             .ok_or_else(|| "the agent did not return a JSON object".to_string())
     }
 
-    async fn repair_json(&self, text: &str) -> Option<Value> {
-        let model = self.subagents.model()?;
+    /// Asks the step's own model to restate `text` as JSON; a cancelled workflow skips the repair.
+    async fn repair_json(&self, runner: &SubagentRunner, text: &str) -> Option<Value> {
         let request = ModelCompletionRequest {
             preamble: Some(REPAIR_PREAMBLE.to_string()),
             prompt: text.to_string(),
@@ -270,7 +296,14 @@ impl Executor<'_> {
             max_tokens: None,
             temperature: Some(0.0),
         };
-        let response = model.complete(request).await.ok()?;
+        let repair = runner.model().complete(request);
+        let response = match &self.ctx().cancellation {
+            Some(cancel) => tokio::select! {
+                response = repair => response.ok()?,
+                () = cancel.wait_cancelled() => return None,
+            },
+            None => repair.await.ok()?,
+        };
         extract_json(&response.content)
     }
 }

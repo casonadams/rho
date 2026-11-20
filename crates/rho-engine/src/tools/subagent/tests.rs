@@ -792,16 +792,20 @@ fn subagents_with_their_own_worktrees_all_run_in_parallel() {
     let tool = SubagentTool::new(None, vec![named_tool("read"), named_tool("write")]).with_worktrees(
         crate::worktree::WorktreeStore::new(std::env::temp_dir().join("rho-unused")),
     );
-    let in_project = |git_status: Option<&str>| {
+    let sessions = tempfile::tempdir().unwrap();
+    let session = rho_harness_core::session::SessionManager::new(sessions.path(), None).unwrap();
+    let in_project = |git_status: Option<&str>, session: Option<rho_harness_core::session::SessionManager>| {
         let mut project = crate::engine::context::ProjectContext::for_tests(std::path::Path::new("."));
         project.git_status = git_status.map(str::to_string);
         tool.with_turn_context(&TurnToolContext {
             project: Some(Arc::new(project)),
+            session,
             ..TurnToolContext::default()
         })
     };
-    let in_git = in_project(Some("## main"));
-    let outside_git = in_project(None);
+    let in_git = in_project(Some("## main"), Some(session.clone()));
+    let outside_git = in_project(None, Some(session));
+    let unsaved = in_project(Some("## main"), None);
     let cases = [
         (json!({ "role": "general", "prompt": "p" }), true, false),
         (json!({ "task_id": "t-1", "prompt": "p" }), true, false),
@@ -811,6 +815,11 @@ fn subagents_with_their_own_worktrees_all_run_in_parallel() {
     for (args, git, plain) in cases {
         assert_eq!(in_git.concurrency_safe(&args), git, "in git: {args}");
         assert_eq!(outside_git.concurrency_safe(&args), plain, "outside git: {args}");
+        assert_eq!(
+            unsaved.concurrency_safe(&args),
+            plain,
+            "no session, so no worktree: {args}"
+        );
     }
     assert!(
         !tool.concurrency_safe(&json!({ "role": "general", "prompt": "p" })),
