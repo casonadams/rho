@@ -55,6 +55,8 @@ pub struct AgentEngine {
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
     pub(crate) subagent_runtime: crate::tools::subagent::SubagentRuntime,
     pub(crate) turn_notes: TurnNotes,
+    /// Tool-result stubs sent in the last request, replayed while the prompt cache is warm.
+    pub(crate) prune_memory: std::sync::Mutex<runner::PruneMemory>,
     pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
     /// Where subagent and workflow worktrees live; the parent is reminded to merge or discard its own.
     pub(crate) worktrees: Option<crate::worktree::WorktreeStore>,

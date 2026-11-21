@@ -48,6 +48,7 @@ pub(crate) struct FileConfig {
         alias = "default_thinking_level"
     )]
     pub thinking_level: Option<String>,
+    pub cache_retention: Option<super::app::CacheRetention>,
     pub context_injection_max_tokens: Option<usize>,
     #[serde(default, alias = "retention_days")]
     pub session_retention_days: Option<u32>,

@@ -34,7 +34,7 @@ fn tools_are_sorted_alphabetically_by_name() {
         dummy_tool("edit"),
     ];
     let req = sample_request_with_tools(tools);
-    let body = build_request_body("claude-sonnet-4-6", None, &req, ClaudeAuth::Login).unwrap();
+    let body = login_body("claude-sonnet-4-6", None, &req);
     let body_tools = body["tools"].as_array().expect("tools array present");
 
     assert_eq!(body_tools.len(), 4);
@@ -109,7 +109,7 @@ fn empty_tools_assigns_three_breakpoints_in_multi_turn() {
 #[test]
 fn login_requests_lead_with_claude_code_identity() {
     let req = sample_request_with_tools(Vec::new());
-    let body = build_request_body("claude-sonnet-4-6", None, &req, ClaudeAuth::Login).unwrap();
+    let body = login_body("claude-sonnet-4-6", None, &req);
     assert_eq!(
         body["system"][0]["text"],
         "You are Claude Code, Anthropic's official CLI for Claude."
@@ -119,9 +119,47 @@ fn login_requests_lead_with_claude_code_identity() {
 #[test]
 fn api_key_requests_omit_claude_code_identity() {
     let req = sample_request_with_tools(vec![dummy_tool("bash")]);
-    let body = build_request_body("claude-sonnet-4-6", None, &req, ClaudeAuth::ApiKey).unwrap();
+    let body = build_request_body(
+        "claude-sonnet-4-6",
+        None,
+        &req,
+        ClaudeAuth::ApiKey,
+        CacheRetention::Short,
+    )
+    .unwrap();
     assert!(!body.to_string().contains("You are Claude Code"));
     assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn cache_retention_sets_the_ttl_of_every_breakpoint() {
+    let mut req = sample_request_with_tools(vec![dummy_tool("bash")]);
+    req.prompt = String::new();
+    req.messages = vec![
+        ChatMessage::user("Turn 1 prompt"),
+        ChatMessage::assistant("Turn 1 response"),
+        ChatMessage::user("Turn 2 prompt"),
+    ];
+    let cases = [
+        (CacheRetention::Short, ClaudeAuth::Login, None),
+        (CacheRetention::Long, ClaudeAuth::ApiKey, Some("1h")),
+        (CacheRetention::Auto, ClaudeAuth::Login, Some("1h")),
+        (CacheRetention::Auto, ClaudeAuth::ApiKey, None),
+    ];
+    for (retention, auth, ttl) in cases {
+        let body = build_request_body("claude-opus-5-5", None, &req, auth, retention).unwrap();
+        assert_eq!(count_cache_breakpoints(&body), 4, "{retention} {auth:?}");
+        let controls = [
+            &body["system"].as_array().unwrap().last().unwrap()["cache_control"],
+            &body["tools"][0]["cache_control"],
+            &body["messages"][1]["content"][0]["cache_control"],
+            &body["messages"][2]["content"][0]["cache_control"],
+        ];
+        for control in controls {
+            assert_eq!(control["type"], "ephemeral", "{retention} {auth:?}");
+            assert_eq!(control.get("ttl").and_then(Value::as_str), ttl, "{retention} {auth:?}");
+        }
+    }
 }
 
 #[test]
@@ -137,7 +175,7 @@ fn empty_system_blocks_assigns_breakpoints_without_exceeding_four() {
             { "role": "user", "content": [{ "type": "text", "text": "turn 2" }] }
         ]
     });
-    mark_cache_breakpoints(&mut body);
+    mark_cache_breakpoints(&mut body, CacheRetention::Short);
 
     let total = count_cache_breakpoints(&body);
     assert_eq!(total, 3);
@@ -273,7 +311,7 @@ fn cache_breakpoints_never_mark_thinking_blocks() {
         ]
     });
 
-    mark_cache_breakpoints(&mut body);
+    mark_cache_breakpoints(&mut body, CacheRetention::Short);
 
     let assistant = &body["messages"][1]["content"];
     assert!(assistant[0].get("cache_control").is_some());

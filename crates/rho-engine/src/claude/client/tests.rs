@@ -1,6 +1,6 @@
 use super::*;
 use crate::claude::http::{ClaudeAuth, claude_headers, friendly_error};
-use crate::claude::request::{build_request_body, normalize_model_alias, resolve_thinking_budget};
+use crate::claude::request::{normalize_model_alias, resolve_thinking_budget};
 use crate::claude::test_util::{login_body, message_marks};
 use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
@@ -84,7 +84,7 @@ fn test_thinking_budget_resolution() {
 #[test]
 fn test_build_request_body_with_thinking_omits_temperature() {
     let req = sample_request();
-    let body = build_request_body("claude-sonnet-4-5", Some("medium"), &req, ClaudeAuth::Login).unwrap();
+    let body = login_body("claude-sonnet-4-5", Some("medium"), &req);
     let actual = (
         body["model"].as_str(),
         body["system"][0]["text"].as_str(),
@@ -141,7 +141,7 @@ fn request_with_tool_and_history() -> ModelCompletionRequest {
 #[test]
 fn test_build_request_body_converts_messages_and_tools() {
     let req = request_with_tool_and_history();
-    let body = build_request_body("default", None, &req, ClaudeAuth::Login).unwrap();
+    let body = login_body("default", None, &req);
     let messages = body["messages"].as_array().unwrap();
     let roles = (
         messages.len(),
@@ -167,7 +167,7 @@ fn test_build_request_body_converts_messages_and_tools() {
 #[test]
 fn test_build_request_body_marks_cache_breakpoints() {
     let req = request_with_tool_and_history();
-    let body = build_request_body("default", None, &req, ClaudeAuth::Login).unwrap();
+    let body = login_body("default", None, &req);
 
     assert!(body["system"][0].get("cache_control").is_none());
     assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
@@ -384,13 +384,13 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
     let preamble_turn1 = ctx.build_system_prompt();
     let mut req1 = sample_request();
     req1.preamble = Some(preamble_turn1.clone());
-    let body1 = build_request_body("claude-sonnet-4-5", None, &req1, ClaudeAuth::Login).unwrap();
+    let body1 = login_body("claude-sonnet-4-5", None, &req1);
 
     ctx.git_status = Some("## main...origin/main [ahead 1] | M src/lib.rs | ?? new_file.rs".to_string());
     let preamble_turn2 = ctx.build_system_prompt();
     let mut req2 = sample_request();
     req2.preamble = Some(preamble_turn2.clone());
-    let body2 = build_request_body("claude-sonnet-4-5", None, &req2, ClaudeAuth::Login).unwrap();
+    let body2 = login_body("claude-sonnet-4-5", None, &req2);
 
     assert_eq!(preamble_turn1, preamble_turn2);
     assert_eq!(body1["system"], body2["system"]);

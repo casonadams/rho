@@ -7,10 +7,15 @@ use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::presentation::presenter::Presenter;
+use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionEventKind;
 
+use super::prune::PromptCache;
 use super::runner::AgentRunner;
 use super::types::{TurnOutput, TurnRequest};
+
+/// Time allowed between deciding the cache is warm and the next request reaching the provider.
+const CACHE_EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub(super) enum PreparedTurnOutcome {
     Compacted(Box<TurnOutput>),
@@ -47,7 +52,7 @@ pub(super) struct TurnLoopState {
 
 impl AgentEngine {
     fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage], history_pruned: bool) {
-        self.run_tracker.start();
+        self.run_tracker.start(&self.config.model);
         let anchor = if !history.is_empty() && !history_pruned {
             self.usage
                 .latest()
@@ -86,18 +91,38 @@ impl AgentEngine {
         let window = self.context_limit();
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         let sizes = self.context.estimate_each_message_tokens(&raw, &self.config.model);
-        Ok(
-            match super::prune::prune_historical_tool_outputs_with_sizes(&raw, &sizes, &policy) {
-                Some(pruned) => LoadedHistory {
-                    messages: pruned,
-                    pruned: true,
-                },
-                None => LoadedHistory {
-                    messages: raw,
-                    pruned: false,
-                },
+        let cache = self.prompt_cache();
+        let pruned = self
+            .prune_memory
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .prune(&raw, &sizes, &policy, cache);
+        Ok(match pruned {
+            Some(pruned) => LoadedHistory {
+                messages: pruned,
+                pruned: true,
             },
-        )
+            None => LoadedHistory {
+                messages: raw,
+                pruned: false,
+            },
+        })
+    }
+
+    fn prompt_cache(&self) -> PromptCache {
+        let subscription = self
+            .model
+            .as_ref()
+            .is_some_and(|model| model.provider_name() == ProviderId::ClaudeCode.as_str());
+        let lifetime = self
+            .config
+            .cache_retention
+            .ttl(subscription)
+            .saturating_sub(CACHE_EXPIRY_MARGIN);
+        match self.run_tracker.last_request_started() {
+            Some(sent) if sent.elapsed() < lifetime => PromptCache::Warm,
+            _ => PromptCache::Cold,
+        }
     }
 
     pub(crate) async fn check_proactive_compaction(
@@ -336,6 +361,61 @@ mod tests {
     use crate::engine::metrics::StructuralUsage;
     use crate::engine::tracking::TurnUsage;
     use crate::provider::adapter::MockAdapter;
+
+    #[test]
+    fn prompt_cache_is_warm_only_within_the_configured_retention() {
+        use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
+        use crate::engine::runner::turn::prune::PromptCache;
+        use rho_harness_core::config::CacheRetention;
+        use std::time::{Duration, Instant};
+
+        let dir = tempfile::tempdir().unwrap();
+        let ten_minutes_ago = Instant::now().checked_sub(Duration::from_secs(600)).unwrap();
+        let cases = [
+            (CacheRetention::Short, "claude", None, PromptCache::Cold),
+            (CacheRetention::Short, "claude", Some(Instant::now()), PromptCache::Warm),
+            (
+                CacheRetention::Short,
+                "claude",
+                Some(ten_minutes_ago),
+                PromptCache::Cold,
+            ),
+            (
+                CacheRetention::Long,
+                "anthropic",
+                Some(ten_minutes_ago),
+                PromptCache::Warm,
+            ),
+            (CacheRetention::Auto, "claude", Some(ten_minutes_ago), PromptCache::Warm),
+            (
+                CacheRetention::Auto,
+                "anthropic",
+                Some(ten_minutes_ago),
+                PromptCache::Cold,
+            ),
+        ];
+        for (retention, provider, sent, expected) in cases {
+            let engine = mock_engine(
+                Arc::new(MockAdapter::new("mock-model", provider)),
+                MockEngineConfig {
+                    base_dir: dir.path(),
+                    app_config: Config {
+                        cache_retention: retention,
+                        auth_file: dir.path().join("auth.json"),
+                        ..Config::default()
+                    },
+                    session_manager: None,
+                    built_in_tools: None,
+                },
+            );
+            if let Some(sent) = sent {
+                engine
+                    .run_tracker
+                    .completion(CompletionCall::new(0, StructuralUsage::default()), sent);
+            }
+            assert_eq!(engine.prompt_cache(), expected, "{retention} {provider} {sent:?}");
+        }
+    }
 
     #[test]
     fn test_pruned_history_estimate_replaces_stale_usage_anchor() {

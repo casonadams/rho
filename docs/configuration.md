@@ -161,6 +161,10 @@ Configure model roles in `~/.config/rho/config.toml` or `.rho/config.toml` under
 # off, minimal, low, medium, high, xhigh or max; other values are rejected
 thinking_level = "high"
 
+# Claude prompt-cache lifetime: auto (default: 1 hour on `claude` subscription
+# logins, 5 minutes on `anthropic` API keys), short (5 minutes) or long (1 hour)
+cache_retention = "auto"
+
 [models]
 # Primary assistant model (<provider>/<model>)
 default = "anthropic/claude-3-7-sonnet"
@@ -174,6 +178,13 @@ smol = "ollama/qwen2.5-coder:7b"
 # Deep-reasoning model selected by `rho --slow`
 slow = "openai/o3-mini"
 ```
+
+`cache_retention` sets how long Claude (`claude` and `anthropic` providers)
+keeps each request's prompt cache. `auto` uses `long` for `claude`
+subscription logins and `short` for `anthropic` API keys. `long` writes cost
+2x base input instead of 1.25x, but a prompt sent 5 to 60 minutes after the
+last one reads the history from cache instead of writing it again. Override it
+with `rho config cache_retention short` or `long`.
 
 A spec without a `<provider>/` prefix uses the `--provider` flag when given,
 then the provider implied by the model name (`claude-*` is `anthropic`,

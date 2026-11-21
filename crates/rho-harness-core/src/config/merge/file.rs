@@ -81,15 +81,7 @@ fn merge_modes(config: &mut Config, file: &FileConfig) {
     if let Some(ref r) = file.region {
         config.region = r.clone();
     }
-    if let Some(v) = file.show_label {
-        config.show_label = v;
-    }
-    if let Some(s) = file.steering_mode {
-        config.steering_mode = s;
-    }
-    if let Some(f) = file.follow_up_mode {
-        config.follow_up_mode = f;
-    }
+    merge_copied_fields!(config, file, show_label, steering_mode, follow_up_mode, cache_retention);
 }
 
 fn merge_retention(config: &mut Config, file: &FileConfig) {

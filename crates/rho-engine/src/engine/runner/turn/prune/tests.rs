@@ -1392,6 +1392,75 @@ fn test_pruned_prefix_changes_only_at_step_boundaries() {
     );
 }
 
+fn count_prefix_rewrites(
+    turns: usize,
+    reread_first_at: Option<usize>,
+    mut send: impl FnMut(&[ChatMessage]) -> Vec<ChatMessage>,
+) -> usize {
+    let mut previous: Vec<ChatMessage> = Vec::new();
+    let mut rewrites = 0;
+    for n in 1..=turns {
+        let sent = send(&verbose_read_history(n, reread_first_at));
+        if sent[..previous.len()] != previous[..] {
+            rewrites += 1;
+        }
+        previous = sent;
+    }
+    rewrites
+}
+
+fn send_with_memory(memory: &mut PruneMemory, history: &[ChatMessage], cache: PromptCache) -> Vec<ChatMessage> {
+    let policy = cache_test_policy();
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(history, "claude-sonnet-4");
+    memory
+        .prune(history, &sizes, &policy, cache)
+        .unwrap_or_else(|| history.to_vec())
+}
+
+#[test]
+fn warm_cache_keeps_its_prefix_when_a_reread_only_relabels_an_old_stub() {
+    let policy = cache_test_policy();
+    let (turns, reread) = (50, Some(20));
+    let stateless = count_prefix_rewrites(turns, reread, |h| prune_historical_tool_outputs_with_policy(h, &policy));
+    let mut memory = PruneMemory::default();
+    let warm = count_prefix_rewrites(turns, reread, |h| send_with_memory(&mut memory, h, PromptCache::Warm));
+
+    assert!(warm < stateless, "warm rewrites {warm}, stateless rewrites {stateless}");
+    let raw = verbose_read_history(turns, reread);
+    let sent = send_with_memory(&mut memory, &raw, PromptCache::Warm);
+    let tokens = |m: &[ChatMessage]| {
+        rho_harness_core::tokens::estimate_each_message_tokens(m, "claude-sonnet-4")
+            .iter()
+            .sum::<usize>()
+    };
+    assert!(tokens(&sent) * 2 < tokens(&raw), "warm history was not pruned");
+}
+
+#[test]
+fn cold_cache_prunes_from_scratch() {
+    let policy = cache_test_policy();
+    let mut memory = PruneMemory::default();
+    for n in [20, 21, 35] {
+        let history = verbose_read_history(n, None);
+        let cold = send_with_memory(&mut memory, &history, PromptCache::Cold);
+        assert_eq!(
+            cold,
+            prune_historical_tool_outputs_with_policy(&history, &policy),
+            "{n} turns"
+        );
+    }
+}
+
+#[test]
+fn warm_cache_replays_stubs_it_sent_before() {
+    let mut memory = PruneMemory::default();
+    let first = send_with_memory(&mut memory, &verbose_read_history(30, None), PromptCache::Cold);
+    let next = send_with_memory(&mut memory, &verbose_read_history(31, None), PromptCache::Warm);
+
+    assert!(extract_tool_result_first_text(&first[2]).contains("Output pruned for historical turn."));
+    assert_eq!(next[..first.len()], first[..]);
+}
+
 #[test]
 fn test_reread_in_protected_tail_does_not_rewrite_pruned_prefix() {
     let policy = cache_test_policy();

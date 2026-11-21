@@ -5,7 +5,10 @@ use rho_harness_core::model::{
 };
 use rho_harness_core::tokens::cut_point::is_user_turn_start;
 
+mod cache;
 mod stubs;
+
+pub use cache::{PromptCache, PruneMemory};
 
 use stubs::{
     ToolCallMeta, collect_tool_calls, prune_bash_result, prune_image_tool_result, prune_mcp_result, prune_read_result,
@@ -61,6 +64,10 @@ impl PrunePolicy {
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self
+    }
+
+    fn tokenizer_model(&self) -> &str {
+        self.model.as_deref().unwrap_or("gpt-4")
     }
 }
 
@@ -290,7 +297,7 @@ pub fn prune_historical_tool_outputs_if_changed(
         return None;
     }
 
-    let model = policy.model.as_deref().unwrap_or("gpt-4");
+    let model = policy.tokenizer_model();
     let sizes = rho_harness_core::tokens::estimate_each_message_tokens(messages, model);
     prune_historical_tool_outputs_with_sizes(messages, &sizes, policy)
 }
@@ -306,7 +313,7 @@ pub fn prune_historical_tool_outputs_with_sizes(
     }
     assert_eq!(sizes.len(), messages.len(), "one size per message is required");
 
-    let model = policy.model.as_deref().unwrap_or("gpt-4");
+    let model = policy.tokenizer_model();
     let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
     let recent_cutoff_idx = find_recent_tokens_cutoff(sizes, policy.protect_recent_tokens);
     let effective_cutoff = cutoff_idx.min(recent_cutoff_idx);

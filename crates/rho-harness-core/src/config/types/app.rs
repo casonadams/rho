@@ -63,6 +63,8 @@ pub struct Config {
     pub steering_mode: crate::queue::QueueMode,
     pub follow_up_mode: crate::queue::QueueMode,
     pub thinking_level: Option<String>,
+    #[serde(default)]
+    pub cache_retention: CacheRetention,
     pub context_injection_max_tokens: usize,
     #[serde(default)]
     pub system_prompt: Option<String>,
@@ -118,6 +120,7 @@ macro_rules! default_config_literal {
             steering_mode: crate::queue::QueueMode::OneAtATime,
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
             thinking_level: None,
+            cache_retention: CacheRetention::Auto,
             context_injection_max_tokens: 4000,
             system_prompt: None,
             append_system_prompt: None,
@@ -180,6 +183,63 @@ pub enum ApprovalFocus {
 impl SubagentsConfig {
     pub fn is_empty(&self) -> bool {
         self.models.is_empty() && self.foreground_seconds.is_none() && self.approval_focus.is_none()
+    }
+}
+
+/// How long the provider keeps the prompt cache written by each request.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheRetention {
+    /// One hour on Claude subscription logins, five minutes everywhere else.
+    #[default]
+    Auto,
+    /// Five minutes: the cheapest cache write.
+    Short,
+    /// One hour: costs more to write, but survives longer pauses between prompts.
+    Long,
+}
+
+impl CacheRetention {
+    /// Resolves `Auto` for a subscription login or a pay-per-token connection.
+    pub fn resolve(self, subscription: bool) -> Self {
+        match self {
+            Self::Auto if subscription => Self::Long,
+            Self::Auto => Self::Short,
+            explicit => explicit,
+        }
+    }
+
+    /// Anthropic prompt-cache lifetimes for the default and `ttl: "1h"` breakpoints.
+    pub fn ttl(self, subscription: bool) -> std::time::Duration {
+        match self.resolve(subscription) {
+            Self::Long => std::time::Duration::from_secs(60 * 60),
+            _ => std::time::Duration::from_secs(5 * 60),
+        }
+    }
+}
+
+impl std::str::FromStr for CacheRetention {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "short" | "5m" => Ok(Self::Short),
+            "long" | "1h" => Ok(Self::Long),
+            _ => Err(format!(
+                "invalid cache retention: '{value}', expected 'auto', 'short' or 'long'"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for CacheRetention {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Auto => "auto",
+            Self::Short => "short",
+            Self::Long => "long",
+        })
     }
 }
 

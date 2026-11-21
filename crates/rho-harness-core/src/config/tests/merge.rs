@@ -29,12 +29,14 @@ fn test_default_config() {
     let cfg = Config::default();
     assert_default_limits(&cfg);
     assert_default_features(&cfg);
+    assert_eq!(cfg.cache_retention, crate::config::CacheRetention::Auto);
 }
 
 fn assert_merged_models(cfg: &Config) {
     assert_eq!(cfg.model, "gpt-4o");
     assert_eq!(cfg.session_retention_days, Some(10));
     assert_eq!(cfg.provider, "openai");
+    assert_eq!(cfg.cache_retention, crate::config::CacheRetention::Long);
 }
 
 fn assert_merged_limits(cfg: &Config) {
@@ -64,6 +66,7 @@ fn test_file_merge() {
         compaction_max_bytes: Some(4096),
         search_min_interval_ms: Some(3000),
         session_retention_days: Some(10),
+        cache_retention: Some(crate::config::CacheRetention::Long),
         ..Default::default()
     };
     merge::merge_file(&mut cfg, file_cfg);

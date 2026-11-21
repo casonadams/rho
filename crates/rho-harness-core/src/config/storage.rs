@@ -141,6 +141,7 @@ fn apply_runtime_mode_key(file_config: &mut FileConfig, key: &ConfigKey, value: 
         ConfigKey::Region => file_config.region = Some(value.to_string()),
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
+        ConfigKey::CacheRetention => file_config.cache_retention = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::ShowLabel => {
             file_config.show_label = Some(parse_bool(key.as_str(), value)?);
         }

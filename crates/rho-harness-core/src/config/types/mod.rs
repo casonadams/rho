@@ -6,8 +6,8 @@ mod paths;
 mod ui;
 
 pub use app::{
-    ApprovalFocus, Config, DEFAULT_MAX_TURNS, ModelSlot, SubagentsConfig, ToolsConfig, WebFetchConfig, WebSearchConfig,
-    WebToolsConfig,
+    ApprovalFocus, CacheRetention, Config, DEFAULT_MAX_TURNS, ModelSlot, SubagentsConfig, ToolsConfig, WebFetchConfig,
+    WebSearchConfig, WebToolsConfig,
 };
 pub use file::ModelsConfig;
 pub(crate) use file::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};

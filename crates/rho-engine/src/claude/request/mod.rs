@@ -71,6 +71,7 @@ fn sanitize_system_prompt(text: &str) -> String {
 }
 
 use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::config::CacheRetention;
 use rho_harness_core::error::AppError;
 use serde_json::{Value, json};
 
@@ -234,6 +235,7 @@ pub fn build_request_body(
     thinking_level: Option<&str>,
     request: &ModelCompletionRequest,
     auth: ClaudeAuth,
+    cache_retention: CacheRetention,
 ) -> Result<Value, AppError> {
     let normalized_model = normalize_model_alias(model);
     let thinking_budget = resolve_thinking_budget(thinking_level);
@@ -269,14 +271,11 @@ pub fn build_request_body(
             "text": sanitized,
         }));
     }
-    if let Some(last_block) = system_blocks.last_mut() {
-        last_block["cache_control"] = json!({ "type": "ephemeral" });
-    }
     if !system_blocks.is_empty() {
         body["system"] = json!(system_blocks);
     }
     attach_tools_and_choice(&mut body, request, normalized_model);
-    mark_cache_breakpoints(&mut body);
+    mark_cache_breakpoints(&mut body, cache_retention.resolve(auth == ClaudeAuth::Login));
     Ok(body)
 }
 
@@ -325,74 +324,67 @@ fn last_cacheable_part(parts: &mut [Value]) -> Option<&mut Value> {
     })
 }
 
-pub fn mark_cache_breakpoints(body: &mut Value) {
+fn cache_control(retention: CacheRetention) -> Value {
+    match retention {
+        CacheRetention::Long => json!({ "type": "ephemeral", "ttl": "1h" }),
+        CacheRetention::Auto | CacheRetention::Short => json!({ "type": "ephemeral" }),
+    }
+}
+
+fn last_cacheable_content(message: &mut Value) -> Option<&mut Value> {
+    message
+        .get_mut("content")
+        .and_then(Value::as_array_mut)
+        .and_then(|parts| last_cacheable_part(parts))
+}
+
+fn last_block<'a>(body: &'a mut Value, field: &str) -> Option<&'a mut Value> {
+    body.get_mut(field)
+        .and_then(Value::as_array_mut)
+        .and_then(|items| items.last_mut())
+}
+
+fn mark_breakpoint(target: Option<&mut Value>, control: &Value, count: &mut usize) {
+    if *count < MAX_CACHE_BREAKPOINTS
+        && let Some(target) = target
+        && target.get("cache_control").is_none()
+    {
+        target["cache_control"] = control.clone();
+        *count += 1;
+    }
+}
+
+/// Anthropic allows at most four `cache_control` breakpoints per request.
+const MAX_CACHE_BREAKPOINTS: usize = 4;
+
+pub fn mark_cache_breakpoints(body: &mut Value, retention: CacheRetention) {
+    let control = cache_control(retention);
     let mut count = count_cache_breakpoints(body);
-
-    if count < 4
-        && let Some(last_system) = body
-            .get_mut("system")
-            .and_then(Value::as_array_mut)
-            .and_then(|blocks| blocks.last_mut())
-        && last_system.get("cache_control").is_none()
-    {
-        last_system["cache_control"] = json!({ "type": "ephemeral" });
-        count += 1;
-    }
-
-    if count < 4
-        && let Some(last_tool) = body
-            .get_mut("tools")
-            .and_then(Value::as_array_mut)
-            .and_then(|tools| tools.last_mut())
-        && last_tool.get("cache_control").is_none()
-    {
-        last_tool["cache_control"] = json!({ "type": "ephemeral" });
-        count += 1;
-    }
+    mark_breakpoint(last_block(body, "system"), &control, &mut count);
+    mark_breakpoint(last_block(body, "tools"), &control, &mut count);
 
     let has_tools = body
         .get("tools")
         .and_then(Value::as_array)
-        .map(|t| !t.is_empty())
-        .unwrap_or(false);
+        .is_some_and(|tools| !tools.is_empty());
     let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
-    if messages.is_empty() {
-        return;
-    }
-
     let turn_n_start_idx = messages
         .iter()
         .rposition(|msg| msg.get("role").and_then(Value::as_str) == Some("user") && !is_tool_result_message(msg))
         .unwrap_or(0);
-
-    if turn_n_start_idx > 0
-        && count < 4
-        && let Some(checkpoint_msg) = messages.get_mut(turn_n_start_idx - 1)
-        && let Some(parts) = checkpoint_msg.get_mut("content").and_then(Value::as_array_mut)
-        && let Some(last_part) = last_cacheable_part(parts)
-        && last_part.get("cache_control").is_none()
-    {
-        last_part["cache_control"] = json!({ "type": "ephemeral" });
-        count += 1;
+    if turn_n_start_idx > 0 {
+        let checkpoint = messages.get_mut(turn_n_start_idx - 1).and_then(last_cacheable_content);
+        mark_breakpoint(checkpoint, &control, &mut count);
     }
-
-    if count < 4
-        && (!has_tools || messages.len() > 1)
-        && let Some(last_message) = messages.last_mut()
-        && let Some(parts) = last_message.get_mut("content").and_then(Value::as_array_mut)
-        && let Some(last_part) = last_cacheable_part(parts)
-        && last_part.get("cache_control").is_none()
-    {
-        last_part["cache_control"] = json!({ "type": "ephemeral" });
-        count += 1;
+    if !has_tools || messages.len() > 1 {
+        mark_breakpoint(
+            messages.last_mut().and_then(last_cacheable_content),
+            &control,
+            &mut count,
+        );
     }
-
-    debug_assert!(
-        count <= 4,
-        "Anthropic allows at most 4 cache_control breakpoints, got {count}"
-    );
 }
 
 fn system_prompt(request: &ModelCompletionRequest) -> Option<String> {

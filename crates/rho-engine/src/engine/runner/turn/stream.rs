@@ -93,7 +93,8 @@ fn record_completion_call(
     start: &mut Option<Instant>,
     total_elapsed: &mut u64,
 ) {
-    let elapsed_ms = if let Some(s) = start.take() {
+    let started = start.take();
+    let elapsed_ms = if let Some(s) = started {
         let ms = s.elapsed().as_millis().max(1) as u64;
         *total_elapsed += ms;
         ms
@@ -101,7 +102,7 @@ fn record_completion_call(
         0
     };
     usage.record_step(call.usage, elapsed_ms);
-    run_tracker.completion(call.clone());
+    run_tracker.completion(call.clone(), started.unwrap_or_else(Instant::now));
 }
 
 fn handle_completion_stream_item(

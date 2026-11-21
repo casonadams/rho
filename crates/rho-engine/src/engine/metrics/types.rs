@@ -131,27 +131,21 @@ impl StructuralUsage {
             input_tokens: self.input_tokens.saturating_add(other.input_tokens),
             output_tokens: self.output_tokens.saturating_add(other.output_tokens),
             total_tokens: self.total_tokens.saturating_add(other.total_tokens),
-            cached_input_tokens: match (self.cached_input_tokens, other.cached_input_tokens) {
-                (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                (Some(a), None) | (None, Some(a)) => Some(a),
-                (None, None) => None,
-            },
-            cache_creation_input_tokens: match (self.cache_creation_input_tokens, other.cache_creation_input_tokens) {
-                (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                (Some(a), None) | (None, Some(a)) => Some(a),
-                (None, None) => None,
-            },
-            tool_use_prompt_tokens: match (self.tool_use_prompt_tokens, other.tool_use_prompt_tokens) {
-                (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                (Some(a), None) | (None, Some(a)) => Some(a),
-                (None, None) => None,
-            },
-            reasoning_tokens: match (self.reasoning_tokens, other.reasoning_tokens) {
-                (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                (Some(a), None) | (None, Some(a)) => Some(a),
-                (None, None) => None,
-            },
+            cached_input_tokens: add_reported(self.cached_input_tokens, other.cached_input_tokens),
+            cache_creation_input_tokens: add_reported(
+                self.cache_creation_input_tokens,
+                other.cache_creation_input_tokens,
+            ),
+            tool_use_prompt_tokens: add_reported(self.tool_use_prompt_tokens, other.tool_use_prompt_tokens),
+            reasoning_tokens: add_reported(self.reasoning_tokens, other.reasoning_tokens),
         }
+    }
+}
+
+fn add_reported(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.saturating_add(b)),
+        (reported, None) | (None, reported) => reported,
     }
 }
 
@@ -194,6 +188,9 @@ pub struct ModelCallMetrics {
     pub usage: Option<StructuralUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_status: Option<String>,
+    /// Milliseconds from the start of the run to when this request was sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_ms: Option<u64>,
 }
 
 impl From<&CompletionCall> for ModelCallMetrics {
@@ -203,6 +200,7 @@ impl From<&CompletionCall> for ModelCallMetrics {
             usage_available: call.usage.is_reported(),
             usage: call.usage.is_reported().then_some(call.usage),
             finish_status: call.finish_reason.as_ref().map(finish_status),
+            started_ms: None,
         }
     }
 }
@@ -210,6 +208,8 @@ impl From<&CompletionCall> for ModelCallMetrics {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RunMetrics {
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
     pub success: bool,
     pub terminal_status: TerminalStatus,
     pub elapsed_ms: u64,
@@ -228,6 +228,9 @@ impl RunMetrics {
     pub fn normalized(mut self) -> Self {
         self.session_id = "<session>".to_string();
         self.elapsed_ms = 0;
+        for call in &mut self.completion_calls {
+            call.started_ms = None;
+        }
         self
     }
 }
@@ -249,16 +252,19 @@ pub(crate) struct ObservationMetricsInput<'a> {
 }
 
 pub(crate) fn metrics_from_observation(input: ObservationMetricsInput<'_>) -> RunMetrics {
-    let (elapsed_ms, tool_calls, tool_errors, tool_denials) = input.observation.map_or((0, 0, 0, 0), |state| {
-        (
-            state.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-            state.tool_calls,
-            state.tool_errors,
-            state.tool_denials,
-        )
-    });
+    let (elapsed_ms, model, tool_calls, tool_errors, tool_denials) =
+        input.observation.map_or((0, String::new(), 0, 0, 0), |state| {
+            (
+                state.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                state.model,
+                state.tool_calls,
+                state.tool_errors,
+                state.tool_denials,
+            )
+        });
     RunMetrics {
         session_id: input.session_id.to_string(),
+        model,
         success: input.status.is_success(),
         terminal_status: input.status,
         elapsed_ms,

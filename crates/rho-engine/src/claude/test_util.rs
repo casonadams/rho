@@ -1,10 +1,11 @@
 use super::http::ClaudeAuth;
 use super::request::build_request_body;
 use crate::provider::adapter::ModelCompletionRequest;
+use rho_harness_core::config::CacheRetention;
 use serde_json::Value;
 
 pub(crate) fn login_body(model: &str, thinking: Option<&str>, request: &ModelCompletionRequest) -> Value {
-    build_request_body(model, thinking, request, ClaudeAuth::Login).unwrap()
+    build_request_body(model, thinking, request, ClaudeAuth::Login, CacheRetention::Short).unwrap()
 }
 
 /// Whether the last content part of each message carries an ephemeral cache breakpoint.

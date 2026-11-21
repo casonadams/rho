@@ -8,25 +8,6 @@ use crate::provider::adapter::FinishReason;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::session::SessionEventKind;
 
-fn assemble_turn_output(
-    (response, completed_tools, tool_calls_count): (
-        PromptResponse,
-        &[crate::engine::runner::sink::CompletedTool],
-        usize,
-    ),
-    (usage, status, metrics): (Option<UsageDetails>, RunStatus, RunMetrics),
-) -> TurnOutput {
-    TurnOutput {
-        tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
-        requests: response.requests,
-        final_text: response.output,
-        tool_calls_count,
-        usage,
-        status,
-        metrics,
-    }
-}
-
 impl AgentEngine {
     pub async fn record_cancellation(&self, reason: &str) -> Result<()> {
         crate::tools::jobs::JobManager::global().cancel_owner(&self.session_manager.session_id);
@@ -137,10 +118,15 @@ impl AgentEngine {
             .notify_turn_end(&format!("{terminal_status:?}"), tool_calls_count)
             .await;
 
-        Ok(assemble_turn_output(
-            (response, &completed_tools, tool_calls_count),
-            (usage, status, metrics),
-        ))
+        Ok(TurnOutput {
+            tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
+            requests: response.requests,
+            final_text: response.output,
+            tool_calls_count,
+            usage,
+            status,
+            metrics,
+        })
     }
 
     pub(super) async fn compacted_turn_output(&self, status: RunStatus) -> Result<TurnOutput> {

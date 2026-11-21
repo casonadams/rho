@@ -235,6 +235,7 @@ impl AgentEngineBuilder {
             agent_monitor: self.agent_monitor,
             subagent_runtime: self.subagent_runtime,
             turn_notes: self.turn_notes,
+            prune_memory: std::sync::Mutex::default(),
             workflows: None,
             worktrees: None,
             mcp: super::EngineMcp::default(),

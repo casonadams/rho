@@ -188,7 +188,11 @@ fn claude_provider_builds_model_handle() {
         .unwrap();
     assert_eq!(handle.provider_name(), "claude");
 
-    let api_key = builders::build_api_key_model(ProviderId::Anthropic, "claude-sonnet-4-6", "k".into()).unwrap();
+    let api_key = builders::build_api_key_model(
+        &builders::test_request(ProviderId::Anthropic, "claude-sonnet-4-6"),
+        "k".into(),
+    )
+    .unwrap();
     assert_eq!(api_key.provider_name(), "anthropic");
 
     std::fs::remove_dir_all(dir).unwrap();
@@ -328,7 +332,11 @@ fn openai_client_debug_redacts_api_key_and_extra_headers() {
 
 #[test]
 fn gemini_and_chatgpt_builders_name_provider_and_model() {
-    let gemini = builders::build_api_key_model(ProviderId::Gemini, "gemini-2.5-pro", "gem-key".to_string()).unwrap();
+    let gemini = builders::build_api_key_model(
+        &builders::test_request(ProviderId::Gemini, "gemini-2.5-pro"),
+        "gem-key".to_string(),
+    )
+    .unwrap();
     assert_eq!(
         (gemini.provider_name(), gemini.model_name()),
         ("gemini", "gemini-2.5-pro")

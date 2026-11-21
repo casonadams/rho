@@ -22,6 +22,7 @@ pub(crate) enum ConfigKey {
     ReserveTokens,
     KeepRecentTokens,
     ThinkingLevel,
+    CacheRetention,
     SessionRetentionDays,
     BlockStyle,
     AgentBlockOutput,
@@ -64,6 +65,7 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
         "thinking_level",
         &["thinking", "default_thinking", "default_thinking_level"],
     ),
+    (ConfigKey::CacheRetention, "cache_retention", &[]),
     (
         ConfigKey::SessionRetentionDays,
         "session_retention_days",
@@ -133,7 +135,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 35] = [
+    const ALL_KEYS: [ConfigKey; 36] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -154,6 +156,7 @@ mod tests {
         ConfigKey::ReserveTokens,
         ConfigKey::KeepRecentTokens,
         ConfigKey::ThinkingLevel,
+        ConfigKey::CacheRetention,
         ConfigKey::SessionRetentionDays,
         ConfigKey::BlockStyle,
         ConfigKey::AgentBlockOutput,

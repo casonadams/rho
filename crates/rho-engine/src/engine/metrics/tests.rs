@@ -31,7 +31,7 @@ fn usage_records_optional_cache_and_reasoning_only_when_reported() {
 #[test]
 fn tracker_counts_tool_errors_and_denials_separately() {
     let tracker = RunTracker::default();
-    tracker.start();
+    tracker.start("model");
     tracker.tool_called();
     tracker.tool_finished("denied");
     tracker.tool_called();
@@ -45,7 +45,7 @@ fn tracker_counts_tool_errors_and_denials_separately() {
 
 fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
     let tracker = RunTracker::default();
-    tracker.start();
+    tracker.start("model");
     tracker.tool_called();
     tracker.tool_finished("success");
     tracker
@@ -77,7 +77,7 @@ fn structural_metrics_contain_no_response_or_identity_content() {
         CompletionCall::new(0, usage()).with_finish_reason(Some(FinishReason::Other)),
     ]);
     let tracker = RunTracker::default();
-    tracker.start();
+    tracker.start("model");
     let encoded = serde_json::to_string(&tracker.complete(CompletionOutcome {
         session_id: "safe-session",
         status: TerminalStatus::Completed,
@@ -88,6 +88,39 @@ fn structural_metrics_contain_no_response_or_identity_content() {
     assert!(!encoded.contains(sentinel));
     assert!(!encoded.contains("\"output\":"));
     assert!(!encoded.contains("message_id"));
+}
+
+#[test]
+fn run_summary_records_the_model_and_when_each_request_was_sent() {
+    let tracker = RunTracker::default();
+    assert_eq!(tracker.last_request_started(), None);
+    tracker.start("claude-opus-5-5");
+    let sent = std::time::Instant::now();
+    tracker.completion(CompletionCall::new(0, usage()), sent);
+
+    let metrics = tracker.terminate("session", TerminalStatus::Cancelled);
+
+    assert_eq!(metrics.model, "claude-opus-5-5");
+    assert_eq!(metrics.completion_calls.len(), 1);
+    assert!(metrics.completion_calls[0].started_ms.is_some());
+    assert_eq!(tracker.last_request_started(), Some(sent));
+}
+
+#[test]
+fn merged_usage_keeps_optional_counts_reported_by_either_side() {
+    let left = StructuralUsage {
+        cached_input_tokens: Some(3),
+        ..StructuralUsage::default()
+    };
+    let right = StructuralUsage {
+        cached_input_tokens: Some(4),
+        reasoning_tokens: Some(5),
+        ..StructuralUsage::default()
+    };
+    let merged = left.merge(&right);
+    assert_eq!(merged.cached_input_tokens, Some(7));
+    assert_eq!(merged.reasoning_tokens, Some(5));
+    assert_eq!(merged.cache_creation_input_tokens, None);
 }
 
 #[test]

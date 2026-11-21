@@ -8,6 +8,7 @@ use crate::auth::token::{StaticTokenProvider, TokenProvider};
 use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::provider::error::{HttpFailure, HttpResult};
+use rho_harness_core::config::CacheRetention;
 use rho_harness_core::provider::ProviderId;
 
 #[cfg(test)]
@@ -19,6 +20,7 @@ pub struct ClaudeClient {
     auth: ClaudeAuth,
     pub(crate) model: String,
     pub(crate) thinking_level: Option<String>,
+    pub(crate) cache_retention: CacheRetention,
     pub(crate) endpoint: Option<String>,
 }
 
@@ -60,12 +62,18 @@ impl ClaudeClient {
             auth: ClaudeAuth::Login,
             model: model.into(),
             thinking_level: None,
+            cache_retention: CacheRetention::default(),
             endpoint: None,
         }
     }
 
     pub fn with_thinking_level(mut self, level: Option<&str>) -> Self {
         self.thinking_level = level.map(String::from);
+        self
+    }
+
+    pub fn with_cache_retention(mut self, retention: CacheRetention) -> Self {
+        self.cache_retention = retention;
         self
     }
 
@@ -83,8 +91,14 @@ impl ClaudeClient {
     }
 
     async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
-        let body = build_request_body(&self.model, self.thinking_level.as_deref(), request, self.auth)
-            .map_err(|e| HttpFailure::Local(e.to_string()))?;
+        let body = build_request_body(
+            &self.model,
+            self.thinking_level.as_deref(),
+            request,
+            self.auth,
+            self.cache_retention,
+        )
+        .map_err(|e| HttpFailure::Local(e.to_string()))?;
         post_json_checked(&self.target_url(), claude_headers(self.auth, token), &body).await
     }
 

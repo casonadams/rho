@@ -66,10 +66,16 @@ pub(super) fn build_antigravity_model(request: &ModelRequest<'_>, auth_store: &A
 }
 
 pub(super) fn build_claude_code_model(request: &ModelRequest<'_>) -> ModelHandle {
-    Arc::new(
-        crate::claude::ClaudeClient::with_token_provider(stored_tokens(request), request.model)
-            .with_thinking_level(request.thinking_level),
-    )
+    Arc::new(configure_claude(
+        crate::claude::ClaudeClient::with_token_provider(stored_tokens(request), request.model),
+        request,
+    ))
+}
+
+fn configure_claude(client: crate::claude::ClaudeClient, request: &ModelRequest<'_>) -> crate::claude::ClaudeClient {
+    client
+        .with_thinking_level(request.thinking_level)
+        .with_cache_retention(request.cache_retention)
 }
 
 fn openai_model(base_url: &str, key: impl Into<String>, model: &str, provider: &str) -> ModelHandle {
@@ -107,14 +113,28 @@ pub(crate) fn openai_endpoint(provider: ProviderId) -> Option<OpenAiEndpoint> {
     Some(OpenAiEndpoint { chat, models })
 }
 
-pub(super) fn build_api_key_model(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
+pub(super) fn build_api_key_model(request: &ModelRequest<'_>, key: String) -> Result<ModelHandle> {
+    let (provider, model) = (request.provider, request.model);
     if provider == ProviderId::Anthropic {
         let model = crate::claude::request::normalize_model_alias(model);
-        return Ok(Arc::new(crate::claude::ClaudeClient::with_api_key(key, model)));
+        let client = crate::claude::ClaudeClient::with_api_key(key, model);
+        return Ok(Arc::new(configure_claude(client, request)));
     }
     let endpoint = openai_endpoint(provider)
         .ok_or_else(|| AppError::Provider(format!("Unsupported API-key provider '{provider}'")))?;
     Ok(openai_model(endpoint.chat, key, model, provider.as_str()))
+}
+
+#[cfg(test)]
+pub(super) fn test_request(provider: ProviderId, model: &'static str) -> ModelRequest<'static> {
+    ModelRequest {
+        provider,
+        connection: provider.as_str(),
+        model,
+        thinking_level: None,
+        cache_retention: rho_harness_core::config::CacheRetention::Short,
+        shared_auth: Arc::new(tokio::sync::Mutex::new(AuthStore::default())),
+    }
 }
 
 #[cfg(test)]
@@ -125,7 +145,7 @@ mod tests {
     fn every_api_key_provider_builds_and_reports_its_own_name() {
         crate::install_crypto_provider();
         for provider in ProviderId::ALL {
-            let built = build_api_key_model(provider, "m", "key".into());
+            let built = build_api_key_model(&test_request(provider, "m"), "key".into());
             if provider.api_key_env().is_some() {
                 assert_eq!(built.unwrap().provider_name(), provider.as_str());
             } else {

@@ -8,7 +8,7 @@ use super::builders::{
 use super::openai::OpenAiClient;
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
-use rho_harness_core::config::{Config, ProviderConfig};
+use rho_harness_core::config::{CacheRetention, Config, ProviderConfig};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::{ModelRoute, ProviderId};
 use std::sync::Arc;
@@ -22,6 +22,8 @@ pub(crate) struct ModelRequest<'a> {
     pub model: &'a str,
     /// rho's `thinking_level`; Antigravity uses it to pick the runtime variant.
     pub thinking_level: Option<&'a str>,
+    /// How long Claude keeps each request's prompt cache.
+    pub cache_retention: CacheRetention,
     /// The live store the built client refreshes OAuth tokens through; keys are checked against
     /// a snapshot instead, so the lock is never held while secrets resolve.
     pub shared_auth: Arc<Mutex<AuthStore>>,
@@ -68,6 +70,7 @@ impl ModelRouter {
             connection: &connection,
             model: &route.model,
             thinking_level: config.thinking_level.as_deref(),
+            cache_retention: config.cache_retention,
             shared_auth: self.auth.clone(),
         };
         build_builtin_model(&request, &auth_store)
@@ -113,11 +116,9 @@ fn build_builtin_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> Re
         | ProviderId::XAi
         | ProviderId::Mistral
         | ProviderId::Cohere
-        | ProviderId::OllamaCloud => build_api_key_model(
-            provider,
-            request.model,
-            resolve_provider_key(provider, connection, auth_store)?,
-        ),
+        | ProviderId::OllamaCloud => {
+            build_api_key_model(request, resolve_provider_key(provider, connection, auth_store)?)
+        }
     }
 }
 

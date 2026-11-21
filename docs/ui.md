@@ -144,7 +144,10 @@ background work running.
   most recent tokens (scaled to the model's context window) are never pruned.
 - **Prompt-cache stability.** The pruning boundary moves in steps rather than
   every turn, so the pruned prefix stays byte-identical between steps and
-  provider prompt caches keep hitting.
+  provider prompt caches keep hitting. While the cache from the previous
+  request is still alive (within `cache_retention`), rho resends exactly the
+  stubs it sent last time and prunes further only when the saving is at least
+  a quarter of the history it would have to re-cache.
 - **Auto-compaction.** When the history approaches the context limit minus the
   reserve (default 16,384 tokens), earlier turns are summarized. After pruning
   changes the history, the size check estimates the pruned history instead of

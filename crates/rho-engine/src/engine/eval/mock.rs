@@ -49,6 +49,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
         subagent_runtime: crate::tools::subagent::SubagentRuntime::default(),
         turn_notes: crate::engine::TurnNotes::default(),
+        prune_memory: std::sync::Mutex::default(),
         worktrees: None,
         workflows: None,
         mcp: crate::engine::EngineMcp::default(),
