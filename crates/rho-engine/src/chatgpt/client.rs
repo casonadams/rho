@@ -182,16 +182,10 @@ fn convert_chatgpt_user(content: &[rho_harness_core::model::UserContent]) -> Vec
                 }));
             }
             rho_harness_core::model::UserContent::ToolResult(r) => {
-                let mut text = String::new();
-                for c in &r.content {
-                    if let rho_harness_core::model::ToolResultContent::Text(t) = c {
-                        text.push_str(&t.text);
-                    }
-                }
                 items.push(json!({
                     "type": "function_call_output",
                     "call_id": r.call,
-                    "output": text,
+                    "output": r.text(),
                 }));
             }
             _ => {}

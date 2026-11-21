@@ -85,7 +85,7 @@ fn convert_tool_result_part(result: &rho_harness_core::model::ToolResult, call_i
             ToolResultContent::Image(img) => {
                 image_parts.push(FunctionResponsePart {
                     inline_data: Some(InlineData {
-                        mime_type: img.media_type.clone().unwrap_or_else(|| "image/png".to_string()),
+                        mime_type: img.media_type_or_png().to_string(),
                         data: img.data.clone(),
                     }),
                 });
@@ -116,7 +116,7 @@ fn convert_antigravity_user_part(part: &UserContent, call_ids: bool) -> Option<P
         }
         UserContent::Image(img) => Some(Part {
             inline_data: Some(InlineData {
-                mime_type: img.media_type.clone().unwrap_or_else(|| "image/png".to_string()),
+                mime_type: img.media_type_or_png().to_string(),
                 data: img.data.clone(),
             }),
             ..Part::default()

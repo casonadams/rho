@@ -193,6 +193,17 @@ impl ToolResult {
             content: vec![ToolResultContent::Text(TextContent::new(text))],
         }
     }
+
+    /// The concatenated text items; images and JSON items are left out.
+    pub fn text(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|item| match item {
+                ToolResultContent::Text(t) => Some(t.text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 /// Typed content item within a tool result.
@@ -289,6 +300,13 @@ pub struct ImageContent {
     pub media_type: Option<String>,
 }
 
+impl ImageContent {
+    /// The declared media type, or PNG when none was recorded.
+    pub fn media_type_or_png(&self) -> &str {
+        self.media_type.as_deref().unwrap_or("image/png")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +380,30 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: ChatMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn tool_result_text_joins_only_text_items() {
+        let mut result = ToolResult::new("call-1", "read", "alpha");
+        result.content.push(ToolResultContent::Image(ImageContent {
+            data: "AAAA".to_string(),
+            media_type: None,
+        }));
+        result.content.push(ToolResultContent::Json {
+            value: serde_json::json!({ "ignored": true }),
+        });
+        result.content.push(ToolResultContent::Text(TextContent::new("beta")));
+
+        assert_eq!(result.text(), "alphabeta");
+    }
+
+    #[test]
+    fn image_media_type_defaults_to_png() {
+        let image = |media_type: Option<&str>| ImageContent {
+            data: String::new(),
+            media_type: media_type.map(str::to_string),
+        };
+        assert_eq!(image(None).media_type_or_png(), "image/png");
+        assert_eq!(image(Some("image/jpeg")).media_type_or_png(), "image/jpeg");
     }
 }

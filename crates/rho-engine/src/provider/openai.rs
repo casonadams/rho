@@ -5,7 +5,7 @@
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use rho_harness_core::error::AppError;
-use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResultContent, UserContent};
+use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -77,16 +77,6 @@ impl OpenAiClient {
     }
 }
 
-fn convert_tool_result_content(content: &[ToolResultContent]) -> String {
-    let mut text = String::new();
-    for c in content {
-        if let ToolResultContent::Text(t) = c {
-            text.push_str(&t.text);
-        }
-    }
-    text
-}
-
 fn convert_openai_user(content: &[UserContent]) -> Value {
     let mut parts = Vec::new();
     for part in content {
@@ -95,7 +85,7 @@ fn convert_openai_user(content: &[UserContent]) -> Value {
                 parts.push(json!({ "type": "text", "text": t.text }));
             }
             UserContent::Image(img) => {
-                let mime = img.media_type.as_deref().unwrap_or("image/png");
+                let mime = img.media_type_or_png();
                 let data_url = format!("data:{mime};base64,{}", img.data);
                 parts.push(json!({
                     "type": "image_url",
@@ -103,7 +93,7 @@ fn convert_openai_user(content: &[UserContent]) -> Value {
                 }));
             }
             UserContent::ToolResult(res) => {
-                let text = convert_tool_result_content(&res.content);
+                let text = res.text();
                 return json!({
                     "role": "tool",
                     "tool_call_id": res.call,

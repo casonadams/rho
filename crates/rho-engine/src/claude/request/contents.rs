@@ -1,9 +1,7 @@
 //! Content and message conversions for Claude Messages API requests.
 
 use crate::provider::adapter::ModelCompletionRequest;
-use rho_harness_core::model::{
-    AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, ToolResultContent, UserContent,
-};
+use rho_harness_core::model::{AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, UserContent};
 use serde_json::{Value, json};
 
 fn convert_user_part(part: &UserContent) -> Option<Value> {
@@ -17,19 +15,11 @@ fn convert_user_part(part: &UserContent) -> Option<Value> {
             }
         }
         UserContent::Image(img) => Some(image_json(img)),
-        UserContent::ToolResult(result) => {
-            let mut text = String::new();
-            for c in &result.content {
-                if let ToolResultContent::Text(t) = c {
-                    text.push_str(&t.text);
-                }
-            }
-            Some(json!({
-                "type": "tool_result",
-                "tool_use_id": result.call,
-                "content": text,
-            }))
-        }
+        UserContent::ToolResult(result) => Some(json!({
+            "type": "tool_result",
+            "tool_use_id": result.call,
+            "content": result.text(),
+        })),
     }
 }
 
@@ -125,7 +115,7 @@ fn append_turn(turns: &mut Vec<(String, Vec<Value>)>, role: &str, mut parts: Vec
 }
 
 fn image_json(image: &ImageContent) -> Value {
-    let media_type = image.media_type.as_deref().unwrap_or("image/png");
+    let media_type = image.media_type_or_png();
     json!({
         "type": "image",
         "source": {
