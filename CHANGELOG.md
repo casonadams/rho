@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.15.0](https://github.com/casonadams/rho/compare/v0.14.0...v0.15.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **models:** models-store.json is no longer read or written, there is no built-in default model, and `--provider X` without `--model` no longer picks a hardcoded model for X.
+
+### Features
+
+* **auth:** stay logged in to several accounts per provider ([c467d13](https://github.com/casonadams/rho/commit/c467d13c748c862b394bddde6faceba97149679a))
+* **models:** fetch model lists and context windows live from providers ([650ce71](https://github.com/casonadams/rho/commit/650ce71a7898678f4f79fcd64ad6ad654e970c8b))
+* **tools:** page rg and fd results and group their output ([a3e7cb4](https://github.com/casonadams/rho/commit/a3e7cb42e4569176840924f0302118e2aaee7140))
+
+
+### Bug Fixes
+
+* **hooks:** keep bash timeout and background in the rtk rewrite ([da6de09](https://github.com/casonadams/rho/commit/da6de0924c1111578fdd071d8352b3a3a61ae439))
+* **provider:** report canonical provider names from every client ([bd655aa](https://github.com/casonadams/rho/commit/bd655aaebc40b1a97424f1fcf9711d9bfbfa1eb3))
+* **quota:** fetch quota for every token and inject quota endpoints ([cf2e2bb](https://github.com/casonadams/rho/commit/cf2e2bbbf4fdf4cb8b0d6ed8ff642a98eb43847b))
+* **repl:** leave the model unselected instead of opening the selector on startup ([2a55899](https://github.com/casonadams/rho/commit/2a558994fb4b719636b5b93cbb27bd89f3fd841d))
+* **repl:** save role models through ModelRoute ([34c29d8](https://github.com/casonadams/rho/commit/34c29d86fcf3f07dd27e0f9995a960e22f5d9bc2))
+* **repl:** standardize model names on provider/model across selectors ([9386f8b](https://github.com/casonadams/rho/commit/9386f8be30c4c52e90d8f0b520fc6aee9b971318))
+* **tools:** drop the fd search root from listings and shrink rg/fd pages to 20KB ([f640a39](https://github.com/casonadams/rho/commit/f640a393443f404274edbd58c042cd6857c37896))
+* **tools:** stop repeating fd directory headers and drop rg/fd artifact spills ([22c433a](https://github.com/casonadams/rho/commit/22c433a6926b9286aa8be5498ee69fbdc05b33e6))
+* **usage:** report input tokens without cached tokens from every adapter ([28cb937](https://github.com/casonadams/rho/commit/28cb9378c232ad567758784572250c65f6e0d60b))
+
 ## [0.14.0](https://github.com/casonadams/rho/compare/v0.13.3...v0.14.0) (2026-11-20)
 
 
