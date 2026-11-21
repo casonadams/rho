@@ -5,20 +5,14 @@ use super::*;
 use tempfile::TempDir;
 
 pub(crate) fn fixture() -> TempDir {
-    let dir = TempDir::new().unwrap();
-    std::fs::create_dir_all(dir.path().join("src/ui")).unwrap();
-    std::fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").unwrap();
-    std::fs::write(dir.path().join("src/lib.rs"), "pub mod ui;\n").unwrap();
-    std::fs::write(
-        dir.path().join("src/ui/widget.rs"),
+    use crate::test_support::write_file;
+    let dir = crate::test_support::sample_search_tree();
+    write_file(
+        &dir.path().join("src/ui/widget.rs"),
         "pub struct Widget;\npub enum Kind { A, B }\n",
-    )
-    .unwrap();
-    std::fs::write(dir.path().join("README.md"), "# Fixture\ntodo list\npub markdown\n").unwrap();
-    std::fs::write(dir.path().join("notes.txt"), "secret notes\n").unwrap();
-    std::fs::write(dir.path().join(".hidden_file"), "hidden todo\n").unwrap();
-    std::fs::write(dir.path().join(".gitignore"), "notes.txt\n").unwrap();
-    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    );
+    write_file(&dir.path().join("README.md"), "# Fixture\ntodo list\npub markdown\n");
+    write_file(&dir.path().join(".hidden_file"), "hidden todo\n");
     dir
 }
 

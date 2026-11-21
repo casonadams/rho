@@ -192,9 +192,7 @@ mod tests {
     fn workspace(files: &[&str]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         for file in files {
-            let path = dir.path().join(file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, "").unwrap();
+            crate::test_support::write_file(&dir.path().join(file), "");
         }
         dir
     }

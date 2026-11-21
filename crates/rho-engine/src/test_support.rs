@@ -147,3 +147,17 @@ impl crate::auth::token::TokenProvider for ScriptedTokenProvider {
         self.refresh.clone()
     }
 }
+
+pub(crate) fn sample_search_tree() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_file(&root.join("src/main.rs"), "fn main() {}\n");
+    write_file(&root.join("src/lib.rs"), "pub mod ui;\n");
+    write_file(&root.join("src/ui/widget.rs"), "pub struct Widget;\n");
+    write_file(&root.join("README.md"), "# Fixture\n");
+    write_file(&root.join("notes.txt"), "secret notes\n");
+    write_file(&root.join(".hidden_file"), "x\n");
+    write_file(&root.join(".gitignore"), "notes.txt\n");
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    dir
+}

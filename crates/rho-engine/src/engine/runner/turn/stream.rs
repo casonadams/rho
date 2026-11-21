@@ -334,46 +334,8 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::engine::eval::presenter::NoopPresenter;
     use crate::provider::adapter::MockAdapter;
-    use async_trait::async_trait;
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct TestPresenter {
-        notices: Mutex<Vec<String>>,
-    }
-
-    #[async_trait]
-    impl Presenter for TestPresenter {
-        fn write_output(&self, _text: &str) {}
-        fn print_welcome(&self, _display: &rho_harness_core::presentation::WelcomeDisplay) {}
-        fn print_session_status(&self, _display: &rho_harness_core::presentation::SessionStatus) {}
-        fn print_notice(&self, text: &str) {
-            self.notices.lock().unwrap().push(text.to_string());
-        }
-        fn print_user_block(&self, _input: &str) {}
-        fn print_token(&self, _token: &str) {}
-        fn print_thinking_token(&self, _token: &str) {}
-        fn finish_tool_line(&self, _line: rho_harness_core::presentation::ToolLine) {}
-        fn flush(&self) {}
-        fn has_interactive_ui(&self) -> bool {
-            false
-        }
-        fn start_spinner(&self, _message: &str) -> rho_harness_core::presentation::activity::ActivityToken {
-            rho_harness_core::presentation::activity::ActivityToken::default()
-        }
-        fn start_tool_spinner(
-            &self,
-            _name: &str,
-            _arguments: &serde_json::Value,
-        ) -> rho_harness_core::presentation::activity::ActivityToken {
-            rho_harness_core::presentation::activity::ActivityToken::default()
-        }
-        fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
-        fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
-            rho_harness_core::presentation::ToolStreamPort::default()
-        }
-    }
 
     #[tokio::test]
     async fn fatal_stream_errors_are_recorded_with_their_cause() {
@@ -387,7 +349,7 @@ mod tests {
                 built_in_tools: None,
             },
         );
-        let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
+        let presenter: Arc<dyn Presenter> = Arc::new(NoopPresenter);
         let sink = engine.create_approval_sink(&presenter);
         let mut loop_state = TurnLoopState {
             visible_history: Vec::new(),
