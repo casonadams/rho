@@ -141,50 +141,98 @@ pub fn canonical_provider(name: &str) -> String {
     ProviderId::from_str(name).map_or_else(|_| name.trim().to_ascii_lowercase(), |id| id.as_str().to_string())
 }
 
-/// A provider plus that provider's own model id, rendered as `provider/model`.
+/// One login to a provider: `provider` (its default login) or `provider:account` (the lowercased
+/// email for subscriptions). The rendering is the login's auth-store key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Connection {
+    pub provider: String,
+    pub account: Option<String>,
+}
+
+impl Connection {
+    pub fn parse(connection: &str) -> Self {
+        let (provider, account) = match connection.split_once(':') {
+            Some((provider, account)) => (provider, Some(account)),
+            None => (connection, None),
+        };
+        Self {
+            provider: canonical_provider(provider),
+            account: account.map(|a| a.trim().to_ascii_lowercase()).filter(|a| !a.is_empty()),
+        }
+    }
+
+    /// An additional account login to a builtin provider.
+    pub fn account(provider: ProviderId, account: &str) -> Self {
+        Self::parse(&format!("{provider}:{account}"))
+    }
+
+    /// `None` for custom providers.
+    pub fn provider_id(&self) -> Option<ProviderId> {
+        ProviderId::from_str(&self.provider).ok()
+    }
+}
+
+impl fmt::Display for Connection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.account {
+            Some(account) => write!(formatter, "{}:{account}", self.provider),
+            None => formatter.write_str(&self.provider),
+        }
+    }
+}
+
+/// A provider login plus that provider's own model id, rendered as `connection/model`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelRoute {
-    pub provider: String,
+    pub connection: Connection,
     pub model: String,
 }
 
 impl ModelRoute {
-    /// Pairs an already chosen provider with a model id, dropping a redundant `provider/` prefix.
-    pub fn new(provider: &str, model: &str) -> Self {
-        let provider = canonical_provider(provider);
+    /// Pairs an already chosen connection with a model id, dropping a redundant `connection/` prefix.
+    pub fn new(connection: &str, model: &str) -> Self {
+        let connection = Connection::parse(connection);
         let model = model.trim();
         let model = match model.split_once('/') {
-            Some((prefix, bare)) if canonical_provider(prefix) == provider => bare.trim(),
+            Some((prefix, bare)) if Connection::parse(prefix) == connection => bare.trim(),
             _ => model,
         };
         Self {
-            provider,
+            connection,
             model: model.to_string(),
         }
     }
 
-    /// Resolves a user-entered spec: its `provider/` prefix, else `explicit`, else the provider
-    /// inferred from the model name, else `fallback`.
+    /// Resolves a user-entered spec: its `connection/` prefix, else `explicit`, else the provider
+    /// inferred from the model name, else `fallback`. An inferred provider keeps `fallback`'s
+    /// account when both name the same provider.
     pub fn parse(spec: &str, explicit: Option<&str>, fallback: &str) -> Self {
         let spec = spec.trim().trim_start_matches('/');
-        if let Some((provider, model)) = spec.split_once('/') {
+        if let Some((connection, model)) = spec.split_once('/') {
             return Self {
-                provider: canonical_provider(provider),
+                connection: Connection::parse(connection),
                 model: model.trim().to_string(),
             };
         }
-        let provider = explicit
-            .map(str::trim)
-            .filter(|p| !p.is_empty())
-            .or_else(|| infer_provider_for_model(spec))
-            .unwrap_or(fallback);
-        Self::new(provider, spec)
+        if let Some(explicit) = explicit.map(str::trim).filter(|p| !p.is_empty()) {
+            return Self::new(explicit, spec);
+        }
+        let fallback = Connection::parse(fallback);
+        let connection = match infer_provider_for_model(spec) {
+            Some(inferred) if canonical_provider(inferred) != fallback.provider => Connection::parse(inferred),
+            _ => fallback,
+        };
+        Self::new(&connection.to_string(), spec)
+    }
+
+    pub fn provider(&self) -> &str {
+        &self.connection.provider
     }
 }
 
 impl fmt::Display for ModelRoute {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}/{}", self.provider, self.model)
+        write!(formatter, "{}/{}", self.connection, self.model)
     }
 }
 

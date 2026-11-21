@@ -1,5 +1,6 @@
 use super::types::{CommandResult, SlashCommandContext};
 use rho_harness_core::error::Result;
+use rho_harness_core::provider::ModelRoute;
 
 pub(crate) fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     match parts.get(1) {
@@ -19,11 +20,6 @@ pub(crate) fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str])
             }
         }
     }
-}
-
-pub(crate) fn resolve_model_spec(parts: &[&str], current_provider: &str) -> (String, String) {
-    let route = rho_harness_core::provider::ModelRoute::parse(parts[1], parts.get(2).copied(), current_provider);
-    (route.provider, route.model)
 }
 
 fn parse_model_choice(choice: &str) -> (&str, &str) {
@@ -63,7 +59,7 @@ pub(crate) fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) ->
         .engine
         .map(|engine| engine.model_catalog().clone())
         .unwrap_or_default();
-    let discovered = crate::repl::interactive::discover_models(ctx.config, &catalog);
+    let discovered = crate::repl::interactive::discover_models(ctx.config, &catalog, &ctx.auth_store.stored_logins());
     let models: Vec<String> = discovered
         .iter()
         .map(|m| format!("{} ({}) - {}", m.id, m.provider, m.description))
@@ -82,15 +78,14 @@ pub(crate) fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) ->
 }
 
 pub(crate) fn handle_model(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
-    if parts.len() > 1 {
-        let (provider, model) = resolve_model_spec(parts, &ctx.config.provider);
-        ctx.config.provider = provider.clone();
-        ctx.config.model = model.clone();
+    if let Some(spec) = parts.get(1) {
+        let route = ModelRoute::parse(spec, parts.get(2).copied(), &ctx.config.provider);
+        ctx.config.set_route(route);
         ctx.renderer
             .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
         return Ok(Some(CommandResult::ModelChanged {
-            new_model: model,
-            new_provider: Some(provider),
+            new_model: ctx.config.model.clone(),
+            new_provider: Some(ctx.config.provider.clone()),
         }));
     }
     if ctx.renderer.has_interactive_ui() {

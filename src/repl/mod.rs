@@ -81,7 +81,16 @@ impl ReplSession {
     }
 
     pub(crate) fn model_list(&self) -> crate::repl::interactive::ModelList {
-        crate::repl::interactive::ModelList::live(self.config.clone(), self.catalog.clone())
+        crate::repl::interactive::ModelList::live(
+            self.config.clone(),
+            self.catalog.clone(),
+            self.auth_store.stored_logins(),
+        )
+    }
+
+    /// Every model the session can switch to right now, across all logins.
+    pub(crate) fn listed_models(&self) -> Vec<crate::repl::interactive::ModelItem> {
+        crate::repl::interactive::discover_models(&self.config, &self.catalog, &self.auth_store.stored_logins())
     }
 
     /// Retained so /reload can re-apply CLI overrides after re-reading config.

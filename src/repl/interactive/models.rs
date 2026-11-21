@@ -4,6 +4,7 @@ use super::completion::ModelItem;
 use rho_engine::provider::discovery::{DiscoveredModel, format_context_tokens, sort_models_newest_first};
 use rho_engine::provider::{ModelCatalog, ProviderModels};
 use rho_harness_core::config::Config;
+use rho_harness_core::provider::Connection;
 use std::sync::Arc;
 
 fn push_unique(models: &mut Vec<ModelItem>, item: ModelItem) {
@@ -15,26 +16,42 @@ fn push_unique(models: &mut Vec<ModelItem>, item: ModelItem) {
 fn active_model_item(config: &Config, catalog: &ModelCatalog) -> ModelItem {
     let route = config.route();
     let window = catalog
-        .context_tokens(&route.provider, &route.model)
+        .context_tokens(route.provider(), &route.model)
         .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&route.model));
     ModelItem {
-        id: route.model,
-        provider: route.provider,
+        id: route.model.clone(),
+        provider: route.connection.to_string(),
         description: format!("{} · active", format_context_tokens(window)),
     }
 }
 
-fn listed_item(provider: &str, model: DiscoveredModel) -> ModelItem {
+fn listed_item(connection: &str, model: &DiscoveredModel) -> ModelItem {
     ModelItem {
-        id: model.id,
-        provider: provider.to_string(),
-        description: model.description,
+        id: model.id.clone(),
+        provider: connection.to_string(),
+        description: model.description.clone(),
     }
 }
 
+/// The logins `provider`'s models are offered under: each stored account login, plus the bare
+/// provider unless it is reachable only through accounts (no default login stored).
+fn connections_of(provider: &str, logins: &[Connection]) -> Vec<String> {
+    let stored: Vec<&Connection> = logins.iter().filter(|login| login.provider == provider).collect();
+    let only_accounts = !stored.is_empty() && stored.iter().all(|login| login.account.is_some());
+    let bare = (!only_accounts).then(|| provider.to_string());
+    bare.into_iter()
+        .chain(
+            stored
+                .iter()
+                .filter(|login| login.account.is_some())
+                .map(ToString::to_string),
+        )
+        .collect()
+}
+
 /// Active model first (when one is selected), then every model the providers listed: local Ollama,
-/// then the rest by name.
-pub fn discover_models(config: &Config, catalog: &ModelCatalog) -> Vec<ModelItem> {
+/// then the rest by name. Each listed model is offered once per login to its provider.
+pub fn discover_models(config: &Config, catalog: &ModelCatalog, logins: &[Connection]) -> Vec<ModelItem> {
     let mut models = Vec::new();
     if !config.model.trim().is_empty() {
         models.push(active_model_item(config, catalog));
@@ -43,8 +60,11 @@ pub fn discover_models(config: &Config, catalog: &ModelCatalog) -> Vec<ModelItem
     providers.sort_by_key(|(name, _)| name != "local");
     for (provider, state) in providers {
         if let ProviderModels::Ready(listed) = state {
-            for model in sort_models_newest_first(listed) {
-                push_unique(&mut models, listed_item(&provider, model));
+            let listed = sort_models_newest_first(listed);
+            for connection in connections_of(&provider, logins) {
+                for model in &listed {
+                    push_unique(&mut models, listed_item(&connection, model));
+                }
             }
         }
     }
@@ -54,7 +74,7 @@ pub fn discover_models(config: &Config, catalog: &ModelCatalog) -> Vec<ModelItem
 /// One line describing providers still fetching or that failed; empty when every list is in.
 /// A missing local Ollama only matters when it is the active provider.
 pub fn catalog_status(config: &Config, catalog: &ModelCatalog) -> String {
-    let local_active = config.route().provider == "local";
+    let local_active = config.route().provider() == "local";
     let mut loading = Vec::new();
     let mut failed = Vec::new();
     for (provider, state) in catalog.snapshot() {
@@ -84,8 +104,8 @@ impl ModelList {
         Self(Arc::new(move || models.clone()))
     }
 
-    pub fn live(config: Config, catalog: ModelCatalog) -> Self {
-        Self(Arc::new(move || discover_models(&config, &catalog)))
+    pub fn live(config: Config, catalog: ModelCatalog, logins: Vec<Connection>) -> Self {
+        Self(Arc::new(move || discover_models(&config, &catalog, &logins)))
     }
 
     pub fn items(&self) -> Vec<ModelItem> {
@@ -154,7 +174,7 @@ mod tests {
         catalog.set("chatgpt", ProviderModels::Loading);
         catalog.set("gemini", ProviderModels::Failed("HTTP 401".into()));
 
-        let models = discover_models(&config("claude", "claude-opus-5"), &catalog);
+        let models = discover_models(&config("claude", "claude-opus-5"), &catalog, &[]);
         assert_eq!(
             summarize(&models),
             vec![
@@ -166,18 +186,37 @@ mod tests {
     }
 
     #[test]
+    fn each_login_offers_its_providers_models() {
+        let catalog = ModelCatalog::default();
+        catalog.set("claude", ProviderModels::Ready(vec![listed("claude-opus-5", None)]));
+        catalog.set("chatgpt", ProviderModels::Ready(vec![listed("gpt-6", None)]));
+        let both = ["claude", "claude:me@work.com"].map(Connection::parse);
+        let work_only = [Connection::parse("claude:me@work.com")];
+        let cases: [(&[Connection], Vec<&str>); 2] = [
+            (&both, vec!["claude:me@work.com", "chatgpt", "claude"]),
+            (&work_only, vec!["claude:me@work.com", "chatgpt"]),
+        ];
+        for (logins, expected) in cases {
+            let models = discover_models(&config("claude:me@work.com", "claude-opus-5"), &catalog, logins);
+            let providers: Vec<&str> = models.iter().map(|m| m.provider.as_str()).collect();
+            assert_eq!(providers, expected, "{logins:?}");
+            assert_eq!(models[0].canonical_id(), "claude:me@work.com/claude-opus-5");
+        }
+    }
+
+    #[test]
     fn active_model_without_a_listed_window_shows_the_estimate() {
-        let models = discover_models(&config("openai", "gpt-4o"), &ModelCatalog::default());
+        let models = discover_models(&config("openai", "gpt-4o"), &ModelCatalog::default(), &[]);
         assert_eq!(summarize(&models), vec![("gpt-4o", "openai", "128k ctx · active")]);
     }
 
     #[test]
     fn no_selected_model_lists_only_provider_models() {
         let catalog = ModelCatalog::default();
-        assert!(discover_models(&Config::default(), &catalog).is_empty());
+        assert!(discover_models(&Config::default(), &catalog, &[]).is_empty());
         catalog.set("local", ProviderModels::Ready(vec![listed("qwen:7b", None)]));
         assert_eq!(
-            summarize(&discover_models(&Config::default(), &catalog)),
+            summarize(&discover_models(&Config::default(), &catalog, &[])),
             vec![("qwen:7b", "local", "")]
         );
     }
@@ -200,7 +239,7 @@ mod tests {
     #[test]
     fn live_model_list_reflects_catalog_changes() {
         let catalog = ModelCatalog::default();
-        let list = ModelList::live(config("claude", "claude-opus-5"), catalog.clone());
+        let list = ModelList::live(config("claude", "claude-opus-5"), catalog.clone(), Vec::new());
         assert_eq!(list.items().len(), 1);
         catalog.set("claude", ProviderModels::Ready(vec![listed("claude-sonnet-5", None)]));
         assert_eq!(list.items().len(), 2);

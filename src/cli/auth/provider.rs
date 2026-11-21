@@ -1,8 +1,7 @@
 use crate::config::Config;
 use crate::error::Result;
-use rho_harness_core::provider::ProviderId;
+use rho_harness_core::provider::Connection;
 use std::io::IsTerminal;
-use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMethod {
@@ -135,8 +134,5 @@ pub fn prompt_auth_method(provider_label: &str) -> Result<AuthMethod> {
 }
 
 pub fn resolve_provider_name(requested: Option<&str>, configured: &str) -> String {
-    let requested = requested.unwrap_or(configured).trim().to_ascii_lowercase();
-    ProviderId::from_str(&requested)
-        .map(|id| id.as_str().to_string())
-        .unwrap_or(requested)
+    Connection::parse(requested.unwrap_or(configured)).to_string()
 }

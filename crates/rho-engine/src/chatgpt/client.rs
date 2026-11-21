@@ -1,10 +1,8 @@
 //! ChatGPT (Codex) Responses API client implementation.
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
-use crate::auth::store::AuthStore;
-use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
+use crate::auth::token::{StaticTokenProvider, TokenProvider};
 use crate::http::post_json_checked;
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
 use crate::provider::error::{HttpFailure, HttpResult};
@@ -50,10 +48,6 @@ impl ChatGptClient {
             account_id: None,
             endpoint: None,
         }
-    }
-
-    pub fn with_auth_store(store: Arc<Mutex<AuthStore>>, model: impl Into<String>) -> Self {
-        Self::with_token_provider(Arc::new(AuthStoreTokenProvider::new(store, "chatgpt")), model)
     }
 
     pub fn with_account_id(mut self, account_id: Option<String>) -> Self {
@@ -486,12 +480,8 @@ mod tests {
     }
 
     #[test]
-    fn auth_store_constructor_targets_default_endpoint() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = Arc::new(tokio::sync::Mutex::new(
-            crate::auth::store::AuthStore::load(temp.path().join("auth.json")).unwrap(),
-        ));
-        let client = ChatGptClient::with_auth_store(store, "gpt-5.4");
+    fn default_endpoint_is_the_codex_responses_api() {
+        let client = ChatGptClient::with_token_provider(Arc::new(StaticTokenProvider::new("t")), "gpt-5.4");
         assert_eq!(client.target_url(), format!("{DEFAULT_ENDPOINT}{RESPONSES_PATH}"));
     }
 

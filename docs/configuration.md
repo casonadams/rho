@@ -30,6 +30,22 @@ inference:
 `OLLAMA_HOST` follows Ollama's own rules: a bare `host` or `host:port` uses
 plain HTTP and port 11434, and `0.0.0.0` connects through loopback.
 
+### Multiple Accounts
+
+You can stay logged in to several accounts of one subscription provider, such
+as a personal and a work Claude plan. Run `rho login claude` again and sign in
+with the other account: the first login stays the default `claude`, and the new
+one is saved as `claude:<email>`. Logging in again with an account you already
+added refreshes that login instead of adding a duplicate.
+
+- Select a model from a specific account with `claude:me@work.com/<model>` in
+  `/model`, `--model`, or `[models]`; `claude/<model>` uses the default login.
+- The model selector lists every model once per account, and the login
+  selector shows the email of each signed-in account.
+- The footer names the account in use (long emails are shortened, keeping the
+  domain), and quota is tracked per account.
+- `rho logout claude:me@work.com` removes one account.
+
 ### Model Lists
 
 rho has no built-in model list. Each session it fetches, in the background and
@@ -163,7 +179,8 @@ then the provider implied by the model name (`claude-*` is `anthropic`,
 `gpt-*` is `openai`, `gemini-*` is `gemini`, ...), then the current
 provider (`local` at startup). Everything after the first `/` is the
 provider's model id, so OpenRouter ids keep their vendor segment:
-`openrouter/anthropic/claude-3.7-sonnet`.
+`openrouter/anthropic/claude-3.7-sonnet`. The prefix may name an account,
+`claude:me@work.com/<model>` (see [Multiple Accounts](#multiple-accounts)).
 
 ### Dedicated Guard Model
 

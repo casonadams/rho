@@ -84,7 +84,7 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
     ctx: &mut TurnInputContext<'_, B>,
     direction: i32,
 ) -> Result<()> {
-    let models = crate::repl::interactive::discover_models(&ctx.session.config, &ctx.session.catalog);
+    let models = ctx.session.listed_models();
     if models.is_empty() {
         return Ok(());
     }

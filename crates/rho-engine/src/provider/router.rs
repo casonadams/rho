@@ -11,16 +11,19 @@ use crate::engine::compactor::llm::ModelHandle;
 use rho_harness_core::config::{Config, ProviderConfig};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::{ModelRoute, ProviderId};
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// The facts needed to construct one builtin provider's model handle.
 pub(crate) struct ModelRequest<'a> {
     pub provider: ProviderId,
+    /// The auth-store key of the login to use: `provider` or `provider:account`.
+    pub connection: &'a str,
     pub model: &'a str,
     /// rho's `thinking_level`; Antigravity uses it to pick the runtime variant.
     pub thinking_level: Option<&'a str>,
+    /// The live store the built client refreshes OAuth tokens through; keys are checked against
+    /// a snapshot instead, so the lock is never held while secrets resolve.
     pub shared_auth: Arc<Mutex<AuthStore>>,
 }
 
@@ -55,12 +58,14 @@ impl ModelRouter {
     /// Must not be called from an async task.
     pub fn build_blocking(&self, config: &Config, route: &ModelRoute) -> Result<ModelHandle> {
         let auth_store = self.auth.blocking_lock().clone();
-        let Ok(provider) = ProviderId::from_str(&route.provider) else {
+        let Some(provider) = route.connection.provider_id() else {
             return build_custom_model(config, route, &auth_store);
         };
         crate::install_crypto_provider();
+        let connection = route.connection.to_string();
         let request = ModelRequest {
             provider,
+            connection: &connection,
             model: &route.model,
             thinking_level: config.thinking_level.as_deref(),
             shared_auth: self.auth.clone(),
@@ -87,24 +92,37 @@ pub fn guard_route(config: &Config) -> Option<ModelRoute> {
 }
 
 fn build_builtin_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
-    let provider = request.provider;
+    let (provider, connection) = (request.provider, request.connection);
     match provider {
         ProviderId::Local => build_local_ollama_model(request.model),
         ProviderId::Antigravity => Ok(build_antigravity_model(request, auth_store)),
         ProviderId::ClaudeCode => {
-            resolve_provider_key(provider, auth_store)?;
+            resolve_provider_key(provider, connection, auth_store)?;
             Ok(build_claude_code_model(request))
         }
         ProviderId::ChatGpt => {
-            resolve_provider_key(provider, auth_store)?;
+            resolve_provider_key(provider, connection, auth_store)?;
             Ok(build_chatgpt_model(request, auth_store))
         }
-        _ => build_api_key_model(provider, request.model, resolve_provider_key(provider, auth_store)?),
+        ProviderId::Anthropic
+        | ProviderId::OpenAi
+        | ProviderId::OpenRouter
+        | ProviderId::Gemini
+        | ProviderId::Groq
+        | ProviderId::DeepSeek
+        | ProviderId::XAi
+        | ProviderId::Mistral
+        | ProviderId::Cohere
+        | ProviderId::OllamaCloud => build_api_key_model(
+            provider,
+            request.model,
+            resolve_provider_key(provider, connection, auth_store)?,
+        ),
     }
 }
 
 fn build_custom_model(config: &Config, route: &ModelRoute, auth_store: &AuthStore) -> Result<ModelHandle> {
-    let name = route.provider.as_str();
+    let name = route.provider();
     let spec = config.providers.get(name).ok_or_else(|| {
         AppError::Provider(format!(
             "Unknown provider '{name}'. Configure it in config.toml as\n\
@@ -113,7 +131,7 @@ fn build_custom_model(config: &Config, route: &ModelRoute, auth_store: &AuthStor
         ))
     })?;
     validate_custom_provider_url(name, &spec.base_url, config.allow_private_network)?;
-    let key = custom_key(name, spec, auth_store)?.ok_or_else(|| {
+    let key = custom_key(&route.connection.to_string(), spec, auth_store)?.ok_or_else(|| {
         AppError::Auth(format!(
             "Missing API key for provider '{name}'. Set {} or run 'rho login {name}'.",
             spec.key_env.as_deref().unwrap_or("its API key env var"),

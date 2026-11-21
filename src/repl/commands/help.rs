@@ -1,11 +1,9 @@
 use std::fmt::Write as _;
-use std::str::FromStr;
 
 use super::types::SlashCommandContext;
 use crate::config::Config;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::footer::format_tokens;
-use rho_harness_core::provider::ProviderId;
 
 const HELP_REFERENCE: &str = "\nCommands\n\
   /help                       Show this reference\n\
@@ -45,8 +43,8 @@ const HELP_REFERENCE: &str = "\nCommands\n\
 
 fn append_session_help(output: &mut String, config: &Config) {
     let _ = writeln!(output, "  Model                       {}", config.model);
-    if let Ok(provider) = ProviderId::from_str(&config.provider) {
-        let _ = writeln!(output, "  Provider                    {provider}");
+    if let Some(provider) = config.route().connection.provider_id() {
+        let _ = writeln!(output, "  Provider                    {}", config.provider);
         let _ = writeln!(output, "  Auth mode                   {}", provider.auth_mode_label());
     } else {
         let _ = writeln!(output, "  Provider                    {}", config.provider);

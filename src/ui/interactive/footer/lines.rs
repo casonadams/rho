@@ -126,12 +126,30 @@ pub(crate) fn format_model_details(footer: &FooterState) -> String {
         };
     }
 
-    let route = rho_harness_core::provider::ModelRoute::new(&footer.provider, &footer.model);
-    if route.provider.is_empty() {
+    let mut route = rho_harness_core::provider::ModelRoute::new(&footer.provider, &footer.model);
+    route.connection.account = route.connection.account.as_deref().map(shorten_account);
+    if route.provider().is_empty() {
         format!("{}/{thinking}", route.model)
     } else {
         format!("{route}/{thinking}")
     }
+}
+
+const MAX_ACCOUNT_CHARS: usize = 24;
+
+/// Keeps an account's domain, which tells same-name accounts apart, and shortens the name before it.
+fn shorten_account(account: &str) -> String {
+    if account.chars().count() <= MAX_ACCOUNT_CHARS {
+        return account.to_string();
+    }
+    let (name, domain) = account.split_once('@').unwrap_or((account, ""));
+    let room = MAX_ACCOUNT_CHARS.saturating_sub(domain.chars().count() + 2);
+    if room == 0 {
+        let kept: String = account.chars().take(MAX_ACCOUNT_CHARS - 1).collect();
+        return format!("{kept}…");
+    }
+    let kept: String = name.chars().take(room).collect();
+    format!("{kept}…@{domain}")
 }
 
 pub fn format_stats_line(footer: &FooterState, width: usize) -> String {

@@ -8,21 +8,28 @@ use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcResponse};
 
 pub(crate) async fn handle_oauth_login_result(
-    provider: String,
+    provider: rho_harness_core::provider::ProviderId,
     result: Result<StoredCredential>,
     auth_store: &Arc<tokio::sync::RwLock<crate::auth::AuthStore>>,
     event_tx: &tokio::sync::mpsc::UnboundedSender<RpcEvent>,
 ) {
     let saved = match result {
-        Ok(cred) => auth_store.write().await.set_credential_async(&provider, cred).await,
+        Ok(cred) => {
+            let mut store = auth_store.write().await;
+            let login = store.login_key(provider, &cred);
+            store
+                .set_credential_async(&login.to_string(), cred)
+                .await
+                .map(|()| login)
+        }
         Err(e) => Err(e),
     };
-    let (success, error) = match saved {
-        Ok(()) => (true, None),
-        Err(e) => (false, Some(e.to_string())),
+    let (login, success, error) = match saved {
+        Ok(login) => (login.to_string(), true, None),
+        Err(e) => (provider.as_str().to_string(), false, Some(e.to_string())),
     };
     let _ = event_tx.send(RpcEvent::AuthComplete {
-        provider,
+        provider: login,
         success,
         error,
     });
@@ -46,11 +53,10 @@ pub(crate) async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let callbacks = ctx.auth_bridge.callbacks(&provider_str, ctx.event_tx.clone());
     let auth_store = Arc::clone(&ctx.auth_store);
     let event_tx = ctx.event_tx.clone();
-    let prov = provider_str.clone();
 
     tokio::spawn(async move {
         let result = rho_engine::auth::perform_oauth_login(provider_id, &callbacks).await;
-        handle_oauth_login_result(prov, result, &auth_store, &event_tx).await;
+        handle_oauth_login_result(provider_id, result, &auth_store, &event_tx).await;
     });
 
     ctx.writer
@@ -173,7 +179,13 @@ mod tests {
             let auth_store = Arc::new(RwLock::new(store));
             let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
-            handle_oauth_login_result("test_prov".to_string(), result(), &auth_store, &event_tx).await;
+            handle_oauth_login_result(
+                rho_harness_core::provider::ProviderId::ChatGpt,
+                result(),
+                &auth_store,
+                &event_tx,
+            )
+            .await;
 
             let RpcEvent::AuthComplete {
                 provider,
@@ -183,7 +195,7 @@ mod tests {
             else {
                 panic!("{name}: expected AuthComplete");
             };
-            assert_eq!(provider, "test_prov", "{name}");
+            assert_eq!(provider, "chatgpt", "{name}");
             assert_eq!(success, expected_error.is_none(), "{name}");
             match expected_error {
                 Some(needle) => assert!(error.unwrap().contains(needle), "{name}"),

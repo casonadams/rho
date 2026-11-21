@@ -18,8 +18,7 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::{AppError, Result};
 use rho_engine::auth::perform_oauth_login;
-use rho_harness_core::provider::ProviderId;
-use std::str::FromStr;
+use rho_harness_core::provider::{Connection, ProviderId};
 
 fn provider_login_name(id: ProviderId) -> &'static str {
     match id {
@@ -34,12 +33,16 @@ fn provider_login_name(id: ProviderId) -> &'static str {
 async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let callbacks = TerminalOAuthCallbacks;
     let cred = perform_oauth_login(id, &callbacks).await?;
-    auth_store.set_credential(id.as_str(), cred)?;
+    let login = auth_store.login_key(id, &cred);
+    auth_store.set_credential(&login.to_string(), cred)?;
     println!(
-        "Logged in to {}. Credentials saved to {}",
+        "Logged in to {} as {login}. Credentials saved to {}",
         provider_login_name(id),
         config.auth_file.display()
     );
+    if login.account.is_some() {
+        println!("Saved as an additional account; select its models as {login}/<model>.");
+    }
     Ok(())
 }
 
@@ -138,7 +141,7 @@ pub async fn login_provider(
         return Ok(());
     }
     if !key_stdin
-        && let Ok(id) = ProviderId::from_str(&target)
+        && let Some(id) = Connection::parse(&target).provider_id()
         && try_oauth_login(id, method, config, auth_store).await?
     {
         return Ok(());

@@ -1,16 +1,16 @@
 use super::super::Config;
 use crate::config::cli::Cli;
-use crate::provider::{ModelRoute, canonical_provider};
+use crate::provider::{Connection, ModelRoute};
 
 pub(super) fn resolve_model_with_provider(config: &mut Config, model_spec: &str, provider_flag: Option<&str>) {
     let route = ModelRoute::parse(model_spec, provider_flag, "local");
     if let Some(flag) = provider_flag.filter(|p| !p.trim().is_empty())
-        && canonical_provider(flag) != route.provider
+        && Connection::parse(flag) != route.connection
     {
         let warning = format!(
             "Warning: Provider '{}' overridden by provider in model spec '{}'.",
             flag.trim(),
-            route.provider
+            route.connection
         );
         eprintln!("{warning}");
         config.migration_warnings.push(warning);

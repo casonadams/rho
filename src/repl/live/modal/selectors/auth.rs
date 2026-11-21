@@ -4,6 +4,7 @@ use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use rho_harness_core::provider::Connection;
 
 const PROVIDER_DEFS: &[(&str, &str)] = &[
     ("antigravity", "Google Cloud Code Assist (OAuth)"),
@@ -22,7 +23,8 @@ const PROVIDER_DEFS: &[(&str, &str)] = &[
 ];
 
 fn format_provider_option(id: &str, desc: &str, configured: &[String]) -> ModalOption {
-    super::marked_option(id, desc, configured.iter().any(|p| p.eq_ignore_ascii_case(id)))
+    let logged_in = configured.iter().any(|p| Connection::parse(p).provider == id);
+    super::marked_option(id, desc, logged_in)
 }
 
 fn append_custom_providers(options: &mut Vec<ModalOption>, session: &ReplSession, configured: &[String]) {
@@ -37,16 +39,35 @@ fn append_custom_providers(options: &mut Vec<ModalOption>, session: &ReplSession
     }
 }
 
+/// Subscription logins show each signed-in account so you can tell them apart.
+fn login_description(session: &ReplSession, id: &str, desc: &str) -> String {
+    let Ok(provider) = id.parse::<rho_harness_core::provider::ProviderId>() else {
+        return desc.to_string();
+    };
+    let logins = session.auth_store.logins(provider);
+    let emails: Vec<&str> = logins.iter().filter_map(|login| login.email.as_deref()).collect();
+    if emails.is_empty() {
+        desc.to_string()
+    } else {
+        format!("{desc} · {}", emails.join(", "))
+    }
+}
+
 fn build_login_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
     let configured = session.auth_store.list_configured_providers();
+    let active_provider = session.config.route().connection.provider;
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
     for (i, &(id, desc)) in PROVIDER_DEFS.iter().enumerate() {
-        if id.eq_ignore_ascii_case(&session.config.provider) {
+        if id == active_provider {
             initial_selection = i;
         }
-        options.push(format_provider_option(id, desc, &configured));
+        options.push(format_provider_option(
+            id,
+            &login_description(session, id, desc),
+            &configured,
+        ));
     }
 
     append_custom_providers(&mut options, session, &configured);

@@ -187,6 +187,30 @@ fn format_model_details_formats_provider_model_and_thinking() {
 }
 
 #[test]
+fn model_details_name_the_account_and_shorten_long_ones() {
+    let cases = [
+        ("claude:me@work.com", "claude:me@work.com/opus/high"),
+        (
+            "claude:cason.adams.long@company.com",
+            "claude:cason.adams…@company.com/opus/high",
+        ),
+        (
+            "claude:x@very-long-subsidiary-name.example.com",
+            "claude:x@very-long-subsidiary-…/opus/high",
+        ),
+    ];
+    for (provider, expected) in cases {
+        let footer = FooterState {
+            provider: provider.into(),
+            model: "opus".into(),
+            thinking_level: Some("high".into()),
+            ..FooterState::default()
+        };
+        assert_eq!(format_model_details(&footer), expected);
+    }
+}
+
+#[test]
 fn format_percent_value_formats_whole_number() {
     assert_eq!(format_percent_value(30.9), "30%");
     assert_eq!(format_percent_value(0.0), "0%");

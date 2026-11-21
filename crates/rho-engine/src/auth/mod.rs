@@ -13,7 +13,7 @@ pub(crate) mod token_request;
 pub use loopback::{CallbackParams, LoopbackServer};
 pub use oauth::{perform_oauth_login, refresh_oauth_token};
 pub use pkce::{PkceChallenge, generate_state};
-pub use store::AuthStore;
+pub use store::{AuthStore, Login};
 pub use token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 
 #[cfg(test)]

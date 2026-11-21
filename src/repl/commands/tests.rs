@@ -222,19 +222,38 @@ async fn mcp_and_logout_commands_dispatch_by_renderer_mode() {
 
 #[tokio::test]
 async fn model_switch_is_emitted_and_updates_configuration() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mut context = test_context(&mut config, &mut auth, &renderer);
+    let cases = [
+        ("/model gpt-4o openai", "", "gpt-4o", "openai"),
+        (
+            "/model claude:me@work.com/claude-opus-5",
+            "claude",
+            "claude-opus-5",
+            "claude:me@work.com",
+        ),
+        ("/model gpt-4o", "openai:me@work.com", "gpt-4o", "openai:me@work.com"),
+    ];
+    for (input, current, model, provider) in cases {
+        let mut config = Config {
+            provider: current.to_string(),
+            ..Config::default()
+        };
+        let mut auth = AuthStore::default();
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = test_context(&mut config, &mut auth, &renderer);
 
-    let result = SlashCommandHandler::handle("/model gpt-4o openai", &mut context)
-        .await
-        .unwrap();
+        let result = SlashCommandHandler::handle(input, &mut context).await.unwrap();
 
-    assert!(matches!(result, Some(CommandResult::ModelChanged { .. })));
-    assert_eq!(config.model, "gpt-4o");
-    assert_eq!(config.provider, "openai");
-    assert!(collected_output(&mut events).contains("Model: gpt-4o (openai)"));
+        assert_eq!(
+            result,
+            Some(CommandResult::ModelChanged {
+                new_model: model.to_string(),
+                new_provider: Some(provider.to_string()),
+            }),
+            "{input}"
+        );
+        assert_eq!((config.model.as_str(), config.provider.as_str()), (model, provider));
+        assert!(collected_output(&mut events).contains(&format!("Model: {model} ({provider})")));
+    }
 }
 
 #[tokio::test]

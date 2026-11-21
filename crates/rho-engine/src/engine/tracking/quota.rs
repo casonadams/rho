@@ -5,16 +5,17 @@ use std::time::{Duration, Instant};
 const ROUTINE_FETCH_COOLDOWN: Duration = Duration::from_secs(30);
 const IN_FLIGHT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// One login's quota, optionally for one model; `connection` is the login's auth-store key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QuotaKey {
-    pub provider: String,
+    pub connection: String,
     pub model: Option<String>,
 }
 
 impl QuotaKey {
-    pub fn new(provider: impl Into<String>, model: Option<impl Into<String>>) -> Self {
+    pub fn new(connection: impl Into<String>, model: Option<impl Into<String>>) -> Self {
         Self {
-            provider: provider.into(),
+            connection: connection.into(),
             model: model.map(Into::into),
         }
     }
@@ -130,7 +131,7 @@ impl QuotaTracker {
         let entries = self.entries.lock().ok()?;
         entries.get(key).and_then(|e| e.display.clone()).or_else(|| {
             key.model.as_ref()?;
-            let fallback = QuotaKey::new(&key.provider, None::<String>);
+            let fallback = QuotaKey::new(&key.connection, None::<String>);
             entries.get(&fallback).and_then(|e| e.display.clone())
         })
     }

@@ -53,7 +53,8 @@ impl AgentEngine {
     /// right after a turn; the OpenAI-compatible API cannot request a window size.
     pub(crate) fn spawn_local_context_probe(&self) {
         let route = self.config.route();
-        if self.model.is_none() || route.provider != ProviderId::Local.as_str() || self.config.context_limit.is_some() {
+        if self.model.is_none() || route.provider() != ProviderId::Local.as_str() || self.config.context_limit.is_some()
+        {
             return;
         }
         let probe = LocalContextProbe {
@@ -78,7 +79,7 @@ impl LocalContextProbe {
         match crate::ollama::local::loaded_context_length(&self.host, &self.route.model).await {
             Ok(Some(tokens)) => {
                 self.catalog
-                    .record_observed_context(&self.route.provider, &self.route.model, tokens);
+                    .record_observed_context(self.route.provider(), &self.route.model, tokens);
                 self.context.set_probe_error(None);
             }
             Ok(None) => self.context.set_probe_error(None),

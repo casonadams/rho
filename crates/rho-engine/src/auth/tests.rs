@@ -40,6 +40,60 @@ fn store_with(provider: &str, credential: StoredCredential) -> (tempfile::TempDi
     (dir, store)
 }
 
+fn login_as(email: Option<&str>) -> StoredCredential {
+    StoredCredential::OAuth {
+        access_token: "tok".to_string(),
+        refresh_token: None,
+        expires_at_ms: None,
+        account_id: None,
+        account_email: email.map(str::to_string),
+    }
+}
+
+#[test]
+fn new_logins_keep_existing_accounts_and_reuse_their_keys() {
+    use rho_harness_core::provider::ProviderId::ClaudeCode;
+    let key = |store: &AuthStore, email| store.login_key(ClaudeCode, &login_as(email)).to_string();
+    let (_dir, mut store) = crate::test_support::temp_auth_store();
+    assert_eq!(key(&store, Some("me@home.com")), "claude");
+    store.set_credential("claude", login_as(Some("me@home.com"))).unwrap();
+
+    let cases = [
+        (Some("me@home.com"), "claude"),
+        (Some("Me@Work.com"), "claude:me@work.com"),
+        (None, "claude"),
+    ];
+    for (email, expected) in cases {
+        assert_eq!(key(&store, email), expected, "{email:?}");
+    }
+
+    store
+        .set_credential("claude:me@work.com", login_as(Some("me@work.com")))
+        .unwrap();
+    store.set_key("chatgpt", "k").unwrap();
+    let logins: Vec<(String, Option<String>)> = store
+        .logins(ClaudeCode)
+        .into_iter()
+        .map(|login| (login.connection.to_string(), login.email))
+        .collect();
+    assert_eq!(
+        logins,
+        vec![
+            ("claude".to_string(), Some("me@home.com".to_string())),
+            ("claude:me@work.com".to_string(), Some("me@work.com".to_string())),
+        ]
+    );
+    assert_eq!(key(&store, Some("me@work.com")), "claude:me@work.com");
+    assert_eq!(
+        store
+            .stored_logins()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["chatgpt", "claude", "claude:me@work.com"]
+    );
+}
+
 #[tokio::test]
 async fn env_references_in_api_keys_are_expanded() {
     unsafe { std::env::set_var("RHO_ENV_TEST_KEY", "env_secret_123") };
@@ -62,6 +116,11 @@ async fn force_refresh_returns_api_keys_and_rejects_oauth_without_refresh_token(
             StoredCredential::oauth("stale_token", None, Some(1799999999000)),
             None,
         ),
+        (
+            "claude:me@work.com",
+            StoredCredential::oauth("stale_token", None, Some(1_000)),
+            None,
+        ),
     ];
     for (provider, credential, expected_key) in cases {
         let (_file, mut store) = store_with(provider, credential);
@@ -70,7 +129,10 @@ async fn force_refresh_returns_api_keys_and_rejects_oauth_without_refresh_token(
             Some(key) => assert_eq!(result.unwrap().as_deref(), Some(key)),
             None => {
                 let message = result.unwrap_err().to_string();
-                assert!(message.contains("No refresh token") || message.contains("expired"));
+                assert!(
+                    message.contains("No refresh token") || message.contains("expired"),
+                    "{provider}: {message}"
+                );
             }
         }
     }

@@ -1,5 +1,6 @@
 use super::router::ModelRequest;
 use crate::auth::AuthStore;
+use crate::auth::token::{AuthStoreTokenProvider, TokenProvider};
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::quota_refresh::stored_oauth_account_id;
 use crate::provider::openai::OpenAiClient;
@@ -27,43 +28,49 @@ pub(super) fn build_local_ollama_model(model: &str) -> Result<ModelHandle> {
     ))
 }
 
-pub(super) fn resolve_provider_key(provider: ProviderId, auth_store: &AuthStore) -> Result<String> {
-    auth_store.get_key_sync(provider.as_str())?.ok_or_else(|| {
+pub(super) fn resolve_provider_key(provider: ProviderId, connection: &str, auth_store: &AuthStore) -> Result<String> {
+    auth_store.get_key_sync(connection)?.ok_or_else(|| {
         AppError::Auth(format!(
-            "Missing API key for provider '{}'. Run 'rho login {}' or set {}.",
-            provider.as_str(),
+            "Missing API key for provider '{connection}'. Run 'rho login {}' or set {}.",
             provider.as_str(),
             provider.api_key_env().unwrap_or("API key")
         ))
     })
 }
 
+fn stored_tokens(request: &ModelRequest<'_>) -> Arc<dyn TokenProvider> {
+    Arc::new(AuthStoreTokenProvider::new(
+        request.shared_auth.clone(),
+        request.connection,
+    ))
+}
+
 pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
-    let account_id = stored_oauth_account_id(auth_store.get_credential("chatgpt")).or_else(|| {
+    let account_id = stored_oauth_account_id(auth_store.get_credential(request.connection)).or_else(|| {
         auth_store
-            .get_key_sync("chatgpt")
+            .get_key_sync(request.connection)
             .ok()
             .flatten()
             .and_then(|k| crate::auth::oauth::extract_chatgpt_account_id(&k))
     });
     Arc::new(
-        crate::chatgpt::ChatGptClient::with_auth_store(request.shared_auth.clone(), request.model)
+        crate::chatgpt::ChatGptClient::with_token_provider(stored_tokens(request), request.model)
             .with_account_id(account_id),
     )
 }
 
 pub(super) fn build_antigravity_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
-    let project_id = stored_oauth_account_id(auth_store.get_credential("antigravity"))
+    let project_id = stored_oauth_account_id(auth_store.get_credential(request.connection))
         .unwrap_or_else(|| crate::auth::antigravity::stable_project_id("antigravity-default"));
     Arc::new(
-        crate::antigravity::AntigravityClient::with_auth_store(request.shared_auth.clone(), project_id, request.model)
+        crate::antigravity::AntigravityClient::with_token_provider(stored_tokens(request), project_id, request.model)
             .with_effort(request.thinking_level),
     )
 }
 
 pub(super) fn build_claude_code_model(request: &ModelRequest<'_>) -> ModelHandle {
     Arc::new(
-        crate::claude::ClaudeClient::with_auth_store(request.shared_auth.clone(), request.model)
+        crate::claude::ClaudeClient::with_token_provider(stored_tokens(request), request.model)
             .with_thinking_level(request.thinking_level),
     )
 }

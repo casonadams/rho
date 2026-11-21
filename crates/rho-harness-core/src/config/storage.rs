@@ -22,12 +22,10 @@ impl super::Config {
     pub async fn save_default_model_async(config_dir: &Path, model: &str, provider: &str) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
-        let spec = if model.contains('/') {
+        let spec = if provider.trim().is_empty() {
             model.to_string()
-        } else if !provider.is_empty() {
-            format!("{provider}/{model}")
         } else {
-            model.to_string()
+            crate::provider::ModelRoute::new(provider, model).to_string()
         };
         file_config.models.default = Some(spec);
         write_file_config_async(&path, &file_config).await

@@ -32,10 +32,10 @@ impl ContextTracker {
         if let Some(limit) = self.configured_limit {
             return (limit, ContextLimitSource::Configured);
         }
-        match catalog.context_tokens(&route.provider, &route.model) {
+        match catalog.context_tokens(route.provider(), &route.model) {
             Some(limit) => (limit, ContextLimitSource::Provider),
             None => (
-                rho_harness_core::tokens::context_window_size_for_provider(&route.model, &route.provider),
+                rho_harness_core::tokens::context_window_size_for_provider(&route.model, route.provider()),
                 ContextLimitSource::Estimated,
             ),
         }

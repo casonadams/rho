@@ -43,7 +43,7 @@ pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller
 }
 
 fn model_selector_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
-    let discovered = crate::repl::interactive::discover_models(&session.config, &session.catalog);
+    let discovered = session.listed_models();
     let active_spec = session.config.canonical_model_spec();
     let selected = discovered
         .iter()
@@ -78,7 +78,7 @@ fn role_selector_options(
     role_name: &str,
     current_model: Option<&str>,
 ) -> (Vec<ModalOption>, usize) {
-    let discovered = crate::repl::interactive::discover_models(&session.config, &session.catalog);
+    let discovered = session.listed_models();
     let none_mark = if current_model.is_none() { "✓" } else { "" };
     let mut options = vec![ModalOption::new(
         "None",
@@ -163,7 +163,7 @@ fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>
     }
     let described = opt.description.as_deref().and_then(|d| d.split('\t').next());
     let route = rho_harness_core::provider::ModelRoute::parse(&label, None, described.unwrap_or("anthropic"));
-    Some((label, route.provider))
+    Some((label, route.connection.to_string()))
 }
 
 fn pop_and_select_model<B: TerminalBackend>(

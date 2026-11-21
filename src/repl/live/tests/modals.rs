@@ -686,6 +686,40 @@ fn login_selector_marks_configured_providers_with_check() {
 }
 
 #[test]
+fn login_selector_lists_each_signed_in_account() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    for (key, email) in [("claude", "me@home.com"), ("claude:me@work.com", "me@work.com")] {
+        let login = rho_harness_core::auth::StoredCredential::OAuth {
+            access_token: "tok".into(),
+            refresh_token: None,
+            expires_at_ms: None,
+            account_id: None,
+            account_email: Some(email.into()),
+        };
+        auth_store.set_credential(key, login).unwrap();
+    }
+    let config = Config {
+        provider: "claude:me@work.com".to_string(),
+        ..Default::default()
+    };
+    let session = ReplSession::new(config, auth_store, None);
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    open_login_selector(&session, &mut controller);
+
+    let modal = controller.state().active_modal().unwrap();
+    let claude = &modal.options[modal.selected];
+    assert_eq!(claude.label.trim(), "claude");
+    assert!(
+        claude
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("· me@home.com, me@work.com")
+    );
+}
+
+#[test]
 fn login_selector_initial_selection_matches_active_provider() {
     let (controller, _temp) = setup_login_controller("claude");
     let modal = controller.state().active_modal().unwrap();
@@ -1241,7 +1275,7 @@ fn test_repl_model_selection_format() {
                 "selected model must be in <provider>/<model> format: {model}"
             );
             let route = rho_harness_core::provider::ModelRoute::parse(&model, None, "");
-            assert_eq!(route.provider, provider);
+            assert_eq!(route.provider(), provider);
             assert!(!save_as_default);
         }
         other => panic!("expected ModelSelected, got {other:?}"),

@@ -3,8 +3,6 @@
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::config::cli::Commands;
-use rho_harness_core::provider::ProviderId;
-use std::str::FromStr;
 
 async fn handle_update_command(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     super::self_update::handle_self_update(config).await?;
@@ -55,9 +53,9 @@ pub async fn handle_command(
 }
 
 pub(crate) fn format_config_summary(config: &Config) -> Vec<String> {
-    let provider_label = match ProviderId::from_str(&config.provider) {
-        Ok(provider) => format!("Provider: {provider} ({})", provider.auth_mode_label()),
-        Err(_) => format!("Provider: {} (custom)", config.provider),
+    let provider_label = match config.route().connection.provider_id() {
+        Some(provider) => format!("Provider: {} ({})", config.provider, provider.auth_mode_label()),
+        None => format!("Provider: {} (custom)", config.provider),
     };
     vec![
         format!("Config location: {}", config.config_dir.display()),

@@ -106,7 +106,8 @@ pub(crate) async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let mut cfg = ctx.config.write().await;
-    let route = rho_harness_core::provider::ModelRoute::parse(&model, provider.as_deref(), &cfg.route().provider);
+    let current = cfg.route().connection.to_string();
+    let route = rho_harness_core::provider::ModelRoute::parse(&model, provider.as_deref(), &current);
     cfg.set_route(route);
     let auth = ctx.auth_store.read().await.clone();
     let mut eng = ctx.engine.write().await;

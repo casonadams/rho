@@ -14,7 +14,7 @@ macro_rules! merge_copied_fields {
 fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref default_spec) = file.models.default {
         let route = crate::provider::ModelRoute::parse(default_spec, None, "local");
-        config.default_provider = Some(route.provider.clone());
+        config.default_provider = Some(route.connection.to_string());
         config.set_route(route);
         config.default_model = Some(default_spec.clone());
     }

@@ -87,9 +87,9 @@ fn infer_provider_for_model_resolves_common_prefixes() {
     assert_provider("unknown-model", None);
 }
 
-fn route(provider: &str, model: &str) -> ModelRoute {
+fn route(connection: &str, model: &str) -> ModelRoute {
     ModelRoute {
-        provider: provider.to_string(),
+        connection: Connection::parse(connection),
         model: model.to_string(),
     }
 }
@@ -127,6 +127,28 @@ fn parse_prefers_prefix_then_explicit_then_inferred_then_fallback() {
         ),
         (("/qwen", None, "local"), route("local", "qwen")),
         (("", None, "local"), route("local", "")),
+        (
+            ("claude:Me@Work.com/opus", None, "local"),
+            route("claude:me@work.com", "opus"),
+        ),
+        (
+            ("claude-code:me@work.com/opus", None, "local"),
+            route("claude:me@work.com", "opus"),
+        ),
+        (("claude:/opus", None, "local"), route("claude", "opus")),
+        (
+            ("opus", None, "claude:me@work.com"),
+            route("claude:me@work.com", "opus"),
+        ),
+        (
+            ("local/qwen2.5-coder:7b", None, "claude:me@work.com"),
+            route("local", "qwen2.5-coder:7b"),
+        ),
+        (
+            ("gpt-4o", None, "openai:me@work.com"),
+            route("openai:me@work.com", "gpt-4o"),
+        ),
+        (("gpt-4o", None, "claude:me@work.com"), route("openai", "gpt-4o")),
     ];
     for ((spec, explicit, fallback), expected) in cases {
         assert_eq!(ModelRoute::parse(spec, explicit, fallback), expected, "{spec}");
@@ -147,8 +169,44 @@ fn new_keeps_slashed_ids_and_drops_only_a_matching_prefix() {
         (("chatgpt", "chatgpt/gpt-6-sol"), "chatgpt/gpt-6-sol"),
         (("claude-code", "claude/opus"), "claude/opus"),
         (("ollama", " qwen "), "local/qwen"),
+        (("claude:me@work.com", "opus"), "claude:me@work.com/opus"),
+        (
+            ("claude:me@work.com", "claude:me@work.com/opus"),
+            "claude:me@work.com/opus",
+        ),
+        (("claude:me@work.com", "claude/opus"), "claude:me@work.com/claude/opus"),
     ];
     for ((provider, model), expected) in cases {
         assert_eq!(ModelRoute::new(provider, model).to_string(), expected);
     }
+}
+
+#[test]
+fn connection_is_the_auth_key_of_one_login() {
+    let cases = [
+        ("claude", ("claude", None), "claude"),
+        ("claude-code", ("claude", None), "claude"),
+        (
+            "claude:Me@Work.com",
+            ("claude", Some("me@work.com")),
+            "claude:me@work.com",
+        ),
+        (" chatgpt: ", ("chatgpt", None), "chatgpt"),
+        ("acme:team", ("acme", Some("team")), "acme:team"),
+    ];
+    for (input, (provider, account), key) in cases {
+        let connection = Connection::parse(input);
+        assert_eq!(
+            (connection.provider.as_str(), connection.account.as_deref()),
+            (provider, account),
+            "{input}"
+        );
+        assert_eq!(connection.to_string(), key);
+        assert_eq!(ModelRoute::new(input, "m").connection, connection);
+    }
+    assert_eq!(
+        Connection::account(ProviderId::ClaudeCode, "Me@Work.com").to_string(),
+        "claude:me@work.com"
+    );
+    assert_eq!(Connection::parse("acme").provider_id(), None);
 }

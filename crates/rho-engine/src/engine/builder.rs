@@ -113,7 +113,7 @@ fn subagent_model_resolver(router: &ModelRouter, config: &Config) -> crate::tool
     let router = router.clone();
     let config = config.clone();
     Arc::new(move |spec: &str| {
-        let route = ModelRoute::parse(spec, None, &config.route().provider);
+        let route = ModelRoute::parse(spec, None, &config.route().connection.to_string());
         router.build_blocking(&config, &route).map_err(|e| e.to_string())
     })
 }

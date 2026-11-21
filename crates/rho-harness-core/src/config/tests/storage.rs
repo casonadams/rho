@@ -126,32 +126,46 @@ fn test_cli_overrides_config_file() {
 
 #[tokio::test]
 async fn test_save_default_model_persists_both_fields() {
-    let dir = std::env::temp_dir().join(format!("rho_save_default_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    Config::save_default_model_async(&dir, "saved-model", "saved-provider")
-        .await
-        .unwrap();
-
-    let config = load_config_with_rho_home(&dir);
-    let actual = (
-        config.model.as_str(),
-        config.provider.as_str(),
-        config.default_model.as_deref(),
-        config.default_provider.as_deref(),
-    );
-    assert_eq!(
-        actual,
+    let cases = [
+        (("saved-model", "saved-provider"), ("saved-model", "saved-provider")),
         (
-            "saved-model",
-            "saved-provider",
-            Some("saved-provider/saved-model"),
-            Some("saved-provider")
-        )
-    );
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    assert!(content.contains("[models]"));
-    assert!(content.contains("default = \"saved-provider/saved-model\""));
-    std::fs::remove_dir_all(dir).unwrap();
+            ("anthropic/claude-3.7-sonnet", "openrouter"),
+            ("anthropic/claude-3.7-sonnet", "openrouter"),
+        ),
+        (
+            ("claude:me@work.com/opus", "claude:me@work.com"),
+            ("opus", "claude:me@work.com"),
+        ),
+    ];
+    for ((model, provider), (expected_model, expected_provider)) in cases {
+        let dir = std::env::temp_dir().join(format!("rho_save_default_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        Config::save_default_model_async(&dir, model, provider).await.unwrap();
+
+        let config = load_config_with_rho_home(&dir);
+        let spec = format!("{expected_provider}/{expected_model}");
+        let actual = (
+            config.model.as_str(),
+            config.provider.as_str(),
+            config.default_model.as_deref(),
+            config.default_provider.as_deref(),
+        );
+        assert_eq!(
+            actual,
+            (
+                expected_model,
+                expected_provider,
+                Some(spec.as_str()),
+                Some(expected_provider)
+            )
+        );
+        let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+        assert!(
+            content.contains(&format!("[models]\ndefault = \"{spec}\"")),
+            "{content}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[tokio::test]

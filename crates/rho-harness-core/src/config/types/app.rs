@@ -230,7 +230,7 @@ impl Config {
     }
 
     pub fn set_route(&mut self, route: ModelRoute) {
-        self.provider = route.provider;
+        self.provider = route.connection.to_string();
         self.model = route.model;
     }
 

@@ -57,7 +57,8 @@ fn parse_credentials_map(raw_map: HashMap<String, RawStoredEntry>) -> HashMap<St
                     ..
                 } = c
                     && account_id.is_none()
-                    && k == "chatgpt"
+                    && rho_harness_core::provider::Connection::parse(&k).provider_id()
+                        == Some(rho_harness_core::provider::ProviderId::ChatGpt)
                 {
                     *account_id = crate::auth::oauth::extract_chatgpt_account_id(access_token);
                 }

@@ -6,7 +6,7 @@ use super::oauth::refresh_oauth_token;
 use super::resolver::{resolve_secret_value, resolve_secret_value_async};
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::error::{AppError, Result};
-use rho_harness_core::provider::ProviderId;
+use rho_harness_core::provider::{Connection, ProviderId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -78,8 +78,9 @@ impl AuthStore {
         {
             return Ok(cred.raw_secret().to_string());
         }
-        let provider_id = ProviderId::from_str(provider)
-            .map_err(|e| AppError::Auth(format!("Unknown provider '{provider}': {e}")))?;
+        let provider_id = Connection::parse(provider)
+            .provider_id()
+            .ok_or_else(|| AppError::Auth(format!("Unknown provider '{provider}'")))?;
         let cred = self
             .credentials
             .get(provider)
@@ -129,6 +130,49 @@ impl AuthStore {
         list
     }
 
+    /// Every stored login, default logins and additional accounts alike.
+    pub fn stored_logins(&self) -> Vec<Connection> {
+        let mut logins: Vec<Connection> = self.credentials.keys().map(|key| Connection::parse(key)).collect();
+        logins.sort_by_key(ToString::to_string);
+        logins
+    }
+
+    /// Stored logins to `provider`, default first.
+    pub fn logins(&self, provider: ProviderId) -> Vec<Login> {
+        let mut logins: Vec<Login> = self
+            .credentials
+            .iter()
+            .map(|(key, cred)| Login {
+                connection: Connection::parse(key),
+                email: account_email(cred).map(str::to_string),
+            })
+            .filter(|login| login.connection.provider == provider.as_str())
+            .collect();
+        logins.sort_by_key(|login| (login.connection.account.is_some(), login.connection.to_string()));
+        logins
+    }
+
+    /// Where a new login is saved: the login already holding the same account, else the default
+    /// key when it is free, else a `provider:email` key beside the existing default login.
+    pub fn login_key(&self, provider: ProviderId, cred: &StoredCredential) -> Connection {
+        let default = Connection::parse(provider.as_str());
+        let Some(email) = account_email(cred) else {
+            return default;
+        };
+        let logins = self.logins(provider);
+        let same_account = logins
+            .iter()
+            .find(|login| login.email.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(email)));
+        if let Some(login) = same_account {
+            return login.connection.clone();
+        }
+        if logins.iter().any(|login| login.connection == default) {
+            Connection::account(provider, email)
+        } else {
+            default
+        }
+    }
+
     pub fn list_configured_providers(&self) -> Vec<String> {
         let mut list: Vec<String> = self.credentials.keys().cloned().collect();
         for id in ProviderId::ALL {
@@ -167,6 +211,23 @@ impl AuthStore {
             })
             .flatten()
             .collect()
+    }
+}
+
+/// One stored login and the account email its credential carries, when it has one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Login {
+    pub connection: Connection,
+    pub email: Option<String>,
+}
+
+fn account_email(cred: &StoredCredential) -> Option<&str> {
+    match cred {
+        StoredCredential::OAuth {
+            account_email: Some(email),
+            ..
+        } => Some(email.as_str()),
+        StoredCredential::OAuth { .. } | StoredCredential::ApiKey { .. } => None,
     }
 }
 

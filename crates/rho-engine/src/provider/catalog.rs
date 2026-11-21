@@ -3,10 +3,15 @@
 use super::discovery::{DiscoveredModel, discover_models};
 use crate::auth::AuthStore;
 use rho_harness_core::config::Config;
-use rho_harness_core::provider::canonical_provider;
+use rho_harness_core::provider::Connection;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
+
+/// Every login to a provider shares that provider's one model list.
+fn catalog_key(connection: &str) -> String {
+    Connection::parse(connection).provider
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderModels {
@@ -55,7 +60,7 @@ impl ModelCatalog {
             .providers
             .write()
             .unwrap()
-            .insert(canonical_provider(provider), models);
+            .insert(catalog_key(provider), models);
         self.notify();
     }
 
@@ -64,7 +69,7 @@ impl ModelCatalog {
             .providers
             .read()
             .unwrap()
-            .get(&canonical_provider(provider))
+            .get(&catalog_key(provider))
             .cloned()
     }
 
@@ -74,7 +79,7 @@ impl ModelCatalog {
 
     /// Records the window a provider actually allocated for a model, overriding its listed value.
     pub fn record_observed_context(&self, provider: &str, model: &str, tokens: usize) {
-        let key = (canonical_provider(provider), model.to_string());
+        let key = (catalog_key(provider), model.to_string());
         let previous = self.inner.observed_context.write().unwrap().insert(key, tokens);
         if previous != Some(tokens) {
             self.notify();
@@ -82,7 +87,7 @@ impl ModelCatalog {
     }
 
     pub fn context_tokens(&self, provider: &str, model: &str) -> Option<usize> {
-        let provider = canonical_provider(provider);
+        let provider = catalog_key(provider);
         let key = (provider.clone(), model.to_string());
         if let Some(tokens) = self.inner.observed_context.read().unwrap().get(&key) {
             return Some(*tokens);
@@ -105,7 +110,7 @@ impl ModelCatalog {
     /// Fetches one provider's list in the background, e.g. the active provider for a headless run.
     pub fn spawn_refresh(&self, provider: &str, config: &Config, auth: &AuthStore) {
         let catalog = self.clone();
-        let provider = canonical_provider(provider);
+        let provider = catalog_key(provider);
         let config = config.clone();
         let auth = auth.clone();
         tokio::spawn(async move { catalog.refresh(&provider, &config, auth).await });
@@ -139,7 +144,7 @@ pub fn reachable_providers(config: &Config, auth: &AuthStore) -> Vec<String> {
         .list_configured_providers()
         .iter()
         .chain(config.providers.keys())
-        .map(|name| canonical_provider(name))
+        .map(|name| catalog_key(name))
     {
         if !providers.contains(&provider) {
             providers.push(provider);
@@ -231,6 +236,7 @@ mod tests {
         let (_dir, mut auth) = crate::test_support::temp_auth_store();
         auth.set_key("claude", "tok").unwrap();
         auth.set_key("claude-code", "tok").unwrap();
+        auth.set_key("claude:me@work.com", "tok").unwrap();
         auth.set_key("acme", "key").unwrap();
         let mut config = Config::default();
         config.providers.insert("acme".to_string(), ProviderConfig::default());
@@ -241,10 +247,12 @@ mod tests {
     }
 
     #[test]
-    fn provider_aliases_share_one_catalog_entry() {
+    fn provider_aliases_and_accounts_share_one_catalog_entry() {
         let catalog = ModelCatalog::default();
         catalog.set("ollama", ProviderModels::Loading);
         assert_eq!(catalog.get("local"), Some(ProviderModels::Loading));
-        assert_eq!(catalog.snapshot().keys().collect::<Vec<_>>(), ["local"]);
+        catalog.set("claude:me@work.com", ProviderModels::Loading);
+        assert_eq!(catalog.get("claude"), Some(ProviderModels::Loading));
+        assert_eq!(catalog.snapshot().keys().collect::<Vec<_>>(), ["claude", "local"]);
     }
 }

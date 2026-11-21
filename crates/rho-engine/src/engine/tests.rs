@@ -454,6 +454,13 @@ async fn quota_display_isolated_across_providers_and_models() {
     assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
     engine.config.provider = "claude-oauth".to_string();
     assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
+    engine.config.provider = "claude:me@work.com".to_string();
+    assert_eq!(engine.quota_display(), None);
+    let work_key = crate::engine::tracking::QuotaKey::new("claude:me@work.com", Some("claude-sonnet-4-6"));
+    engine.quota.record_success(&work_key, "40% 1h 10% 6d".to_string());
+    assert_eq!(engine.quota_display(), Some("40% 1h 10% 6d".to_string()));
+    engine.config.provider = "claude".to_string();
+    assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
 
     engine.config.provider = "gemini".to_string();
     engine.config.model = "gemini-2.5-flash".to_string();

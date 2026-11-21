@@ -1,12 +1,10 @@
 //! Claude Messages API client implementation.
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use super::http::{ClaudeAuth, DEFAULT_ENDPOINT, MESSAGES_PATH, claude_headers};
 use super::request::build_request_body;
-use crate::auth::store::AuthStore;
-use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
+use crate::auth::token::{StaticTokenProvider, TokenProvider};
 use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::provider::error::{HttpFailure, HttpResult};
@@ -64,10 +62,6 @@ impl ClaudeClient {
             thinking_level: None,
             endpoint: None,
         }
-    }
-
-    pub fn with_auth_store(store: Arc<Mutex<AuthStore>>, model: impl Into<String>) -> Self {
-        Self::with_token_provider(Arc::new(AuthStoreTokenProvider::new(store, "claude")), model)
     }
 
     pub fn with_thinking_level(mut self, level: Option<&str>) -> Self {

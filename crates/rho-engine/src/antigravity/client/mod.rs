@@ -146,18 +146,6 @@ impl AntigravityClient {
         }
     }
 
-    pub fn with_auth_store(
-        store: std::sync::Arc<tokio::sync::Mutex<crate::auth::store::AuthStore>>,
-        project_id: impl Into<String>,
-        model: impl Into<String>,
-    ) -> Self {
-        Self::with_token_provider(
-            std::sync::Arc::new(AuthStoreTokenProvider::new(store, "antigravity")),
-            project_id,
-            model,
-        )
-    }
-
     /// Override the backend API endpoint base URL (primarily for tests and custom proxies).
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = Some(endpoint.into());
