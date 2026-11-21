@@ -293,58 +293,8 @@ mod tests {
         assert_eq!(items[1]["call_id"], "call-1");
     }
 
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    struct MockTokenProvider {
-        token_val: String,
-        refresh_count: Arc<AtomicUsize>,
-        fail_refresh: bool,
-    }
-
-    #[async_trait::async_trait]
-    impl TokenProvider for MockTokenProvider {
-        async fn token(&self) -> std::result::Result<String, String> {
-            Ok(self.token_val.clone())
-        }
-        async fn force_refresh(&self) -> std::result::Result<String, String> {
-            self.refresh_count.fetch_add(1, Ordering::SeqCst);
-            if self.fail_refresh {
-                Err("refresh failed".to_string())
-            } else {
-                Ok("token-refreshed".to_string())
-            }
-        }
-    }
-
-    struct FailingTokenProvider;
-
-    #[async_trait::async_trait]
-    impl TokenProvider for FailingTokenProvider {
-        async fn token(&self) -> std::result::Result<String, String> {
-            Err("failed to get token".to_string())
-        }
-        async fn force_refresh(&self) -> std::result::Result<String, String> {
-            Err("failed to refresh".to_string())
-        }
-    }
-
-    async fn spawn_mock_responses(responses: Vec<String>) -> (String, tokio::task::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let handle = tokio::spawn(async move {
-            for resp in responses {
-                if let Ok((mut socket, _)) = listener.accept().await {
-                    let mut buf = [0u8; 4096];
-                    let _ = socket.read(&mut buf).await;
-                    let _ = socket.write_all(resp.as_bytes()).await;
-                    let _ = socket.flush().await;
-                }
-            }
-        });
-        (format!("http://{addr}"), handle)
-    }
+    use crate::test_support::{ScriptedTokenProvider, serve_raw_http};
+    use std::sync::atomic::Ordering;
 
     fn sample_completion_request() -> ModelCompletionRequest {
         ModelCompletionRequest {
@@ -364,7 +314,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
             sse_body.len()
         );
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp]).await;
+        let endpoint = serve_raw_http(vec![resp]).await;
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
         let res = client.open_stream(&sample_completion_request()).await;
         assert!(res.is_ok());
@@ -380,13 +330,9 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
             sse_body.len()
         );
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp401, resp200]).await;
-        let refresh_count = Arc::new(AtomicUsize::new(0));
-        let provider = Arc::new(MockTokenProvider {
-            token_val: "initial-token".to_string(),
-            refresh_count: refresh_count.clone(),
-            fail_refresh: false,
-        });
+        let endpoint = serve_raw_http(vec![resp401, resp200]).await;
+        let provider = ScriptedTokenProvider::new(Ok("initial-token"), Ok("token-refreshed"));
+        let refresh_count = provider.refresh_count.clone();
         let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
         let res = client.open_stream(&sample_completion_request()).await;
         assert!(res.is_ok());
@@ -399,13 +345,9 @@ mod tests {
             "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
         let resp401b =
             "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp401a, resp401b]).await;
-        let refresh_count = Arc::new(AtomicUsize::new(0));
-        let provider = Arc::new(MockTokenProvider {
-            token_val: "initial-token".to_string(),
-            refresh_count: refresh_count.clone(),
-            fail_refresh: false,
-        });
+        let endpoint = serve_raw_http(vec![resp401a, resp401b]).await;
+        let provider = ScriptedTokenProvider::new(Ok("initial-token"), Ok("token-refreshed"));
+        let refresh_count = provider.refresh_count.clone();
         let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
         assert_eq!(err.status_code(), Some(401));
@@ -414,8 +356,11 @@ mod tests {
 
     #[tokio::test]
     async fn open_stream_token_provider_fails() {
-        let client = ChatGptClient::with_token_provider(Arc::new(FailingTokenProvider), "gpt-5.4")
-            .with_endpoint("http://127.0.0.1:9");
+        let client = ChatGptClient::with_token_provider(
+            ScriptedTokenProvider::new(Err("failed to get token"), Err("failed to refresh")),
+            "gpt-5.4",
+        )
+        .with_endpoint("http://127.0.0.1:9");
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
         assert_eq!(err, HttpFailure::Local("failed to get token".to_string()));
     }
@@ -424,12 +369,8 @@ mod tests {
     async fn open_stream_force_refresh_fails() {
         let resp401 =
             "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp401]).await;
-        let provider = Arc::new(MockTokenProvider {
-            token_val: "initial-token".to_string(),
-            refresh_count: Arc::new(AtomicUsize::new(0)),
-            fail_refresh: true,
-        });
+        let endpoint = serve_raw_http(vec![resp401]).await;
+        let provider = ScriptedTokenProvider::new(Ok("initial-token"), Err("refresh failed"));
         let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
         assert_eq!(err, HttpFailure::status(401, "refresh failed"));
@@ -446,7 +387,7 @@ mod tests {
             sse_body.len()
         );
         let resp2 = resp1.clone();
-        let (endpoint, _handle) = spawn_mock_responses(vec![resp1, resp2]).await;
+        let endpoint = serve_raw_http(vec![resp1, resp2]).await;
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
 
         let completion_res = client.complete(sample_completion_request()).await.unwrap();

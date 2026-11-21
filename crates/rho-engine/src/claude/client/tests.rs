@@ -3,9 +3,9 @@ use crate::claude::http::{ClaudeAuth, claude_headers, friendly_error};
 use crate::claude::request::{normalize_model_alias, resolve_thinking_budget};
 use crate::claude::test_util::{login_body, message_marks};
 use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
+use crate::test_support::{ScriptedTokenProvider, serve_raw_http};
 use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -242,50 +242,15 @@ fn test_friendly_error_formatting() {
     );
 }
 
-struct MockProvider {
-    token_val: String,
-    refresh_count: Arc<AtomicUsize>,
-}
-
-#[async_trait::async_trait]
-impl TokenProvider for MockProvider {
-    async fn token(&self) -> Result<String, String> {
-        Ok(self.token_val.clone())
-    }
-    async fn force_refresh(&self) -> Result<String, String> {
-        self.refresh_count.fetch_add(1, Ordering::SeqCst);
-        Ok("refreshed-token".into())
-    }
-}
-
-async fn spawn_two_responses_server(resp1: &'static str, resp2: &'static str) -> std::net::SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        for resp in [resp1, resp2] {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf).await;
-                let _ = stream.write_all(resp.as_bytes()).await;
-            }
-        }
-    });
-    addr
-}
-
 #[tokio::test]
 async fn test_open_stream_retries_on_401_with_forced_token_refresh() {
     let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
     let r200 = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"type\": \"message_stop\"}\n\n";
-    let addr = spawn_two_responses_server(r401, r200).await;
+    let url = serve_raw_http(vec![r401.to_string(), r200.to_string()]).await;
 
-    let refresh_count = Arc::new(AtomicUsize::new(0));
-    let provider = Arc::new(MockProvider {
-        token_val: "stale-token".into(),
-        refresh_count: refresh_count.clone(),
-    });
-    let client =
-        ClaudeClient::with_token_provider(provider, "claude-sonnet-4-5").with_endpoint(format!("http://{addr}"));
+    let provider = ScriptedTokenProvider::new(Ok("stale-token"), Ok("refreshed-token"));
+    let refresh_count = provider.refresh_count.clone();
+    let client = ClaudeClient::with_token_provider(provider, "claude-sonnet-4-5").with_endpoint(url);
 
     assert!(client.open_stream(&sample_request()).await.is_ok());
     assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
@@ -294,15 +259,11 @@ async fn test_open_stream_retries_on_401_with_forced_token_refresh() {
 #[tokio::test]
 async fn test_open_stream_stops_after_single_retry_if_401_persists() {
     let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-    let addr = spawn_two_responses_server(r401, r401).await;
+    let url = serve_raw_http(vec![r401.to_string(), r401.to_string()]).await;
 
-    let refresh_count = Arc::new(AtomicUsize::new(0));
-    let provider = Arc::new(MockProvider {
-        token_val: "stale-token".into(),
-        refresh_count: refresh_count.clone(),
-    });
-    let client =
-        ClaudeClient::with_token_provider(provider, "claude-sonnet-4-5").with_endpoint(format!("http://{addr}"));
+    let provider = ScriptedTokenProvider::new(Ok("stale-token"), Ok("refreshed-token"));
+    let refresh_count = provider.refresh_count.clone();
+    let client = ClaudeClient::with_token_provider(provider, "claude-sonnet-4-5").with_endpoint(url);
 
     let err = client.open_stream(&sample_request()).await.unwrap_err();
     assert_eq!(
@@ -311,24 +272,12 @@ async fn test_open_stream_stops_after_single_retry_if_401_persists() {
     );
 }
 
-struct FailingRefreshProvider;
-
-#[async_trait::async_trait]
-impl TokenProvider for FailingRefreshProvider {
-    async fn token(&self) -> Result<String, String> {
-        Ok("stale-token".into())
-    }
-    async fn force_refresh(&self) -> Result<String, String> {
-        Err("invalid_grant".into())
-    }
-}
-
 #[tokio::test]
 async fn test_open_stream_reports_why_refresh_failed_after_401() {
     let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-    let addr = spawn_two_responses_server(r401, r401).await;
-    let client = ClaudeClient::with_token_provider(Arc::new(FailingRefreshProvider), "claude-sonnet-4-5")
-        .with_endpoint(format!("http://{addr}"));
+    let url = serve_raw_http(vec![r401.to_string(), r401.to_string()]).await;
+    let provider = ScriptedTokenProvider::new(Ok("stale-token"), Err("invalid_grant"));
+    let client = ClaudeClient::with_token_provider(provider, "claude-sonnet-4-5").with_endpoint(url);
 
     let failure = client.open_stream(&sample_request()).await.unwrap_err();
     let (status, message) = (failure.status_code(), failure.body().to_string());

@@ -100,3 +100,50 @@ pub(crate) async fn serve_http_recording(
     });
     (format!("http://{addr}"), requests)
 }
+
+/// Accepts one connection per raw response string, reads the request once, and writes the
+/// response verbatim. Returns the base URL (`http://127.0.0.1:<port>`).
+pub(crate) async fn serve_raw_http(responses: Vec<String>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        for response in responses {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.flush().await;
+            }
+        }
+    });
+    format!("http://{addr}")
+}
+
+/// Token provider with scripted `token()` and `force_refresh()` results.
+pub(crate) struct ScriptedTokenProvider {
+    token: Result<String, String>,
+    refresh: Result<String, String>,
+    pub refresh_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl ScriptedTokenProvider {
+    pub(crate) fn new(token: Result<&str, &str>, refresh: Result<&str, &str>) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            token: token.map(str::to_string).map_err(str::to_string),
+            refresh: refresh.map(str::to_string).map_err(str::to_string),
+            refresh_count: std::sync::Arc::default(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::auth::token::TokenProvider for ScriptedTokenProvider {
+    async fn token(&self) -> Result<String, String> {
+        self.token.clone()
+    }
+    async fn force_refresh(&self) -> Result<String, String> {
+        self.refresh_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.refresh.clone()
+    }
+}

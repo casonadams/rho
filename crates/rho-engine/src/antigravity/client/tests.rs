@@ -5,7 +5,6 @@ use super::http::{
     DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, friendly_error, post_metadata_candidates,
     resolve_endpoints,
 };
-use crate::auth::TokenProvider;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::provider::error::HttpFailure;
 
@@ -174,67 +173,20 @@ fn test_completion_request() -> ModelCompletionRequest {
     }
 }
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::test_support::{ScriptedTokenProvider, serve_raw_http};
+use std::sync::atomic::Ordering;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-
-struct MockTokenProvider {
-    token_val: String,
-    refresh_count: Arc<AtomicUsize>,
-}
-
-#[async_trait::async_trait]
-impl TokenProvider for MockTokenProvider {
-    async fn token(&self) -> Result<String, String> {
-        Ok(self.token_val.clone())
-    }
-    async fn force_refresh(&self) -> Result<String, String> {
-        self.refresh_count.fetch_add(1, Ordering::SeqCst);
-        Ok("token-refreshed".into())
-    }
-}
-
-struct FailingRefreshProvider;
-
-#[async_trait::async_trait]
-impl TokenProvider for FailingRefreshProvider {
-    async fn token(&self) -> Result<String, String> {
-        Ok("stale-token".into())
-    }
-    async fn force_refresh(&self) -> Result<String, String> {
-        Err("token revoked".into())
-    }
-}
-
-async fn spawn_two_responses(resp1: &'static str, resp2: &'static str) -> std::net::SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        for resp in [resp1, resp2] {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf).await;
-                let _ = stream.write_all(resp.as_bytes()).await;
-            }
-        }
-    });
-    addr
-}
 
 #[tokio::test]
 async fn open_stream_retries_on_401_with_forced_token_refresh() {
     let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
     let r200 = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
-    let addr = spawn_two_responses(r401, r200).await;
+    let url = serve_raw_http(vec![r401.to_string(), r200.to_string()]).await;
 
-    let refresh_count = Arc::new(AtomicUsize::new(0));
-    let provider = Arc::new(MockTokenProvider {
-        token_val: "token-initial".into(),
-        refresh_count: refresh_count.clone(),
-    });
-    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro")
-        .with_endpoint(format!("http://{addr}"));
+    let provider = ScriptedTokenProvider::new(Ok("token-initial"), Ok("token-refreshed"));
+    let refresh_count = provider.refresh_count.clone();
+    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro").with_endpoint(url);
 
     assert!(client.open_stream(&test_completion_request()).await.is_ok());
     assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
@@ -243,15 +195,11 @@ async fn open_stream_retries_on_401_with_forced_token_refresh() {
 #[tokio::test]
 async fn open_stream_stops_after_single_retry_if_401_persists() {
     let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-    let addr = spawn_two_responses(r401, r401).await;
+    let url = serve_raw_http(vec![r401.to_string(), r401.to_string()]).await;
 
-    let refresh_count = Arc::new(AtomicUsize::new(0));
-    let provider = Arc::new(MockTokenProvider {
-        token_val: "token-1".into(),
-        refresh_count: refresh_count.clone(),
-    });
-    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro")
-        .with_endpoint(format!("http://{addr}"));
+    let provider = ScriptedTokenProvider::new(Ok("token-1"), Ok("token-refreshed"));
+    let refresh_count = provider.refresh_count.clone();
+    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro").with_endpoint(url);
 
     let err = client.open_stream(&test_completion_request()).await.unwrap_err();
     assert_eq!(
@@ -263,11 +211,10 @@ async fn open_stream_stops_after_single_retry_if_401_persists() {
 #[tokio::test]
 async fn open_stream_fails_immediately_if_refresh_fails() {
     let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-    let addr = spawn_two_responses(r401, r401).await;
+    let url = serve_raw_http(vec![r401.to_string(), r401.to_string()]).await;
 
-    let client =
-        AntigravityClient::with_token_provider(Arc::new(FailingRefreshProvider), "test-project", "gemini-2.5-pro")
-            .with_endpoint(format!("http://{addr}"));
+    let provider = ScriptedTokenProvider::new(Ok("stale-token"), Err("token revoked"));
+    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro").with_endpoint(url);
     let err = client.open_stream(&test_completion_request()).await.unwrap_err();
     assert_eq!(err.status_code(), Some(401));
 }
@@ -328,8 +275,7 @@ async fn post_metadata_candidates_falls_back_on_unreachable_endpoint() {
     let dead_url = format!("http://{dead_addr}");
 
     let r200 = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"success\":true}";
-    let live_addr = spawn_two_responses(r200, r200).await;
-    let live_url = format!("http://{live_addr}");
+    let live_url = serve_raw_http(vec![r200.to_string(), r200.to_string()]).await;
 
     let endpoints = vec![dead_url, live_url];
     let res = post_metadata_candidates(&endpoints, "/v1internal:test", "token", serde_json::json!({})).await;
@@ -345,8 +291,7 @@ async fn try_candidates_falls_back_on_transport_error() {
     let dead_url = format!("http://{dead_addr}");
 
     let r200 = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
-    let live_addr = spawn_two_responses(r200, r200).await;
-    let live_url = format!("http://{live_addr}");
+    let live_url = serve_raw_http(vec![r200.to_string(), r200.to_string()]).await;
 
     let client = AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro");
     let mut token = "token-1".to_string();
