@@ -84,33 +84,71 @@ fn infer_provider_for_model_resolves_common_prefixes() {
     assert_provider("grok-2", Some("xai"));
     assert_provider("mistral-large-latest", Some("mistral"));
     assert_provider("llama-3.3-70b-versatile", Some("groq"));
-    assert_provider("meta-llama/llama-3-70b", Some("openrouter"));
     assert_provider("unknown-model", None);
 }
 
+fn route(provider: &str, model: &str) -> ModelRoute {
+    ModelRoute {
+        provider: provider.to_string(),
+        model: model.to_string(),
+    }
+}
+
 #[test]
-fn test_parse_model_spec() {
+fn parse_prefers_prefix_then_explicit_then_inferred_then_fallback() {
     let cases = [
-        ("anthropic/claude-3-7-sonnet", ("anthropic", "claude-3-7-sonnet")),
-        ("openai/gpt-4o", ("openai", "gpt-4o")),
-        ("local/qwen2.5-coder:7b", ("local", "qwen2.5-coder:7b")),
-        ("ollama/llama3.2:latest", ("ollama", "llama3.2:latest")),
         (
-            "openrouter/anthropic/claude-3.7-sonnet",
-            ("openrouter", "anthropic/claude-3.7-sonnet"),
+            ("anthropic/claude-3-7-sonnet", None, "local"),
+            route("anthropic", "claude-3-7-sonnet"),
         ),
         (
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
+            ("  anthropic / claude-3-7-sonnet  ", None, "local"),
+            route("anthropic", "claude-3-7-sonnet"),
         ),
-        ("  anthropic / claude-3-7-sonnet  ", ("anthropic", "claude-3-7-sonnet")),
-        ("claude-3-7-sonnet", ("", "claude-3-7-sonnet")),
-        ("", ("", "")),
+        (
+            ("ollama/llama3.2:latest", None, "local"),
+            route("local", "llama3.2:latest"),
+        ),
+        (("claude-code/opus", None, "local"), route("claude", "opus")),
+        (("Acme/m-1", None, "local"), route("acme", "m-1")),
+        (
+            ("openrouter/anthropic/claude-3.7-sonnet", None, "local"),
+            route("openrouter", "anthropic/claude-3.7-sonnet"),
+        ),
+        (
+            ("anthropic/claude-x", Some("openai"), "local"),
+            route("anthropic", "claude-x"),
+        ),
+        (("gpt-4o", Some("chatgpt"), "local"), route("chatgpt", "gpt-4o")),
+        (("gpt-4o", Some("  "), "claude"), route("openai", "gpt-4o")),
+        (
+            ("qwen2.5-coder:7b", None, "chatgpt"),
+            route("chatgpt", "qwen2.5-coder:7b"),
+        ),
+        (("/qwen", None, "local"), route("local", "qwen")),
+        (("", None, "local"), route("local", "")),
     ];
-    for (input, (expected_p, expected_m)) in cases {
-        assert_eq!(
-            parse_model_spec(input),
-            (expected_p.to_string(), expected_m.to_string())
-        );
+    for ((spec, explicit, fallback), expected) in cases {
+        assert_eq!(ModelRoute::parse(spec, explicit, fallback), expected, "{spec}");
+    }
+}
+
+#[test]
+fn new_keeps_slashed_ids_and_drops_only_a_matching_prefix() {
+    let cases = [
+        (
+            ("openrouter", "anthropic/claude-3.7-sonnet"),
+            "openrouter/anthropic/claude-3.7-sonnet",
+        ),
+        (
+            ("openrouter", "openrouter/anthropic/claude-3.7-sonnet"),
+            "openrouter/anthropic/claude-3.7-sonnet",
+        ),
+        (("chatgpt", "chatgpt/gpt-6-sol"), "chatgpt/gpt-6-sol"),
+        (("claude-code", "claude/opus"), "claude/opus"),
+        (("ollama", " qwen "), "local/qwen"),
+    ];
+    for ((provider, model), expected) in cases {
+        assert_eq!(ModelRoute::new(provider, model).to_string(), expected);
     }
 }

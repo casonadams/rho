@@ -1241,8 +1241,8 @@ fn test_repl_model_selection_format() {
                 model.contains('/'),
                 "selected model must be in <provider>/<model> format: {model}"
             );
-            let (p, _) = rho_harness_core::provider::parse_model_spec(&model);
-            assert_eq!(p, provider);
+            let route = rho_harness_core::provider::ModelRoute::parse(&model, None, "");
+            assert_eq!(route.provider, provider);
             assert!(!save_as_default);
         }
         other => panic!("expected ModelSelected, got {other:?}"),

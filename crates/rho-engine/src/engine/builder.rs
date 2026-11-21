@@ -5,10 +5,9 @@ use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
-use rho_harness_core::provider::ProviderId;
+use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
 pub struct AgentEngineBuilder {
@@ -125,8 +124,9 @@ fn subagent_model_resolver(
 ) -> crate::tools::subagent::SubagentModelResolver {
     let config = config.clone();
     let auth_store = auth_store.clone();
-    Arc::new(move |model: &str| {
-        crate::provider::ProviderFactory::create_model(&config, model, &auth_store, shared_auth.clone())
+    Arc::new(move |spec: &str| {
+        let route = ModelRoute::parse(spec, None, &config.route().provider);
+        crate::provider::ProviderFactory::create_model(&config, &route, &auth_store, shared_auth.clone())
             .map_err(|e| e.to_string())
     })
 }
@@ -292,39 +292,12 @@ impl AgentEngineBuilder {
     }
 }
 
-fn resolve_provider_and_model(config: &Config) -> (String, String) {
-    let (spec_provider, spec_model) = rho_harness_core::provider::parse_model_spec(&config.model);
-    if !spec_provider.is_empty() {
-        return (spec_provider, spec_model);
-    }
-    let provider = if !config.provider.trim().is_empty() {
-        config.provider.trim().to_string()
-    } else {
-        rho_harness_core::provider::infer_provider_for_model(&config.model)
-            .unwrap_or("local")
-            .to_string()
-    };
-    (provider, config.model.trim().to_string())
-}
-
 pub fn create_engine_model(
     config: &Config,
     auth_store: &AuthStore,
     shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
 ) -> Result<ModelHandle> {
-    let (provider_name, actual_model) = resolve_provider_and_model(config);
-    if let Ok(provider_id) = ProviderId::from_str(&provider_name) {
-        return crate::provider::ProviderFactory::create_model_for(
-            crate::provider::ModelRequest {
-                provider: provider_id,
-                model: &actual_model,
-                thinking_level: config.thinking_level.as_deref(),
-                shared_auth,
-            },
-            auth_store,
-        );
-    }
-    crate::provider::ProviderFactory::create_model(config, &config.model, auth_store, shared_auth)
+    crate::provider::ProviderFactory::create_model(config, &config.route(), auth_store, shared_auth)
 }
 
 #[cfg(test)]

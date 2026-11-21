@@ -26,7 +26,8 @@ fn shared_auth(auth_store: &AuthStore) -> std::sync::Arc<tokio::sync::Mutex<Auth
 }
 
 fn create_model_for_config(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
-    ProviderFactory::create_model(config, model, auth_store, shared_auth(auth_store))
+    let route = ModelRoute::new(&config.provider, model);
+    ProviderFactory::create_model(config, &route, auth_store, shared_auth(auth_store))
 }
 
 #[test]
@@ -283,84 +284,18 @@ fn guard_model_request_shares_the_engine_auth_store() {
 }
 
 #[test]
-fn test_factory_creates_model_from_spec() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-
-    // 1. Model spec overrides config.provider
+fn engine_model_is_built_from_the_config_route() {
+    let (_dir, auth_store) = temp_auth_store();
     let config = Config {
-        provider: "anthropic".to_string(),
-        ..Default::default()
-    };
-    let handle =
-        ProviderFactory::create_model(&config, "local/qwen2.5-coder:7b", &auth_store, shared_auth(&auth_store))
-            .unwrap();
-    assert_eq!(handle.provider_name(), "ollama-local");
-
-    // 2. Bare model fallback to config.provider
-    let config = Config {
-        provider: "local".to_string(),
-        ..Default::default()
-    };
-    let handle =
-        ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store, shared_auth(&auth_store)).unwrap();
-    assert_eq!(handle.provider_name(), "ollama-local");
-
-    // 3. Bare model without config.provider infers or falls back to local
-    let config = Config {
-        provider: String::new(),
-        ..Default::default()
-    };
-    let handle =
-        ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store, shared_auth(&auth_store)).unwrap();
-    assert_eq!(handle.provider_name(), "ollama-local");
-
-    // 4. create_engine_model with canonical model spec
-    let config = Config {
-        provider: "local".to_string(),
+        provider: "ollama".to_string(),
         model: "local/qwen2.5-coder:7b".to_string(),
         ..Default::default()
     };
     let handle = crate::engine::builder::create_engine_model(&config, &auth_store, shared_auth(&auth_store)).unwrap();
-    assert_eq!(handle.provider_name(), "ollama-local");
-
-    // 5. Direct create_model_for with canonical model spec strips provider prefix
-    let request = ModelRequest {
-        provider: ProviderId::Local,
-        model: "local/qwen2.5-coder:7b",
-        thinking_level: None,
-        shared_auth: shared_auth(&auth_store),
-    };
-    let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
-    assert_eq!(handle.provider_name(), "ollama-local");
-
-    // 6. Test strip_provider_prefix directly across multiple providers
     assert_eq!(
-        ProviderFactory::strip_provider_prefix(ProviderId::ChatGpt, "chatgpt/gpt-6-sol"),
-        "gpt-6-sol"
+        (handle.provider_name(), handle.model_name()),
+        ("ollama-local", "qwen2.5-coder:7b")
     );
-    assert_eq!(
-        ProviderFactory::strip_provider_prefix(ProviderId::Antigravity, "antigravity/gemini-3.8-flash"),
-        "gemini-3.8-flash"
-    );
-    assert_eq!(
-        ProviderFactory::strip_provider_prefix(ProviderId::ClaudeCode, "claude/claude-sonnet-4-6"),
-        "claude-sonnet-4-6"
-    );
-    assert_eq!(
-        ProviderFactory::strip_provider_prefix(ProviderId::OpenRouter, "openrouter/anthropic/claude-3.7-sonnet"),
-        "anthropic/claude-3.7-sonnet"
-    );
-    assert_eq!(
-        ProviderFactory::strip_provider_prefix(ProviderId::OpenRouter, "anthropic/claude-3.7-sonnet"),
-        "anthropic/claude-3.7-sonnet"
-    );
-    assert_eq!(
-        ProviderFactory::strip_provider_prefix(ProviderId::ChatGpt, "gpt-6-sol"),
-        "gpt-6-sol"
-    );
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]

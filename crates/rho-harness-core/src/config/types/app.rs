@@ -1,5 +1,6 @@
 use super::integrations::{McpConfig, PermissionConfig, ProviderConfig, default_true};
 use super::paths::default_config_dir;
+use crate::provider::ModelRoute;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -220,23 +221,24 @@ impl Config {
         self.resolve_named_model("guard")
     }
 
+    /// The active selection; `model` may still carry a `provider/` prefix from older writers.
+    pub fn route(&self) -> ModelRoute {
+        match self.provider.trim() {
+            "" => ModelRoute::parse(&self.model, None, "local"),
+            provider => ModelRoute::new(provider, &self.model),
+        }
+    }
+
+    pub fn set_route(&mut self, route: ModelRoute) {
+        self.provider = route.provider;
+        self.model = route.model;
+    }
+
     pub fn canonical_model_spec(&self) -> String {
-        let trimmed = self.model.trim();
-        if trimmed.is_empty() {
+        let route = self.route();
+        if route.model.is_empty() {
             return String::new();
         }
-        if let Some((p, m)) = trimmed.split_once('/') {
-            let p = p.trim();
-            let m = m.trim();
-            if !p.is_empty() {
-                return format!("{p}/{m}");
-            }
-        }
-        let provider = if !self.provider.trim().is_empty() {
-            self.provider.trim()
-        } else {
-            crate::provider::infer_provider_for_model(trimmed).unwrap_or("local")
-        };
-        format!("{provider}/{trimmed}")
+        route.to_string()
     }
 }

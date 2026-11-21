@@ -51,8 +51,9 @@ up without updating rho. Nothing is written to disk.
   runtime catalog with a small fallback list.
 - Offline, you can still switch with `/model <provider>/<model>`.
 
-rho also has no built-in default model. Until you pick one, the interactive REPL
-opens the model selector at startup and saves your choice as the default;
+rho also has no built-in default model. Until you pick one with `/model`
+(`Ctrl+S` in the selector saves it as the default), no model is selected and
+prompts are refused;
 `rho -p` and other headless runs exit with an error asking for `--model` or
 `rho config model <provider>/<model>`. `--provider X` without `--model` uses
 `[models].X` from your config if set, otherwise leaves the model unselected.
@@ -156,6 +157,13 @@ smol = "ollama/qwen2.5-coder:7b"
 # Deep-reasoning model selected by `rho --slow`
 slow = "openai/o3-mini"
 ```
+
+A spec without a `<provider>/` prefix uses the `--provider` flag when given,
+then the provider implied by the model name (`claude-*` is `anthropic`,
+`gpt-*` is `openai`, `gemini-*` is `gemini`, ...), then the current
+provider (`local` at startup). Everything after the first `/` is the
+provider's model id, so OpenRouter ids keep their vendor segment:
+`openrouter/anthropic/claude-3.7-sonnet`.
 
 ### Dedicated Guard Model
 

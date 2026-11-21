@@ -22,21 +22,8 @@ pub(crate) fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str])
 }
 
 pub(crate) fn resolve_model_spec(parts: &[&str], current_provider: &str) -> (String, String) {
-    let model_spec = parts[1];
-    let (p, m) = rho_harness_core::provider::parse_model_spec(model_spec);
-    let (provider, model) = if !p.is_empty() {
-        (p, m)
-    } else if let Some(p) = parts.get(2) {
-        ((*p).to_string(), model_spec.to_string())
-    } else {
-        (
-            rho_harness_core::provider::infer_provider_for_model(model_spec)
-                .unwrap_or(current_provider)
-                .to_string(),
-            model_spec.to_string(),
-        )
-    };
-    (provider, model)
+    let route = rho_harness_core::provider::ModelRoute::parse(parts[1], parts.get(2).copied(), current_provider);
+    (route.provider, route.model)
 }
 
 fn parse_model_choice(choice: &str) -> (&str, &str) {

@@ -446,12 +446,4 @@ mod tests {
         assert!(engine.build_guard_model().await.unwrap().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
-
-    #[test]
-    fn test_resolve_active_provider() {
-        let (spec_p, _) = rho_harness_core::provider::parse_model_spec("antigravity/gemini-3.8-flash");
-        assert_eq!(spec_p, "antigravity");
-        let (spec_p2, _) = rho_harness_core::provider::parse_model_spec("gemini-3.8-flash");
-        assert!(spec_p2.is_empty());
-    }
 }

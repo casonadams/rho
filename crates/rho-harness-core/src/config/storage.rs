@@ -126,9 +126,8 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
                     "No default model to move to {value}. Set one with: rho config model {value}/<model>"
                 ))
             })?;
-            let (_, m) = crate::provider::parse_model_spec(current_spec);
-            let model = if m.is_empty() { current_spec } else { &m };
-            file_config.models.default = Some(format!("{value}/{model}"));
+            let route = crate::provider::ModelRoute::parse(current_spec, None, "local");
+            file_config.models.default = Some(format!("{value}/{}", route.model));
         }
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());

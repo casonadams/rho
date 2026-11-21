@@ -126,13 +126,11 @@ pub(crate) fn format_model_details(footer: &FooterState) -> String {
         };
     }
 
-    let (spec_p, spec_m) = rho_harness_core::provider::parse_model_spec(&footer.model);
-    if !spec_p.is_empty() {
-        format!("{spec_p}/{spec_m}/{thinking}")
-    } else if !footer.provider.is_empty() {
-        format!("{}/{}/{thinking}", footer.provider, footer.model)
+    let route = rho_harness_core::provider::ModelRoute::new(&footer.provider, &footer.model);
+    if route.provider.is_empty() {
+        format!("{}/{thinking}", route.model)
     } else {
-        format!("{}/{thinking}", footer.model)
+        format!("{route}/{thinking}")
     }
 }
 

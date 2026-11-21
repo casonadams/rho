@@ -19,10 +19,8 @@ impl AgentEngine {
     }
 
     pub async fn update_model(&mut self) -> Result<()> {
-        let (spec_p, _) = rho_harness_core::provider::parse_model_spec(&self.config.model);
-        if !spec_p.is_empty() {
-            self.config.provider = spec_p;
-        }
+        let route = self.config.route();
+        self.config.set_route(route);
         let model_handle = self.build_model_handle(&self.config).await?;
         self.model = Some(model_handle);
         self.context = ContextTracker::new(self.config.context_limit, self.model_catalog().clone());

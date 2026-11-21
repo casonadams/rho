@@ -136,11 +136,55 @@ impl FromStr for ProviderId {
 
 pub use inference::infer_provider_for_model;
 
-pub fn parse_model_spec(spec: &str) -> (String, String) {
-    if let Some((provider, model)) = spec.split_once('/') {
-        (provider.trim().to_string(), model.trim().to_string())
-    } else {
-        (String::new(), spec.trim().to_string())
+/// Builtin providers fold onto their canonical name; custom provider names are lowercased.
+pub fn canonical_provider(name: &str) -> String {
+    ProviderId::from_str(name).map_or_else(|_| name.trim().to_ascii_lowercase(), |id| id.as_str().to_string())
+}
+
+/// A provider plus that provider's own model id, rendered as `provider/model`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRoute {
+    pub provider: String,
+    pub model: String,
+}
+
+impl ModelRoute {
+    /// Pairs an already chosen provider with a model id, dropping a redundant `provider/` prefix.
+    pub fn new(provider: &str, model: &str) -> Self {
+        let provider = canonical_provider(provider);
+        let model = model.trim();
+        let model = match model.split_once('/') {
+            Some((prefix, bare)) if canonical_provider(prefix) == provider => bare.trim(),
+            _ => model,
+        };
+        Self {
+            provider,
+            model: model.to_string(),
+        }
+    }
+
+    /// Resolves a user-entered spec: its `provider/` prefix, else `explicit`, else the provider
+    /// inferred from the model name, else `fallback`.
+    pub fn parse(spec: &str, explicit: Option<&str>, fallback: &str) -> Self {
+        let spec = spec.trim().trim_start_matches('/');
+        if let Some((provider, model)) = spec.split_once('/') {
+            return Self {
+                provider: canonical_provider(provider),
+                model: model.trim().to_string(),
+            };
+        }
+        let provider = explicit
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .or_else(|| infer_provider_for_model(spec))
+            .unwrap_or(fallback);
+        Self::new(provider, spec)
+    }
+}
+
+impl fmt::Display for ModelRoute {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}/{}", self.provider, self.model)
     }
 }
 

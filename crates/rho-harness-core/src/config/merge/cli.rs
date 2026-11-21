@@ -1,26 +1,21 @@
 use super::super::Config;
 use crate::config::cli::Cli;
+use crate::provider::{ModelRoute, canonical_provider};
 
 pub(super) fn resolve_model_with_provider(config: &mut Config, model_spec: &str, provider_flag: Option<&str>) {
-    let (p, _) = crate::provider::parse_model_spec(model_spec);
-    if !p.is_empty() {
-        if let Some(prov) = provider_flag {
-            let prov = prov.trim();
-            if !prov.is_empty() && prov != p {
-                let warning = format!("Warning: Provider '{prov}' overridden by provider in model spec '{p}'.");
-                eprintln!("{warning}");
-                config.migration_warnings.push(warning);
-            }
-        }
-        config.provider = p;
-    } else if let Some(prov) = provider_flag {
-        config.provider = prov.trim().to_string();
-    } else if let Some(inferred) = crate::provider::infer_provider_for_model(model_spec) {
-        config.provider = inferred.to_string();
-    } else {
-        config.provider = "local".to_string();
+    let route = ModelRoute::parse(model_spec, provider_flag, "local");
+    if let Some(flag) = provider_flag.filter(|p| !p.trim().is_empty())
+        && canonical_provider(flag) != route.provider
+    {
+        let warning = format!(
+            "Warning: Provider '{}' overridden by provider in model spec '{}'.",
+            flag.trim(),
+            route.provider
+        );
+        eprintln!("{warning}");
+        config.migration_warnings.push(warning);
     }
-    config.model = model_spec.to_string();
+    config.set_route(route);
 }
 
 fn apply_provider_flag_only(config: &mut Config, provider: &str) {

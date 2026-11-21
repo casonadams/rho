@@ -25,17 +25,13 @@ fn with_test_env<T, F: FnOnce(&std::path::Path) -> T>(toml: &str, env_pair: (&st
     result
 }
 
-fn create_model(
-    toml: &str,
-    env_pair: (&str, &str),
-    model: &str,
-) -> (Config, rho_harness_core::error::Result<ModelHandle>) {
+fn create_model(toml: &str, env_pair: (&str, &str)) -> (Config, rho_harness_core::error::Result<ModelHandle>) {
     let _guard = crate::ENV_LOCK.lock().unwrap();
     with_test_env(toml, env_pair, |home| {
         let config = Config::load(None).unwrap();
         let auth_store = AuthStore::load(home.join("auth.json")).unwrap();
         let shared_auth = std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone()));
-        let handle = ProviderFactory::create_model(&config, model, &auth_store, shared_auth);
+        let handle = ProviderFactory::create_model(&config, &config.route(), &auth_store, shared_auth);
         (config, handle)
     })
 }
@@ -68,7 +64,7 @@ fn custom_provider_config_file_cases() {
     ];
     for (provider, base_url, key_env, key_value, model, blocked) in cases {
         let toml = provider_toml(provider, model, base_url, key_env);
-        let (config, handle) = create_model(&toml, (key_env, key_value), model);
+        let (config, handle) = create_model(&toml, (key_env, key_value));
         if blocked {
             let error = handle.unwrap_err();
             assert!(error.to_string().contains("blocked"), "{error}");

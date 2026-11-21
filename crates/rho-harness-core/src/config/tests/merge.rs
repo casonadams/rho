@@ -308,6 +308,9 @@ fn test_canonical_model_spec() {
     config.provider = "openrouter".to_string();
     assert_eq!(config.canonical_model_spec(), "openrouter/anthropic/claude-3.7-sonnet");
 
+    config.model = "anthropic/claude-3.7-sonnet".to_string();
+    assert_eq!(config.canonical_model_spec(), "openrouter/anthropic/claude-3.7-sonnet");
+
     config.model = "gpt-4o".to_string();
     config.provider = "openai".to_string();
     assert_eq!(config.canonical_model_spec(), "openai/gpt-4o");
@@ -334,13 +337,13 @@ fn test_cli_override_model_resolution() {
         (
             vec!["rho", "--model", "anthropic/claude-3-7-sonnet"],
             "anthropic",
-            "anthropic/claude-3-7-sonnet",
+            "claude-3-7-sonnet",
             false,
         ),
         (
             vec!["rho", "--model", "openrouter/anthropic/claude-3.7-sonnet"],
             "openrouter",
-            "openrouter/anthropic/claude-3.7-sonnet",
+            "anthropic/claude-3.7-sonnet",
             false,
         ),
         (
@@ -359,13 +362,13 @@ fn test_cli_override_model_resolution() {
                 "anthropic",
             ],
             "anthropic",
-            "anthropic/claude-3-7-sonnet",
+            "claude-3-7-sonnet",
             false,
         ),
         (
             vec!["rho", "--model", "anthropic/claude-3-7-sonnet", "--provider", "openai"],
             "anthropic",
-            "anthropic/claude-3-7-sonnet",
+            "claude-3-7-sonnet",
             true,
         ),
         (
@@ -402,7 +405,11 @@ fn test_env_override_model_resolution() {
     })
     .unwrap();
     assert_eq!(config.provider, "openrouter");
-    assert_eq!(config.model, "openrouter/meta-llama/llama-3.3-70b-instruct:free");
+    assert_eq!(config.model, "meta-llama/llama-3.3-70b-instruct:free");
+    assert_eq!(
+        config.canonical_model_spec(),
+        "openrouter/meta-llama/llama-3.3-70b-instruct:free"
+    );
 
     let mut config = Config::default();
     crate::config::merge::apply_env_overrides_with(&mut config, |name| match name {
@@ -412,7 +419,7 @@ fn test_env_override_model_resolution() {
     })
     .unwrap();
     assert_eq!(config.provider, "anthropic");
-    assert_eq!(config.model, "anthropic/claude-3-7-sonnet");
+    assert_eq!(config.model, "claude-3-7-sonnet");
     assert!(
         config
             .migration_warnings

@@ -279,7 +279,7 @@ rho update</code></pre>
         <li><strong>Subscription OAuth</strong>: <code>chatgpt</code>, <code>antigravity</code>, <code>claude</code>, <code>openrouter</code>.</li>
         <li><strong>API Key Providers</strong>: <code>anthropic</code>, <code>openai</code>, <code>deepseek</code>, <code>gemini</code>, <code>groq</code>, <code>xai</code>, <code>mistral</code>, <code>cohere</code>, <code>ollama-cloud</code>.</li>
         <li><strong>Local Models</strong>: <code>local</code> (runs Ollama locally via <code>OLLAMA_HOST</code>, default <code>http://127.0.0.1:11434</code>).</li>
-        <li><strong>Live Model Lists</strong>: rho ships no model list and no default model. Each session it fetches every reachable provider's models and context windows straight from the provider's API, in the background, and keeps them only in memory, so new models appear without updating rho. The model selector fills in as lists arrive and names any provider still loading or that failed. On first run the REPL opens the selector and saves your pick as the default.</li>
+        <li><strong>Live Model Lists</strong>: rho ships no model list and no default model. Each session it fetches every reachable provider's models and context windows straight from the provider's API, in the background, and keeps them only in memory, so new models appear without updating rho. The model selector fills in as lists arrive and names any provider still loading or that failed. Until you pick one with <code>/model</code>, no model is selected.</li>
         <li><strong>Live Rolling Quotas</strong>: Interactive footer displays 5-hour and weekly quota used, with time until reset, for Antigravity, ChatGPT, and Claude (e.g. <code>5% 4h23m 11% 3d21h</code>) and monthly quota for Ollama Cloud.</li>
       </ul>
 
@@ -344,6 +344,8 @@ enabled = true                  # Enable or disable MCP subsystem
 [permission]
 enabled = true                  # Enable or disable mutation guardrails</code></pre>
       </div>
+
+      <p>A model spec without a <code>&lt;provider&gt;/</code> prefix uses the <code>--provider</code> flag when given, then the provider implied by the model name (<code>claude-*</code> is <code>anthropic</code>, <code>gpt-*</code> is <code>openai</code>), then the current provider (<code>local</code> at startup). Everything after the first <code>/</code> is the provider's model id, so OpenRouter ids keep their vendor segment: <code>openrouter/anthropic/claude-3.7-sonnet</code>.</p>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
       <p>

@@ -161,18 +161,9 @@ fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>
     if label == "None" {
         return Some(("None".to_string(), "none".to_string()));
     }
-    let (provider, _) = rho_harness_core::provider::parse_model_spec(&label);
-    if !provider.is_empty() {
-        Some((label, provider))
-    } else {
-        let provider = opt
-            .description
-            .as_deref()
-            .and_then(|d| d.split('\t').next())
-            .unwrap_or("anthropic")
-            .to_string();
-        Some((label, provider))
-    }
+    let described = opt.description.as_deref().and_then(|d| d.split('\t').next());
+    let route = rho_harness_core::provider::ModelRoute::parse(&label, None, described.unwrap_or("anthropic"));
+    Some((label, route.provider))
 }
 
 fn pop_and_select_model<B: TerminalBackend>(

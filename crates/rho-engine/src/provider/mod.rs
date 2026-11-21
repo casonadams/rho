@@ -21,7 +21,7 @@ use builders::{
 };
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
-use rho_harness_core::provider::ProviderId;
+use rho_harness_core::provider::{ModelRoute, ProviderId};
 use std::str::FromStr;
 
 #[cfg(test)]
@@ -39,24 +39,11 @@ pub struct ModelRequest<'a> {
 pub struct ProviderFactory;
 
 pub fn resolve_guard_model(config: &Config) -> Option<(ProviderId, String)> {
-    let spec = config.guard_model()?;
-    let (provider, model) = rho_harness_core::provider::parse_model_spec(spec);
-
-    if model.is_empty() {
+    let route = ModelRoute::parse(config.guard_model()?, None, "local");
+    if route.model.is_empty() {
         return None;
     }
-
-    let provider_id = if provider.is_empty() {
-        if let Some(inferred) = rho_harness_core::provider::infer_provider_for_model(&model) {
-            ProviderId::from_str(inferred).ok()?
-        } else {
-            ProviderId::Local
-        }
-    } else {
-        ProviderId::from_str(&provider).ok()?
-    };
-
-    Some((provider_id, model))
+    Some((ProviderId::from_str(&route.provider).ok()?, route.model))
 }
 
 impl ProviderFactory {
@@ -89,36 +76,22 @@ impl ProviderFactory {
 
     pub fn create_model(
         config: &Config,
-        model: &str,
+        route: &ModelRoute,
         auth_store: &AuthStore,
         shared_auth: std::sync::Arc<tokio::sync::Mutex<AuthStore>>,
     ) -> Result<ModelHandle> {
-        let (spec_provider, spec_model) = rho_harness_core::provider::parse_model_spec(model);
-        let (provider_name, actual_model) = if !spec_provider.is_empty() {
-            (spec_provider, spec_model)
-        } else {
-            let provider = if !config.provider.trim().is_empty() {
-                config.provider.trim().to_string()
-            } else {
-                rho_harness_core::provider::infer_provider_for_model(model)
-                    .unwrap_or("local")
-                    .to_string()
-            };
-            (provider, model.trim().to_string())
+        let Ok(provider) = ProviderId::from_str(&route.provider) else {
+            return Self::create_custom_model(config, &route.provider, &route.model, auth_store);
         };
-
-        if let Ok(provider_id) = ProviderId::from_str(&provider_name) {
-            return Self::create_model_for(
-                ModelRequest {
-                    provider: provider_id,
-                    model: &actual_model,
-                    thinking_level: config.thinking_level.as_deref(),
-                    shared_auth,
-                },
-                auth_store,
-            );
-        }
-        Self::create_custom_model(config, &provider_name, &actual_model, auth_store)
+        Self::create_model_for(
+            ModelRequest {
+                provider,
+                model: &route.model,
+                thinking_level: config.thinking_level.as_deref(),
+                shared_auth,
+            },
+            auth_store,
+        )
     }
 
     fn create_custom_model(
@@ -167,21 +140,8 @@ impl ProviderFactory {
         auth_store.get_key_sync(name)
     }
 
-    fn strip_provider_prefix(provider: ProviderId, model: &str) -> &str {
-        if let Some((p, bare)) = model.split_once('/')
-            && ProviderId::from_str(p).ok() == Some(provider)
-        {
-            let bare = bare.trim();
-            if !bare.is_empty() {
-                return bare;
-            }
-        }
-        model
-    }
-
-    pub fn create_model_for(mut request: ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
+    pub fn create_model_for(request: ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
         crate::install_crypto_provider();
-        request.model = Self::strip_provider_prefix(request.provider, request.model);
         let (provider, model) = (request.provider, request.model);
         if provider == ProviderId::Local {
             return build_local_ollama_model(model);
