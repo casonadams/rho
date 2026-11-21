@@ -576,7 +576,7 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
         tctx.controller.state().active_modal().unwrap().options[3]
             .description
             .as_deref(),
-        Some("ollama/qwen2.5-coder:7b")
+        Some("local/qwen2.5-coder:7b")
     );
 }
 
@@ -696,6 +696,22 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
             },
             "slow",
             Some("anthropic/opus"),
+        ),
+        (
+            ModalKeyResult::SlowModelSelected {
+                model: "anthropic/claude-3.7-sonnet".to_string(),
+                provider: "openrouter".to_string(),
+            },
+            "slow",
+            Some("openrouter/anthropic/claude-3.7-sonnet"),
+        ),
+        (
+            ModalKeyResult::SmolModelSelected {
+                model: "claude:me@work.com/haiku".to_string(),
+                provider: "claude:me@work.com".to_string(),
+            },
+            "smol",
+            Some("claude:me@work.com/haiku"),
         ),
     ];
     for (res, role, expected) in cases {

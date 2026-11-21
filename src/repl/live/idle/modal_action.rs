@@ -521,10 +521,8 @@ async fn handle_role_model_selected(
 ) -> Result<bool> {
     let spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
         None
-    } else if model.contains('/') {
-        Some(model)
     } else {
-        Some(format!("{provider}/{model}"))
+        Some(rho_harness_core::provider::ModelRoute::new(&provider, &model).to_string())
     };
 
     if let Some(ref s) = spec {
