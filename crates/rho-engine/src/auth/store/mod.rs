@@ -221,6 +221,30 @@ pub struct Login {
     pub email: Option<String>,
 }
 
+impl AuthStore {
+    /// The account id an OAuth login stores: the ChatGPT account or the Antigravity project.
+    pub fn account_id(&self, connection: &str) -> Option<String> {
+        match self.get_credential(connection) {
+            Some(StoredCredential::OAuth {
+                account_id: Some(id), ..
+            }) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
+    /// The login's ChatGPT account: stored on the login, else read from `token`'s claims.
+    pub fn chatgpt_account_id(&self, connection: &str, token: &str) -> Option<String> {
+        self.account_id(connection)
+            .or_else(|| crate::auth::oauth::extract_chatgpt_account_id(token))
+    }
+
+    /// The login's Cloud Code project, else the project shared by logins without one.
+    pub fn antigravity_project(&self, connection: &str) -> String {
+        self.account_id(connection)
+            .unwrap_or_else(crate::auth::antigravity::default_project_id)
+    }
+}
+
 fn account_email(cred: &StoredCredential) -> Option<&str> {
     match cred {
         StoredCredential::OAuth {

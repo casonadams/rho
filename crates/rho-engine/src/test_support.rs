@@ -14,6 +14,21 @@ pub(crate) fn temp_auth_store() -> (tempfile::TempDir, crate::auth::AuthStore) {
     (dir, auth_store)
 }
 
+/// A non-expiring OAuth login with no refresh token.
+pub(crate) fn oauth_login(
+    token: &str,
+    account_id: Option<&str>,
+    email: Option<&str>,
+) -> rho_harness_core::auth::StoredCredential {
+    rho_harness_core::auth::StoredCredential::OAuth {
+        access_token: token.to_string(),
+        refresh_token: None,
+        expires_at_ms: None,
+        account_id: account_id.map(str::to_string),
+        account_email: email.map(str::to_string),
+    }
+}
+
 pub(crate) fn write_file(path: &std::path::Path, contents: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, contents).unwrap();

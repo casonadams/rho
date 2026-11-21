@@ -52,16 +52,12 @@ async fn require_key(auth: &mut AuthStore, provider: ProviderId) -> Result<Strin
 }
 
 fn chatgpt_account_id(auth: &AuthStore, token: &str) -> Option<String> {
-    let connection = list_connection(auth, ProviderId::ChatGpt);
-    crate::engine::quota_refresh::stored_oauth_account_id(auth.get_credential(&connection))
-        .or_else(|| crate::auth::oauth::extract_chatgpt_account_id(token))
+    auth.chatgpt_account_id(&list_connection(auth, ProviderId::ChatGpt), token)
 }
 
 async fn discover_antigravity(auth: &mut AuthStore) -> Result<Vec<DiscoveredModel>> {
     let token = require_key(auth, ProviderId::Antigravity).await?;
-    let connection = list_connection(auth, ProviderId::Antigravity);
-    let project_id = crate::engine::quota_refresh::stored_oauth_account_id(auth.get_credential(&connection))
-        .unwrap_or_else(|| crate::auth::antigravity::stable_project_id("antigravity-default"));
+    let project_id = auth.antigravity_project(&list_connection(auth, ProviderId::Antigravity));
     Ok(fetch::fetch_antigravity(&token, &project_id).await)
 }
 

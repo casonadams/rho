@@ -35,6 +35,11 @@ pub fn stable_project_id(seed: &str) -> String {
     )
 }
 
+/// The project used by logins that have none of their own.
+pub fn default_project_id() -> String {
+    stable_project_id("antigravity-default")
+}
+
 async fn build_antigravity_credential(token: TokenResponse) -> StoredCredential {
     let email = fetch_user_email(GOOGLE_USERINFO_URL, &token.access_token).await;
     let project_id = load_project_id(&token.access_token)

@@ -2,7 +2,6 @@ use super::router::ModelRequest;
 use crate::auth::AuthStore;
 use crate::auth::token::{AuthStoreTokenProvider, TokenProvider};
 use crate::engine::compactor::llm::ModelHandle;
-use crate::engine::quota_refresh::stored_oauth_account_id;
 use crate::provider::openai::OpenAiClient;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
@@ -46,13 +45,12 @@ fn stored_tokens(request: &ModelRequest<'_>) -> Arc<dyn TokenProvider> {
 }
 
 pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
-    let account_id = stored_oauth_account_id(auth_store.get_credential(request.connection)).or_else(|| {
-        auth_store
-            .get_key_sync(request.connection)
-            .ok()
-            .flatten()
-            .and_then(|k| crate::auth::oauth::extract_chatgpt_account_id(&k))
-    });
+    let token = auth_store
+        .get_key_sync(request.connection)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let account_id = auth_store.chatgpt_account_id(request.connection, &token);
     Arc::new(
         crate::chatgpt::ChatGptClient::with_token_provider(stored_tokens(request), request.model)
             .with_account_id(account_id),
@@ -60,8 +58,7 @@ pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthS
 }
 
 pub(super) fn build_antigravity_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
-    let project_id = stored_oauth_account_id(auth_store.get_credential(request.connection))
-        .unwrap_or_else(|| crate::auth::antigravity::stable_project_id("antigravity-default"));
+    let project_id = auth_store.antigravity_project(request.connection);
     Arc::new(
         crate::antigravity::AntigravityClient::with_token_provider(stored_tokens(request), project_id, request.model)
             .with_effort(request.thinking_level),

@@ -41,13 +41,30 @@ fn store_with(provider: &str, credential: StoredCredential) -> (tempfile::TempDi
 }
 
 fn login_as(email: Option<&str>) -> StoredCredential {
-    StoredCredential::OAuth {
-        access_token: "tok".to_string(),
-        refresh_token: None,
-        expires_at_ms: None,
-        account_id: None,
-        account_email: email.map(str::to_string),
-    }
+    crate::test_support::oauth_login("tok", None, email)
+}
+
+#[test]
+fn account_ids_come_from_the_login_then_the_token() {
+    let (_dir, mut store) = crate::test_support::temp_auth_store();
+    store
+        .set_credential(
+            "antigravity:me@work.com",
+            crate::test_support::oauth_login("tok", Some("proj-abc"), Some("me@work.com")),
+        )
+        .unwrap();
+    store.set_credential("antigravity", login_as(None)).unwrap();
+    store.set_key("chatgpt", "sk-plain").unwrap();
+
+    assert_eq!(store.account_id("antigravity:me@work.com").as_deref(), Some("proj-abc"));
+    assert_eq!(store.account_id("antigravity"), None);
+    assert_eq!(store.account_id("chatgpt"), None);
+    assert_eq!(store.antigravity_project("antigravity:me@work.com"), "proj-abc");
+    assert_eq!(
+        store.antigravity_project("antigravity"),
+        crate::auth::antigravity::default_project_id()
+    );
+    assert_eq!(store.chatgpt_account_id("chatgpt", "sk-plain"), None);
 }
 
 #[test]

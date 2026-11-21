@@ -145,26 +145,9 @@ fn record_quota_result(quota: &QuotaTracker, key: &QuotaKey, display: Option<Str
     }
 }
 
-pub(crate) fn stored_oauth_account_id(cred: Option<&StoredCredential>) -> Option<String> {
-    match cred {
-        Some(StoredCredential::OAuth {
-            account_id: Some(id), ..
-        }) => Some(id.clone()),
-        _ => None,
-    }
-}
-
 fn is_synthetic_project_id(id: &str) -> bool {
     let trimmed = id.trim();
     trimmed.is_empty() || uuid::Uuid::parse_str(trimmed).is_ok()
-}
-
-fn fallback_antigravity_project(current_id: String) -> String {
-    if current_id.is_empty() {
-        crate::auth::antigravity::stable_project_id("antigravity-default")
-    } else {
-        current_id
-    }
 }
 
 /// Caches the discovered project on the login; a failed write only means the next refresh
@@ -178,15 +161,14 @@ fn cache_antigravity_project(store: &mut AuthStore, connection: &str, discovered
     }
 }
 
-/// The login's token and its stored Cloud Code project, empty when none is stored yet.
+/// The login's token and its Cloud Code project, possibly a synthetic placeholder.
 async fn resolve_antigravity_credentials(
     auth_store: &tokio::sync::Mutex<AuthStore>,
     connection: &str,
 ) -> Option<(String, String)> {
     let mut store = auth_store.lock().await;
     let token = store.get_key(connection).await.ok().flatten()?;
-    let project = stored_oauth_account_id(store.get_credential(connection)).unwrap_or_default();
-    Some((token, project))
+    Some((token, store.antigravity_project(connection)))
 }
 
 /// The stored project when it is real, else one discovered from Cloud Code and cached on the login.
@@ -205,7 +187,7 @@ async fn antigravity_project(
             cache_antigravity_project(&mut *auth_store.lock().await, connection, &discovered);
             discovered
         }
-        _ => fallback_antigravity_project(stored),
+        _ => stored,
     }
 }
 
@@ -307,8 +289,7 @@ async fn resolve_chatgpt_credentials(
 ) -> Option<(String, Option<String>)> {
     let mut store = auth_store.lock().await;
     let token = store.get_key(connection).await.ok().flatten()?;
-    let account_id = stored_oauth_account_id(store.get_credential(connection))
-        .or_else(|| crate::auth::oauth::extract_chatgpt_account_id(&token));
+    let account_id = store.chatgpt_account_id(connection, &token);
     Some((token, account_id))
 }
 
@@ -357,6 +338,7 @@ async fn do_refresh_gemini_quota(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{oauth_login, temp_auth_store};
 
     #[test]
     fn synthetic_project_id_detection() {
@@ -369,60 +351,15 @@ mod tests {
     }
 
     #[test]
-    fn stored_oauth_account_id_extraction() {
-        assert_eq!(stored_oauth_account_id(None), None);
-        let api_cred = StoredCredential::api_key("sk-test");
-        assert_eq!(stored_oauth_account_id(Some(&api_cred)), None);
-
-        let oauth_with_id = StoredCredential::OAuth {
-            access_token: "tok".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: Some("proj-abc".into()),
-            account_email: None,
-        };
-        assert_eq!(stored_oauth_account_id(Some(&oauth_with_id)), Some("proj-abc".into()));
-
-        let oauth_no_id = StoredCredential::OAuth {
-            access_token: "tok".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: None,
-            account_email: None,
-        };
-        assert_eq!(stored_oauth_account_id(Some(&oauth_no_id)), None);
-    }
-
-    #[test]
-    fn fallback_antigravity_project_handling() {
-        let default_proj = crate::auth::antigravity::stable_project_id("antigravity-default");
-        assert_eq!(fallback_antigravity_project(String::new()), default_proj);
-        assert_eq!(
-            fallback_antigravity_project("concrete-project".into()),
-            "concrete-project"
-        );
-    }
-
-    #[test]
     fn update_antigravity_project_updates_oauth_credential() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+        let (_dir, mut store) = temp_auth_store();
+        cache_antigravity_project(&mut store, "antigravity", "discovered-proj");
+        store
+            .set_credential("antigravity", oauth_login("tok", None, None))
+            .unwrap();
         cache_antigravity_project(&mut store, "antigravity", "discovered-proj");
 
-        let oauth_cred = StoredCredential::OAuth {
-            access_token: "tok".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: None,
-            account_email: None,
-        };
-        store.set_credential("antigravity", oauth_cred).unwrap();
-        cache_antigravity_project(&mut store, "antigravity", "discovered-proj");
-
-        assert_eq!(
-            stored_oauth_account_id(store.get_credential("antigravity")),
-            Some("discovered-proj".into())
-        );
+        assert_eq!(store.account_id("antigravity"), Some("discovered-proj".into()));
     }
 
     #[test]
@@ -439,45 +376,30 @@ mod tests {
 
     #[tokio::test]
     async fn antigravity_project_prefers_a_real_stored_project_then_discovery() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = tokio::sync::Mutex::new(AuthStore::load(temp.path().join("auth.json")).unwrap());
+        let store = tokio::sync::Mutex::new(temp_auth_store().1);
         assert_eq!(resolve_antigravity_credentials(&store, "antigravity").await, None);
 
-        let login = StoredCredential::OAuth {
-            access_token: "tok-123".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: None,
-            account_email: None,
-        };
+        let login = oauth_login("tok-123", None, None);
         store.lock().await.set_credential("antigravity", login).unwrap();
         let (token, stored) = resolve_antigravity_credentials(&store, "antigravity").await.unwrap();
-        assert_eq!((token.as_str(), stored.as_str()), ("tok-123", ""));
+        let default_project = crate::auth::antigravity::default_project_id();
+        assert_eq!((token.as_str(), stored.as_str()), ("tok-123", default_project.as_str()));
 
         let unreachable = ["http://127.0.0.1:9".to_string()];
         let project =
             |stored: &str| antigravity_project(&store, "antigravity", &unreachable, "tok-123", stored.to_string());
         assert_eq!(project("prod-gcp-project").await, "prod-gcp-project");
-        assert_eq!(
-            project("").await,
-            crate::auth::antigravity::stable_project_id("antigravity-default")
-        );
+        assert_eq!(project(&default_project).await, default_project);
     }
 
     #[tokio::test]
     async fn resolve_chatgpt_credentials_scenarios() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = tokio::sync::Mutex::new(AuthStore::load(temp.path().join("auth.json")).unwrap());
+        let (_dir, store) = temp_auth_store();
+        let store = tokio::sync::Mutex::new(store);
         assert_eq!(resolve_chatgpt_credentials(&store, "chatgpt").await, None);
 
-        let oauth_cred = StoredCredential::OAuth {
-            access_token: "chatgpt-tok".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: Some("acct-456".into()),
-            account_email: None,
-        };
-        store.lock().await.set_credential("chatgpt", oauth_cred).unwrap();
+        let login = oauth_login("chatgpt-tok", Some("acct-456"), None);
+        store.lock().await.set_credential("chatgpt", login).unwrap();
         assert_eq!(
             resolve_chatgpt_credentials(&store, "chatgpt").await,
             Some(("chatgpt-tok".into(), Some("acct-456".into())))
@@ -490,13 +412,7 @@ mod tests {
             Some(("sk-non-jwt".into(), None))
         );
 
-        let work = StoredCredential::OAuth {
-            access_token: "work-tok".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: Some("acct-work".into()),
-            account_email: Some("me@work.com".into()),
-        };
+        let work = oauth_login("work-tok", Some("acct-work"), Some("me@work.com"));
         store.lock().await.set_credential("chatgpt:me@work.com", work).unwrap();
         assert_eq!(
             resolve_chatgpt_credentials(&store, "chatgpt:me@work.com").await,
@@ -509,10 +425,8 @@ mod tests {
         Refresh: Fn(Arc<tokio::sync::Mutex<AuthStore>>, QuotaTracker, QuotaKey) -> Fut,
         Fut: Future<Output = ()>,
     {
-        let temp = tempfile::tempdir().unwrap();
-        let store = Arc::new(tokio::sync::Mutex::new(
-            AuthStore::load(temp.path().join("auth.json")).unwrap(),
-        ));
+        let (_dir, store) = temp_auth_store();
+        let store = Arc::new(tokio::sync::Mutex::new(store));
         let quota = QuotaTracker::default();
 
         quota.begin_fetch(&key);
@@ -534,13 +448,7 @@ mod tests {
 
     #[tokio::test]
     async fn do_refresh_antigravity_quota_branches() {
-        let login = StoredCredential::OAuth {
-            access_token: "ya29.token".into(),
-            refresh_token: None,
-            expires_at_ms: None,
-            account_id: Some("custom-proj".into()),
-            account_email: None,
-        };
+        let login = oauth_login("ya29.token", Some("custom-proj"), None);
         run_refresh_branches(
             QuotaKey::new("antigravity", Some("gemini-2.5-pro")),
             |store, quota, key| {
