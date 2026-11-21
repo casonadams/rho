@@ -382,11 +382,23 @@ fn test_set_file_value_network_and_retention_keys() {
 }
 
 #[test]
+fn test_set_provider_without_a_default_model_is_an_error() {
+    let dir = std::env::temp_dir().join(format!("rho_provider_no_model_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let error = Config::set_file_value(&dir, "provider", "anthropic").unwrap_err();
+    assert!(
+        error.to_string().contains("rho config model anthropic/<model>"),
+        "{error}"
+    );
+    assert!(!dir.join("config.toml").exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     let dir = std::env::temp_dir().join(format!("rho_model_rt_set_val_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    Config::set_file_value(&dir, "provider", "anthropic").unwrap();
     Config::set_file_value(&dir, "model", "claude-3-7-sonnet").unwrap();
     Config::set_file_value(&dir, "thinking_level", "off").unwrap();
     Config::set_file_value(&dir, "region", "us-east-1").unwrap();

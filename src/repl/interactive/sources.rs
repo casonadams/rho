@@ -7,7 +7,7 @@ pub struct CompletionSources {
     pub skills: Vec<ResolvedSkill>,
     pub prompt_templates: Vec<String>,
     pub workflows: Vec<(String, String)>,
-    pub models: Vec<ModelItem>,
+    pub models: super::ModelList,
     pub custom_providers: Vec<String>,
     pub mcp_servers: super::McpServerList,
 }
@@ -32,7 +32,11 @@ impl CompletionSources {
         self
     }
 
-    pub fn with_models(mut self, models: Vec<ModelItem>) -> Self {
+    pub fn with_models(self, models: Vec<ModelItem>) -> Self {
+        self.with_model_list(super::ModelList::fixed(models))
+    }
+
+    pub fn with_model_list(mut self, models: super::ModelList) -> Self {
         self.models = models;
         self
     }

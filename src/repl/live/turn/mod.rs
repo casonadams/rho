@@ -17,7 +17,7 @@ pub(crate) use model_switch::{TurnModelSwitchInput, apply_turn_model_switch};
 
 use super::ActiveTurn;
 use super::batch::OUTPUT_FRAME_INTERVAL;
-use super::types::{FrameOrUi, TerminalInputReader, next_frame_or_ui, wait_quota};
+use super::types::{FrameOrUi, TerminalInputReader, next_frame_or_ui, wait_version_change};
 use crate::engine::AgentEngine;
 use crate::engine::runner::{CancellationSignal, TurnOutput, TurnRequest};
 use crate::error::Result;
@@ -109,7 +109,7 @@ async fn next_turn_event(
     tokio::select! {
         biased;
         res = input.recv() => TurnEvent::Input(res),
-        _ = wait_quota(quota_rx) => TurnEvent::QuotaUpdated,
+        _ = wait_version_change(quota_rx) => TurnEvent::QuotaUpdated,
         _ = periodic_quota.tick() => TurnEvent::QuotaPeriodic,
         tick = next_frame_or_ui(frame, ui) => tick.into(),
     }

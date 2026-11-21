@@ -122,46 +122,6 @@ fn custom_provider_errors_name_the_failing_config() {
     }
 }
 
-#[test]
-fn ollama_context_length_is_read_from_model_info() {
-    use crate::provider::discovery::ollama_context_from_info;
-
-    let info: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(r#"{"qwen3_5.context_length": 262144, "qwen3_5.embedding_length": 5120}"#).unwrap();
-    assert_eq!(ollama_context_from_info(&info), Some(262_144));
-
-    let empty: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-    assert_eq!(ollama_context_from_info(&empty), None);
-}
-
-#[test]
-fn model_store_resolves_context_tokens_across_catalog_keys() {
-    let dir = std::env::temp_dir().join(format!("rho_store_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut store = ModelStore::load(dir.join("models-store.json"));
-    store
-        .set_models(
-            "ollama-cloud",
-            vec![crate::provider::discovery::DiscoveredModel {
-                id: "glm-5.3-flash".into(),
-                name: "GLM 5.3 Flash".into(),
-                provider: "ollama-cloud".into(),
-                description: "1M ctx".into(),
-                context_tokens: Some(1_048_576),
-            }],
-        )
-        .unwrap();
-
-    let store = ModelStore::load(dir.join("models-store.json"));
-    assert_eq!(
-        store.context_tokens(&["ollama-cloud"], "glm-5.3-flash"),
-        Some(1_048_576)
-    );
-    assert_eq!(store.context_tokens(&["ollama-cloud"], "unknown"), None);
-
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
 fn make_discovered_models(ids: &[&str]) -> Vec<crate::provider::discovery::DiscoveredModel> {
     ids.iter()
         .map(|id| crate::provider::discovery::DiscoveredModel {

@@ -30,7 +30,7 @@ async fn handle_basic_commands(
             Ok(true)
         }
         Commands::Models => {
-            handle_models(config, auth_store).await;
+            handle_models(config, auth_store).await?;
             Ok(true)
         }
         _ => Ok(false),
@@ -111,35 +111,12 @@ pub(crate) fn format_model_entries(
     }
 }
 
-async fn handle_models(config: &Config, auth_store: &AuthStore) {
-    let mut store = rho_engine::provider::ModelStore::load(config.config_dir.join("models-store.json"));
-    let cached = store.get_models(&config.provider).cloned();
-
-    let is_local = config.provider == "local" || config.provider == "ollama";
-    let mut models = if is_local || cached.is_none() {
-        if let Ok(provider_id) = ProviderId::from_str(&config.provider)
-            && let Ok(discovered) =
-                rho_engine::provider::discovery::discover_provider_models(provider_id, auth_store).await
-            && !discovered.is_empty()
-        {
-            let _ = store.set_models_async(&config.provider, discovered.clone()).await;
-            discovered
-        } else {
-            cached.unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(&config.provider))
-        }
-    } else {
-        cached.unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(&config.provider))
-    };
-
-    for preset in rho_engine::provider::discovery::default_presets_for(&config.provider) {
-        if !models.iter().any(|m| m.id == preset.id) {
-            models.push(preset);
-        }
-    }
-    let models = rho_engine::provider::discovery::sort_models_newest_first(models);
-
+async fn handle_models(config: &Config, auth_store: &AuthStore) -> rho_harness_core::error::Result<()> {
+    use rho_engine::provider::discovery::{discover_models, sort_models_newest_first};
+    let models = discover_models(&config.provider, config, auth_store.clone()).await?;
     println!("Models for {}:", config.provider);
-    for line in format_model_entries(&models, &config.model) {
+    for line in format_model_entries(&sort_models_newest_first(models), &config.model) {
         println!("{line}");
     }
+    Ok(())
 }

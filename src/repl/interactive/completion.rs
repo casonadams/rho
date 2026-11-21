@@ -131,7 +131,7 @@ pub struct Completion {
 pub struct CompletionSet {
     pub(super) commands: Vec<CommandItem>,
     pub(super) skills: Vec<SkillItem>,
-    pub(super) models: Vec<ModelItem>,
+    pub(super) models: super::ModelList,
     pub(super) providers: Vec<ProviderItem>,
     pub(super) mcp_servers: McpServerList,
     pub(super) files: Vec<String>,
@@ -362,7 +362,7 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
         return Some(complete_skills(&set.skills, argument, cursor));
     }
     if let Some(argument) = prefix.strip_prefix("/model ") {
-        return Some(complete_models(&set.models, argument, cursor));
+        return Some(complete_models(&set.models.items(), argument, cursor));
     }
     if let Some(argument) = prefix.strip_prefix("/thinking ") {
         return Some(complete_thinking(argument, cursor));

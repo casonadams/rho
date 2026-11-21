@@ -5,7 +5,7 @@ pub(crate) mod shortcut;
 use dispatch::{IdleInputResult, process_raw_input};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
-use super::types::{FrameOrUi, next_frame_or_ui, wait_quota};
+use super::types::{FrameOrUi, next_frame_or_ui, wait_version_change};
 use super::{EditorResources, IdleContext, LiveIo};
 use crate::error::Result;
 use crate::repl::ReplSession;
@@ -24,17 +24,19 @@ struct IdleUi {
     batch: LiveBatch,
     frame: tokio::time::Interval,
     quota_rx: tokio::sync::watch::Receiver<u64>,
+    catalog_rx: tokio::sync::watch::Receiver<u64>,
     mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
 }
 
 impl IdleUi {
-    fn new(engine: &crate::engine::AgentEngine) -> Self {
+    fn new(engine: &crate::engine::AgentEngine, session: &ReplSession) -> Self {
         let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
         frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         Self {
             batch: LiveBatch::new().with_monitor(engine.agent_monitor().clone()),
             frame,
             quota_rx: engine.quota_subscribe(),
+            catalog_rx: session.catalog.subscribe(),
             mcp: engine.mcp_runtime().cloned(),
         }
     }
@@ -43,6 +45,7 @@ impl IdleUi {
 enum IdleTick {
     Frame,
     Quota,
+    Catalog,
     Ui(crate::ui::interactive::UiEvent),
 }
 
@@ -80,7 +83,8 @@ async fn next_idle_step(
         event = input.recv() => IdleSource::Input(event),
         () = inbox.wait() => IdleSource::Mail,
         () = wait_mcp_problems(ui.mcp.as_deref()) => IdleSource::McpProblems,
-        _ = wait_quota(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
+        _ = wait_version_change(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
+        _ = wait_version_change(&mut ui.catalog_rx) => IdleSource::Tick(IdleTick::Catalog),
         tick = next_frame_or_ui(&mut ui.frame, ui_events) => IdleSource::Tick(tick.into()),
     }
 }
@@ -142,6 +146,10 @@ async fn handle_tick<B: TerminalBackend>(
         IdleTick::Frame => handle_frame_tick(controller, batch, ctx.session, ctx.engine)?,
         IdleTick::Quota => {
             sync_idle_quota(controller, batch, ctx.engine)?;
+        }
+        IdleTick::Catalog => {
+            crate::repl::live::modal::refresh_open_model_selector(ctx.session, controller);
+            batch.flush(controller, true)?;
         }
         IdleTick::Ui(event) => {
             handle_ui_event(controller, batch, event).await?;
@@ -231,7 +239,7 @@ async fn drive_idle_loop<B: TerminalBackend>(
     resources: &mut EditorResources<'_>,
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<Option<QueuedMessage>> {
-    let mut ui = IdleUi::new(ctx.engine);
+    let mut ui = IdleUi::new(ctx.engine, ctx.session);
     crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
     loop {
         if ui.quota_rx.has_changed().is_err() {

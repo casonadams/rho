@@ -101,44 +101,67 @@ async fn test_handle_command_mcp_lifecycle() {
 }
 
 #[tokio::test]
-async fn test_handle_command_models_with_model_store() {
+async fn models_command_lists_live_models_and_reports_failures() {
     use super::commands::{format_model_entries, handle_command};
     use crate::auth::AuthStore;
     use crate::config::Config;
     use crate::config::cli::Commands;
-    use rho_engine::provider::{DiscoveredModel, ModelStore};
-    use tempfile::tempdir;
+    use rho_engine::provider::DiscoveredModel;
 
-    let temp = tempdir().unwrap();
-    let config = Config {
+    let temp = tempfile::tempdir().unwrap();
+    let listing = r#"{"data":[{"id":"acme-2","context_length":131072}]}"#;
+    let base = serve_once(&[("200 OK", listing), ("401 Unauthorized", "{}")]);
+    let mut config = Config {
         config_dir: temp.path().to_path_buf(),
-        provider: "gemini".to_string(),
-        model: "gemini-2.5-flash".to_string(),
+        provider: "acme".to_string(),
+        model: "acme-2".to_string(),
+        allow_private_network: true,
         ..Default::default()
     };
-    let mut store = ModelStore::load(config.config_dir.join("models-store.json"));
-    store
-        .set_models(
-            "gemini",
-            vec![DiscoveredModel {
-                id: "gemini-3.6-flash".to_string(),
-                name: "Gemini 3.6 Flash".to_string(),
-                provider: "gemini".to_string(),
-                description: "1M ctx · live test".to_string(),
-                context_tokens: Some(1_000_000),
-            }],
-        )
-        .unwrap();
-
+    config.providers.insert(
+        "acme".to_string(),
+        rho_harness_core::config::ProviderConfig {
+            base_url: base,
+            ..Default::default()
+        },
+    );
     let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
-    let res = handle_command(Commands::Models, &config, &mut auth_store).await;
-    assert!(res.is_ok());
 
-    let formatted = format_model_entries(store.get_models("gemini").unwrap(), &config.model);
-    assert_eq!(formatted, vec!["  - gemini-3.6-flash (1M ctx · live test)"]);
+    assert!(handle_command(Commands::Models, &config, &mut auth_store).await.is_ok());
+    let failure = handle_command(Commands::Models, &config, &mut auth_store)
+        .await
+        .unwrap_err();
+    assert!(failure.to_string().contains("HTTP 401"), "{failure}");
 
-    let empty_formatted = format_model_entries(&[], "fallback-model");
-    assert_eq!(empty_formatted, vec!["  - fallback-model"]);
+    let listed = DiscoveredModel::new("gemini-3.6-flash", "Gemini 3.6 Flash", "gemini", "1M ctx");
+    assert_eq!(
+        format_model_entries(&[listed], &config.model),
+        vec!["  - gemini-3.6-flash (1M ctx)"]
+    );
+    assert_eq!(format_model_entries(&[], "fallback-model"), vec!["  - fallback-model"]);
+}
+
+/// Serves the given responses, one per connection, on a loopback port.
+fn serve_once(responses: &[(&'static str, &'static str)]) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let responses = responses.to_vec();
+    std::thread::spawn(move || {
+        for (status, body) in responses {
+            let Ok((mut socket, _)) = listener.accept() else {
+                return;
+            };
+            let mut buf = [0u8; 4096];
+            let _ = socket.read(&mut buf);
+            let reply = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = socket.write_all(reply.as_bytes());
+        }
+    });
+    base
 }
 
 #[test]

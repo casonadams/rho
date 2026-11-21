@@ -9,8 +9,6 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{EditorState, FooterState, InteractiveState, LayoutInput, TerminalController, layout};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rho_engine::provider::discovery::claude_preset_models;
-use rho_engine::provider::store::ModelStore;
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 
@@ -23,19 +21,19 @@ fn send_modal_char(c: &mut TerminalController<NullBackend>, ch: char) -> ModalKe
 }
 
 fn setup_model_selector_session(config_dir: std::path::PathBuf) -> crate::repl::ReplSession {
-    let mut model_store = rho_engine::provider::store::ModelStore::load(config_dir.join("models-store.json"));
-    model_store
-        .set_models(
-            "anthropic",
-            rho_engine::provider::discovery::presets::anthropic_preset_models(),
-        )
-        .unwrap();
     let config = rho_harness_core::config::Config {
         sessions_dir: config_dir.join("sessions"),
         config_dir,
+        model: "claude-sonnet-5-5".to_string(),
+        provider: "anthropic".to_string(),
         ..Default::default()
     };
-    crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None)
+    let mut session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);
+    session.catalog = crate::repl::interactive::models::catalog_with(
+        "anthropic",
+        &["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5-20251001"],
+    );
+    session
 }
 
 #[test]
@@ -74,6 +72,37 @@ fn model_selector_modal_selection() {
         _ => panic!("expected ModelSelected"),
     }
     assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn model_selector_fills_in_as_provider_lists_arrive() {
+    use rho_engine::provider::{DiscoveredModel, ProviderModels};
+    let temp = tempfile::tempdir().unwrap();
+    let mut session = setup_model_selector_session(temp.path().to_path_buf());
+    session.config.model.clear();
+    session.catalog = rho_engine::provider::ModelCatalog::default();
+    session.catalog.set("claude", ProviderModels::Loading);
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    open_model_selector(&session, &mut controller);
+    controller.state_mut().active_modal_mut().unwrap().set_filter("opus");
+    assert_eq!(
+        controller.state().active_modal().unwrap().body,
+        "Fetching models from claude…"
+    );
+    assert!(controller.state().active_modal().unwrap().options.is_empty());
+
+    let listed = |id: &str| DiscoveredModel::new(id, id, "claude", "1M ctx");
+    session.catalog.set(
+        "claude",
+        ProviderModels::Ready(vec![listed("claude-opus-5"), listed("claude-sonnet-5")]),
+    );
+    super::super::modal::refresh_open_model_selector(&session, &mut controller);
+
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.body, "");
+    assert_eq!(modal.filter_query, "opus");
+    let labels: Vec<&str> = modal.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, ["claude/claude-opus-5"]);
 }
 
 #[test]
@@ -994,9 +1023,6 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
     let auth_file = config_dir.join("auth.json");
     let auth_store = seed_claude_auth(&auth_file);
 
-    let mut model_store = ModelStore::load(config_dir.join("models-store.json"));
-    model_store.set_models("claude", claude_preset_models()).unwrap();
-
     let config = Config {
         sessions_dir: config_dir.join("sessions"),
         config_dir,
@@ -1005,7 +1031,10 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
         provider: "claude".into(),
         ..Config::default()
     };
-    (temp_dir, ReplSession::new(config, auth_store, None))
+    let mut session = ReplSession::new(config, auth_store, None);
+    session.catalog =
+        crate::repl::interactive::models::catalog_with("claude", &["claude-opus-4-6", "claude-sonnet-4-6"]);
+    (temp_dir, session)
 }
 
 #[test]

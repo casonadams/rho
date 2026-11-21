@@ -131,6 +131,7 @@ impl AgentEngine {
         let usage = self.record_turn_usage(&response, generation_elapsed_ms).await?;
         let (status, terminal_status) = determine_turn_status(&response);
         let metrics = self.finalize_turn_summary(&response, terminal_status).await?;
+        self.spawn_local_context_probe();
 
         lifecycle_hook
             .notify_turn_end(&format!("{terminal_status:?}"), tool_calls_count)

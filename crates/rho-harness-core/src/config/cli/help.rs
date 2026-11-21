@@ -10,7 +10,7 @@ Environment Variables:
   MISTRAL_API_KEY                  - Mistral API key
   COHERE_API_KEY                   - Cohere API key
   OLLAMA_API_KEY                   - Ollama Cloud API key
-  OLLAMA_HOST                      - Ollama service host (default: http://localhost:11434)
+  OLLAMA_HOST                      - Ollama service host (default: http://127.0.0.1:11434)
   RHO_MODEL                        - Default model in <provider>/<model> format
   RHO_PROVIDER                     - Default provider (optional/legacy)
   AI_MODEL                         - Default model ID

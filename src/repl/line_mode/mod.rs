@@ -7,8 +7,6 @@ pub use shell::clear_submitted_input;
 #[cfg(test)]
 pub use shell::submitted_input_rows;
 
-use crate::auth::AuthStore;
-use crate::config::Config;
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
@@ -24,11 +22,8 @@ use reedline::{
 };
 use shell::{ShellAction, handle_shell_command};
 
-async fn build_completion_sources_async(
-    config: &Config,
-    auth_store: &AuthStore,
-    mcp_servers: crate::repl::interactive::McpServerList,
-) -> crate::repl::interactive::CompletionSources {
+async fn build_completion_sources_async(session: &ReplSession) -> crate::repl::interactive::CompletionSources {
+    let config = &session.config;
     let cwd = std::env::current_dir().ok();
     let skills = crate::skills::resolved_skills_async(cwd.as_deref()).await;
     let prompt_templates =
@@ -37,16 +32,15 @@ async fn build_completion_sources_async(
             .into_iter()
             .map(|t| t.metadata.name)
             .collect();
-    let models = crate::repl::interactive::discover_models(config, auth_store);
     let custom_providers = config.providers.keys().cloned().collect();
     let workflows = crate::repl::commands::workflows::completion_entries().await;
     crate::repl::interactive::CompletionSources::new()
         .with_skills(skills)
         .with_templates(prompt_templates)
         .with_workflows(workflows)
-        .with_models(models)
+        .with_model_list(session.model_list())
         .with_custom_providers(custom_providers)
-        .with_mcp_servers(mcp_servers)
+        .with_mcp_servers(session.mcp_completions.clone())
 }
 
 pub(crate) fn build_emacs_keybindings() -> reedline::Keybindings {
@@ -76,7 +70,7 @@ fn build_emacs_edit_mode() -> Box<Emacs> {
 pub async fn build_line_editor_async(session: &ReplSession) -> Result<Reedline> {
     let config = &session.config;
     let edit_mode = build_emacs_edit_mode();
-    let sources = build_completion_sources_async(config, &session.auth_store, session.mcp_completions.clone()).await;
+    let sources = build_completion_sources_async(session).await;
     let completer = Box::new(RhoCompleter::new(sources));
     let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
@@ -332,6 +326,7 @@ async fn run_line_event_loop<S: LineSource>(
 pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
     let engine = crate::repl::init_engine(session).await?;
     crate::repl::print_welcome(session, &engine).await;
+    session.refresh_model_catalog();
     let line_editor = build_line_editor_async(session).await?;
     run_line_event_loop(line_editor, session, engine, stdin_is_tty).await
 }

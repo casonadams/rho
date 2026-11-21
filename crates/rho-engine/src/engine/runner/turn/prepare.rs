@@ -198,6 +198,7 @@ impl AgentEngine {
         prompt: &str,
         presenter: &Arc<dyn Presenter>,
     ) -> Result<PreparedTurnOutcome> {
+        self.require_model()?;
         let context = self.project_context().await?;
         let mut preamble = context.build_system_prompt();
         crate::mcp::append_server_instructions(&mut preamble, &self.mcp.instructions);
@@ -226,14 +227,23 @@ impl AgentEngine {
         Ok(PreparedTurnOutcome::Ready(ready))
     }
 
+    fn require_model(&self) -> Result<crate::engine::compactor::llm::ModelHandle> {
+        self.model.clone().ok_or_else(|| {
+            rho_harness_core::error::AppError::Config(
+                "No model selected. Pick one with /model, `rho --model <provider>/<model>`, or save a default with `rho config model <provider>/<model>`."
+                    .to_string(),
+            )
+        })
+    }
+
     async fn build_turn_runner<'a>(
         &self,
         params: TurnRunnerParams<'a>,
         sink: Arc<TerminalApprovalSink>,
         request: &TurnRequest<'_>,
-    ) -> AgentRunner {
+    ) -> Result<AgentRunner> {
         let tools = self.tools.read().await.clone();
-        let model = self.model.clone().expect("Model must be initialized");
+        let model = self.require_model()?;
         let mut runner = AgentRunner::new(model, tools, self.session_manager.clone(), sink)
             .preamble(params.preamble)
             .prompt(params.prompt)
@@ -252,7 +262,7 @@ impl AgentEngine {
         } else {
             runner = runner.history(params.history.to_vec());
         }
-        runner
+        Ok(runner)
     }
 
     pub(super) fn lifecycle_hook(&self, presenter: Arc<dyn Presenter>) -> Arc<crate::hook::LifecycleHook> {
@@ -328,7 +338,7 @@ impl AgentEngine {
                 sink.clone(),
                 request,
             )
-            .await
+            .await?
             .lifecycle(Some(lifecycle_hook.clone()))
             .permission(permission_hook)
             .cancellation(request.cancellation.cloned());

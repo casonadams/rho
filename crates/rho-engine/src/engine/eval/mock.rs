@@ -35,7 +35,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         tools: std::sync::Arc::new(tokio::sync::RwLock::new(tools)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
-        context: crate::engine::tracking::ContextTracker::new(None),
+        context: crate::engine::tracking::ContextTracker::new(None, crate::provider::ModelCatalog::default()),
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
@@ -48,6 +48,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         worktrees: None,
         workflows: None,
         mcp: crate::engine::EngineMcp::default(),
+        ollama_host: crate::ollama::local::local_host(),
     }
 }
 

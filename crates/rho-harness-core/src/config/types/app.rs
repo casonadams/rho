@@ -64,8 +64,8 @@ pub struct Config {
 macro_rules! default_config_literal {
     ($base_dir:expr) => {
         Config {
-            model: "llama3.2".to_string(),
-            provider: "local".to_string(),
+            model: String::new(),
+            provider: String::new(),
             max_output_tokens: None,
             max_turns: DEFAULT_MAX_TURNS,
             context_limit: None,
@@ -223,13 +223,7 @@ impl Config {
     pub fn canonical_model_spec(&self) -> String {
         let trimmed = self.model.trim();
         if trimmed.is_empty() {
-            let provider = if self.provider.trim().is_empty() {
-                "local"
-            } else {
-                self.provider.trim()
-            };
-            let default_m = crate::provider::default_model_for_provider(provider);
-            return format!("{provider}/{default_m}");
+            return String::new();
         }
         if let Some((p, m)) = trimmed.split_once('/') {
             let p = p.trim();

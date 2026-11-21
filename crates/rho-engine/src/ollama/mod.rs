@@ -1,5 +1,6 @@
-//! Ollama cloud service (ollama.com) account quota display.
+//! Ollama integration: cloud (ollama.com) account quota display and the local server in `local`.
 
+pub mod local;
 #[cfg(test)]
 mod tests;
 

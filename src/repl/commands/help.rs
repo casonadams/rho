@@ -95,11 +95,19 @@ fn append_engine_diagnostics(out: &mut String, engine: &rho_engine::engine::Agen
     if capacity > 0 {
         let usage_display = engine.context_remaining_display();
         let pct = engine.context_percent_f64().unwrap_or(0.0);
+        let source = match engine.context_limit_source() {
+            rho_engine::engine::tracking::ContextLimitSource::Configured => "configured",
+            rho_engine::engine::tracking::ContextLimitSource::Provider => "from provider",
+            rho_engine::engine::tracking::ContextLimitSource::Estimated => "estimated",
+        };
         let _ = writeln!(
             out,
-            "  Context Usage:               {usage_display} / {} tokens ({pct:.1}%)",
+            "  Context Usage:               {usage_display} / {} tokens ({pct:.1}%, {source})",
             format_tokens(capacity as u64)
         );
+    }
+    if let Some(error) = engine.context_probe_error() {
+        let _ = writeln!(out, "  Context Window Check:        failed: {error}");
     }
     if let Some(hit) = engine.cache_hit_display() {
         let _ = writeln!(out, "  Cache Efficiency:            {hit}");

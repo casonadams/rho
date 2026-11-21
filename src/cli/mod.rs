@@ -34,7 +34,9 @@ async fn run_interactive_session(
     (config, auth_store, resume_target): (Config, AuthStore, Option<String>),
     cli: Cli,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let mut session = ReplSession::new(config, auth_store, resume_target).with_cli(Some(cli));
+    let mut session = ReplSession::new(config, auth_store, resume_target)
+        .with_cli(Some(cli))
+        .with_live_models();
     session.run().await?;
     Ok(())
 }

@@ -34,9 +34,18 @@ pub(crate) fn assert_quota_cases(
 /// Returns the base URL (`http://127.0.0.1:<port>`). Each request body is drained by its
 /// `Content-Length` before replying, so clients that stream a form body never see a reset.
 pub(crate) async fn serve_http(responses: Vec<(&'static str, String)>) -> String {
+    serve_http_recording(responses).await.0
+}
+
+/// Like [`serve_http`], also recording each request's line and headers (lowercased).
+pub(crate) async fn serve_http_recording(
+    responses: Vec<(&'static str, String)>,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = requests.clone();
     tokio::spawn(async move {
         for (status, body) in responses {
             let Ok((mut socket, _)) = listener.accept().await else {
@@ -54,6 +63,7 @@ pub(crate) async fn serve_http(responses: Vec<(&'static str, String)>) -> String
                 }
             };
             let headers = String::from_utf8_lossy(&raw[..header_end]).to_ascii_lowercase();
+            recorded.lock().unwrap().push(headers.clone());
             let content_length = headers
                 .lines()
                 .find_map(|l| l.strip_prefix("content-length:"))
@@ -73,5 +83,5 @@ pub(crate) async fn serve_http(responses: Vec<(&'static str, String)>) -> String
             let _ = socket.shutdown().await;
         }
     });
-    format!("http://{addr}")
+    (format!("http://{addr}"), requests)
 }

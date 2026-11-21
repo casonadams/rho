@@ -42,8 +42,8 @@ Quick shortcuts to adjust providers, models, and reasoning effort:
 | Shortcut                 | Action                         | Details                                                                                           |
 | :----------------------- | :----------------------------- | :------------------------------------------------------------------------------------------------ |
 | `Ctrl+L`                 | **Model Selector**             | Opens the interactive model selection modal with fuzzy search.                                    |
-| `Ctrl+P`                 | **Cycle Model Forward**        | Cycles to the next available model in your configured presets.                                    |
-| `Shift+Ctrl+P` / `Alt+P` | **Cycle Model Backward**       | Cycles to the previous model in your presets.                                                     |
+| `Ctrl+P`                 | **Cycle Model Forward**        | Cycles to the next model in your providers' live model lists.                                     |
+| `Shift+Ctrl+P` / `Alt+P` | **Cycle Model Backward**       | Cycles to the previous model in your providers' live model lists.                                 |
 | `Shift+Tab`              | **Cycle Thinking Effort**      | Cycles reasoning effort levels (`off` → `minimal` → `low` → `medium` → `high` → `xhigh` → `max`). |
 | `Ctrl+T`                 | **Toggle Thinking Visibility** | Toggles thinking/reasoning blocks between visible and hidden in the transcript.                   |
 

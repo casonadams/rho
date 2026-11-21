@@ -121,14 +121,14 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
             file_config.models.default = Some(value.to_string());
         }
         ConfigKey::Provider => {
-            if let Some(ref current_spec) = file_config.models.default {
-                let (_, m) = crate::provider::parse_model_spec(current_spec);
-                let model = if m.is_empty() { current_spec } else { &m };
-                file_config.models.default = Some(format!("{value}/{model}"));
-            } else {
-                let default_m = crate::provider::default_model_for_provider(value);
-                file_config.models.default = Some(format!("{value}/{default_m}"));
-            }
+            let current_spec = file_config.models.default.as_deref().ok_or_else(|| {
+                AppError::Config(format!(
+                    "No default model to move to {value}. Set one with: rho config model {value}/<model>"
+                ))
+            })?;
+            let (_, m) = crate::provider::parse_model_spec(current_spec);
+            let model = if m.is_empty() { current_spec } else { &m };
+            file_config.models.default = Some(format!("{value}/{model}"));
         }
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());

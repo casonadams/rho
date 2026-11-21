@@ -1,5 +1,5 @@
 use super::AgentEngine;
-use super::tracking::{ContextTracker, QuotaTracker, UsageTracker};
+use super::tracking::{QuotaTracker, UsageTracker};
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::EngineTool;
@@ -24,12 +24,13 @@ pub struct AgentEngineBuilder {
     agent_monitor: rho_harness_core::agents::AgentMonitor,
     subagent_runtime: crate::tools::subagent::SubagentRuntime,
     turn_notes: super::TurnNotes,
+    model_catalog: crate::provider::ModelCatalog,
 }
 
 type EngineAssembly = (
     Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
     Vec<String>,
-    ModelHandle,
+    Option<ModelHandle>,
 );
 
 impl AgentEngineBuilder {
@@ -47,6 +48,7 @@ impl AgentEngineBuilder {
             agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
             subagent_runtime: crate::tools::subagent::SubagentRuntime::default(),
             turn_notes: super::TurnNotes::default(),
+            model_catalog: crate::provider::ModelCatalog::shared(),
         }
     }
 
@@ -99,48 +101,21 @@ impl AgentEngineBuilder {
         self.turn_notes = notes;
         self
     }
-}
 
-fn try_provider_default(
-    config: &mut Config,
-    auth_store: &AuthStore,
-    shared_auth: &Arc<tokio::sync::Mutex<AuthStore>>,
-) -> Option<ModelHandle> {
-    let default_model = rho_harness_core::provider::default_model_for_provider(&config.provider);
-    let mut trial = config.clone();
-    trial.model = default_model.to_string();
-    let m = create_engine_model(&trial, auth_store, shared_auth.clone()).ok()?;
-    *config = trial;
-    Some(m)
-}
-
-fn resolve_model_or_fallback(
-    config: &mut Config,
-    auth_store: &AuthStore,
-    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
-) -> Result<ModelHandle> {
-    if let Ok(m) = create_engine_model(config, auth_store, shared_auth.clone()) {
-        return Ok(m);
+    pub fn model_catalog(mut self, catalog: crate::provider::ModelCatalog) -> Self {
+        self.model_catalog = catalog;
+        self
     }
-    let is_provider_without_model =
-        config.default_model.is_none() && config.provider != "local" && config.model == "llama3.2";
-    if is_provider_without_model && let Some(m) = try_provider_default(config, auth_store, &shared_auth) {
-        return Ok(m);
-    }
-    create_engine_model(config, auth_store, shared_auth)
 }
 
 async fn resolve_model_off_runtime(
-    mut config: Config,
+    config: Config,
     auth_store: AuthStore,
     shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
-) -> Result<(Config, ModelHandle)> {
-    tokio::task::spawn_blocking(move || {
-        let model = resolve_model_or_fallback(&mut config, &auth_store, shared_auth)?;
-        Ok((config, model))
-    })
-    .await
-    .map_err(|e| AppError::Auth(format!("Model resolution task failed: {e}")))?
+) -> Result<ModelHandle> {
+    tokio::task::spawn_blocking(move || create_engine_model(&config, &auth_store, shared_auth))
+        .await
+        .map_err(|e| AppError::Auth(format!("Model resolution task failed: {e}")))?
 }
 
 fn subagent_model_resolver(
@@ -157,7 +132,7 @@ fn subagent_model_resolver(
 }
 
 struct SubagentModels<'a> {
-    default: &'a ModelHandle,
+    default: Option<&'a ModelHandle>,
     resolver: crate::tools::subagent::SubagentModelResolver,
     runtime: &'a crate::tools::subagent::SubagentRuntime,
 }
@@ -179,7 +154,7 @@ async fn build_engine_tools(
             let (mut t, subagents) = crate::tools::builtin_tools::build_builtin_toolset(
                 base_dir,
                 config,
-                Some(models.default.clone()),
+                models.default.cloned(),
                 Some(models.resolver),
                 Some(crate::worktree::WorktreeStore::default_location()),
                 models.runtime,
@@ -224,14 +199,16 @@ impl AgentEngineBuilder {
         Ok(session_manager)
     }
 
-    async fn resolve_model(&mut self, shared_auth: Arc<tokio::sync::Mutex<AuthStore>>) -> Result<ModelHandle> {
+    /// `None` until a model is selected: an empty `config.model` means none was chosen or saved.
+    async fn resolve_model(&mut self, shared_auth: Arc<tokio::sync::Mutex<AuthStore>>) -> Result<Option<ModelHandle>> {
         if let Some(m) = self.model.take() {
-            return Ok(m);
+            return Ok(Some(m));
         }
-        let config = self.config.clone();
-        let (config, model) = resolve_model_off_runtime(config, self.auth_store.clone(), shared_auth).await?;
-        self.config = config;
-        Ok(model)
+        if self.config.model.trim().is_empty() {
+            return Ok(None);
+        }
+        let model = resolve_model_off_runtime(self.config.clone(), self.auth_store.clone(), shared_auth).await?;
+        Ok(Some(model))
     }
 
     fn into_engine(
@@ -240,7 +217,7 @@ impl AgentEngineBuilder {
         (session_manager, auth_store): (SessionManager, Arc<tokio::sync::Mutex<AuthStore>>),
         (tools, tool_names, model): EngineAssembly,
     ) -> AgentEngine {
-        let context_limit = super::model::resolve_context_limit(&self.config);
+        let context = super::tracking::ContextTracker::new(self.config.context_limit, self.model_catalog);
         let demotion_hook = self.demotion_hook.or_else(|| {
             Some(Arc::new(
                 crate::engine::compactor::artifact_spill::ArtifactDemotionHook::new(base_dir.join(".rho/artifacts")),
@@ -254,12 +231,12 @@ impl AgentEngineBuilder {
             tools,
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
-            context: ContextTracker::new(context_limit),
+            context,
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
             auth_store,
-            model: Some(model.clone()),
-            compactor_model: Some(model),
+            model: model.clone(),
+            compactor_model: model,
             demotion_hook,
             agent_monitor: self.agent_monitor,
             subagent_runtime: self.subagent_runtime,
@@ -267,6 +244,7 @@ impl AgentEngineBuilder {
             workflows: None,
             worktrees: None,
             mcp: super::EngineMcp::default(),
+            ollama_host: crate::ollama::local::local_host(),
         }
     }
 
@@ -283,7 +261,7 @@ impl AgentEngineBuilder {
             &base_dir,
             &self.config,
             SubagentModels {
-                default: &model,
+                default: model.as_ref(),
                 resolver: subagent_model_resolver(&self.config, &self.auth_store, shared_auth.clone()),
                 runtime: &self.subagent_runtime,
             },
@@ -359,32 +337,32 @@ mod tests {
         Arc::new(tokio::sync::Mutex::new(store.clone()))
     }
 
-    fn placeholder_config(provider: &str) -> Config {
-        Config {
-            provider: provider.to_string(),
-            model: "llama3.2".to_string(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn placeholder_model_falls_back_to_default_of_a_credentialed_provider() {
-        let (_dir, mut store) = temp_auth_store();
-        store
-            .set_credential("anthropic", StoredCredential::api_key("sk-ant-test".to_string()))
+    #[tokio::test]
+    async fn engine_without_a_selected_model_builds_and_refuses_turns() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_auth_dir, store) = temp_auth_store();
+        let config = Config {
+            config_dir: dir.path().to_path_buf(),
+            sessions_dir: dir.path().join("sessions"),
+            ..Config::default()
+        };
+        assert!(config.model.is_empty() && config.provider.is_empty());
+        let engine = AgentEngineBuilder::new(config, store)
+            .base_dir(dir.path().to_path_buf())
+            .build()
+            .await
             .unwrap();
-        let mut config = placeholder_config("openrouter");
-        assert!(resolve_model_or_fallback(&mut config, &store, shared(&store)).is_ok());
-        assert_eq!(config.model, "anthropic/claude-3.7-sonnet");
-        assert_eq!(config.provider, "openrouter");
-    }
 
-    #[test]
-    fn placeholder_model_without_any_credentials_keeps_original_config() {
-        let (_dir, store) = temp_auth_store();
-        let mut config = placeholder_config("openrouter");
-        assert!(resolve_model_or_fallback(&mut config, &store, shared(&store)).is_err());
-        assert_eq!(config.model, "llama3.2");
+        let error = engine
+            .run_turn(
+                crate::engine::runner::TurnRequest::new("hi"),
+                Arc::new(crate::engine::eval::presenter::NoopPresenter),
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("No model selected"), "{error}");
+        assert!(engine.session_manager.active_messages().await.unwrap().is_empty());
     }
 
     #[cfg(unix)]
@@ -406,7 +384,6 @@ mod tests {
         let resolving = tokio::spawn(resolve_model_off_runtime(config, store.clone(), shared(&store)));
         tokio::task::yield_now().await;
         assert!(started.elapsed() < std::time::Duration::from_millis(150));
-        let (config, _model) = resolving.await.unwrap().unwrap();
-        assert_eq!(config.model, "anthropic/claude-3.7-sonnet");
+        let _model = resolving.await.unwrap().unwrap();
     }
 }

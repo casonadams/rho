@@ -35,7 +35,6 @@ async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mu
     let callbacks = TerminalOAuthCallbacks;
     let cred = perform_oauth_login(id, &callbacks).await?;
     auth_store.set_credential(id.as_str(), cred)?;
-    crate::repl::interactive::spawn_background_model_refresh(config, auth_store);
     println!(
         "Logged in to {}. Credentials saved to {}",
         provider_login_name(id),
@@ -103,20 +102,19 @@ fn read_api_key(target: &str, key_stdin: bool) -> Result<String> {
     }
 }
 
-fn store_api_key(target: &str, key: &str, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+fn store_api_key(target: &str, key: &str, auth_store: &mut AuthStore) -> Result<()> {
     let key = key.trim();
     if key.is_empty() {
         return Err(AppError::Auth("API key cannot be empty".to_string()));
     }
     auth_store.set_key(target, key)?;
-    crate::repl::interactive::spawn_background_model_refresh(config, auth_store);
     println!("Stored API key for {target}");
     Ok(())
 }
 
-fn login_api_key(target: &str, key_stdin: bool, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+fn login_api_key(target: &str, key_stdin: bool, auth_store: &mut AuthStore) -> Result<()> {
     let key = read_api_key(target, key_stdin)?;
-    store_api_key(target, &key, config, auth_store)
+    store_api_key(target, &key, auth_store)
 }
 
 pub async fn login_provider(
@@ -145,7 +143,7 @@ pub async fn login_provider(
     {
         return Ok(());
     }
-    login_api_key(&target, key_stdin, config, auth_store)
+    login_api_key(&target, key_stdin, auth_store)
 }
 
 fn parse_logout_choice(input: &str, configured: &[String]) -> Result<String> {

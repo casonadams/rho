@@ -1,16 +1,17 @@
 pub mod adapter;
 mod builders;
+pub mod catalog;
 pub mod discovery;
 pub mod error;
 pub mod openai;
 pub mod sse;
-pub mod store;
 
 pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 
+pub use builders::LOCAL_OLLAMA_PROVIDER;
+pub use catalog::{ModelCatalog, ProviderModels, catalog_key};
 pub use discovery::DiscoveredModel;
 pub use openai::OpenAiClient;
-pub use store::ModelStore;
 
 use crate::auth::AuthStore;
 pub use crate::engine::compactor::llm::ModelHandle;
@@ -150,7 +151,7 @@ impl ProviderFactory {
         Ok(std::sync::Arc::new(client))
     }
 
-    fn custom_key(
+    pub(crate) fn custom_key(
         name: &str,
         spec: &rho_harness_core::config::ProviderConfig,
         auth_store: &AuthStore,

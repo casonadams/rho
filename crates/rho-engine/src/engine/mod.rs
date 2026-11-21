@@ -58,6 +58,7 @@ pub struct AgentEngine {
     /// Where subagent and workflow worktrees live; the parent is reminded to merge or discard its own.
     pub(crate) worktrees: Option<crate::worktree::WorktreeStore>,
     pub(crate) mcp: EngineMcp,
+    pub(crate) ollama_host: String,
 }
 
 #[derive(Default)]
@@ -160,6 +161,7 @@ impl AgentEngine {
             .agent_monitor(self.agent_monitor.clone())
             .subagent_runtime(self.subagent_runtime.clone())
             .turn_notes(self.turn_notes.clone())
+            .model_catalog(self.model_catalog().clone())
             .base_dir(base_dir);
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));

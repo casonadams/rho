@@ -241,6 +241,7 @@ async fn handle_login_result<B: TerminalBackend>(
         {
             Ok(engine) => {
                 *ctx.engine = engine;
+                ctx.session.refresh_model_catalog();
                 crate::repl::report_mcp_diagnostics(ctx.session, ctx.engine);
             }
             Err(err) => ctx

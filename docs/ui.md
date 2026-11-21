@@ -150,6 +150,16 @@ background work running.
   changes the history, the size check estimates the pruned history instead of
   reusing the previous request's reported usage. Use `/compact` to run it
   manually.
+- **Context window source.** `context_limit` (or `AI_CONTEXT_LIMIT`) always
+  wins. Otherwise rho uses the window the provider lists for the model in its
+  live model list (fetched each session, never cached on disk). For local
+  Ollama, that is the window the server actually allocated (read from `/api/ps`
+  after each turn), falling back to the model's `num_ctx` or trained maximum
+  until the model has been loaded. Providers that list no window (the OpenAI
+  API, most custom endpoints) use a built-in estimate. `/session` shows which
+  source applies (`from provider`, `configured`, or `estimated`). If the Ollama
+  check cannot reach the server, `/session` shows
+  `Context Window Check: failed: <reason>` until the next check succeeds.
 
 ---
 

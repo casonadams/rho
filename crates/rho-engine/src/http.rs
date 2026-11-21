@@ -48,6 +48,26 @@ pub async fn send_json_if_ok(request: reqwest::RequestBuilder) -> Option<serde_j
     response.json().await.ok()
 }
 
+pub(crate) async fn get_json(
+    request: reqwest::RequestBuilder,
+    label: &str,
+) -> Result<serde_json::Value, rho_harness_core::error::AppError> {
+    let failed = |detail: String| rho_harness_core::error::AppError::Network(format!("{label} {detail}"));
+    let response = request
+        .send()
+        .await
+        .map_err(|e| failed(format!("request failed: {e}")))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(failed(format!("returned HTTP {status}: {}", backend_message(&body))));
+    }
+    response
+        .json()
+        .await
+        .map_err(|e| failed(format!("returned invalid JSON: {e}")))
+}
+
 pub(crate) fn friendly_oauth_error(name: &str, login: &str, status: Option<u16>, body: &str) -> String {
     let message = backend_message(body);
     match status {

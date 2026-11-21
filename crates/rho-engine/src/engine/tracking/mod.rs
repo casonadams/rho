@@ -7,6 +7,7 @@ mod tests;
 mod types;
 mod usage;
 
+pub use context::ContextLimitSource;
 pub use context::ContextTracker;
 pub use in_flight::{InFlightGuard, InFlightUsage};
 pub use quota::{QuotaKey, QuotaTracker};

@@ -16,10 +16,12 @@ pub(super) fn validate_custom_provider_url(name: &str, url: &str, allow_private:
         })
 }
 
+pub const LOCAL_OLLAMA_PROVIDER: &str = "ollama-local";
+
 pub(super) fn build_local_ollama_model(model: &str) -> Result<ModelHandle> {
-    let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
     crate::install_crypto_provider();
-    Ok(openai_model(&format!("{host}/v1"), "", model, "ollama-local"))
+    let host = crate::ollama::local::local_host();
+    Ok(openai_model(&format!("{host}/v1"), "", model, LOCAL_OLLAMA_PROVIDER))
 }
 
 pub(super) fn resolve_provider_key(provider: ProviderId, auth_store: &AuthStore) -> Result<String> {

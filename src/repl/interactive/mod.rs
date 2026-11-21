@@ -6,7 +6,7 @@ pub mod sources;
 
 pub use completion::{CommandItem, Completion, CompletionSet, McpServerItem, McpServerList, ModelItem, SkillItem};
 pub use history::InteractiveHistory;
-pub use models::{discover_models, spawn_background_model_refresh};
+pub use models::{ModelList, catalog_status, discover_models};
 pub use prediction::predict_inline_completion;
 pub use sources::CompletionSources;
 

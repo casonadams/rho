@@ -72,7 +72,12 @@ pub(crate) fn prompt_model_choice_from<R: std::io::BufRead, W: std::io::Write>(
 }
 
 pub(crate) fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) -> Option<CommandResult> {
-    let discovered = crate::repl::interactive::discover_models(ctx.config, ctx.auth_store);
+    let catalog = ctx
+        .engine
+        .map_or_else(rho_engine::provider::ModelCatalog::shared, |engine| {
+            engine.model_catalog().clone()
+        });
+    let discovered = crate::repl::interactive::discover_models(ctx.config, &catalog);
     let models: Vec<String> = discovered
         .iter()
         .map(|m| format!("{} ({}) - {}", m.id, m.provider, m.description))

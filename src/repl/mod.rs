@@ -33,6 +33,8 @@ pub struct ReplSession {
     pub resume_id: Option<String>,
     pub cli: Option<crate::config::cli::Cli>,
     pub(crate) mcp_completions: crate::repl::interactive::McpServerList,
+    pub catalog: rho_engine::provider::ModelCatalog,
+    fetch_models: bool,
 }
 
 impl ReplSession {
@@ -48,7 +50,28 @@ impl ReplSession {
             resume_id,
             cli: None,
             mcp_completions,
+            catalog: rho_engine::provider::ModelCatalog::default(),
+            fetch_models: false,
         }
+    }
+
+    /// Shares the process-wide catalog with this session's engines and fetches live model lists
+    /// into it; without this the session only shows what is put in `catalog` directly.
+    pub fn with_live_models(mut self) -> Self {
+        self.catalog = rho_engine::provider::ModelCatalog::shared();
+        self.fetch_models = true;
+        self
+    }
+
+    /// Re-fetches every reachable provider's model list in the background.
+    pub(crate) fn refresh_model_catalog(&self) {
+        if self.fetch_models {
+            self.catalog.spawn_refresh_all(&self.config, &self.auth_store);
+        }
+    }
+
+    pub(crate) fn model_list(&self) -> crate::repl::interactive::ModelList {
+        crate::repl::interactive::ModelList::live(self.config.clone(), self.catalog.clone())
     }
 
     /// Retained so /reload can re-apply CLI overrides after re-reading config.
@@ -66,9 +89,9 @@ impl ReplSession {
         config.auth_file = self.config.auth_file.clone();
         config.model = self.config.model.clone();
         config.provider = self.config.provider.clone();
-        crate::repl::interactive::spawn_background_model_refresh(&config, &self.auth_store);
         let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
         self.config = config;
+        self.refresh_model_catalog();
         self.renderer.theme.apply_ui_config(&self.config.ui);
 
         let skills: Vec<String> = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref())

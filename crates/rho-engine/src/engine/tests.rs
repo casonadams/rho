@@ -468,39 +468,33 @@ async fn quota_display_isolated_across_providers_and_models() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-fn populate_ollama_model_store(config_dir: &std::path::Path) {
-    let mut store = crate::provider::ModelStore::load(config_dir.join("models-store.json"));
-    store
-        .set_models(
-            "ollama-cloud",
-            vec![crate::provider::discovery::DiscoveredModel {
-                id: "glm-5.3-flash".into(),
-                name: "GLM 5.3 Flash".into(),
-                provider: "ollama-cloud".into(),
-                description: "1M ctx".into(),
-                context_tokens: Some(1_048_576),
-            }],
-        )
-        .unwrap();
-}
-
 #[tokio::test]
-async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
+async fn context_limit_uses_the_providers_listed_window() {
     let (config, dir) = test_config("ctx_ollama_cloud");
-    populate_ollama_model_store(&config.config_dir);
     let config = Config {
         provider: "ollama-cloud".to_string(),
         model: "glm-5.3-flash".to_string(),
         ..config
     };
+    let catalog = crate::provider::ModelCatalog::default();
+    let model = crate::provider::discovery::DiscoveredModel {
+        context_tokens: Some(1_048_576),
+        ..crate::provider::discovery::DiscoveredModel::new("glm-5.3-flash", "GLM", "ollama-cloud", "")
+    };
+    catalog.set("ollama-cloud", crate::provider::ProviderModels::Ready(vec![model]));
     let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store)
         .base_dir(dir.clone())
+        .model_catalog(catalog)
         .build()
         .await
         .unwrap();
     assert_eq!(engine.context_limit(), Some(1_048_576));
+    assert_eq!(
+        engine.context_limit_source(),
+        crate::engine::tracking::ContextLimitSource::Provider
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

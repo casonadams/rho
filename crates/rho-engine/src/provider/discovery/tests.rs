@@ -1,9 +1,6 @@
 use super::DiscoveredModel;
 use super::antigravity::{antigravity_display_name, model_recency_key, sort_models_newest_first};
-use super::fetch::ollama_context_from_info;
-use super::presets::{
-    chatgpt_codex_models, default_presets_for, format_context_tokens, ollama_cloud_preset_models, openai_preset_models,
-};
+use super::presets::format_context_tokens;
 
 #[test]
 fn test_model_recency_key_parsing() {
@@ -59,19 +56,6 @@ fn test_antigravity_display_name_token_conversion() {
 }
 
 #[test]
-fn test_ollama_context_from_info_key_lookup() {
-    let mut map = serde_json::Map::new();
-    map.insert(
-        "qwen2_5_coder.context_length".into(),
-        serde_json::Value::Number(32768.into()),
-    );
-    assert_eq!(ollama_context_from_info(&map), Some(32768));
-
-    let empty = serde_json::Map::new();
-    assert_eq!(ollama_context_from_info(&empty), None);
-}
-
-#[test]
 fn test_format_context_tokens_megabytes_and_kilobytes() {
     assert_eq!(format_context_tokens(1_000_000), "1M ctx");
     assert_eq!(format_context_tokens(2_000_000), "2M ctx");
@@ -83,226 +67,47 @@ fn test_format_context_tokens_megabytes_and_kilobytes() {
     assert_eq!(format_context_tokens(1_048_576), "1M ctx");
 }
 
-#[test]
-fn test_parse_num_ctx() {
-    use super::fetch::parse_num_ctx;
-
-    let params = "stop \"<|im_start|>\"\nnum_ctx 262144\ntemperature 0.7";
-    assert_eq!(parse_num_ctx(params), Some(262_144));
-    assert_eq!(parse_num_ctx("temperature 0.7"), None);
-}
-
-#[test]
-fn ollama_cloud_presets_carry_real_context_lengths() {
-    let models = ollama_cloud_preset_models();
-    assert!(
-        models
-            .iter()
-            .any(|m| m.id == "glm-5.3-flash" && m.context_tokens == Some(1_048_576))
-    );
-    assert!(models.iter().all(|m| m.context_tokens.is_some()));
-}
-
-#[test]
-fn chatgpt_codex_presets_include_gpt_6_astra() {
-    let astra = chatgpt_codex_models()
+#[tokio::test]
+async fn discovery_without_credentials_fails_without_network() {
+    use rho_harness_core::provider::ProviderId;
+    let (_dir, auth) = crate::test_support::temp_auth_store();
+    let config = rho_harness_core::config::Config::default();
+    let keyed = ProviderId::ALL
         .into_iter()
-        .find(|model| model.id == "gpt-6-astra");
-    assert_eq!(
-        astra.map(|model| (model.name, model.provider, model.description)),
-        Some((
-            "GPT-6 Astra".into(),
-            "chatgpt".into(),
-            "272k ctx · deep reasoning".into(),
-        ))
-    );
-}
-
-#[test]
-fn chatgpt_codex_presets_include_gpt_6_reasoning_family() {
-    let models = chatgpt_codex_models();
-    let expected = [
-        ("gpt-6.2-astra", "GPT-6.2 Astra", "272k ctx · deep reasoning"),
-        ("gpt-6.2-sol", "GPT-6.2 Sol", "500k ctx · deep reasoning"),
-        ("gpt-6.1-terra", "GPT-6.1 Terra", "500k ctx · balanced reasoning"),
-        ("gpt-6.1-sol", "GPT-6.1 Sol", "500k ctx · deep reasoning"),
-        ("gpt-6-sol", "GPT-6 Sol", "272k ctx · deep reasoning"),
-        ("gpt-6-terra", "GPT-6 Terra", "272k ctx · balanced reasoning"),
-        ("gpt-6-luna", "GPT-6 Luna", "272k ctx · fast reasoning"),
-    ];
-    for (id, name, desc) in expected {
-        let matched = models.iter().find(|m| m.id == id);
-        assert_eq!(
-            matched.map(|m| (m.name.as_str(), m.provider.as_str(), m.description.as_str())),
-            Some((name, "chatgpt", desc))
-        );
+        .filter(|p| p.api_key_env().is_some_and(|env| std::env::var(env).is_err()));
+    let logins = [ProviderId::ClaudeCode, ProviderId::ChatGpt, ProviderId::Antigravity];
+    for provider in keyed.chain(logins) {
+        let error = super::discover_models(provider.as_str(), &config, auth.clone())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Not logged in"), "{provider}: {error}");
     }
 }
 
-#[test]
-fn openai_presets_include_gpt_6_astra() {
-    let astra = openai_preset_models()
-        .into_iter()
-        .find(|model| model.id == "gpt-6-astra");
-    assert_eq!(
-        astra.map(|model| (model.name, model.provider, model.description)),
-        Some((
-            "GPT-6 Astra".into(),
-            "openai".into(),
-            "1.05M ctx · deep reasoning".into(),
-        ))
-    );
-}
-
-#[test]
-fn openai_presets_include_gpt_6_reasoning_family() {
-    let models = openai_preset_models();
-    let expected = [
-        ("gpt-6.2-astra", "GPT-6.2 Astra", "1.05M ctx · deep reasoning"),
-        ("gpt-6.2-sol", "GPT-6.2 Sol", "1.05M ctx · deep reasoning"),
-        ("gpt-6.1-terra", "GPT-6.1 Terra", "1.05M ctx · balanced reasoning"),
-        ("gpt-6.1-sol", "GPT-6.1 Sol", "1.05M ctx · deep reasoning"),
-        ("gpt-6-sol", "GPT-6 Sol", "1.05M ctx · deep reasoning"),
-        ("gpt-6-terra", "GPT-6 Terra", "1.05M ctx · balanced reasoning"),
-        ("gpt-6-luna", "GPT-6 Luna", "1.05M ctx · fast reasoning"),
-    ];
-    for (id, name, desc) in expected {
-        let matched = models.iter().find(|m| m.id == id);
-        assert_eq!(
-            matched.map(|m| (m.name.as_str(), m.provider.as_str(), m.description.as_str())),
-            Some((name, "openai", desc))
-        );
-    }
-}
-
-#[test]
-fn test_default_presets_for_unknown_provider() {
-    let fallback = default_presets_for("my-custom-provider");
-    assert_eq!(fallback.len(), 1);
-    assert_eq!(fallback[0].id, "my-custom-provider-default");
-    assert_eq!(fallback[0].provider, "my-custom-provider");
-}
-
 #[tokio::test]
-async fn test_discover_fallbacks_when_offline_or_empty_key() {
-    let openai = super::fetch::discover_openai_compatible("openai", "http://127.0.0.1:9", "")
-        .await
-        .unwrap();
-    assert!(!openai.is_empty());
-    assert_eq!(openai[0].provider, "openai");
-
-    let anthropic = super::fetch::discover_anthropic_models("").await.unwrap();
-    assert!(!anthropic.is_empty());
-    assert_eq!(anthropic[0].provider, "anthropic");
-
-    let gemini = super::fetch::discover_gemini_models("").await.unwrap();
-    assert!(!gemini.is_empty());
-    assert_eq!(gemini[0].provider, "gemini");
-    assert!(gemini.iter().any(|m| m.id == "gemini-2.5-flash"));
-}
-
-#[test]
-fn test_gemini_presets_use_active_models() {
-    let ids: Vec<String> = super::presets::gemini_preset_models()
-        .into_iter()
-        .map(|m| m.id)
-        .collect();
-    assert_eq!(
-        ids,
-        vec![
-            "gemini-4-carbon".to_string(),
-            "gemini-4-neon".to_string(),
-            "gemini-4-argon".to_string(),
-            "gemini-4-hydrogen".to_string(),
-            "gemini-2.5-flash".to_string(),
-            "gemini-2.5-pro".to_string(),
-            "gemini-2.5-flash-lite".to_string(),
-        ]
+async fn custom_provider_lists_models_from_its_base_url() {
+    use rho_harness_core::config::{Config, ProviderConfig};
+    let base = crate::test_support::serve_http(vec![(
+        "200 OK",
+        serde_json::json!({ "data": [{ "id": "acme-1", "context_length": 65_536 }] }).to_string(),
+    )])
+    .await;
+    let (_dir, mut auth) = crate::test_support::temp_auth_store();
+    auth.set_key("acme", "acme-key").unwrap();
+    let mut config = Config::default();
+    config.providers.insert(
+        "acme".to_string(),
+        ProviderConfig {
+            base_url: format!("{base}/v1/"),
+            ..Default::default()
+        },
     );
-}
-
-#[test]
-fn test_default_presets_for_local_uses_latest_tag() {
-    let local = default_presets_for("local");
-    assert_eq!(local[0].id, "llama3.2:latest");
-    let ollama = default_presets_for("ollama");
-    assert_eq!(ollama[0].id, "llama3.2:latest");
-}
-
-#[test]
-fn test_openai_compatible_endpoint_mappings() {
-    use super::openai_compatible_endpoint;
-    use rho_harness_core::provider::ProviderId;
-
+    let models = super::discover_models("acme", &config, auth).await.unwrap();
+    assert_eq!(models.len(), 1);
     assert_eq!(
-        openai_compatible_endpoint(ProviderId::OpenAi),
-        Some(("openai", "https://api.openai.com/v1"))
+        (models[0].id.as_str(), models[0].context_tokens),
+        ("acme-1", Some(65_536))
     );
-    assert_eq!(
-        openai_compatible_endpoint(ProviderId::OpenRouter),
-        Some(("openrouter", "https://openrouter.ai/api/v1"))
-    );
-    assert_eq!(
-        openai_compatible_endpoint(ProviderId::Groq),
-        Some(("groq", "https://api.groq.com/openai/v1"))
-    );
-    assert_eq!(
-        openai_compatible_endpoint(ProviderId::DeepSeek),
-        Some(("deepseek", "https://api.deepseek.com"))
-    );
-    assert_eq!(openai_compatible_endpoint(ProviderId::Anthropic), None);
-    assert_eq!(openai_compatible_endpoint(ProviderId::ChatGpt), None);
-}
-
-#[test]
-fn test_preset_provider_models_mappings() {
-    use super::preset_provider_models;
-    use rho_harness_core::provider::ProviderId;
-
-    assert!(preset_provider_models(ProviderId::ChatGpt).is_some());
-    assert!(preset_provider_models(ProviderId::ClaudeCode).is_some());
-    assert!(preset_provider_models(ProviderId::OpenAi).is_none());
-}
-
-#[tokio::test]
-async fn test_discover_provider_models_presets_and_fallbacks() {
-    use super::discover_provider_models;
-    use crate::auth::AuthStore;
-    use rho_harness_core::provider::ProviderId;
-
-    let auth_store = AuthStore::default();
-
-    for provider in ProviderId::ALL {
-        let models = discover_provider_models(provider, &auth_store).await.unwrap();
-        assert!(!models.is_empty(), "expected models for provider {provider:?}");
-    }
-}
-
-#[test]
-fn test_parse_ollama_show_response() {
-    use super::fetch::parse_ollama_show_response;
-
-    let with_params = serde_json::json!({
-        "parameters": "num_ctx 16384\ntemperature 0.7"
-    });
-    assert_eq!(parse_ollama_show_response(&with_params), Some(16384));
-
-    let with_model_info = serde_json::json!({
-        "model_info": {
-            "llama.context_length": 8192
-        }
-    });
-    assert_eq!(parse_ollama_show_response(&with_model_info), Some(8192));
-
-    let empty = serde_json::json!({});
-    assert_eq!(parse_ollama_show_response(&empty), None);
-}
-
-#[tokio::test]
-async fn key_lookup_runs_off_the_runtime_and_returns_unset_provider_as_none() {
-    let store = crate::auth::AuthStore::default();
-    let key = super::get_key_off_runtime(&store, "rho-test-provider-without-key")
-        .await
-        .unwrap();
-    assert!(key.is_none());
+    assert_eq!(models[0].provider, "acme");
 }

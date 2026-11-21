@@ -11,7 +11,8 @@ pub const PROFILE_URL: &str = "https://api.anthropic.com/api/oauth/profile";
 pub const REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 pub const SCOPES: &str = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(60);
-pub const USER_AGENT: &str = "claude-cli/2.1.280";
+/// Anthropic gates newer models on this version (2.1.280 is rejected for claude-fable-5-2).
+pub const USER_AGENT: &str = "claude-cli/2.1.330";
 pub const ANTHROPIC_BETA: &str = "claude-code-20250219,oauth-2025-04-20";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

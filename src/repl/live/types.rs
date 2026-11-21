@@ -13,7 +13,7 @@ pub struct LiveIo<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::in
     pub input: &'a mut TerminalInputReader,
 }
 
-pub(crate) async fn wait_quota(rx: &mut tokio::sync::watch::Receiver<u64>) {
+pub(crate) async fn wait_version_change(rx: &mut tokio::sync::watch::Receiver<u64>) {
     if rx.changed().await.is_err() {
         std::future::pending::<()>().await;
     }
@@ -101,7 +101,7 @@ pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameOrUi, next_frame_or_ui, wait_quota};
+    use super::{FrameOrUi, next_frame_or_ui, wait_version_change};
     use crate::ui::interactive::UiEvent;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -170,13 +170,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wait_quota_resolves_on_change_and_stays_pending_after_sender_drop() {
+    async fn wait_version_change_resolves_on_change_and_stays_pending_after_sender_drop() {
         let (tx, mut rx) = tokio::sync::watch::channel(0_u64);
         tx.send(1).unwrap();
-        let changed = tokio::time::timeout(Duration::from_millis(100), wait_quota(&mut rx)).await;
+        let changed = tokio::time::timeout(Duration::from_millis(100), wait_version_change(&mut rx)).await;
         assert!(changed.is_ok());
         drop(tx);
-        let pending = tokio::time::timeout(Duration::from_millis(1), wait_quota(&mut rx)).await;
+        let pending = tokio::time::timeout(Duration::from_millis(1), wait_version_change(&mut rx)).await;
         assert!(pending.is_err());
     }
 }

@@ -138,16 +138,15 @@ fn default_oauth_provider_checks() {
     }
 }
 
-#[tokio::test]
-async fn test_store_api_key_valid_and_empty() {
-    let config = Config::default();
+#[test]
+fn test_store_api_key_valid_and_empty() {
     let temp_auth = tempfile::NamedTempFile::new().unwrap();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
 
-    let err = super::store_api_key("gemini", "  ", &config, &mut auth_store).unwrap_err();
+    let err = super::store_api_key("gemini", "  ", &mut auth_store).unwrap_err();
     assert!(err.to_string().contains("API key cannot be empty"));
 
-    super::store_api_key("gemini", "test-key-123", &config, &mut auth_store).unwrap();
+    super::store_api_key("gemini", "test-key-123", &mut auth_store).unwrap();
     assert_eq!(
         auth_store.get_key_sync("gemini").unwrap().as_deref(),
         Some("test-key-123")

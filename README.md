@@ -15,10 +15,10 @@ cargo install rho
 ## Quick Start
 
 ```sh
-# Start interactive REPL
+# Start interactive REPL (the first run opens the model selector; your pick is saved as the default)
 rho
 
-# Run one-shot prompt
+# Run one-shot prompt (needs a saved default or --model)
 rho -p "summarize this repository"
 
 # Select model in <provider>/<model> format
@@ -96,6 +96,8 @@ Comprehensive guides are organized in [`docs/`](docs/):
 - **[Providers, Configuration & Skills](docs/configuration.md)**
   - Authentication for 13+ providers (ChatGPT, Claude, Antigravity,
     Anthropic, Gemini, DeepSeek, Local Ollama, and more).
+  - Live model lists and context windows fetched from each provider every
+    session, so new models need no rho update.
   - Custom OpenAI-compatible endpoints with private network protection.
   - Hierarchical instruction loading (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`).
   - Declarative parameter-guided skills (`SKILL.md`).

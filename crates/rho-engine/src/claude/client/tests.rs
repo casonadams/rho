@@ -214,7 +214,7 @@ fn test_claude_headers_contains_required_fields() {
         "true"
     );
     assert_eq!(headers.get("x-app").unwrap(), "cli");
-    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.280");
+    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.330");
 }
 
 #[test]

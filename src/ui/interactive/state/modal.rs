@@ -194,6 +194,17 @@ impl ModalState {
         }
         self.selected = 0;
     }
+
+    /// Swaps in a new option list, re-applying the current search and keeping the selected label.
+    pub fn replace_options(&mut self, options: Vec<ModalOption>) {
+        let selected_label = self.selected_option().map(|option| option.label.clone());
+        self.all_options = options;
+        let query = self.filter_query.clone();
+        self.set_filter(&query);
+        if let Some(index) = selected_label.and_then(|label| self.options.iter().position(|o| o.label == label)) {
+            self.selected = index;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -251,5 +262,19 @@ mod tests {
         for (actual, expected) in cases {
             assert_eq!(actual, expected);
         }
+    }
+
+    #[test]
+    fn replacing_options_keeps_search_and_selected_label() {
+        let mut modal = ModalState::new("Pick", "", vec!["alpha".into(), "beta".into()]).with_search(true);
+        modal.set_filter("a");
+        modal.selected = modal.options.iter().position(|o| o.label == "beta").unwrap();
+
+        modal.replace_options(vec!["gamma".into(), "beta".into(), "zzz".into()]);
+
+        let labels: Vec<&str> = modal.options.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, ["gamma", "beta"]);
+        assert_eq!(modal.selected_option().map(|o| o.label.as_str()), Some("beta"));
+        assert_eq!(modal.filter_query, "a");
     }
 }

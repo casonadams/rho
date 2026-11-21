@@ -1,4 +1,4 @@
-//! Live dynamic model discovery from authenticated provider endpoints.
+//! Live model discovery: each provider's model-list API, fetched on demand.
 
 pub mod antigravity;
 pub(crate) mod fetch;
@@ -8,18 +8,15 @@ pub mod presets;
 mod tests;
 
 pub use antigravity::sort_models_newest_first;
-pub use fetch::ollama_context_from_info;
-pub use presets::{
-    anthropic_preset_models, antigravity_preset_models, chatgpt_codex_models, claude_preset_models,
-    cohere_preset_models, deepseek_preset_models, default_presets_for, format_context_tokens, gemini_preset_models,
-    groq_preset_models, mistral_preset_models, ollama_cloud_preset_models, openai_preset_models,
-    openrouter_preset_models, xai_preset_models,
-};
+pub use presets::{antigravity_preset_models, format_context_tokens};
 
 use crate::auth::AuthStore;
+use crate::claude::http::ClaudeAuth;
+use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiscoveredModel {
@@ -43,126 +40,77 @@ impl DiscoveredModel {
     }
 }
 
-/// Resolves a provider key without blocking a runtime worker: `!command` secrets can run for up to
-/// their full timeout, so the lookup happens on the blocking pool.
-async fn get_key_off_runtime(auth_store: &AuthStore, provider: &str) -> Result<Option<String>> {
-    let store = auth_store.clone();
-    let provider = provider.to_string();
-    tokio::task::spawn_blocking(move || store.get_key_sync(&provider))
-        .await
-        .map_err(|e| AppError::Auth(format!("Key lookup task failed: {e}")))?
+/// Model-list URL for providers that speak an OpenAI-compatible (or Cohere) listing API.
+fn listing_url(provider: ProviderId) -> Option<&'static str> {
+    Some(match provider {
+        ProviderId::OpenAi => "https://api.openai.com/v1/models",
+        ProviderId::OpenRouter => "https://openrouter.ai/api/v1/models",
+        ProviderId::Groq => "https://api.groq.com/openai/v1/models",
+        ProviderId::DeepSeek => "https://api.deepseek.com/models",
+        ProviderId::XAi => "https://api.x.ai/v1/models",
+        ProviderId::Mistral => "https://api.mistral.ai/v1/models",
+        ProviderId::Cohere => "https://api.cohere.com/v1/models?endpoint=chat&page_size=1000",
+        ProviderId::OllamaCloud => "https://ollama.com/v1/models",
+        _ => return None,
+    })
 }
 
-async fn discover_keyed_openai_compatible(
-    name: &str,
-    url: &str,
-    auth_store: &AuthStore,
-) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = get_key_off_runtime(auth_store, name).await? {
-        fetch::discover_openai_compatible(name, url, &key).await
-    } else {
-        Ok(default_presets_for(name))
-    }
+async fn require_key(auth: &mut AuthStore, provider: ProviderId) -> Result<String> {
+    auth.get_key(provider.as_str())
+        .await?
+        .ok_or_else(|| AppError::Auth(format!("Not logged in to {provider}. Run 'rho login {provider}'.")))
 }
 
-async fn discover_antigravity(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = get_key_off_runtime(auth_store, "antigravity").await? {
-        let project_id = match auth_store.get_credential("antigravity") {
-            Some(rho_harness_core::auth::StoredCredential::OAuth {
-                account_id: Some(id), ..
-            }) => id.clone(),
-            _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
-        };
-        fetch::discover_antigravity_models(&key, &project_id).await
-    } else {
-        Ok(antigravity_preset_models())
-    }
+fn chatgpt_account_id(auth: &AuthStore, token: &str) -> Option<String> {
+    crate::engine::quota_refresh::stored_oauth_account_id(auth.get_credential("chatgpt"))
+        .or_else(|| crate::auth::oauth::extract_chatgpt_account_id(token))
 }
 
-async fn discover_anthropic(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = get_key_off_runtime(auth_store, "anthropic").await? {
-        fetch::discover_anthropic_models(&key).await
-    } else {
-        Ok(anthropic_preset_models())
-    }
+async fn discover_antigravity(auth: &mut AuthStore) -> Result<Vec<DiscoveredModel>> {
+    let token = require_key(auth, ProviderId::Antigravity).await?;
+    let project_id = crate::engine::quota_refresh::stored_oauth_account_id(auth.get_credential("antigravity"))
+        .unwrap_or_else(|| crate::auth::antigravity::stable_project_id("antigravity-default"));
+    Ok(fetch::fetch_antigravity(&token, &project_id).await)
 }
 
-async fn discover_gemini(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = get_key_off_runtime(auth_store, "gemini").await? {
-        fetch::discover_gemini_models(&key).await
-    } else {
-        Ok(gemini_preset_models())
-    }
-}
-
-async fn discover_ollama_cloud(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    if let Some(key) = get_key_off_runtime(auth_store, "ollama-cloud").await? {
-        fetch::discover_ollama_cloud_models(&key).await
-    } else {
-        Ok(ollama_cloud_preset_models())
-    }
-}
-
-type DiscoveryFuture<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<DiscoveredModel>>> + Send + 'a>>;
-
-fn keyed_discovery<'a>(name: &'static str, base_url: &'static str, auth_store: &'a AuthStore) -> DiscoveryFuture<'a> {
-    Box::pin(discover_keyed_openai_compatible(name, base_url, auth_store))
-}
-
-fn openai_compatible_endpoint(provider: ProviderId) -> Option<(&'static str, &'static str)> {
+async fn discover_builtin(provider: ProviderId, mut auth: AuthStore) -> Result<Vec<DiscoveredModel>> {
     match provider {
-        ProviderId::OpenAi => Some(("openai", "https://api.openai.com/v1")),
-        ProviderId::OpenRouter => Some(("openrouter", "https://openrouter.ai/api/v1")),
-        ProviderId::Groq => Some(("groq", "https://api.groq.com/openai/v1")),
-        ProviderId::DeepSeek => Some(("deepseek", "https://api.deepseek.com")),
-        _ => None,
+        ProviderId::Local => fetch::fetch_ollama(&crate::ollama::local::local_host()).await,
+        ProviderId::Antigravity => discover_antigravity(&mut auth).await,
+        ProviderId::ClaudeCode | ProviderId::Anthropic => {
+            let token = require_key(&mut auth, provider).await?;
+            let mode = if provider == ProviderId::ClaudeCode {
+                ClaudeAuth::Login
+            } else {
+                ClaudeAuth::ApiKey
+            };
+            fetch::fetch_anthropic(fetch::ANTHROPIC_MODELS_URL, mode, &token, provider.as_str()).await
+        }
+        ProviderId::ChatGpt => {
+            let token = require_key(&mut auth, provider).await?;
+            let account_id = chatgpt_account_id(&auth, &token);
+            fetch::fetch_codex(fetch::CODEX_MODELS_URL, &token, account_id.as_deref()).await
+        }
+        ProviderId::Gemini => {
+            let key = require_key(&mut auth, provider).await?;
+            fetch::fetch_gemini(fetch::GEMINI_MODELS_URL, &key).await
+        }
+        other => {
+            let url =
+                listing_url(other).ok_or_else(|| AppError::Provider(format!("{other} has no model-list endpoint")))?;
+            let key = require_key(&mut auth, other).await?;
+            fetch::fetch_openai_compatible(url, Some(&key), other.as_str()).await
+        }
     }
 }
 
-fn preset_provider_models(provider: ProviderId) -> Option<Vec<DiscoveredModel>> {
-    match provider {
-        ProviderId::ChatGpt => Some(chatgpt_codex_models()),
-        ProviderId::ClaudeCode => Some(claude_preset_models()),
-        _ => None,
-    }
-}
-
-fn dedicated_provider_discovery<'a>(provider: ProviderId, auth_store: &'a AuthStore) -> Option<DiscoveryFuture<'a>> {
-    match provider {
-        ProviderId::Local => Some(Box::pin(fetch::discover_ollama_models())),
-        ProviderId::Anthropic => Some(Box::pin(discover_anthropic(auth_store))),
-        ProviderId::Gemini => Some(Box::pin(discover_gemini(auth_store))),
-        ProviderId::Antigravity => Some(Box::pin(discover_antigravity(auth_store))),
-        ProviderId::OllamaCloud => Some(Box::pin(discover_ollama_cloud(auth_store))),
-        _ => None,
-    }
-}
-
-fn dispatch_provider_discovery<'a>(provider: ProviderId, auth_store: &'a AuthStore) -> DiscoveryFuture<'a> {
-    if let Some(endpoint) = openai_compatible_endpoint(provider) {
-        return keyed_discovery(endpoint.0, endpoint.1, auth_store);
-    }
-    if let Some(models) = preset_provider_models(provider) {
-        return Box::pin(async move { Ok(models) });
-    }
-    if let Some(fut) = dedicated_provider_discovery(provider, auth_store) {
-        return fut;
-    }
-    Box::pin(async move { Ok(default_presets_for(&provider.to_string())) })
-}
-
-pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+/// Lists the models `provider` currently offers, straight from its API.
+pub async fn discover_models(provider: &str, config: &Config, auth: AuthStore) -> Result<Vec<DiscoveredModel>> {
     crate::install_crypto_provider();
-    dispatch_provider_discovery(provider, auth_store).await
-}
-
-pub async fn discover_custom_provider_models(
-    name: &str,
-    base_url: &str,
-    api_key: Option<&str>,
-) -> Result<Vec<DiscoveredModel>> {
-    crate::install_crypto_provider();
-    let key = api_key.unwrap_or_default();
-    fetch::discover_openai_compatible(name, base_url, key).await
+    if let Some(spec) = config.providers.get(provider) {
+        let key = crate::provider::ProviderFactory::custom_key(provider, spec, &auth)?;
+        let url = format!("{}/models", spec.base_url.trim_end_matches('/'));
+        return fetch::fetch_openai_compatible(&url, key.as_deref(), provider).await;
+    }
+    discover_builtin(ProviderId::from_str(provider)?, auth).await
 }

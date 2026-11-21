@@ -434,62 +434,6 @@ impl ModelAdapter for OpenAiClient {
     }
 }
 
-#[derive(Deserialize)]
-struct ModelsListResponse {
-    data: Option<Vec<ModelEntry>>,
-}
-
-#[derive(Deserialize)]
-struct ModelEntry {
-    id: String,
-}
-
-pub async fn discover_openai_models(
-    base_url: &str,
-    api_key: &str,
-    provider_name: &str,
-) -> Result<Vec<crate::provider::discovery::DiscoveredModel>, AppError> {
-    let base = base_url.trim_end_matches('/').to_string();
-    let url = if base.ends_with("/v1") {
-        format!("{base}/models")
-    } else {
-        format!("{base}/v1/models")
-    };
-
-    let mut req = CLIENT.get(&url);
-    if !api_key.trim().is_empty() {
-        req = req.header(AUTHORIZATION, format!("Bearer {}", api_key.trim()));
-    }
-
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| AppError::Provider(format!("Model discovery failed: {e}")))?;
-
-    if !resp.status().is_success() {
-        return Ok(Vec::new());
-    }
-
-    let list = resp
-        .json::<ModelsListResponse>()
-        .await
-        .map_err(|e| AppError::Provider(format!("Failed to parse models response: {e}")))?;
-
-    let mut models = Vec::new();
-    if let Some(entries) = list.data {
-        for entry in entries {
-            models.push(crate::provider::discovery::DiscoveredModel {
-                name: entry.id.clone(),
-                id: entry.id,
-                provider: provider_name.to_string(),
-                description: format!("{provider_name} model"),
-                context_tokens: None,
-            });
-        }
-    }
-    Ok(models)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

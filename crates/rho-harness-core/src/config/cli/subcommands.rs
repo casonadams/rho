@@ -22,7 +22,7 @@ pub enum Commands {
         /// New value for key
         value: Option<String>,
     },
-    /// List live provider models when supported, otherwise curated examples
+    /// List the active provider's models live from its API
     Models,
     /// Update rho to the latest release
     Update,

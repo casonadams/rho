@@ -16,7 +16,7 @@ fn assert_default_limits(cfg: &Config) {
 
 fn assert_default_features(cfg: &Config) {
     let actual = (
-        !cfg.model.is_empty(),
+        cfg.model.is_empty() && cfg.provider.is_empty(),
         cfg.allow_private_network,
         cfg.session_retention_days,
         cfg.permission.enabled,
@@ -181,7 +181,7 @@ fn test_cli_provider_switch_picks_model_from_models_table() {
 }
 
 #[test]
-fn test_cli_provider_switch_falls_back_to_canonical_default_when_not_in_models_table() {
+fn test_cli_provider_switch_clears_model_when_not_in_models_table() {
     let mut config = Config::default();
     merge::merge_file(
         &mut config,
@@ -198,7 +198,7 @@ fn test_cli_provider_switch_falls_back_to_canonical_default_when_not_in_models_t
     merge::apply_cli_overrides(&mut config, Some(&cli));
 
     assert_eq!(config.provider, "groq");
-    assert_eq!(config.model, "llama-3.3-70b-versatile");
+    assert_eq!(config.model, "");
 }
 
 #[test]
@@ -322,11 +322,7 @@ fn test_canonical_model_spec() {
 
     config.model = String::new();
     config.provider = "openai".to_string();
-    assert_eq!(config.canonical_model_spec(), "openai/gpt-4o");
-
-    config.model = String::new();
-    config.provider = "local".to_string();
-    assert_eq!(config.canonical_model_spec(), "local/llama3.2:latest");
+    assert_eq!(config.canonical_model_spec(), "");
 }
 
 #[test]
@@ -378,7 +374,7 @@ fn test_cli_override_model_resolution() {
             "gpt-4o",
             false,
         ),
-        (vec!["rho", "--provider", "openai"], "openai", "gpt-4o", false),
+        (vec!["rho", "--provider", "openai"], "openai", "", false),
     ];
 
     for (args, expected_p, expected_m, expect_warn) in cases {

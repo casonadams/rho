@@ -5,6 +5,8 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
+pub const MODEL_SELECTOR_TITLE: &str = "Select Model";
+
 fn is_default_model(session: &ReplSession, canonical_id: &str, model_id: &str, provider: &str) -> bool {
     session.config.default_model.as_deref().is_some_and(|dm| {
         dm == canonical_id
@@ -40,29 +42,71 @@ pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller
     open_model_selector_with_default(session, controller, false);
 }
 
+fn model_selector_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
+    let discovered = crate::repl::interactive::discover_models(&session.config, &session.catalog);
+    let active_spec = session.config.canonical_model_spec();
+    let selected = discovered
+        .iter()
+        .rposition(|item| item.canonical_id() == active_spec || item.id == session.config.model)
+        .unwrap_or(0);
+    let options = discovered
+        .iter()
+        .map(|item| build_model_option(session, item))
+        .collect();
+    (options, selected)
+}
+
+fn catalog_status(session: &ReplSession) -> String {
+    crate::repl::interactive::catalog_status(&session.config, &session.catalog)
+}
+
 pub fn open_model_selector_with_default<B: TerminalBackend>(
     session: &ReplSession,
     controller: &mut TerminalController<B>,
     save_as_default: bool,
 ) {
-    let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
-    let mut options = Vec::new();
-    let mut initial_selection = 0;
-
-    let active_spec = session.config.canonical_model_spec();
-    for (i, item) in discovered.iter().enumerate() {
-        let canonical = item.canonical_id();
-        if canonical == active_spec || item.id == session.config.model {
-            initial_selection = i;
-        }
-        options.push(build_model_option(session, item));
-    }
-
-    let mut modal = ModalState::new("Select Model", "", options)
+    let (options, selected) = model_selector_options(session);
+    let mut modal = ModalState::new(MODEL_SELECTOR_TITLE, catalog_status(session), options)
         .with_search(true)
         .with_save_as_default(save_as_default);
-    modal.selected = initial_selection;
+    modal.selected = selected;
     controller.state_mut().push_modal(modal);
+}
+
+fn role_selector_options(
+    session: &ReplSession,
+    role_name: &str,
+    current_model: Option<&str>,
+) -> (Vec<ModalOption>, usize) {
+    let discovered = crate::repl::interactive::discover_models(&session.config, &session.catalog);
+    let none_mark = if current_model.is_none() { "✓" } else { "" };
+    let mut options = vec![ModalOption::new(
+        "None",
+        Some(format!(
+            "none\t{none_mark}\t\tDisable {role_name} model (fallback to default)"
+        )),
+    )];
+    let mut selected = 0;
+    for (i, item) in discovered.iter().enumerate() {
+        let canonical = item.canonical_id();
+        let is_current = current_model.is_some_and(|m| m == canonical || m == item.id);
+        if is_current {
+            selected = i + 1;
+        }
+        let mark = if is_current { "✓" } else { "" };
+        options.push(ModalOption::new(
+            canonical,
+            Some(format!("{}\t{}\t\t{}", item.provider, mark, item.description)),
+        ));
+    }
+    (options, selected)
+}
+
+fn role_model(session: &ReplSession, role_name: &str) -> Option<String> {
+    match role_name {
+        "Guard" => session.config.guard_model().map(str::to_string),
+        _ => session.config.models.get(&role_name.to_ascii_lowercase()).cloned(),
+    }
 }
 
 pub fn open_role_model_selector<B: TerminalBackend>(
@@ -71,42 +115,30 @@ pub fn open_role_model_selector<B: TerminalBackend>(
     role_name: &str,
     current_model: Option<&str>,
 ) {
-    let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
-    let mut options = Vec::new();
-
-    let none_mark = if current_model.is_none() { "✓" } else { "" };
-    options.push(ModalOption::new(
-        "None",
-        Some(format!(
-            "none\t{none_mark}\t\tDisable {role_name} model (fallback to default)"
-        )),
-    ));
-
-    let mut initial_selection = 0;
-    for (i, item) in discovered.iter().enumerate() {
-        let canonical = item.canonical_id();
-        let active_mark = if let Some(m) = current_model {
-            let matches_full = m == canonical;
-            let matches_id = m == item.id;
-            if matches_full || matches_id {
-                initial_selection = i + 1;
-                "✓"
-            } else {
-                ""
-            }
-        } else {
-            ""
-        };
-        options.push(ModalOption::new(
-            canonical,
-            Some(format!("{}\t{}\t\t{}", item.provider, active_mark, item.description)),
-        ));
-    }
-
+    let (options, selected) = role_selector_options(session, role_name, current_model);
     let title = format!("Select {role_name} Model");
-    let mut modal = ModalState::new(title, "", options).with_search(true);
-    modal.selected = initial_selection;
+    let mut modal = ModalState::new(title, catalog_status(session), options).with_search(true);
+    modal.selected = selected;
     controller.state_mut().push_modal(modal);
+}
+
+/// Rebuilds an open model selector from the current catalog, keeping the search and selection.
+pub fn refresh_open_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    let Some(title) = controller.state().active_modal().map(|m| m.title.clone()) else {
+        return;
+    };
+    let options = if title == MODEL_SELECTOR_TITLE {
+        model_selector_options(session).0
+    } else if let Some(role) = title.strip_prefix("Select ").and_then(|t| t.strip_suffix(" Model")) {
+        role_selector_options(session, role, role_model(session, role).as_deref()).0
+    } else {
+        return;
+    };
+    let body = catalog_status(session);
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        modal.body = body;
+        modal.replace_options(options);
+    }
 }
 
 pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {

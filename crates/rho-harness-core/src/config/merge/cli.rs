@@ -28,11 +28,7 @@ fn apply_provider_flag_only(config: &mut Config, provider: &str) {
     let provider_changed = config.provider != provider;
     config.provider = provider.to_string();
     if provider_changed {
-        if let Some(configured) = config.models.get(provider) {
-            config.model = configured.clone();
-        } else {
-            config.model = crate::provider::default_model_for_provider(provider).to_string();
-        }
+        config.model = config.models.get(provider).cloned().unwrap_or_default();
     }
 }
 

@@ -175,6 +175,7 @@ pub(crate) async fn rebuild_after_auth(ctx: &mut LiveCommandContext<'_, '_>) -> 
         .engine
         .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
         .await?;
+    ctx.session.refresh_model_catalog();
     crate::repl::report_mcp_diagnostics(ctx.session, ctx.engine);
     Ok(())
 }

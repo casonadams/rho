@@ -25,7 +25,37 @@ inference:
 | `mistral`      | API Key            | `MISTRAL_API_KEY` or `rho login mistral`          |
 | `cohere`       | API Key            | `COHERE_API_KEY` or `rho login cohere`            |
 | `ollama-cloud` | API Key            | `OLLAMA_API_KEY` or `rho login ollama-cloud`      |
-| `local`        | Local Daemon       | `OLLAMA_HOST` (default: `http://localhost:11434`) |
+| `local`        | Local Daemon       | `OLLAMA_HOST` (default: `http://127.0.0.1:11434`) |
+
+`OLLAMA_HOST` follows Ollama's own rules: a bare `host` or `host:port` uses
+plain HTTP and port 11434, and `0.0.0.0` connects through loopback.
+
+### Model Lists
+
+rho has no built-in model list. Each session it fetches, in the background and
+in parallel, the live model list of every provider you can reach: local Ollama,
+every provider you are logged in to, and every custom endpoint. New models show
+up without updating rho. Nothing is written to disk.
+
+- The model selector (`/model`, `Ctrl+L`) and `/model` completions fill in as
+  each list arrives. Providers still loading or that failed to list are named
+  at the top of the selector.
+- `rho models` fetches the active provider's list and exits with an error if
+  the provider cannot be reached.
+- Context windows come from the same lists where the provider publishes them
+  (Anthropic and Claude login: `max_input_tokens`; ChatGPT login:
+  `context_window`; Gemini: `inputTokenLimit`; OpenRouter, Groq, DeepSeek,
+  Mistral, xAI, Cohere: their documented fields; local Ollama: `/api/show` and
+  `/api/ps`).
+- Google Antigravity has no public model-list API, so rho merges its live
+  runtime catalog with a small fallback list.
+- Offline, you can still switch with `/model <provider>/<model>`.
+
+rho also has no built-in default model. Until you pick one, the interactive REPL
+opens the model selector at startup and saves your choice as the default;
+`rho -p` and other headless runs exit with an error asking for `--model` or
+`rho config model <provider>/<model>`. `--provider X` without `--model` uses
+`[models].X` from your config if set, otherwise leaves the model unselected.
 
 Credentials and tokens are stored securely in `~/.config/rho/auth.json` (or
 `$RHO_HOME/auth.json`).

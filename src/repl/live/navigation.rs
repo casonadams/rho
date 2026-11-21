@@ -115,7 +115,7 @@ fn next_model_index(current_idx: usize, len: usize, direction: i32) -> usize {
 }
 
 pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
-    let models = crate::repl::interactive::discover_models(&ctx.session.config, &ctx.session.auth_store);
+    let models = crate::repl::interactive::discover_models(&ctx.session.config, &ctx.session.catalog);
     if models.is_empty() {
         return;
     }

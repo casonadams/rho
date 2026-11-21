@@ -47,8 +47,8 @@ Everything needed to run model turns and tools:
 
 - `engine/` — `AgentEngine` and the turn loop (below).
 - `provider/` — model handle construction per provider (Claude, ChatGPT,
-  Gemini/Antigravity, Ollama, OpenRouter, custom endpoints) and catalog
-  discovery/presets.
+  Gemini/Antigravity, Ollama, OpenRouter, custom endpoints), live model-list
+  discovery, and the in-memory `ModelCatalog` shared by the engine and UI.
 - `claude/`, `antigravity/`, `chatgpt/`, `ollama/` — provider-specific wire
   formats, SSE streaming, quota parsing, and OAuth flows (`auth/`).
 - `tools/` — built-in tools (bash, read, edit, write, fd, rg, web_fetch,
@@ -150,7 +150,8 @@ tool call ─▶ PermissionHook (rho-engine/src/permission/)
   - The repository has zero dependencies on external LLM framework crates, giving full control over streaming, turn execution, and cancellation.
 - Each provider speaks its own wire protocol; `provider/builders.rs` selects
   the right client (OAuth token refresh, header quirks, streaming dialects).
-  Model catalogs merge discovered models with curated presets; quota parsers
+  Model lists are fetched live per session into an in-memory catalog (only
+  Antigravity keeps a fallback list); quota parsers
   are provider-specific (`antigravity/quota`, `chatgpt`, `ollama`).
 - MCP servers spawn as child processes with JSON-RPC stdio transport
   (`mcp/process.rs`, `mcp/transport.rs`); tools register directly or defer
