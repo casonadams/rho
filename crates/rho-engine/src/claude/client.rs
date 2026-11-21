@@ -99,7 +99,7 @@ impl ClaudeClient {
             self.cache_retention,
         )
         .map_err(|e| HttpFailure::Local(e.to_string()))?;
-        post_json_checked(&self.target_url(), claude_headers(self.auth, token), &body).await
+        post_json_checked(&self.target_url(), claude_headers(self.auth, token)?, &body).await
     }
 
     async fn refresh_and_retry(&self, request: &ModelCompletionRequest, body: &str) -> HttpResult {

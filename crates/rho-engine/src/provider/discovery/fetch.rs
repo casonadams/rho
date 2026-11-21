@@ -105,7 +105,8 @@ pub(crate) async fn fetch_anthropic(
     token: &str,
     provider: &str,
 ) -> Result<Vec<DiscoveredModel>> {
-    let request = list_request(url).headers(claude_headers(auth, token));
+    let headers = claude_headers(auth, token).map_err(|failure| AppError::Provider(failure.body().to_string()))?;
+    let request = list_request(url).headers(headers);
     Ok(parse_model_list(&get_json(request, &label(provider)).await?))
 }
 

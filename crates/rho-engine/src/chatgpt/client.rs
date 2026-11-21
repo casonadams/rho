@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::auth::token::{StaticTokenProvider, TokenProvider};
-use crate::http::post_json_checked;
+use crate::http::{bearer, header_value, post_json_checked};
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
 use crate::provider::error::{HttpFailure, HttpResult};
 use crate::provider::sse::open_sse_stream;
@@ -68,13 +68,9 @@ impl ChatGptClient {
         )
     }
 
-    fn headers(&self, token: &str) -> reqwest::header::HeaderMap {
+    fn headers(&self, token: &str) -> Result<reqwest::header::HeaderMap, HttpFailure> {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
-                .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static("")),
-        );
+        headers.insert(reqwest::header::AUTHORIZATION, bearer(token)?);
         headers.insert(
             "OpenAI-Beta",
             reqwest::header::HeaderValue::from_static("responses=experimental"),
@@ -83,12 +79,10 @@ impl ChatGptClient {
         headers.insert("User-Agent", reqwest::header::HeaderValue::from_static("Codex/0.22.4"));
         headers.insert(
             "session_id",
-            reqwest::header::HeaderValue::from_str(&uuid::Uuid::new_v4().to_string())
-                .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static("")),
+            header_value(&uuid::Uuid::new_v4().to_string(), "The session id")?,
         );
-        if let Some(account_id) = &self.account_id
-            && let Ok(val) = reqwest::header::HeaderValue::from_str(account_id)
-        {
+        if let Some(account_id) = &self.account_id {
+            let val = header_value(account_id, "The account id")?;
             headers.insert("chatgpt-account-id", val.clone());
             headers.insert("ChatGPT-Account-Id", val);
         }
@@ -96,7 +90,7 @@ impl ChatGptClient {
             reqwest::header::ACCEPT,
             reqwest::header::HeaderValue::from_static("text/event-stream"),
         );
-        headers
+        Ok(headers)
     }
 
     fn build_request(&self, request: &ModelCompletionRequest) -> Result<serde_json::Value, AppError> {
@@ -149,7 +143,7 @@ impl ChatGptClient {
         let body = self
             .build_request(request)
             .map_err(|e| HttpFailure::Local(e.to_string()))?;
-        post_json_checked(&self.target_url(), self.headers(token), &body).await
+        post_json_checked(&self.target_url(), self.headers(token)?, &body).await
     }
 
     async fn retry_post_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
@@ -261,7 +255,7 @@ mod tests {
     #[test]
     fn chatgpt_client_headers_include_originator_and_beta() {
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_account_id(Some("acc-123".to_string()));
-        let headers = client.headers("test-token");
+        let headers = client.headers("test-token").unwrap();
         assert_eq!(headers.get("OpenAI-Beta").unwrap(), "responses=experimental");
         assert_eq!(headers.get("originator").unwrap(), "codex");
         assert_eq!(headers.get("User-Agent").unwrap(), "Codex/0.22.4");

@@ -168,7 +168,7 @@ impl AntigravityClient {
         let wire_target = target.endpoint.wire_target();
         let body = request::build_request_body(wire_target, request, &envelope)
             .map_err(|e| HttpFailure::Local(e.to_string()))?;
-        let mut headers = antigravity_headers(target.token);
+        let mut headers = antigravity_headers(target.token)?;
         if request::wants_claude_thinking_header(wire_target.runtime_model, wire_target.effort) {
             headers.insert(
                 "anthropic-beta",

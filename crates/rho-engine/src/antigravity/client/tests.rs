@@ -152,7 +152,7 @@ fn friendly_error_formats_server_and_network_error_cases() {
 
 #[test]
 fn antigravity_headers_sets_expected_keys() {
-    let headers = antigravity_headers("test-secret-token");
+    let headers = antigravity_headers("test-secret-token").unwrap();
     let actual = (
         headers.get("authorization").and_then(|v| v.to_str().ok()),
         headers.get("content-type").and_then(|v| v.to_str().ok()),

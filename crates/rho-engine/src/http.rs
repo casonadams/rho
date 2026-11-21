@@ -11,6 +11,22 @@ pub static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("failed to build shared HTTP client")
 });
 
+/// A header value from `value`; the failure names `what`, never the value, when it cannot be sent in a header.
+pub(crate) fn header_value(
+    value: &str,
+    what: &str,
+) -> Result<reqwest::header::HeaderValue, crate::provider::error::HttpFailure> {
+    reqwest::header::HeaderValue::from_str(value).map_err(|_| {
+        crate::provider::error::HttpFailure::Local(format!(
+            "{what} contains characters that cannot be sent in an HTTP header; log in again or check the configured key"
+        ))
+    })
+}
+
+pub(crate) fn bearer(token: &str) -> Result<reqwest::header::HeaderValue, crate::provider::error::HttpFailure> {
+    header_value(&format!("Bearer {token}"), "The access token")
+}
+
 pub async fn post_json_checked(
     url: &str,
     headers: reqwest::header::HeaderMap,
@@ -112,6 +128,29 @@ fn backend_message(body: &str) -> String {
 mod tests {
     use super::*;
     use crate::test_support::serve_http;
+
+    #[test]
+    fn unsendable_credentials_fail_locally_without_echoing_the_secret() {
+        let secret = "sk-secret\nvalue";
+        let failures = [
+            bearer(secret).unwrap_err(),
+            crate::claude::http::claude_headers(crate::claude::http::ClaudeAuth::Login, secret).unwrap_err(),
+            crate::claude::http::claude_headers(crate::claude::http::ClaudeAuth::ApiKey, secret).unwrap_err(),
+            crate::antigravity::client::http::antigravity_headers(secret).unwrap_err(),
+        ];
+        for failure in failures {
+            assert!(
+                matches!(failure, crate::provider::error::HttpFailure::Local(_)),
+                "{failure:?}"
+            );
+            assert!(
+                failure.body().contains("cannot be sent in an HTTP header"),
+                "{failure:?}"
+            );
+            assert!(!failure.body().contains("sk-secret"), "{failure:?}");
+        }
+        assert_eq!(bearer("abc").unwrap(), "Bearer abc");
+    }
 
     #[tokio::test]
     async fn send_json_if_ok_returns_json_only_for_success_responses() {

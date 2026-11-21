@@ -1,7 +1,8 @@
 //! Shared Antigravity HTTP plumbing: Cloud Code Assist endpoints, request
 //! headers, error mapping, and the metadata POST helper.
 
-use crate::http::CLIENT;
+use crate::http::{CLIENT, bearer, header_value};
+use crate::provider::error::HttpFailure;
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::time::Duration;
 
@@ -15,16 +16,14 @@ pub const ENDPOINT_CANDIDATES: [&str; 3] = [
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Headers Cloud Code Assist expects on every call (pi-antigravity parity).
-pub fn antigravity_headers(token: &str) -> HeaderMap {
+pub fn antigravity_headers(token: &str) -> Result<HeaderMap, HttpFailure> {
     let platform = match std::env::consts::OS {
         "macos" => "MACOS",
         "windows" => "WINDOWS",
         _ => "LINUX",
     };
     let mut headers = HeaderMap::new();
-    if let Ok(value) = HeaderValue::from_str(&format!("Bearer {token}")) {
-        headers.insert("Authorization", value);
-    }
+    headers.insert("Authorization", bearer(token)?);
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
     headers.insert(
         "User-Agent",
@@ -34,12 +33,14 @@ pub fn antigravity_headers(token: &str) -> HeaderMap {
         "X-Goog-Api-Client",
         HeaderValue::from_static("google-cloud-sdk vscode_cloudshelleditor/0.1"),
     );
-    if let Ok(metadata) = HeaderValue::from_str(&format!(
-        r#"{{"ideType":"ANTIGRAVITY","platform":"{platform}","pluginType":"GEMINI"}}"#
-    )) {
-        headers.insert("Client-Metadata", metadata);
-    }
-    headers
+    headers.insert(
+        "Client-Metadata",
+        header_value(
+            &format!(r#"{{"ideType":"ANTIGRAVITY","platform":"{platform}","pluginType":"GEMINI"}}"#),
+            "The client metadata",
+        )?,
+    );
+    Ok(headers)
 }
 
 fn extract_field_violations(details: &[serde_json::Value]) -> Vec<String> {
@@ -137,9 +138,12 @@ pub(crate) async fn post_metadata_candidates(
     body: serde_json::Value,
 ) -> Option<serde_json::Value> {
     for endpoint in endpoints {
+        let Ok(headers) = antigravity_headers(token) else {
+            return None;
+        };
         let response = CLIENT
             .post(format!("{endpoint}{path}"))
-            .headers(antigravity_headers(token))
+            .headers(headers)
             .json(&body)
             .timeout(DISCOVERY_TIMEOUT)
             .send()

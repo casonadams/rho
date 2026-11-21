@@ -202,7 +202,7 @@ fn assert_pinned_api_version(headers: &reqwest::header::HeaderMap) {
 
 #[test]
 fn test_claude_headers_contains_required_fields() {
-    let headers = claude_headers(ClaudeAuth::Login, "test-token-xyz");
+    let headers = claude_headers(ClaudeAuth::Login, "test-token-xyz").unwrap();
     assert_pinned_api_version(&headers);
     assert_eq!(headers.get("authorization").unwrap(), "Bearer test-token-xyz");
     assert_eq!(
@@ -219,7 +219,7 @@ fn test_claude_headers_contains_required_fields() {
 
 #[test]
 fn test_api_key_headers_use_x_api_key_without_oauth_identity() {
-    let headers = claude_headers(ClaudeAuth::ApiKey, "sk-ant-api03-test");
+    let headers = claude_headers(ClaudeAuth::ApiKey, "sk-ant-api03-test").unwrap();
     assert_eq!(headers.get("x-api-key").unwrap(), "sk-ant-api03-test");
     assert_pinned_api_version(&headers);
     for name in ["authorization", "anthropic-beta", "x-app", "user-agent"] {
