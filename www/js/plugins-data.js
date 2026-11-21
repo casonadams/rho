@@ -143,12 +143,13 @@ print('{"action":"continue"}')`,
     repoUrl: "https://github.com/rtk-ai/rtk",
     snippet: `#!/bin/sh
 # .agents/hooks/on_tool_call (rtk >= 1.2)
-cmd=$(jq -r 'select(.tool_name == "bash") | .args.command // empty')
+event=$(cat)
+cmd=$(printf '%s' "$event" | jq -r 'select(.tool_name == "bash") | .args.command // empty')
 [ -n "$cmd" ] || exit 0
 
 out=$(rtk rewrite "$cmd")
 case $? in
-  0|3) [ -n "$out" ] && jq -nc --arg c "$out" '{action: "rewrite_args", args: {command: $c}}' ;;
+  0|3) [ -n "$out" ] && printf '%s' "$event" | jq -c --arg c "$out" '{action: "rewrite_args", args: (.args + {command: $c})}' ;;
   2) [ -n "$out" ] && jq -nc --arg r "$out" '{action: "skip", reason: $r}' ;;
 esac
 exit 0`,
