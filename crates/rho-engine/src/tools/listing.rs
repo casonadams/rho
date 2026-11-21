@@ -69,10 +69,28 @@ pub struct Layout {
     pub preamble: Option<&'static str>,
 }
 
+impl Layout {
+    /// Rows indented under a header line naming their directory.
+    pub const BY_DIRECTORY: Layout = Layout {
+        blank_between_groups: false,
+        row_indent: "  ",
+        preamble: None,
+    };
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PageRequest {
     pub offset: usize,
     pub limit: Option<usize>,
+}
+
+impl PageRequest {
+    pub fn new(offset: Option<usize>, limit: Option<usize>) -> Self {
+        Self {
+            offset: offset.unwrap_or(0),
+            limit,
+        }
+    }
 }
 
 pub struct Listing<'a, T> {
@@ -83,6 +101,21 @@ pub struct Listing<'a, T> {
     pub capped: bool,
     pub hint: Option<&'static str>,
     pub cut_notice: Option<String>,
+}
+
+impl<'a, T> Listing<'a, T> {
+    /// A listing with no hint and no cut-line notice.
+    pub fn plain(rows: &'a [T], layout: Layout, unit: &'static str, summary: String, capped: bool) -> Self {
+        Self {
+            rows,
+            layout,
+            unit,
+            summary,
+            capped,
+            hint: None,
+            cut_notice: None,
+        }
+    }
 }
 
 struct Page {

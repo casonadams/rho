@@ -13,12 +13,6 @@ use rho_harness_core::args::FdSort;
 
 pub const FD_COLLECTION_CEILING: usize = 20_000;
 
-const BY_DIRECTORY: Layout = Layout {
-    blank_between_groups: false,
-    row_indent: "  ",
-    preamble: None,
-};
-
 const STATS_TABLE: Layout = Layout {
     blank_between_groups: false,
     row_indent: "",
@@ -120,22 +114,12 @@ pub fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolR
     if options.show_stats {
         let summary = count_noun(collected.seen, "path");
         let rows: Vec<StatsRow> = collected.items.into_iter().map(StatsRow).collect();
-        return render_page(&listing(&rows, STATS_TABLE, summary, capped), options.request);
+        let listing = Listing::plain(&rows, STATS_TABLE, "path", summary, capped);
+        return render_page(&listing, options.request);
     }
     let kept = collected.items.len();
     let rows = drop_headed_directories(collected.items);
     let summary = count_noun(collected.seen - (kept - rows.len()), "path");
-    render_page(&listing(&rows, BY_DIRECTORY, summary, capped), options.request)
-}
-
-fn listing<T>(rows: &[T], layout: Layout, summary: String, capped: bool) -> Listing<'_, T> {
-    Listing {
-        rows,
-        layout,
-        unit: "path",
-        summary,
-        capped,
-        hint: None,
-        cut_notice: None,
-    }
+    let listing = Listing::plain(&rows, Layout::BY_DIRECTORY, "path", summary, capped);
+    render_page(&listing, options.request)
 }

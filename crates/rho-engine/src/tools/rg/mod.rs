@@ -9,15 +9,12 @@ pub use rho_harness_core::args::{RgArgs, RgOutputMode};
 
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::listing::PageRequest;
-use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
+use crate::tools::traversal::{build_type_matcher, is_smart_case_insensitive, run_blocking_search, search_root};
 use crate::tools::types::{ToolResult, generated_schema};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 
 pub struct RgTool {
     base_dir: PathBuf,
@@ -52,14 +49,8 @@ impl RgTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        let request = PageRequest {
-            offset: args.offset.unwrap_or(0),
-            limit: args.limit,
-        };
-        let cancellation = Arc::new(AtomicBool::new(false));
-        let cancel_guard = CancelOnDrop(cancellation.clone());
-        let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
-        let query = RgQuery {
+        let request = PageRequest::new(args.offset, args.limit);
+        let mut query = RgQuery {
             workspace_root: self.base_dir.clone(),
             search_root,
             search_path_display: args.path,
@@ -67,34 +58,21 @@ impl RgTool {
             types,
             include_hidden: args.hidden.unwrap_or(false),
             mode: args.output_mode.unwrap_or_default(),
-            timeout: Some(timeout),
-            cancellation: Some(cancellation),
+            timeout: None,
+            cancellation: None,
         };
-        let handle = tokio::task::spawn_blocking(move || query.run(request));
-        let res = await_rg_task(handle, timeout).await;
-        drop(cancel_guard);
-        res
-    }
-}
-
-async fn await_rg_task(
-    handle: tokio::task::JoinHandle<ToolResult>,
-    timeout_dur: Duration,
-) -> Result<ToolResult, AppError> {
-    match tokio::time::timeout(timeout_dur + Duration::from_secs(1), handle).await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(error)) => Err(AppError::Tool(format!("rg search task failed: {error}"))),
-        Err(_) => Ok(ToolResult::error(format!(
-            "Search timed out after {}s",
-            timeout_dur.as_secs()
-        ))),
+        run_blocking_search("rg", move |cancellation, timeout| {
+            query.timeout = Some(timeout);
+            query.cancellation = Some(cancellation);
+            query.run(request)
+        })
+        .await
     }
 }
 
 fn compile_matcher(pattern: &str) -> Result<RegexMatcher, String> {
-    let case_insensitive = !pattern.chars().any(char::is_uppercase);
     RegexMatcherBuilder::new()
-        .case_insensitive(case_insensitive)
+        .case_insensitive(is_smart_case_insensitive(pattern))
         .build(pattern)
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
 }

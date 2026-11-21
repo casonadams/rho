@@ -1,7 +1,9 @@
 //! Shared filesystem traversal configuration for the fd and rg tools.
 
+use crate::tools::types::ToolResult;
 use ignore::types::{Types, TypesBuilder};
 use ignore::{DirEntry, WalkBuilder, WalkState};
+use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,12 +12,36 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_TRAVERSAL_TIMEOUT_SECS: u64 = 30;
 
-pub struct CancelOnDrop(pub Arc<AtomicBool>);
+struct CancelOnDrop(Arc<AtomicBool>);
 
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
         self.0.store(true, Ordering::Relaxed);
     }
+}
+
+/// Runs `job` on a blocking thread with the default timeout, and stops it if this future is dropped.
+pub async fn run_blocking_search(
+    label: &str,
+    job: impl FnOnce(Arc<AtomicBool>, Duration) -> ToolResult + Send + 'static,
+) -> Result<ToolResult, AppError> {
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let _stop_on_drop = CancelOnDrop(cancellation.clone());
+    let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
+    let handle = tokio::task::spawn_blocking(move || job(cancellation, timeout));
+    match tokio::time::timeout(timeout + Duration::from_secs(1), handle).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(AppError::Tool(format!("{label} task failed: {error}"))),
+        Err(_) => Ok(ToolResult::error(format!(
+            "Search timed out after {}s",
+            timeout.as_secs()
+        ))),
+    }
+}
+
+/// A pattern with no uppercase letter matches case-insensitively.
+pub fn is_smart_case_insensitive(pattern: &str) -> bool {
+    !pattern.chars().any(char::is_uppercase)
 }
 
 fn should_quit_traversal(
@@ -160,7 +186,8 @@ pub fn resolve_relative_path(
 
 #[cfg(test)]
 mod tests {
-    use super::list_workspace_files;
+    use super::{is_smart_case_insensitive, list_workspace_files, run_blocking_search};
+    use crate::tools::types::ToolResult;
     use std::fs;
 
     fn workspace() -> tempfile::TempDir {
@@ -186,5 +213,32 @@ mod tests {
     fn list_workspace_files_stops_at_max_files() {
         let dir = workspace();
         assert_eq!(list_workspace_files(dir.path(), 1).len(), 1);
+    }
+
+    #[test]
+    fn patterns_without_uppercase_match_case_insensitively() {
+        let cases = [
+            ("todo", true),
+            ("a.b", true),
+            ("TODO", false),
+            ("toDo", false),
+            ("", true),
+        ];
+        for (pattern, insensitive) in cases {
+            assert_eq!(is_smart_case_insensitive(pattern), insensitive, "{pattern:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn blocking_search_returns_the_job_result_and_reports_a_panicked_job() {
+        let done = run_blocking_search("fd", |_, timeout| {
+            ToolResult::success(format!("ran with {}s", timeout.as_secs()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(done.content, "ran with 30s");
+
+        let failed = run_blocking_search("fd", |_, _| panic!("boom")).await.unwrap_err();
+        assert!(failed.to_string().contains("fd task failed"), "{failed}");
     }
 }

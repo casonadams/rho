@@ -10,13 +10,10 @@ pub use rho_harness_core::args::{FdArgs, FdSort};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::time::Duration;
 
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::listing::PageRequest;
-use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
+use crate::tools::traversal::{build_type_matcher, is_smart_case_insensitive, run_blocking_search, search_root};
 use crate::tools::types::{ToolResult, generated_schema};
 use regex::Regex;
 
@@ -79,20 +76,6 @@ async fn validate_fd_params(
     Ok((regex, types, search_root))
 }
 
-async fn await_fd_task(
-    handle: tokio::task::JoinHandle<ToolResult>,
-    timeout_dur: Duration,
-) -> Result<ToolResult, AppError> {
-    match tokio::time::timeout(timeout_dur + Duration::from_secs(1), handle).await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(error)) => Err(AppError::Tool(format!("fd traversal task failed: {error}"))),
-        Err(_) => Ok(ToolResult::error(format!(
-            "Search timed out after {}s",
-            timeout_dur.as_secs()
-        ))),
-    }
-}
-
 impl FdTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
@@ -105,29 +88,21 @@ impl FdTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        let request = PageRequest {
-            offset: args.offset.unwrap_or(0),
-            limit: args.limit,
-        };
-        let cancellation = Arc::new(AtomicBool::new(false));
-        let cancel_guard = CancelOnDrop(cancellation.clone());
-        let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
+        let request = PageRequest::new(args.offset, args.limit);
         let workspace = Workspace::new(&self.base_dir);
         let mut query = build_fd_query(&workspace, args, (regex, types, search_root));
-        query.timeout = Some(timeout);
-        query.cancellation = Some(cancellation);
-
-        let handle = tokio::task::spawn_blocking(move || query.run(request));
-        let res = await_fd_task(handle, timeout).await;
-        drop(cancel_guard);
-        res
+        run_blocking_search("fd", move |cancellation, timeout| {
+            query.timeout = Some(timeout);
+            query.cancellation = Some(cancellation);
+            query.run(request)
+        })
+        .await
     }
 }
 
 fn compile_pattern(pattern: &str) -> Result<Regex, String> {
-    let case_insensitive = !pattern.chars().any(char::is_uppercase);
     regex::RegexBuilder::new(pattern)
-        .case_insensitive(case_insensitive)
+        .case_insensitive(is_smart_case_insensitive(pattern))
         .build()
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
 }

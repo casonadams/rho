@@ -16,12 +16,6 @@ const BY_FILE: Layout = Layout {
     preamble: None,
 };
 
-const BY_DIRECTORY: Layout = Layout {
-    blank_between_groups: false,
-    row_indent: "  ",
-    preamble: None,
-};
-
 #[derive(Debug, Clone)]
 pub struct LineMatch {
     pub path: String,
@@ -113,14 +107,12 @@ pub fn format_files(
         RgOutputMode::Count => format!("{} in {files}", count_noun(totals.matches, "match")),
         _ => format!("{files} with matches"),
     };
-    let listing = Listing {
-        rows: &collected.items,
-        layout: BY_DIRECTORY,
-        unit: "file",
+    let listing = Listing::plain(
+        &collected.items,
+        Layout::BY_DIRECTORY,
+        "file",
         summary,
-        capped: collected.capped(),
-        hint: None,
-        cut_notice: None,
-    };
+        collected.capped(),
+    );
     render_page(&listing, request)
 }
