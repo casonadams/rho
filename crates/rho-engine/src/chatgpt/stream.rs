@@ -296,16 +296,13 @@ impl SseParser {
     fn handle_completed(usage_payload: Option<ResponsesUsagePayload>, reason: FinishReason, events: &mut SseEvents) {
         let usage = usage_payload
             .map(|u| {
-                let cached = u.input_tokens_details.and_then(|d| d.cached_tokens);
-                StructuralUsage {
-                    input_tokens: u.input_tokens.unwrap_or(0).saturating_sub(cached.unwrap_or(0)),
-                    output_tokens: u.output_tokens.unwrap_or(0),
-                    total_tokens: u.total_tokens.unwrap_or(0),
-                    cached_input_tokens: cached,
-                    cache_creation_input_tokens: None,
-                    tool_use_prompt_tokens: None,
-                    reasoning_tokens: u.output_tokens_details.and_then(|d| d.reasoning_tokens),
-                }
+                StructuralUsage::from_cached_prompt(
+                    u.input_tokens,
+                    u.output_tokens,
+                    u.total_tokens,
+                    u.input_tokens_details.and_then(|d| d.cached_tokens),
+                    u.output_tokens_details.and_then(|d| d.reasoning_tokens),
+                )
             })
             .unwrap_or_default();
 

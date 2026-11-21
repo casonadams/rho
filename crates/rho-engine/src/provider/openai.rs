@@ -343,15 +343,13 @@ impl OpenAiSseParser {
 
     fn handle_usage(&self, usage: ChunkUsage, events: &mut Vec<Result<ModelStreamEvent, AppError>>) {
         let cached = usage.prompt_tokens_details.and_then(|d| d.cached_tokens);
-        let structural = StructuralUsage {
-            input_tokens: usage.prompt_tokens.unwrap_or(0).saturating_sub(cached.unwrap_or(0)),
-            output_tokens: usage.completion_tokens.unwrap_or(0),
-            total_tokens: usage.total_tokens.unwrap_or(0),
-            cached_input_tokens: cached,
-            cache_creation_input_tokens: None,
-            tool_use_prompt_tokens: None,
-            reasoning_tokens: None,
-        };
+        let structural = StructuralUsage::from_cached_prompt(
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.total_tokens,
+            cached,
+            None,
+        );
         events.push(Ok(ModelStreamEvent::Usage(structural)));
     }
 }

@@ -108,6 +108,26 @@ pub struct StructuralUsage {
 }
 
 impl StructuralUsage {
+    /// Usage from a provider whose prompt count includes cached tokens: `input_tokens` keeps only the
+    /// uncached part. Missing counts are zero.
+    pub fn from_cached_prompt(
+        prompt: Option<u64>,
+        completion: Option<u64>,
+        total: Option<u64>,
+        cached: Option<u64>,
+        reasoning: Option<u64>,
+    ) -> Self {
+        Self {
+            input_tokens: prompt.unwrap_or(0).saturating_sub(cached.unwrap_or(0)),
+            output_tokens: completion.unwrap_or(0),
+            total_tokens: total.unwrap_or(0),
+            cached_input_tokens: cached,
+            cache_creation_input_tokens: None,
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: reasoning,
+        }
+    }
+
     pub fn is_reported(self) -> bool {
         self.has_values()
     }

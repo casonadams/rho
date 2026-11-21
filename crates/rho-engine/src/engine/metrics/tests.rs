@@ -107,6 +107,23 @@ fn run_summary_records_the_model_and_when_each_request_was_sent() {
 }
 
 #[test]
+fn cached_prompt_usage_reports_only_the_uncached_input() {
+    let usage = StructuralUsage::from_cached_prompt(Some(100), Some(7), Some(107), Some(60), Some(3));
+    assert_eq!(usage.input_tokens, 40);
+    assert_eq!(usage.output_tokens, 7);
+    assert_eq!(usage.total_tokens, 107);
+    assert_eq!(usage.cached_input_tokens, Some(60));
+    assert_eq!(usage.reasoning_tokens, Some(3));
+
+    let missing = StructuralUsage::from_cached_prompt(Some(5), None, None, Some(9), None);
+    assert_eq!(
+        (missing.input_tokens, missing.output_tokens, missing.total_tokens),
+        (0, 0, 0)
+    );
+    assert_eq!(missing.cache_creation_input_tokens, None);
+}
+
+#[test]
 fn merged_usage_keeps_optional_counts_reported_by_either_side() {
     let left = StructuralUsage {
         cached_input_tokens: Some(3),
