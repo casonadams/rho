@@ -2,7 +2,7 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
-use super::types::{ConfigKey, FileConfig, McpServerConfig};
+use super::types::{ConfigKey, FileConfig, McpServerConfig, UiConfig, WebFetchConfigFile, WebSearchConfigFile};
 
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
@@ -99,86 +99,56 @@ fn parse_optional_model(value: &str) -> Option<String> {
     }
 }
 
-fn apply_named_role_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> bool {
-    let opt = parse_optional_model(value);
-    match key {
-        ConfigKey::GuardModel => file_config.models.guard = opt,
-        ConfigKey::SmolModel => file_config.models.smol = opt,
-        ConfigKey::SlowModel => file_config.models.slow = opt,
-        _ => return false,
-    }
-    true
+fn default_model_on_provider(file_config: &FileConfig, provider: &str) -> Result<String> {
+    let current_spec = file_config.models.default.as_deref().ok_or_else(|| {
+        AppError::Config(format!(
+            "No default model to move to {provider}. Set one with: rho config model {provider}/<model>"
+        ))
+    })?;
+    let route = crate::provider::ModelRoute::parse(current_spec, None, "local");
+    Ok(format!("{provider}/{}", route.model))
 }
 
-fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
-    if apply_named_role_model_key(file_config, key, value) {
-        return Ok(true);
-    }
+fn ui_section(file_config: &mut FileConfig) -> &mut UiConfig {
+    file_config.ui.get_or_insert_with(Default::default)
+}
+
+fn web_search_section(file_config: &mut FileConfig) -> &mut WebSearchConfigFile {
+    let tools = file_config.tools.get_or_insert_with(Default::default);
+    let web = tools.web.get_or_insert_with(Default::default);
+    web.search.get_or_insert_with(Default::default)
+}
+
+fn web_fetch_section(file_config: &mut FileConfig) -> &mut WebFetchConfigFile {
+    let tools = file_config.tools.get_or_insert_with(Default::default);
+    let web = tools.web.get_or_insert_with(Default::default);
+    web.fetch.get_or_insert_with(Default::default)
+}
+
+/// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
+fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
+    let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
+    let name = key.as_str();
     match key {
-        ConfigKey::Model => {
-            file_config.models.default = Some(value.to_string());
-        }
-        ConfigKey::Provider => {
-            let current_spec = file_config.models.default.as_deref().ok_or_else(|| {
-                AppError::Config(format!(
-                    "No default model to move to {value}. Set one with: rho config model {value}/<model>"
-                ))
-            })?;
-            let route = crate::provider::ModelRoute::parse(current_spec, None, "local");
-            file_config.models.default = Some(format!("{value}/{}", route.model));
-        }
+        ConfigKey::Model => file_config.models.default = Some(value.to_string()),
+        ConfigKey::Provider => file_config.models.default = Some(default_model_on_provider(file_config, value)?),
+        ConfigKey::GuardModel => file_config.models.guard = parse_optional_model(value),
+        ConfigKey::SmolModel => file_config.models.smol = parse_optional_model(value),
+        ConfigKey::SlowModel => file_config.models.slow = parse_optional_model(value),
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level =
                 crate::thinking::ThinkingLevel::parse_setting(value).map_err(AppError::Config)?;
         }
-        _ => return Ok(false),
-    }
-    Ok(true)
-}
-
-fn apply_runtime_mode_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
-    match key {
         ConfigKey::Region => file_config.region = Some(value.to_string()),
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::CacheRetention => file_config.cache_retention = Some(value.parse().map_err(AppError::Config)?),
-        ConfigKey::ShowLabel => {
-            file_config.show_label = Some(parse_bool(key.as_str(), value)?);
-        }
-        _ => return Ok(false),
-    }
-    Ok(true)
-}
-
-fn apply_ui_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
-    match key {
-        ConfigKey::BlockStyle => {
-            let ui = file_config.ui.get_or_insert_with(Default::default);
-            ui.block_style = Some(value.to_string());
-        }
-        ConfigKey::AgentBlockOutput => {
-            let ui = file_config.ui.get_or_insert_with(Default::default);
-            ui.agent_block_output = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::HideThinking => {
-            let ui = file_config.ui.get_or_insert_with(Default::default);
-            ui.hide_thinking = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::ToolsExpanded => {
-            let ui = file_config.ui.get_or_insert_with(Default::default);
-            ui.tools_expanded = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::Cursor => {
-            let ui = file_config.ui.get_or_insert_with(Default::default);
-            ui.cursor = Some(value.to_string());
-        }
-        _ => return Ok(false),
-    }
-    Ok(true)
-}
-
-fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
-    match key {
+        ConfigKey::ShowLabel => file_config.show_label = Some(parse_bool(name, value)?),
+        ConfigKey::BlockStyle => ui_section(file_config).block_style = Some(value.to_string()),
+        ConfigKey::AgentBlockOutput => ui_section(file_config).agent_block_output = Some(parse_bool(name, value)?),
+        ConfigKey::HideThinking => ui_section(file_config).hide_thinking = Some(parse_bool(name, value)?),
+        ConfigKey::ToolsExpanded => ui_section(file_config).tools_expanded = Some(parse_bool(name, value)?),
+        ConfigKey::Cursor => ui_section(file_config).cursor = Some(value.to_string()),
         ConfigKey::SearchEngine => {
             if !crate::config::validate::is_valid_search_engine_name(value) {
                 return Err(AppError::Config(format!(
@@ -186,81 +156,33 @@ fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) ->
                     crate::config::SUPPORTED_SEARCH_ENGINES
                 )));
             }
-            let tools = file_config.tools.get_or_insert_with(Default::default);
-            let web = tools.web.get_or_insert_with(Default::default);
-            let search = web.search.get_or_insert_with(Default::default);
-            search.default = Some(value.to_string());
+            web_search_section(file_config).default = Some(value.to_string());
         }
-        ConfigKey::WebSearchEnabled => {
-            let tools = file_config.tools.get_or_insert_with(Default::default);
-            let web = tools.web.get_or_insert_with(Default::default);
-            let search = web.search.get_or_insert_with(Default::default);
-            search.enabled = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::WebFetchEnabled => {
-            let tools = file_config.tools.get_or_insert_with(Default::default);
-            let web = tools.web.get_or_insert_with(Default::default);
-            let fetch = web.fetch.get_or_insert_with(Default::default);
-            fetch.enabled = Some(parse_bool(key.as_str(), value)?);
-        }
+        ConfigKey::WebSearchEnabled => web_search_section(file_config).enabled = Some(parse_bool(name, value)?),
+        ConfigKey::WebFetchEnabled => web_fetch_section(file_config).enabled = Some(parse_bool(name, value)?),
         ConfigKey::McpEnabled => {
-            let mcp = file_config.mcp.get_or_insert_with(Default::default);
-            mcp.enabled = Some(parse_bool(key.as_str(), value)?);
+            file_config.mcp.get_or_insert_with(Default::default).enabled = Some(parse_bool(name, value)?);
         }
         ConfigKey::PermissionEnabled => {
-            let permission = file_config.permission.get_or_insert_with(Default::default);
-            permission.enabled = parse_bool(key.as_str(), value)?;
+            file_config.permission.get_or_insert_with(Default::default).enabled = parse_bool(name, value)?;
         }
-        _ => return Ok(false),
-    }
-    Ok(true)
-}
-
-fn apply_limit_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
-    match key {
-        ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::ContextWindowMessages => {
-            file_config.context_window_messages = Some(parse_positive(key.as_str(), value)?)
-        }
-        ConfigKey::CompactionMaxBytes => file_config.compaction_max_bytes = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
-        _ => apply_net_key(file_config, key, value)?,
+        ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(name, value)?),
+        ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(name, value)?),
+        ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(name, value)?),
+        ConfigKey::ContextWindowMessages => file_config.context_window_messages = Some(parse_positive(name, value)?),
+        ConfigKey::CompactionMaxBytes => file_config.compaction_max_bytes = Some(parse_positive(name, value)?),
+        ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(name, value)?),
+        ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(name, value)?),
+        ConfigKey::SearchMinIntervalMs => file_config.search_min_interval_ms = Some(parse_positive(name, value)?),
+        ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(name, value)?),
+        ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(name, value)?),
+        ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(name, value)?),
+        ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(name, value)?),
+        ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(name, value)?),
+        ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(name, value)?),
+        ConfigKey::SessionRetentionDays => file_config.session_retention_days = parse_retention(name, value)?,
     }
     Ok(())
-}
-
-fn apply_net_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
-    if apply_fetch_search_key(file_config, key, value)? {
-        return Ok(());
-    }
-    match key {
-        ConfigKey::AllowPrivateNetwork => {
-            file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::SessionRetentionDays => {
-            file_config.session_retention_days = parse_retention(key.as_str(), value)?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-fn apply_fetch_search_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
-    match key {
-        ConfigKey::SearchMinIntervalMs => {
-            file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?);
-        }
-        ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
-        _ => return Ok(false),
-    }
-    Ok(true)
 }
 
 fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
@@ -271,25 +193,19 @@ fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
     }
 }
 
-fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
-    let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
-    if !apply_model_key(file_config, &key, value)?
-        && !apply_runtime_mode_key(file_config, &key, value)?
-        && !apply_ui_key(file_config, &key, value)?
-        && !apply_tool_key(file_config, &key, value)?
-    {
-        apply_limit_key(file_config, &key, value)?;
-    }
-    Ok(())
+fn parse_file_config(content: &str) -> Result<FileConfig> {
+    toml::from_str(content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+}
+
+fn read_error(path: &Path, error: std::io::Error) -> AppError {
+    AppError::Config(format!("Failed to read config file {}: {error}", path.display()))
 }
 
 fn read_file_config(path: &Path) -> Result<FileConfig> {
     if !path.exists() {
         return Ok(FileConfig::default());
     }
-    let content = std::fs::read_to_string(path)
-        .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+    parse_file_config(&std::fs::read_to_string(path).map_err(|error| read_error(path, error))?)
 }
 
 async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
@@ -298,28 +214,27 @@ async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
     }
     let content = tokio::fs::read_to_string(path)
         .await
-        .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+        .map_err(|error| read_error(path, error))?;
+    parse_file_config(&content)
+}
+
+fn serialize_file_config(file_config: &FileConfig) -> Result<String> {
+    toml::to_string_pretty(file_config)
+        .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))
+}
+
+fn temporary_path(path: &Path) -> std::path::PathBuf {
+    path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()))
 }
 
 fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let serialized = toml::to_string_pretty(file_config)
-        .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
-    let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
-    std::fs::write(&temporary, serialized)?;
+    let temporary = temporary_path(path);
+    std::fs::write(&temporary, serialize_file_config(file_config)?)?;
     if let Err(error) = std::fs::rename(&temporary, path) {
         let _ = std::fs::remove_file(&temporary);
-        return Err(error.into());
-    }
-    Ok(())
-}
-
-async fn atomic_replace_async(temporary: &Path, path: &Path) -> Result<()> {
-    if let Err(error) = tokio::fs::rename(temporary, path).await {
-        let _ = tokio::fs::remove_file(temporary).await;
         return Err(error.into());
     }
     Ok(())
@@ -329,11 +244,13 @@ async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Resul
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let serialized = toml::to_string_pretty(file_config)
-        .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
-    let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
-    tokio::fs::write(&temporary, serialized).await?;
-    atomic_replace_async(&temporary, path).await
+    let temporary = temporary_path(path);
+    tokio::fs::write(&temporary, serialize_file_config(file_config)?).await?;
+    if let Err(error) = tokio::fs::rename(&temporary, path).await {
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn parse_bool(key: &str, value: &str) -> Result<bool> {
@@ -353,15 +270,4 @@ where
         return Err(AppError::Config(format!("{key} must be a positive integer")));
     }
     Ok(parsed)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn apply_net_key_fallback_for_non_net_key() {
-        let mut file_config = FileConfig::default();
-        assert!(apply_net_key(&mut file_config, &ConfigKey::Model, "test").is_ok());
-    }
 }
