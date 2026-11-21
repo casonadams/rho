@@ -84,7 +84,8 @@ fn handle_navigation_key(code: KeyCode, modifiers: KeyModifiers) -> Option<NavDi
 fn dispatch_autocomplete_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     completions: &CompletionSet,
-    (code, modifiers): (KeyCode, KeyModifiers),
+    code: KeyCode,
+    modifiers: KeyModifiers,
 ) -> AutocompleteKeyResult {
     if let Some(dir) = handle_navigation_key(code, modifiers) {
         let state = controller.state_mut();
@@ -126,7 +127,7 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     if key.kind == crossterm::event::KeyEventKind::Release {
         return AutocompleteKeyResult::Handled;
     }
-    dispatch_autocomplete_key(controller, completions, (key.code, key.modifiers))
+    dispatch_autocomplete_key(controller, completions, key.code, key.modifiers)
 }
 
 pub fn update_autocomplete_state<B: TerminalBackend>(

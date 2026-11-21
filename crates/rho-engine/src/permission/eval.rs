@@ -56,7 +56,7 @@ fn components(policy: &Policy, req: EvalRequest<'_>) -> Vec<Component> {
 }
 
 fn decide_bash_cmd(rules: &[PolicyRule], cmd: &String) -> Decision {
-    let dec = decide_surface(rules, ("bash", std::slice::from_ref(cmd)), SurfaceKind::First);
+    let dec = decide_surface(rules, "bash", std::slice::from_ref(cmd), SurfaceKind::First);
     if dec.matched_pattern.is_some() {
         map_surface_decision("bash", dec)
     } else {
@@ -96,7 +96,7 @@ fn mcp_components(rules: &[PolicyRule], args: &serde_json::Value) -> Component {
     } else {
         targets.clone()
     };
-    let dec = decide_surface(rules, ("mcp", &vals), SurfaceKind::First);
+    let dec = decide_surface(rules, "mcp", &vals, SurfaceKind::First);
     Component {
         surface: "mcp".into(),
         value: targets.first().cloned().unwrap_or_else(|| "*".to_string()),
@@ -115,7 +115,7 @@ fn generic_tool_component(rules: &[PolicyRule], req: &EvalRequest<'_>) -> Compon
         None if value == "*" => vec!["*".to_string()],
         None => vec![value.clone()],
     };
-    let dec = decide_surface(rules, (req.tool, &vals), SurfaceKind::First);
+    let dec = decide_surface(rules, req.tool, &vals, SurfaceKind::First);
     Component {
         surface: req.tool.into(),
         value,
@@ -138,7 +138,7 @@ fn mcp_direct_components(rules: &[PolicyRule], tool: &str, servers: &[String]) -
         server.to_string(),
         "*".to_string(),
     ];
-    let dec = decide_surface(rules, ("mcp", &targets), SurfaceKind::First);
+    let dec = decide_surface(rules, "mcp", &targets, SurfaceKind::First);
     if dec.matched_pattern.is_some() {
         Some(Component {
             surface: "mcp".into(),
@@ -174,7 +174,7 @@ fn path_component(rules: &[PolicyRule], token: &str, cwd: Option<&Path>) -> Comp
     let decision = if is_credential_path(token, cwd) {
         Decision::Deny(format!("'{token}' holds credentials and cannot be accessed by tools"))
     } else {
-        let dec = decide_surface(rules, ("path", &values), SurfaceKind::Any);
+        let dec = decide_surface(rules, "path", &values, SurfaceKind::Any);
         if dec.matched_pattern.is_some() {
             map_surface_decision("path", dec)
         } else if is_path_outside_working_dir(token, cwd) || is_protected_path(token, cwd) {

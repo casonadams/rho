@@ -118,7 +118,7 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
     };
 
-    handle_tool_response_cmd((approval_id, "allow".to_string(), None), &mut ctx)
+    handle_tool_response_cmd(approval_id, "allow".to_string(), None, &mut ctx)
         .await
         .unwrap();
 

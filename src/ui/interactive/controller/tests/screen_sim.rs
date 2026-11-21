@@ -345,7 +345,7 @@ mod regressions {
             .collect()
     }
 
-    fn controller_with_transcript((width, height): (usize, usize)) -> TerminalController<ScreenBackend> {
+    fn controller_with_transcript(width: usize, height: usize) -> TerminalController<ScreenBackend> {
         let mut controller =
             TerminalController::new(ScreenBackend::new(width, height), InteractiveState::default()).unwrap();
         controller
@@ -383,7 +383,7 @@ mod regressions {
 
     #[test]
     fn draft_line_wider_than_terminal_keeps_model_selector_repaints_aligned() {
-        let mut controller = controller_with_transcript((80, 24));
+        let mut controller = controller_with_transcript(80, 24);
         controller
             .state_mut()
             .editor_mut()
@@ -395,7 +395,7 @@ mod regressions {
 
     #[test]
     fn long_filter_query_keeps_model_selector_repaints_aligned() {
-        let mut controller = controller_with_transcript((80, 24));
+        let mut controller = controller_with_transcript(80, 24);
 
         open_selector(&mut controller, 37);
         let query: String = "x".repeat(90);
@@ -409,7 +409,7 @@ mod regressions {
     #[test]
     fn long_completion_value_keeps_editor_repaints_aligned() {
         use crate::repl::interactive::Completion;
-        let mut controller = controller_with_transcript((80, 24));
+        let mut controller = controller_with_transcript(80, 24);
         controller.state_mut().editor_mut().set_text("src/ui/int");
         controller.state_mut().autocomplete.open(vec![
             Completion {
@@ -564,7 +564,7 @@ mod regressions {
         fn real_presenter_scenario(message: &str, thinking: &[&str]) -> TerminalController<ScreenBackend> {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             stream_through_presenter(&mut controller, &mut events, &renderer, message, thinking);
@@ -602,7 +602,7 @@ mod regressions {
 
         #[test]
         fn committed_bash_card_keeps_single_blank_after_user_message_and_notice() {
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             controller
@@ -623,7 +623,7 @@ mod regressions {
         fn committed_bash_card_keeps_single_blank_after_previous_bash_card() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
@@ -636,7 +636,7 @@ mod regressions {
         fn stream_after_tool_preserves_word_without_premature_newline() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
 
@@ -664,7 +664,7 @@ mod regressions {
 
         #[test]
         fn screen_sim_unfocused_working_spinner() {
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.state_mut().footer_mut().activity = crate::ui::interactive::Activity::Working;
             controller.redraw().unwrap();
             let screen_focused = controller.backend.text();
@@ -683,7 +683,7 @@ mod regressions {
         #[test]
         fn deny_reason_input_screen() {
             use crate::ui::interactive::InteractionInput;
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.state_mut().editor_mut().set_text("");
             let options = vec![
                 ModalOption::new("Allow", Some("Run this tool call once")),
@@ -737,7 +737,7 @@ mod regressions {
         fn streamed_thinking_persists_across_terminal_resize_and_toggles_visibility() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
 
@@ -808,7 +808,7 @@ mod regressions {
         fn streamed_thinking_followed_by_blocked_tool_starts_box_on_fresh_line() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller
                 .set_block_style(crate::ui::theme::BlockStyle::Border)
                 .unwrap();
@@ -853,7 +853,7 @@ mod regressions {
         fn streamed_thinking_wraps_long_prose_on_word_boundaries_live() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((40, 24));
+            let mut controller = controller_with_transcript(40, 24);
             renderer.set_width(40);
             controller.state_mut().editor_mut().set_text("");
 
@@ -877,7 +877,7 @@ mod regressions {
         fn streamed_thinking_token_by_token_wraps_on_word_boundaries() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((40, 24));
+            let mut controller = controller_with_transcript(40, 24);
             renderer.set_width(40);
             controller.state_mut().editor_mut().set_text("");
 
@@ -905,7 +905,7 @@ mod regressions {
         fn streamed_thinking_preserves_natural_line_breaks_on_screen() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             renderer.set_width(80);
             controller.state_mut().editor_mut().set_text("");
 
@@ -928,7 +928,7 @@ mod regressions {
         fn streamed_thinking_preserves_blank_line_paragraphs_on_screen() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             renderer.set_width(80);
             controller.state_mut().editor_mut().set_text("");
 
@@ -958,7 +958,7 @@ mod regressions {
         fn streamed_thinking_wraps_and_preserves_natural_line_breaks() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((30, 24));
+            let mut controller = controller_with_transcript(30, 24);
             renderer.set_width(30);
             controller.state_mut().editor_mut().set_text("");
 
@@ -1004,7 +1004,7 @@ mod regressions {
         fn multi_step_turn_records_discrete_thinking_phases_in_transcript() {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
-            let mut controller = controller_with_transcript((80, 24));
+            let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
 

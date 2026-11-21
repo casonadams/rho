@@ -42,6 +42,9 @@ struct FinalizeCompactionPlan<'a> {
     prior_summary: Option<&'a str>,
     prior_details: Option<&'a CompactionDetails>,
     instructions: Option<&'a str>,
+    tokens_before: usize,
+    first_kept_node_id: Option<String>,
+    first_kept_message_index: Option<usize>,
 }
 
 fn noop_stats(tokens: usize) -> CompactionStats {
@@ -248,37 +251,27 @@ impl SessionCompactor {
         if cut.cut_index == 0 || all_msgs.is_empty() {
             return Ok(noop_stats(tokens_before));
         }
-        self.finalize_compaction(
-            FinalizeCompactionPlan {
-                messages: &all_msgs,
-                cut_index: cut.cut_index,
-                is_split_turn: cut.is_split_turn,
-                prior_summary: prior_sum.as_deref(),
-                prior_details: prior_det.as_ref(),
-                instructions,
-            },
-            (tokens_before, cut.first_kept_node_id, cut.first_kept_message_index),
-        )
+        self.finalize_compaction(FinalizeCompactionPlan {
+            messages: &all_msgs,
+            cut_index: cut.cut_index,
+            is_split_turn: cut.is_split_turn,
+            prior_summary: prior_sum.as_deref(),
+            prior_details: prior_det.as_ref(),
+            instructions,
+            tokens_before,
+            first_kept_node_id: cut.first_kept_node_id,
+            first_kept_message_index: cut.first_kept_message_index,
+        })
         .await
     }
 
     async fn generate_compaction_summary(
         &self,
         msgs: &[ChatMessage],
-        (prior_summary, custom_instructions, is_split_turn): (Option<&str>, Option<&str>, bool),
+        options: super::llm::SummarizeOptions<'_>,
     ) -> String {
         let compactor = LlmCompactor::new(self.model.clone());
-        let (summary, usage) = compactor
-            .summarize_with_usage(
-                msgs,
-                super::llm::SummarizeOptions {
-                    prior_summary,
-                    custom_instructions,
-                    is_split_turn,
-                    structured: false,
-                },
-            )
-            .await;
+        let (summary, usage) = compactor.summarize_with_usage(msgs, options).await;
         if let Some(u) = usage
             && u.has_values()
         {
@@ -287,28 +280,11 @@ impl SessionCompactor {
         summary
     }
 
-    async fn persist_compaction(
-        &self,
-        (summary, file_details, kept_id, kept_msg_idx, instructions): (
-            &str,
-            &CompactionDetails,
-            Option<String>,
-            Option<usize>,
-            Option<&str>,
-        ),
-        (tokens_before, tokens_after): (usize, usize),
-    ) -> Result<()> {
-        let metadata = CompactionMetadata {
-            summary: summary.to_string(),
-            first_kept_node_id: kept_id,
-            first_kept_message_index: kept_msg_idx,
-            tokens_before,
-            tokens_after,
-            read_files: file_details.read_files.clone(),
-            modified_files: file_details.modified_files.clone(),
-            custom_instructions: instructions.map(str::to_string),
-        };
-        self.session_manager.append_compaction(summary, metadata).await?;
+    async fn persist_compaction(&self, metadata: CompactionMetadata) -> Result<()> {
+        let tokens_after = metadata.tokens_after;
+        self.session_manager
+            .append_compaction(&metadata.summary.clone(), metadata)
+            .await?;
         self.usage.update_active_context(StructuralUsage {
             input_tokens: tokens_after as u64,
             ..Default::default()
@@ -316,15 +292,19 @@ impl SessionCompactor {
         Ok(())
     }
 
-    async fn finalize_compaction(
-        &self,
-        plan: FinalizeCompactionPlan<'_>,
-        (tokens_before, kept_id, kept_msg_idx): (usize, Option<String>, Option<usize>),
-    ) -> Result<CompactionStats> {
+    async fn finalize_compaction(&self, plan: FinalizeCompactionPlan<'_>) -> Result<CompactionStats> {
         let (to_sum, kept) = (&plan.messages[..plan.cut_index], &plan.messages[plan.cut_index..]);
         dispatch_demote(self.demotion_hook.as_ref(), &self.session_manager.session_id, to_sum).await;
         let md_summary = self
-            .generate_compaction_summary(to_sum, (plan.prior_summary, plan.instructions, plan.is_split_turn))
+            .generate_compaction_summary(
+                to_sum,
+                super::llm::SummarizeOptions {
+                    prior_summary: plan.prior_summary,
+                    custom_instructions: plan.instructions,
+                    is_split_turn: plan.is_split_turn,
+                    structured: false,
+                },
+            )
             .await;
         let file_details = extract_file_ops(to_sum, plan.prior_details);
         let summary = compose_compaction_summary(&md_summary, &render_file_lists_xml(&file_details));
@@ -340,15 +320,21 @@ impl SessionCompactor {
         };
 
         let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name, &self.context);
-        let saved_tokens = tokens_before.saturating_sub(tokens_after);
-        self.persist_compaction(
-            (&final_summary, &file_details, kept_id, kept_msg_idx, plan.instructions),
-            (tokens_before, tokens_after),
-        )
+        let saved_tokens = plan.tokens_before.saturating_sub(tokens_after);
+        self.persist_compaction(CompactionMetadata {
+            summary: final_summary.clone(),
+            first_kept_node_id: plan.first_kept_node_id,
+            first_kept_message_index: plan.first_kept_message_index,
+            tokens_before: plan.tokens_before,
+            tokens_after,
+            read_files: file_details.read_files,
+            modified_files: file_details.modified_files,
+            custom_instructions: plan.instructions.map(str::to_string),
+        })
         .await?;
 
         Ok(CompactionStats {
-            tokens_before,
+            tokens_before: plan.tokens_before,
             tokens_after,
             saved_tokens,
             summary: final_summary,

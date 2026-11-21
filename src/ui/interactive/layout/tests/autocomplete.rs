@@ -33,7 +33,7 @@ fn test_render_autocomplete_dropdown() {
     ];
     state.open(items);
 
-    let lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 60, MAX_VISIBLE_ITEMS, &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 2);
     assert!(lines[0].contains("/model"));
     assert!(lines[0].contains("Switch model"));
@@ -50,7 +50,7 @@ fn descriptions_share_the_footer_dim_style() {
         replacement: Range { start: 0, end: 1 },
     }]);
 
-    let lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 60, MAX_VISIBLE_ITEMS, &crate::ui::theme::Theme::default());
     assert!(lines[0].contains(&footer_dim), "{}", lines[0]);
     assert!(!lines[0].contains("\x1b[2;90m"), "{}", lines[0]);
 }
@@ -60,8 +60,8 @@ fn autocomplete_suppressed_when_fewer_than_two_rows_available() {
     let mut state = AutocompleteState::default();
     state.open(make_items(5));
 
-    assert!(render_autocomplete_dropdown(&state, (60, 1), &crate::ui::theme::Theme::default()).is_empty());
-    assert!(render_autocomplete_dropdown(&state, (60, 0), &crate::ui::theme::Theme::default()).is_empty());
+    assert!(render_autocomplete_dropdown(&state, 60, 1, &crate::ui::theme::Theme::default()).is_empty());
+    assert!(render_autocomplete_dropdown(&state, 60, 0, &crate::ui::theme::Theme::default()).is_empty());
 }
 
 #[test]
@@ -76,8 +76,7 @@ fn dropdown_rows_fit_terminal_width_with_long_values() {
     }]);
 
     for width in [80, 60, 45] {
-        let lines =
-            render_autocomplete_dropdown(&state, (width, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
+        let lines = render_autocomplete_dropdown(&state, width, MAX_VISIBLE_ITEMS, &crate::ui::theme::Theme::default());
         assert_eq!(lines.len(), 1);
         for line in &lines {
             assert!(
@@ -94,7 +93,7 @@ fn dropdown_rows_fit_terminal_width_with_long_values() {
         description: None,
         replacement: Range { start: 0, end: 1 },
     }]);
-    let lines = render_autocomplete_dropdown(&state, (200, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 200, MAX_VISIBLE_ITEMS, &crate::ui::theme::Theme::default());
     assert!(lines[0].contains("this completion value is far longer than most terminals"));
 }
 
@@ -103,7 +102,7 @@ fn autocomplete_scales_down_to_max_lines() {
     let mut state = AutocompleteState::default();
     state.open(make_items(10));
 
-    let lines = render_autocomplete_dropdown(&state, (60, 3), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 60, 3, &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 3);
 }
 
@@ -112,7 +111,7 @@ fn autocomplete_window_keeps_initial_selection_in_view() {
     let mut state = AutocompleteState::default();
     state.open(make_items(10));
     state.selected = 0;
-    let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 60, 4, &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines[0].contains("/item0"));
 }
@@ -123,12 +122,12 @@ fn autocomplete_window_keeps_scrolled_selection_in_view() {
     state.open(make_items(10));
 
     state.selected = 5;
-    let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 60, 4, &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().any(|l| l.contains("/item5")));
 
     state.selected = 9;
-    let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
+    let lines = render_autocomplete_dropdown(&state, 60, 4, &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().any(|l| l.contains("/item9")));
 }
@@ -169,7 +168,7 @@ fn autocomplete_dropdown_default_theme_styling() {
     }]);
 
     let default_theme = crate::ui::theme::Theme::default();
-    let default_lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &default_theme);
+    let default_lines = render_autocomplete_dropdown(&state, 60, MAX_VISIBLE_ITEMS, &default_theme);
     assert_eq!(default_lines.len(), 1);
     assert!(!default_lines[0].contains("\x1b[48;5;236m"));
     assert!(!default_lines[0].contains("\x1b[1;36m>"));
@@ -188,7 +187,7 @@ fn autocomplete_dropdown_selected_row_uses_block_fill_when_theme_has_one() {
     // The default theme is pure ANSI (no fill); rows render without a
     // background paint.
     let theme = crate::ui::theme::Theme::default();
-    let lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &theme);
+    let lines = render_autocomplete_dropdown(&state, 60, MAX_VISIBLE_ITEMS, &theme);
     assert_eq!(lines.len(), 1);
     assert!(!lines[0].contains(&theme.block_fill.render().to_string()));
 }

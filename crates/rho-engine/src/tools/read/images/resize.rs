@@ -67,21 +67,27 @@ pub(crate) fn resize_to_limits(bytes: &[u8], mime: &'static str) -> Option<Resiz
     resize_with_limits(bytes, mime, ResizeLimits::INLINE)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Dimensions {
+    width: u32,
+    height: u32,
+}
+
 fn as_passthrough_image(
     bytes: &[u8],
     mime: &'static str,
-    (orig_w, orig_h): (u32, u32),
+    orig: Dimensions,
     limits: &ResizeLimits,
 ) -> Option<ResizedImage> {
     let input_base64_size = bytes.len().div_ceil(3) * 4;
-    if orig_w <= limits.max_width && orig_h <= limits.max_height && input_base64_size < limits.max_bytes {
+    if orig.width <= limits.max_width && orig.height <= limits.max_height && input_base64_size < limits.max_bytes {
         Some(ResizedImage {
             data: STANDARD.encode(bytes),
             mime,
-            original_width: orig_w,
-            original_height: orig_h,
-            width: orig_w,
-            height: orig_h,
+            original_width: orig.width,
+            original_height: orig.height,
+            width: orig.width,
+            height: orig.height,
             was_resized: false,
         })
     } else {
@@ -89,19 +95,15 @@ fn as_passthrough_image(
     }
 }
 
-fn search_candidate(
-    rgba: &RgbaImage,
-    (w, h, orig_w, orig_h): (u32, u32, u32, u32),
-    max_bytes: usize,
-) -> Option<ResizedImage> {
-    let resized = image::imageops::resize(rgba, w, h, FilterType::Lanczos3);
+fn search_candidate(rgba: &RgbaImage, size: Dimensions, orig: Dimensions, max_bytes: usize) -> Option<ResizedImage> {
+    let resized = image::imageops::resize(rgba, size.width, size.height, FilterType::Lanczos3);
     let make = |candidate_mime: &'static str, data: String| ResizedImage {
         data,
         mime: candidate_mime,
-        original_width: orig_w,
-        original_height: orig_h,
-        width: w,
-        height: h,
+        original_width: orig.width,
+        original_height: orig.height,
+        width: size.width,
+        height: size.height,
         was_resized: true,
     };
     if let Some(png) = encode_png(&resized).filter(|data| data.len() < max_bytes) {
@@ -116,20 +118,21 @@ fn search_candidate(
     None
 }
 
-fn resize_loop(rgba: &RgbaImage, orig: (u32, u32), limits: &ResizeLimits) -> Option<ResizedImage> {
-    let (mut width, mut height) = limits.fit_dimensions(orig.0, orig.1);
+fn resize_loop(rgba: &RgbaImage, orig: Dimensions, limits: &ResizeLimits) -> Option<ResizedImage> {
+    let (width, height) = limits.fit_dimensions(orig.width, orig.height);
+    let mut size = Dimensions { width, height };
     loop {
-        if let Some(res) = search_candidate(rgba, (width, height, orig.0, orig.1), limits.max_bytes) {
+        if let Some(res) = search_candidate(rgba, size, orig, limits.max_bytes) {
             return Some(res);
         }
-        if (width, height) == (1, 1) {
+        let next = Dimensions {
+            width: shrink(size.width),
+            height: shrink(size.height),
+        };
+        if next == size {
             return None;
         }
-        let next = (shrink(width), shrink(height));
-        if next == (width, height) {
-            return None;
-        }
-        (width, height) = next;
+        size = next;
     }
 }
 
@@ -139,7 +142,10 @@ fn resize_loop(rgba: &RgbaImage, orig: (u32, u32), limits: &ResizeLimits) -> Opt
 pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: ResizeLimits) -> Option<ResizedImage> {
     let format = image_format(mime)?;
     let image = decode_with_orientation(bytes, format)?;
-    let orig = (image.width(), image.height());
+    let orig = Dimensions {
+        width: image.width(),
+        height: image.height(),
+    };
     if let Some(pass) = as_passthrough_image(bytes, mime, orig, &limits) {
         return Some(pass);
     }

@@ -25,7 +25,8 @@ pub(crate) async fn handle_compact_cmd(
 }
 
 pub(crate) async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
-    (message, req_id): (String, Option<String>),
+    message: String,
+    req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     ctx.steering.enqueue(message);
@@ -73,7 +74,9 @@ pub(crate) fn parse_tool_decision(decision: &str) -> InteractionResponse {
 }
 
 pub(crate) async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
-    (approval_id, decision, req_id): (String, String, Option<String>),
+    approval_id: String,
+    decision: String,
+    req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let resp = parse_tool_decision(&decision);
@@ -87,7 +90,8 @@ pub(crate) async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
 }
 
 pub(crate) async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
-    (message, req_id): (String, Option<String>),
+    message: String,
+    req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     if ctx.active_turn.is_some() {

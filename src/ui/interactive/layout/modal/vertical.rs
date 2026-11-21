@@ -117,7 +117,8 @@ fn calculate_pagination(total: usize, selected: usize, max_visible: usize) -> (u
 fn render_visible_options(
     modal: &ModalState,
     layout: &ModalOptionsLayout<'_>,
-    (start, end): (usize, usize),
+    start: usize,
+    end: usize,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let is_selector = modal.title == "Select Model" || modal.title == "Select Theme";
@@ -156,7 +157,7 @@ pub fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayout<'_>) 
     }
     let max_visible = layout.max_visible.max(1);
     let (start, end, show_indicator) = calculate_pagination(total, modal.selected, max_visible);
-    let mut lines = render_visible_options(modal, &layout, (start, end));
+    let mut lines = render_visible_options(modal, &layout, start, end);
     if show_indicator {
         let dimmed = layout.theme.dimmed;
         lines.push(format!("    {dimmed}••• ({total} options){dimmed:#}"));

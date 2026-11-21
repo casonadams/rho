@@ -66,11 +66,7 @@ fn format_horizontal_option(opt: &ModalOption, is_selected: bool, theme: &crate:
     }
 }
 
-pub fn format_horizontal_row(
-    modal: &ModalState,
-    layout: &ModalOptionsLayout<'_>,
-    (start, end): (usize, usize),
-) -> String {
+pub fn format_horizontal_row(modal: &ModalState, layout: &ModalOptionsLayout<'_>, start: usize, end: usize) -> String {
     let mut parts = Vec::new();
     if start > 0 {
         parts.push(format!("{}‹{} ", layout.theme.dimmed, layout.theme.dimmed));
@@ -105,6 +101,6 @@ pub fn render_horizontal_options(modal: &ModalState, layout: &ModalOptionsLayout
         return vec![format!("    {dimmed}{msg}{dimmed:#}")];
     }
     let window = calculate_horizontal_window(modal, layout.inner_width);
-    let row = format_horizontal_row(modal, layout, window);
+    let row = format_horizontal_row(modal, layout, window.0, window.1);
     vec![format!("  {row}")]
 }

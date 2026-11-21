@@ -28,11 +28,11 @@ pub struct AgentEngineBuilder {
     quota_endpoints: super::quota_refresh::QuotaEndpoints,
 }
 
-type EngineAssembly = (
-    Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
-    Vec<String>,
-    Option<ModelHandle>,
-);
+struct EngineAssembly {
+    tools: Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
+    tool_names: Vec<String>,
+    model: Option<ModelHandle>,
+}
 
 impl AgentEngineBuilder {
     pub fn new(config: Config, auth_store: AuthStore) -> Self {
@@ -210,9 +210,15 @@ impl AgentEngineBuilder {
     fn into_engine(
         self,
         base_dir: PathBuf,
-        (session_manager, router): (SessionManager, ModelRouter),
-        (tools, tool_names, model): EngineAssembly,
+        session_manager: SessionManager,
+        router: ModelRouter,
+        assembly: EngineAssembly,
     ) -> AgentEngine {
+        let EngineAssembly {
+            tools,
+            tool_names,
+            model,
+        } = assembly;
         let context = super::tracking::ContextTracker::new(self.config.context_limit);
         let demotion_hook = self.demotion_hook.or_else(|| {
             Some(Arc::new(
@@ -275,7 +281,12 @@ impl AgentEngineBuilder {
         let home = rho_harness_core::config::home_dir();
         let workflows = subagents.map(|s| crate::tools::workflow::WorkflowRunner::new(s, base_dir.clone(), home));
         let worktrees = workflows.as_ref().and_then(|w| w.worktrees().cloned());
-        let mut engine = self.into_engine(base_dir, (session_manager, router), (tools_lock, tool_names, model));
+        let assembly = EngineAssembly {
+            tools: tools_lock,
+            tool_names,
+            model,
+        };
+        let mut engine = self.into_engine(base_dir, session_manager, router, assembly);
         engine.workflows = workflows;
         engine.worktrees = worktrees;
         engine.mcp = super::EngineMcp {

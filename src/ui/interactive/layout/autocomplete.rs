@@ -61,10 +61,10 @@ fn format_dropdown_item(
 
 pub(crate) fn render_autocomplete_dropdown(
     state: &AutocompleteState,
-    bounds: (usize, usize),
+    width: usize,
+    max_lines: usize,
     theme: &crate::ui::theme::Theme,
 ) -> Vec<String> {
-    let (width, max_lines) = bounds;
     if !state.visible || state.items.is_empty() || width < 15 || max_lines < 2 {
         return Vec::new();
     }

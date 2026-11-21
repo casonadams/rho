@@ -49,14 +49,13 @@ fn collect_surface_rules(surface: &str, action: RuleAction, rules: &mut Vec<Poli
         }
         RuleAction::SurfaceMap(patterns) => {
             for (pattern, pat_action) in patterns {
-                push_pattern_rule((surface, &pattern), pat_action, rules);
+                push_pattern_rule(surface, &pattern, pat_action, rules);
             }
         }
     }
 }
 
-fn push_pattern_rule(target: (&str, &str), action: RuleAction, rules: &mut Vec<PolicyRule>) {
-    let (surface, pattern) = target;
+fn push_pattern_rule(surface: &str, pattern: &str, action: RuleAction, rules: &mut Vec<PolicyRule>) {
     match action {
         RuleAction::State(state) => {
             rules.push(PolicyRule {

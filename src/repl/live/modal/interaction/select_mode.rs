@@ -145,7 +145,8 @@ fn handle_arrow_key<B: TerminalBackend>(controller: &mut TerminalController<B>, 
 
 fn select_option_input<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (selected, spec): (usize, crate::ui::interactive::InteractionInput),
+    selected: usize,
+    spec: crate::ui::interactive::InteractionInput,
 ) {
     if let Some(modal) = controller.state_mut().active_modal_mut() {
         modal.selected = selected;
@@ -190,7 +191,7 @@ fn handle_select_enter<B: TerminalBackend>(controller: &mut TerminalController<B
         .and_then(|opt| opt.input.clone());
 
     if let Some(spec) = option_input {
-        select_option_input(controller, (selected, spec));
+        select_option_input(controller, selected, spec);
     } else if super::types::is_input_trigger(&selected_label) {
         enter_label_input(controller, &selected_label);
     } else {

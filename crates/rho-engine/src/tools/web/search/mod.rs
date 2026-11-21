@@ -86,7 +86,9 @@ impl WebSearchTool {
     async fn perform_search(
         &self,
         query: &str,
-        (limit, domains, recency): (usize, Option<&[String]>, Option<WebSearchRecency>),
+        limit: usize,
+        domains: Option<&[String]>,
+        recency: Option<WebSearchRecency>,
     ) -> Vec<SearchResult> {
         let effective_query = build_search_query_with_filters(query, domains);
         self.search(SearchQueryParams {
@@ -116,7 +118,7 @@ impl WebSearchTool {
         let limit = args.limit.unwrap_or(5).clamp(1, 20);
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let results = self
-            .perform_search(query, (limit, args.domains.as_deref(), args.recency))
+            .perform_search(query, limit, args.domains.as_deref(), args.recency)
             .await;
 
         if results.is_empty() {

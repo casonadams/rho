@@ -31,7 +31,9 @@ impl Drop for ProcessCleanupGuard {
 
 #[cfg(feature = "ui")]
 async fn run_interactive_session(
-    (config, auth_store, resume_target): (Config, AuthStore, Option<String>),
+    config: Config,
+    auth_store: AuthStore,
+    resume_target: Option<String>,
     cli: Cli,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut session = ReplSession::new(config, auth_store, resume_target)
@@ -43,7 +45,9 @@ async fn run_interactive_session(
 
 #[cfg(not(feature = "ui"))]
 async fn run_interactive_session(
-    _state: (Config, AuthStore, Option<String>),
+    _config: Config,
+    _auth_store: AuthStore,
+    _resume_target: Option<String>,
     _cli: Cli,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     Err(Box::new(crate::error::AppError::Session(
@@ -80,7 +84,7 @@ async fn dispatch_cli_run(
         let runner = runner::CliRunner::new(config, auth_store, resume_target);
         return dispatch_prompt_runner(runner, &prompt, &cli.mode, cli.name.as_deref()).await;
     }
-    run_interactive_session((config, auth_store, resume_target), cli).await
+    run_interactive_session(config, auth_store, resume_target, cli).await
 }
 
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {

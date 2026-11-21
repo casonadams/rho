@@ -65,7 +65,7 @@ fn render_editor_area(input: &LayoutInput<'_>, plan: EditorLayoutPlan<'_>) -> (V
         });
     }
     let ac_lines = input.autocomplete.map_or_else(Vec::new, |ac| {
-        render_autocomplete_dropdown(ac, (plan.width, plan.ac_budget), plan.theme)
+        render_autocomplete_dropdown(ac, plan.width, plan.ac_budget, plan.theme)
     });
     let unused_ac = plan.ac_budget.saturating_sub(ac_lines.len());
     let ed_max = plan.ed_budget + unused_ac.min(plan.wrapped_lines.len().saturating_sub(plan.ed_budget));

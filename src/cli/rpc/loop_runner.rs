@@ -18,11 +18,11 @@ async fn handle_turn_control_cmd<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<bool> {
     match cmd {
         RpcCommand::Prompt { message, .. } => {
-            handle_prompt_cmd((message.clone(), req_id), ctx).await?;
+            handle_prompt_cmd(message.clone(), req_id, ctx).await?;
             Ok(true)
         }
         RpcCommand::Steer { message } => {
-            handle_steer_command((message.clone(), req_id), ctx).await?;
+            handle_steer_command(message.clone(), req_id, ctx).await?;
             Ok(true)
         }
         RpcCommand::Abort => {
@@ -30,7 +30,7 @@ async fn handle_turn_control_cmd<W: tokio::io::AsyncWrite + Unpin>(
             Ok(true)
         }
         RpcCommand::ToolResponse { approval_id, decision } => {
-            handle_tool_response_cmd((approval_id.clone(), decision.clone(), req_id), ctx).await?;
+            handle_tool_response_cmd(approval_id.clone(), decision.clone(), req_id, ctx).await?;
             Ok(true)
         }
         RpcCommand::GetState => {
@@ -55,7 +55,8 @@ async fn handle_exit_cmd<W: tokio::io::AsyncWrite + Unpin>(
 }
 
 pub(crate) async fn dispatch_rpc<W: tokio::io::AsyncWrite + Unpin>(
-    (cmd, req_id): (RpcCommand, Option<String>),
+    cmd: RpcCommand,
+    req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<RpcLoopAction> {
     if matches!(cmd, RpcCommand::Exit) {
@@ -165,7 +166,7 @@ where
             let Some(req) = handle_read_request(res, ctx.writer).await? else {
                 return Ok(RpcLoopAction::Break);
             };
-            dispatch_rpc((req.command, req.id), ctx).await
+            dispatch_rpc(req.command, req.id, ctx).await
         }
     }
 }

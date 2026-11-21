@@ -59,8 +59,7 @@ fn merge_scope_rules(base: &[PolicyRule], override_rules: &[PolicyRule]) -> Vec<
     result
 }
 
-pub fn decide_surface(rules: &[PolicyRule], target: (&str, &[String]), kind: SurfaceKind) -> SurfaceDecision {
-    let (surface, values) = target;
+pub fn decide_surface(rules: &[PolicyRule], surface: &str, values: &[String], kind: SurfaceKind) -> SurfaceDecision {
     if kind == SurfaceKind::Any {
         return last_match(rules, surface, values).unwrap_or(SurfaceDecision {
             state: PermissionState::Ask,

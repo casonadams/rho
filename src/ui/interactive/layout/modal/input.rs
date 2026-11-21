@@ -50,7 +50,7 @@ pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize,
             is_modal: true,
         },
     );
-    let (b_space, _, _, _) = modal_in_input_spaces(modal, draft_text, (budget.editor_max_lines, inner_width));
+    let (b_space, _, _, _) = modal_in_input_spaces(modal, draft_text, budget.editor_max_lines, inner_width);
     total.saturating_sub(b_space.saturating_sub(1))
 }
 
@@ -95,7 +95,8 @@ pub fn calculate_content_space(modal: &ModalState, space_for_content: usize) -> 
 pub(crate) fn push_search_row(
     modal: &ModalState,
     width: usize,
-    (focused, cursor_mode): (bool, crate::ui::theme::CursorMode),
+    focused: bool,
+    cursor_mode: crate::ui::theme::CursorMode,
     lines: &mut Vec<String>,
 ) -> (CursorPosition, bool) {
     let query = truncate_to_width(&modal.filter_query, width.saturating_sub(6));
@@ -124,7 +125,10 @@ fn input_prompt_prefix(modal: &ModalState, theme: &crate::ui::theme::Theme) -> (
 pub(crate) fn push_modal_input_prompt(
     modal: &ModalState,
     theme: &crate::ui::theme::Theme,
-    (width, max_input_lines, focused, lines): (usize, usize, bool, &mut Vec<String>),
+    width: usize,
+    max_input_lines: usize,
+    focused: bool,
+    lines: &mut Vec<String>,
 ) -> Option<(CursorPosition, bool)> {
     let ModalMode::Input { .. } = &modal.mode else {
         return None;
@@ -167,7 +171,9 @@ pub(crate) fn format_draft_line(draft_text: &str, inner_width: usize, theme: &cr
 
 pub(crate) fn collect_modal_content(
     input: &InInputModalInput<'_>,
-    (inner_width, body_space, opt_space): (usize, usize, usize),
+    inner_width: usize,
+    body_space: usize,
+    opt_space: usize,
     has_draft: bool,
 ) -> Vec<String> {
     let mut lines = render_in_input_body(input.modal, inner_width, body_space);
@@ -190,7 +196,8 @@ pub(crate) fn collect_modal_content(
 pub(crate) fn modal_in_input_spaces(
     modal: &ModalState,
     draft_text: &str,
-    (max_lines, inner_width): (usize, usize),
+    max_lines: usize,
+    inner_width: usize,
 ) -> (usize, usize, usize, bool) {
     let has_draft = !draft_text.trim().is_empty() && max_lines >= 2;
     let has_search = modal.is_searchable && !matches!(modal.mode, ModalMode::Input { .. });
@@ -215,23 +222,21 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
     }
     let inner_width = width.saturating_sub(4).max(1);
     let (b_space, opt_space, input_lines, has_draft) =
-        modal_in_input_spaces(input.modal, input.draft_text, (max_lines, inner_width));
+        modal_in_input_spaces(input.modal, input.draft_text, max_lines, inner_width);
 
     let mut lines = Vec::new();
     let mut cursor = (CursorPosition { row: 0, column: 0 }, false);
     if input.modal.is_searchable && !matches!(input.modal.mode, ModalMode::Input { .. }) {
-        cursor = push_search_row(input.modal, width, (input.focused, input.theme.cursor_mode), &mut lines);
+        cursor = push_search_row(input.modal, width, input.focused, input.theme.cursor_mode, &mut lines);
     }
     lines.extend(collect_modal_content(
         &input,
-        (inner_width, b_space, opt_space),
+        inner_width,
+        b_space,
+        opt_space,
         has_draft,
     ));
-    if let Some(c) = push_modal_input_prompt(
-        input.modal,
-        input.theme,
-        (width, input_lines, input.focused, &mut lines),
-    ) {
+    if let Some(c) = push_modal_input_prompt(input.modal, input.theme, width, input_lines, input.focused, &mut lines) {
         cursor = c;
     }
     (lines, cursor.0, cursor.1)

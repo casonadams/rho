@@ -89,7 +89,8 @@ impl SseParser {
 
     fn handle_part_function_call(
         &mut self,
-        (call, signature): (StreamFunctionCall, Option<String>),
+        call: StreamFunctionCall,
+        signature: Option<String>,
         events: &mut SseEvents,
     ) {
         let sig = signature.or_else(|| self.reasoning_signature.take());
@@ -122,7 +123,7 @@ impl SseParser {
             function_call,
         } = part;
         if let Some(call) = function_call {
-            self.handle_part_function_call((call, thought_signature), events);
+            self.handle_part_function_call(call, thought_signature, events);
             return;
         }
         let Some(text) = text else { return };
