@@ -254,8 +254,11 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<()> {
     let cfg = ctx.config.read().await.clone();
     let auth = ctx.auth_store.read().await.clone();
-    let base_dir = ctx.engine.read().await.base_dir.clone();
-    let result = match crate::platform::agent_engine_in_dir(cfg, auth, base_dir, Some(session_id)).await {
+    let (base_dir, catalog) = {
+        let engine = ctx.engine.read().await;
+        (engine.base_dir.clone(), engine.model_catalog().clone())
+    };
+    let result = match crate::platform::agent_engine_in_dir(cfg, auth, catalog, base_dir, Some(session_id)).await {
         Ok(new_eng) => {
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
             let messages = extract_chat_messages(&raw_msgs);
@@ -308,7 +311,10 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let mut cfg = ctx.config.read().await.clone();
-    let current_base = ctx.engine.read().await.base_dir.clone();
+    let (current_base, catalog) = {
+        let engine = ctx.engine.read().await;
+        (engine.base_dir.clone(), engine.model_catalog().clone())
+    };
     let target_dir = if let Some(ws) = workspace {
         let path = std::path::PathBuf::from(ws);
         if path.is_absolute() && path.exists() {
@@ -323,7 +329,7 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cfg.sessions_dir = target_dir.join(".rho/sessions");
 
     let auth = ctx.auth_store.read().await.clone();
-    let result = match crate::platform::agent_engine_in_dir(cfg.clone(), auth, target_dir, None).await {
+    let result = match crate::platform::agent_engine_in_dir(cfg.clone(), auth, catalog, target_dir, None).await {
         Ok(new_eng) => {
             new_eng.spawn_refresh_quota();
             let payload = build_engine_session_payload(&new_eng, None).await;

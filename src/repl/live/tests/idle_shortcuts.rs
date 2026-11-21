@@ -18,8 +18,8 @@ async fn setup_shortcut_harness() -> (
     };
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
     let auth = crate::auth::AuthStore::default();
-    let session = crate::repl::ReplSession::new(config.clone(), auth.clone(), None);
-    let engine = crate::platform::agent_engine(config, auth, None).await.unwrap();
+    let session = crate::repl::ReplSession::new(config, auth, None);
+    let engine = session.new_engine(None).await.unwrap();
     (controller, session, engine)
 }
 

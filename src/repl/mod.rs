@@ -55,12 +55,22 @@ impl ReplSession {
         }
     }
 
-    /// Shares the process-wide catalog with this session's engines and fetches live model lists
-    /// into it; without this the session only shows what is put in `catalog` directly.
+    /// Fetches live model lists into `catalog`; without this the session only shows what is put
+    /// in `catalog` directly.
     pub fn with_live_models(mut self) -> Self {
-        self.catalog = rho_engine::provider::ModelCatalog::shared();
         self.fetch_models = true;
         self
+    }
+
+    /// A fresh engine for this session's config, sharing its model catalog.
+    pub(crate) async fn new_engine(&self, resume: Option<&str>) -> Result<AgentEngine> {
+        crate::platform::agent_engine(
+            self.config.clone(),
+            self.auth_store.clone(),
+            self.catalog.clone(),
+            resume,
+        )
+        .await
     }
 
     /// Re-fetches every reachable provider's model list in the background.
@@ -134,12 +144,7 @@ impl ReplSession {
 }
 
 pub(crate) async fn init_engine(session: &mut ReplSession) -> Result<AgentEngine> {
-    let engine = crate::platform::agent_engine(
-        session.config.clone(),
-        session.auth_store.clone(),
-        session.resume_id.as_deref(),
-    )
-    .await?;
+    let engine = session.new_engine(session.resume_id.as_deref()).await?;
     if let Some(name) = session.cli.as_ref().and_then(|cli| cli.name.as_deref()) {
         let _ = engine.session_manager.set_session_name(name).await;
     }

@@ -27,8 +27,8 @@ async fn setup_test_session(dir: &std::path::Path) -> (crate::repl::ReplSession,
         ..Default::default()
     };
     let auth = rho_engine::auth::AuthStore::default();
-    let session = crate::repl::ReplSession::new(config.clone(), auth.clone(), None);
-    let engine = crate::platform::agent_engine(config, auth, None).await.unwrap();
+    let session = crate::repl::ReplSession::new(config, auth, None);
+    let engine = session.new_engine(None).await.unwrap();
     (session, engine)
 }
 

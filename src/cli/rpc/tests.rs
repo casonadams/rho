@@ -94,7 +94,7 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
         ..Config::default()
     };
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None)
+    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), Default::default(), None)
         .await
         .unwrap();
     let engine_lock = Arc::new(RwLock::new(engine));
@@ -144,7 +144,7 @@ async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
         ..Config::default()
     };
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None)
+    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), Default::default(), None)
         .await
         .unwrap();
     let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
@@ -394,7 +394,7 @@ async fn setup_rpc_test_server(
         ..Config::default()
     };
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None)
+    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), Default::default(), None)
         .await
         .unwrap();
     let engine_lock = Arc::new(RwLock::new(engine));

@@ -5,7 +5,7 @@ use crate::auth::AuthStore;
 use rho_harness_core::config::Config;
 use rho_harness_core::provider::canonical_provider;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,14 +39,7 @@ impl Default for ModelCatalog {
     }
 }
 
-static SHARED: LazyLock<ModelCatalog> = LazyLock::new(ModelCatalog::default);
-
 impl ModelCatalog {
-    /// The process-wide catalog; every engine and UI surface in one rho process reads the same lists.
-    pub fn shared() -> Self {
-        SHARED.clone()
-    }
-
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.inner.changes.subscribe()
     }

@@ -48,7 +48,7 @@ impl AgentEngineBuilder {
             agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
             subagent_runtime: crate::tools::subagent::SubagentRuntime::default(),
             turn_notes: super::TurnNotes::default(),
-            model_catalog: crate::provider::ModelCatalog::shared(),
+            model_catalog: crate::provider::ModelCatalog::default(),
         }
     }
 

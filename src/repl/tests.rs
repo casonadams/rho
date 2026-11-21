@@ -53,9 +53,7 @@ async fn setup_reload_session(home: &std::path::Path) -> (crate::repl::ReplSessi
     let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
         .with_cli(Some(Cli::parse_from(["rho", "--max-turns", "9"])));
     session.config.model = "runtime-model".to_string();
-    let engine = crate::platform::agent_engine(session.config.clone(), session.auth_store.clone(), None)
-        .await
-        .unwrap();
+    let engine = session.new_engine(None).await.unwrap();
     std::fs::write(home.join("config.toml"), "max_turns = 42\n").unwrap();
     (session, engine)
 }
@@ -107,6 +105,14 @@ async fn init_engine_applies_cli_session_name() {
     let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
         .with_cli(Some(Cli::parse_from(["rho", "--name", "named-session"])));
     let engine = super::init_engine(&mut session).await.unwrap();
+    session
+        .catalog
+        .set("local", rho_engine::provider::ProviderModels::Loading);
+    assert_eq!(
+        engine.model_catalog().get("local"),
+        Some(rho_engine::provider::ProviderModels::Loading),
+        "engines read the session's model catalog"
+    );
     assert_eq!(
         engine.session_manager.cached_session_name().as_deref(),
         Some("named-session")

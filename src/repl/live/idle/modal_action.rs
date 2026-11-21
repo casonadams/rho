@@ -136,13 +136,7 @@ async fn handle_session_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     session_id: String,
 ) -> Result<bool> {
-    match crate::platform::agent_engine(
-        ctx.session.config.clone(),
-        ctx.session.auth_store.clone(),
-        Some(&session_id),
-    )
-    .await
-    {
+    match ctx.session.new_engine(Some(&session_id)).await {
         Ok(engine) => ctx.engine.switch_to(engine),
         Err(err) => {
             ctx.session

@@ -61,12 +61,9 @@ impl CliRunner {
     }
 
     async fn build_engine(self) -> Result<crate::engine::AgentEngine, Box<dyn std::error::Error>> {
-        rho_engine::provider::ModelCatalog::shared().spawn_refresh(
-            &self.config.provider,
-            &self.config,
-            &self.auth_store,
-        );
-        Ok(crate::platform::agent_engine(self.config, self.auth_store, self.resume_target.as_deref()).await?)
+        let catalog = rho_engine::provider::ModelCatalog::default();
+        catalog.spawn_refresh(&self.config.provider, &self.config, &self.auth_store);
+        Ok(crate::platform::agent_engine(self.config, self.auth_store, catalog, self.resume_target.as_deref()).await?)
     }
 
     pub async fn run_json_turn(self, prompt: &str) -> Result<(), Box<dyn std::error::Error>> {

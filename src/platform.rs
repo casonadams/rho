@@ -7,6 +7,7 @@ pub mod terminal_session;
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::AgentEngine;
 use rho_engine::engine::builder::AgentEngineBuilder;
+use rho_engine::provider::ModelCatalog;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use std::path::{Path, PathBuf};
@@ -23,10 +24,12 @@ pub async fn active_tools(config: &Config, base_dir: &Path) -> Result<ToolAssemb
 pub async fn agent_engine_in_dir(
     config: Config,
     auth_store: AuthStore,
+    catalog: ModelCatalog,
     base_dir: PathBuf,
     resume: Option<&str>,
 ) -> Result<AgentEngine> {
     let engine = AgentEngineBuilder::new(config, auth_store)
+        .model_catalog(catalog)
         .resume(resume)
         .base_dir(base_dir)
         .build()
@@ -36,9 +39,14 @@ pub async fn agent_engine_in_dir(
     Ok(engine)
 }
 
-pub async fn agent_engine(config: Config, auth_store: AuthStore, resume: Option<&str>) -> Result<AgentEngine> {
+pub async fn agent_engine(
+    config: Config,
+    auth_store: AuthStore,
+    catalog: ModelCatalog,
+    resume: Option<&str>,
+) -> Result<AgentEngine> {
     let base_dir = std::env::current_dir()?;
-    agent_engine_in_dir(config, auth_store, base_dir, resume).await
+    agent_engine_in_dir(config, auth_store, catalog, base_dir, resume).await
 }
 
 #[cfg(test)]
