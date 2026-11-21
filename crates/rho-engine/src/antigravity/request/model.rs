@@ -1,3 +1,4 @@
+use rho_harness_core::thinking::ThinkingLevel;
 use serde_json::{Value, json};
 
 /// Normalized thinking effort: off/minimal/low/medium/high. rho's xhigh/max
@@ -12,14 +13,13 @@ pub enum Effort {
 }
 
 impl Effort {
-    /// Parse rho's thinking level (see `THINKING_LEVELS` in the REPL).
     pub fn parse(level: Option<&str>) -> Self {
-        match level.unwrap_or("off").trim().to_ascii_lowercase().as_str() {
-            "minimal" => Self::Minimal,
-            "low" => Self::Low,
-            "medium" => Self::Medium,
-            "high" | "xhigh" | "max" => Self::High,
-            _ => Self::Off,
+        match ThinkingLevel::from_setting(level) {
+            ThinkingLevel::Off => Self::Off,
+            ThinkingLevel::Minimal => Self::Minimal,
+            ThinkingLevel::Low => Self::Low,
+            ThinkingLevel::Medium => Self::Medium,
+            ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => Self::High,
         }
     }
 }

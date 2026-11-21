@@ -1,28 +1,9 @@
 use crate::error::Result;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use rho_harness_core::thinking::ThinkingLevel;
 
 use super::ModalKeyResult;
-
-const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
-fn next_thinking_level(current: &str) -> &'static str {
-    let idx = THINKING_LEVELS
-        .iter()
-        .position(|&l| l.eq_ignore_ascii_case(current))
-        .unwrap_or(0);
-    let next_idx = (idx + 1) % THINKING_LEVELS.len();
-    THINKING_LEVELS[next_idx]
-}
-
-fn prev_thinking_level(current: &str) -> &'static str {
-    let idx = THINKING_LEVELS
-        .iter()
-        .position(|&l| l.eq_ignore_ascii_case(current))
-        .unwrap_or(0);
-    let prev_idx = if idx == 0 { THINKING_LEVELS.len() - 1 } else { idx - 1 };
-    THINKING_LEVELS[prev_idx]
-}
 
 pub fn open_settings_selector<B: TerminalBackend>(
     model: Option<&str>,
@@ -43,7 +24,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
         crate::ui::theme::CursorMode::Hardware => "Hardware",
     };
 
-    let thinking_effort = thinking_level.unwrap_or("off");
+    let thinking_effort = ThinkingLevel::from_setting(thinking_level).as_str();
     let thinking_status = if hide_thinking { "Hidden" } else { "Shown" };
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
     let agent_status = if boxed { "On" } else { "Off" };
@@ -77,29 +58,21 @@ fn update_setting_description<B: TerminalBackend>(controller: &mut TerminalContr
         .update_modal_option_desc("Settings", index, status);
 }
 
-fn current_thinking_from_modal<B: TerminalBackend>(controller: &TerminalController<B>) -> &str {
-    controller
+fn current_thinking_from_modal<B: TerminalBackend>(controller: &TerminalController<B>) -> ThinkingLevel {
+    let shown = controller
         .state()
         .active_modal()
         .and_then(|m| m.options.get(2))
-        .and_then(|o| o.description.as_deref())
-        .unwrap_or("off")
+        .and_then(|o| o.description.as_deref());
+    ThinkingLevel::from_setting(shown)
 }
 
 fn step_thinking_effort<B: TerminalBackend>(controller: &mut TerminalController<B>, forward: bool) -> ModalKeyResult {
     let current = current_thinking_from_modal(controller);
-    let target = if forward {
-        next_thinking_level(current)
-    } else {
-        prev_thinking_level(current)
-    };
-    update_setting_description(controller, target, 2);
+    let target = if forward { current.next() } else { current.prev() };
+    update_setting_description(controller, target.as_str(), 2);
     ModalKeyResult::ThinkingLevelSelected {
-        level: if target == "off" {
-            None
-        } else {
-            Some(target.to_string())
-        },
+        level: target.setting(),
         save_as_default: true,
     }
 }
@@ -202,14 +175,8 @@ fn handle_thinking_effort_key<B: TerminalBackend>(
     key: &KeyEvent,
 ) -> Option<ModalKeyResult> {
     if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        let current = current_thinking_from_modal(controller);
-        let level = if current == "off" {
-            None
-        } else {
-            Some(current.to_string())
-        };
         return Some(ModalKeyResult::ThinkingLevelSelected {
-            level,
+            level: current_thinking_from_modal(controller).setting(),
             save_as_default: true,
         });
     }

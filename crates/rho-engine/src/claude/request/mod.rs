@@ -7,6 +7,7 @@ mod tests;
 pub use contents::convert_messages;
 
 use super::http::ClaudeAuth;
+use rho_harness_core::thinking::ThinkingLevel;
 
 pub fn to_claude_tool_name(name: &str) -> String {
     let lower = name.to_ascii_lowercase();
@@ -95,23 +96,20 @@ pub fn normalize_model_alias(model: &str) -> &str {
 }
 
 pub fn resolve_thinking_budget(level: Option<&str>) -> Option<u64> {
-    match level.unwrap_or("off").trim().to_ascii_lowercase().as_str() {
-        "minimal" => Some(1024),
-        "low" => Some(2048),
-        "medium" => Some(4096),
-        "high" | "xhigh" | "max" => Some(16384),
-        _ => None,
+    match ThinkingLevel::from_setting(level) {
+        ThinkingLevel::Off => None,
+        ThinkingLevel::Minimal => Some(1024),
+        ThinkingLevel::Low => Some(2048),
+        ThinkingLevel::Medium => Some(4096),
+        ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => Some(16384),
     }
 }
 
 pub fn resolve_effort(level: Option<&str>) -> Option<&'static str> {
-    match level.unwrap_or("").trim().to_ascii_lowercase().as_str() {
-        "minimal" | "low" => Some("low"),
-        "medium" => Some("medium"),
-        "high" => Some("high"),
-        "xhigh" => Some("xhigh"),
-        "max" => Some("max"),
-        _ => None,
+    match ThinkingLevel::from_setting(level) {
+        ThinkingLevel::Off => None,
+        ThinkingLevel::Minimal | ThinkingLevel::Low => Some("low"),
+        level => Some(level.as_str()),
     }
 }
 

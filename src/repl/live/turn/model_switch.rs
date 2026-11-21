@@ -5,6 +5,7 @@ use rho_engine::provider::{ModelCatalog, ModelRouter};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rho_harness_core::provider::ModelRoute;
+use rho_harness_core::thinking::ThinkingLevel;
 
 use super::super::batch::LiveBatch;
 use super::input::TurnInputContext;
@@ -115,16 +116,6 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
     .await
 }
 
-fn next_thinking_level(current: &str) -> Option<String> {
-    let levels = crate::repl::live::navigation::THINKING_LEVELS;
-    let current_idx = levels
-        .iter()
-        .position(|&l| l.eq_ignore_ascii_case(current))
-        .unwrap_or(0);
-    let next_level = levels[(current_idx + 1) % levels.len()];
-    (next_level != "off").then(|| next_level.to_string())
-}
-
 async fn apply_thinking_cycle<B: TerminalBackend>(
     ctx: &mut TurnInputContext<'_, B>,
     next_level: Option<String>,
@@ -145,15 +136,14 @@ async fn apply_thinking_cycle<B: TerminalBackend>(
     .await?;
 
     ctx.controller.state_mut().footer_mut().thinking_level = ctx.session.config.thinking_level.clone();
-    ctx.session.renderer.print_status(&format!(
-        "Thinking: {}",
-        ctx.session.config.thinking_level.as_deref().unwrap_or("off")
-    ));
+    let level = ThinkingLevel::from_setting(ctx.session.config.thinking_level.as_deref());
+    ctx.session
+        .renderer
+        .print_status(&format!("Thinking: {}", level.as_str()));
     ctx.batch.flush(ctx.controller, true)
 }
 
 pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {
-    let current = ctx.session.config.thinking_level.as_deref().unwrap_or("off");
-    let next_level = next_thinking_level(current);
-    apply_thinking_cycle(ctx, next_level).await
+    let next_level = ThinkingLevel::from_setting(ctx.session.config.thinking_level.as_deref()).next();
+    apply_thinking_cycle(ctx, next_level.setting()).await
 }

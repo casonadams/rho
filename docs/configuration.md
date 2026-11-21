@@ -158,6 +158,7 @@ history:
 Configure model roles in `~/.config/rho/config.toml` or `.rho/config.toml` under the `[models]` table using the unified `<provider>/<model>` format:
 
 ```toml
+# off, minimal, low, medium, high, xhigh or max; other values are rejected
 thinking_level = "high"
 
 [models]

@@ -93,6 +93,11 @@ fn test_set_file_value_persists_and_validates() {
     assert_eq!(actual, (Some("gpt-test"), Some(7)));
     assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
     assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
+    assert!(Config::set_file_value(&dir, "thinking_level", "hgih").is_err());
+    Config::set_file_value(&dir, "thinking_level", "HIGH").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.thinking_level.as_deref(), Some("high"));
 
     std::fs::remove_dir_all(dir).unwrap();
 }

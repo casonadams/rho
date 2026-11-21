@@ -36,6 +36,7 @@ pub mod session;
 pub mod skills;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod thinking;
 pub mod tokens;
 pub mod workflow;
 pub mod workspace;

@@ -266,7 +266,22 @@ A hook outputs one of the following JSON decisions:
 
 Ready-to-use recipes are provided in `examples/hooks/`:
 
-- **[`rtk-rewrite.py`](../examples/hooks/rtk-rewrite.py)**: Intercepts `on_tool_call` to automatically optimize bash commands using [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk), compressing CLI output before it enters LLM context.
+- **[`rtk-rewrite.sh`](../examples/hooks/rtk-rewrite.sh)**: Intercepts `on_tool_call` and rewrites bash commands with `rtk rewrite` (needs `jq`) using [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk), compressing CLI output before it enters LLM context.
 - **[`guard-bash.sh`](../examples/hooks/guard-bash.sh)**: Blocks destructive shell commands (`rm -rf`, `git reset --hard`) before execution.
 - **[`python-audit.py`](../examples/hooks/python-audit.py)**: Audits tool call events to a local file.
+
+### Using RTK with rho
+
+[RTK](https://github.com/rtk-ai/rtk) (1.2 or newer) compresses the output of common commands (git, cargo, npm, test runners, `ls`, `grep`) before it reaches the model. rho has no built-in RTK step; the `on_tool_call` hook applies it:
+
+```sh
+mise use -g rtk@latest   # or: brew install rtk
+mkdir -p ~/.agents/hooks
+cp examples/hooks/rtk-rewrite.sh ~/.agents/hooks/on_tool_call
+chmod +x ~/.agents/hooks/on_tool_call
+```
+
+The hook needs `jq`. It passes each `bash` command to `rtk rewrite` and acts on its exit code: `0` and `3` use the rewrite, `1` runs the command unchanged, and `2` with a message blocks the command with that message. Other tools are not touched. rho's permission rules still run afterwards and judge the original command, because an `rtk` prefix is ignored when matching. If `rtk` or `jq` is missing, commands run unchanged. Remove the hook file to turn it off.
+
+If filtered output hides something you need, `rtk recall <hash>` prints it, and `rtk gain` shows the tokens saved.
 

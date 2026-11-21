@@ -305,6 +305,23 @@ async fn test_new_and_thinking_commands() {
     );
     assert_eq!(context.config.thinking_level.as_deref(), Some("high"));
 
+    let cases = [
+        (
+            "/thinking OFF",
+            Some(CommandResult::ThinkingChanged { level: None }),
+            None,
+        ),
+        ("/thinking hgih", Some(CommandResult::Continue), None),
+    ];
+    for (input, expected, level) in cases {
+        assert_eq!(
+            SlashCommandHandler::handle(input, &mut context).await.unwrap(),
+            expected,
+            "{input}"
+        );
+        assert_eq!(context.config.thinking_level.as_deref(), level, "{input}");
+    }
+
     let think_modal_res = SlashCommandHandler::handle("/thinking", &mut context).await.unwrap();
     assert_eq!(think_modal_res, Some(CommandResult::OpenSettingsSelector));
 

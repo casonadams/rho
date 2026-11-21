@@ -1,6 +1,11 @@
 use clap::Parser;
 use std::path::PathBuf;
 
+/// Accepts any thinking level and keeps its canonical name (`off` included, so it can override).
+fn parse_thinking_level(value: &str) -> Result<String, String> {
+    crate::thinking::ThinkingLevel::parse_setting(value).map(|setting| setting.unwrap_or_else(|| "off".to_string()))
+}
+
 const PATH_LIST_SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
 
 #[cfg(test)]
@@ -50,7 +55,7 @@ pub struct Cli {
     pub max_turns: Option<usize>,
 
     /// Thinking level: off, minimal, low, medium, high, xhigh, max
-    #[arg(long = "thinking", env = "AI_THINKING_LEVEL")]
+    #[arg(long = "thinking", env = "AI_THINKING_LEVEL", value_parser = parse_thinking_level)]
     pub thinking: Option<String>,
 
     /// Set session display name

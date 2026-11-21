@@ -1,18 +1,19 @@
 use super::text::SPINNER_FRAMES as FRAMES;
 use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::{Activity, FooterState, QueueKind, QueuedMessage};
+use rho_harness_core::thinking::ThinkingLevel;
 
 pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'static str) {
-    match thinking_level.unwrap_or("off") {
-        "off" => ("\x1b[2m", "\x1b[0m"),
-        "minimal" => ("\x1b[90m", "\x1b[0m"),
-        "low" => ("\x1b[34m", "\x1b[0m"),
-        "medium" => ("\x1b[36m", "\x1b[0m"),
-        "high" => ("\x1b[35m", "\x1b[0m"),
-        "xhigh" => ("\x1b[31m", "\x1b[0m"),
-        "max" => ("\x1b[1;31m", "\x1b[0m"),
-        _ => ("\x1b[2m", "\x1b[0m"),
-    }
+    let style = match ThinkingLevel::from_setting(thinking_level) {
+        ThinkingLevel::Off => "\x1b[2m",
+        ThinkingLevel::Minimal => "\x1b[90m",
+        ThinkingLevel::Low => "\x1b[34m",
+        ThinkingLevel::Medium => "\x1b[36m",
+        ThinkingLevel::High => "\x1b[35m",
+        ThinkingLevel::XHigh => "\x1b[31m",
+        ThinkingLevel::Max => "\x1b[1;31m",
+    };
+    (style, "\x1b[0m")
 }
 
 fn format_act_tag(act: Option<(&str, char)>) -> Option<String> {

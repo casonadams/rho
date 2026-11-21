@@ -28,7 +28,12 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
         }
     }
     if let Some(ref t) = file.thinking_level {
-        config.thinking_level = (t != "off").then(|| t.clone());
+        match crate::thinking::ThinkingLevel::parse_setting(t) {
+            Ok(setting) => config.thinking_level = setting,
+            Err(e) => config
+                .migration_warnings
+                .push(format!("Ignoring thinking_level in config.toml: {e}")),
+        }
     }
 }
 

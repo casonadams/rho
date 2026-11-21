@@ -1,20 +1,27 @@
 use super::types::{CommandResult, SlashCommandContext};
 use rho_harness_core::error::Result;
 use rho_harness_core::provider::ModelRoute;
+use rho_harness_core::thinking::ThinkingLevel;
 
 pub(crate) fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     match parts.get(1) {
-        Some(level) => {
-            let lvl = (*level).to_string();
-            ctx.config.thinking_level = Some(lvl.clone());
-            ctx.renderer.print_status(&format!("Thinking level set to {lvl}"));
-            Ok(Some(CommandResult::ThinkingChanged { level: Some(lvl) }))
-        }
+        Some(level) => match ThinkingLevel::parse_setting(level) {
+            Ok(setting) => {
+                let shown = ThinkingLevel::from_setting(setting.as_deref()).as_str();
+                ctx.config.thinking_level.clone_from(&setting);
+                ctx.renderer.print_status(&format!("Thinking level set to {shown}"));
+                Ok(Some(CommandResult::ThinkingChanged { level: setting }))
+            }
+            Err(err) => {
+                ctx.renderer.print_status(&err);
+                Ok(Some(CommandResult::Continue))
+            }
+        },
         None => {
             if ctx.renderer.has_interactive_ui() {
                 Ok(Some(CommandResult::OpenSettingsSelector))
             } else {
-                let current = ctx.config.thinking_level.as_deref().unwrap_or("none");
+                let current = ThinkingLevel::from_setting(ctx.config.thinking_level.as_deref()).as_str();
                 ctx.renderer.print_notice(&format!("  Thinking level: {current}\n"));
                 Ok(Some(CommandResult::Continue))
             }

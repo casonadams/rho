@@ -128,7 +128,8 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
             file_config.models.default = Some(format!("{value}/{}", route.model));
         }
         ConfigKey::ThinkingLevel => {
-            file_config.thinking_level = (value != "off").then(|| value.to_string());
+            file_config.thinking_level =
+                crate::thinking::ThinkingLevel::parse_setting(value).map_err(AppError::Config)?;
         }
         _ => return Ok(false),
     }

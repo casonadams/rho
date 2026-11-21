@@ -1,19 +1,10 @@
 use std::ops::Range;
 
 use rho_harness_core::provider::ProviderId;
+use rho_harness_core::thinking::ThinkingLevel;
 
 use crate::ui::fuzzy::fuzzy_score;
 use std::cmp::Reverse;
-
-pub const THINKING_LEVELS: &[(&str, &str)] = &[
-    ("off", "No reasoning"),
-    ("minimal", "Very brief reasoning (~1k tokens)"),
-    ("low", "Light reasoning (~2k tokens)"),
-    ("medium", "Moderate reasoning (~8k tokens)"),
-    ("high", "Deep reasoning (~16k tokens)"),
-    ("xhigh", "Extra-high reasoning (~32k tokens)"),
-    ("max", "Maximum reasoning"),
-];
 
 pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("help", "Show reference of available commands and shortcuts"),
@@ -491,23 +482,23 @@ fn complete_provider(providers: &[ProviderItem], target: TargetArgs<'_>) -> Vec<
 }
 
 fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i64, &(&str, &str))> = THINKING_LEVELS
-        .iter()
-        .filter_map(|lvl| {
+    let mut scored: Vec<(i64, ThinkingLevel)> = ThinkingLevel::ALL
+        .into_iter()
+        .filter_map(|level| {
             if argument.is_empty() {
-                Some((0, lvl))
+                Some((0, level))
             } else {
-                fuzzy_score(argument, lvl.0).map(|score| (score, lvl))
+                fuzzy_score(argument, level.as_str()).map(|score| (score, level))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, lvl)| (Reverse(*score), lvl.0));
+    scored.sort_by_key(|&(score, level)| (Reverse(score), level));
 
     scored
         .into_iter()
-        .map(|(_, (level, desc))| Completion {
-            value: format!("/thinking {level}"),
-            description: Some((*desc).to_string()),
+        .map(|(_, level)| Completion {
+            value: format!("/thinking {}", level.as_str()),
+            description: Some(level.description().to_string()),
             replacement: 0..cursor,
         })
         .collect()

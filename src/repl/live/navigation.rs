@@ -6,8 +6,7 @@ use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::interactive::{
     Activity, InteractiveState, TerminalBackend, TerminalController, ToolItem, TranscriptItem,
 };
-
-pub const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+use rho_harness_core::thinking::ThinkingLevel;
 
 pub fn copy_last_message<B: TerminalBackend>(session: &ReplSession, controller: &TerminalController<B>) {
     let last_text = controller.transcript().iter().rev().find_map(|item| match item {
@@ -69,19 +68,8 @@ pub async fn cycle_thinking_level<B: TerminalBackend>(
     engine: &mut AgentEngine,
     controller: &mut TerminalController<B>,
 ) {
-    let current = session.config.thinking_level.as_deref().unwrap_or("off");
-    let current_idx = THINKING_LEVELS
-        .iter()
-        .position(|&l| l.eq_ignore_ascii_case(current))
-        .unwrap_or(0);
-    let next_idx = (current_idx + 1) % THINKING_LEVELS.len();
-    let next_level = THINKING_LEVELS[next_idx];
-
-    session.config.thinking_level = if next_level == "off" {
-        None
-    } else {
-        Some(next_level.to_string())
-    };
+    let next_level = ThinkingLevel::from_setting(session.config.thinking_level.as_deref()).next();
+    session.config.thinking_level = next_level.setting();
 
     engine.config.thinking_level = session.config.thinking_level.clone();
     if let Err(err) = engine.update_model().await {
@@ -92,10 +80,9 @@ pub async fn cycle_thinking_level<B: TerminalBackend>(
     }
 
     update_footer(controller.state_mut(), session, engine);
-    session.renderer.print_status(&format!(
-        "Thinking: {}",
-        session.config.thinking_level.as_deref().unwrap_or("off")
-    ));
+    session
+        .renderer
+        .print_status(&format!("Thinking: {}", next_level.as_str()));
 }
 
 pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {

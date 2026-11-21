@@ -23,7 +23,8 @@ fn apply_model_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<S
     }
 
     if let Some(val) = get("AI_THINKING_LEVEL") {
-        config.thinking_level = (val != "off").then_some(val);
+        config.thinking_level = crate::thinking::ThinkingLevel::parse_setting(&val)
+            .map_err(|e| AppError::Config(format!("AI_THINKING_LEVEL: {e}")))?;
     }
     Ok(())
 }
