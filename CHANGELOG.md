@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/casonadams/rho/compare/v0.14.0...v0.14.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **repl:** standardize model names on provider/model across selectors ([9386f8b](https://github.com/casonadams/rho/commit/9386f8be30c4c52e90d8f0b520fc6aee9b971318))
+
 ## [0.14.0](https://github.com/casonadams/rho/compare/v0.13.3...v0.14.0) (2026-11-20)
 
 
