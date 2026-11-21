@@ -6,8 +6,8 @@ pub mod pagination;
 #[cfg(test)]
 mod tests;
 
-use crate::tools::engine_tool::EngineTool;
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::engine_tool::TypedTool;
+use crate::tools::types::ToolResult;
 use crate::tools::web::http::{HttpClient, HttpRequest};
 use cache::{CachedResource, FetchCache};
 use pagination::{FormatPageParams, format_page};
@@ -126,28 +126,12 @@ impl WebFetchTool {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for WebFetchTool {
-    fn name(&self) -> &str {
-        "web_fetch"
-    }
+impl TypedTool for WebFetchTool {
+    type Args = WebFetchArgs;
+    const NAME: &'static str = "web_fetch";
+    const CONCURRENCY_SAFE: bool = true;
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("web_fetch")
-    }
-
-    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
-        true
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<WebFetchArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: WebFetchArgs = match crate::tools::types::parse_tool_args("web_fetch", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: WebFetchArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

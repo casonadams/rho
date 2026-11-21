@@ -1,11 +1,13 @@
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::hook::LifecycleHook;
 use crate::permission::PermissionHook;
-use crate::tools::types::ToolResult;
+use crate::tools::types::{ToolResult, generated_schema, parse_tool_args};
 use rho_harness_core::agents::AgentMonitor;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::ToolStreamPort;
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
 /// Turn-scoped state a tool needs when it runs other tools on the model's behalf.
@@ -39,6 +41,53 @@ pub trait EngineTool: Send + Sync {
     /// Whether a call with these arguments may run alongside other concurrency-safe calls in the same batch.
     fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
         false
+    }
+}
+
+/// A built-in tool whose arguments are one typed struct. The blanket `EngineTool` impl supplies the
+/// name, catalog description, schema and argument parsing, so a tool only writes `run`.
+#[async_trait::async_trait]
+pub trait TypedTool: Send + Sync {
+    type Args: DeserializeOwned + JsonSchema + Send;
+    const NAME: &'static str;
+    /// Whether calls may run alongside other concurrency-safe calls in the same batch.
+    const CONCURRENCY_SAFE: bool = false;
+
+    async fn run(&self, args: Self::Args) -> Result<ToolResult, AppError>;
+
+    /// Returns a copy of this tool bound to the current turn, or `None` if the tool is turn-independent.
+    fn bind_to_turn(&self, _ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        None
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: TypedTool> EngineTool for T {
+    fn name(&self) -> &str {
+        T::NAME
+    }
+
+    fn description(&self) -> &str {
+        crate::tools::ToolRegistry::builtin_description(T::NAME)
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        generated_schema::<T::Args>()
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
+        match parse_tool_args::<T::Args>(T::NAME, args, || self.parameters()) {
+            Ok(args) => self.run(args).await,
+            Err(invalid) => Ok(invalid),
+        }
+    }
+
+    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        self.bind_to_turn(ctx)
+    }
+
+    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
+        T::CONCURRENCY_SAFE
     }
 }
 
@@ -120,5 +169,48 @@ impl EngineTool for GenericTool {
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
         (self.handler)(args).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::{bash::BashTool, read::ReadTool};
+
+    #[tokio::test]
+    async fn typed_tools_supply_name_description_schema_and_parsing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        let read: &dyn EngineTool = &ReadTool::new(dir.path());
+
+        assert_eq!(read.name(), "read");
+        assert_eq!(
+            read.description(),
+            crate::tools::ToolRegistry::builtin_description("read")
+        );
+        assert_eq!(read.parameters()["properties"]["path"]["type"], "string");
+        assert!(
+            read.execute(serde_json::json!({ "path": "a.txt" }))
+                .await
+                .unwrap()
+                .content
+                .contains("hello")
+        );
+
+        let invalid = read.execute(serde_json::json!({})).await.unwrap();
+        assert!(invalid.is_error);
+        assert!(
+            invalid.content.contains("Invalid arguments for read"),
+            "{}",
+            invalid.content
+        );
+    }
+
+    #[test]
+    fn typed_tools_declare_whether_their_calls_may_run_together() {
+        let dir = tempfile::tempdir().unwrap();
+        let none = serde_json::json!({});
+        assert!(ReadTool::new(dir.path()).concurrency_safe(&none));
+        assert!(!BashTool::new(dir.path()).concurrency_safe(&none));
     }
 }

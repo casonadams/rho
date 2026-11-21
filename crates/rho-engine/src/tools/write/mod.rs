@@ -1,6 +1,6 @@
 use crate::tools::atomic::atomic_write;
-use crate::tools::engine_tool::EngineTool;
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::engine_tool::TypedTool;
+use crate::tools::types::ToolResult;
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
@@ -84,24 +84,11 @@ impl WriteTool {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for WriteTool {
-    fn name(&self) -> &str {
-        "write"
-    }
+impl TypedTool for WriteTool {
+    type Args = WriteArgs;
+    const NAME: &'static str = "write";
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("write")
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<WriteArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: WriteArgs = match crate::tools::types::parse_tool_args("write", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

@@ -9,8 +9,8 @@ pub mod yahoo;
 #[cfg(test)]
 mod tests;
 
-use crate::tools::engine_tool::EngineTool;
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::engine_tool::TypedTool;
+use crate::tools::types::ToolResult;
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 pub use engine::{
@@ -152,28 +152,12 @@ impl WebSearchTool {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for WebSearchTool {
-    fn name(&self) -> &str {
-        "web_search"
-    }
+impl TypedTool for WebSearchTool {
+    type Args = WebSearchArgs;
+    const NAME: &'static str = "web_search";
+    const CONCURRENCY_SAFE: bool = true;
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("web_search")
-    }
-
-    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
-        true
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<WebSearchArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: WebSearchArgs = match crate::tools::types::parse_tool_args("web_search", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: WebSearchArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

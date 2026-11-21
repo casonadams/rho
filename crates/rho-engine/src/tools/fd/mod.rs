@@ -11,10 +11,10 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
 
-use crate::tools::engine_tool::EngineTool;
+use crate::tools::engine_tool::TypedTool;
 use crate::tools::listing::PageRequest;
 use crate::tools::traversal::{build_type_matcher, is_smart_case_insensitive, run_blocking_search, search_root};
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::types::ToolResult;
 use regex::Regex;
 
 pub const MAX_FD_DEPTH: usize = 10;
@@ -108,28 +108,12 @@ fn compile_pattern(pattern: &str) -> Result<Regex, String> {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for FdTool {
-    fn name(&self) -> &str {
-        "fd"
-    }
+impl TypedTool for FdTool {
+    type Args = FdArgs;
+    const NAME: &'static str = "fd";
+    const CONCURRENCY_SAFE: bool = true;
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("fd")
-    }
-
-    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
-        true
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<FdArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: FdArgs = match crate::tools::types::parse_tool_args("fd", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: FdArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

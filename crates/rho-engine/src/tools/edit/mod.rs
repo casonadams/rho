@@ -4,8 +4,8 @@ pub mod normalize;
 mod tests;
 
 use crate::tools::atomic::atomic_write;
-use crate::tools::engine_tool::EngineTool;
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::engine_tool::TypedTool;
+use crate::tools::types::ToolResult;
 pub use matching::locate_edit;
 pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
 pub use rho_harness_core::args::EditArgs;
@@ -136,24 +136,11 @@ impl EditTool {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for EditTool {
-    fn name(&self) -> &str {
-        "edit"
-    }
+impl TypedTool for EditTool {
+    type Args = EditArgs;
+    const NAME: &'static str = "edit";
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("edit")
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<EditArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: EditArgs = match crate::tools::types::parse_tool_args("edit", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: EditArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

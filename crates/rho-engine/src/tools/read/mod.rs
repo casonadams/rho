@@ -6,8 +6,8 @@ mod tests;
 pub use format::{format_content, is_binary, number_lines};
 pub use rho_harness_core::args::ReadArgs;
 
-use crate::tools::engine_tool::EngineTool;
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::engine_tool::TypedTool;
+use crate::tools::types::ToolResult;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
@@ -113,28 +113,12 @@ impl ReadTool {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for ReadTool {
-    fn name(&self) -> &str {
-        "read"
-    }
+impl TypedTool for ReadTool {
+    type Args = ReadArgs;
+    const NAME: &'static str = "read";
+    const CONCURRENCY_SAFE: bool = true;
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("read")
-    }
-
-    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
-        true
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<ReadArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: ReadArgs = match crate::tools::types::parse_tool_args("read", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: ReadArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

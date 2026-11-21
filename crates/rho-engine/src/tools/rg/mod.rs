@@ -7,10 +7,10 @@ pub use entry::{FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, format_file
 pub use query::{MAX_RG_FILE_BYTES, RgQuery};
 pub use rho_harness_core::args::{RgArgs, RgOutputMode};
 
-use crate::tools::engine_tool::EngineTool;
+use crate::tools::engine_tool::TypedTool;
 use crate::tools::listing::PageRequest;
 use crate::tools::traversal::{build_type_matcher, is_smart_case_insensitive, run_blocking_search, search_root};
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::types::ToolResult;
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
@@ -78,28 +78,12 @@ fn compile_matcher(pattern: &str) -> Result<RegexMatcher, String> {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for RgTool {
-    fn name(&self) -> &str {
-        "rg"
-    }
+impl TypedTool for RgTool {
+    type Args = RgArgs;
+    const NAME: &'static str = "rg";
+    const CONCURRENCY_SAFE: bool = true;
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("rg")
-    }
-
-    fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
-        true
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<RgArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: RgArgs = match crate::tools::types::parse_tool_args("rg", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: RgArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 }

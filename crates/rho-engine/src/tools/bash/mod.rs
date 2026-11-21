@@ -4,8 +4,8 @@ pub mod runner;
 pub mod sanitize;
 pub mod shell;
 
-use crate::tools::engine_tool::{EngineTool, TurnToolContext};
-use crate::tools::types::{ToolResult, generated_schema};
+use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
+use crate::tools::types::ToolResult;
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
@@ -60,28 +60,15 @@ fn plain_text_for_model(result: ToolResult) -> ToolResult {
 }
 
 #[async_trait::async_trait]
-impl EngineTool for BashTool {
-    fn name(&self) -> &str {
-        "bash"
-    }
+impl TypedTool for BashTool {
+    type Args = BashArgs;
+    const NAME: &'static str = "bash";
 
-    fn description(&self) -> &str {
-        crate::tools::ToolRegistry::builtin_description("bash")
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        generated_schema::<BashArgs>()
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: BashArgs = match crate::tools::types::parse_tool_args("bash", args, || self.parameters()) {
-            Ok(a) => a,
-            Err(e) => return Ok(e),
-        };
+    async fn run(&self, args: BashArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
     }
 
-    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+    fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
         let owner = ctx.inbox.clone()?;
         Some(Arc::new(Self {
             base_dir: self.base_dir.clone(),
