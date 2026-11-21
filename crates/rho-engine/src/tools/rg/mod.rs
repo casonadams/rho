@@ -21,7 +21,6 @@ use std::time::Duration;
 
 pub struct RgTool {
     base_dir: PathBuf,
-    artifact_dir: Option<PathBuf>,
 }
 
 async fn validate_rg_params(
@@ -43,21 +42,9 @@ async fn validate_rg_params(
 
 impl RgTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        let base = base_dir.as_ref().to_path_buf();
-        let artifact_dir = if base.as_os_str().is_empty() {
-            std::env::temp_dir().join("rho/artifacts")
-        } else {
-            base.join(".rho/artifacts")
-        };
         Self {
-            base_dir: base,
-            artifact_dir: Some(artifact_dir),
+            base_dir: base_dir.as_ref().to_path_buf(),
         }
-    }
-
-    pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
-        self.artifact_dir = artifact_dir;
-        self
     }
 
     pub async fn execute(&self, args: RgArgs) -> Result<ToolResult, AppError> {
@@ -82,7 +69,6 @@ impl RgTool {
             mode: args.output_mode.unwrap_or_default(),
             timeout: Some(timeout),
             cancellation: Some(cancellation),
-            artifact_dir: self.artifact_dir.clone(),
         };
         let handle = tokio::task::spawn_blocking(move || query.run(request));
         let res = await_rg_task(handle, timeout).await;

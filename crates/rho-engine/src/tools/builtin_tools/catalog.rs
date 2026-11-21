@@ -59,7 +59,7 @@ Find files and directories by workspace-relative path pattern.
 
 Usage:
 - pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched unanchored against workspace-relative paths, not a glob; if omitted, all entries in the search root match.
-- Files and directories both match; directories end with `/`. Output starts with the total, then lists entries grouped under their parent directory (`dir/` header, one indented name per line; `./` is the root). The search path itself is not listed, and depth counts from it. Entries are sorted by directory, then name.
+- Files and directories both match; directories end with `/`. Output starts with the total, then lists entries grouped under their parent directory (`dir/` header, one indented name per line; `./` is the root). A directory whose entries are listed appears only as their header and is not counted. The search path itself is not listed, and depth counts from it. Entries are sorted by directory, then name.
 - Output fills a 20KB page; when more remain, the last line names the exact next offset. Pass offset to page through every result, or narrow with path, pattern, type, or depth. limit caps results per page.
 - Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
 - Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. depth 2 for top-level layout.

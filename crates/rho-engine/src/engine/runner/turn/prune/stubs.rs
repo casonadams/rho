@@ -295,7 +295,7 @@ pub(super) fn prune_search_result(
             "[Tool '{tool_name}' with pattern '{target}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
         )
     };
-    Some(with_artifact_path(stub, text))
+    Some(stub)
 }
 
 fn prune_fetch_result(text: &str, target: &str, line_count: usize, size_str: &str) -> Option<String> {

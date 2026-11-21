@@ -27,7 +27,6 @@ pub(super) struct FdQuery {
     pub show_stats: bool,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
-    pub artifact_dir: Option<PathBuf>,
 }
 
 fn check_stats_lines(path: &Path, min: Option<usize>, max: Option<usize>) -> Option<Option<FileStats>> {
@@ -128,7 +127,6 @@ impl FdQuery {
             FdFormat {
                 request,
                 show_stats: self.show_stats,
-                artifact_dir: self.artifact_dir,
             },
         )
     }

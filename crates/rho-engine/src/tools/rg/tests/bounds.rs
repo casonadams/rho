@@ -175,25 +175,6 @@ async fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
 }
 
 #[tokio::test]
-async fn test_rg_oversized_search_spills_artifact() {
-    let dir = fixture();
-    let row = format!("needle{}\n", "x".repeat(400));
-    let many: String = std::iter::repeat_n(row, 400).collect();
-    std::fs::write(dir.path().join("many.txt"), many).unwrap();
-    let result = search(&dir, "needle", |_| {}).await;
-    assert!(!result.is_error);
-    assert!(result.content.contains(".rho/artifacts"));
-    assert!(result.content.contains("[Output truncated. Full content"));
-
-    let artifact_dir = dir.path().join(".rho/artifacts");
-    let entries: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
-    assert_eq!(entries.len(), 1);
-    let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
-    assert!(spilled_content.starts_with("many.txt\n1:needle"));
-    assert!(spilled_content.contains("\n400:needle"));
-}
-
-#[tokio::test]
 async fn empty_pattern_is_a_tool_error() {
     let dir = fixture();
     let result = search(&dir, "   ", |_| {}).await;
@@ -266,7 +247,6 @@ fn query(dir: &tempfile::TempDir) -> super::super::RgQuery {
         mode: RgOutputMode::Content,
         timeout: None,
         cancellation: None,
-        artifact_dir: None,
     }
 }
 

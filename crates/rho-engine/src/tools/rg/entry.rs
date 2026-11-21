@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::fmt::Write;
-use std::path::Path;
 
 use crate::tools::listing::{
     Collected, Layout, Listing, PageRequest, Row, count_noun, directory_order, render_page, split_parent,
@@ -78,12 +77,7 @@ pub struct RgTotals {
     pub files: usize,
 }
 
-pub fn format_lines(
-    collected: &Collected<LineMatch>,
-    totals: &RgTotals,
-    request: PageRequest,
-    artifact_dir: Option<&Path>,
-) -> ToolResult {
+pub fn format_lines(collected: &Collected<LineMatch>, totals: &RgTotals, request: PageRequest) -> ToolResult {
     if collected.items.is_empty() {
         return ToolResult::success("No matches found");
     }
@@ -101,7 +95,6 @@ pub fn format_lines(
         cut_notice: Some(format!(
             "Some lines truncated to {GREP_MAX_LINE_LENGTH} chars; use read with offset to see full lines"
         )),
-        artifact_dir,
     };
     render_page(&listing, request)
 }
@@ -111,7 +104,6 @@ pub fn format_files(
     totals: &RgTotals,
     mode: RgOutputMode,
     request: PageRequest,
-    artifact_dir: Option<&Path>,
 ) -> ToolResult {
     if collected.items.is_empty() {
         return ToolResult::success("No matches found");
@@ -129,7 +121,6 @@ pub fn format_files(
         capped: collected.capped(),
         hint: None,
         cut_notice: None,
-        artifact_dir,
     };
     render_page(&listing, request)
 }

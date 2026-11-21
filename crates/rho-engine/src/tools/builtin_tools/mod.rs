@@ -27,11 +27,10 @@ use std::sync::Arc;
 fn build_workspace_native_tools(base_dir: &Path) -> Vec<Arc<dyn EngineTool>> {
     let write = Arc::new(WriteTool::new(base_dir));
     let edit = Arc::new(EditTool::new(base_dir));
-    let artifact_dir = base_dir.join(".rho/artifacts");
-    let read = Arc::new(ReadTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
+    let read = Arc::new(ReadTool::new(base_dir).with_artifact_dir(Some(base_dir.join(".rho/artifacts"))));
     let bash = Arc::new(BashTool::new(base_dir));
-    let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
-    let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
+    let fd = Arc::new(FdTool::new(base_dir));
+    let rg = Arc::new(RgTool::new(base_dir));
 
     vec![
         read as Arc<dyn EngineTool>,

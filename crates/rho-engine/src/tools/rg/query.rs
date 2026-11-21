@@ -30,7 +30,6 @@ pub struct RgQuery {
     pub mode: RgOutputMode,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
-    pub artifact_dir: Option<PathBuf>,
 }
 
 type Order<T> = fn(&T, &T) -> Ordering;
@@ -135,18 +134,9 @@ impl RgQuery {
             matches: matches.into_inner(),
             files: files.into_inner(),
         };
-        let artifact_dir = self.artifact_dir.as_deref();
         match collector {
-            Collector::Lines(collector) => {
-                format_lines(&collector.finish(totals.matches), &totals, request, artifact_dir)
-            }
-            Collector::Files(collector) => format_files(
-                &collector.finish(totals.files),
-                &totals,
-                self.mode,
-                request,
-                artifact_dir,
-            ),
+            Collector::Lines(collector) => format_lines(&collector.finish(totals.matches), &totals, request),
+            Collector::Files(collector) => format_files(&collector.finish(totals.files), &totals, self.mode, request),
         }
     }
 }

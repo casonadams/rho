@@ -1,5 +1,6 @@
 use super::stats::{FileStats, count_file_stats};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -98,7 +99,17 @@ pub fn compare_entries(a: &FdEntry, b: &FdEntry, sort: FdSort) -> Ordering {
 pub struct FdFormat {
     pub request: PageRequest,
     pub show_stats: bool,
-    pub artifact_dir: Option<PathBuf>,
+}
+
+fn drop_headed_directories(items: Vec<FdEntry>) -> Vec<FdEntry> {
+    let headers: HashSet<String> = items
+        .iter()
+        .map(|entry| split_parent(&entry.relative).0.to_string())
+        .collect();
+    items
+        .into_iter()
+        .filter(|entry| !(entry.is_dir && headers.contains(&format!("{}/", entry.relative))))
+        .collect()
 }
 
 pub fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolResult {
@@ -106,28 +117,18 @@ pub fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolR
         return ToolResult::success("No paths found");
     }
     let capped = collected.capped();
-    let summary = count_noun(collected.seen, "path");
-    let artifact_dir = options.artifact_dir.as_deref();
     if options.show_stats {
+        let summary = count_noun(collected.seen, "path");
         let rows: Vec<StatsRow> = collected.items.into_iter().map(StatsRow).collect();
-        return render_page(
-            &listing(&rows, STATS_TABLE, summary, capped, artifact_dir),
-            options.request,
-        );
+        return render_page(&listing(&rows, STATS_TABLE, summary, capped), options.request);
     }
-    render_page(
-        &listing(&collected.items, BY_DIRECTORY, summary, capped, artifact_dir),
-        options.request,
-    )
+    let kept = collected.items.len();
+    let rows = drop_headed_directories(collected.items);
+    let summary = count_noun(collected.seen - (kept - rows.len()), "path");
+    render_page(&listing(&rows, BY_DIRECTORY, summary, capped), options.request)
 }
 
-fn listing<'a, T>(
-    rows: &'a [T],
-    layout: Layout,
-    summary: String,
-    capped: bool,
-    artifact_dir: Option<&'a std::path::Path>,
-) -> Listing<'a, T> {
+fn listing<T>(rows: &[T], layout: Layout, summary: String, capped: bool) -> Listing<'_, T> {
     Listing {
         rows,
         layout,
@@ -136,6 +137,5 @@ fn listing<'a, T>(
         capped,
         hint: None,
         cut_notice: None,
-        artifact_dir,
     }
 }

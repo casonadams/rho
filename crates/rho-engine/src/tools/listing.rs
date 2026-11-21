@@ -3,10 +3,8 @@
 //! and every row stays reachable through `offset`.
 
 use std::cmp::Ordering;
-use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use crate::tools::artifact::{format_artifact_notice, spill_artifact};
 use crate::tools::types::ToolResult;
 
 pub const LISTING_PAGE_BYTES: usize = 20 * 1024;
@@ -85,14 +83,12 @@ pub struct Listing<'a, T> {
     pub capped: bool,
     pub hint: Option<&'static str>,
     pub cut_notice: Option<String>,
-    pub artifact_dir: Option<&'a Path>,
 }
 
 struct Page {
     body: String,
     shown: usize,
     any_cut: bool,
-    out_of_budget: bool,
 }
 
 fn render_rows<T: Row>(rows: &[T], layout: Layout, limit: usize, budget: usize) -> Page {
@@ -102,7 +98,7 @@ fn render_rows<T: Row>(rows: &[T], layout: Layout, limit: usize, budget: usize) 
         body.push('\n');
     }
     let mut current: Option<&str> = None;
-    let (mut shown, mut any_cut, mut out_of_budget) = (0, false, false);
+    let (mut shown, mut any_cut) = (0, false);
     let mut chunk = String::new();
     for row in rows.iter().take(limit) {
         chunk.clear();
@@ -120,7 +116,6 @@ fn render_rows<T: Row>(rows: &[T], layout: Layout, limit: usize, budget: usize) 
         row.render(&mut chunk);
         chunk.push('\n');
         if shown > 0 && body.len() + chunk.len() > budget {
-            out_of_budget = true;
             break;
         }
         body.push_str(&chunk);
@@ -129,12 +124,7 @@ fn render_rows<T: Row>(rows: &[T], layout: Layout, limit: usize, budget: usize) 
         any_cut |= row.cut();
     }
     body.truncate(body.trim_end_matches('\n').len());
-    Page {
-        body,
-        shown,
-        any_cut,
-        out_of_budget,
-    }
+    Page { body, shown, any_cut }
 }
 
 fn plural(unit: &str) -> String {
@@ -172,13 +162,6 @@ fn paging_notice<T>(listing: &Listing<'_, T>, start: usize, end: usize) -> Strin
     parts.join("; ")
 }
 
-fn spill_notice<T: Row>(listing: &Listing<'_, T>) -> Option<String> {
-    let dir = listing.artifact_dir?;
-    let full = render_rows(listing.rows, listing.layout, usize::MAX, usize::MAX).body;
-    let path = spill_artifact(dir, &full).ok()?;
-    Some(format_artifact_notice(&path, full.lines().count(), full.len()))
-}
-
 pub fn render_page<T: Row>(listing: &Listing<'_, T>, request: PageRequest) -> ToolResult {
     let total = listing.rows.len();
     let start = request.offset;
@@ -205,13 +188,6 @@ pub fn render_page<T: Row>(listing: &Listing<'_, T>, request: PageRequest) -> To
     }
     if !notices.is_empty() {
         output.push_str(&format!("\n\n[{}]", notices.join(". ")));
-    }
-    if start == 0
-        && page.out_of_budget
-        && let Some(notice) = spill_notice(listing)
-    {
-        output.push_str("\n\n");
-        output.push_str(&notice);
     }
     ToolResult::success(output)
 }
@@ -266,7 +242,6 @@ mod tests {
             capped: false,
             hint: None,
             cut_notice: None,
-            artifact_dir: None,
         }
     }
 
@@ -326,18 +301,18 @@ mod tests {
     }
 
     #[test]
-    fn byte_budget_ends_the_page_on_a_whole_row_and_spills_the_full_listing() {
-        let dir = tempfile::tempdir().unwrap();
+    fn byte_budget_ends_the_page_on_a_whole_row() {
         let name: &'static str = Box::leak("n".repeat(1000).into_boxed_str());
         let rows: Vec<Item> = (0..100).map(|_| Item("d/", name)).collect();
-        let mut paged = listing(&rows);
-        paged.artifact_dir = Some(dir.path());
-        let result = render_page(&paged, PageRequest::default());
+        let result = render_page(&listing(&rows), PageRequest::default());
         let body = result.content.split("\n\n").nth(1).unwrap();
         assert!(body.len() <= LISTING_PAGE_BYTES);
         let shown = body.lines().count() - 1;
-        assert!(result.content.contains(&format!("next page: offset={shown}")));
-        assert!(result.content.contains("[Output truncated. Full content (101 lines"));
+        assert!(
+            result
+                .content
+                .ends_with(&format!("[showing files 1-{shown} of 100; next page: offset={shown}]"))
+        );
     }
 
     #[test]

@@ -57,7 +57,8 @@ resume the exact session of each pane with `rho --resume <id>`.
   codes.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
-  indented names; directories end with `/`) after a total count.
+  indented names; directories end with `/`) after a total count. A directory
+  whose entries are listed appears only as their header.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files. Matches are grouped by file (path line, then `line:text` rows) after an
   `N matches in M files` total; `output_mode` `files` or `count` lists only

@@ -47,7 +47,7 @@ async fn type_filter_keeps_only_matching_extensions() {
     let blank = find(&dir, ".", |args| args.file_type = Some("   ".to_string())).await;
     assert_eq!(
         blank.content,
-        "6 paths\n\n./\n  README.md\n  src/\nsrc/\n  lib.rs\n  main.rs\n  ui/\nsrc/ui/\n  widget.rs"
+        "4 paths\n\n./\n  README.md\nsrc/\n  lib.rs\n  main.rs\nsrc/ui/\n  widget.rs"
     );
 
     let unknown = find(&dir, ".", |args| args.file_type = Some("nosuchtype".to_string())).await;
@@ -64,7 +64,7 @@ async fn depth_bounds_traversal() {
     let two = find(&dir, ".", |args| args.depth = Some(2)).await;
     assert_eq!(
         two.content,
-        "5 paths\n\n./\n  README.md\n  src/\nsrc/\n  lib.rs\n  main.rs\n  ui/"
+        "4 paths\n\n./\n  README.md\nsrc/\n  lib.rs\n  main.rs\n  ui/"
     );
 }
 

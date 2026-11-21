@@ -24,7 +24,6 @@ pub const MAX_FD_DEPTH: usize = 10;
 
 pub struct FdTool {
     base_dir: PathBuf,
-    artifact_dir: Option<PathBuf>,
 }
 
 fn build_fd_regex(pattern: Option<&str>) -> std::result::Result<Option<Regex>, ToolResult> {
@@ -63,7 +62,6 @@ fn build_fd_query(
         show_stats,
         timeout: None,
         cancellation: None,
-        artifact_dir: None,
     }
 }
 
@@ -97,21 +95,9 @@ async fn await_fd_task(
 
 impl FdTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        let base = base_dir.as_ref().to_path_buf();
-        let artifact_dir = if base.as_os_str().is_empty() {
-            std::env::temp_dir().join("rho/artifacts")
-        } else {
-            base.join(".rho/artifacts")
-        };
         Self {
-            base_dir: base,
-            artifact_dir: Some(artifact_dir),
+            base_dir: base_dir.as_ref().to_path_buf(),
         }
-    }
-
-    pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
-        self.artifact_dir = artifact_dir;
-        self
     }
 
     pub async fn execute(&self, args: FdArgs) -> Result<ToolResult, AppError> {
@@ -130,7 +116,6 @@ impl FdTool {
         let mut query = build_fd_query(&workspace, args, (regex, types, search_root));
         query.timeout = Some(timeout);
         query.cancellation = Some(cancellation);
-        query.artifact_dir = self.artifact_dir.clone();
 
         let handle = tokio::task::spawn_blocking(move || query.run(request));
         let res = await_fd_task(handle, timeout).await;

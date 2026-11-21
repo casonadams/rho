@@ -1403,14 +1403,14 @@ fn test_reread_in_protected_tail_does_not_rewrite_pruned_prefix() {
 }
 
 #[test]
-fn test_pruned_stub_keeps_artifact_path_from_spill_notice() {
+fn test_pruned_read_stub_keeps_artifact_path_from_spill_notice() {
     let body = (1..=40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
     let notice = "\n\n[Output truncated. Full content (900 lines, 40.0KB) saved to .rho/artifacts/abc.log. Use 'read' or 'bash' with grep on this file if needed.]";
     let spilled = format!("{body}{notice}");
     let plain = body.clone();
 
-    for tool in ["read", "rg", "fd"] {
-        let (call, result) = make_tool_turn("c1", tool, "needle", &spilled);
+    let prune = |tool: &str, text: &str| {
+        let (call, result) = make_tool_turn("c1", tool, "needle", text);
         let history = vec![
             ChatMessage::user("search"),
             call,
@@ -1419,24 +1419,12 @@ fn test_pruned_stub_keeps_artifact_path_from_spill_notice() {
             ChatMessage::user("next"),
         ];
         let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-        let text = extract_tool_result_first_text(&pruned[2]);
-        assert!(text.contains("Output pruned for historical turn."), "{tool}: {text}");
-        assert!(
-            text.contains(".rho/artifacts/abc.log"),
-            "{tool} lost artifact path: {text}"
-        );
-    }
-
-    let (call, result) = make_tool_turn("c2", "rg", "needle", &plain);
-    let history = vec![
-        ChatMessage::user("search"),
-        call,
-        result,
-        ChatMessage::assistant("done"),
-        ChatMessage::user("next"),
-    ];
-    let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-    assert!(!extract_tool_result_first_text(&pruned[2]).contains("artifacts"));
+        extract_tool_result_first_text(&pruned[2]).to_string()
+    };
+    let read = prune("read", &spilled);
+    assert!(read.contains("Output pruned for historical turn."), "{read}");
+    assert!(read.contains(".rho/artifacts/abc.log"), "{read}");
+    assert!(!prune("read", &plain).contains("artifacts"));
 }
 
 #[test]

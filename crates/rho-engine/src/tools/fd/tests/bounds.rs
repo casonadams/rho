@@ -14,19 +14,34 @@ fn file(relative: String) -> FdEntry {
     }
 }
 
+fn dir_entry(relative: &str) -> FdEntry {
+    FdEntry {
+        is_dir: true,
+        ..file(relative.to_string())
+    }
+}
+
 fn collected(items: Vec<FdEntry>) -> Collected<FdEntry> {
     let seen = items.len();
     Collected { items, seen }
 }
 
 #[tokio::test]
-async fn listing_is_grouped_by_parent_directory() {
+async fn directories_with_listed_entries_appear_only_as_their_header() {
     let dir = fixture();
     let result = find(&dir, ".", |_| {}).await;
     assert_eq!(
         result.content,
-        "6 paths\n\n./\n  README.md\n  src/\nsrc/\n  lib.rs\n  main.rs\n  ui/\nsrc/ui/\n  widget.rs"
+        "4 paths\n\n./\n  README.md\nsrc/\n  lib.rs\n  main.rs\nsrc/ui/\n  widget.rs"
     );
+}
+
+#[tokio::test]
+async fn directories_without_listed_entries_stay_listed() {
+    let dir = fixture();
+    std::fs::create_dir(dir.path().join("empty")).unwrap();
+    let result = find(&dir, "empty|ui", |_| {}).await;
+    assert_eq!(result.content, "2 paths\n\n./\n  empty/\nsrc/ui/\n  widget.rs");
 }
 
 #[tokio::test]
@@ -36,7 +51,7 @@ async fn limit_pages_with_the_next_offset() {
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "6 paths\n\n./\n  README.md\n  src/\n\n[showing paths 1-2 of 6; next page: offset=2]"
+        "4 paths\n\n./\n  README.md\nsrc/\n  lib.rs\n\n[showing paths 1-2 of 4; next page: offset=2]"
     );
 }
 
@@ -44,13 +59,13 @@ async fn limit_pages_with_the_next_offset() {
 async fn offset_continues_and_repeats_the_directory_header() {
     let dir = fixture();
     let result = find(&dir, ".", |args| {
-        args.offset = Some(3);
-        args.limit = Some(2);
+        args.offset = Some(2);
+        args.limit = Some(1);
     })
     .await;
     assert_eq!(
         result.content,
-        "6 paths\n\nsrc/\n  main.rs\n  ui/\n\n[showing paths 4-5 of 6; next page: offset=5]"
+        "4 paths\n\nsrc/\n  main.rs\n\n[showing paths 3-3 of 4; next page: offset=3]"
     );
 }
 
@@ -60,7 +75,7 @@ async fn limit_clamps_to_at_least_one() {
     let result = find(&dir, ".", |args| args.limit = Some(0)).await;
     assert_eq!(
         result.content,
-        "6 paths\n\n./\n  README.md\n\n[showing paths 1-1 of 6; next page: offset=1]"
+        "4 paths\n\n./\n  README.md\n\n[showing paths 1-1 of 4; next page: offset=1]"
     );
 }
 
@@ -74,7 +89,6 @@ fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
         FdFormat {
             request: PageRequest::default(),
             show_stats: false,
-            artifact_dir: None,
         },
     );
     let body = result.content.split("\n\n").nth(1).unwrap();
@@ -88,37 +102,6 @@ fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
 }
 
 #[tokio::test]
-async fn test_fd_oversized_search_spills_artifact() {
-    let dir = tempfile::tempdir().unwrap();
-    let entries = (0..500)
-        .map(|i| {
-            file(format!(
-                "dir_{i:04}/very_long_path_name_{i:04}/{}",
-                "nested_".repeat(20)
-            ))
-        })
-        .collect();
-    let result = format_results(
-        collected(entries),
-        FdFormat {
-            request: PageRequest::default(),
-            show_stats: false,
-            artifact_dir: Some(dir.path().join(".rho/artifacts")),
-        },
-    );
-    assert!(!result.is_error);
-    assert!(result.content.contains(".rho/artifacts"));
-    assert!(result.content.contains("[Output truncated. Full content"));
-
-    let artifact_dir = dir.path().join(".rho/artifacts");
-    let files: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
-    assert_eq!(files.len(), 1);
-    let spilled_content = std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap();
-    assert!(spilled_content.contains("dir_0000"));
-    assert!(spilled_content.contains("dir_0499"));
-}
-
-#[tokio::test]
 async fn path_without_pattern_lists_files_in_subtree() {
     let dir = fixture();
     let args = FdArgs {
@@ -128,8 +111,22 @@ async fn path_without_pattern_lists_files_in_subtree() {
     let result = FdTool::new(dir.path()).execute(args).await.unwrap();
     assert_eq!(
         result.content,
-        "4 paths\n\nsrc/\n  lib.rs\n  main.rs\n  ui/\nsrc/ui/\n  widget.rs"
+        "3 paths\n\nsrc/\n  lib.rs\n  main.rs\nsrc/ui/\n  widget.rs"
     );
+}
+
+#[test]
+fn stats_table_keeps_directories_that_have_listed_entries() {
+    let entries = vec![dir_entry("src"), file("src/lib.rs".to_string())];
+    let result = format_results(
+        collected(entries),
+        FdFormat {
+            request: PageRequest::default(),
+            show_stats: true,
+        },
+    );
+    assert!(result.content.starts_with("2 paths\n\n"), "{}", result.content);
+    assert!(result.content.contains("  src/\n"), "{}", result.content);
 }
 
 #[tokio::test]
@@ -232,7 +229,6 @@ fn query(dir: &tempfile::TempDir) -> super::query::FdQuery {
         show_stats: false,
         timeout: None,
         cancellation: None,
-        artifact_dir: None,
     }
 }
 
