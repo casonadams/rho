@@ -1,4 +1,5 @@
 pub mod accumulator;
+pub mod footer;
 pub mod normalize;
 pub mod runner;
 pub mod sanitize;

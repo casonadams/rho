@@ -447,11 +447,16 @@ async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
         .unwrap();
 
     assert!(!res.is_error);
+    let footer = super::footer::BashFooter::parse(&res.content).expect("footer");
+    assert_eq!(footer.lines, 25);
+    let log = footer.log_path.expect("log path");
+    assert!(log.contains("rho-bash"), "{log}");
     assert!(
-        res.content
-            .contains("[Command completed successfully with exit code 0 (25 lines,")
+        std::path::Path::new(&log)
+            .file_stem()
+            .is_some_and(|stem| stem.len() == 12),
+        "{log}"
     );
-    assert!(res.content.contains("Full log:"));
 }
 
 #[tokio::test]
@@ -467,7 +472,7 @@ async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
         .unwrap();
 
     assert!(!res.is_error);
-    assert!(!res.content.contains("Command completed successfully with exit code 0"));
+    assert!(!res.content.contains("[exit 0;"));
 }
 
 #[tokio::test]
@@ -486,9 +491,9 @@ async fn test_bash_exit_zero_over_window_threshold_windows_output() {
     assert!(res.content.starts_with("1\n2\n3"));
     assert!(res.content.contains("[... 75 lines omitted]"));
     assert!(res.content.contains("98\n99\n100"));
-    assert!(
-        res.content
-            .contains("[Command completed successfully with exit code 0 (100 lines,")
+    assert_eq!(
+        super::footer::BashFooter::parse(&res.content).expect("footer").lines,
+        100
     );
 }
 

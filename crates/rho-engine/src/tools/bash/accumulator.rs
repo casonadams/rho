@@ -250,7 +250,7 @@ impl OutputAccumulator {
             return;
         }
         let dir = std::env::temp_dir().join(LOG_DIR_NAME);
-        let path = dir.join(format!("{}.log", uuid::Uuid::new_v4()));
+        let path = dir.join(format!("{}.log", &uuid::Uuid::new_v4().simple().to_string()[..12]));
         let Ok(file) = std::fs::create_dir_all(&dir).and_then(|()| File::create(&path)) else {
             return;
         };

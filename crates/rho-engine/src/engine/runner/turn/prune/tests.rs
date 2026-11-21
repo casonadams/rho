@@ -271,6 +271,40 @@ fn test_prior_turn_successful_verbose_bash_output_is_pruned() {
 }
 
 #[test]
+fn pruning_recognises_the_footer_the_bash_tool_writes() {
+    let footer = crate::tools::bash::footer::BashFooter {
+        lines: 30,
+        size: "300B".to_string(),
+        log_path: Some("/tmp/rho-bash/ab12cd34ef56.log".to_string()),
+    };
+    let output = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &format!("{output}\n\n{}", footer.render()));
+    let history = vec![
+        ChatMessage::user("Please test"),
+        call_msg,
+        res_msg,
+        ChatMessage::assistant("Done"),
+        ChatMessage::user("Next"),
+    ];
+
+    let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+
+    let ChatMessage::User { content } = &pruned[2] else {
+        panic!()
+    };
+    let UserContent::ToolResult(res) = &content[0] else {
+        panic!()
+    };
+    let ToolResultContent::Text(text) = &res.content[0] else {
+        panic!()
+    };
+    assert_eq!(
+        text.text,
+        "[Command 'cargo test' completed with exit code 0. Output pruned (30 lines, 300B). Full log: /tmp/rho-bash/ab12cd34ef56.log]"
+    );
+}
+
+#[test]
 fn test_historical_failed_bash_output_is_pruned() {
     let output = (1..=30).map(|i| format!("error {i}")).collect::<Vec<_>>().join("\n");
     let output_with_err = format!("{output}\n\nCommand exited with code 1");

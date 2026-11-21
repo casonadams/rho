@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use rho_harness_core::model::{AssistantContent, ChatMessage, ImageContent};
 
+use crate::tools::bash::footer::BashFooter;
+
 enum BashExitStatus {
     Success,
     Failed(String),
@@ -53,25 +55,11 @@ fn extract_bash_exit_code(text: &str) -> Option<String> {
 }
 
 fn parse_bash_footer_details(text: &str) -> Option<BashPruneDetails> {
-    let footer_start = text.rfind("[Command completed successfully with exit code 0 (")?;
-    let footer = &text[footer_start..];
-    let close = footer.find(']')?;
-    let inner = &footer[..close];
-
-    let lines_size_start = inner.find('(')?;
-    let lines_size_end = inner.find(')')?;
-    let parts = &inner[lines_size_start + 1..lines_size_end];
-    let mut split = parts.split(',');
-    let lines_part = split.next()?.trim();
-    let size_part = split.next()?.trim();
-
-    let lines = lines_part.split_whitespace().next()?.parse::<usize>().ok()?;
-    let log_path = extract_bash_log_path(inner);
-
+    let footer = BashFooter::parse(text)?;
     Some(BashPruneDetails {
-        lines,
-        size_str: size_part.to_string(),
-        log_path,
+        lines: footer.lines,
+        size_str: footer.size,
+        log_path: footer.log_path,
         exit_status: BashExitStatus::Success,
     })
 }
