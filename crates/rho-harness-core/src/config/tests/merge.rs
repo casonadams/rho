@@ -697,3 +697,11 @@ fn token_and_retention_env_overrides_apply_or_reject() {
         assert!(error.contains(env[0].0), "{error}");
     }
 }
+
+#[test]
+fn short_lived_work_never_pays_for_the_one_hour_cache_unless_asked() {
+    use crate::config::CacheRetention::{Auto, Long, Short};
+    assert_eq!(Auto.for_short_lived_work(), Short);
+    assert_eq!(Short.for_short_lived_work(), Short);
+    assert_eq!(Long.for_short_lived_work(), Long);
+}

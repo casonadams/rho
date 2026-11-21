@@ -209,6 +209,14 @@ impl CacheRetention {
         }
     }
 
+    /// `Auto` becomes `Short` for work that ends within minutes, where a 1-hour write is never read back.
+    pub fn for_short_lived_work(self) -> Self {
+        match self {
+            Self::Auto => Self::Short,
+            explicit => explicit,
+        }
+    }
+
     /// Anthropic prompt-cache lifetimes for the default and `ttl: "1h"` breakpoints.
     pub fn ttl(self, subscription: bool) -> std::time::Duration {
         match self.resolve(subscription) {

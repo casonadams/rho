@@ -118,7 +118,10 @@ impl AgentEngineBuilder {
 /// Subagent model roles; a spec without a provider uses the session's provider.
 fn subagent_model_resolver(router: &ModelRouter, config: &Config) -> crate::tools::subagent::SubagentModelResolver {
     let router = router.clone();
-    let config = config.clone();
+    let config = Config {
+        cache_retention: config.cache_retention.for_short_lived_work(),
+        ..config.clone()
+    };
     Arc::new(move |spec: &str| {
         let route = ModelRoute::parse(spec, None, &config.route().connection.to_string());
         router.build_blocking(&config, &route).map_err(|e| e.to_string())
