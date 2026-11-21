@@ -87,7 +87,7 @@ Usage:
 - Never read files with cat, sed, or awk, and never create or modify files with bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, tee, mv over a file); use read, edit, and write. Project formatters and generators (cargo fmt, make) are fine.
 - timeout is in seconds (default 30). A command that exceeds it is NOT killed: it moves to a background job and its output arrives later as a follow-up message. Set background: false to kill it on timeout instead.
 - Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep. Background jobs are killed after 1 hour.
-- Non-zero exit codes return an error result ending in `Command exited with code N`. Successful output over 50 lines shows only the first 10 and last 15 lines, and long or truncated output names a full log file (`full log:` or `Full output:`) that you can search with rg or page with read. Filter output with rg, head, or tail instead of dumping everything.";
+- Non-zero exit codes return an error result ending in `[exit N]`. Successful output over 50 lines shows only the first 10 and last 15 lines, and long or truncated output ends with `log: PATH`, the full output file to search with rg or page with read. Filter output with rg, head, or tail instead of dumping everything.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return structured summaries and URLs.

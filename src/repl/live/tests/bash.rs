@@ -75,7 +75,7 @@ async fn test_user_bash_runner_ctrl_c_does_not_cancel() {
 }
 
 fn assert_spool_file(output: &str) {
-    let start_marker = "Full output: ";
+    let start_marker = "; log: ";
     let start_idx = output.find(start_marker).expect("spool marker");
     let after = &output[start_idx + start_marker.len()..];
     let end_idx = after.find(']').expect("closing bracket");
@@ -103,7 +103,7 @@ async fn test_user_bash_runner_large_output_spools_to_disk() {
         .await
         .unwrap();
     assert!(!res.is_cancelled && !res.is_error);
-    for fragment in ["[Showing lines ", "of 2500", "Full output: ", "rho-bash/"] {
+    for fragment in ["[lines ", "of 2500", "; log: ", "rho-bash/"] {
         assert!(res.output.contains(fragment), "{fragment}: {}", res.output);
     }
     assert_spool_file(&res.output);
@@ -133,7 +133,7 @@ async fn test_user_bash_runner_failed_command_includes_exit_code() {
     assert!(!res.is_cancelled);
     assert!(res.is_error);
     assert!(res.output.contains("failure details"));
-    assert!(res.output.contains("Command exited with code 42"));
+    assert!(res.output.contains("[exit 42]"));
 }
 
 #[tokio::test]

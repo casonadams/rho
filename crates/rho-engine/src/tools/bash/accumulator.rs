@@ -94,16 +94,16 @@ fn format_truncation_notice(
     if truncation.last_line_partial {
         let size = format_size(truncation.output_bytes);
         let line_size = format_size(current_line_bytes);
-        format!("\n\n[Showing last {size} of line {end_line} (line is {line_size}). Full output: {path_str}]")
+        format!("\n\n[last {size} of line {end_line} (line is {line_size}); log: {path_str}]")
     } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
         format!(
-            "\n\n[Showing lines {start_line}-{end_line} of {}. Full output: {path_str}]",
+            "\n\n[lines {start_line}-{end_line} of {}; log: {path_str}]",
             truncation.total_lines
         )
     } else {
         let limit = format_size(max_bytes);
         format!(
-            "\n\n[Showing lines {start_line}-{end_line} of {} ({limit} limit). Full output: {path_str}]",
+            "\n\n[lines {start_line}-{end_line} of {} ({limit} limit); log: {path_str}]",
             truncation.total_lines
         )
     }

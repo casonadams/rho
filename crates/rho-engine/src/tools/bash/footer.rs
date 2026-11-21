@@ -15,7 +15,7 @@ const LEGACY_MARKER: &str = "[Command completed successfully with exit code 0 ("
 impl BashFooter {
     pub fn render(&self) -> String {
         let log = self.log_path.as_deref().unwrap_or("temp log");
-        format!("[exit 0; {} lines, {}; full log: {log}]", self.lines, self.size)
+        format!("[exit 0; {} lines, {}; log: {log}]", self.lines, self.size)
     }
 
     /// Reads the last footer in `text`, in the current form or the one older sessions contain.
@@ -28,12 +28,15 @@ impl BashFooter {
 
     fn parse_current(after_marker: &str) -> Option<Self> {
         let inner = &after_marker[..after_marker.find(']')?];
-        let mut fields = inner.splitn(2, "; full log: ");
-        let (lines, size) = fields.next()?.split_once(", ")?;
+        let (counts, log_path) = match inner.split_once("; log: ").or_else(|| inner.split_once("; full log: ")) {
+            Some((counts, path)) => (counts, Some(path.to_string())),
+            None => (inner, None),
+        };
+        let (lines, size) = counts.split_once(", ")?;
         Some(Self {
             lines: lines.strip_suffix(" lines")?.parse().ok()?,
             size: size.to_string(),
-            log_path: fields.next().map(str::to_string),
+            log_path,
         })
     }
 
@@ -68,10 +71,7 @@ mod tests {
     #[test]
     fn rendered_footers_parse_back_after_the_output() {
         let rendered = footer(Some("/tmp/rho-bash/ab12cd.log")).render();
-        assert_eq!(
-            rendered,
-            "[exit 0; 33 lines, 1.1KB; full log: /tmp/rho-bash/ab12cd.log]"
-        );
+        assert_eq!(rendered, "[exit 0; 33 lines, 1.1KB; log: /tmp/rho-bash/ab12cd.log]");
         let text = format!("first\nsecond\n\n{rendered}");
         assert_eq!(BashFooter::parse(&text), Some(footer(Some("/tmp/rho-bash/ab12cd.log"))));
     }
@@ -96,8 +96,8 @@ mod tests {
     fn text_without_a_footer_does_not_parse() {
         for text in [
             "plain output",
-            "[exit 0; lines, big; full log: x]",
-            "[exit 1; 3 lines, 1B; full log: x]",
+            "[exit 0; lines, big; log: x]",
+            "[exit 1; 3 lines, 1B; log: x]",
         ] {
             assert_eq!(BashFooter::parse(text), None, "{text}");
         }

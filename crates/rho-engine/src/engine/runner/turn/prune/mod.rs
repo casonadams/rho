@@ -12,7 +12,7 @@ pub use cache::{PromptCache, PruneMemory};
 
 use stubs::{
     ToolCallMeta, collect_tool_calls, prune_bash_result, prune_image_tool_result, prune_mcp_result, prune_read_result,
-    prune_search_result, prune_web_result,
+    prune_search_result, prune_web_result, stub_head,
 };
 
 pub const DEFAULT_PRUNE_LINE_THRESHOLD: usize = 15;
@@ -223,11 +223,7 @@ fn resolve_tool_prune_stub(
 ) -> Option<String> {
     if is_superseded {
         let target = meta.map_or("", |m| m.target.as_str());
-        if target.is_empty() {
-            Some("[File read superseded by a later operation]".to_string())
-        } else {
-            Some(format!("[File read superseded by a later operation on {target}]"))
-        }
+        Some(format!("{}superseded by a later call]", stub_head("read", target)))
     } else if let Some(img) = image_block {
         Some(prune_image_tool_result(tool_name, text, meta, img))
     } else {

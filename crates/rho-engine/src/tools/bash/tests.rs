@@ -24,8 +24,8 @@ async fn the_model_gets_plain_text_while_the_colored_output_stays_for_the_displa
         (
             "printf '\\033[1;32mbad\\033[0m\\n'; exit 3",
             true,
-            "bad\n\nCommand exited with code 3",
-            "\u{1b}[1;32mbad\u{1b}[0m\n\nCommand exited with code 3",
+            "bad\n\n[exit 3]",
+            "\u{1b}[1;32mbad\u{1b}[0m\n\n[exit 3]",
         ),
     ];
     for (command, is_error, plain, colored) in cases {
@@ -74,8 +74,8 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         .unwrap();
     let job_id = started
         .content
-        .lines()
-        .find_map(|line| line.strip_prefix("Job ID: "))
+        .strip_prefix("[background job ")
+        .and_then(|rest| rest.split(';').next())
         .expect("the result names the job")
         .to_string();
     let jobs = crate::tools::jobs::JobManager::global();
@@ -205,7 +205,7 @@ async fn test_bash_preserves_error_message_at_end_of_large_output() {
 
     assert!(!res.is_error);
     assert!(res.content.contains("CRITICAL_FAILURE_AT_END"));
-    assert!(res.content.contains("[Showing lines "));
+    assert!(res.content.contains("[lines "));
 }
 
 #[tokio::test]
@@ -263,7 +263,7 @@ async fn test_bash_nonzero_exit() {
         .unwrap();
 
     assert!(res.is_error);
-    assert!(res.content.contains("exited with code 42"));
+    assert!(res.content.contains("[exit 42]"));
 }
 
 #[tokio::test]
@@ -279,7 +279,11 @@ async fn test_bash_timeout() {
         .unwrap();
 
     assert!(res.is_error);
-    assert!(res.content.contains("timed out after 1 seconds"));
+    assert!(
+        res.content.starts_with("[timeout 1s; background job "),
+        "{}",
+        res.content
+    );
 }
 
 #[cfg(unix)]
@@ -299,7 +303,7 @@ async fn test_bash_timeout_kills_process_group() {
         .unwrap();
 
     assert!(res.is_error);
-    assert!(res.content.contains("timed out"));
+    assert!(res.content.contains("[timeout "));
 
     let pid: u32 = std::fs::read_to_string(&pid_file)
         .expect("read pid file")
@@ -361,14 +365,14 @@ async fn test_bash_timeout_preserves_accumulated_output() {
         .execute(BashArgs {
             command: "echo 'early output'; sleep 3".to_string(),
             timeout: Some(1),
-            background: None,
+            background: Some(false),
         })
         .await
         .unwrap();
 
     assert!(res.is_error);
     assert!(res.content.contains("early output"));
-    assert!(res.content.contains("timed out after 1 seconds"));
+    assert!(res.content.ends_with("[timeout 1s]"));
 }
 
 #[tokio::test]
@@ -385,7 +389,7 @@ async fn test_bash_nonzero_exit_preserves_output_before_status() {
 
     assert!(res.is_error);
     assert!(res.content.contains("first output line"));
-    assert!(res.content.ends_with("Command exited with code 42"));
+    assert!(res.content.ends_with("[exit 42]"));
 }
 
 #[test]

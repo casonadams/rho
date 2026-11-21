@@ -266,7 +266,7 @@ fn test_prior_turn_successful_verbose_bash_output_is_pruned() {
     };
     assert_eq!(
         text,
-        "[Command 'cargo test' completed with exit code 0. Output pruned (30 lines, 300B). Full log: /tmp/log.txt]"
+        "[bash 'cargo test': exit 0, pruned 30 lines, 300B; log: /tmp/log.txt]"
     );
 }
 
@@ -300,7 +300,7 @@ fn pruning_recognises_the_footer_the_bash_tool_writes() {
     };
     assert_eq!(
         text.text,
-        "[Command 'cargo test' completed with exit code 0. Output pruned (30 lines, 300B). Full log: /tmp/rho-bash/ab12cd34ef56.log]"
+        "[bash 'cargo test': exit 0, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"
     );
 }
 
@@ -329,7 +329,7 @@ fn test_historical_failed_bash_output_is_pruned() {
         ToolResultContent::Text(t) => &t.text,
         _ => panic!(),
     };
-    assert!(text.contains("[Command 'cargo test' failed with exit code 1 (32 lines,"));
+    assert!(text.contains("[bash 'cargo test': exit 1, pruned 32 lines,"));
 }
 
 #[test]
@@ -368,10 +368,17 @@ fn test_historical_failed_bash_output_with_log_path_pruned() {
         .map(|i| format!("compiler error {i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let output = format!(
-        "{err_body}\n\n[Showing lines 1-500 of 1200 (50.0KB limit). Full output: /tmp/rho-bash-123.log]\n\nCommand exited with code 1"
-    );
-    let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo build", &output);
+    let spellings = [
+        "[lines 1-500 of 1200 (50.0KB limit); log: /tmp/rho-bash-123.log]\n\n[exit 1]",
+        "[Showing lines 1-500 of 1200 (50.0KB limit). Full output: /tmp/rho-bash-123.log]\n\nCommand exited with code 1",
+    ];
+    for footer in spellings {
+        assert_failed_bash_stub(&format!("{err_body}\n\n{footer}"));
+    }
+}
+
+fn assert_failed_bash_stub(output: &str) {
+    let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo build", output);
 
     let large_padding = "word ".repeat(50_000);
     let history = vec![
@@ -399,8 +406,8 @@ fn test_historical_failed_bash_output_with_log_path_pruned() {
         ToolResultContent::Text(t) => &t.text,
         _ => panic!(),
     };
-    assert!(text.contains("[Command 'cargo build' failed with exit code 1 (1200 lines,"));
-    assert!(text.contains("Full log: /tmp/rho-bash-123.log]"));
+    assert!(text.contains("[bash 'cargo build': exit 1, pruned 1200 lines,"));
+    assert!(text.contains("; log: /tmp/rho-bash-123.log]"));
 }
 
 #[test]
@@ -457,8 +464,7 @@ fn test_prior_turn_verbose_read_output_is_pruned() {
         ToolResultContent::Text(t) => &t.text,
         _ => panic!(),
     };
-    assert!(text.contains("[File 'src/lib.rs' read (40 lines,"));
-    assert!(text.contains("Output pruned for historical turn."));
+    assert!(text.contains("[read 'src/lib.rs': pruned 40 lines,"));
 }
 
 #[test]
@@ -542,8 +548,7 @@ fn test_prior_turn_verbose_search_output_is_pruned() {
         ToolResultContent::Text(t) => &t.text,
         _ => panic!(),
     };
-    assert!(text.contains("[Tool 'rg' with pattern 'match_' completed with 30 lines"));
-    assert!(text.contains("Output pruned for historical turn."));
+    assert!(text.contains("[rg 'match_': pruned 30 lines,"));
 }
 
 #[test]
@@ -726,7 +731,7 @@ fn test_multi_turn_sequence_prunes_completed_verbose_outputs_and_preserves_failu
         res2.clone(),
     ];
     let t2_pruned = prune_historical_tool_outputs(&t2_history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-    assert!(extract_tool_result_first_text(&t2_pruned[2]).contains("Output pruned (25 lines, 400B)"));
+    assert!(extract_tool_result_first_text(&t2_pruned[2]).contains("exit 0, pruned 25 lines, 400B"));
     assert!(extract_tool_result_first_text(&t2_pruned[6]).contains("cannot find value `x`"));
 
     let t3_history = vec![
@@ -743,7 +748,7 @@ fn test_multi_turn_sequence_prunes_completed_verbose_outputs_and_preserves_failu
         res3,
     ];
     let t3_pruned = prune_historical_tool_outputs(&t3_history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
-    assert!(extract_tool_result_first_text(&t3_pruned[2]).contains("Output pruned (25 lines, 400B)"));
+    assert!(extract_tool_result_first_text(&t3_pruned[2]).contains("exit 0, pruned 25 lines, 400B"));
     assert!(extract_tool_result_first_text(&t3_pruned[6]).contains("cannot find value `x`"));
     assert!(extract_tool_result_first_text(&t3_pruned[10]).contains("test 1 passed"));
 }
@@ -790,10 +795,10 @@ fn test_multi_turn_mixed_tools_sequence_prunes_historical_reads_writes_and_searc
     let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
 
     let read_text = extract_tool_result_first_text(&pruned[2]);
-    assert!(read_text.contains("[File 'src/models.rs' read (30 lines,"));
+    assert!(read_text.contains("[read 'src/models.rs': pruned 30 lines,"));
 
     let search_text = extract_tool_result_first_text(&pruned[4]);
-    assert!(search_text.contains("[Tool 'fd' with pattern '*.rs' completed with 20 lines"));
+    assert!(search_text.contains("[fd '*.rs': pruned 20 lines,"));
 
     let ChatMessage::Assistant {
         content: write_content, ..
@@ -808,7 +813,7 @@ fn test_multi_turn_mixed_tools_sequence_prunes_historical_reads_writes_and_searc
     assert_eq!(written_val, write_body);
 
     let bash_text = extract_tool_result_first_text(&pruned[10]);
-    assert!(bash_text.contains("Command 'cargo test' completed with exit code 0. Output pruned"));
+    assert!(bash_text.contains("[bash 'cargo test': exit 0, pruned"));
 }
 
 #[test]
@@ -829,8 +834,7 @@ fn test_prior_turn_verbose_web_fetch_output_is_pruned() {
 
     let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
     let text = extract_tool_result_first_text(&pruned[2]);
-    assert!(text.contains("[URL 'https://example.com/docs' fetched (30 lines,"));
-    assert!(text.contains("Output pruned for historical turn."));
+    assert!(text.contains("[web_fetch 'https://example.com/docs': pruned 30 lines,"));
 }
 
 #[test]
@@ -869,7 +873,7 @@ fn test_prior_turn_verbose_web_search_output_is_pruned() {
 
     let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
     let text = extract_tool_result_first_text(&pruned[2]);
-    assert!(text.contains("[Web search for 'rust tokio' completed with 25 lines"));
+    assert!(text.contains("[web_search 'rust tokio': pruned 25 lines,"));
 }
 
 #[test]
@@ -890,7 +894,7 @@ fn test_prior_turn_verbose_mcp_output_is_pruned() {
 
     let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
     let text = extract_tool_result_first_text(&pruned[2]);
-    assert!(text.contains("[Tool 'mcp__github__list_issues' completed with 40 lines"));
+    assert!(text.contains("[mcp__github__list_issues: pruned 40 lines,"));
 }
 
 #[test]
@@ -984,10 +988,7 @@ fn test_prune_image_tool_result_in_historical_turn() {
     let ToolResultContent::Text(text) = &res.content[0] else {
         panic!("Expected text block")
     };
-    assert_eq!(
-        text.text,
-        "[Image 'screenshot.png' (image/png) read. Image content pruned for historical turn.]"
-    );
+    assert_eq!(text.text, "[read 'screenshot.png': image (image/png), pruned]");
 }
 
 #[test]
@@ -1072,18 +1073,9 @@ fn test_image_stub_formatting_variants() {
         }
     };
 
-    assert_eq!(
-        extract_text(2),
-        "[Image 'assets/logo.png' (image/png) read. Image content pruned for historical turn.]"
-    );
-    assert_eq!(
-        extract_text(4),
-        "[Image 'assets/photo.jpg' (image/jpeg) read. Image content pruned for historical turn.]"
-    );
-    assert_eq!(
-        extract_text(6),
-        "[Tool 'screenshot' for 'window' returned image (image/png). Image content pruned for historical turn.]"
-    );
+    assert_eq!(extract_text(2), "[read 'assets/logo.png': image (image/png), pruned]");
+    assert_eq!(extract_text(4), "[read 'assets/photo.jpg': image (image/jpeg), pruned]");
+    assert_eq!(extract_text(6), "[screenshot 'window': image (image/png), pruned]");
 }
 
 #[test]
@@ -1127,7 +1119,7 @@ fn test_protect_recent_tokens_prevents_pruning() {
     let ToolResultContent::Text(t) = &r.content[0] else {
         panic!()
     };
-    assert!(t.text.contains("completed with exit code 0"));
+    assert!(t.text.contains("exit 0, pruned"));
 }
 
 #[test]
@@ -1298,7 +1290,7 @@ fn test_superseded_file_reads_detected_and_elided() {
     let ToolResultContent::Text(t) = &r.content[0] else {
         panic!()
     };
-    assert_eq!(t.text, "[File read superseded by a later operation on src/lib.rs]");
+    assert_eq!(t.text, "[read 'src/lib.rs': superseded by a later call]");
 }
 
 fn call_message(cid: &str, name: &str, args: serde_json::Value) -> ChatMessage {
@@ -1370,7 +1362,7 @@ fn test_source_text_mentioning_read_errors_is_still_pruned() {
 
     let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
 
-    assert!(extract_tool_result_first_text(&pruned[2]).contains("Output pruned for historical turn."));
+    assert!(extract_tool_result_first_text(&pruned[2]).contains(": pruned "));
 }
 
 fn verbose_read_history(turns: usize, reread_first_at: Option<usize>) -> Vec<ChatMessage> {
@@ -1454,7 +1446,7 @@ fn send_with_memory(memory: &mut PruneMemory, history: &[ChatMessage], cache: Pr
 #[test]
 fn warm_cache_keeps_its_prefix_when_a_reread_only_relabels_an_old_stub() {
     let policy = cache_test_policy();
-    let (turns, reread) = (50, Some(20));
+    let (turns, reread) = (50, Some(30));
     let stateless = count_prefix_rewrites(turns, reread, |h| prune_historical_tool_outputs_with_policy(h, &policy));
     let mut memory = PruneMemory::default();
     let warm = count_prefix_rewrites(turns, reread, |h| send_with_memory(&mut memory, h, PromptCache::Warm));
@@ -1491,7 +1483,7 @@ fn warm_cache_replays_stubs_it_sent_before() {
     let first = send_with_memory(&mut memory, &verbose_read_history(30, None), PromptCache::Cold);
     let next = send_with_memory(&mut memory, &verbose_read_history(31, None), PromptCache::Warm);
 
-    assert!(extract_tool_result_first_text(&first[2]).contains("Output pruned for historical turn."));
+    assert!(extract_tool_result_first_text(&first[2]).contains(": pruned "));
     assert_eq!(next[..first.len()], first[..]);
 }
 
@@ -1501,7 +1493,7 @@ fn test_reread_in_protected_tail_does_not_rewrite_pruned_prefix() {
     let before = prune_historical_tool_outputs_with_policy(&verbose_read_history(30, None), &policy);
     let after = prune_historical_tool_outputs_with_policy(&verbose_read_history(30, Some(29)), &policy);
 
-    assert!(extract_tool_result_first_text(&before[2]).contains("Output pruned for historical turn."));
+    assert!(extract_tool_result_first_text(&before[2]).contains(": pruned "));
     assert_eq!(before[2], after[2]);
 }
 
@@ -1525,8 +1517,7 @@ fn test_pruned_read_stub_keeps_artifact_path_from_spill_notice() {
         extract_tool_result_first_text(&pruned[2]).to_string()
     };
     let read = prune("read", &spilled);
-    assert!(read.contains("Output pruned for historical turn."), "{read}");
-    assert!(read.contains(".rho/artifacts/abc.log"), "{read}");
+    assert!(read.contains("; full: .rho/artifacts/abc.log]"), "{read}");
     assert!(!prune("read", &plain).contains("artifacts"));
 }
 

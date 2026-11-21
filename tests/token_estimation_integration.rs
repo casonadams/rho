@@ -177,10 +177,7 @@ fn test_multi_turn_image_tool_result_pruning_token_reduction() {
     assert_eq!(pruned_result.content.len(), 1);
     assert!(matches!(&pruned_result.content[0], ToolResultContent::Text(_)));
     let text = pruned_result.content[0].as_text().unwrap();
-    assert_eq!(
-        text,
-        "[Image 'docs/architecture.png' (image/png) read. Image content pruned for historical turn.]"
-    );
+    assert_eq!(text, "[read 'docs/architecture.png': image (image/png), pruned]");
 
     let post_tokens: usize = pruned_history
         .iter()

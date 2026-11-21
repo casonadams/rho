@@ -85,14 +85,14 @@ pub fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (T
 pub fn format_bash_output(snapshot: &OutputSnapshot, exit_code: i32) -> String {
     let output_trimmed = snapshot.formatted_text.trim();
     if exit_code != 0 {
-        let status_msg = format!("Command exited with code {exit_code}");
+        let status_msg = format!("[exit {exit_code}]");
         if output_trimmed.is_empty() {
             status_msg
         } else {
             format!("{output_trimmed}\n\n{status_msg}")
         }
     } else if output_trimmed.is_empty() {
-        "[Command completed with exit code 0 (no output)]".to_string()
+        "[exit 0; no output]".to_string()
     } else {
         snapshot.formatted_text.clone()
     }

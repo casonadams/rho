@@ -139,7 +139,7 @@ background work running.
 - **Tool-output pruning (every turn).** Before each request, older tool results
   longer than 15 lines are replaced with a short stub that keeps the tool,
   target, line count, and size. Bash stubs keep the exit code and log path.
-  `read`, `rg`, and `fd` stubs keep `Full output: <path>` when the original
+  `read`, `rg`, and `fd` stubs keep `full: <path>` when the original
   output was spilled to `.rho/artifacts`. Results from the latest turn and the
   most recent tokens (scaled to the model's context window) are never pruned.
 - **Prompt-cache stability.** The pruning boundary moves in steps rather than
