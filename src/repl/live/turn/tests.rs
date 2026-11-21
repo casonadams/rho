@@ -57,7 +57,6 @@ impl TurnTestFixture {
             batch: &mut self.batch,
             steering: &self.steering,
             session: &mut self.session,
-            shared_auth: None,
         }
     }
 }
@@ -238,12 +237,8 @@ fn model_switch_fixture() -> (
 
 #[tokio::test]
 async fn test_apply_turn_model_switch_updates_config_and_footer() {
-    let cases = [
-        ("local", false, false),
-        ("local", true, false),
-        ("no-such-provider", false, true),
-    ];
-    for (provider, shared, expect_warning) in cases {
+    let cases = [("local", false), ("no-such-provider", true)];
+    for (provider, expect_warning) in cases {
         let (mut controller, mut batch, mut config, auth_store) = model_switch_fixture();
         let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
         let renderer = TerminalRenderer::with_ui(ui);
@@ -256,7 +251,6 @@ async fn test_apply_turn_model_switch_updates_config_and_footer() {
             renderer: &renderer,
             controller: &mut controller,
             batch: &mut batch,
-            shared_auth: shared.then(|| std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone()))),
         };
         super::apply_turn_model_switch(input).await.unwrap();
         assert_eq!(

@@ -21,7 +21,6 @@ pub(super) struct TurnInputContext<'a, B: TerminalBackend> {
     pub batch: &'a mut LiveBatch,
     pub steering: &'a crate::repl::coordinator::SharedSteeringQueue,
     pub session: &'a mut crate::repl::ReplSession,
-    pub shared_auth: Option<std::sync::Arc<tokio::sync::Mutex<crate::auth::AuthStore>>>,
 }
 
 async fn open_model_selector_and_flush<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {

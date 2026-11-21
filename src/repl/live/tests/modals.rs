@@ -1168,7 +1168,6 @@ async fn turn_model_switch_applies_claude_model_to_config() {
         renderer: &renderer,
         controller: &mut controller,
         batch: &mut batch,
-        shared_auth: None,
     };
 
     apply_turn_model_switch(input).await.unwrap();

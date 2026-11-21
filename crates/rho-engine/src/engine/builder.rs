@@ -2,9 +2,10 @@ use super::AgentEngine;
 use super::tracking::{QuotaTracker, UsageTracker};
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
+use crate::provider::ModelRouter;
 use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
-use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::error::Result;
 use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
 use std::path::{Path, PathBuf};
@@ -107,27 +108,13 @@ impl AgentEngineBuilder {
     }
 }
 
-async fn resolve_model_off_runtime(
-    config: Config,
-    auth_store: AuthStore,
-    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
-) -> Result<ModelHandle> {
-    tokio::task::spawn_blocking(move || create_engine_model(&config, &auth_store, shared_auth))
-        .await
-        .map_err(|e| AppError::Auth(format!("Model resolution task failed: {e}")))?
-}
-
-fn subagent_model_resolver(
-    config: &Config,
-    auth_store: &AuthStore,
-    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
-) -> crate::tools::subagent::SubagentModelResolver {
+/// Subagent model roles; a spec without a provider uses the session's provider.
+fn subagent_model_resolver(router: &ModelRouter, config: &Config) -> crate::tools::subagent::SubagentModelResolver {
+    let router = router.clone();
     let config = config.clone();
-    let auth_store = auth_store.clone();
     Arc::new(move |spec: &str| {
         let route = ModelRoute::parse(spec, None, &config.route().provider);
-        crate::provider::ProviderFactory::create_model(&config, &route, &auth_store, shared_auth.clone())
-            .map_err(|e| e.to_string())
+        router.build_blocking(&config, &route).map_err(|e| e.to_string())
     })
 }
 
@@ -200,24 +187,23 @@ impl AgentEngineBuilder {
     }
 
     /// `None` until a model is selected: an empty `config.model` means none was chosen or saved.
-    async fn resolve_model(&mut self, shared_auth: Arc<tokio::sync::Mutex<AuthStore>>) -> Result<Option<ModelHandle>> {
+    async fn resolve_model(&mut self, router: &ModelRouter) -> Result<Option<ModelHandle>> {
         if let Some(m) = self.model.take() {
             return Ok(Some(m));
         }
         if self.config.model.trim().is_empty() {
             return Ok(None);
         }
-        let model = resolve_model_off_runtime(self.config.clone(), self.auth_store.clone(), shared_auth).await?;
-        Ok(Some(model))
+        router.build(&self.config, &self.config.route()).await.map(Some)
     }
 
     fn into_engine(
         self,
         base_dir: PathBuf,
-        (session_manager, auth_store): (SessionManager, Arc<tokio::sync::Mutex<AuthStore>>),
+        (session_manager, router): (SessionManager, ModelRouter),
         (tools, tool_names, model): EngineAssembly,
     ) -> AgentEngine {
-        let context = super::tracking::ContextTracker::new(self.config.context_limit, self.model_catalog);
+        let context = super::tracking::ContextTracker::new(self.config.context_limit);
         let demotion_hook = self.demotion_hook.or_else(|| {
             Some(Arc::new(
                 crate::engine::compactor::artifact_spill::ArtifactDemotionHook::new(base_dir.join(".rho/artifacts")),
@@ -234,7 +220,7 @@ impl AgentEngineBuilder {
             context,
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
-            auth_store,
+            router,
             model: model.clone(),
             compactor_model: model,
             demotion_hook,
@@ -252,7 +238,8 @@ impl AgentEngineBuilder {
         let base_dir = self.base_dir.take().map(Ok).unwrap_or_else(std::env::current_dir)?;
         let session_manager = self.resolve_session().await?;
         let shared_auth = Arc::new(tokio::sync::Mutex::new(self.auth_store.clone()));
-        let model = self.resolve_model(shared_auth.clone()).await?;
+        let router = ModelRouter::new(shared_auth, self.model_catalog.clone());
+        let model = self.resolve_model(&router).await?;
 
         let history_messages = session_manager.active_messages().await.unwrap_or_default();
         let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
@@ -262,7 +249,7 @@ impl AgentEngineBuilder {
             &self.config,
             SubagentModels {
                 default: model.as_ref(),
-                resolver: subagent_model_resolver(&self.config, &self.auth_store, shared_auth.clone()),
+                resolver: subagent_model_resolver(&router, &self.config),
                 runtime: &self.subagent_runtime,
             },
             self.tools.take(),
@@ -276,11 +263,7 @@ impl AgentEngineBuilder {
         let home = rho_harness_core::config::home_dir();
         let workflows = subagents.map(|s| crate::tools::workflow::WorkflowRunner::new(s, base_dir.clone(), home));
         let worktrees = workflows.as_ref().and_then(|w| w.worktrees().cloned());
-        let mut engine = self.into_engine(
-            base_dir,
-            (session_manager, shared_auth),
-            (tools_lock, tool_names, model),
-        );
+        let mut engine = self.into_engine(base_dir, (session_manager, router), (tools_lock, tool_names, model));
         engine.workflows = workflows;
         engine.worktrees = worktrees;
         engine.mcp = super::EngineMcp {
@@ -292,23 +275,10 @@ impl AgentEngineBuilder {
     }
 }
 
-pub fn create_engine_model(
-    config: &Config,
-    auth_store: &AuthStore,
-    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
-) -> Result<ModelHandle> {
-    crate::provider::ProviderFactory::create_model(config, &config.route(), auth_store, shared_auth)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::temp_auth_store;
-    use rho_harness_core::auth::StoredCredential;
-
-    fn shared(store: &AuthStore) -> Arc<tokio::sync::Mutex<AuthStore>> {
-        Arc::new(tokio::sync::Mutex::new(store.clone()))
-    }
 
     #[tokio::test]
     async fn engine_without_a_selected_model_builds_and_refuses_turns() {
@@ -336,27 +306,5 @@ mod tests {
             .to_string();
         assert!(error.contains("No model selected"), "{error}");
         assert!(engine.session_manager.active_messages().await.unwrap().is_empty());
-    }
-
-    #[cfg(unix)]
-    #[tokio::test(flavor = "current_thread")]
-    async fn slow_command_key_resolution_keeps_the_runtime_responsive() {
-        let (_dir, mut store) = temp_auth_store();
-        store
-            .set_credential(
-                "anthropic",
-                StoredCredential::api_key("!sleep 0.2; echo sk-ant-slow".to_string()),
-            )
-            .unwrap();
-        let config = Config {
-            provider: "anthropic".to_string(),
-            model: "anthropic/claude-3.7-sonnet".to_string(),
-            ..Default::default()
-        };
-        let started = std::time::Instant::now();
-        let resolving = tokio::spawn(resolve_model_off_runtime(config, store.clone(), shared(&store)));
-        tokio::task::yield_now().await;
-        assert!(started.elapsed() < std::time::Duration::from_millis(150));
-        let _model = resolving.await.unwrap().unwrap();
     }
 }

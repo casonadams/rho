@@ -98,7 +98,7 @@ fn openai_endpoint_models(provider: ProviderId) -> Result<&'static str> {
 pub async fn discover_models(provider: &str, config: &Config, auth: AuthStore) -> Result<Vec<DiscoveredModel>> {
     crate::install_crypto_provider();
     if let Some(spec) = config.providers.get(provider) {
-        let key = crate::provider::ProviderFactory::custom_key(provider, spec, &auth)?;
+        let key = crate::provider::router::custom_key(provider, spec, &auth)?;
         let url = format!("{}/models", spec.base_url.trim_end_matches('/'));
         return fetch::fetch_openai_compatible(&url, key.as_deref(), provider).await;
     }

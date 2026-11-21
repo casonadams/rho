@@ -9,7 +9,7 @@ pub use crate::repeat::REPEATED_CALL_MESSAGE;
 use std::path::Path;
 pub use tracking::{SessionUsageTotals, SpeedTracker};
 pub mod builder;
-pub use builder::{AgentEngineBuilder, create_engine_model};
+pub use builder::AgentEngineBuilder;
 pub mod compactor;
 pub mod context;
 mod display;
@@ -47,7 +47,7 @@ pub struct AgentEngine {
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
-    pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
+    pub(crate) router: crate::provider::ModelRouter,
     pub(crate) model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
@@ -151,7 +151,7 @@ impl AgentEngine {
     }
 
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {
-        Arc::clone(&self.auth_store)
+        Arc::clone(self.router.auth())
     }
 
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {

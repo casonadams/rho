@@ -1,4 +1,4 @@
-use super::ModelRequest;
+use super::router::ModelRequest;
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::quota_refresh::stored_oauth_account_id;

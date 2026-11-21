@@ -1,5 +1,5 @@
 use rho_engine::auth::AuthStore;
-use rho_engine::provider::{ModelHandle, ProviderFactory};
+use rho_engine::provider::{ModelCatalog, ModelHandle, ModelRouter};
 use rho_harness_core::config::Config;
 
 fn with_test_env<T, F: FnOnce(&std::path::Path) -> T>(toml: &str, env_pair: (&str, &str), f: F) -> T {
@@ -30,8 +30,11 @@ fn create_model(toml: &str, env_pair: (&str, &str)) -> (Config, rho_harness_core
     with_test_env(toml, env_pair, |home| {
         let config = Config::load(None).unwrap();
         let auth_store = AuthStore::load(home.join("auth.json")).unwrap();
-        let shared_auth = std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone()));
-        let handle = ProviderFactory::create_model(&config, &config.route(), &auth_store, shared_auth);
+        let router = ModelRouter::new(
+            std::sync::Arc::new(tokio::sync::Mutex::new(auth_store)),
+            ModelCatalog::default(),
+        );
+        let handle = router.build_blocking(&config, &config.route());
         (config, handle)
     })
 }

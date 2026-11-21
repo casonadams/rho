@@ -94,7 +94,7 @@ impl AgentEngine {
     }
 
     pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
-        let oauth_secrets = self.auth_store.lock().await.oauth_secret_values();
+        let oauth_secrets = self.router.auth().lock().await.oauth_secret_values();
         self.session_manager.add_secrets_async(oauth_secrets).await?;
         let mut prep = match self.prepare_turn(request.prompt, &presenter).await? {
             prepare::PreparedTurnOutcome::Compacted(out) => return Ok(*out),

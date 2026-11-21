@@ -125,7 +125,6 @@ async fn switch_modal_model<B: TerminalBackend>(
         renderer: &lp.session.renderer,
         controller: lp.controller,
         batch: &mut lp.batch,
-        shared_auth: Some(lp.engine.shared_auth_store()),
     })
     .await
 }
@@ -142,7 +141,6 @@ async fn dispatch_regular_key<B: TerminalBackend>(
         batch: &mut lp.batch,
         steering: &lp.steering,
         session: lp.session,
-        shared_auth: Some(lp.engine.shared_auth_store()),
     };
     if let TurnKeyResult::Cancelled = handle_turn_key(key, &mut ctx).await? {
         cancel_active_turn(lp, res.ui_events, res.cancellation).await?;

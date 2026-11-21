@@ -1,5 +1,6 @@
 use crate::provider::ModelCatalog;
 use rho_harness_core::model::ChatMessage;
+use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::tokens::{ContextTokenStats, MessageTokenCache};
 use std::sync::{Arc, Mutex};
 
@@ -13,40 +14,31 @@ pub enum ContextLimitSource {
 #[derive(Debug, Clone, Default)]
 pub struct ContextTracker {
     configured_limit: Option<usize>,
-    catalog: ModelCatalog,
     probe_error: Arc<Mutex<Option<String>>>,
     token_cache: Arc<Mutex<MessageTokenCache>>,
 }
 
 impl ContextTracker {
-    pub fn new(configured_limit: Option<usize>, catalog: ModelCatalog) -> Self {
+    pub fn new(configured_limit: Option<usize>) -> Self {
         Self {
             configured_limit,
-            catalog,
             probe_error: Arc::default(),
             token_cache: Arc::new(Mutex::new(MessageTokenCache::new())),
         }
     }
 
-    pub fn resolve_limit(&self, model: &str, provider: &str) -> (usize, ContextLimitSource) {
+    /// The configured limit, else the provider's window for `route`, else an estimate from its name.
+    pub fn resolve_limit(&self, catalog: &ModelCatalog, route: &ModelRoute) -> (usize, ContextLimitSource) {
         if let Some(limit) = self.configured_limit {
             return (limit, ContextLimitSource::Configured);
         }
-        match self.catalog.context_tokens(provider, model) {
+        match catalog.context_tokens(&route.provider, &route.model) {
             Some(limit) => (limit, ContextLimitSource::Provider),
             None => (
-                rho_harness_core::tokens::context_window_size_for_provider(model, provider),
+                rho_harness_core::tokens::context_window_size_for_provider(&route.model, &route.provider),
                 ContextLimitSource::Estimated,
             ),
         }
-    }
-
-    pub fn limit_for(&self, model: &str, provider: &str) -> Option<usize> {
-        Some(self.resolve_limit(model, provider).0)
-    }
-
-    pub(crate) fn catalog(&self) -> &ModelCatalog {
-        &self.catalog
     }
 
     /// Why the last attempt to read the provider's live window failed; cleared by the next success.
@@ -87,6 +79,7 @@ impl ContextTracker {
 mod tests {
     use super::{ContextLimitSource, ContextTracker};
     use crate::provider::{DiscoveredModel, ModelCatalog, ProviderModels};
+    use rho_harness_core::provider::ModelRoute;
 
     fn catalog_with(provider: &str, id: &str, tokens: usize) -> ModelCatalog {
         let catalog = ModelCatalog::default();
@@ -120,28 +113,28 @@ mod tests {
             (None, ModelCatalog::default(), (estimate, ContextLimitSource::Estimated)),
         ];
         for (configured, catalog, expected) in cases {
-            let tracker = ContextTracker::new(configured, catalog);
-            assert_eq!(tracker.resolve_limit("m", "local"), expected, "{configured:?}");
+            let tracker = ContextTracker::new(configured);
+            assert_eq!(
+                tracker.resolve_limit(&catalog, &ModelRoute::new("local", "m")),
+                expected,
+                "{configured:?}"
+            );
         }
     }
 
     #[test]
     fn provider_aliases_share_one_catalog_entry() {
-        let tracker = ContextTracker::new(None, catalog_with("local", "m", 8192));
-        assert_eq!(tracker.limit_for("m", "ollama"), Some(8192));
+        let tracker = ContextTracker::new(None);
+        let catalog = catalog_with("local", "m", 8192);
+        assert_eq!(tracker.resolve_limit(&catalog, &ModelRoute::new("ollama", "m")).0, 8192);
     }
 
     #[test]
-    fn catalog_updates_and_probe_errors_reach_existing_trackers() {
-        let catalog = ModelCatalog::default();
-        let tracker = ContextTracker::new(None, catalog.clone());
+    fn probe_errors_reach_existing_trackers() {
+        let tracker = ContextTracker::new(None);
         let clone = tracker.clone();
-
-        catalog.record_observed_context("local", "m", 262_144);
         clone.set_probe_error(Some("Ollama /api/ps request failed".to_string()));
-        assert_eq!(tracker.limit_for("m", "local"), Some(262_144));
         assert_eq!(tracker.probe_error().as_deref(), Some("Ollama /api/ps request failed"));
-
         clone.set_probe_error(None);
         assert_eq!(tracker.probe_error(), None);
     }

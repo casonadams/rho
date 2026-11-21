@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use crate::auth::AuthStore;
-use rho_engine::engine::builder::create_engine_model;
+use rho_engine::provider::{ModelCatalog, ModelRouter};
 use rho_harness_core::config::Config;
-use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::error::Result;
 
 use super::super::batch::LiveBatch;
 use super::input::TurnInputContext;
@@ -19,7 +19,6 @@ pub(crate) struct TurnModelSwitchInput<'a, 'b, B: TerminalBackend> {
     pub renderer: &'b TerminalRenderer,
     pub controller: &'b mut TerminalController<B>,
     pub batch: &'b mut LiveBatch,
-    pub shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
 }
 
 async fn save_and_report_default(config: &mut Config, renderer: &TerminalRenderer, model: &str, provider: &str) {
@@ -44,15 +43,9 @@ async fn update_config_model(
 }
 
 async fn validate_engine_model(input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>) {
-    let shared_auth = input
-        .shared_auth
-        .clone()
-        .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(input.auth_store.clone())));
-    let config = input.config.clone();
-    let auth_store = input.auth_store.clone();
-    let validation = tokio::task::spawn_blocking(move || create_engine_model(&config, &auth_store, shared_auth))
-        .await
-        .unwrap_or_else(|e| Err(AppError::Auth(format!("Model validation task failed: {e}"))));
+    let auth = Arc::new(tokio::sync::Mutex::new(input.auth_store.clone()));
+    let router = ModelRouter::new(auth, ModelCatalog::default());
+    let validation = router.build(input.config, &input.config.route()).await;
     if let Err(err) = validation {
         input.renderer.notice(
             crate::ui::render::NoticeKind::Warn,
@@ -111,7 +104,6 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
         renderer: &ctx.session.renderer,
         controller: ctx.controller,
         batch: ctx.batch,
-        shared_auth: ctx.shared_auth.clone(),
     })
     .await
 }
@@ -142,7 +134,6 @@ async fn apply_thinking_cycle<B: TerminalBackend>(
         renderer: &ctx.session.renderer,
         controller: ctx.controller,
         batch: ctx.batch,
-        shared_auth: ctx.shared_auth.clone(),
     })
     .await?;
 

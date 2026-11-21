@@ -1,6 +1,9 @@
 use super::*;
+use crate::auth::AuthStore;
 use crate::test_support::temp_auth_store;
-use rho_harness_core::config::ProviderConfig;
+use rho_harness_core::config::{Config, ProviderConfig};
+use rho_harness_core::error::Result;
+use rho_harness_core::provider::{ModelRoute, ProviderId};
 use std::collections::BTreeMap;
 
 fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {
@@ -21,13 +24,15 @@ fn spec(base_url: &str, key_env: Option<&str>) -> ProviderConfig {
     }
 }
 
-fn shared_auth(auth_store: &AuthStore) -> std::sync::Arc<tokio::sync::Mutex<AuthStore>> {
-    std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone()))
+fn router(auth_store: &AuthStore) -> ModelRouter {
+    ModelRouter::new(
+        std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone())),
+        ModelCatalog::default(),
+    )
 }
 
 fn create_model_for_config(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
-    let route = ModelRoute::new(&config.provider, model);
-    ProviderFactory::create_model(config, &route, auth_store, shared_auth(auth_store))
+    router(auth_store).build_blocking(config, &ModelRoute::new(&config.provider, model))
 }
 
 #[test]
@@ -180,13 +185,13 @@ fn claude_provider_builds_model_handle() {
         )
         .unwrap();
 
-    let request = ModelRequest {
-        provider: ProviderId::ClaudeCode,
-        model: "claude-sonnet-4-6",
-        thinking_level: Some("high"),
-        shared_auth: shared_auth(&auth_store),
+    let config = Config {
+        thinking_level: Some("high".to_string()),
+        ..Default::default()
     };
-    let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
+    let handle = router(&auth_store)
+        .build_blocking(&config, &ModelRoute::new("claude", "claude-sonnet-4-6"))
+        .unwrap();
     assert_eq!(handle.provider_name(), "claude");
 
     let api_key = builders::build_api_key_model(ProviderId::Anthropic, "claude-sonnet-4-6", "k".into()).unwrap();
@@ -197,15 +202,10 @@ fn claude_provider_builds_model_handle() {
 
 #[test]
 fn claude_provider_fails_without_credentials() {
-    let dir = tempfile::tempdir().unwrap();
-    let auth_store = AuthStore::load(dir.path().join("auth.json")).unwrap();
-    let request = ModelRequest {
-        provider: ProviderId::ClaudeCode,
-        model: "claude-sonnet-4-6",
-        thinking_level: None,
-        shared_auth: shared_auth(&auth_store),
-    };
-    let Err(err) = ProviderFactory::create_model_for(request, &auth_store) else {
+    let (_dir, auth_store) = temp_auth_store();
+    let Err(err) =
+        router(&auth_store).build_blocking(&Config::default(), &ModelRoute::new("claude", "claude-sonnet-4-6"))
+    else {
         panic!("missing credentials must fail");
     };
     let err = err.to_string();
@@ -213,92 +213,70 @@ fn claude_provider_fails_without_credentials() {
 }
 
 #[test]
-fn resolve_guard_model_tests() {
-    let mut config = Config::default();
-    assert_eq!(resolve_guard_model(&config), None);
-
-    config.models.insert("guard".to_string(), "none".to_string());
-    assert_eq!(resolve_guard_model(&config), None);
-
-    config
-        .models
-        .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
-    assert_eq!(
-        resolve_guard_model(&config),
-        Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
-    );
-
-    config
-        .models
-        .insert("guard".to_string(), "ollama/qwen2.5-coder:7b".to_string());
-    assert_eq!(
-        resolve_guard_model(&config),
-        Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
-    );
-
-    config
-        .models
-        .insert("guard".to_string(), "anthropic/claude-3-5-haiku".to_string());
-    assert_eq!(
-        resolve_guard_model(&config),
-        Some((ProviderId::Anthropic, "claude-3-5-haiku".to_string()))
-    );
-
-    config
-        .models
-        .insert("guard".to_string(), "qwen2.5-coder:7b".to_string());
-    assert_eq!(
-        resolve_guard_model(&config),
-        Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
-    );
+fn guard_route_reads_the_guard_role() {
+    let cases = [
+        (None, None),
+        (Some("none"), None),
+        (Some("local/qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b")),
+        (Some("ollama/qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b")),
+        (Some("anthropic/claude-3-5-haiku"), Some("anthropic/claude-3-5-haiku")),
+        (Some("qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b")),
+        (Some("acme/m-1"), Some("acme/m-1")),
+    ];
+    for (spec, expected) in cases {
+        let mut config = Config::default();
+        if let Some(spec) = spec {
+            config.models.insert("guard".to_string(), spec.to_string());
+        }
+        assert_eq!(
+            guard_route(&config).map(|r| r.to_string()).as_deref(),
+            expected,
+            "{spec:?}"
+        );
+    }
 }
 
-#[test]
-fn test_guard_model_thinking_is_none() {
+#[tokio::test]
+async fn guard_model_builds_only_when_configured_and_releases_the_auth_lock() {
+    let (_dir, auth_store) = temp_auth_store();
+    let router = router(&auth_store);
     let mut config = Config {
         thinking_level: Some("high".to_string()),
         ..Default::default()
     };
+    assert!(router.build_guard(&config).await.unwrap().is_none());
+
     config
         .models
         .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
-
-    let (provider, model) = resolve_guard_model(&config).expect("guard model should resolve");
-    let req = ProviderFactory::guard_model_request(provider, &model, shared_auth(&AuthStore::default()));
-    assert_eq!(req.thinking_level, None);
-    assert_eq!(req.provider, ProviderId::Local);
-    assert_eq!(req.model, "qwen2.5-coder:7b");
-
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-
-    let handle = ProviderFactory::create_guard_model(&config, &auth_store, shared_auth(&auth_store)).unwrap();
-    assert!(handle.is_some());
-
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn guard_model_request_shares_the_engine_auth_store() {
-    let shared = shared_auth(&AuthStore::default());
-    let req = ProviderFactory::guard_model_request(ProviderId::Local, "qwen2.5-coder:7b", shared.clone());
-    assert!(std::sync::Arc::ptr_eq(&req.shared_auth, &shared));
-}
-
-#[test]
-fn engine_model_is_built_from_the_config_route() {
-    let (_dir, auth_store) = temp_auth_store();
-    let config = Config {
-        provider: "ollama".to_string(),
-        model: "local/qwen2.5-coder:7b".to_string(),
-        ..Default::default()
-    };
-    let handle = crate::engine::builder::create_engine_model(&config, &auth_store, shared_auth(&auth_store)).unwrap();
+    let guard = router.build_guard(&config).await.unwrap().unwrap();
     assert_eq!(
-        (handle.provider_name(), handle.model_name()),
+        (guard.provider_name(), guard.model_name()),
         ("local", "qwen2.5-coder:7b")
     );
+    assert!(router.auth().try_lock().is_ok());
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn slow_command_key_resolution_keeps_the_runtime_responsive() {
+    let (_dir, mut store) = temp_auth_store();
+    store
+        .set_credential(
+            "anthropic",
+            rho_harness_core::auth::StoredCredential::api_key("!sleep 0.2; echo sk-ant-slow".to_string()),
+        )
+        .unwrap();
+    let router = router(&store);
+    let started = std::time::Instant::now();
+    let resolving = tokio::spawn(async move {
+        router
+            .build(&Config::default(), &ModelRoute::new("anthropic", "claude-3.7-sonnet"))
+            .await
+    });
+    tokio::task::yield_now().await;
+    assert!(started.elapsed() < std::time::Duration::from_millis(150));
+    let _model = resolving.await.unwrap().unwrap();
 }
 
 #[tokio::test]
@@ -362,13 +340,10 @@ fn gemini_and_chatgpt_builders_name_provider_and_model() {
         ("gemini", "gemini-2.5-pro")
     );
 
-    let (_dir, auth_store) = temp_auth_store();
-    let request = ModelRequest {
-        provider: ProviderId::ChatGpt,
-        model: "gpt-5.4",
-        thinking_level: None,
-        shared_auth: shared_auth(&auth_store),
-    };
-    let chatgpt = builders::build_chatgpt_model(&request, &auth_store);
+    let (_dir, mut auth_store) = temp_auth_store();
+    auth_store.set_key("chatgpt", "tok").unwrap();
+    let chatgpt = router(&auth_store)
+        .build_blocking(&Config::default(), &ModelRoute::new("chatgpt", "gpt-5.4"))
+        .unwrap();
     assert_eq!((chatgpt.provider_name(), chatgpt.model_name()), ("chatgpt", "gpt-5.4"));
 }

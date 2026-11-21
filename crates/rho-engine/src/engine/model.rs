@@ -2,15 +2,13 @@ use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 
 use super::AgentEngine;
-use super::builder;
 use super::tracking::{ContextLimitSource, ContextTracker};
 use crate::provider::ModelCatalog;
 use rho_harness_core::provider::{ModelRoute, ProviderId};
 
 impl AgentEngine {
     pub async fn build_model_handle(&self, config: &Config) -> Result<crate::engine::compactor::llm::ModelHandle> {
-        let auth_store = self.auth_store.lock().await;
-        builder::create_engine_model(config, &auth_store, self.auth_store.clone())
+        self.router.build(config, &config.route()).await
     }
 
     pub async fn switch_model(&mut self, model: &str, provider: &str) -> Result<()> {
@@ -24,22 +22,26 @@ impl AgentEngine {
         self.config.set_route(route);
         let model_handle = self.build_model_handle(&self.config).await?;
         self.model = Some(model_handle);
-        self.context = ContextTracker::new(self.config.context_limit, self.model_catalog().clone());
+        self.context = ContextTracker::new(self.config.context_limit);
 
         self.force_refresh_quota();
         Ok(())
     }
 
     pub fn model_catalog(&self) -> &ModelCatalog {
-        self.context.catalog()
+        self.router.catalog()
     }
 
     pub fn context_limit(&self) -> Option<usize> {
-        self.context.limit_for(&self.config.model, &self.config.provider)
+        Some(self.resolve_context_limit().0)
     }
 
     pub fn context_limit_source(&self) -> ContextLimitSource {
-        self.context.resolve_limit(&self.config.model, &self.config.provider).1
+        self.resolve_context_limit().1
+    }
+
+    fn resolve_context_limit(&self) -> (usize, ContextLimitSource) {
+        self.context.resolve_limit(self.model_catalog(), &self.config.route())
     }
 
     /// Why rho could not read the local Ollama server's allocated window after the last turn.
@@ -57,6 +59,7 @@ impl AgentEngine {
         let probe = LocalContextProbe {
             host: self.ollama_host.clone(),
             route,
+            catalog: self.model_catalog().clone(),
             context: self.context.clone(),
         };
         tokio::spawn(probe.run());
@@ -66,6 +69,7 @@ impl AgentEngine {
 struct LocalContextProbe {
     host: String,
     route: ModelRoute,
+    catalog: ModelCatalog,
     context: ContextTracker,
 }
 
@@ -73,8 +77,7 @@ impl LocalContextProbe {
     async fn run(self) {
         match crate::ollama::local::loaded_context_length(&self.host, &self.route.model).await {
             Ok(Some(tokens)) => {
-                self.context
-                    .catalog()
+                self.catalog
                     .record_observed_context(&self.route.provider, &self.route.model, tokens);
                 self.context.set_probe_error(None);
             }
@@ -107,10 +110,11 @@ mod tests {
         serde_json::json!({ "models": [{ "name": MODEL, "context_length": context_length }] }).to_string()
     }
 
-    fn probe(host: String, context: &ContextTracker) -> LocalContextProbe {
+    fn probe(host: String, catalog: &ModelCatalog, context: &ContextTracker) -> LocalContextProbe {
         LocalContextProbe {
             host,
             route: ModelRoute::new("local", MODEL),
+            catalog: catalog.clone(),
             context: context.clone(),
         }
     }
@@ -138,7 +142,7 @@ mod tests {
             },
         );
         let catalog = catalog_with_trained_window();
-        engine.context = ContextTracker::new(None, catalog.clone());
+        engine.router = crate::provider::ModelRouter::new(engine.shared_auth_store(), catalog.clone());
         engine.ollama_host = serve_http(vec![("200 OK", ps_body(262_144))]).await;
         assert_eq!(engine.context_limit(), Some(1_048_576));
         let mut changes = catalog.subscribe();
@@ -161,33 +165,60 @@ mod tests {
         assert_eq!(engine.context_probe_error(), None);
     }
 
+    fn window(catalog: &ModelCatalog) -> Option<usize> {
+        catalog.context_tokens("local", MODEL)
+    }
+
+    #[tokio::test]
+    async fn switching_to_an_aliased_prefixed_model_builds_its_canonical_route() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = crate::engine::eval::mock::mock_engine(
+            std::sync::Arc::new(MockAdapter::text("unused")),
+            crate::engine::eval::mock::MockEngineConfig {
+                base_dir: dir.path(),
+                app_config: Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+
+        engine.switch_model("local/qwen2.5-coder:7b", "ollama").await.unwrap();
+
+        assert_eq!(engine.config.canonical_model_spec(), "local/qwen2.5-coder:7b");
+        let model = engine.model.as_ref().unwrap();
+        assert_eq!(
+            (model.provider_name(), model.model_name()),
+            ("local", "qwen2.5-coder:7b")
+        );
+    }
+
     #[tokio::test]
     async fn probe_reports_failures_until_the_next_success() {
-        let context = ContextTracker::new(None, catalog_with_trained_window());
+        let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new(None));
         let host = serve_http(vec![
             ("500 Internal Server Error", "{}".to_string()),
             ("200 OK", ps_body(262_144)),
         ])
         .await;
 
-        probe(host.clone(), &context).run().await;
+        probe(host.clone(), &catalog, &context).run().await;
         let error = context.probe_error().unwrap();
         assert!(error.contains("/api/ps returned HTTP 500"), "{error}");
-        assert_eq!(context.limit_for(MODEL, "local"), Some(1_048_576));
+        assert_eq!(window(&catalog), Some(1_048_576));
 
-        probe(host, &context).run().await;
+        probe(host, &catalog, &context).run().await;
         assert_eq!(context.probe_error(), None);
-        assert_eq!(context.limit_for(MODEL, "local"), Some(262_144));
+        assert_eq!(window(&catalog), Some(262_144));
     }
 
     #[tokio::test]
     async fn probe_keeps_current_window_when_model_is_not_loaded() {
-        let context = ContextTracker::new(None, catalog_with_trained_window());
+        let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new(None));
         let host = serve_http(vec![("200 OK", r#"{"models":[]}"#.to_string())]).await;
 
-        probe(host, &context).run().await;
+        probe(host, &catalog, &context).run().await;
 
-        assert_eq!(context.limit_for(MODEL, "local"), Some(1_048_576));
+        assert_eq!(window(&catalog), Some(1_048_576));
         assert_eq!(context.probe_error(), None);
     }
 }

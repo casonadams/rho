@@ -25,7 +25,7 @@ fn quota_provider(provider: &str) -> Option<ProviderId> {
 impl AgentEngine {
     fn quota_job(&self) -> Option<BoxFuture<'static, ()>> {
         let provider = quota_provider(&self.config.provider)?;
-        let auth = Arc::clone(&self.auth_store);
+        let auth = self.shared_auth_store();
         let quota = self.quota.clone();
         let model = self.config.model.clone();
         Some(match provider {
