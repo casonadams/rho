@@ -80,12 +80,12 @@ pub(crate) async fn share_ignored(source: &Path, worktree: &Path, common_dir: &P
 }
 
 #[cfg(unix)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+pub(super) fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
 #[cfg(windows)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+pub(super) fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
     if target.is_dir() {
         std::os::windows::fs::symlink_dir(target, link)
     } else {

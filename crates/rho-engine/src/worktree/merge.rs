@@ -1,5 +1,6 @@
 use super::FileChange;
 use super::git;
+use super::share::symlink;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -159,16 +160,6 @@ async fn apply(target: &Path, tree: &str, changes: &[(char, String)]) -> Result<
         }
     }
     Ok(())
-}
-
-#[cfg(unix)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(target, link)
-}
-
-#[cfg(windows)]
-fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_file(target, link)
 }
 
 #[cfg(unix)]
