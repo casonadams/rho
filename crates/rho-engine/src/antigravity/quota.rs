@@ -43,11 +43,6 @@ pub async fn fetch_quota_from_endpoints(
     summary_display
 }
 
-/// Fetch available models or quota summary from Antigravity using configured endpoints.
-pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> Option<String> {
-    fetch_quota_from_endpoints(&super::client::resolve_endpoints(None), token, project_id, target_model).await
-}
-
 pub(crate) fn is_unmetered_summary(display: &str) -> bool {
     let tokens: Vec<&str> = display.split_whitespace().collect();
     !tokens.is_empty() && tokens.iter().all(|&t| t == "0%")

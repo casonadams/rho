@@ -25,6 +25,7 @@ pub struct AgentEngineBuilder {
     subagent_runtime: crate::tools::subagent::SubagentRuntime,
     turn_notes: super::TurnNotes,
     model_catalog: crate::provider::ModelCatalog,
+    quota_endpoints: super::quota_refresh::QuotaEndpoints,
 }
 
 type EngineAssembly = (
@@ -49,6 +50,7 @@ impl AgentEngineBuilder {
             subagent_runtime: crate::tools::subagent::SubagentRuntime::default(),
             turn_notes: super::TurnNotes::default(),
             model_catalog: crate::provider::ModelCatalog::default(),
+            quota_endpoints: super::quota_refresh::QuotaEndpoints::default(),
         }
     }
 
@@ -104,6 +106,11 @@ impl AgentEngineBuilder {
 
     pub fn model_catalog(mut self, catalog: crate::provider::ModelCatalog) -> Self {
         self.model_catalog = catalog;
+        self
+    }
+
+    pub fn quota_endpoints(mut self, endpoints: super::quota_refresh::QuotaEndpoints) -> Self {
+        self.quota_endpoints = endpoints;
         self
     }
 }
@@ -217,6 +224,7 @@ impl AgentEngineBuilder {
             tools,
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
+            quota_endpoints: self.quota_endpoints,
             context,
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),

@@ -44,6 +44,7 @@ pub struct AgentEngine {
     pub(crate) tools: Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
+    pub(crate) quota_endpoints: quota_refresh::QuotaEndpoints,
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,

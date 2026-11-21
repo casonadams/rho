@@ -8,5 +8,4 @@ pub mod request;
 pub mod stream;
 
 pub use client::{AntigravityClient, antigravity_headers, discover_models, load_project_id};
-pub use quota::fetch_quota;
 pub use request::{Effort, RequestTarget, collapse_runtime_id, fallback_runtime_model, resolve_runtime_model};

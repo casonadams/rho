@@ -322,6 +322,9 @@ async fn build_engine_offline_with_expired_oauth_token_succeeds_without_blocking
     let start = std::time::Instant::now();
     let engine = builder::AgentEngineBuilder::new(config, auth_store)
         .base_dir(dir.clone())
+        .quota_endpoints(crate::engine::quota_refresh::QuotaEndpoints::all_at(
+            "http://127.0.0.1:9",
+        ))
         .build()
         .await
         .expect("Engine build must succeed offline without blocking on OAuth refresh");
