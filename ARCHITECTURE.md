@@ -46,9 +46,11 @@ Deterministic domain code, independent of any framework types:
 Everything needed to run model turns and tools:
 
 - `engine/` — `AgentEngine` and the turn loop (below).
-- `provider/` — model handle construction per provider (Claude, ChatGPT,
-  Gemini/Antigravity, Ollama, OpenRouter, custom endpoints), live model-list
-  discovery, and the in-memory `ModelCatalog` shared by the engine and UI.
+- `provider/` — `ModelRouter`, the one path from a `provider/model` route to a
+  model handle for every provider (Claude, ChatGPT, Gemini/Antigravity, Ollama,
+  OpenRouter, custom endpoints), plus live model-list discovery and the
+  in-memory `ModelCatalog` the router shares with the engine and UI. Specs are
+  parsed once into a `ModelRoute` (`rho-harness-core::provider`).
 - `claude/`, `antigravity/`, `chatgpt/`, `ollama/` — provider-specific wire
   formats, SSE streaming, quota parsing, and OAuth flows (`auth/`).
 - `tools/` — built-in tools (bash, read, edit, write, fd, rg, web_fetch,
