@@ -181,7 +181,8 @@ slow = "openai/o3-mini"
 
 `cache_retention` sets how long Claude (`claude` and `anthropic` providers)
 keeps each request's prompt cache. `auto` uses `long` for `claude`
-subscription logins and `short` for `anthropic` API keys. `long` writes cost
+subscription logins and `short` for `anthropic` API keys. Subagents always use
+`short` under `auto`, since they finish within minutes. `long` writes cost
 2x base input instead of 1.25x, but a prompt sent 5 to 60 minutes after the
 last one reads the history from cache instead of writing it again. Override it
 with `rho config cache_retention short` or `long`.
