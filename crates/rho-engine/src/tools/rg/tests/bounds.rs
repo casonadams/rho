@@ -1,7 +1,7 @@
 use super::{fixture, search};
+use crate::tools::listing::LISTING_PAGE_BYTES;
 use crate::tools::listing::PageRequest;
 use crate::tools::rg::{RG_COLLECTION_CEILING, RgArgs, RgOutputMode};
-use crate::tools::truncate::DEFAULT_MAX_BYTES;
 use crate::tools::types::generated_schema;
 
 const MODE_HINT: &str = "output_mode 'files' or 'count' covers every matching file in far fewer bytes";
@@ -70,9 +70,7 @@ async fn offset_continues_where_the_previous_page_ended() {
     .await;
     assert_eq!(
         result.content,
-        format!(
-            "7 matches in 4 files\n\nREADME.md\n3:pub markdown\n\nsrc/lib.rs\n1:pub mod ui;\n\n[showing matches 3-4 of 7; next page: offset=4; {MODE_HINT}]"
-        )
+        "7 matches in 4 files\n\nREADME.md\n3:pub markdown\n\nsrc/lib.rs\n1:pub mod ui;\n\n[showing matches 3-4 of 7; next page: offset=4]"
     );
 }
 
@@ -95,9 +93,7 @@ async fn every_match_is_reachable_by_offset_with_exact_totals() {
     let result = search(&dir, "needle", |args| args.offset = Some(5998)).await;
     assert_eq!(
         result.content,
-        format!(
-            "6000 matches in 1 file\n\nmany.txt\n5999:needle line 5998\n6000:needle line 5999\n\n[showing matches 5999-6000 of 6000; {MODE_HINT}]"
-        )
+        "6000 matches in 1 file\n\nmany.txt\n5999:needle line 5998\n6000:needle line 5999\n\n[showing matches 5999-6000 of 6000]"
     );
 }
 
@@ -165,9 +161,14 @@ async fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
     let body = result.content.split("\n\n").nth(1).unwrap();
-    assert!(body.len() <= DEFAULT_MAX_BYTES);
+    let row_bytes = "1:needle".len() + 400 + 1;
+    assert!(body.len() <= LISTING_PAGE_BYTES);
+    assert!(
+        body.len() + row_bytes > LISTING_PAGE_BYTES,
+        "the page is filled: {}",
+        body.len()
+    );
     let shown = body.lines().count() - 1;
-    assert!(shown > 100, "a page holds more than the old 100-row default: {shown}");
     assert!(result.content.contains(&format!(
         "[showing matches 1-{shown} of 400; next page: offset={shown};"
     )));

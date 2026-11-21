@@ -59,7 +59,10 @@ fn process_walk_entry(
     filters: &FdWalkFilters<'_>,
 ) -> Option<FdEntry> {
     let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
-    if is_dir && (filters.types.is_some() || filters.min_lines.is_some() || filters.max_lines.is_some()) {
+    let is_search_root = entry.depth() == 0;
+    if is_dir
+        && (is_search_root || filters.types.is_some() || filters.min_lines.is_some() || filters.max_lines.is_some())
+    {
         return None;
     }
     let relative = crate::tools::traversal::resolve_relative_path(entry.path(), w_root, s_root, filters.display);

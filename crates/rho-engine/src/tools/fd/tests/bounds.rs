@@ -78,7 +78,7 @@ fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
         },
     );
     let body = result.content.split("\n\n").nth(1).unwrap();
-    assert!(body.len() <= crate::tools::truncate::DEFAULT_MAX_BYTES);
+    assert!(body.len() <= crate::tools::listing::LISTING_PAGE_BYTES);
     let shown = body.lines().count() / 2;
     assert!(
         result
@@ -126,10 +126,28 @@ async fn path_without_pattern_lists_files_in_subtree() {
         ..Default::default()
     };
     let result = FdTool::new(dir.path()).execute(args).await.unwrap();
-    assert!(!result.is_error);
-    assert!(result.content.contains("src/\n  lib.rs\n  main.rs"));
-    assert!(result.content.contains("src/ui/\n  widget.rs"));
-    assert!(!result.content.contains("README.md"));
+    assert_eq!(
+        result.content,
+        "4 paths\n\nsrc/\n  lib.rs\n  main.rs\n  ui/\nsrc/ui/\n  widget.rs"
+    );
+}
+
+#[tokio::test]
+async fn depth_counts_from_the_search_path_without_listing_it() {
+    let dir = fixture();
+    let result = find(&dir, ".", |args| {
+        args.path = Some("src".to_string());
+        args.depth = Some(1);
+    })
+    .await;
+    assert_eq!(result.content, "3 paths\n\nsrc/\n  lib.rs\n  main.rs\n  ui/");
+}
+
+#[tokio::test]
+async fn file_path_lists_that_file() {
+    let dir = fixture();
+    let result = find(&dir, ".", |args| args.path = Some("src/lib.rs".to_string())).await;
+    assert_eq!(result.content, "1 path\n\nsrc/\n  lib.rs");
 }
 
 #[tokio::test]
@@ -225,7 +243,7 @@ async fn fd_cancellation_halts_traversal_immediately() {
     cancelled.cancellation = Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)));
     let result = cancelled.run(PageRequest::default());
     assert!(!result.is_error);
-    assert_eq!(result.content, "No files found matching pattern");
+    assert_eq!(result.content, "No paths found");
 }
 
 #[tokio::test]

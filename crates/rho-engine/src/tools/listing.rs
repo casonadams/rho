@@ -7,8 +7,9 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
 use crate::tools::artifact::{format_artifact_notice, spill_artifact};
-use crate::tools::truncate::DEFAULT_MAX_BYTES;
 use crate::tools::types::ToolResult;
+
+pub const LISTING_PAGE_BYTES: usize = 20 * 1024;
 
 /// Keeps the first `cap` items in `cmp` order out of everything pushed, so the
 /// kept set does not depend on parallel walk order.
@@ -163,7 +164,9 @@ fn paging_notice<T>(listing: &Listing<'_, T>, start: usize, end: usize) -> Strin
             "only the first {total} {units} in sort order can be paged; narrow with path, type, or pattern to reach the rest"
         ));
     }
-    if let Some(hint) = listing.hint {
+    if start == 0
+        && let Some(hint) = listing.hint
+    {
         parts.push(hint.to_string());
     }
     parts.join("; ")
@@ -187,7 +190,7 @@ pub fn render_page<T: Row>(listing: &Listing<'_, T>, request: PageRequest) -> To
         ));
     }
     let limit = request.limit.unwrap_or(usize::MAX).max(1);
-    let page = render_rows(&listing.rows[start..], listing.layout, limit, DEFAULT_MAX_BYTES);
+    let page = render_rows(&listing.rows[start..], listing.layout, limit, LISTING_PAGE_BYTES);
     let end = start + page.shown;
     let mut output = format!("{}\n\n{}", listing.summary, page.body);
     let complete = start == 0 && end == total && !listing.capped;
@@ -331,7 +334,7 @@ mod tests {
         paged.artifact_dir = Some(dir.path());
         let result = render_page(&paged, PageRequest::default());
         let body = result.content.split("\n\n").nth(1).unwrap();
-        assert!(body.len() <= DEFAULT_MAX_BYTES);
+        assert!(body.len() <= LISTING_PAGE_BYTES);
         let shown = body.lines().count() - 1;
         assert!(result.content.contains(&format!("next page: offset={shown}")));
         assert!(result.content.contains("[Output truncated. Full content (101 lines"));

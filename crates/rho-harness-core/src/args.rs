@@ -78,7 +78,7 @@ pub struct FdArgs {
     pub depth: Option<usize>,
     /// Number of results to skip, for paging (default: 0); truncated output names the next offset
     pub offset: Option<usize>,
-    /// Maximum number of results per page (default: as many as fit in 50KB)
+    /// Maximum number of results per page (default: as many as fit in 20KB)
     pub limit: Option<usize>,
     /// Include line count and byte size in output (default: false; enabled automatically if min_lines, max_lines, or sort is set)
     pub stats: Option<bool>,
@@ -115,7 +115,7 @@ pub struct RgArgs {
     pub output_mode: Option<RgOutputMode>,
     /// Number of results to skip, for paging (default: 0); truncated output names the next offset
     pub offset: Option<usize>,
-    /// Maximum number of results per page (default: as many as fit in 50KB)
+    /// Maximum number of results per page (default: as many as fit in 20KB)
     pub limit: Option<usize>,
 }
 

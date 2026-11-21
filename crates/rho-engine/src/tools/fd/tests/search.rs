@@ -16,13 +16,13 @@ async fn matches_unanchored_against_workspace_relative_paths() {
 async fn pattern_is_smart_case() {
     let dir = fixture();
     let upper = find(&dir, "WIDGET", |_| {}).await;
-    assert_eq!(upper.content, "No files found matching pattern");
+    assert_eq!(upper.content, "No paths found");
 
     let lower = find(&dir, "widget", |_| {}).await;
     assert_eq!(lower.content, "1 path\n\nsrc/ui/\n  widget.rs");
 
     let mixed = find(&dir, "Widget", |_| {}).await;
-    assert_eq!(mixed.content, "No files found matching pattern");
+    assert_eq!(mixed.content, "No paths found");
 }
 
 #[tokio::test]
@@ -73,14 +73,14 @@ async fn gitignore_rules_are_respected_by_default() {
     let dir = fixture();
     let result = find(&dir, "notes", |_| {}).await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "No files found matching pattern");
+    assert_eq!(result.content, "No paths found");
 }
 
 #[tokio::test]
 async fn hidden_flag_includes_hidden_files_while_respecting_gitignore() {
     let dir = fixture();
     let ignored = find(&dir, "notes", |args| args.hidden = Some(true)).await;
-    assert_eq!(ignored.content, "No files found matching pattern");
+    assert_eq!(ignored.content, "No paths found");
 
     let dotfile = find(&dir, "hidden", |args| args.hidden = Some(true)).await;
     assert_eq!(dotfile.content, "1 path\n\n./\n  .hidden_file");

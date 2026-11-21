@@ -103,7 +103,7 @@ pub struct FdFormat {
 
 pub fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolResult {
     if collected.items.is_empty() {
-        return ToolResult::success("No files found matching pattern");
+        return ToolResult::success("No paths found");
     }
     let capped = collected.capped();
     let summary = count_noun(collected.seen, "path");
