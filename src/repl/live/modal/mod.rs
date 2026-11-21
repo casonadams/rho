@@ -9,13 +9,13 @@ pub mod tree;
 use crate::error::Result;
 use crate::ui::interactive::{EditorState, ModalMode, TerminalBackend, TerminalController, UiAction};
 use crossterm::event::KeyEvent;
+use rho_harness_core::config::ModelSlot;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
-    open_guard_model_selector, open_help_selector, open_login_selector, open_mcp_selector, open_model_selector,
-    open_model_selector_with_default, open_models_selector, open_search_engine_selector, open_session_selector,
-    open_slow_model_selector, open_smol_model_selector, open_tools_selector, refresh_open_model_selector,
-    update_models_role_description, update_tools_search_engine,
+    open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
+    open_models_selector, open_search_engine_selector, open_session_selector, open_slot_model_selector,
+    open_tools_selector, refresh_open_model_selector, update_models_role_description, update_tools_search_engine,
 };
 pub use settings::{open_settings_selector, update_settings_model_description};
 pub use tree::open_tree_selector;
@@ -59,18 +59,11 @@ pub enum ModalKeyResult {
         save_as_default: bool,
     },
     OpenModelsMenu,
-    OpenGuardModelSelector,
-    OpenSmolModelSelector,
-    OpenSlowModelSelector,
-    GuardModelSelected {
-        model: String,
-        provider: String,
+    OpenSlotModelSelector {
+        slot: ModelSlot,
     },
-    SmolModelSelected {
-        model: String,
-        provider: String,
-    },
-    SlowModelSelected {
+    SlotModelSelected {
+        slot: ModelSlot,
         model: String,
         provider: String,
     },
@@ -352,17 +345,6 @@ pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalControlle
     true
 }
 
-fn map_role_guard_selection(role: &str, res: ModalKeyResult) -> ModalKeyResult {
-    match res {
-        ModalKeyResult::GuardModelSelected { model, provider } => match role {
-            "Smol" => ModalKeyResult::SmolModelSelected { model, provider },
-            "Slow" => ModalKeyResult::SlowModelSelected { model, provider },
-            _ => ModalKeyResult::GuardModelSelected { model, provider },
-        },
-        other => other,
-    }
-}
-
 pub fn handle_modal_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -380,8 +362,8 @@ pub fn handle_modal_key<B: TerminalBackend>(
     if title == "Select Model" {
         return selectors::handle_model_key(controller, key);
     }
-    if let Some(role) = title.strip_prefix("Select ").and_then(|s| s.strip_suffix(" Model")) {
-        return selectors::handle_guard_model_key(controller, key).map(|res| map_role_guard_selection(role, res));
+    if let Some(slot) = selectors::slot_of_title(&title) {
+        return selectors::handle_slot_model_key(controller, key, slot);
     }
 
     match title.as_str() {

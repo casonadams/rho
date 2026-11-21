@@ -515,8 +515,7 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
     let config = Config {
         provider: "nonexistent-provider".to_string(),
         model: "nonexistent-model".to_string(),
-        default_model: Some("nonexistent-model".to_string()),
-        default_provider: Some("nonexistent-provider".to_string()),
+        default_model: Some("nonexistent-provider/nonexistent-model".to_string()),
         ..config
     };
 

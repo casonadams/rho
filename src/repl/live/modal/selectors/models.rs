@@ -3,20 +3,19 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent};
+use rho_harness_core::config::ModelSlot;
 
 pub fn build_models_options(session: &ReplSession) -> Vec<ModalOption> {
     let cfg = &session.config;
-    let default_m = cfg.canonical_model_spec();
-    let smol_m = cfg.models.get("smol").map(String::as_str).unwrap_or("None");
-    let slow_m = cfg.models.get("slow").map(String::as_str).unwrap_or("None");
-    let guard_m = cfg.guard_model().unwrap_or("None");
-
-    vec![
-        ModalOption::new("Default Model       ", Some(default_m)),
-        ModalOption::new("Smol Model          ", Some(smol_m.to_string())),
-        ModalOption::new("Slow Model          ", Some(slow_m.to_string())),
-        ModalOption::new("Guard Model         ", Some(guard_m.to_string())),
-    ]
+    let default = ModalOption::new(format!("{:20}", "Default Model"), Some(cfg.canonical_model_spec()));
+    let slots = ModelSlot::ALL.into_iter().map(|slot| {
+        let model = cfg.slot_model(slot).unwrap_or("None");
+        ModalOption::new(
+            format!("{:20}", format!("{} Model", slot.title())),
+            Some(model.to_string()),
+        )
+    });
+    std::iter::once(default).chain(slots).collect()
 }
 
 pub fn open_models_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
@@ -25,36 +24,28 @@ pub fn open_models_selector<B: TerminalBackend>(session: &ReplSession, controlle
     controller.state_mut().push_modal(modal);
 }
 
+/// Row 0 is the default model; the slots follow in `ModelSlot::ALL` order.
 fn open_role_from_selection(selected: usize) -> Option<ModalKeyResult> {
-    let selectors = [
-        ModalKeyResult::OpenModelSelector { save_as_default: true },
-        ModalKeyResult::OpenSmolModelSelector,
-        ModalKeyResult::OpenSlowModelSelector,
-        ModalKeyResult::OpenGuardModelSelector,
-    ];
-    selectors.into_iter().nth(selected)
-}
-
-fn role_to_index(role: &str) -> Option<usize> {
-    match role {
-        "default" => Some(0),
-        "smol" => Some(1),
-        "slow" => Some(2),
-        "guard" => Some(3),
-        _ => None,
+    match selected.checked_sub(1) {
+        None => Some(ModalKeyResult::OpenModelSelector { save_as_default: true }),
+        Some(i) => ModelSlot::ALL
+            .get(i)
+            .map(|&slot| ModalKeyResult::OpenSlotModelSelector { slot }),
     }
 }
 
+/// Updates the Models menu row for `slot`, or the default model row for `None`.
 pub fn update_models_role_description<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    role: &str,
+    slot: Option<ModelSlot>,
     model_name: &str,
 ) {
-    if let Some(idx) = role_to_index(role) {
-        controller
-            .state_mut()
-            .update_modal_option_desc("Models", idx, model_name);
-    }
+    let idx = slot.map_or(0, |slot| {
+        1 + ModelSlot::ALL.iter().position(|&s| s == slot).unwrap_or(0)
+    });
+    controller
+        .state_mut()
+        .update_modal_option_desc("Models", idx, model_name);
 }
 
 pub fn handle_models_key<B: TerminalBackend>(
@@ -104,17 +95,16 @@ mod tests {
     }
 
     #[test]
-    fn update_models_role_description_updates_only_known_roles() {
+    fn update_models_role_description_updates_the_matching_row() {
         let cases = [
-            ("default", Some(0)),
-            ("smol", Some(1)),
-            ("slow", Some(2)),
-            ("guard", Some(3)),
-            ("plan", None),
+            (None, 0),
+            (Some(ModelSlot::Smol), 1),
+            (Some(ModelSlot::Slow), 2),
+            (Some(ModelSlot::Guard), 3),
         ];
-        for (role, idx) in cases {
+        for (slot, idx) in cases {
             let mut controller = open_in_test_controller(open_models_selector);
-            update_models_role_description(&mut controller, role, "model-x");
+            update_models_role_description(&mut controller, slot, "model-x");
             let options = &controller.state().active_modal().unwrap().options;
             let updated: Vec<usize> = options
                 .iter()
@@ -122,7 +112,7 @@ mod tests {
                 .filter(|(_, o)| o.description.as_deref() == Some("model-x"))
                 .map(|(i, _)| i)
                 .collect();
-            assert_eq!(updated, idx.map_or(vec![], |i| vec![i]));
+            assert_eq!(updated, vec![idx]);
         }
     }
 

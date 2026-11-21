@@ -1,5 +1,5 @@
 use super::super::Config;
-use super::super::types::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
+use super::super::types::{FileConfig, ModelSlot, WebFetchConfigFile, WebSearchConfigFile};
 
 macro_rules! merge_copied_fields {
     ($config:expr, $file:expr, $($field:ident),+ $(,)?) => {
@@ -13,20 +13,18 @@ macro_rules! merge_copied_fields {
 
 fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref default_spec) = file.models.default {
-        let route = crate::provider::ModelRoute::parse(default_spec, None, "local");
-        config.default_provider = Some(route.connection.to_string());
-        config.set_route(route);
-        config.default_model = Some(default_spec.clone());
+        config.set_route(crate::provider::ModelRoute::parse(default_spec, None, "local"));
+        config.default_model = Some(config.canonical_model_spec());
     }
 
     let overrides = [
-        ("guard", &file.models.guard),
-        ("smol", &file.models.smol),
-        ("slow", &file.models.slow),
+        (ModelSlot::Guard, &file.models.guard),
+        (ModelSlot::Smol, &file.models.smol),
+        (ModelSlot::Slow, &file.models.slow),
     ];
-    for (name, model) in overrides {
+    for (slot, model) in overrides {
         if let Some(model) = model {
-            config.models.insert(name.to_string(), model.clone());
+            config.models.insert(slot.key().to_string(), model.clone());
         }
     }
     if let Some(ref t) = file.thinking_level {

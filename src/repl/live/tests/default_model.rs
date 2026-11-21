@@ -14,8 +14,7 @@ fn setup_default_model_session(config_dir: std::path::PathBuf) -> crate::repl::R
         config_dir,
         model: "claude-3-5-haiku-20241022".into(),
         provider: "anthropic".into(),
-        default_model: Some("claude-3-7-sonnet-20250219".into()),
-        default_provider: Some("anthropic".into()),
+        default_model: Some("anthropic/claude-3-7-sonnet-20250219".into()),
         ..Config::default()
     };
     let mut session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);

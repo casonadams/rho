@@ -19,6 +19,7 @@ use crate::tools::web::{
 };
 use crate::tools::write::WriteTool;
 use rho_harness_core::config::Config;
+use rho_harness_core::config::ModelSlot;
 use rho_harness_core::error::Result;
 use std::path::Path;
 use std::sync::Arc;
@@ -125,9 +126,10 @@ pub fn build_builtin_toolset(
                 .unwrap_or(crate::tools::subagent::DEFAULT_FOREGROUND_SECONDS),
         ));
     if let Some(resolver) = model_resolver {
-        subagent = subagent
-            .with_model_resolver(resolver)
-            .with_model_roles(config.models.get("smol").cloned(), config.models.get("slow").cloned());
+        subagent = subagent.with_model_resolver(resolver).with_model_roles(
+            config.slot_model(ModelSlot::Smol).map(str::to_string),
+            config.slot_model(ModelSlot::Slow).map(str::to_string),
+        );
     }
     if let Some(store) = worktrees {
         subagent = subagent.with_worktrees(store.clone());

@@ -4,6 +4,7 @@ use crate::repl::live::idle::modal_action::{ModalActionContext, apply_modal_key_
 use crate::repl::live::modal::ModalKeyResult;
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, TerminalController};
+use rho_harness_core::config::ModelSlot;
 
 pub(super) async fn setup_modal_action_harness(
     temp: &std::path::Path,
@@ -128,9 +129,13 @@ async fn test_modal_action_menu_openers() {
         input: &mut input,
     };
     assert!(
-        apply_modal_key_result(ModalKeyResult::OpenGuardModelSelector, ctx, &mut batch)
-            .await
-            .unwrap()
+        apply_modal_key_result(
+            ModalKeyResult::OpenSlotModelSelector { slot: ModelSlot::Guard },
+            ctx,
+            &mut batch
+        )
+        .await
+        .unwrap()
     );
     assert_eq!(controller.state().active_modal().unwrap().title, "Select Guard Model");
 }
@@ -150,7 +155,8 @@ async fn test_modal_action_guard_model_selected() {
     };
     assert!(
         apply_modal_key_result(
-            ModalKeyResult::GuardModelSelected {
+            ModalKeyResult::SlotModelSelected {
+                slot: ModelSlot::Guard,
                 model: "qwen2.5-coder:7b".to_string(),
                 provider: "local".to_string(),
             },
@@ -172,7 +178,8 @@ async fn test_modal_action_guard_model_selected() {
     };
     assert!(
         apply_modal_key_result(
-            ModalKeyResult::GuardModelSelected {
+            ModalKeyResult::SlotModelSelected {
+                slot: ModelSlot::Guard,
                 model: "none".to_string(),
                 provider: "none".to_string(),
             },
@@ -553,7 +560,10 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
         batch: &mut batch,
     };
 
-    assert!(tctx.dispatch(ModalKeyResult::OpenGuardModelSelector).await);
+    assert!(
+        tctx.dispatch(ModalKeyResult::OpenSlotModelSelector { slot: ModelSlot::Guard })
+            .await
+    );
     assert_eq!(tctx.controller.state().modal_depth(), 2);
     assert_eq!(
         tctx.controller.state().active_modal().unwrap().title,
@@ -564,7 +574,8 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
     assert_eq!(tctx.controller.state().modal_depth(), 1);
 
     assert!(
-        tctx.dispatch(ModalKeyResult::GuardModelSelected {
+        tctx.dispatch(ModalKeyResult::SlotModelSelected {
+            slot: ModelSlot::Guard,
             model: "qwen2.5-coder:7b".to_string(),
             provider: "ollama".to_string(),
         })
@@ -657,9 +668,9 @@ async fn test_modal_action_model_role_openers_open_their_selectors() {
     };
     for res in [
         ModalKeyResult::OpenModelsMenu,
-        ModalKeyResult::OpenGuardModelSelector,
-        ModalKeyResult::OpenSmolModelSelector,
-        ModalKeyResult::OpenSlowModelSelector,
+        ModalKeyResult::OpenSlotModelSelector { slot: ModelSlot::Guard },
+        ModalKeyResult::OpenSlotModelSelector { slot: ModelSlot::Smol },
+        ModalKeyResult::OpenSlotModelSelector { slot: ModelSlot::Slow },
     ] {
         assert!(tctx.dispatch(res).await);
         assert!(tctx.controller.state().active_modal().is_some());
@@ -682,7 +693,8 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
     };
     let cases = [
         (
-            ModalKeyResult::SmolModelSelected {
+            ModalKeyResult::SlotModelSelected {
+                slot: ModelSlot::Smol,
                 model: "haiku".to_string(),
                 provider: "anthropic".to_string(),
             },
@@ -690,7 +702,8 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
             Some("anthropic/haiku"),
         ),
         (
-            ModalKeyResult::SlowModelSelected {
+            ModalKeyResult::SlotModelSelected {
+                slot: ModelSlot::Slow,
                 model: "opus".to_string(),
                 provider: "anthropic".to_string(),
             },
@@ -698,7 +711,8 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
             Some("anthropic/opus"),
         ),
         (
-            ModalKeyResult::SlowModelSelected {
+            ModalKeyResult::SlotModelSelected {
+                slot: ModelSlot::Slow,
                 model: "anthropic/claude-3.7-sonnet".to_string(),
                 provider: "openrouter".to_string(),
             },
@@ -706,7 +720,8 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
             Some("openrouter/anthropic/claude-3.7-sonnet"),
         ),
         (
-            ModalKeyResult::SmolModelSelected {
+            ModalKeyResult::SlotModelSelected {
+                slot: ModelSlot::Smol,
                 model: "claude:me@work.com/haiku".to_string(),
                 provider: "claude:me@work.com".to_string(),
             },

@@ -7,6 +7,39 @@ use std::path::PathBuf;
 
 pub const DEFAULT_MAX_TURNS: usize = 1000;
 
+/// A model chosen for a job other than the main conversation, set under `[models]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ModelSlot {
+    Smol,
+    Slow,
+    Guard,
+}
+
+impl ModelSlot {
+    pub const ALL: [Self; 3] = [Self::Smol, Self::Slow, Self::Guard];
+
+    /// The `[models]` key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Smol => "smol",
+            Self::Slow => "slow",
+            Self::Guard => "guard",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Smol => "Smol",
+            Self::Slow => "Slow",
+            Self::Guard => "Guard",
+        }
+    }
+
+    pub fn from_title(title: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|slot| slot.title() == title)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub model: String,
@@ -37,10 +70,9 @@ pub struct Config {
     pub append_system_prompt: Option<String>,
     #[serde(default)]
     pub no_context_files: bool,
+    /// The saved default model as a canonical `connection/model` spec.
     #[serde(default)]
     pub default_model: Option<String>,
-    #[serde(default)]
-    pub default_provider: Option<String>,
     #[serde(default)]
     pub models: BTreeMap<String, String>,
     #[serde(default)]
@@ -91,7 +123,6 @@ macro_rules! default_config_literal {
             append_system_prompt: None,
             no_context_files: false,
             default_model: None,
-            default_provider: None,
             models: BTreeMap::new(),
             session_retention_days: Some(5),
             migration_warnings: Vec::new(),
@@ -201,12 +232,10 @@ impl Default for WebSearchConfig {
 }
 
 impl Config {
+    /// Makes `provider`/`model` both the active selection and the saved default.
     pub fn set_default_model(&mut self, model: &str, provider: &str) {
-        self.model = model.to_string();
-        self.provider = provider.to_string();
-        self.default_model = Some(model.to_string());
-        self.default_provider = Some(provider.to_string());
-        self.models.insert(provider.to_string(), model.to_string());
+        self.set_route(ModelRoute::new(provider, model));
+        self.default_model = Some(self.canonical_model_spec());
     }
 
     fn resolve_named_model(&self, name: &str) -> Option<&str> {
@@ -217,8 +246,13 @@ impl Config {
             .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
     }
 
+    /// The model configured for `slot`; unset, blank and `none` all mean no model.
+    pub fn slot_model(&self, slot: ModelSlot) -> Option<&str> {
+        self.resolve_named_model(slot.key())
+    }
+
     pub fn guard_model(&self) -> Option<&str> {
-        self.resolve_named_model("guard")
+        self.slot_model(ModelSlot::Guard)
     }
 
     /// The active selection; `model` may still carry a `provider/` prefix from older writers.

@@ -6,7 +6,7 @@ mod paths;
 mod ui;
 
 pub use app::{
-    ApprovalFocus, Config, DEFAULT_MAX_TURNS, SubagentsConfig, ToolsConfig, WebFetchConfig, WebSearchConfig,
+    ApprovalFocus, Config, DEFAULT_MAX_TURNS, ModelSlot, SubagentsConfig, ToolsConfig, WebFetchConfig, WebSearchConfig,
     WebToolsConfig,
 };
 pub use file::ModelsConfig;

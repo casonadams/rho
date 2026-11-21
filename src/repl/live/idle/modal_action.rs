@@ -7,6 +7,7 @@ use crate::repl::ReplSession;
 use crate::repl::input_reader::TerminalInputReader;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
+use rho_harness_core::config::ModelSlot;
 
 pub(crate) struct ModalActionContext<'a, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
@@ -16,22 +17,10 @@ pub(crate) struct ModalActionContext<'a, B: TerminalBackend> {
     pub input: &'a mut TerminalInputReader,
 }
 
-fn print_model_status(
-    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
-    model: &str,
-    provider: &str,
-    save_as_default: bool,
-) {
-    if save_as_default {
-        ctx.session.config.set_default_model(model, provider);
-        ctx.session
-            .renderer
-            .print_status(&format!("Default model: {model} ({provider})"));
-    } else {
-        ctx.session
-            .renderer
-            .print_status(&format!("Model: {model} ({provider})"));
-    }
+fn print_model_status(ctx: &mut ModalActionContext<'_, impl TerminalBackend>, saved_default: bool) {
+    let label = if saved_default { "Default model" } else { "Model" };
+    let spec = ctx.session.config.canonical_model_spec();
+    ctx.session.renderer.print_status(&format!("{label}: {spec}"));
 }
 
 fn report_save<B: TerminalBackend>(
@@ -58,17 +47,20 @@ async fn handle_model_selected(
     save_as_default: bool,
     batch: &mut LiveBatch,
 ) -> Result<bool> {
-    ctx.session.config.model = model.clone();
-    ctx.session.config.provider = provider.clone();
+    let config = &mut ctx.session.config;
+    config.set_route(rho_harness_core::provider::ModelRoute::new(&provider, &model));
     let saved = if save_as_default {
-        rho_harness_core::config::Config::save_default_model_async(&ctx.session.config.config_dir, &model, &provider)
+        rho_harness_core::config::Config::save_default_model_async(&config.config_dir, &config.model, &config.provider)
             .await
     } else {
         Ok(())
     };
     let saved_default = save_as_default && report_save(ctx, "default model", &saved);
+    if saved_default {
+        ctx.session.config.default_model = Some(ctx.session.config.canonical_model_spec());
+    }
     if ctx.controller.state().active_modal().is_none() {
-        print_model_status(ctx, &model, &provider, saved_default);
+        print_model_status(ctx, saved_default);
     }
     if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
         ctx.session.renderer.notice(
@@ -76,7 +68,7 @@ async fn handle_model_selected(
             &format!("Could not switch model: {err}"),
         );
     }
-    super::super::modal::update_models_role_description(ctx.controller, "default", &model);
+    super::super::modal::update_models_role_description(ctx.controller, None, &model);
     super::super::modal::update_settings_model_description(ctx.controller, &model);
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     batch.flush(ctx.controller, true)?;
@@ -473,14 +465,8 @@ fn handle_modal_menu_open(
         ModalKeyResult::OpenModelsMenu => {
             super::super::modal::open_models_selector(ctx.session, ctx.controller);
         }
-        ModalKeyResult::OpenGuardModelSelector => {
-            super::super::modal::open_guard_model_selector(ctx.session, ctx.controller);
-        }
-        ModalKeyResult::OpenSmolModelSelector => {
-            super::super::modal::open_smol_model_selector(ctx.session, ctx.controller);
-        }
-        ModalKeyResult::OpenSlowModelSelector => {
-            super::super::modal::open_slow_model_selector(ctx.session, ctx.controller);
+        ModalKeyResult::OpenSlotModelSelector { slot } => {
+            super::super::modal::open_slot_model_selector(ctx.session, ctx.controller, *slot);
         }
         ModalKeyResult::OpenToolsMenu => {
             super::super::modal::open_tools_selector(ctx.session, ctx.controller);
@@ -513,9 +499,9 @@ async fn handle_search_engine_selected(
     Ok(true)
 }
 
-async fn handle_role_model_selected(
+async fn handle_slot_model_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
-    role: &str,
+    slot: ModelSlot,
     model: String,
     provider: String,
 ) -> Result<bool> {
@@ -525,27 +511,28 @@ async fn handle_role_model_selected(
         Some(rho_harness_core::provider::ModelRoute::new(&provider, &model).to_string())
     };
 
-    if let Some(ref s) = spec {
-        ctx.session.config.models.insert(role.to_string(), s.clone());
-        ctx.engine.config.models.insert(role.to_string(), s.clone());
-    } else {
-        ctx.session.config.models.remove(role);
-        ctx.engine.config.models.remove(role);
+    let key = slot.key();
+    for config in [&mut ctx.session.config, &mut ctx.engine.config] {
+        match &spec {
+            Some(spec) => config.models.insert(key.to_string(), spec.clone()),
+            None => config.models.remove(key),
+        };
     }
 
-    let config_key = format!("models.{role}");
     let save_val = spec.as_deref().unwrap_or("none");
-    let saved =
-        rho_harness_core::config::Config::set_file_value_async(&ctx.session.config.config_dir, &config_key, save_val)
-            .await;
+    let saved = rho_harness_core::config::Config::set_file_value_async(
+        &ctx.session.config.config_dir,
+        &format!("models.{key}"),
+        save_val,
+    )
+    .await;
 
     let display = spec.as_deref().unwrap_or("None");
-    super::super::modal::update_models_role_description(ctx.controller, role, display);
-    if report_save(ctx, &format!("{role} model"), &saved) && ctx.controller.state().active_modal().is_none() {
-        let title = format!("{}{}", role[..1].to_uppercase(), &role[1..]);
+    super::super::modal::update_models_role_description(ctx.controller, Some(slot), display);
+    if report_save(ctx, &format!("{key} model"), &saved) && ctx.controller.state().active_modal().is_none() {
         ctx.session
             .renderer
-            .print_status(&format!("{title} model set to {display}"));
+            .print_status(&format!("{} model set to {display}", slot.title()));
     }
     ctx.controller.redraw()?;
     Ok(true)
@@ -575,14 +562,8 @@ async fn handle_selection_action(
             provider,
             save_as_default,
         } => handle_model_selected(ctx, model, provider, save_as_default, batch).await,
-        ModalKeyResult::GuardModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "guard", model, provider).await
-        }
-        ModalKeyResult::SmolModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "smol", model, provider).await
-        }
-        ModalKeyResult::SlowModelSelected { model, provider } => {
-            handle_role_model_selected(ctx, "slow", model, provider).await
+        ModalKeyResult::SlotModelSelected { slot, model, provider } => {
+            handle_slot_model_selected(ctx, slot, model, provider).await
         }
         ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
             handle_thinking_selected(ctx, level, save_as_default).await

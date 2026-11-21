@@ -39,7 +39,7 @@ pub struct SubagentTool {
     description: String,
     ctx: TurnToolContext,
     model_resolver: Option<SubagentModelResolver>,
-    roles: BTreeMap<&'static str, String>,
+    roles: BTreeMap<ModelRole, String>,
     pinned_models: BTreeMap<String, ModelRole>,
     busy: conversation::BusyContexts,
     worktrees: Option<crate::worktree::WorktreeStore>,
@@ -221,7 +221,7 @@ impl SubagentTool {
     #[must_use]
     pub fn with_model_roles(mut self, smol: Option<String>, slow: Option<String>) -> Self {
         let configured = |m: Option<String>| m.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
-        for (role, model) in [("smol", configured(smol)), ("slow", configured(slow))] {
+        for (role, model) in [(ModelRole::Smol, configured(smol)), (ModelRole::Slow, configured(slow))] {
             if let Some(model) = model {
                 self.roles.insert(role, model);
             }
@@ -296,14 +296,14 @@ impl SubagentTool {
     async fn model_for(&self, role: Option<ModelRole>, default: &ModelHandle) -> Result<ModelHandle, String> {
         let name = match role {
             Some(ModelRole::Default) => return Ok(default.clone()),
-            Some(role) => Some(self.roles.get(role.as_str()).ok_or_else(|| {
+            Some(role) => Some(self.roles.get(&role).ok_or_else(|| {
                 format!(
                     "model role '{}' is not configured (set models.{} in config.toml)",
                     role.as_str(),
                     role.as_str()
                 )
             })?),
-            None => self.roles.get("smol"),
+            None => self.roles.get(&ModelRole::Smol),
         };
         let Some(name) = name else {
             return Ok(default.clone());
@@ -368,7 +368,7 @@ impl SubagentTool {
     }
 
     pub(crate) fn role_configured(&self, role: ModelRole) -> bool {
-        role == ModelRole::Default || self.roles.contains_key(role.as_str())
+        role == ModelRole::Default || self.roles.contains_key(&role)
     }
 
     pub(crate) fn with_turn_context(&self, ctx: &TurnToolContext) -> Self {

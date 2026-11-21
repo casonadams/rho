@@ -155,29 +155,36 @@ fn test_cli_permission_flag_override() {
 }
 
 #[test]
-fn test_cli_provider_switch_picks_model_from_models_table() {
-    let mut config = Config::default();
-    config
-        .models
-        .insert("gemini".to_string(), "gemini-3.6-flash".to_string());
-    merge::merge_file(
-        &mut config,
-        FileConfig {
-            models: crate::config::ModelsConfig {
-                default: Some("claude/claude-sonnet-5".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-    );
-    assert_eq!(config.provider, "claude");
-    assert_eq!(config.model, "claude-sonnet-5");
-
-    let cli = cli::Cli::try_parse_from(["rho", "--provider", "gemini"]).unwrap();
-    merge::apply_cli_overrides(&mut config, Some(&cli));
-
-    assert_eq!(config.provider, "gemini");
-    assert_eq!(config.model, "gemini-3.6-flash");
+fn smol_and_slow_flags_select_their_configured_model() {
+    let cases = [
+        (
+            ["rho", "--smol"],
+            Some("claude/claude-haiku-5"),
+            ("claude", "claude-haiku-5"),
+        ),
+        (
+            ["rho", "--slow"],
+            Some("claude/claude-opus-5"),
+            ("claude", "claude-opus-5"),
+        ),
+        (["rho", "--smol"], Some("none"), ("openai", "gpt-6")),
+        (["rho", "--smol"], None, ("openai", "gpt-6")),
+    ];
+    for (args, configured, expected) in cases {
+        let mut config = Config::default();
+        let slot = if args[1] == "--smol" { "smol" } else { "slow" };
+        config.set_route(crate::provider::ModelRoute::new("openai", "gpt-6"));
+        if let Some(model) = configured {
+            config.models.insert(slot.to_string(), model.to_string());
+        }
+        let cli = cli::Cli::try_parse_from(args).unwrap();
+        merge::apply_cli_overrides(&mut config, Some(&cli));
+        assert_eq!(
+            (config.provider.as_str(), config.model.as_str()),
+            expected,
+            "{args:?} {configured:?}"
+        );
+    }
 }
 
 #[test]

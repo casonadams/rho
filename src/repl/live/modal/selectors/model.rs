@@ -4,19 +4,12 @@ use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use rho_harness_core::config::ModelSlot;
 
 pub const MODEL_SELECTOR_TITLE: &str = "Select Model";
 
-fn is_default_model(session: &ReplSession, canonical_id: &str, model_id: &str, provider: &str) -> bool {
-    session.config.default_model.as_deref().is_some_and(|dm| {
-        dm == canonical_id
-            || (model_id == dm
-                && session
-                    .config
-                    .default_provider
-                    .as_deref()
-                    .is_none_or(|dp| provider == dp))
-    })
+fn is_default_model(session: &ReplSession, canonical_id: &str) -> bool {
+    session.config.default_model.as_deref() == Some(canonical_id)
 }
 
 fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::ModelItem) -> ModalOption {
@@ -24,7 +17,7 @@ fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::Mo
     let active_spec = session.config.canonical_model_spec();
     let is_active = canonical == active_spec || item.id == session.config.model;
     let active_mark = if is_active { "✓" } else { "" };
-    let default_mark = if is_default_model(session, &canonical, &item.id, &item.provider) {
+    let default_mark = if is_default_model(session, &canonical) {
         "default"
     } else {
         ""
@@ -73,21 +66,18 @@ pub fn open_model_selector_with_default<B: TerminalBackend>(
     controller.state_mut().push_modal(modal);
 }
 
-fn role_selector_options(
-    session: &ReplSession,
-    role_name: &str,
-    current_model: Option<&str>,
-) -> (Vec<ModalOption>, usize) {
-    let discovered = session.listed_models();
+fn slot_selector_options(session: &ReplSession, slot: ModelSlot) -> (Vec<ModalOption>, usize) {
+    let current_model = session.config.slot_model(slot);
     let none_mark = if current_model.is_none() { "✓" } else { "" };
     let mut options = vec![ModalOption::new(
         "None",
         Some(format!(
-            "none\t{none_mark}\t\tDisable {role_name} model (fallback to default)"
+            "none\t{none_mark}\t\tDisable {} model (fallback to default)",
+            slot.title()
         )),
     )];
     let mut selected = 0;
-    for (i, item) in discovered.iter().enumerate() {
+    for (i, item) in session.listed_models().iter().enumerate() {
         let canonical = item.canonical_id();
         let is_current = current_model.is_some_and(|m| m == canonical || m == item.id);
         if is_current {
@@ -102,22 +92,24 @@ fn role_selector_options(
     (options, selected)
 }
 
-fn role_model(session: &ReplSession, role_name: &str) -> Option<String> {
-    match role_name {
-        "Guard" => session.config.guard_model().map(str::to_string),
-        _ => session.config.models.get(&role_name.to_ascii_lowercase()).cloned(),
-    }
+fn slot_selector_title(slot: ModelSlot) -> String {
+    format!("Select {} Model", slot.title())
 }
 
-pub fn open_role_model_selector<B: TerminalBackend>(
+/// The slot whose model selector carries `title`.
+pub fn slot_of_title(title: &str) -> Option<ModelSlot> {
+    ModelSlot::ALL
+        .into_iter()
+        .find(|&slot| slot_selector_title(slot) == title)
+}
+
+pub fn open_slot_model_selector<B: TerminalBackend>(
     session: &ReplSession,
     controller: &mut TerminalController<B>,
-    role_name: &str,
-    current_model: Option<&str>,
+    slot: ModelSlot,
 ) {
-    let (options, selected) = role_selector_options(session, role_name, current_model);
-    let title = format!("Select {role_name} Model");
-    let mut modal = ModalState::new(title, catalog_status(session), options).with_search(true);
+    let (options, selected) = slot_selector_options(session, slot);
+    let mut modal = ModalState::new(slot_selector_title(slot), catalog_status(session), options).with_search(true);
     modal.selected = selected;
     controller.state_mut().push_modal(modal);
 }
@@ -129,8 +121,8 @@ pub fn refresh_open_model_selector<B: TerminalBackend>(session: &ReplSession, co
     };
     let options = if title == MODEL_SELECTOR_TITLE {
         model_selector_options(session).0
-    } else if let Some(role) = title.strip_prefix("Select ").and_then(|t| t.strip_suffix(" Model")) {
-        role_selector_options(session, role, role_model(session, role).as_deref()).0
+    } else if let Some(slot) = slot_of_title(&title) {
+        slot_selector_options(session, slot).0
     } else {
         return;
     };
@@ -139,20 +131,6 @@ pub fn refresh_open_model_selector<B: TerminalBackend>(session: &ReplSession, co
         modal.body = body;
         modal.replace_options(options);
     }
-}
-
-pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
-    open_role_model_selector(session, controller, "Guard", session.config.guard_model());
-}
-
-pub fn open_smol_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
-    let smol_model = session.config.models.get("smol").map(String::as_str);
-    open_role_model_selector(session, controller, "Smol", smol_model);
-}
-
-pub fn open_slow_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
-    let slow_model = session.config.models.get("slow").map(String::as_str);
-    open_role_model_selector(session, controller, "Slow", slow_model);
 }
 
 fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<(String, String)> {
@@ -166,67 +144,64 @@ fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>
     Some((label, route.connection.to_string()))
 }
 
-fn pop_and_select_model<B: TerminalBackend>(
+/// Closes the selector and reports its highlighted model through `selected`.
+fn pop_and_select<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    save_as_default: bool,
+    selected: impl FnOnce(String, String) -> ModalKeyResult,
 ) -> Result<ModalKeyResult> {
-    let selected = extract_selected_model(controller);
+    let choice = extract_selected_model(controller);
     controller.state_mut().pop_modal();
     controller.redraw()?;
-    Ok(match selected {
-        Some((model, provider)) => ModalKeyResult::ModelSelected {
-            model,
-            provider,
-            save_as_default,
-        },
-        None => ModalKeyResult::Handled,
-    })
+    Ok(choice.map_or(ModalKeyResult::Handled, |(model, provider)| selected(model, provider)))
+}
+
+fn handle_selector_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: KeyEvent,
+    select: impl FnOnce(&mut TerminalController<B>) -> Result<ModalKeyResult>,
+) -> Result<ModalKeyResult> {
+    match key.code {
+        KeyCode::Enter => select(controller),
+        KeyCode::Esc => {
+            crate::repl::live::modal::pop_and_cancel(controller)?;
+            Ok(ModalKeyResult::Handled)
+        }
+        _ => {
+            crate::repl::live::modal::handle_selector_nav(controller, &key)?;
+            Ok(ModalKeyResult::Handled)
+        }
+    }
 }
 
 pub fn handle_model_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    let save_as_default = controller.state().active_modal().is_some_and(|m| m.save_as_default);
-    if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        return pop_and_select_model(controller, true);
+    let ctrl_s = key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL);
+    let save_as_default = ctrl_s || controller.state().active_modal().is_some_and(|m| m.save_as_default);
+    let select = |controller: &mut TerminalController<B>| {
+        pop_and_select(controller, |model, provider| ModalKeyResult::ModelSelected {
+            model,
+            provider,
+            save_as_default,
+        })
+    };
+    if ctrl_s {
+        return select(controller);
     }
-    match key.code {
-        KeyCode::Enter => pop_and_select_model(controller, save_as_default),
-        KeyCode::Esc => {
-            crate::repl::live::modal::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            crate::repl::live::modal::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    handle_selector_key(controller, key, select)
 }
 
-fn pop_and_select_guard_model<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    let selected = extract_selected_model(controller);
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(match selected {
-        Some((model, provider)) => ModalKeyResult::GuardModelSelected { model, provider },
-        None => ModalKeyResult::Handled,
-    })
-}
-
-pub fn handle_guard_model_key<B: TerminalBackend>(
+pub fn handle_slot_model_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
+    slot: ModelSlot,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => pop_and_select_guard_model(controller),
-        KeyCode::Esc => {
-            crate::repl::live::modal::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            crate::repl::live::modal::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    handle_selector_key(controller, key, |controller| {
+        pop_and_select(controller, |model, provider| ModalKeyResult::SlotModelSelected {
+            slot,
+            model,
+            provider,
+        })
+    })
 }

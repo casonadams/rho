@@ -1131,57 +1131,44 @@ fn model_selector_selects_claude_model() {
 }
 
 #[test]
-fn guard_model_selector_lifecycle() {
+fn slot_model_selector_lifecycle() {
+    use rho_harness_core::config::ModelSlot;
     let (_dir, session) = setup_claude_session();
     let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
-    super::super::modal::open_guard_model_selector(&session, &mut controller);
+    let key = |controller: &mut TerminalController<NullBackend>, code| {
+        handle_modal_key(controller, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
+    };
+    for slot in ModelSlot::ALL {
+        super::super::modal::open_slot_model_selector(&session, &mut controller, slot);
+        let modal = controller.state().active_modal().unwrap();
+        assert_eq!(modal.title, format!("Select {} Model", slot.title()));
+        assert_eq!(modal.options[0].label, "None");
+        assert_eq!(key(&mut controller, KeyCode::Esc), ModalKeyResult::Handled);
+        assert!(controller.state().active_modal().is_none());
 
-    let modal = controller.state().active_modal().unwrap();
-    assert_eq!(modal.title, "Select Guard Model");
-    assert_eq!(modal.options[0].label, "None");
+        super::super::modal::open_slot_model_selector(&session, &mut controller, slot);
+        assert_eq!(
+            key(&mut controller, KeyCode::Enter),
+            ModalKeyResult::SlotModelSelected {
+                slot,
+                model: "None".into(),
+                provider: "none".into()
+            }
+        );
 
-    let res = handle_modal_key(
-        &mut controller,
-        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        &mut None,
-    )
-    .unwrap();
-    assert_eq!(res, ModalKeyResult::Handled);
-    assert!(controller.state().active_modal().is_none());
-
-    super::super::modal::open_guard_model_selector(&session, &mut controller);
-    let res = handle_modal_key(
-        &mut controller,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        &mut None,
-    )
-    .unwrap();
-    match res {
-        ModalKeyResult::GuardModelSelected { model, provider } => {
-            assert_eq!((model.as_str(), provider.as_str()), ("None", "none"));
+        super::super::modal::open_slot_model_selector(&session, &mut controller, slot);
+        key(&mut controller, KeyCode::Down);
+        match key(&mut controller, KeyCode::Enter) {
+            ModalKeyResult::SlotModelSelected {
+                slot: picked,
+                model,
+                provider,
+            } => {
+                assert_eq!(picked, slot);
+                assert!(!model.is_empty() && !provider.is_empty());
+            }
+            other => panic!("expected SlotModelSelected, got {other:?}"),
         }
-        _ => panic!("expected GuardModelSelected"),
-    }
-
-    super::super::modal::open_guard_model_selector(&session, &mut controller);
-    let _ = handle_modal_key(
-        &mut controller,
-        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-        &mut None,
-    )
-    .unwrap();
-    let res = handle_modal_key(
-        &mut controller,
-        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        &mut None,
-    )
-    .unwrap();
-    match res {
-        ModalKeyResult::GuardModelSelected { model, provider } => {
-            assert!(!model.is_empty());
-            assert!(!provider.is_empty());
-        }
-        _ => panic!("expected GuardModelSelected"),
     }
 }
 

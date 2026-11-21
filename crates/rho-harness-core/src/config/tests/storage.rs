@@ -33,7 +33,6 @@ fn test_config_file_loads_model_provider_and_thinking_level() {
         config.provider.as_str(),
         config.thinking_level.as_deref(),
         config.default_model.as_deref(),
-        config.default_provider.as_deref(),
     );
     assert_eq!(
         actual,
@@ -42,7 +41,6 @@ fn test_config_file_loads_model_provider_and_thinking_level() {
             "gemini",
             Some("high"),
             Some("gemini/gemini-2.0-flash"),
-            Some("gemini")
         )
     );
     std::fs::remove_dir_all(dir).unwrap();
@@ -61,7 +59,6 @@ fn test_config_file_aliases_load_correctly() {
         config.provider.as_str(),
         config.thinking_level.as_deref(),
         config.default_model.as_deref(),
-        config.default_provider.as_deref(),
     );
     assert_eq!(
         actual,
@@ -70,7 +67,6 @@ fn test_config_file_aliases_load_correctly() {
             "anthropic",
             Some("medium"),
             Some("anthropic/claude-3-7-sonnet-20250219"),
-            Some("anthropic")
         )
     );
     std::fs::remove_dir_all(dir).unwrap();
@@ -148,17 +144,8 @@ async fn test_save_default_model_persists_both_fields() {
             config.model.as_str(),
             config.provider.as_str(),
             config.default_model.as_deref(),
-            config.default_provider.as_deref(),
         );
-        assert_eq!(
-            actual,
-            (
-                expected_model,
-                expected_provider,
-                Some(spec.as_str()),
-                Some(expected_provider)
-            )
-        );
+        assert_eq!(actual, (expected_model, expected_provider, Some(spec.as_str())));
         let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
         assert!(
             content.contains(&format!("[models]\ndefault = \"{spec}\"")),

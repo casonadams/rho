@@ -4,6 +4,7 @@ use crate::auth::AuthStore;
 use rho_engine::provider::{ModelCatalog, ModelRouter};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
+use rho_harness_core::provider::ModelRoute;
 
 use super::super::batch::LiveBatch;
 use super::input::TurnInputContext;
@@ -23,8 +24,13 @@ pub(crate) struct TurnModelSwitchInput<'a, 'b, B: TerminalBackend> {
 
 async fn save_and_report_default(config: &mut Config, renderer: &TerminalRenderer, model: &str, provider: &str) {
     config.set_default_model(model, provider);
-    let _ = rho_harness_core::config::Config::save_default_model_async(&config.config_dir, model, provider).await;
-    renderer.print_status(&format!("Default model: {model} ({provider})"));
+    match Config::save_default_model_async(&config.config_dir, &config.model, &config.provider).await {
+        Ok(()) => renderer.print_status(&format!("Default model: {}", config.canonical_model_spec())),
+        Err(err) => renderer.notice(
+            crate::ui::render::NoticeKind::Warn,
+            &format!("Could not save default model: {err}"),
+        ),
+    }
 }
 
 async fn update_config_model(
@@ -33,12 +39,13 @@ async fn update_config_model(
     provider: &str,
     save_as_default: bool,
 ) {
-    input.config.model = model.to_string();
-    input.config.provider = provider.to_string();
     if save_as_default {
         save_and_report_default(input.config, input.renderer, model, provider).await;
     } else {
-        input.renderer.print_status(&format!("Model: {model} ({provider})"));
+        input.config.set_route(ModelRoute::new(provider, model));
+        input
+            .renderer
+            .print_status(&format!("Model: {}", input.config.canonical_model_spec()));
     }
 }
 

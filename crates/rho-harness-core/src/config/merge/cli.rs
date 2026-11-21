@@ -1,4 +1,4 @@
-use super::super::Config;
+use super::super::{Config, ModelSlot};
 use crate::config::cli::Cli;
 use crate::provider::{Connection, ModelRoute};
 
@@ -20,25 +20,20 @@ pub(super) fn resolve_model_with_provider(config: &mut Config, model_spec: &str,
 
 fn apply_provider_flag_only(config: &mut Config, provider: &str) {
     let provider = provider.trim();
-    let provider_changed = config.provider != provider;
-    config.provider = provider.to_string();
-    if provider_changed {
-        config.model = config.models.get(provider).cloned().unwrap_or_default();
+    if config.provider != provider {
+        config.provider = provider.to_string();
+        config.model.clear();
     }
 }
 
 fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
-    if let Some(ref m) = c.model {
-        resolve_model_with_provider(config, m.trim(), c.provider.as_deref());
-    } else if c.smol {
-        if let Some(smol_model) = config.models.get("smol").cloned() {
-            resolve_model_with_provider(config, smol_model.trim(), c.provider.as_deref());
-        }
-    } else if c.slow {
-        if let Some(slow_model) = config.models.get("slow").cloned() {
-            resolve_model_with_provider(config, slow_model.trim(), c.provider.as_deref());
-        }
-    } else if let Some(ref p) = c.provider {
+    let slot = (c.smol.then_some(ModelSlot::Smol)).or(c.slow.then_some(ModelSlot::Slow));
+    let slot_model = slot.and_then(|slot| config.slot_model(slot)).map(str::to_string);
+    if let Some(model) = c.model.as_deref().or(slot_model.as_deref()) {
+        resolve_model_with_provider(config, model.trim(), c.provider.as_deref());
+    } else if slot.is_none()
+        && let Some(ref p) = c.provider
+    {
         apply_provider_flag_only(config, p);
     }
     if let Some(ref t) = c.thinking {
