@@ -68,6 +68,16 @@ pub struct ModelItem {
     pub description: String,
 }
 
+impl ModelItem {
+    pub fn canonical_id(&self) -> String {
+        if self.id.starts_with(&format!("{}/", self.provider)) {
+            self.id.clone()
+        } else {
+            format!("{}/{}", self.provider, self.id)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderItem {
     pub name: String,

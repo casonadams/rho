@@ -6,13 +6,13 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 pub fn build_models_options(session: &ReplSession) -> Vec<ModalOption> {
     let cfg = &session.config;
-    let default_m = cfg.model.as_str();
+    let default_m = cfg.canonical_model_spec();
     let smol_m = cfg.models.get("smol").map(String::as_str).unwrap_or("None");
     let slow_m = cfg.models.get("slow").map(String::as_str).unwrap_or("None");
     let guard_m = cfg.guard_model().unwrap_or("None");
 
     vec![
-        ModalOption::new("Default Model       ", Some(default_m.to_string())),
+        ModalOption::new("Default Model       ", Some(default_m)),
         ModalOption::new("Smol Model          ", Some(smol_m.to_string())),
         ModalOption::new("Slow Model          ", Some(slow_m.to_string())),
         ModalOption::new("Guard Model         ", Some(guard_m.to_string())),

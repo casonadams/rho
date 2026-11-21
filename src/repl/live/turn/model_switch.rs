@@ -95,12 +95,15 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
     if models.is_empty() {
         return Ok(());
     }
-    let current_model = &ctx.session.config.model;
-    let current_idx = models.iter().position(|m| &m.id == current_model).unwrap_or(0);
+    let current_spec = ctx.session.config.canonical_model_spec();
+    let current_idx = models
+        .iter()
+        .position(|m| m.canonical_id() == current_spec)
+        .unwrap_or(0);
     let item = &models[next_cyclic_index(current_idx, models.len(), direction)];
 
     apply_turn_model_switch(TurnModelSwitchInput {
-        model: &item.id,
+        model: &item.canonical_id(),
         provider: &item.provider,
         save_as_default: false,
         config: &mut ctx.session.config,

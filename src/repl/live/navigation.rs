@@ -119,15 +119,17 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     if models.is_empty() {
         return;
     }
+    let current_spec = ctx.session.config.canonical_model_spec();
     let current_idx = models
         .iter()
-        .position(|m| m.id == ctx.session.config.model)
+        .position(|m| m.canonical_id() == current_spec)
         .unwrap_or(0);
     let item = &models[next_model_index(current_idx, models.len(), direction)];
-    ctx.session.config.model = item.id.clone();
+    let spec = item.canonical_id();
+    ctx.session.config.model.clone_from(&spec);
     ctx.session.config.provider = item.provider.clone();
 
-    if let Err(err) = ctx.engine.switch_model(&item.id, &item.provider).await {
+    if let Err(err) = ctx.engine.switch_model(&spec, &item.provider).await {
         ctx.session.renderer.notice(
             crate::ui::render::NoticeKind::Warn,
             &format!("Could not switch model: {err}"),

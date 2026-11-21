@@ -289,7 +289,7 @@ async fn open_help_modal(
 ) -> bool {
     match command {
         "/settings" => super::super::modal::open_settings_selector(
-            Some(&session.config.model),
+            Some(&session.config.canonical_model_spec()),
             session.config.guard_model(),
             session.config.thinking_level.as_deref(),
             controller,

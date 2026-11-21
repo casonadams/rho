@@ -5,14 +5,6 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
-fn canonical_model_id(item: &crate::repl::interactive::ModelItem) -> String {
-    if item.id.contains('/') && item.id.starts_with(&format!("{}/", item.provider)) {
-        item.id.clone()
-    } else {
-        format!("{}/{}", item.provider, item.id)
-    }
-}
-
 fn is_default_model(session: &ReplSession, canonical_id: &str, model_id: &str, provider: &str) -> bool {
     session.config.default_model.as_deref().is_some_and(|dm| {
         dm == canonical_id
@@ -26,7 +18,7 @@ fn is_default_model(session: &ReplSession, canonical_id: &str, model_id: &str, p
 }
 
 fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::ModelItem) -> ModalOption {
-    let canonical = canonical_model_id(item);
+    let canonical = item.canonical_id();
     let active_spec = session.config.canonical_model_spec();
     let is_active = canonical == active_spec || item.id == session.config.model;
     let active_mark = if is_active { "✓" } else { "" };
@@ -59,7 +51,7 @@ pub fn open_model_selector_with_default<B: TerminalBackend>(
 
     let active_spec = session.config.canonical_model_spec();
     for (i, item) in discovered.iter().enumerate() {
-        let canonical = canonical_model_id(item);
+        let canonical = item.canonical_id();
         if canonical == active_spec || item.id == session.config.model {
             initial_selection = i;
         }
@@ -92,7 +84,7 @@ pub fn open_role_model_selector<B: TerminalBackend>(
 
     let mut initial_selection = 0;
     for (i, item) in discovered.iter().enumerate() {
-        let canonical = canonical_model_id(item);
+        let canonical = item.canonical_id();
         let active_mark = if let Some(m) = current_model {
             let matches_full = m == canonical;
             let matches_id = m == item.id;

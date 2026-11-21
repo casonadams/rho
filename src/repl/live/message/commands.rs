@@ -12,7 +12,7 @@ pub(crate) fn open_selector_modal<B: TerminalBackend>(
     match action {
         CommandResult::OpenModelSelector => crate::repl::live::modal::open_model_selector(session, io_controller),
         CommandResult::OpenSettingsSelector => crate::repl::live::modal::open_settings_selector(
-            Some(&session.config.model),
+            Some(&session.config.canonical_model_spec()),
             session.config.guard_model(),
             session.config.thinking_level.as_deref(),
             io_controller,
