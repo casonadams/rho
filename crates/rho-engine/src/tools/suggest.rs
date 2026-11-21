@@ -127,6 +127,16 @@ fn relative_target(root: &Path, raw: &str) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("/"))
 }
 
+/// Field order is the sort order: closest spelling first, then shared directories, then exact file name.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Rank {
+    distance: usize,
+    unshared_dirs: usize,
+    inexact_name: bool,
+    path_len: usize,
+    path: String,
+}
+
 pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
     let Some(target) = relative_target(root, raw) else {
         return Vec::new();
@@ -141,7 +151,7 @@ pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
     let wanted_last = target_last.to_lowercase();
     let tolerance = (wanted_len / 4).max(1);
 
-    let mut ranked: Vec<(usize, usize, bool, usize, String)> = workspace_entries(root, kind)
+    let mut ranked: Vec<Rank> = workspace_entries(root, kind)
         .into_iter()
         .filter_map(|entry| {
             let name = display_name(&entry.path, entry.is_dir);
@@ -156,16 +166,18 @@ pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
                     .rsplit('/')
                     .next()
                     .is_some_and(|n| n.eq_ignore_ascii_case(&wanted_last));
-                (distance, usize::MAX - shared, !exact_name, entry.path.len(), entry.path)
+                Rank {
+                    distance,
+                    unshared_dirs: usize::MAX - shared,
+                    inexact_name: !exact_name,
+                    path_len: entry.path.len(),
+                    path: entry.path,
+                }
             })
         })
         .collect();
     ranked.sort();
-    ranked
-        .into_iter()
-        .take(MAX_SUGGESTIONS)
-        .map(|(.., path)| path)
-        .collect()
+    ranked.into_iter().take(MAX_SUGGESTIONS).map(|rank| rank.path).collect()
 }
 
 /// A trailing "Did you mean" line for a not-found error, or an empty string when nothing is close.

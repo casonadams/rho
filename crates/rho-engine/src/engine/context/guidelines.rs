@@ -6,9 +6,13 @@ pub fn build_guidelines(active_tools: &[String]) -> Vec<&'static str> {
     guidelines
 }
 
+fn has_tool(active_tools: &[String], name: &str) -> bool {
+    active_tools.iter().any(|t| t == name)
+}
+
 fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
-    let has_fd = active_tools.iter().any(|t| t == "fd");
-    let has_rg = active_tools.iter().any(|t| t == "rg");
+    let has_fd = has_tool(active_tools, "fd");
+    let has_rg = has_tool(active_tools, "rg");
     match (has_fd, has_rg) {
         (true, true) => {
             out.push(
@@ -22,7 +26,7 @@ fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>
         (false, true) => {
             out.push("Use rg for content search instead of grep or bash pipelines; narrow with path or type")
         }
-        (false, false) if active_tools.iter().any(|t| t == "bash") => {
+        (false, false) if has_tool(active_tools, "bash") => {
             out.push("Use bash for file operations like ls, rg, find");
         }
         _ => {}
@@ -30,7 +34,7 @@ fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>
 }
 
 fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
-    if active_tools.iter().any(|t| t == "bash") {
+    if has_tool(active_tools, "bash") {
         out.push("Commands run directly in the working directory; do not prefix commands with cd");
         let has_inspectors = active_tools.iter().any(|t| matches!(t.as_str(), "fd" | "rg" | "read"));
         if has_inspectors {
@@ -57,11 +61,11 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
             out.push("Never use bash when a specialized tool or MCP tool exists; prefer dedicated tools, find unlisted MCP tools with tool_search, and call them through the mcp tool");
         }
     }
-    if active_tools.iter().any(|t| t == "read") {
+    if has_tool(active_tools, "read") {
         out.push("Use read to examine files instead of cat or sed");
     }
     append_mutation_guidelines(active_tools, out);
-    if active_tools.iter().any(|t| t == "bash") {
+    if has_tool(active_tools, "bash") {
         out.push(
             "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; continue other productive work or end your turn to wait for the completion signal",
         );
@@ -69,8 +73,8 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
 }
 
 fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
-    let has_edit = active_tools.iter().any(|t| t == "edit");
-    let has_write = active_tools.iter().any(|t| t == "write");
+    let has_edit = has_tool(active_tools, "edit");
+    let has_write = has_tool(active_tools, "write");
     if has_edit {
         out.push("Use edit for every change to an existing file: oldText for small unique changes, replaceAll for renames within a file, and startText/endText to delete or rewrite a whole block");
         out.push("Put all changes to one file in one edit call; for changes across files, issue one edit call per file in the same response");
@@ -79,7 +83,7 @@ fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static st
     if has_write {
         out.push("Use write only for new files or complete rewrites");
     }
-    if (has_edit || has_write) && active_tools.iter().any(|t| t == "bash") {
+    if (has_edit || has_write) && has_tool(active_tools, "bash") {
         out.push("Never create or modify files through bash (sed -i, perl -pi, python or awk scripts, echo/cat redirects, heredocs, tee, mv over a file); use edit and write. Project formatters and generators such as cargo fmt are fine");
     }
 }
