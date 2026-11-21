@@ -441,8 +441,6 @@ async fn quota_display_isolated_across_providers_and_models() {
         .quota
         .record_success(&chatgpt_key, "95% 4h23m 89% 3d21h".to_string());
     assert_eq!(engine.quota_display(), Some("95% 4h23m 89% 3d21h".to_string()));
-    engine.config.provider = "openai-chatgpt".to_string();
-    assert_eq!(engine.quota_display(), Some("95% 4h23m 89% 3d21h".to_string()));
 
     engine.config.provider = "claude".to_string();
     engine.config.model = "claude-sonnet-4-6".to_string();

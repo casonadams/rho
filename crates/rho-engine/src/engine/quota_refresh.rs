@@ -1,3 +1,4 @@
+use futures::future::{BoxFuture, FutureExt};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -8,118 +9,64 @@ use super::AgentEngine;
 use crate::auth::AuthStore;
 use crate::engine::tracking::{QuotaKey, QuotaTracker};
 
-pub(crate) fn canonical_quota_provider(provider: &str) -> Option<&'static str> {
-    let trimmed = provider.trim();
-    if trimmed.eq_ignore_ascii_case("openai-chatgpt") {
-        return Some("chatgpt");
-    }
-    match ProviderId::from_str(trimmed).ok()? {
-        ProviderId::OllamaCloud => Some("ollama-cloud"),
-        ProviderId::Antigravity => Some("antigravity"),
-        ProviderId::ChatGpt => Some("chatgpt"),
-        ProviderId::ClaudeCode => Some("claude"),
-        ProviderId::Gemini => Some("gemini"),
-        _ => None,
-    }
+fn quota_provider(provider: &str) -> Option<ProviderId> {
+    let id = ProviderId::from_str(provider).ok()?;
+    matches!(
+        id,
+        ProviderId::OllamaCloud
+            | ProviderId::Antigravity
+            | ProviderId::ChatGpt
+            | ProviderId::ClaudeCode
+            | ProviderId::Gemini
+    )
+    .then_some(id)
 }
 
 impl AgentEngine {
+    fn quota_job(&self) -> Option<BoxFuture<'static, ()>> {
+        let provider = quota_provider(&self.config.provider)?;
+        let auth = Arc::clone(&self.auth_store);
+        let quota = self.quota.clone();
+        let model = self.config.model.clone();
+        Some(match provider {
+            ProviderId::OllamaCloud => do_refresh_ollama_quota(auth, quota).boxed(),
+            ProviderId::Antigravity => {
+                do_refresh_auth_quota(auth, quota, AuthQuotaSource::Antigravity { model }).boxed()
+            }
+            ProviderId::ChatGpt => do_refresh_auth_quota(auth, quota, AuthQuotaSource::ChatGpt).boxed(),
+            ProviderId::ClaudeCode => do_refresh_claude_quota(auth, quota, model).boxed(),
+            ProviderId::Gemini => {
+                let sessions_dir = self.config.sessions_dir.clone();
+                let session_id = self.session_manager.session_id.clone();
+                let totals = self.session_usage_totals();
+                async move {
+                    do_refresh_gemini_quota(&sessions_dir, Some(&session_id), totals, &model, quota).await;
+                }
+                .boxed()
+            }
+            _ => return None,
+        })
+    }
+
     pub async fn refresh_quota(&self) {
-        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
-            return;
-        };
-        match provider {
-            "ollama-cloud" => {
-                do_refresh_ollama_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
-            }
-            "antigravity" => {
-                do_refresh_auth_quota(
-                    Arc::clone(&self.auth_store),
-                    self.quota.clone(),
-                    AuthQuotaSource::Antigravity {
-                        model: self.config.model.clone(),
-                    },
-                )
-                .await;
-            }
-            "chatgpt" => {
-                do_refresh_auth_quota(
-                    Arc::clone(&self.auth_store),
-                    self.quota.clone(),
-                    AuthQuotaSource::ChatGpt,
-                )
-                .await;
-            }
-            "claude" => {
-                do_refresh_claude_quota(
-                    Arc::clone(&self.auth_store),
-                    self.quota.clone(),
-                    self.config.model.clone(),
-                )
-                .await;
-            }
-            "gemini" => {
-                do_refresh_gemini_quota(
-                    &self.config.sessions_dir,
-                    Some(&self.session_manager.session_id),
-                    self.session_usage_totals(),
-                    &self.config.model,
-                    self.quota.clone(),
-                )
-                .await;
-            }
-            _ => {}
+        if let Some(job) = self.quota_job() {
+            job.await;
         }
     }
 
     pub fn spawn_refresh_quota(&self) {
-        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
-            return;
-        };
-        let auth = Arc::clone(&self.auth_store);
-        let quota = self.quota.clone();
-        match provider {
-            "ollama-cloud" => {
-                tokio::spawn(async move {
-                    do_refresh_ollama_quota(auth, quota).await;
-                });
-            }
-            "antigravity" => {
-                let source = AuthQuotaSource::Antigravity {
-                    model: self.config.model.clone(),
-                };
-                tokio::spawn(async move {
-                    do_refresh_auth_quota(auth, quota, source).await;
-                });
-            }
-            "chatgpt" => {
-                tokio::spawn(async move {
-                    do_refresh_auth_quota(auth, quota, AuthQuotaSource::ChatGpt).await;
-                });
-            }
-            "claude" => {
-                let model = self.config.model.clone();
-                tokio::spawn(async move {
-                    do_refresh_claude_quota(auth, quota, model).await;
-                });
-            }
-            "gemini" => {
-                let sessions_dir = self.config.sessions_dir.clone();
-                let sid = self.session_manager.session_id.clone();
-                let totals = self.session_usage_totals();
-                let model = self.config.model.clone();
-                tokio::spawn(async move {
-                    do_refresh_gemini_quota(&sessions_dir, Some(&sid), totals, &model, quota).await;
-                });
-            }
-            _ => {}
+        if let Some(job) = self.quota_job() {
+            tokio::spawn(job);
         }
     }
 
+    fn quota_key(&self, model: Option<&str>) -> Option<QuotaKey> {
+        let provider = quota_provider(&self.config.provider)?;
+        Some(QuotaKey::new(provider.as_str(), model))
+    }
+
     pub fn quota_display(&self) -> Option<String> {
-        let provider = canonical_quota_provider(&self.config.provider)?;
-        let key = QuotaKey::new(provider, Some(&self.config.model));
-        self.quota.display_for(&key)
+        self.quota.display_for(&self.quota_key(Some(&self.config.model))?)
     }
 
     pub fn quota(&self) -> &QuotaTracker {
@@ -127,11 +74,8 @@ impl AgentEngine {
     }
 
     pub fn should_refresh_quota(&self) -> bool {
-        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
-            return false;
-        };
-        let key = QuotaKey::new(provider, Some(&self.config.model));
-        self.quota.should_fetch(&key)
+        self.quota_key(Some(&self.config.model))
+            .is_some_and(|key| self.quota.should_fetch(&key))
     }
 
     pub fn quota_subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
@@ -139,13 +83,12 @@ impl AgentEngine {
     }
 
     pub fn invalidate_quota(&self) {
-        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
-            return;
-        };
-        let key = QuotaKey::new(provider, Some(&self.config.model));
-        self.quota.invalidate(&key);
-        let fallback_key = QuotaKey::new(provider, None::<String>);
-        self.quota.invalidate(&fallback_key);
+        for key in [self.quota_key(Some(&self.config.model)), self.quota_key(None)]
+            .into_iter()
+            .flatten()
+        {
+            self.quota.invalidate(&key);
+        }
     }
 
     pub fn force_refresh_quota(&self) {
