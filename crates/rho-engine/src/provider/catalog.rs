@@ -3,16 +3,10 @@
 use super::discovery::{DiscoveredModel, discover_models};
 use crate::auth::AuthStore;
 use rho_harness_core::config::Config;
-use rho_harness_core::provider::ProviderId;
+use rho_harness_core::provider::canonical_provider;
 use std::collections::{BTreeMap, HashMap};
-use std::str::FromStr;
 use std::sync::{Arc, LazyLock, RwLock};
 use tokio::sync::watch;
-
-/// Catalog key for a provider name, folding aliases such as `ollama` onto `local`.
-pub fn catalog_key(provider: &str) -> String {
-    ProviderId::from_str(provider).map_or_else(|_| provider.to_string(), |id| id.as_str().to_string())
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderModels {
@@ -68,12 +62,17 @@ impl ModelCatalog {
             .providers
             .write()
             .unwrap()
-            .insert(provider.to_string(), models);
+            .insert(canonical_provider(provider), models);
         self.notify();
     }
 
     pub fn get(&self, provider: &str) -> Option<ProviderModels> {
-        self.inner.providers.read().unwrap().get(provider).cloned()
+        self.inner
+            .providers
+            .read()
+            .unwrap()
+            .get(&canonical_provider(provider))
+            .cloned()
     }
 
     pub fn snapshot(&self) -> BTreeMap<String, ProviderModels> {
@@ -82,7 +81,7 @@ impl ModelCatalog {
 
     /// Records the window a provider actually allocated for a model, overriding its listed value.
     pub fn record_observed_context(&self, provider: &str, model: &str, tokens: usize) {
-        let key = (catalog_key(provider), model.to_string());
+        let key = (canonical_provider(provider), model.to_string());
         let previous = self.inner.observed_context.write().unwrap().insert(key, tokens);
         if previous != Some(tokens) {
             self.notify();
@@ -90,7 +89,7 @@ impl ModelCatalog {
     }
 
     pub fn context_tokens(&self, provider: &str, model: &str) -> Option<usize> {
-        let provider = catalog_key(provider);
+        let provider = canonical_provider(provider);
         let key = (provider.clone(), model.to_string());
         if let Some(tokens) = self.inner.observed_context.read().unwrap().get(&key) {
             return Some(*tokens);
@@ -113,7 +112,7 @@ impl ModelCatalog {
     /// Fetches one provider's list in the background, e.g. the active provider for a headless run.
     pub fn spawn_refresh(&self, provider: &str, config: &Config, auth: &AuthStore) {
         let catalog = self.clone();
-        let provider = catalog_key(provider);
+        let provider = canonical_provider(provider);
         let config = config.clone();
         let auth = auth.clone();
         tokio::spawn(async move { catalog.refresh(&provider, &config, auth).await });
@@ -145,8 +144,9 @@ pub fn reachable_providers(config: &Config, auth: &AuthStore) -> Vec<String> {
     let mut providers = vec!["local".to_string()];
     for provider in auth
         .list_configured_providers()
-        .into_iter()
-        .chain(config.providers.keys().cloned())
+        .iter()
+        .chain(config.providers.keys())
+        .map(|name| canonical_provider(name))
     {
         if !providers.contains(&provider) {
             providers.push(provider);
@@ -237,12 +237,21 @@ mod tests {
     fn reachable_providers_cover_local_logins_and_custom_endpoints_once() {
         let (_dir, mut auth) = crate::test_support::temp_auth_store();
         auth.set_key("claude", "tok").unwrap();
+        auth.set_key("claude-code", "tok").unwrap();
         auth.set_key("acme", "key").unwrap();
         let mut config = Config::default();
         config.providers.insert("acme".to_string(), ProviderConfig::default());
         let providers = reachable_providers(&config, &auth);
         assert_eq!(providers.first().map(String::as_str), Some("local"));
         assert_eq!(providers.iter().filter(|p| *p == "acme").count(), 1);
-        assert!(providers.contains(&"claude".to_string()));
+        assert_eq!(providers.iter().filter(|p| *p == "claude").count(), 1);
+    }
+
+    #[test]
+    fn provider_aliases_share_one_catalog_entry() {
+        let catalog = ModelCatalog::default();
+        catalog.set("ollama", ProviderModels::Loading);
+        assert_eq!(catalog.get("local"), Some(ProviderModels::Loading));
+        assert_eq!(catalog.snapshot().keys().collect::<Vec<_>>(), ["local"]);
     }
 }

@@ -14,7 +14,7 @@ impl ModelAdapter for ClaudeClient {
     }
 
     fn provider_name(&self) -> &str {
-        "claude-code"
+        self.provider().as_str()
     }
 
     async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {

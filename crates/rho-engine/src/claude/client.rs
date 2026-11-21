@@ -10,6 +10,7 @@ use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvi
 use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::provider::error::{HttpFailure, HttpResult};
+use rho_harness_core::provider::ProviderId;
 
 #[cfg(test)]
 mod tests;
@@ -36,6 +37,13 @@ impl std::fmt::Debug for ClaudeClient {
 impl ClaudeClient {
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    pub(crate) fn provider(&self) -> ProviderId {
+        match self.auth {
+            ClaudeAuth::Login => ProviderId::ClaudeCode,
+            ClaudeAuth::ApiKey => ProviderId::Anthropic,
+        }
     }
     pub fn new(token: impl Into<String>, model: impl Into<String>) -> Self {
         Self::with_token_provider(Arc::new(StaticTokenProvider::new(token)), model)

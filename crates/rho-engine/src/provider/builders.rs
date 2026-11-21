@@ -16,12 +16,15 @@ pub(super) fn validate_custom_provider_url(name: &str, url: &str, allow_private:
         })
 }
 
-pub const LOCAL_OLLAMA_PROVIDER: &str = "ollama-local";
-
 pub(super) fn build_local_ollama_model(model: &str) -> Result<ModelHandle> {
     crate::install_crypto_provider();
     let host = crate::ollama::local::local_host();
-    Ok(openai_model(&format!("{host}/v1"), "", model, LOCAL_OLLAMA_PROVIDER))
+    Ok(openai_model(
+        &format!("{host}/v1"),
+        "",
+        model,
+        ProviderId::Local.as_str(),
+    ))
 }
 
 pub(super) fn resolve_provider_key(provider: ProviderId, auth_store: &AuthStore) -> Result<String> {

@@ -4,7 +4,8 @@ use rho_harness_core::error::Result;
 use super::AgentEngine;
 use super::builder;
 use super::tracking::{ContextLimitSource, ContextTracker};
-use crate::provider::{LOCAL_OLLAMA_PROVIDER, ModelCatalog};
+use crate::provider::ModelCatalog;
+use rho_harness_core::provider::{ModelRoute, ProviderId};
 
 impl AgentEngine {
     pub async fn build_model_handle(&self, config: &Config) -> Result<crate::engine::compactor::llm::ModelHandle> {
@@ -49,17 +50,13 @@ impl AgentEngine {
     /// Ollama only reports the window it allocated while the model is loaded, which is guaranteed
     /// right after a turn; the OpenAI-compatible API cannot request a window size.
     pub(crate) fn spawn_local_context_probe(&self) {
-        let Some(model) = self.model.as_ref() else {
-            return;
-        };
-        if model.provider_name() != LOCAL_OLLAMA_PROVIDER || self.config.context_limit.is_some() {
+        let route = self.config.route();
+        if self.model.is_none() || route.provider != ProviderId::Local.as_str() || self.config.context_limit.is_some() {
             return;
         }
         let probe = LocalContextProbe {
             host: self.ollama_host.clone(),
-            model: model.model_name().to_string(),
-            catalog_provider: self.config.provider.clone(),
-            catalog_model: self.config.model.clone(),
+            route,
             context: self.context.clone(),
         };
         tokio::spawn(probe.run());
@@ -68,19 +65,17 @@ impl AgentEngine {
 
 struct LocalContextProbe {
     host: String,
-    model: String,
-    catalog_provider: String,
-    catalog_model: String,
+    route: ModelRoute,
     context: ContextTracker,
 }
 
 impl LocalContextProbe {
     async fn run(self) {
-        match crate::ollama::local::loaded_context_length(&self.host, &self.model).await {
+        match crate::ollama::local::loaded_context_length(&self.host, &self.route.model).await {
             Ok(Some(tokens)) => {
                 self.context
                     .catalog()
-                    .record_observed_context(&self.catalog_provider, &self.catalog_model, tokens);
+                    .record_observed_context(&self.route.provider, &self.route.model, tokens);
                 self.context.set_probe_error(None);
             }
             Ok(None) => self.context.set_probe_error(None),
@@ -115,9 +110,7 @@ mod tests {
     fn probe(host: String, context: &ContextTracker) -> LocalContextProbe {
         LocalContextProbe {
             host,
-            model: "inkling-2-mini".to_string(),
-            catalog_provider: "local".to_string(),
-            catalog_model: MODEL.to_string(),
+            route: ModelRoute::new("local", MODEL),
             context: context.clone(),
         }
     }
@@ -125,7 +118,7 @@ mod tests {
     #[tokio::test]
     async fn completed_local_turn_replaces_trained_window_with_allocated_one() {
         let dir = tempfile::tempdir().unwrap();
-        let model = MockAdapter::new("inkling-2-mini", LOCAL_OLLAMA_PROVIDER);
+        let model = MockAdapter::new("inkling-2-mini", ProviderId::Local.as_str());
         model.add_turn(vec![
             Ok(ModelStreamEvent::Text("done".into())),
             Ok(ModelStreamEvent::Finish(FinishReason::Stop)),

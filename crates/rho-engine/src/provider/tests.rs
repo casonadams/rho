@@ -187,7 +187,11 @@ fn claude_provider_builds_model_handle() {
         shared_auth: shared_auth(&auth_store),
     };
     let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
-    assert_eq!(handle.provider_name(), "claude-code");
+    assert_eq!(handle.provider_name(), "claude");
+
+    let api_key =
+        builders::build_standard_client_model(ProviderId::Anthropic, "claude-sonnet-4-6", "k".into()).unwrap();
+    assert_eq!(api_key.provider_name(), "anthropic");
 
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -294,7 +298,7 @@ fn engine_model_is_built_from_the_config_route() {
     let handle = crate::engine::builder::create_engine_model(&config, &auth_store, shared_auth(&auth_store)).unwrap();
     assert_eq!(
         (handle.provider_name(), handle.model_name()),
-        ("ollama-local", "qwen2.5-coder:7b")
+        ("local", "qwen2.5-coder:7b")
     );
 }
 

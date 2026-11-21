@@ -8,8 +8,7 @@ pub mod sse;
 
 pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 
-pub use builders::LOCAL_OLLAMA_PROVIDER;
-pub use catalog::{ModelCatalog, ProviderModels, catalog_key};
+pub use catalog::{ModelCatalog, ProviderModels};
 pub use discovery::DiscoveredModel;
 pub use openai::OpenAiClient;
 
@@ -101,7 +100,7 @@ impl ProviderFactory {
         auth_store: &AuthStore,
     ) -> Result<ModelHandle> {
         let name = provider_name.trim();
-        let spec = config.providers.get(&name.to_ascii_lowercase()).ok_or_else(|| {
+        let spec = config.providers.get(name).ok_or_else(|| {
             AppError::Provider(format!(
                 "Unknown provider '{name}'. Configure it in config.toml as\n\
                      [providers.{name}]\nbase_url = \"https://...\"\n\

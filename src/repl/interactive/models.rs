@@ -13,12 +13,13 @@ fn push_unique(models: &mut Vec<ModelItem>, item: ModelItem) {
 }
 
 fn active_model_item(config: &Config, catalog: &ModelCatalog) -> ModelItem {
+    let route = config.route();
     let window = catalog
-        .context_tokens(&config.provider, &config.model)
-        .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&config.model));
+        .context_tokens(&route.provider, &route.model)
+        .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&route.model));
     ModelItem {
-        id: config.model.clone(),
-        provider: config.provider.clone(),
+        id: route.model,
+        provider: route.provider,
         description: format!("{} · active", format_context_tokens(window)),
     }
 }
@@ -53,7 +54,7 @@ pub fn discover_models(config: &Config, catalog: &ModelCatalog) -> Vec<ModelItem
 /// One line describing providers still fetching or that failed; empty when every list is in.
 /// A missing local Ollama only matters when it is the active provider.
 pub fn catalog_status(config: &Config, catalog: &ModelCatalog) -> String {
-    let local_active = rho_engine::provider::catalog_key(&config.provider) == "local";
+    let local_active = config.route().provider == "local";
     let mut loading = Vec::new();
     let mut failed = Vec::new();
     for (provider, state) in catalog.snapshot() {
