@@ -15,7 +15,7 @@ cargo install rho
 ## Quick Start
 
 ```sh
-# Start interactive REPL (the first run opens the model selector; your pick is saved as the default)
+# Start interactive REPL (no model is selected until you pick one with /model)
 rho
 
 # Run one-shot prompt (needs a saved default or --model)

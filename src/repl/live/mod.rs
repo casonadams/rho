@@ -142,10 +142,6 @@ impl ReplSession {
     pub(super) async fn run_live(&mut self) -> Result<()> {
         let mut engine = crate::repl::init_engine(self).await?;
         let (mut controller, mut ui_events, mut history, completions) = build_live_environment(self, &engine).await?;
-        if self.config.model.trim().is_empty() {
-            modal::open_model_selector_with_default(self, &mut controller, true);
-            controller.redraw()?;
-        }
         let mut input = TerminalInputReader::spawn()?;
         let io = LiveIo {
             controller: &mut controller,
