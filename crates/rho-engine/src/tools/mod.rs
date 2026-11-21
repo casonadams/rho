@@ -24,7 +24,7 @@ pub mod workflow;
 pub mod worktree_tool;
 pub mod write;
 
-pub use artifact::{cleanup_artifacts, default_artifact_dir, format_artifact_notice, spill_artifact};
+pub use artifact::{cleanup_artifacts, format_artifact_notice, spill_artifact};
 pub use bash::{BashArgs, BashTool};
 pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_builtin_tools};
 pub use edit::{EditArgs, EditTool};

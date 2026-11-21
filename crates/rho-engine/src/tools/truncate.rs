@@ -104,7 +104,6 @@ fn collect_head_lines<'a>(
 ) -> (Vec<&'a str>, TruncatedBy) {
     let mut kept = Vec::new();
     let mut output_bytes = 0usize;
-    let mut truncated_by = TruncatedBy::Lines;
     for (i, line) in lines.enumerate().take(max_lines) {
         let line_bytes = line.len() + usize::from(i > 0);
         if output_bytes + line_bytes > max_bytes {
@@ -113,10 +112,7 @@ fn collect_head_lines<'a>(
         kept.push(line);
         output_bytes += line_bytes;
     }
-    if kept.len() >= max_lines && output_bytes <= max_bytes {
-        truncated_by = TruncatedBy::Lines;
-    }
-    (kept, truncated_by)
+    (kept, TruncatedBy::Lines)
 }
 
 /// Truncate content from the head (keep the first N lines/bytes). Suitable for

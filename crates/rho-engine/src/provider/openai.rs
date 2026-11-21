@@ -87,7 +87,7 @@ fn convert_tool_result_content(content: &[ToolResultContent]) -> String {
     text
 }
 
-fn convert_openai_user(content: &[UserContent]) -> Option<Value> {
+fn convert_openai_user(content: &[UserContent]) -> Value {
     let mut parts = Vec::new();
     for part in content {
         match part {
@@ -104,28 +104,28 @@ fn convert_openai_user(content: &[UserContent]) -> Option<Value> {
             }
             UserContent::ToolResult(res) => {
                 let text = convert_tool_result_content(&res.content);
-                return Some(json!({
+                return json!({
                     "role": "tool",
                     "tool_call_id": res.call,
                     "content": text,
-                }));
+                });
             }
         }
     }
     if parts.len() == 1 && parts[0]["type"] == "text" {
-        Some(json!({
+        json!({
             "role": "user",
             "content": parts[0]["text"]
-        }))
+        })
     } else {
-        Some(json!({
+        json!({
             "role": "user",
             "content": parts
-        }))
+        })
     }
 }
 
-fn convert_openai_assistant(content: &[AssistantContent]) -> Option<Value> {
+fn convert_openai_assistant(content: &[AssistantContent]) -> Value {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     for part in content {
@@ -152,15 +152,15 @@ fn convert_openai_assistant(content: &[AssistantContent]) -> Option<Value> {
     if !tool_calls.is_empty() {
         obj.insert("tool_calls".to_string(), json!(tool_calls));
     }
-    Some(Value::Object(obj))
+    Value::Object(obj)
 }
 
-fn convert_chat_message(msg: &ChatMessage) -> Option<Value> {
+fn convert_chat_message(msg: &ChatMessage) -> Value {
     match msg {
-        ChatMessage::System { content } => Some(json!({
+        ChatMessage::System { content } => json!({
             "role": "system",
             "content": content,
-        })),
+        }),
         ChatMessage::User { content } => convert_openai_user(content),
         ChatMessage::Assistant { content, .. } => convert_openai_assistant(content),
     }
@@ -189,11 +189,7 @@ pub fn build_request_body(req: &ModelCompletionRequest, model: &str, stream: boo
     {
         messages.push(json!({ "role": "system", "content": preamble.trim() }));
     }
-    for m in &req.messages {
-        if let Some(v) = convert_chat_message(m) {
-            messages.push(v);
-        }
-    }
+    messages.extend(req.messages.iter().map(convert_chat_message));
     if !req.prompt.trim().is_empty() {
         messages.push(json!({ "role": "user", "content": req.prompt.trim() }));
     }
@@ -453,17 +449,17 @@ mod tests {
                 UserContent::ToolResult(ToolResult::new("call-1", "bash", "output")),
             ],
         };
-        let user_val = convert_chat_message(&user_msg).unwrap();
+        let user_val = convert_chat_message(&user_msg);
         assert_eq!(user_val["role"], "tool");
         assert_eq!(user_val["tool_call_id"], "call-1");
 
         let single_user = ChatMessage::user("plain prompt");
-        let single_val = convert_chat_message(&single_user).unwrap();
+        let single_val = convert_chat_message(&single_user);
         assert_eq!(single_val["role"], "user");
         assert_eq!(single_val["content"], "plain prompt");
 
         let system_msg = ChatMessage::system("system instruction");
-        let sys_val = convert_chat_message(&system_msg).unwrap();
+        let sys_val = convert_chat_message(&system_msg);
         assert_eq!(sys_val["role"], "system");
 
         let asst_msg = ChatMessage::Assistant {
@@ -476,7 +472,7 @@ mod tests {
                 )),
             ],
         };
-        let asst_val = convert_chat_message(&asst_msg).unwrap();
+        let asst_val = convert_chat_message(&asst_msg);
         assert_eq!(asst_val["role"], "assistant");
         assert_eq!(asst_val["content"], "I will help");
         assert_eq!(asst_val["tool_calls"][0]["id"], "call-9");

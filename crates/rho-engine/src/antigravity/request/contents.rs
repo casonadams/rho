@@ -71,10 +71,9 @@ pub fn part_text(text: impl Into<String>) -> Part {
     }
 }
 
-pub struct ConversionContext<'a> {
+pub struct ConversionContext {
     pub requires_sig: bool,
     pub call_ids: bool,
-    _marker: std::marker::PhantomData<&'a ()>,
 }
 
 fn convert_tool_result_part(result: &rho_harness_core::model::ToolResult, call_ids: bool) -> Part {
@@ -135,7 +134,7 @@ fn convert_antigravity_user(content: &[UserContent], call_ids: bool) -> Vec<Part
 
 fn convert_antigravity_assistant_part(
     part: &AssistantContent,
-    ctx: &ConversionContext<'_>,
+    ctx: &ConversionContext,
     is_first_call: &mut bool,
 ) -> Option<Part> {
     match part {
@@ -184,7 +183,7 @@ fn convert_antigravity_assistant_part(
     }
 }
 
-fn convert_antigravity_assistant(content: &[AssistantContent], ctx: &ConversionContext<'_>) -> Vec<Part> {
+fn convert_antigravity_assistant(content: &[AssistantContent], ctx: &ConversionContext) -> Vec<Part> {
     let mut parts = Vec::new();
     let mut is_first = true;
     for part in content {
@@ -215,11 +214,7 @@ pub fn convert_contents(request: &ModelCompletionRequest, runtime_model: &str) -
     let mut contents: Vec<Content> = Vec::new();
     let requires_sig = gemini_requires_thought_signature(runtime_model);
     let call_ids = needs_function_call_id(runtime_model);
-    let ctx = ConversionContext {
-        requires_sig,
-        call_ids,
-        _marker: std::marker::PhantomData,
-    };
+    let ctx = ConversionContext { requires_sig, call_ids };
 
     for message in &request.messages {
         match message {

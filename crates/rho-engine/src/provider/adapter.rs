@@ -175,105 +175,72 @@ impl ModelAdapter for MockAdapter {
 mod tests {
     use super::*;
     use futures::StreamExt;
-    use rho_harness_core::model::{ToolCall, ToolFunction};
+    use rho_harness_core::model::ToolFunction;
 
-    #[derive(Debug)]
-    struct MockAdapter {
-        model: String,
-        provider: String,
-        response_text: String,
-    }
-
-    #[async_trait::async_trait]
-    impl ModelAdapter for MockAdapter {
-        fn model_name(&self) -> &str {
-            &self.model
-        }
-
-        fn provider_name(&self) -> &str {
-            &self.provider
-        }
-
-        async fn complete(&self, request: ModelCompletionRequest) -> Result<ModelCompletionResponse, AppError> {
-            Ok(ModelCompletionResponse {
-                content: format!("{}: {}", self.response_text, request.prompt),
-                tool_calls: vec![ToolCall::new(
-                    "call-1",
-                    ToolFunction::new("test_tool", serde_json::json!({})),
-                )],
-                usage: StructuralUsage {
-                    input_tokens: 10,
-                    output_tokens: 5,
-                    ..Default::default()
-                },
-                finish_reason: None,
-            })
-        }
-
-        async fn stream(
-            &self,
-            _request: ModelCompletionRequest,
-        ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
-            let events = vec![
-                Ok(ModelStreamEvent::Reasoning("thinking...".to_string())),
-                Ok(ModelStreamEvent::Text(self.response_text.clone())),
-                Ok(ModelStreamEvent::Usage(StructuralUsage {
-                    input_tokens: 10,
-                    output_tokens: 5,
-                    ..Default::default()
-                })),
-            ];
-            Ok(Box::pin(futures::stream::iter(events)))
+    fn usage() -> StructuralUsage {
+        StructuralUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..Default::default()
         }
     }
 
     #[tokio::test]
-    async fn test_model_adapter_complete() {
-        let adapter = MockAdapter {
-            model: "test-model".to_string(),
-            provider: "test-provider".to_string(),
-            response_text: "hello".to_string(),
+    async fn complete_drains_the_scripted_turn_into_one_response() {
+        let call = ToolCall::new("call-1", ToolFunction::new("test_tool", serde_json::json!({})));
+        let adapter = MockAdapter::from_turns([vec![
+            ModelStreamEvent::Text("hello".to_string()),
+            ModelStreamEvent::ToolCall(call),
+            ModelStreamEvent::Usage(usage()),
+            ModelStreamEvent::Finish(FinishReason::ToolCalls),
+        ]]);
+        let request = ModelCompletionRequest {
+            prompt: "world".to_string(),
+            ..Default::default()
         };
 
+        let response = adapter.complete(request.clone()).await.unwrap();
+
+        assert_eq!(response.content, "hello");
+        assert_eq!(response.tool_calls[0].function.name, "test_tool");
+        assert_eq!(response.usage.input_tokens, 10);
+        assert_eq!(response.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(adapter.requests(), [request]);
+    }
+
+    #[tokio::test]
+    async fn stream_replays_each_scripted_turn_once_in_order() {
+        let adapter = MockAdapter::new("test-model", "test-provider");
+        adapter.add_turn(vec![
+            Ok(ModelStreamEvent::Reasoning("thinking...".to_string())),
+            Ok(ModelStreamEvent::Text("streamed output".to_string())),
+            Ok(ModelStreamEvent::Usage(usage())),
+        ]);
         assert_eq!(adapter.model_name(), "test-model");
         assert_eq!(adapter.provider_name(), "test-provider");
 
-        let req = ModelCompletionRequest {
-            preamble: None,
-            prompt: "world".to_string(),
-            messages: vec![ChatMessage::user("world")],
-            tools: vec![],
-            max_tokens: Some(100),
-            temperature: Some(0.7),
-        };
+        let events: Vec<_> = adapter
+            .stream(ModelCompletionRequest::default())
+            .await
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+            .await;
+        let drained = adapter
+            .stream(ModelCompletionRequest::default())
+            .await
+            .unwrap()
+            .count()
+            .await;
 
-        let res = adapter.complete(req).await.unwrap();
-        assert_eq!(res.content, "hello: world");
-        assert_eq!(res.tool_calls.len(), 1);
-        assert_eq!(res.tool_calls[0].function.name, "test_tool");
-        assert_eq!(res.usage.input_tokens, 10);
-    }
-
-    #[tokio::test]
-    async fn test_model_adapter_stream() {
-        let adapter = MockAdapter {
-            model: "test-model".to_string(),
-            provider: "test-provider".to_string(),
-            response_text: "streamed output".to_string(),
-        };
-
-        let req = ModelCompletionRequest::default();
-        let mut stream = adapter.stream(req).await.unwrap();
-
-        let event1 = stream.next().await.unwrap().unwrap();
-        assert_eq!(event1, ModelStreamEvent::Reasoning("thinking...".to_string()));
-
-        let event2 = stream.next().await.unwrap().unwrap();
-        assert_eq!(event2, ModelStreamEvent::Text("streamed output".to_string()));
-
-        let event3 = stream.next().await.unwrap().unwrap();
-        assert!(matches!(event3, ModelStreamEvent::Usage(_)));
-
-        assert!(stream.next().await.is_none());
+        assert_eq!(
+            events,
+            [
+                ModelStreamEvent::Reasoning("thinking...".to_string()),
+                ModelStreamEvent::Text("streamed output".to_string()),
+                ModelStreamEvent::Usage(usage()),
+            ]
+        );
+        assert_eq!(drained, 0);
     }
 }

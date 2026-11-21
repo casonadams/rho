@@ -224,7 +224,7 @@ fn attach_thinking_or_temp(
     }
 }
 
-fn attach_tools_and_choice(body: &mut Value, request: &ModelCompletionRequest, _model: &str) {
+fn attach_tools_and_choice(body: &mut Value, request: &ModelCompletionRequest) {
     if !request.tools.is_empty() {
         body["tools"] = json!(convert_tools(request));
     }
@@ -274,7 +274,7 @@ pub fn build_request_body(
     if !system_blocks.is_empty() {
         body["system"] = json!(system_blocks);
     }
-    attach_tools_and_choice(&mut body, request, normalized_model);
+    attach_tools_and_choice(&mut body, request);
     mark_cache_breakpoints(&mut body, cache_retention.resolve(auth == ClaudeAuth::Login));
     Ok(body)
 }

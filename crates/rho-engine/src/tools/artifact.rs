@@ -1,10 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-pub fn default_artifact_dir() -> PathBuf {
-    PathBuf::from(".rho/artifacts")
-}
-
 pub fn spill_artifact(dir: &Path, content: &str) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let id = uuid::Uuid::new_v4();
