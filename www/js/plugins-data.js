@@ -135,33 +135,23 @@ print('{"action":"continue"}')`,
     name: "RTK Token Optimizer",
     type: "hook",
     badge: "Lifecycle Hook",
-    category: "Optimization (Python)",
-    description: "One-shot Python hook in .agents/hooks/on_tool_call that uses RTK to rewrite bash commands, saving 50-90% on command output tokens.",
+    category: "Optimization (Shell)",
+    description: "One-shot shell hook in .agents/hooks/on_tool_call that uses rtk rewrite on bash commands, saving 50-90% on command output tokens.",
     author: "casonadams",
     version: "Recipe",
-    runtime: "Python 3",
+    runtime: "sh, jq, rtk",
     repoUrl: "https://github.com/rtk-ai/rtk",
-    snippet: `#!/usr/bin/env python3
-# .agents/hooks/on_tool_call
-import json, subprocess, sys
+    snippet: `#!/bin/sh
+# .agents/hooks/on_tool_call (rtk >= 1.2)
+cmd=$(jq -r 'select(.tool_name == "bash") | .args.command // empty')
+[ -n "$cmd" ] || exit 0
 
-def rewrite_command(cmd):
-    if not cmd or cmd.startswith("rtk "):
-        return None
-    res = subprocess.run(["rtk", "rewrite", cmd], capture_output=True, text=True)
-    rewritten = res.stdout.strip()
-    return rewritten if res.returncode in (0, 3) and rewritten and rewritten != cmd else None
-
-try:
-    event = json.load(sys.stdin)
-    if event.get("tool_name") == "bash":
-        args = event.get("args") or {}
-        rewritten = rewrite_command(args.get("command", ""))
-        if rewritten:
-            args["command"] = rewritten
-            print(json.dumps({"action": "rewrite_args", "args": args}))
-except Exception:
-    pass`,
+out=$(rtk rewrite "$cmd")
+case $? in
+  0|3) [ -n "$out" ] && jq -nc --arg c "$out" '{action: "rewrite_args", args: {command: $c}}' ;;
+  2) [ -n "$out" ] && jq -nc --arg r "$out" '{action: "skip", reason: $r}' ;;
+esac
+exit 0`,
     snippetLabel: ".agents/hooks/on_tool_call",
     isOfficial: true
   }

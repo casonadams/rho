@@ -784,7 +784,14 @@ fi</code></pre>
 
       <h3>Example: RTK Token Optimization</h3>
       <p>
-        Use <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">RTK (Rust Token Killer)</a> to automatically filter and compress verbose CLI output (saving 50&ndash;90% on context tokens). See <a href="https://github.com/casonadams/rho/blob/main/examples/hooks/rtk-rewrite.py" target="_blank" rel="noopener"><code>examples/hooks/rtk-rewrite.py</code></a> for the ready-to-use Python recipe.
+        Use <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">RTK (Rust Token Killer)</a> to automatically filter and compress verbose CLI output (saving 50&ndash;90% on context tokens). See <a href="https://github.com/casonadams/rho/blob/main/examples/hooks/rtk-rewrite.sh" target="_blank" rel="noopener"><code>examples/hooks/rtk-rewrite.sh</code></a> for the ready-to-use shell recipe (needs <code>jq</code> and rtk 1.2+). Install it as <code>~/.agents/hooks/on_tool_call</code> and make it executable:
+      </p>
+      <pre><code>mise use -g rtk@latest   # or: brew install rtk
+mkdir -p ~/.agents/hooks
+cp examples/hooks/rtk-rewrite.sh ~/.agents/hooks/on_tool_call
+chmod +x ~/.agents/hooks/on_tool_call</code></pre>
+      <p>
+        The hook rewrites <code>bash</code> commands with <code>rtk rewrite</code> (exit <code>0</code>/<code>3</code> use the rewrite, <code>1</code> runs the command unchanged, <code>2</code> with a message blocks it). Permission rules still judge the original command, and commands run unchanged if <code>rtk</code> or <code>jq</code> is missing. Use <code>rtk recall &lt;hash&gt;</code> to see output a filter elided and <code>rtk gain</code> for savings.
       </p>
 
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>

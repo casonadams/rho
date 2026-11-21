@@ -47,7 +47,7 @@ A hook script exits with status `0` and can output a JSON decision on `stdout`:
 
 The `examples/hooks/` directory contains ready-to-use hooks:
 
-- **[`rtk-rewrite.py`](rtk-rewrite.py)**: Automatically routes bash commands through [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to filter and compress verbose CLI output (saving 50–90% on context tokens) before passing results to the LLM. Visit [github.com/rtk-ai/rtk](https://github.com/rtk-ai/rtk) for RTK install instructions.
+- **[`rtk-rewrite.sh`](rtk-rewrite.sh)**: Automatically routes bash commands through `rtk rewrite` (needs `jq` and rtk 1.2+), via [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to filter and compress verbose CLI output (saving 50–90% on context tokens) before passing results to the LLM. Visit [github.com/rtk-ai/rtk](https://github.com/rtk-ai/rtk) for RTK install instructions.
 - **[`guard-bash.sh`](guard-bash.sh)**: Blocks potentially destructive shell commands (such as `rm -rf`) before execution.
 - **[`python-audit.py`](python-audit.py)**: Audits tool calls and parameters to a local log file.
 
@@ -56,14 +56,14 @@ The `examples/hooks/` directory contains ready-to-use hooks:
 Copy any hook to your project's `.agents/hooks/` directory (or user fallback `~/.agents/hooks/`) matching the target lifecycle event name, and ensure it is executable:
 
 ```sh
-# Project-level hook
+# Project-level hook (runs only when the workspace is trusted with RHO_TRUST_PROJECT=1)
 mkdir -p .agents/hooks
-cp examples/hooks/rtk-rewrite.py .agents/hooks/on_tool_call
+cp examples/hooks/rtk-rewrite.sh .agents/hooks/on_tool_call
 chmod +x .agents/hooks/on_tool_call
 
 # Or global user hook
 mkdir -p ~/.agents/hooks
-cp examples/hooks/rtk-rewrite.py ~/.agents/hooks/on_tool_call
+cp examples/hooks/rtk-rewrite.sh ~/.agents/hooks/on_tool_call
 chmod +x ~/.agents/hooks/on_tool_call
 ```
 
