@@ -1,7 +1,7 @@
 //! OpenAI / ChatGPT PKCE OAuth login and token refresh flow.
 
 use super::jwt::extract_chatgpt_account_id;
-use super::{AuthorizationGrant, LoginPrompt, loopback_login};
+use super::{AuthorizationGrant, LoginPrompt, OAuthAccount, loopback_login, oauth_credential};
 use crate::auth::pkce::AuthorizeRequest;
 use crate::auth::token_request::{TokenResponse, send_for_json};
 use crate::http::CLIENT;
@@ -32,19 +32,16 @@ pub(crate) async fn exchange_openai_code(token_url: &str, code: &str, verifier: 
 }
 
 pub(crate) fn build_openai_credential(token_data: TokenResponse) -> StoredCredential {
-    let expires_at_ms = token_data
-        .expires_in
-        .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000);
-    let account_id = extract_chatgpt_account_id(&token_data.access_token);
-    let mut cred = StoredCredential::oauth(token_data.access_token, token_data.refresh_token, expires_at_ms);
-    if let StoredCredential::OAuth {
-        account_id: ref mut id_field,
-        ..
-    } = cred
-    {
-        *id_field = account_id;
-    }
-    cred
+    let account = OAuthAccount {
+        id: extract_chatgpt_account_id(&token_data.access_token),
+        email: None,
+    };
+    oauth_credential(
+        token_data.access_token,
+        token_data.refresh_token,
+        token_data.expires_in,
+        account,
+    )
 }
 
 pub fn build_openai_auth_url(challenge: &str, state: &str) -> String {

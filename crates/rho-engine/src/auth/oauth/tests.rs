@@ -241,6 +241,22 @@ fn test_chatgpt_build_openai_credential() {
     assert!(expires_at_ms.is_some());
 }
 
+#[test]
+fn chatgpt_credentials_expire_five_minutes_early_like_the_other_providers() {
+    let token = crate::auth::token_request::TokenResponse {
+        access_token: "opaque".to_string(),
+        refresh_token: None,
+        expires_in: Some(3600),
+    };
+    let before = chrono::Utc::now().timestamp_millis();
+    let StoredCredential::OAuth { expires_at_ms, .. } = chatgpt::build_openai_credential(token) else {
+        panic!("expected OAuth credential");
+    };
+    let remaining_ms = expires_at_ms.unwrap() - before;
+    assert!(remaining_ms <= 55 * 60 * 1000 + 1000, "{remaining_ms}");
+    assert!(remaining_ms > 54 * 60 * 1000, "{remaining_ms}");
+}
+
 type CallbackQuery = fn(&str) -> String;
 
 struct LoopbackClient {
