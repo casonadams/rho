@@ -3,11 +3,12 @@ mod query;
 #[cfg(test)]
 mod tests;
 
-pub use entry::{LineMatch, RG_COLLECTION_CEILING, format_results, render};
+pub use entry::{FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, format_files, format_lines};
 pub use query::{MAX_RG_FILE_BYTES, RgQuery};
-pub use rho_harness_core::args::RgArgs;
+pub use rho_harness_core::args::{RgArgs, RgOutputMode};
 
 use crate::tools::engine_tool::EngineTool;
+use crate::tools::listing::PageRequest;
 use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
 use crate::tools::types::{ToolResult, generated_schema};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
@@ -17,9 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
-
-pub const DEFAULT_RG_LIMIT: usize = 100;
-pub const MAX_RG_LIMIT: usize = 1000;
 
 pub struct RgTool {
     base_dir: PathBuf,
@@ -67,7 +65,10 @@ impl RgTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        let limit = args.limit.unwrap_or(DEFAULT_RG_LIMIT).clamp(1, MAX_RG_LIMIT);
+        let request = PageRequest {
+            offset: args.offset.unwrap_or(0),
+            limit: args.limit,
+        };
         let cancellation = Arc::new(AtomicBool::new(false));
         let cancel_guard = CancelOnDrop(cancellation.clone());
         let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
@@ -78,11 +79,12 @@ impl RgTool {
             matcher,
             types,
             include_hidden: args.hidden.unwrap_or(false),
+            mode: args.output_mode.unwrap_or_default(),
             timeout: Some(timeout),
             cancellation: Some(cancellation),
             artifact_dir: self.artifact_dir.clone(),
         };
-        let handle = tokio::task::spawn_blocking(move || query.run(limit));
+        let handle = tokio::task::spawn_blocking(move || query.run(request));
         let res = await_rg_task(handle, timeout).await;
         drop(cancel_guard);
         res

@@ -4,7 +4,7 @@ mod stats;
 #[cfg(test)]
 mod tests;
 
-pub use entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, format_results, sort_entries};
+pub use entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, compare_entries, format_results};
 use query::FdQuery;
 pub use rho_harness_core::args::{FdArgs, FdSort};
 use rho_harness_core::error::AppError;
@@ -15,12 +15,11 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use crate::tools::engine_tool::EngineTool;
+use crate::tools::listing::PageRequest;
 use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
 use crate::tools::types::{ToolResult, generated_schema};
 use regex::Regex;
 
-pub const DEFAULT_FD_LIMIT: usize = 100;
-pub const MAX_FD_LIMIT: usize = 1000;
 pub const MAX_FD_DEPTH: usize = 10;
 
 pub struct FdTool {
@@ -120,7 +119,10 @@ impl FdTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        let limit = args.limit.unwrap_or(DEFAULT_FD_LIMIT).clamp(1, MAX_FD_LIMIT);
+        let request = PageRequest {
+            offset: args.offset.unwrap_or(0),
+            limit: args.limit,
+        };
         let cancellation = Arc::new(AtomicBool::new(false));
         let cancel_guard = CancelOnDrop(cancellation.clone());
         let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
@@ -130,7 +132,7 @@ impl FdTool {
         query.cancellation = Some(cancellation);
         query.artifact_dir = self.artifact_dir.clone();
 
-        let handle = tokio::task::spawn_blocking(move || query.run(limit));
+        let handle = tokio::task::spawn_blocking(move || query.run(request));
         let res = await_fd_task(handle, timeout).await;
         drop(cancel_guard);
         res

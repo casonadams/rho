@@ -1,7 +1,10 @@
 use super::{fixture, search};
-use crate::tools::rg::RgArgs;
+use crate::tools::listing::PageRequest;
+use crate::tools::rg::{RG_COLLECTION_CEILING, RgArgs, RgOutputMode};
 use crate::tools::truncate::DEFAULT_MAX_BYTES;
 use crate::tools::types::generated_schema;
+
+const MODE_HINT: &str = "output_mode 'files' or 'count' covers every matching file in far fewer bytes";
 
 #[tokio::test]
 async fn long_match_lines_are_truncated_with_a_marked_suffix_and_notice() {
@@ -9,14 +12,17 @@ async fn long_match_lines_are_truncated_with_a_marked_suffix_and_notice() {
     std::fs::write(dir.path().join("long.txt"), format!("needle{}\n", "x".repeat(600))).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
-    let text = result.content.strip_prefix("long.txt:1: ").unwrap();
+    let text = result
+        .content
+        .strip_prefix("1 match in 1 file\n\nlong.txt\n1:")
+        .unwrap();
     let line_text = text.split("\n\n").next().unwrap();
     assert_eq!(line_text.chars().count(), 500 + "... [truncated]".len());
     assert!(line_text.ends_with("... [truncated]"));
     assert!(
         result
             .content
-            .contains("\n\n[Some lines truncated to 500 chars. Use read tool to see full lines]")
+            .ends_with("\n\n[Some lines truncated to 500 chars; use read with offset to see full lines]")
     );
 }
 
@@ -33,19 +39,40 @@ async fn line_truncation_notice_tracks_only_shown_matches() {
     std::fs::write(dir.path().join("lines.txt"), content).unwrap();
     let result = search(&dir, "needle", |args| args.limit = Some(10)).await;
     assert!(!result.is_error);
-    // Long lines exist beyond the shown window but must not claim the notice.
     assert!(!result.content.contains("Some lines truncated"));
-    assert!(result.content.contains("showing first 10 of 30"));
+    assert!(
+        result
+            .content
+            .contains("[showing matches 1-10 of 30; next page: offset=10;")
+    );
 }
 
 #[tokio::test]
-async fn limit_truncates_with_a_narrowing_notice() {
+async fn limit_pages_with_the_next_offset() {
     let dir = fixture();
     let result = search(&dir, ".", |args| args.limit = Some(2)).await;
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "README.md:1: # Fixture\nREADME.md:2: todo list\n\n[showing first 2 of 7 matches; narrow with a tighter pattern, path, or type]"
+        format!(
+            "7 matches in 4 files\n\nREADME.md\n1:# Fixture\n2:todo list\n\n[showing matches 1-2 of 7; next page: offset=2; {MODE_HINT}]"
+        )
+    );
+}
+
+#[tokio::test]
+async fn offset_continues_where_the_previous_page_ended() {
+    let dir = fixture();
+    let result = search(&dir, ".", |args| {
+        args.offset = Some(2);
+        args.limit = Some(2);
+    })
+    .await;
+    assert_eq!(
+        result.content,
+        format!(
+            "7 matches in 4 files\n\nREADME.md\n3:pub markdown\n\nsrc/lib.rs\n1:pub mod ui;\n\n[showing matches 3-4 of 7; next page: offset=4; {MODE_HINT}]"
+        )
     );
 }
 
@@ -53,50 +80,103 @@ async fn limit_truncates_with_a_narrowing_notice() {
 async fn limit_clamps_to_at_least_one() {
     let dir = fixture();
     let result = search(&dir, ".", |args| args.limit = Some(0)).await;
-    assert_eq!(
-        result.content,
-        "README.md:1: # Fixture\n\n[showing first 1 of 7 matches; narrow with a tighter pattern, path, or type]"
+    assert!(
+        result
+            .content
+            .starts_with("7 matches in 4 files\n\nREADME.md\n1:# Fixture\n\n[showing matches 1-1 of 7;")
     );
 }
 
 #[tokio::test]
-async fn collection_ceiling_stops_traversal_and_flags_the_notice() {
+async fn every_match_is_reachable_by_offset_with_exact_totals() {
     let dir = fixture();
     let many: String = (0..6000).map(|i| format!("needle line {i}\n")).collect();
     std::fs::write(dir.path().join("many.txt"), many).unwrap();
-    let result = search(&dir, "needle", |_| {}).await;
-    assert!(!result.is_error);
-    let lines: Vec<&str> = result.content.lines().collect();
-    assert_eq!(lines.len(), 102);
-    assert_eq!(lines[0], "many.txt:1: needle line 0");
-    assert_eq!(lines[99], "many.txt:100: needle line 99");
+    let result = search(&dir, "needle", |args| args.offset = Some(5998)).await;
     assert_eq!(
-        lines[101],
-        "[showing first 100 of 5000+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type]"
+        result.content,
+        format!(
+            "6000 matches in 1 file\n\nmany.txt\n5999:needle line 5998\n6000:needle line 5999\n\n[showing matches 5999-6000 of 6000; {MODE_HINT}]"
+        )
     );
 }
 
 #[tokio::test]
-async fn oversized_output_is_byte_capped_before_the_notices() {
+async fn collection_ceiling_keeps_the_first_matches_in_path_order() {
     let dir = fixture();
-    let row = format!("needle{}\n", "x".repeat(600));
+    let rows = |prefix: &str, n: usize| -> String { (0..n).map(|i| format!("{prefix} needle {i}\n")).collect() };
+    std::fs::write(dir.path().join("b.txt"), rows("b", RG_COLLECTION_CEILING)).unwrap();
+    std::fs::write(dir.path().join("a.txt"), rows("a", 5)).unwrap();
+    let result = search(&dir, "needle", |args| args.offset = Some(RG_COLLECTION_CEILING - 1)).await;
+    let total = RG_COLLECTION_CEILING + 5;
+    assert!(
+        result
+            .content
+            .starts_with(&format!("{total} matches in 2 files\n\nb.txt\n"))
+    );
+    assert!(result.content.contains(&format!(
+        "\n{}:b needle {}\n",
+        RG_COLLECTION_CEILING - 5,
+        RG_COLLECTION_CEILING - 6
+    )));
+    assert!(
+        result
+            .content
+            .contains("only the first 20000 matches in sort order can be paged")
+    );
+}
+
+#[tokio::test]
+async fn offset_past_the_end_reports_the_valid_range() {
+    let dir = fixture();
+    let result = search(&dir, "pub", |args| args.offset = Some(10)).await;
+    assert_eq!(
+        result.content,
+        "4 matches in 3 files\n\n[offset=10 is past the end; valid offsets are 0-3]"
+    );
+}
+
+#[tokio::test]
+async fn files_mode_lists_matching_files_grouped_by_directory() {
+    let dir = fixture();
+    let result = search(&dir, "pub", |args| args.output_mode = Some(RgOutputMode::Files)).await;
+    assert_eq!(
+        result.content,
+        "3 files with matches\n\n./\n  README.md\nsrc/\n  lib.rs\nsrc/ui/\n  widget.rs"
+    );
+}
+
+#[tokio::test]
+async fn count_mode_reports_matches_per_file() {
+    let dir = fixture();
+    let result = search(&dir, "pub", |args| args.output_mode = Some(RgOutputMode::Count)).await;
+    assert_eq!(
+        result.content,
+        "4 matches in 3 files\n\n./\n  README.md:1\nsrc/\n  lib.rs:1\nsrc/ui/\n  widget.rs:2"
+    );
+}
+
+#[tokio::test]
+async fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
+    let dir = fixture();
+    let row = format!("needle{}\n", "x".repeat(400));
     let many: String = std::iter::repeat_n(row, 400).collect();
     std::fs::write(dir.path().join("many.txt"), many).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
-    assert!(result.content.contains("showing first 100 of 400"));
-    assert!(result.content.contains("50.0KB limit reached"));
-    // Byte truncation applies to the rendered rows; notices ride behind the
-    // truncated block on their own paragraph.
-    let body = result.content.split("\n\n").next().unwrap();
+    let body = result.content.split("\n\n").nth(1).unwrap();
     assert!(body.len() <= DEFAULT_MAX_BYTES);
-    assert!(body.lines().count() < 100);
+    let shown = body.lines().count() - 1;
+    assert!(shown > 100, "a page holds more than the old 100-row default: {shown}");
+    assert!(result.content.contains(&format!(
+        "[showing matches 1-{shown} of 400; next page: offset={shown};"
+    )));
 }
 
 #[tokio::test]
 async fn test_rg_oversized_search_spills_artifact() {
     let dir = fixture();
-    let row = format!("needle{}\n", "x".repeat(600));
+    let row = format!("needle{}\n", "x".repeat(400));
     let many: String = std::iter::repeat_n(row, 400).collect();
     std::fs::write(dir.path().join("many.txt"), many).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
@@ -108,7 +188,8 @@ async fn test_rg_oversized_search_spills_artifact() {
     let entries: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
     assert_eq!(entries.len(), 1);
     let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
-    assert!(spilled_content.contains("many.txt:1: needle"));
+    assert!(spilled_content.starts_with("many.txt\n1:needle"));
+    assert!(spilled_content.contains("\n400:needle"));
 }
 
 #[tokio::test]
@@ -137,7 +218,7 @@ async fn path_outside_workspace_is_searched_successfully() {
     let outside_path = outside.path().to_str().unwrap().to_string();
     let result = search(&dir, "external target", |args| args.path = Some(outside_path)).await;
     assert!(!result.is_error);
-    assert!(result.content.contains("external.txt:1: external target line"));
+    assert!(result.content.contains("external.txt\n1:external target line"));
 }
 
 #[tokio::test]
@@ -160,34 +241,40 @@ async fn path_scopes_results_to_a_subtree() {
     let dir = fixture();
     let result = search(&dir, "pub", |args| args.path = Some("src".to_string())).await;
     assert!(!result.is_error);
-    assert_eq!(result.content.lines().count(), 4);
+    assert!(result.content.starts_with("3 matches in 2 files\n"));
     assert!(!result.content.contains("README.md"));
 }
 
 #[test]
-fn schema_exposes_renamed_type_property() {
+fn schema_exposes_renamed_type_property_and_paging() {
     let schema = generated_schema::<RgArgs>();
-    assert!(schema["properties"].get("type").is_some());
+    for prop in ["type", "pattern", "output_mode", "offset", "limit"] {
+        assert!(schema["properties"].get(prop).is_some(), "{prop}");
+    }
     assert!(schema["properties"].get("file_type").is_none());
-    assert!(schema["properties"].get("pattern").is_some());
 }
 
-#[tokio::test]
-async fn rg_cancellation_halts_traversal_immediately() {
-    let dir = fixture();
-    let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let query = super::super::RgQuery {
+fn query(dir: &tempfile::TempDir) -> super::super::RgQuery {
+    super::super::RgQuery {
         workspace_root: dir.path().to_path_buf(),
         search_root: dir.path().to_path_buf(),
         search_path_display: None,
         matcher: grep_regex::RegexMatcher::new("pub").unwrap(),
         types: None,
         include_hidden: false,
+        mode: RgOutputMode::Content,
         timeout: None,
-        cancellation: Some(cancellation),
+        cancellation: None,
         artifact_dir: None,
-    };
-    let result = query.run(10);
+    }
+}
+
+#[tokio::test]
+async fn rg_cancellation_halts_traversal_immediately() {
+    let dir = fixture();
+    let mut cancelled = query(&dir);
+    cancelled.cancellation = Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)));
+    let result = cancelled.run(PageRequest::default());
     assert!(!result.is_error);
     assert_eq!(result.content, "No matches found");
 }
@@ -195,18 +282,9 @@ async fn rg_cancellation_halts_traversal_immediately() {
 #[tokio::test]
 async fn rg_timeout_returns_timeout_error() {
     let dir = fixture();
-    let query = super::super::RgQuery {
-        workspace_root: dir.path().to_path_buf(),
-        search_root: dir.path().to_path_buf(),
-        search_path_display: None,
-        matcher: grep_regex::RegexMatcher::new("pub").unwrap(),
-        types: None,
-        include_hidden: false,
-        timeout: Some(std::time::Duration::from_millis(0)),
-        cancellation: None,
-        artifact_dir: None,
-    };
-    let result = query.run(10);
+    let mut timed = query(&dir);
+    timed.timeout = Some(std::time::Duration::from_millis(0));
+    let result = timed.run(PageRequest::default());
     assert!(result.is_error);
     assert!(result.content.contains("Search timed out"));
 }

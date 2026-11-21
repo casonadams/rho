@@ -1,5 +1,6 @@
-use super::entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, format_results, sort_entries};
+use super::entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, compare_entries, format_results};
 use super::stats::{FileStats, count_file_stats};
+use crate::tools::listing::{PageRequest, SortedCollector};
 use crate::tools::traversal::{run_parallel_walk, walker_builder};
 use crate::tools::types::ToolResult;
 use ignore::WalkState;
@@ -7,8 +8,8 @@ use ignore::types::Types;
 use regex::Regex;
 use rho_harness_core::args::FdSort;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 pub(super) struct FdQuery {
@@ -38,29 +39,6 @@ fn check_stats_lines(path: &Path, min: Option<usize>, max: Option<usize>) -> Opt
         return None;
     }
     Some(s)
-}
-
-fn push_entry_under_ceiling(
-    collected: &Mutex<Vec<FdEntry>>,
-    count: &AtomicUsize,
-    hit_ceiling: &AtomicBool,
-    entry: FdEntry,
-) -> WalkState {
-    if count.load(Ordering::Relaxed) >= FD_COLLECTION_CEILING {
-        return WalkState::Quit;
-    }
-    let mut entries = collected.lock().unwrap_or_else(PoisonError::into_inner);
-    if entries.len() >= FD_COLLECTION_CEILING {
-        return WalkState::Quit;
-    }
-    entries.push(entry);
-    let len = entries.len();
-    count.store(len, Ordering::Relaxed);
-    if len >= FD_COLLECTION_CEILING {
-        hit_ceiling.store(true, Ordering::Relaxed);
-        return WalkState::Quit;
-    }
-    WalkState::Continue
 }
 
 struct FdWalkFilters<'a> {
@@ -107,12 +85,16 @@ fn process_walk_entry(
 }
 
 impl FdQuery {
-    pub fn run(self, limit: usize) -> ToolResult {
+    pub fn run(self, request: PageRequest) -> ToolResult {
         let eager_stats =
             self.min_lines.is_some() || self.max_lines.is_some() || matches!(self.sort, Some(FdSort::Lines));
         let mut builder = walker_builder(&self.search_root, self.include_hidden, self.types.as_ref());
         builder.max_depth(self.depth);
-        let (collected, count, hit_ceiling) = (Mutex::new(Vec::new()), AtomicUsize::new(0), AtomicBool::new(false));
+        let sort = self.sort.unwrap_or_default();
+        let collector = SortedCollector::new(FD_COLLECTION_CEILING, |a: &FdEntry, b: &FdEntry| {
+            compare_entries(a, b, sort)
+        });
+        let seen = AtomicUsize::new(0);
         let filters = FdWalkFilters {
             regex: self.regex.as_ref(),
             types: self.types.as_ref(),
@@ -126,29 +108,22 @@ impl FdQuery {
         let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
         let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
             |entry: Result<ignore::DirEntry, ignore::Error>| {
-                let Ok(entry) = entry else { return WalkState::Continue };
-                match process_walk_entry(entry, w_root, s_root, &filters) {
-                    Some(fd_entry) => push_entry_under_ceiling(&collected, &count, &hit_ceiling, fd_entry),
-                    None => WalkState::Continue,
+                if let Ok(entry) = entry
+                    && let Some(fd_entry) = process_walk_entry(entry, w_root, s_root, &filters)
+                {
+                    seen.fetch_add(1, Ordering::Relaxed);
+                    collector.extend([fd_entry]);
                 }
+                WalkState::Continue
             }
         });
         if let Err(message) = walked {
             return ToolResult::error(message);
         }
-
-        let mut entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
-        sort_entries(&mut entries, self.sort);
-        for entry in entries.iter_mut().take(limit) {
-            if let Some(path) = entry.source.take() {
-                entry.stats = count_file_stats(&path);
-            }
-        }
         format_results(
-            entries,
+            collector.finish(seen.into_inner()),
             FdFormat {
-                hit_ceiling: hit_ceiling.into_inner(),
-                limit,
+                request,
                 show_stats: self.show_stats,
                 artifact_dir: self.artifact_dir,
             },

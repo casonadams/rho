@@ -1,4 +1,7 @@
-use super::entry::{LineMatch, RG_COLLECTION_CEILING, format_results};
+use super::entry::{
+    FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, file_order, format_files, format_lines, line_order,
+};
+use crate::tools::listing::{PageRequest, SortedCollector};
 use crate::tools::traversal::{run_parallel_walk, walker_builder};
 use crate::tools::truncate::truncate_line;
 use crate::tools::types::ToolResult;
@@ -8,9 +11,11 @@ use grep_searcher::SearcherBuilder;
 use grep_searcher::sinks::UTF8;
 use ignore::WalkState;
 use ignore::types::Types;
+use rho_harness_core::args::RgOutputMode;
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::time::Duration;
 
 pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
@@ -22,9 +27,25 @@ pub struct RgQuery {
     pub matcher: RegexMatcher,
     pub types: Option<Types>,
     pub include_hidden: bool,
+    pub mode: RgOutputMode,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
     pub artifact_dir: Option<PathBuf>,
+}
+
+type Order<T> = fn(&T, &T) -> Ordering;
+
+enum Collector {
+    Lines(SortedCollector<LineMatch, Order<LineMatch>>),
+    Files(SortedCollector<FileHit, Order<FileHit>>),
+}
+
+struct RgWalkContext<'a> {
+    roots: (&'a Path, &'a Path, Option<&'a str>),
+    mode: RgOutputMode,
+    collector: &'a Collector,
+    matches: &'a AtomicUsize,
+    files: &'a AtomicUsize,
 }
 
 fn should_search_entry(entry: &ignore::DirEntry) -> bool {
@@ -38,73 +59,58 @@ fn should_search_entry(entry: &ignore::DirEntry) -> bool {
 }
 
 fn search_file(searcher: &mut grep_searcher::Searcher, matcher: &RegexMatcher, path: &Path, ctx: &RgWalkContext<'_>) {
-    let mut file_matches = Vec::new();
-    let mut sink = UTF8(|line_number, line| {
-        let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-        file_matches.push((line_number, truncated.text.into_owned(), truncated.was_truncated));
-        Ok(ctx.match_count.load(Ordering::Relaxed) + file_matches.len() < RG_COLLECTION_CEILING)
-    });
-    let _ = searcher.search_path(matcher, path, &mut sink);
-    if !file_matches.is_empty() {
-        let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
-        let mut list = ctx.matches.lock().unwrap_or_else(PoisonError::into_inner);
-        let remaining = RG_COLLECTION_CEILING.saturating_sub(list.len());
-        if remaining > 0 {
-            file_matches.truncate(remaining);
-            for (line_number, text, truncated) in file_matches {
-                list.push(LineMatch {
-                    path: relative.clone(),
-                    line: line_number,
-                    text,
-                    truncated,
-                });
-            }
-            ctx.match_count.store(list.len(), Ordering::Relaxed);
+    let keep_lines = ctx.mode == RgOutputMode::Content;
+    let stop_at_first = ctx.mode == RgOutputMode::Files;
+    let mut lines = Vec::new();
+    let mut count = 0usize;
+    let sink = UTF8(|line_number, line| {
+        count += 1;
+        if keep_lines {
+            let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
+            lines.push((line_number, truncated.text.into_owned(), truncated.was_truncated));
         }
+        Ok(!stop_at_first)
+    });
+    let _ = searcher.search_path(matcher, path, sink);
+    if count == 0 {
+        return;
     }
-}
-
-#[derive(Clone, Copy)]
-struct RgWalkContext<'a> {
-    roots: (&'a Path, &'a Path, Option<&'a str>),
-    matches: &'a Mutex<Vec<LineMatch>>,
-    match_count: &'a AtomicUsize,
-}
-
-fn process_rg_walk_entry(
-    entry: Result<ignore::DirEntry, ignore::Error>,
-    searcher: &mut grep_searcher::Searcher,
-    matcher: &RegexMatcher,
-    ctx: &RgWalkContext<'_>,
-) -> WalkState {
-    let Ok(entry) = entry else { return WalkState::Continue };
-    if !should_search_entry(&entry) {
-        return WalkState::Continue;
-    }
-    if ctx.match_count.load(Ordering::Relaxed) >= RG_COLLECTION_CEILING {
-        return WalkState::Quit;
-    }
-    search_file(searcher, matcher, entry.path(), ctx);
-    if ctx.match_count.load(Ordering::Relaxed) >= RG_COLLECTION_CEILING {
-        WalkState::Quit
-    } else {
-        WalkState::Continue
+    ctx.matches.fetch_add(count, AtomicOrdering::Relaxed);
+    ctx.files.fetch_add(1, AtomicOrdering::Relaxed);
+    let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
+    match ctx.collector {
+        Collector::Lines(collector) => collector.extend(lines.into_iter().map(|(line, text, truncated)| LineMatch {
+            path: relative.clone(),
+            line,
+            text,
+            truncated,
+        })),
+        Collector::Files(collector) => collector.extend([FileHit {
+            path: relative,
+            count,
+            show_count: ctx.mode == RgOutputMode::Count,
+        }]),
     }
 }
 
 impl RgQuery {
-    pub fn run(self, limit: usize) -> ToolResult {
+    pub fn run(self, request: PageRequest) -> ToolResult {
         let builder = walker_builder(&self.search_root, self.include_hidden, self.types.as_ref());
-        let matches = Mutex::new(Vec::new());
-        let match_count = AtomicUsize::new(0);
+        let collector = match self.mode {
+            RgOutputMode::Content => Collector::Lines(SortedCollector::new(RG_COLLECTION_CEILING, line_order)),
+            _ => Collector::Files(SortedCollector::new(RG_COLLECTION_CEILING, file_order)),
+        };
+        let (matches, files) = (AtomicUsize::new(0), AtomicUsize::new(0));
         let ctx = RgWalkContext {
             roots: (
                 self.workspace_root.as_path(),
                 self.search_root.as_path(),
                 self.search_path_display.as_deref(),
             ),
+            mode: self.mode,
+            collector: &collector,
             matches: &matches,
-            match_count: &match_count,
+            files: &files,
         };
         let matcher = &self.matcher;
         let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
@@ -112,12 +118,35 @@ impl RgQuery {
                 .line_number(true)
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
-            move |entry| process_rg_walk_entry(entry, &mut searcher, matcher, &ctx)
+            let ctx = &ctx;
+            move |entry: Result<ignore::DirEntry, ignore::Error>| {
+                if let Ok(entry) = entry
+                    && should_search_entry(&entry)
+                {
+                    search_file(&mut searcher, matcher, entry.path(), ctx);
+                }
+                WalkState::Continue
+            }
         });
         if let Err(message) = walked {
             return ToolResult::error(message);
         }
-        let list = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
-        format_results(list, limit, self.artifact_dir.as_deref())
+        let totals = RgTotals {
+            matches: matches.into_inner(),
+            files: files.into_inner(),
+        };
+        let artifact_dir = self.artifact_dir.as_deref();
+        match collector {
+            Collector::Lines(collector) => {
+                format_lines(&collector.finish(totals.matches), &totals, request, artifact_dir)
+            }
+            Collector::Files(collector) => format_files(
+                &collector.finish(totals.files),
+                &totals,
+                self.mode,
+                request,
+                artifact_dir,
+            ),
+        }
     }
 }

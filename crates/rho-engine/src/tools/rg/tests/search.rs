@@ -5,22 +5,30 @@ async fn matches_report_path_line_and_text() {
     let dir = fixture();
     let result = search(&dir, "widget", |_| {}).await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "src/ui/widget.rs:1: pub struct Widget;");
+    assert_eq!(
+        result.content,
+        "1 match in 1 file\n\nsrc/ui/widget.rs\n1:pub struct Widget;"
+    );
 }
 
 #[tokio::test]
-async fn results_are_ordered_by_path_then_line() {
+async fn results_are_grouped_by_file_and_ordered_by_path_then_line() {
     let dir = fixture();
     let result = search(&dir, "pub", |_| {}).await;
     assert_eq!(
         result.content.lines().collect::<Vec<_>>(),
         [
-            "README.md:3: pub markdown",
+            "4 matches in 3 files",
             "",
-            "src/lib.rs:1: pub mod ui;",
+            "README.md",
+            "3:pub markdown",
             "",
-            "src/ui/widget.rs:1: pub struct Widget;",
-            "src/ui/widget.rs:2: pub enum Kind { A, B }",
+            "src/lib.rs",
+            "1:pub mod ui;",
+            "",
+            "src/ui/widget.rs",
+            "1:pub struct Widget;",
+            "2:pub enum Kind { A, B }",
         ]
     );
 }
@@ -29,7 +37,7 @@ async fn results_are_ordered_by_path_then_line() {
 async fn pattern_is_smart_case() {
     let dir = fixture();
     let lower = search(&dir, "todo", |_| {}).await;
-    assert_eq!(lower.content, "README.md:2: todo list");
+    assert_eq!(lower.content, "1 match in 1 file\n\nREADME.md\n2:todo list");
 
     let upper = search(&dir, "TODO", |_| {}).await;
     assert_eq!(upper.content, "No matches found");
@@ -57,7 +65,7 @@ async fn oversized_files_are_skipped_but_large_ones_are_searched() {
     std::fs::write(dir.path().join("under.txt"), under).unwrap();
 
     let result = search(&dir, "needle", |_| {}).await;
-    assert!(result.content.contains("under.txt:"));
+    assert!(result.content.contains("\nunder.txt\n"));
     assert!(!result.content.contains("over.txt"));
 }
 
@@ -65,17 +73,12 @@ async fn oversized_files_are_skipped_but_large_ones_are_searched() {
 async fn type_filter_scopes_matches_to_source_files() {
     let dir = fixture();
     let unfiltered = search(&dir, "pub", |_| {}).await;
-    assert_eq!(unfiltered.content.lines().count(), 6);
+    assert!(unfiltered.content.starts_with("4 matches in 3 files\n"));
 
     let filtered = search(&dir, "pub", |args| args.file_type = Some("rust".to_string())).await;
     assert_eq!(
-        filtered.content.lines().collect::<Vec<_>>(),
-        [
-            "src/lib.rs:1: pub mod ui;",
-            "",
-            "src/ui/widget.rs:1: pub struct Widget;",
-            "src/ui/widget.rs:2: pub enum Kind { A, B }",
-        ]
+        filtered.content,
+        "3 matches in 2 files\n\nsrc/lib.rs\n1:pub mod ui;\n\nsrc/ui/widget.rs\n1:pub struct Widget;\n2:pub enum Kind { A, B }"
     );
 
     let unknown = search(&dir, "pub", |args| args.file_type = Some("nosuchtype".to_string())).await;
@@ -97,5 +100,5 @@ async fn hidden_flag_includes_hidden_files_while_respecting_gitignore() {
     assert_eq!(ignored.content, "No matches found");
 
     let dotfile = search(&dir, "hidden todo", |args| args.hidden = Some(true)).await;
-    assert_eq!(dotfile.content, ".hidden_file:1: hidden todo");
+    assert_eq!(dotfile.content, "1 match in 1 file\n\n.hidden_file\n1:hidden todo");
 }

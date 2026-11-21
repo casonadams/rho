@@ -1,16 +1,56 @@
 use super::{find, fixture};
 use crate::tools::fd::entry::format_results;
 use crate::tools::fd::{FdArgs, FdEntry, FdFormat, FdTool};
+use crate::tools::listing::{Collected, PageRequest};
 use crate::tools::types::generated_schema;
 
+fn file(relative: String) -> FdEntry {
+    FdEntry {
+        relative,
+        is_dir: false,
+        stats: None,
+        size: None,
+        source: None,
+    }
+}
+
+fn collected(items: Vec<FdEntry>) -> Collected<FdEntry> {
+    let seen = items.len();
+    Collected { items, seen }
+}
+
 #[tokio::test]
-async fn limit_truncates_with_a_narrowing_notice() {
+async fn listing_is_grouped_by_parent_directory() {
+    let dir = fixture();
+    let result = find(&dir, ".", |_| {}).await;
+    assert_eq!(
+        result.content,
+        "6 paths\n\n./\n  README.md\n  src/\nsrc/\n  lib.rs\n  main.rs\n  ui/\nsrc/ui/\n  widget.rs"
+    );
+}
+
+#[tokio::test]
+async fn limit_pages_with_the_next_offset() {
     let dir = fixture();
     let result = find(&dir, ".", |args| args.limit = Some(2)).await;
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "README.md\nsrc/\n\n[showing first 2 of 6 matches; narrow with a tighter pattern, path, or type]"
+        "6 paths\n\n./\n  README.md\n  src/\n\n[showing paths 1-2 of 6; next page: offset=2]"
+    );
+}
+
+#[tokio::test]
+async fn offset_continues_and_repeats_the_directory_header() {
+    let dir = fixture();
+    let result = find(&dir, ".", |args| {
+        args.offset = Some(3);
+        args.limit = Some(2);
+    })
+    .await;
+    assert_eq!(
+        result.content,
+        "6 paths\n\nsrc/\n  main.rs\n  ui/\n\n[showing paths 4-5 of 6; next page: offset=5]"
     );
 }
 
@@ -20,57 +60,48 @@ async fn limit_clamps_to_at_least_one() {
     let result = find(&dir, ".", |args| args.limit = Some(0)).await;
     assert_eq!(
         result.content,
-        "README.md\n\n[showing first 1 of 6 matches; narrow with a tighter pattern, path, or type]"
+        "6 paths\n\n./\n  README.md\n\n[showing paths 1-1 of 6; next page: offset=1]"
     );
 }
 
 #[test]
-fn oversized_output_is_byte_capped_before_the_notices() {
-    // format_results is pure, so synthetic long paths stand in for a
-    // thousand-file fixture; 300 rows of 237 chars exceed the 50KB cap.
-    let paths: Vec<String> = (0..300).map(|i| format!("dir{i:0>3}/{}", "p".repeat(230))).collect();
-    let entries: Vec<FdEntry> = paths
-        .into_iter()
-        .map(|relative| FdEntry {
-            relative,
-            is_dir: false,
-            stats: None,
-            size: None,
-            source: None,
-        })
+fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
+    let entries = (0..300)
+        .map(|i| file(format!("dir{i:0>3}/{}", "p".repeat(230))))
         .collect();
     let result = format_results(
-        entries,
+        collected(entries),
         FdFormat {
-            hit_ceiling: false,
-            limit: 250,
+            request: PageRequest::default(),
             show_stats: false,
             artifact_dir: None,
         },
     );
-    let body = result.content.split("\n\n").next().unwrap();
+    let body = result.content.split("\n\n").nth(1).unwrap();
     assert!(body.len() <= crate::tools::truncate::DEFAULT_MAX_BYTES);
-    assert!(result.content.contains("showing first 250 of 300 matches"));
-    assert!(result.content.ends_with("path, or type. 50.0KB limit reached]"));
+    let shown = body.lines().count() / 2;
+    assert!(
+        result
+            .content
+            .ends_with(&format!("[showing paths 1-{shown} of 300; next page: offset={shown}]"))
+    );
 }
 
 #[tokio::test]
 async fn test_fd_oversized_search_spills_artifact() {
     let dir = tempfile::tempdir().unwrap();
-    let entries: Vec<FdEntry> = (0..500)
-        .map(|i| FdEntry {
-            relative: format!("dir_{i:04}/very_long_path_name_{i:04}/{}", "nested_".repeat(20)),
-            is_dir: false,
-            stats: None,
-            size: None,
-            source: None,
+    let entries = (0..500)
+        .map(|i| {
+            file(format!(
+                "dir_{i:04}/very_long_path_name_{i:04}/{}",
+                "nested_".repeat(20)
+            ))
         })
         .collect();
     let result = format_results(
-        entries,
+        collected(entries),
         FdFormat {
-            hit_ceiling: false,
-            limit: 500,
+            request: PageRequest::default(),
             show_stats: false,
             artifact_dir: Some(dir.path().join(".rho/artifacts")),
         },
@@ -84,6 +115,7 @@ async fn test_fd_oversized_search_spills_artifact() {
     assert_eq!(files.len(), 1);
     let spilled_content = std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap();
     assert!(spilled_content.contains("dir_0000"));
+    assert!(spilled_content.contains("dir_0499"));
 }
 
 #[tokio::test]
@@ -95,9 +127,8 @@ async fn path_without_pattern_lists_files_in_subtree() {
     };
     let result = FdTool::new(dir.path()).execute(args).await.unwrap();
     assert!(!result.is_error);
-    assert!(result.content.contains("src/main.rs"));
-    assert!(result.content.contains("src/lib.rs"));
-    assert!(result.content.contains("src/ui/widget.rs"));
+    assert!(result.content.contains("src/\n  lib.rs\n  main.rs"));
+    assert!(result.content.contains("src/ui/\n  widget.rs"));
     assert!(!result.content.contains("README.md"));
 }
 
@@ -119,7 +150,7 @@ async fn path_outside_workspace_is_searched_successfully() {
     let outside_path = outside.path().to_str().unwrap().to_string();
     let result = find(&dir, "external", |args| args.path = Some(outside_path)).await;
     assert!(!result.is_error);
-    assert!(result.content.contains("external.txt"));
+    assert!(result.content.contains("  external.txt"));
 }
 
 #[tokio::test]
@@ -141,15 +172,23 @@ async fn path_scopes_results_to_a_subtree() {
     let dir = fixture();
     let result = find(&dir, "widget", |args| args.path = Some("src".to_string())).await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "src/ui/widget.rs");
-    assert!(!result.content.contains("README.md"));
+    assert_eq!(result.content, "1 path\n\nsrc/ui/\n  widget.rs");
 }
 
 #[test]
 fn schema_exposes_renamed_type_property() {
     let schema = generated_schema::<FdArgs>();
-    for prop in ["type", "pattern", "stats", "min_lines", "max_lines", "sort"] {
-        assert!(schema["properties"].get(prop).is_some());
+    for prop in [
+        "type",
+        "pattern",
+        "stats",
+        "min_lines",
+        "max_lines",
+        "sort",
+        "offset",
+        "limit",
+    ] {
+        assert!(schema["properties"].get(prop).is_some(), "{prop}");
     }
     assert!(schema["properties"].get("file_type").is_none());
     let required = schema.get("required").and_then(|r| r.as_array());
@@ -159,11 +198,8 @@ fn schema_exposes_renamed_type_property() {
     );
 }
 
-#[tokio::test]
-async fn fd_cancellation_halts_traversal_immediately() {
-    let dir = fixture();
-    let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let query = super::query::FdQuery {
+fn query(dir: &tempfile::TempDir) -> super::query::FdQuery {
+    super::query::FdQuery {
         workspace_root: dir.path().to_path_buf(),
         search_root: dir.path().to_path_buf(),
         search_path_display: None,
@@ -177,10 +213,17 @@ async fn fd_cancellation_halts_traversal_immediately() {
         sort: None,
         show_stats: false,
         timeout: None,
-        cancellation: Some(cancellation),
+        cancellation: None,
         artifact_dir: None,
-    };
-    let result = query.run(10);
+    }
+}
+
+#[tokio::test]
+async fn fd_cancellation_halts_traversal_immediately() {
+    let dir = fixture();
+    let mut cancelled = query(&dir);
+    cancelled.cancellation = Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)));
+    let result = cancelled.run(PageRequest::default());
     assert!(!result.is_error);
     assert_eq!(result.content, "No files found matching pattern");
 }
@@ -188,24 +231,9 @@ async fn fd_cancellation_halts_traversal_immediately() {
 #[tokio::test]
 async fn fd_timeout_returns_timeout_error() {
     let dir = fixture();
-    let query = super::query::FdQuery {
-        workspace_root: dir.path().to_path_buf(),
-        search_root: dir.path().to_path_buf(),
-        search_path_display: None,
-        regex: None,
-        types: None,
-        include_hidden: false,
-        depth: None,
-        stats_needed: false,
-        min_lines: None,
-        max_lines: None,
-        sort: None,
-        show_stats: false,
-        timeout: Some(std::time::Duration::from_millis(0)),
-        cancellation: None,
-        artifact_dir: None,
-    };
-    let result = query.run(10);
+    let mut timed = query(&dir);
+    timed.timeout = Some(std::time::Duration::from_millis(0));
+    let result = timed.run(PageRequest::default());
     assert!(result.is_error);
     assert!(result.content.contains("Search timed out"));
 }

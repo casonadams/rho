@@ -76,7 +76,9 @@ pub struct FdArgs {
     pub hidden: Option<bool>,
     /// Maximum traversal depth, clamped to 1-10 when provided (default: unlimited)
     pub depth: Option<usize>,
-    /// Maximum number of results to return (default: 100, max: 1000)
+    /// Number of results to skip, for paging (default: 0); truncated output names the next offset
+    pub offset: Option<usize>,
+    /// Maximum number of results per page (default: as many as fit in 50KB)
     pub limit: Option<usize>,
     /// Include line count and byte size in output (default: false; enabled automatically if min_lines, max_lines, or sort is set)
     pub stats: Option<bool>,
@@ -109,8 +111,21 @@ pub struct RgArgs {
     pub file_type: Option<String>,
     /// Include hidden dotfiles; paths excluded by ignore rules (.gitignore, .ignore) stay excluded
     pub hidden: Option<bool>,
-    /// Maximum number of matches to return (default: 100, max: 1000)
+    /// 'content' (matching lines grouped by file, default), 'files' (matching file paths only), or 'count' (match count per file)
+    pub output_mode: Option<RgOutputMode>,
+    /// Number of results to skip, for paging (default: 0); truncated output names the next offset
+    pub offset: Option<usize>,
+    /// Maximum number of results per page (default: as many as fit in 50KB)
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RgOutputMode {
+    #[default]
+    Content,
+    Files,
+    Count,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -293,7 +308,7 @@ pub mod read {
     pub use super::{DEFAULT_READ_LIMIT, ReadArgs};
 }
 pub mod rg {
-    pub use super::RgArgs;
+    pub use super::{RgArgs, RgOutputMode};
 }
 pub mod web_fetch {
     pub use super::WebFetchArgs;

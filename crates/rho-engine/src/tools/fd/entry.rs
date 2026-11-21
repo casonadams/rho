@@ -1,11 +1,28 @@
-use super::stats::FileStats;
+use super::stats::{FileStats, count_file_stats};
+use std::cmp::Ordering;
+use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::tools::truncate::{finish_listing, format_size, listing_limit_notice};
+use crate::tools::listing::{
+    Collected, Layout, Listing, PageRequest, Row, count_noun, directory_order, render_page, split_parent,
+};
+use crate::tools::truncate::format_size;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::FdSort;
 
 pub const FD_COLLECTION_CEILING: usize = 20_000;
+
+const BY_DIRECTORY: Layout = Layout {
+    blank_between_groups: false,
+    row_indent: "  ",
+    preamble: None,
+};
+
+const STATS_TABLE: Layout = Layout {
+    blank_between_groups: false,
+    row_indent: "",
+    preamble: Some("  Lines    Bytes  Path"),
+};
 
 #[derive(Debug, Clone)]
 pub struct FdEntry {
@@ -16,87 +33,109 @@ pub struct FdEntry {
     pub source: Option<PathBuf>,
 }
 
+impl Row for FdEntry {
+    fn group(&self) -> Option<&str> {
+        Some(split_parent(&self.relative).0)
+    }
+
+    fn render(&self, out: &mut String) {
+        out.push_str(split_parent(&self.relative).1);
+        if self.is_dir {
+            out.push('/');
+        }
+    }
+}
+
+struct StatsRow(FdEntry);
+
+impl Row for StatsRow {
+    fn group(&self) -> Option<&str> {
+        None
+    }
+
+    fn render(&self, out: &mut String) {
+        let entry = &self.0;
+        let stats = entry
+            .stats
+            .or_else(|| entry.source.as_deref().and_then(count_file_stats));
+        let _ = match stats {
+            Some(stats) => write!(
+                out,
+                "{:>7}  {:>7}  {}",
+                stats.lines,
+                format_size(stats.bytes as usize),
+                entry.relative
+            ),
+            None => write!(
+                out,
+                "{:>7}  {:>7}  {}{}",
+                "-",
+                "-",
+                entry.relative,
+                if entry.is_dir { "/" } else { "" }
+            ),
+        };
+    }
+}
+
 fn entry_bytes(entry: &FdEntry) -> u64 {
     entry.stats.map(|s| s.bytes).or(entry.size).unwrap_or(0)
 }
 
-pub fn sort_entries(entries: &mut [FdEntry], sort: Option<FdSort>) {
-    match sort.unwrap_or(FdSort::Path) {
-        FdSort::Path => entries.sort_by(|a, b| a.relative.cmp(&b.relative)),
-        FdSort::Lines => entries.sort_by(|a, b| {
-            let a_lines = a.stats.map_or(0, |s| s.lines);
-            let b_lines = b.stats.map_or(0, |s| s.lines);
-            b_lines.cmp(&a_lines).then_with(|| a.relative.cmp(&b.relative))
-        }),
-        FdSort::Size => entries.sort_by(|a, b| {
-            let a_bytes = entry_bytes(a);
-            let b_bytes = entry_bytes(b);
-            b_bytes.cmp(&a_bytes).then_with(|| a.relative.cmp(&b.relative))
-        }),
+pub fn compare_entries(a: &FdEntry, b: &FdEntry, sort: FdSort) -> Ordering {
+    let by_path = || directory_order(&a.relative, &b.relative);
+    match sort {
+        FdSort::Path => by_path(),
+        FdSort::Lines => {
+            let lines = |e: &FdEntry| e.stats.map_or(0, |s| s.lines);
+            lines(b).cmp(&lines(a)).then_with(by_path)
+        }
+        FdSort::Size => entry_bytes(b).cmp(&entry_bytes(a)).then_with(by_path),
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct FdFormat {
-    pub hit_ceiling: bool,
-    pub limit: usize,
+    pub request: PageRequest,
     pub show_stats: bool,
     pub artifact_dir: Option<PathBuf>,
 }
 
-fn render_fd_content(entries: Vec<FdEntry>, show_stats: bool) -> String {
-    if show_stats {
-        format_table(&entries)
-    } else {
-        let mut out = String::with_capacity(entries.len() * 32);
-        for (i, entry) in entries.into_iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            out.push_str(&display_path(&entry));
-        }
-        out
-    }
-}
-
-pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResult {
-    let FdFormat {
-        hit_ceiling,
-        limit,
-        show_stats,
-        artifact_dir,
-    } = options;
-    if entries.is_empty() {
+pub fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolResult {
+    if collected.items.is_empty() {
         return ToolResult::success("No files found matching pattern");
     }
-    let limit_notice = (entries.len() > limit)
-        .then(|| listing_limit_notice(limit, entries.len(), hit_ceiling.then_some(FD_COLLECTION_CEILING)));
-    entries.truncate(limit);
-    let content = render_fd_content(entries, show_stats);
-    finish_listing(&content, limit_notice, None, artifact_dir.as_deref())
+    let capped = collected.capped();
+    let summary = count_noun(collected.seen, "path");
+    let artifact_dir = options.artifact_dir.as_deref();
+    if options.show_stats {
+        let rows: Vec<StatsRow> = collected.items.into_iter().map(StatsRow).collect();
+        return render_page(
+            &listing(&rows, STATS_TABLE, summary, capped, artifact_dir),
+            options.request,
+        );
+    }
+    render_page(
+        &listing(&collected.items, BY_DIRECTORY, summary, capped, artifact_dir),
+        options.request,
+    )
 }
 
-fn display_path(entry: &FdEntry) -> String {
-    if entry.is_dir {
-        format!("{}/", entry.relative)
-    } else {
-        entry.relative.clone()
+fn listing<'a, T>(
+    rows: &'a [T],
+    layout: Layout,
+    summary: String,
+    capped: bool,
+    artifact_dir: Option<&'a std::path::Path>,
+) -> Listing<'a, T> {
+    Listing {
+        rows,
+        layout,
+        unit: "path",
+        summary,
+        capped,
+        hint: None,
+        cut_notice: None,
+        artifact_dir,
     }
-}
-
-fn format_table(entries: &[FdEntry]) -> String {
-    let mut rows = Vec::with_capacity(entries.len() + 1);
-    rows.push(format!("{:>7}  {:>7}  Path", "Lines", "Bytes"));
-    for entry in entries {
-        match entry.stats {
-            Some(stats) => {
-                let formatted_size = format_size(stats.bytes as usize);
-                rows.push(format!("{:>7}  {:>7}  {}", stats.lines, formatted_size, entry.relative));
-            }
-            None => {
-                rows.push(format!("{:>7}  {:>7}  {}", "-", "-", display_path(entry)));
-            }
-        }
-    }
-    rows.join("\n")
 }

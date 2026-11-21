@@ -3,13 +3,18 @@ use crate::tools::fd::FdSort;
 use crate::tools::fd::stats::count_file_stats;
 use tempfile::TempDir;
 
+fn table(content: &str) -> Vec<&str> {
+    content.lines().skip(2).collect()
+}
+
 #[tokio::test]
 async fn stats_flag_renders_table_with_lines_and_bytes() {
     let dir = fixture();
     let result = find(&dir, "widget", |args| args.stats = Some(true)).await;
     assert!(!result.is_error);
-    let lines: Vec<_> = result.content.lines().collect();
-    assert_eq!(lines[0].trim(), "Lines    Bytes  Path");
+    assert!(result.content.starts_with("1 path\n\n"));
+    let lines = table(&result.content);
+    assert_eq!(lines[0], "  Lines    Bytes  Path");
     assert!(lines[1].contains("src/ui/widget.rs"));
     assert!(lines[1].contains("1"));
 }
@@ -23,7 +28,7 @@ async fn min_lines_filters_out_smaller_files_and_directories() {
 
     let result = find(&dir, ".*\\.rs$", |args| args.min_lines = Some(150)).await;
     assert!(!result.is_error);
-    let lines: Vec<_> = result.content.lines().collect();
+    let lines = table(&result.content);
     assert_eq!(lines[0].trim(), "Lines    Bytes  Path");
     assert_eq!(lines.len(), 2);
     assert!(lines[1].contains("src/big.rs"));
@@ -57,7 +62,7 @@ async fn sort_by_lines_orders_descending() {
 
     let result = find(&dir, ".*\\.rs$", |args| args.sort = Some(FdSort::Lines)).await;
     assert!(!result.is_error);
-    let lines: Vec<_> = result.content.lines().collect();
+    let lines = table(&result.content);
     // Header is row 0
     assert!(lines[1].contains("src/big.rs"));
     assert!(lines[2].contains("src/medium.rs"));
@@ -72,7 +77,7 @@ async fn sort_by_size_orders_descending() {
 
     let result = find(&dir, ".*\\.rs$", |args| args.sort = Some(FdSort::Size)).await;
     assert!(!result.is_error);
-    let lines: Vec<_> = result.content.lines().collect();
+    let lines = table(&result.content);
     assert!(lines[1].contains("src/huge.rs"));
 }
 
@@ -88,7 +93,7 @@ async fn sort_by_size_with_stats_reports_line_and_byte_counts() {
     })
     .await;
     assert!(!result.is_error);
-    let rows: Vec<_> = result.content.lines().collect();
+    let rows = table(&result.content);
     assert!(rows[1].contains("src/one_line.rs"));
     assert!(rows[1].trim_start().starts_with("1 "));
     assert!(rows[2].contains("src/many_lines.rs"));

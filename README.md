@@ -56,9 +56,13 @@ resume the exact session of each pane with `rho --resume <id>`.
   see it in the terminal; the model receives the same output without escape
   codes.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
-  matching; directories are listed with a trailing `/`.
+  matching. Entries are grouped under their parent directory (`dir/` header,
+  indented names; directories end with `/`) after a total count.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
-  files, and bounds output. Each match is a `path:line: text` row.
+  files. Matches are grouped by file (path line, then `line:text` rows) after an
+  `N matches in M files` total; `output_mode` `files` or `count` lists only
+  matching files or per-file counts. Both tools fill a 50KB page and name the
+  exact `offset` for the next page, so every result stays reachable.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents),
   optionally with a [persona](docs/configuration.md#personas) that changes how it behaves.

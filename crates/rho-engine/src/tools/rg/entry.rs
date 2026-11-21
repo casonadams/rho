@@ -1,9 +1,27 @@
+use std::cmp::Ordering;
+use std::fmt::Write;
 use std::path::Path;
 
-use crate::tools::truncate::{GREP_MAX_LINE_LENGTH, finish_listing, listing_limit_notice};
+use crate::tools::listing::{
+    Collected, Layout, Listing, PageRequest, Row, count_noun, directory_order, render_page, split_parent,
+};
+use crate::tools::truncate::GREP_MAX_LINE_LENGTH;
 use crate::tools::types::ToolResult;
+use rho_harness_core::args::RgOutputMode;
 
-pub const RG_COLLECTION_CEILING: usize = 5_000;
+pub const RG_COLLECTION_CEILING: usize = 20_000;
+
+const BY_FILE: Layout = Layout {
+    blank_between_groups: true,
+    row_indent: "",
+    preamble: None,
+};
+
+const BY_DIRECTORY: Layout = Layout {
+    blank_between_groups: false,
+    row_indent: "  ",
+    preamble: None,
+};
 
 #[derive(Debug, Clone)]
 pub struct LineMatch {
@@ -13,37 +31,105 @@ pub struct LineMatch {
     pub truncated: bool,
 }
 
-pub fn render(matches: &[LineMatch]) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(matches.len() * 48);
-    let mut current_path: Option<&str> = None;
-    for m in matches {
-        if current_path != Some(&m.path) {
-            if current_path.is_some() {
-                out.push('\n');
-            }
-            current_path = Some(&m.path);
-        }
-        let _ = writeln!(out, "{}:{}: {}", m.path, m.line, m.text);
+impl Row for LineMatch {
+    fn group(&self) -> Option<&str> {
+        Some(&self.path)
     }
-    if out.ends_with('\n') {
-        out.pop();
+
+    fn render(&self, out: &mut String) {
+        let _ = write!(out, "{}:{}", self.line, self.text);
     }
-    out
+
+    fn cut(&self) -> bool {
+        self.truncated
+    }
 }
 
-pub fn format_results(mut matches: Vec<LineMatch>, limit: usize, artifact_dir: Option<&Path>) -> ToolResult {
-    if matches.is_empty() {
+pub fn line_order(a: &LineMatch, b: &LineMatch) -> Ordering {
+    (&a.path, a.line).cmp(&(&b.path, b.line))
+}
+
+#[derive(Debug, Clone)]
+pub struct FileHit {
+    pub path: String,
+    pub count: usize,
+    pub show_count: bool,
+}
+
+impl Row for FileHit {
+    fn group(&self) -> Option<&str> {
+        Some(split_parent(&self.path).0)
+    }
+
+    fn render(&self, out: &mut String) {
+        out.push_str(split_parent(&self.path).1);
+        if self.show_count {
+            let _ = write!(out, ":{}", self.count);
+        }
+    }
+}
+
+pub fn file_order(a: &FileHit, b: &FileHit) -> Ordering {
+    directory_order(&a.path, &b.path)
+}
+
+pub struct RgTotals {
+    pub matches: usize,
+    pub files: usize,
+}
+
+pub fn format_lines(
+    collected: &Collected<LineMatch>,
+    totals: &RgTotals,
+    request: PageRequest,
+    artifact_dir: Option<&Path>,
+) -> ToolResult {
+    if collected.items.is_empty() {
         return ToolResult::success("No matches found");
     }
-    matches.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-    let total = matches.len();
-    let ceiling = (total >= RG_COLLECTION_CEILING).then_some(RG_COLLECTION_CEILING);
-    let limit_notice = (total > limit).then(|| listing_limit_notice(limit, total, ceiling));
-    matches.truncate(limit);
-    let line_notice = matches
-        .iter()
-        .any(|m| m.truncated)
-        .then(|| format!("Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines"));
-    finish_listing(&render(&matches), limit_notice, line_notice, artifact_dir)
+    let listing = Listing {
+        rows: &collected.items,
+        layout: BY_FILE,
+        unit: "match",
+        summary: format!(
+            "{} in {}",
+            count_noun(totals.matches, "match"),
+            count_noun(totals.files, "file")
+        ),
+        capped: collected.capped(),
+        hint: Some("output_mode 'files' or 'count' covers every matching file in far fewer bytes"),
+        cut_notice: Some(format!(
+            "Some lines truncated to {GREP_MAX_LINE_LENGTH} chars; use read with offset to see full lines"
+        )),
+        artifact_dir,
+    };
+    render_page(&listing, request)
+}
+
+pub fn format_files(
+    collected: &Collected<FileHit>,
+    totals: &RgTotals,
+    mode: RgOutputMode,
+    request: PageRequest,
+    artifact_dir: Option<&Path>,
+) -> ToolResult {
+    if collected.items.is_empty() {
+        return ToolResult::success("No matches found");
+    }
+    let files = count_noun(totals.files, "file");
+    let summary = match mode {
+        RgOutputMode::Count => format!("{} in {files}", count_noun(totals.matches, "match")),
+        _ => format!("{files} with matches"),
+    };
+    let listing = Listing {
+        rows: &collected.items,
+        layout: BY_DIRECTORY,
+        unit: "file",
+        summary,
+        capped: collected.capped(),
+        hint: None,
+        cut_notice: None,
+        artifact_dir,
+    };
+    render_page(&listing, request)
 }
