@@ -52,15 +52,6 @@ pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthS
     )
 }
 
-pub(super) fn build_gemini_model(model: &str, key: String) -> Result<ModelHandle> {
-    Ok(openai_model(
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        key,
-        model,
-        "gemini",
-    ))
-}
-
 pub(super) fn build_antigravity_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
     let project_id = stored_oauth_account_id(auth_store.get_credential("antigravity"))
         .unwrap_or_else(|| crate::auth::antigravity::stable_project_id("antigravity-default"));
@@ -81,36 +72,45 @@ fn openai_model(base_url: &str, key: impl Into<String>, model: &str, provider: &
     Arc::new(OpenAiClient::new(base_url, key, model, provider))
 }
 
-fn build_rig_named_client(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
-    match provider {
-        ProviderId::Anthropic => {
-            let model = crate::claude::request::normalize_model_alias(model);
-            Ok(Arc::new(crate::claude::ClaudeClient::with_api_key(key, model)))
-        }
-        ProviderId::DeepSeek => Ok(openai_model("https://api.deepseek.com", key, model, "deepseek")),
-        ProviderId::Groq => Ok(openai_model("https://api.groq.com/openai/v1", key, model, "groq")),
-        ProviderId::OpenRouter => Ok(openai_model("https://openrouter.ai/api/v1", key, model, "openrouter")),
-        ProviderId::XAi => Ok(openai_model("https://api.x.ai/v1", key, model, "xai")),
-        ProviderId::Mistral => Ok(openai_model("https://api.mistral.ai/v1", key, model, "mistral")),
-        ProviderId::Cohere => Ok(openai_model("https://api.cohere.com/v2", key, model, "cohere")),
-        _ => Err(AppError::Provider(format!(
-            "Unsupported standard provider '{}'",
-            provider.as_str()
-        ))),
-    }
+/// Chat and model-list URLs of a builtin provider served through `OpenAiClient`.
+pub(crate) struct OpenAiEndpoint {
+    pub chat: &'static str,
+    pub models: &'static str,
 }
 
-fn build_ollama_cloud_model(model: &str, key: String) -> Result<ModelHandle> {
-    crate::install_crypto_provider();
-    Ok(openai_model("https://ollama.com/v1", key, model, "ollama-cloud"))
+pub(crate) fn openai_endpoint(provider: ProviderId) -> Option<OpenAiEndpoint> {
+    let (chat, models) = match provider {
+        ProviderId::OpenAi => ("https://api.openai.com/v1", "https://api.openai.com/v1/models"),
+        ProviderId::OpenRouter => ("https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/models"),
+        ProviderId::Groq => (
+            "https://api.groq.com/openai/v1",
+            "https://api.groq.com/openai/v1/models",
+        ),
+        ProviderId::DeepSeek => ("https://api.deepseek.com", "https://api.deepseek.com/models"),
+        ProviderId::XAi => ("https://api.x.ai/v1", "https://api.x.ai/v1/models"),
+        ProviderId::Mistral => ("https://api.mistral.ai/v1", "https://api.mistral.ai/v1/models"),
+        ProviderId::OllamaCloud => ("https://ollama.com/v1", "https://ollama.com/v1/models"),
+        ProviderId::Cohere => (
+            "https://api.cohere.ai/compatibility/v1",
+            "https://api.cohere.com/v1/models?endpoint=chat&page_size=1000",
+        ),
+        ProviderId::Gemini => (
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+        ),
+        _ => return None,
+    };
+    Some(OpenAiEndpoint { chat, models })
 }
 
-pub(super) fn build_standard_client_model(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
-    match provider {
-        ProviderId::OpenAi => Ok(openai_model("https://api.openai.com/v1", key, model, "openai")),
-        ProviderId::OllamaCloud => build_ollama_cloud_model(model, key),
-        _ => build_rig_named_client(provider, model, key),
+pub(super) fn build_api_key_model(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
+    if provider == ProviderId::Anthropic {
+        let model = crate::claude::request::normalize_model_alias(model);
+        return Ok(Arc::new(crate::claude::ClaudeClient::with_api_key(key, model)));
     }
+    let endpoint = openai_endpoint(provider)
+        .ok_or_else(|| AppError::Provider(format!("Unsupported API-key provider '{provider}'")))?;
+    Ok(openai_model(endpoint.chat, key, model, provider.as_str()))
 }
 
 #[cfg(test)]
@@ -118,15 +118,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_rig_named_client_variants() {
+    fn every_api_key_provider_builds_and_reports_its_own_name() {
         crate::install_crypto_provider();
-        assert!(build_rig_named_client(ProviderId::Anthropic, "claude-3", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::DeepSeek, "deepseek-chat", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::Groq, "llama-3", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::OpenRouter, "model", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::XAi, "grok-1", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::Mistral, "mistral-large", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::Cohere, "command-r", "key".into()).is_ok());
-        assert!(build_rig_named_client(ProviderId::Local, "m", "key".into()).is_err());
+        for provider in ProviderId::ALL {
+            let built = build_api_key_model(provider, "m", "key".into());
+            if provider.api_key_env().is_some() {
+                assert_eq!(built.unwrap().provider_name(), provider.as_str());
+            } else {
+                assert!(built.is_err(), "{provider}");
+            }
+        }
     }
 }

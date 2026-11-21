@@ -40,21 +40,6 @@ impl DiscoveredModel {
     }
 }
 
-/// Model-list URL for providers that speak an OpenAI-compatible (or Cohere) listing API.
-fn listing_url(provider: ProviderId) -> Option<&'static str> {
-    Some(match provider {
-        ProviderId::OpenAi => "https://api.openai.com/v1/models",
-        ProviderId::OpenRouter => "https://openrouter.ai/api/v1/models",
-        ProviderId::Groq => "https://api.groq.com/openai/v1/models",
-        ProviderId::DeepSeek => "https://api.deepseek.com/models",
-        ProviderId::XAi => "https://api.x.ai/v1/models",
-        ProviderId::Mistral => "https://api.mistral.ai/v1/models",
-        ProviderId::Cohere => "https://api.cohere.com/v1/models?endpoint=chat&page_size=1000",
-        ProviderId::OllamaCloud => "https://ollama.com/v1/models",
-        _ => return None,
-    })
-}
-
 async fn require_key(auth: &mut AuthStore, provider: ProviderId) -> Result<String> {
     auth.get_key(provider.as_str())
         .await?
@@ -93,15 +78,20 @@ async fn discover_builtin(provider: ProviderId, mut auth: AuthStore) -> Result<V
         }
         ProviderId::Gemini => {
             let key = require_key(&mut auth, provider).await?;
-            fetch::fetch_gemini(fetch::GEMINI_MODELS_URL, &key).await
+            fetch::fetch_gemini(openai_endpoint_models(provider)?, &key).await
         }
         other => {
-            let url =
-                listing_url(other).ok_or_else(|| AppError::Provider(format!("{other} has no model-list endpoint")))?;
+            let url = openai_endpoint_models(other)?;
             let key = require_key(&mut auth, other).await?;
             fetch::fetch_openai_compatible(url, Some(&key), other.as_str()).await
         }
     }
+}
+
+fn openai_endpoint_models(provider: ProviderId) -> Result<&'static str> {
+    crate::provider::builders::openai_endpoint(provider)
+        .map(|endpoint| endpoint.models)
+        .ok_or_else(|| AppError::Provider(format!("{provider} has no model-list endpoint")))
 }
 
 /// Lists the models `provider` currently offers, straight from its API.

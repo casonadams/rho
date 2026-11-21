@@ -15,8 +15,8 @@ pub use openai::OpenAiClient;
 use crate::auth::AuthStore;
 pub use crate::engine::compactor::llm::ModelHandle;
 use builders::{
-    build_antigravity_model, build_chatgpt_model, build_claude_code_model, build_gemini_model,
-    build_local_ollama_model, build_standard_client_model, resolve_provider_key, validate_custom_provider_url,
+    build_antigravity_model, build_api_key_model, build_chatgpt_model, build_claude_code_model,
+    build_local_ollama_model, resolve_provider_key, validate_custom_provider_url,
 };
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
@@ -156,9 +156,6 @@ impl ProviderFactory {
         if provider == ProviderId::ChatGpt {
             return Ok(build_chatgpt_model(&request, auth_store));
         }
-        if provider == ProviderId::Gemini {
-            return build_gemini_model(model, key);
-        }
-        build_standard_client_model(provider, model, key)
+        build_api_key_model(provider, model, key)
     }
 }

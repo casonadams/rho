@@ -22,7 +22,6 @@ pub(crate) const ANTHROPIC_MODELS_URL: &str = "https://api.anthropic.com/v1/mode
 pub(crate) const CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
 /// The Codex catalog only lists models for clients at or above a version; 0.22.4 receives none.
 pub(crate) const CODEX_CLIENT_VERSION: &str = "0.171.0";
-pub(crate) const GEMINI_MODELS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000";
 
 fn context_of(entry: &Value) -> Option<usize> {
     CONTEXT_FIELDS
