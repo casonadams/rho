@@ -5,7 +5,7 @@ mod tests;
 
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::TypedTool;
-use crate::tools::types::ToolResult;
+use crate::tools::types::{ToolResult, resolve_tool_path};
 pub use matching::locate_edit;
 pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
 pub use rho_harness_core::args::EditArgs;
@@ -100,13 +100,8 @@ impl EditTool {
     }
 
     fn validate_edit_target(&self, clean_path: &str) -> std::result::Result<(Workspace, PathBuf), ToolResult> {
-        if clean_path.is_empty() {
-            return Err(ToolResult::error("Empty file path provided for edit tool"));
-        }
         let workspace = Workspace::new(&self.base_dir);
-        let Some(path) = workspace.resolve(clean_path) else {
-            return Err(ToolResult::error("Empty file path provided for edit tool"));
-        };
+        let path = resolve_tool_path(&workspace, clean_path, "edit")?;
         Ok((workspace, path))
     }
 

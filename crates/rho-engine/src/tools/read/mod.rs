@@ -7,7 +7,7 @@ pub use format::{format_content, is_binary, number_lines};
 pub use rho_harness_core::args::ReadArgs;
 
 use crate::tools::engine_tool::TypedTool;
-use crate::tools::types::ToolResult;
+use crate::tools::types::{ToolResult, resolve_tool_path};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
@@ -19,9 +19,7 @@ pub struct ReadTool {
 
 async fn resolve_and_read_bytes(base_dir: &Path, clean_path: &str) -> std::result::Result<Vec<u8>, ToolResult> {
     let workspace = Workspace::new(base_dir);
-    let Some(path) = workspace.resolve(clean_path) else {
-        return Err(ToolResult::error("Empty file path provided for read tool"));
-    };
+    let path = resolve_tool_path(&workspace, clean_path, "read")?;
     match tokio::fs::read(&path).await {
         Ok(bytes) => Ok(bytes),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

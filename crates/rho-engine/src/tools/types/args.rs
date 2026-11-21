@@ -1,8 +1,17 @@
 use super::ToolResult;
+use rho_harness_core::workspace::Workspace;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use std::path::PathBuf;
 
 const MAX_ERROR_CHARS: usize = 300;
+
+/// Resolves a model-supplied path inside the workspace; an empty path is reported as a tool error.
+pub fn resolve_tool_path(workspace: &Workspace, clean_path: &str, tool: &str) -> Result<PathBuf, ToolResult> {
+    workspace
+        .resolve(clean_path)
+        .ok_or_else(|| ToolResult::error(format!("Empty file path provided for {tool} tool")))
+}
 
 fn decode_json_text(value: &Value) -> Option<Value> {
     let text = value.as_str()?.trim();

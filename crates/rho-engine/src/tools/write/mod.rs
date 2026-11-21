@@ -1,6 +1,6 @@
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::TypedTool;
-use crate::tools::types::ToolResult;
+use crate::tools::types::{ToolResult, resolve_tool_path};
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
@@ -11,16 +11,6 @@ mod tests;
 
 pub struct WriteTool {
     pub base_dir: PathBuf,
-}
-
-fn validate_write_workspace(
-    workspace: &Workspace,
-    clean_path: &str,
-) -> std::result::Result<std::path::PathBuf, ToolResult> {
-    let Some(path) = workspace.resolve(clean_path) else {
-        return Err(ToolResult::error("Empty file path provided for write tool"));
-    };
-    Ok(path)
 }
 
 async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
@@ -63,12 +53,8 @@ impl WriteTool {
 
     pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
         let clean_path = clean_path_arg(&args.path);
-        if clean_path.is_empty() {
-            return Ok(ToolResult::error("Empty file path provided for write tool"));
-        }
-
         let workspace = Workspace::new(&self.base_dir);
-        let path = match validate_write_workspace(&workspace, clean_path) {
+        let path = match resolve_tool_path(&workspace, clean_path, "write") {
             Ok(p) => p,
             Err(e) => return Ok(e),
         };
