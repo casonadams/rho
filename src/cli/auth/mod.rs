@@ -20,16 +20,6 @@ use crate::error::{AppError, Result};
 use rho_engine::auth::perform_oauth_login;
 use rho_harness_core::provider::{Connection, ProviderId};
 
-fn provider_login_name(id: ProviderId) -> &'static str {
-    match id {
-        ProviderId::ChatGpt => "ChatGPT",
-        ProviderId::Antigravity => "Google Antigravity",
-        ProviderId::ClaudeCode => "Claude (Subscription)",
-        ProviderId::OpenRouter => "OpenRouter",
-        _ => id.as_str(),
-    }
-}
-
 async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let callbacks = TerminalOAuthCallbacks;
     let cred = perform_oauth_login(id, &callbacks).await?;
@@ -37,7 +27,7 @@ async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mu
     auth_store.set_credential(&login.to_string(), cred)?;
     println!(
         "Logged in to {} as {login}. Credentials saved to {}",
-        provider_login_name(id),
+        id.info().display_name,
         config.auth_file.display()
     );
     if login.account.is_some() {

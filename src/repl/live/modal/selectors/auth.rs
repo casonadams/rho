@@ -4,23 +4,8 @@ use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use rho_harness_core::provider::Connection;
-
-const PROVIDER_DEFS: &[(&str, &str)] = &[
-    ("antigravity", "Google Cloud Code Assist (OAuth)"),
-    ("chatgpt", "ChatGPT Plus/Pro subscription (OAuth)"),
-    ("claude", "Claude Pro/Max subscription (OAuth)"),
-    ("openrouter", "OpenRouter universal gateway (OAuth / Key)"),
-    ("anthropic", "Anthropic Claude models (API Key)"),
-    ("openai", "OpenAI GPT & reasoning models (API Key)"),
-    ("gemini", "Google Gemini models (API Key)"),
-    ("deepseek", "DeepSeek models (API Key)"),
-    ("groq", "Groq fast inference (API Key)"),
-    ("mistral", "Mistral and Codestral models (API Key)"),
-    ("xai", "xAI Grok models (API Key)"),
-    ("cohere", "Cohere Command models (API Key)"),
-    ("ollama-cloud", "Hosted open models (API Key)"),
-];
+use rho_harness_core::provider::{Connection, ProviderId};
+use std::str::FromStr;
 
 fn format_provider_option(id: &str, desc: &str, configured: &[String]) -> ModalOption {
     let logged_in = configured.iter().any(|p| Connection::parse(p).provider == id);
@@ -29,25 +14,24 @@ fn format_provider_option(id: &str, desc: &str, configured: &[String]) -> ModalO
 
 fn append_custom_providers(options: &mut Vec<ModalOption>, session: &ReplSession, configured: &[String]) {
     for custom_name in session.config.providers.keys() {
-        if !PROVIDER_DEFS.iter().any(|(id, _)| id == custom_name) {
+        if ProviderId::from_str(custom_name).is_err() {
             options.push(format_provider_option(
                 custom_name,
-                "Configured provider (API Key)",
+                "Configured provider (API key)",
                 configured,
             ));
         }
     }
 }
 
-/// Subscription logins show each signed-in account so you can tell them apart.
-fn login_description(session: &ReplSession, id: &str, desc: &str) -> String {
-    let Ok(provider) = id.parse::<rho_harness_core::provider::ProviderId>() else {
-        return desc.to_string();
-    };
+/// The provider's description and login mode, plus each signed-in account's email.
+fn login_description(session: &ReplSession, provider: ProviderId) -> String {
+    let info = provider.info();
+    let desc = format!("{} ({})", info.description, provider.auth_mode_label());
     let logins = session.auth_store.logins(provider);
     let emails: Vec<&str> = logins.iter().filter_map(|login| login.email.as_deref()).collect();
     if emails.is_empty() {
-        desc.to_string()
+        desc
     } else {
         format!("{desc} · {}", emails.join(", "))
     }
@@ -59,13 +43,14 @@ fn build_login_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
-    for (i, &(id, desc)) in PROVIDER_DEFS.iter().enumerate() {
-        if id == active_provider {
+    let providers = ProviderId::ALL.into_iter().filter(|&id| id != ProviderId::Local);
+    for (i, provider) in providers.enumerate() {
+        if provider.as_str() == active_provider {
             initial_selection = i;
         }
         options.push(format_provider_option(
-            id,
-            &login_description(session, id, desc),
+            provider.as_str(),
+            &login_description(session, provider),
             &configured,
         ));
     }

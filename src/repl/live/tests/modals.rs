@@ -729,7 +729,7 @@ fn login_selector_initial_selection_matches_active_provider() {
 
 #[test]
 fn login_selector_navigates_with_arrows() {
-    let (mut controller, _temp) = setup_login_controller("antigravity");
+    let (mut controller, _temp) = setup_login_controller("chatgpt");
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
     let _ = send_modal_key(&mut controller, KeyCode::Down);

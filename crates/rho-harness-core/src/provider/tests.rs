@@ -22,7 +22,7 @@ fn credential_strategies_and_labels() {
         (ProviderId::Local, CredentialStrategy::Local, "local; no login"),
     ];
     for (p, strategy, label) in cases {
-        assert_eq!((p.credential_strategy(), p.auth_mode_label()), (strategy, label));
+        assert_eq!((p.info().credentials, p.auth_mode_label()), (strategy, label));
     }
 }
 
@@ -43,9 +43,13 @@ fn api_key_environment_variables() {
 #[test]
 fn all_variants_are_unique_and_represented() {
     assert_eq!(ProviderId::ALL.len(), 14);
+    let mut names = std::collections::HashSet::new();
     for provider in ProviderId::ALL {
-        let parsed = ProviderId::from_str(provider.as_str()).expect("canonical string must parse");
-        assert_eq!(parsed, provider);
+        let info = provider.info();
+        for name in std::iter::once(info.name).chain(info.aliases.iter().copied()) {
+            assert!(names.insert(name), "{name} names two providers");
+            assert_eq!(ProviderId::from_str(name).unwrap(), provider);
+        }
     }
 }
 

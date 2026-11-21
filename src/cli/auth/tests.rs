@@ -101,23 +101,6 @@ async fn login_provider_key_stdin_without_provider_fails() {
 }
 
 #[test]
-fn test_provider_login_name_mappings() {
-    use rho_harness_core::provider::ProviderId;
-
-    let cases = [
-        (ProviderId::ChatGpt, "ChatGPT"),
-        (ProviderId::Antigravity, "Google Antigravity"),
-        (ProviderId::ClaudeCode, "Claude (Subscription)"),
-        (ProviderId::OpenRouter, "OpenRouter"),
-        (ProviderId::OpenAi, "openai"),
-        (ProviderId::Local, "local"),
-    ];
-    for (id, expected) in cases {
-        assert_eq!(super::provider_login_name(id), expected);
-    }
-}
-
-#[test]
 fn default_oauth_provider_checks() {
     use rho_harness_core::provider::ProviderId;
 
