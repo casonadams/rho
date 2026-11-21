@@ -83,7 +83,7 @@ impl AgentEngine {
             .active_messages()
             .await
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
-        let window = self.context_limit().unwrap_or(128_000);
+        let window = self.context_limit();
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         let sizes = self.context.estimate_each_message_tokens(&raw, &self.config.model);
         Ok(
@@ -112,7 +112,7 @@ impl AgentEngine {
             .map(|u| self.consumed_context(&u) as usize)
             .unwrap_or_else(|| self.context.estimate_messages_tokens(history, &self.config.model));
         let total_tokens = history_tokens.saturating_add(additional_tokens);
-        let limit = self.context_limit().unwrap_or(128_000);
+        let limit = self.context_limit();
         let threshold = limit.saturating_sub(self.config.reserve_tokens);
         if total_tokens > threshold {
             let _spinner = presenter.start_spinner("Compacting...");

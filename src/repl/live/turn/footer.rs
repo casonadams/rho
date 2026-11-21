@@ -71,7 +71,7 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
     let metrics = LiveMetrics {
         tokens_per_second,
         context_percent,
-        context_window: engine.context_limit().unwrap_or(0),
+        context_window: engine.context_limit(),
         context: Some(engine.context_remaining_display()),
     };
     let mut changed = token_changes_differ(footer, &totals);

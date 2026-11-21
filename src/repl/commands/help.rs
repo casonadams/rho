@@ -85,13 +85,11 @@ fn append_engine_totals(out: &mut String, engine: &rho_engine::engine::AgentEngi
     }
 }
 
-fn append_engine_diagnostics(out: &mut String, engine: &rho_engine::engine::AgentEngine, model: &str) {
+fn append_engine_diagnostics(out: &mut String, engine: &rho_engine::engine::AgentEngine) {
     if let Some(quota) = engine.quota_display() {
         let _ = writeln!(out, "  Quota:                       {quota}");
     }
-    let capacity = engine
-        .context_limit()
-        .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(model));
+    let capacity = engine.context_limit();
     if capacity > 0 {
         let usage_display = engine.context_remaining_display();
         let pct = engine.context_percent_f64().unwrap_or(0.0);
@@ -130,7 +128,7 @@ pub fn handle_session(ctx: &SlashCommandContext<'_>) {
         let _ = writeln!(out, "  Thinking Level:              {level}");
     }
     if let Some(engine) = ctx.engine {
-        append_engine_diagnostics(&mut out, engine, &ctx.config.model);
+        append_engine_diagnostics(&mut out, engine);
     } else {
         let window = rho_harness_core::tokens::context_window_size(&ctx.config.model);
         let _ = writeln!(out, "  Context Capacity:            {window} tokens");

@@ -32,8 +32,8 @@ impl AgentEngine {
         self.router.catalog()
     }
 
-    pub fn context_limit(&self) -> Option<usize> {
-        Some(self.resolve_context_limit().0)
+    pub fn context_limit(&self) -> usize {
+        self.resolve_context_limit().0
     }
 
     pub fn context_limit_source(&self) -> ContextLimitSource {
@@ -144,7 +144,7 @@ mod tests {
         let catalog = catalog_with_trained_window();
         engine.router = crate::provider::ModelRouter::new(engine.shared_auth_store(), catalog.clone());
         engine.ollama_host = serve_http(vec![("200 OK", ps_body(262_144))]).await;
-        assert_eq!(engine.context_limit(), Some(1_048_576));
+        assert_eq!(engine.context_limit(), 1_048_576);
         let mut changes = catalog.subscribe();
         changes.mark_unchanged();
 
@@ -160,7 +160,7 @@ mod tests {
             .await
             .expect("probe should report the allocated window")
             .unwrap();
-        assert_eq!(engine.context_limit(), Some(262_144));
+        assert_eq!(engine.context_limit(), 262_144);
         assert_eq!(engine.context_limit_source(), ContextLimitSource::Provider);
         assert_eq!(engine.context_probe_error(), None);
     }

@@ -488,7 +488,7 @@ async fn context_limit_uses_the_providers_listed_window() {
         .build()
         .await
         .unwrap();
-    assert_eq!(engine.context_limit(), Some(1_048_576));
+    assert_eq!(engine.context_limit(), 1_048_576);
     assert_eq!(
         engine.context_limit_source(),
         crate::engine::tracking::ContextLimitSource::Provider
@@ -544,7 +544,7 @@ async fn switch_model_updates_model_and_preserves_tools() {
     assert_eq!(engine.config.model, "claude-3-5-haiku-20241022");
     assert_eq!(engine.config.provider, "anthropic");
     assert_eq!(engine.tool_names().len(), tool_count);
-    assert_eq!(engine.context_limit(), Some(200_000));
+    assert_eq!(engine.context_limit(), 200_000);
 
     std::fs::remove_dir_all(dir).unwrap();
 }

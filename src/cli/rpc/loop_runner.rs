@@ -134,7 +134,7 @@ pub(crate) async fn handle_turn_done<W: tokio::io::AsyncWrite + Unpin>(
         cache_write_tokens: Some(totals.total_cache_write),
         total_cost: None,
         context_percent: eng.context_percent_f64(),
-        context_window: eng.context_limit(),
+        context_window: Some(eng.context_limit()),
         tokens_per_second: eng.tokens_per_second(),
         quota: eng.quota_display(),
     };

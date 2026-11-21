@@ -19,7 +19,7 @@ impl AgentEngine {
         if !usage.has_values() {
             return None;
         }
-        let limit = self.context_limit()?;
+        let limit = self.context_limit();
         let consumed = self.consumed_context(&usage);
         Some(((consumed as f64 / limit as f64) * 100.0).clamp(0.0, 100.0))
     }
@@ -38,25 +38,19 @@ impl AgentEngine {
 
     pub fn context_remaining_display(&self) -> String {
         let limit = self.context_limit();
-        let usage = self.usage.latest();
-        match (usage, limit) {
-            (Some(usage), Some(limit)) if usage.has_values() => {
-                let consumed = self.consumed_context(&usage);
-                let remaining = limit.saturating_sub(consumed as usize);
-                let percent = (remaining as f64 / limit as f64) * 100.0;
-                let percent_str = if (percent.fract() * 10.0).round() == 0.0 {
-                    format!("{percent:.0}%")
-                } else {
-                    format!("{percent:.1}%")
-                };
-                format!("{percent_str} ({})", format_tokens(limit as u64))
+        let percent = match self.usage.latest().filter(|usage| usage.has_values()) {
+            Some(usage) => {
+                let remaining = limit.saturating_sub(self.consumed_context(&usage) as usize);
+                (remaining as f64 / limit as f64) * 100.0
             }
-            (None, Some(limit)) | (Some(_), Some(limit)) => format!("100% ({})", format_tokens(limit as u64)),
-            (Some(usage), None) if usage.has_values() => {
-                format!("{} tokens", format_tokens(self.consumed_context(&usage)))
-            }
-            _ => "100%".to_string(),
-        }
+            None => 100.0,
+        };
+        let percent_str = if (percent.fract() * 10.0).round() == 0.0 {
+            format!("{percent:.0}%")
+        } else {
+            format!("{percent:.1}%")
+        };
+        format!("{percent_str} ({})", format_tokens(limit as u64))
     }
 
     pub fn context_usage_display(&self) -> String {
@@ -67,16 +61,13 @@ impl AgentEngine {
             return "usage unavailable".to_string();
         }
         let consumed = self.consumed_context(&usage);
-        if let Some(limit) = self.context_limit() {
-            let percent = ((consumed as usize * 100) / limit).min(100);
-            format!(
-                "{}/{} ({percent}%)",
-                format_tokens(consumed),
-                format_tokens(limit as u64)
-            )
-        } else {
-            format!("{} input tokens", format_tokens(consumed))
-        }
+        let limit = self.context_limit();
+        let percent = ((consumed as usize * 100) / limit).min(100);
+        format!(
+            "{}/{} ({percent}%)",
+            format_tokens(consumed),
+            format_tokens(limit as u64)
+        )
     }
 
     pub fn cache_hit_display(&self) -> Option<String> {

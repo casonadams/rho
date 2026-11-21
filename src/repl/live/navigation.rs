@@ -52,7 +52,7 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.session_name = engine.session_manager.cached_session_name();
     footer.quota = engine.quota_display();
     footer.context_percent = engine.context_percent_f64();
-    footer.context_window = engine.context_limit().unwrap_or(0);
+    footer.context_window = engine.context_limit();
 
     let totals = engine.session_usage_totals();
     footer.total_input_tokens = totals.total_input;

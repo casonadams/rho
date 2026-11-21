@@ -131,7 +131,7 @@ async fn build_engine_session_payload(
         "total_cache_write_tokens": totals.total_cache_write,
         "total_cost": serde_json::Value::Null,
         "context_percent": eng.context_percent_f64(),
-        "context_window": eng.context_limit().unwrap_or(0),
+        "context_window": eng.context_limit(),
         "tokens_per_second": eng.tokens_per_second(),
     });
     if let Some(msgs) = messages {
