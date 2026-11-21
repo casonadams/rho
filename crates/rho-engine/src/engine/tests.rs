@@ -477,7 +477,7 @@ async fn context_limit_uses_the_providers_listed_window() {
     let catalog = crate::provider::ModelCatalog::default();
     let model = crate::provider::discovery::DiscoveredModel {
         context_tokens: Some(1_048_576),
-        ..crate::provider::discovery::DiscoveredModel::new("glm-5.3-flash", "GLM", "ollama-cloud", "")
+        ..crate::provider::discovery::DiscoveredModel::new("glm-5.3-flash", "GLM", "")
     };
     catalog.set("ollama-cloud", crate::provider::ProviderModels::Ready(vec![model]));
     let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();

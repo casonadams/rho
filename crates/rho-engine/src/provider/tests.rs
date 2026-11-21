@@ -130,13 +130,7 @@ fn custom_provider_errors_name_the_failing_config() {
 
 fn make_discovered_models(ids: &[&str]) -> Vec<crate::provider::discovery::DiscoveredModel> {
     ids.iter()
-        .map(|id| crate::provider::discovery::DiscoveredModel {
-            context_tokens: None,
-            id: id.to_string(),
-            name: id.to_string(),
-            provider: "antigravity".into(),
-            description: String::new(),
-        })
+        .map(|id| crate::provider::discovery::DiscoveredModel::new(id, id, ""))
         .collect()
 }
 

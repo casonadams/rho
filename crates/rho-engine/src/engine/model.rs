@@ -100,7 +100,7 @@ mod tests {
         let catalog = ModelCatalog::default();
         let model = DiscoveredModel {
             context_tokens: Some(1_048_576),
-            ..DiscoveredModel::new(MODEL, "inkling", "local", "1M ctx")
+            ..DiscoveredModel::new(MODEL, "inkling", "1M ctx")
         };
         catalog.set("local", ProviderModels::Ready(vec![model]));
         catalog

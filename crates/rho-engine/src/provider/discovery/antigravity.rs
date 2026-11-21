@@ -18,7 +18,6 @@ fn make_discovered_model(base: String, levels: &[Option<crate::antigravity::Effo
         name: antigravity_display_name(&base),
         description: format!("{}{}", format_context_desc(&base), thinking),
         id: base,
-        provider: "antigravity".to_string(),
     }
 }
 

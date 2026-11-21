@@ -20,49 +20,24 @@ pub fn format_context_tokens(ctx: usize) -> String {
     }
 }
 
-fn build_presets(table: &[(&str, &str, &str, &str)]) -> Vec<DiscoveredModel> {
+fn build_presets(table: &[(&str, &str, &str)]) -> Vec<DiscoveredModel> {
     table
         .iter()
-        .map(|&(id, name, provider, desc)| DiscoveredModel::new(id, name, provider, desc))
+        .map(|&(id, name, desc)| DiscoveredModel::new(id, name, desc))
         .collect()
 }
 
-const ANTIGRAVITY_PRESETS: &[(&str, &str, &str, &str)] = &[
-    (
-        "gemini-4-carbon",
-        "Gemini 4 Carbon",
-        "antigravity",
-        "1M ctx · deepest reasoning",
-    ),
-    (
-        "gemini-4-neon",
-        "Gemini 4 Neon",
-        "antigravity",
-        "1M ctx · frontier coding",
-    ),
-    (
-        "gemini-4-argon",
-        "Gemini 4 Argon",
-        "antigravity",
-        "1M ctx · frontier reasoning",
-    ),
-    ("gemini-4-hydrogen", "Gemini 4 Hydrogen", "antigravity", "1M ctx · fast"),
-    ("gemini-3.8-flash", "Gemini 3.8 Flash", "antigravity", "1M ctx · fast"),
-    ("gemini-3.7-flash", "Gemini 3.7 Flash", "antigravity", "1M ctx · fast"),
-    ("gemini-3.1-pro", "Gemini 3.1 Pro", "antigravity", "1M ctx · reasoning"),
-    (
-        "claude-sonnet-4-6",
-        "Claude Sonnet 4.6",
-        "antigravity",
-        "200k ctx · reasoning",
-    ),
-    (
-        "claude-opus-4-6",
-        "Claude Opus 4.6",
-        "antigravity",
-        "250k ctx · deep reasoning",
-    ),
-    ("gpt-oss-120b", "GPT-OSS 120B", "antigravity", "128k ctx · open"),
+const ANTIGRAVITY_PRESETS: &[(&str, &str, &str)] = &[
+    ("gemini-4-carbon", "Gemini 4 Carbon", "1M ctx · deepest reasoning"),
+    ("gemini-4-neon", "Gemini 4 Neon", "1M ctx · frontier coding"),
+    ("gemini-4-argon", "Gemini 4 Argon", "1M ctx · frontier reasoning"),
+    ("gemini-4-hydrogen", "Gemini 4 Hydrogen", "1M ctx · fast"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash", "1M ctx · fast"),
+    ("gemini-3.7-flash", "Gemini 3.7 Flash", "1M ctx · fast"),
+    ("gemini-3.1-pro", "Gemini 3.1 Pro", "1M ctx · reasoning"),
+    ("claude-sonnet-4-6", "Claude Sonnet 4.6", "200k ctx · reasoning"),
+    ("claude-opus-4-6", "Claude Opus 4.6", "250k ctx · deep reasoning"),
+    ("gpt-oss-120b", "GPT-OSS 120B", "128k ctx · open"),
 ];
 
 pub fn antigravity_preset_models() -> Vec<DiscoveredModel> {

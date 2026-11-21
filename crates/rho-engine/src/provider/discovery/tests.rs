@@ -19,10 +19,10 @@ fn test_model_recency_key_parsing() {
 #[test]
 fn test_sort_models_newest_first_descending_and_stable() {
     let models = vec![
-        DiscoveredModel::new("gemini-2.0-flash", "Gemini 2.0", "gemini", ""),
-        DiscoveredModel::new("gemini-4-argon", "Gemini 4 Argon", "gemini", ""),
-        DiscoveredModel::new("gemini-3.8-flash", "Gemini 3.8", "gemini", ""),
-        DiscoveredModel::new("gemini-2.0-pro", "Gemini 2.0 Pro", "gemini", ""),
+        DiscoveredModel::new("gemini-2.0-flash", "Gemini 2.0", ""),
+        DiscoveredModel::new("gemini-4-argon", "Gemini 4 Argon", ""),
+        DiscoveredModel::new("gemini-3.8-flash", "Gemini 3.8", ""),
+        DiscoveredModel::new("gemini-2.0-pro", "Gemini 2.0 Pro", ""),
     ];
 
     let sorted = sort_models_newest_first(models);
@@ -109,5 +109,4 @@ async fn custom_provider_lists_models_from_its_base_url() {
         (models[0].id.as_str(), models[0].context_tokens),
         ("acme-1", Some(65_536))
     );
-    assert_eq!(models[0].provider, "acme");
 }

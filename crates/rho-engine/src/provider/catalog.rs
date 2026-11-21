@@ -163,7 +163,7 @@ mod tests {
     fn model(id: &str, tokens: Option<usize>) -> DiscoveredModel {
         DiscoveredModel {
             context_tokens: tokens,
-            ..DiscoveredModel::new(id, id, "claude", "")
+            ..DiscoveredModel::new(id, id, "")
         }
     }
 

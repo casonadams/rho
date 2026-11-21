@@ -35,14 +35,13 @@ fn str_field<'a>(entry: &'a Value, keys: &[&str]) -> Option<&'a str> {
     keys.iter().find_map(|key| entry.get(key)?.as_str())
 }
 
-fn listed_model(entry: &Value, id: &str, provider: &str) -> DiscoveredModel {
+fn listed_model(entry: &Value, id: &str) -> DiscoveredModel {
     let context_tokens = context_of(entry);
     DiscoveredModel {
         id: id.to_string(),
         name: str_field(entry, &["display_name", "displayName", "name"])
             .unwrap_or(id)
             .to_string(),
-        provider: provider.to_string(),
         description: context_tokens.map(format_context_tokens).unwrap_or_default(),
         context_tokens,
     }
@@ -53,17 +52,17 @@ fn entries<'a>(body: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
 }
 
 /// OpenAI-style `data[].id` lists (also Anthropic's) and Cohere-style `models[].name` lists.
-pub(crate) fn parse_model_list(body: &Value, provider: &str) -> Vec<DiscoveredModel> {
+pub(crate) fn parse_model_list(body: &Value) -> Vec<DiscoveredModel> {
     entries(body, "data")
         .chain(entries(body, "models"))
-        .filter_map(|entry| Some(listed_model(entry, str_field(entry, &["id", "name"])?, provider)))
+        .filter_map(|entry| Some(listed_model(entry, str_field(entry, &["id", "name"])?)))
         .collect()
 }
 
 pub(crate) fn parse_codex_models(body: &Value) -> Vec<DiscoveredModel> {
     entries(body, "models")
         .filter(|entry| str_field(entry, &["visibility"]).is_none_or(|v| v == "list"))
-        .filter_map(|entry| Some(listed_model(entry, str_field(entry, &["slug"])?, "chatgpt")))
+        .filter_map(|entry| Some(listed_model(entry, str_field(entry, &["slug"])?)))
         .collect()
 }
 
@@ -75,11 +74,7 @@ pub(crate) fn parse_gemini_models(body: &Value) -> Vec<DiscoveredModel> {
         .filter(generates)
         .filter_map(|entry| {
             let name = str_field(entry, &["name"])?;
-            Some(listed_model(
-                entry,
-                name.strip_prefix("models/").unwrap_or(name),
-                "gemini",
-            ))
+            Some(listed_model(entry, name.strip_prefix("models/").unwrap_or(name)))
         })
         .collect()
 }
@@ -101,7 +96,7 @@ pub(crate) async fn fetch_openai_compatible(
     if let Some(key) = key.map(str::trim).filter(|key| !key.is_empty()) {
         request = request.bearer_auth(key);
     }
-    Ok(parse_model_list(&get_json(request, &label(provider)).await?, provider))
+    Ok(parse_model_list(&get_json(request, &label(provider)).await?))
 }
 
 pub(crate) async fn fetch_anthropic(
@@ -111,7 +106,7 @@ pub(crate) async fn fetch_anthropic(
     provider: &str,
 ) -> Result<Vec<DiscoveredModel>> {
     let request = list_request(url).headers(claude_headers(auth, token));
-    Ok(parse_model_list(&get_json(request, &label(provider)).await?, provider))
+    Ok(parse_model_list(&get_json(request, &label(provider)).await?))
 }
 
 pub(crate) async fn fetch_codex(url: &str, token: &str, account_id: Option<&str>) -> Result<Vec<DiscoveredModel>> {
@@ -138,7 +133,7 @@ pub(crate) async fn fetch_gemini(url: &str, key: &str) -> Result<Vec<DiscoveredM
 
 pub(crate) async fn fetch_ollama(host: &str) -> Result<Vec<DiscoveredModel>> {
     let request = list_request(&format!("{host}/v1/models"));
-    let mut models = parse_model_list(&get_json(request, "Ollama /v1/models").await?, "local");
+    let mut models = parse_model_list(&get_json(request, "Ollama /v1/models").await?);
     let windows = futures::future::join_all(
         models
             .iter()
@@ -194,7 +189,7 @@ mod tests {
             { "object": "model" }
         ] });
         assert_eq!(
-            summary(&parse_model_list(&body, "x")),
+            summary(&parse_model_list(&body)),
             vec![
                 ("claude-sonnet-5-5", "Claude Sonnet 5.5", Some(1_000_000)),
                 ("llama-3.3-70b", "llama-3.3-70b", Some(131_072)),
@@ -207,7 +202,7 @@ mod tests {
         );
         let cohere = json!({ "models": [{ "name": "command-a", "context_length": 256_000 }] });
         assert_eq!(
-            summary(&parse_model_list(&cohere, "cohere")),
+            summary(&parse_model_list(&cohere)),
             vec![("command-a", "command-a", Some(256_000))]
         );
     }

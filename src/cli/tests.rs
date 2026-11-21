@@ -133,7 +133,7 @@ async fn models_command_lists_live_models_and_reports_failures() {
         .unwrap_err();
     assert!(failure.to_string().contains("HTTP 401"), "{failure}");
 
-    let listed = DiscoveredModel::new("gemini-3.6-flash", "Gemini 3.6 Flash", "gemini", "1M ctx");
+    let listed = DiscoveredModel::new("gemini-3.6-flash", "Gemini 3.6 Flash", "1M ctx");
     assert_eq!(
         format_model_entries(&[listed], &config.model),
         vec!["  - gemini-3.6-flash (1M ctx)"]

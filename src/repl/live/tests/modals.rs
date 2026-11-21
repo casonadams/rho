@@ -91,7 +91,7 @@ fn model_selector_fills_in_as_provider_lists_arrive() {
     );
     assert!(controller.state().active_modal().unwrap().options.is_empty());
 
-    let listed = |id: &str| DiscoveredModel::new(id, id, "claude", "1M ctx");
+    let listed = |id: &str| DiscoveredModel::new(id, id, "1M ctx");
     session.catalog.set(
         "claude",
         ProviderModels::Ready(vec![listed("claude-opus-5"), listed("claude-sonnet-5")]),

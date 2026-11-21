@@ -15,25 +15,22 @@ use crate::claude::http::ClaudeAuth;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
-use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// One model in a provider's list; the provider is the catalog entry it is listed under.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredModel {
     pub id: String,
     pub name: String,
-    pub provider: String,
     pub description: String,
-    #[serde(default)]
     pub context_tokens: Option<usize>,
 }
 
 impl DiscoveredModel {
-    pub fn new(id: &str, name: &str, provider: &str, description: &str) -> Self {
+    pub fn new(id: &str, name: &str, description: &str) -> Self {
         Self {
             id: id.to_string(),
             name: name.to_string(),
-            provider: provider.to_string(),
             description: description.to_string(),
             context_tokens: None,
         }

@@ -24,10 +24,10 @@ fn active_model_item(config: &Config, catalog: &ModelCatalog) -> ModelItem {
     }
 }
 
-fn listed_item(model: DiscoveredModel) -> ModelItem {
+fn listed_item(provider: &str, model: DiscoveredModel) -> ModelItem {
     ModelItem {
         id: model.id,
-        provider: model.provider,
+        provider: provider.to_string(),
         description: model.description,
     }
 }
@@ -41,10 +41,10 @@ pub fn discover_models(config: &Config, catalog: &ModelCatalog) -> Vec<ModelItem
     }
     let mut providers: Vec<(String, ProviderModels)> = catalog.snapshot().into_iter().collect();
     providers.sort_by_key(|(name, _)| name != "local");
-    for (_, state) in providers {
+    for (provider, state) in providers {
         if let ProviderModels::Ready(listed) = state {
             for model in sort_models_newest_first(listed) {
-                push_unique(&mut models, listed_item(model));
+                push_unique(&mut models, listed_item(&provider, model));
             }
         }
     }
@@ -108,10 +108,7 @@ impl std::fmt::Debug for ModelList {
 #[cfg(test)]
 pub(crate) fn catalog_with(provider: &str, ids: &[&str]) -> ModelCatalog {
     let catalog = ModelCatalog::default();
-    let models = ids
-        .iter()
-        .map(|id| DiscoveredModel::new(id, id, provider, "listed"))
-        .collect();
+    let models = ids.iter().map(|id| DiscoveredModel::new(id, id, "listed")).collect();
     catalog.set(provider, ProviderModels::Ready(models));
     catalog
 }
@@ -120,11 +117,11 @@ pub(crate) fn catalog_with(provider: &str, ids: &[&str]) -> ModelCatalog {
 mod tests {
     use super::*;
 
-    fn listed(id: &str, provider: &str, tokens: Option<usize>) -> DiscoveredModel {
+    fn listed(id: &str, tokens: Option<usize>) -> DiscoveredModel {
         DiscoveredModel {
             context_tokens: tokens,
             description: tokens.map(format_context_tokens).unwrap_or_default(),
-            ..DiscoveredModel::new(id, id, provider, "")
+            ..DiscoveredModel::new(id, id, "")
         }
     }
 
@@ -149,14 +146,11 @@ mod tests {
         catalog.set(
             "claude",
             ProviderModels::Ready(vec![
-                listed("claude-opus-4-6", "claude", Some(1_000_000)),
-                listed("claude-opus-5", "claude", Some(1_000_000)),
+                listed("claude-opus-4-6", Some(1_000_000)),
+                listed("claude-opus-5", Some(1_000_000)),
             ]),
         );
-        catalog.set(
-            "local",
-            ProviderModels::Ready(vec![listed("qwen:7b", "local", Some(32_768))]),
-        );
+        catalog.set("local", ProviderModels::Ready(vec![listed("qwen:7b", Some(32_768))]));
         catalog.set("chatgpt", ProviderModels::Loading);
         catalog.set("gemini", ProviderModels::Failed("HTTP 401".into()));
 
@@ -181,7 +175,7 @@ mod tests {
     fn no_selected_model_lists_only_provider_models() {
         let catalog = ModelCatalog::default();
         assert!(discover_models(&Config::default(), &catalog).is_empty());
-        catalog.set("local", ProviderModels::Ready(vec![listed("qwen:7b", "local", None)]));
+        catalog.set("local", ProviderModels::Ready(vec![listed("qwen:7b", None)]));
         assert_eq!(
             summarize(&discover_models(&Config::default(), &catalog)),
             vec![("qwen:7b", "local", "")]
@@ -208,10 +202,7 @@ mod tests {
         let catalog = ModelCatalog::default();
         let list = ModelList::live(config("claude", "claude-opus-5"), catalog.clone());
         assert_eq!(list.items().len(), 1);
-        catalog.set(
-            "claude",
-            ProviderModels::Ready(vec![listed("claude-sonnet-5", "claude", None)]),
-        );
+        catalog.set("claude", ProviderModels::Ready(vec![listed("claude-sonnet-5", None)]));
         assert_eq!(list.items().len(), 2);
     }
 }

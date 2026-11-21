@@ -85,7 +85,7 @@ mod tests {
         let catalog = ModelCatalog::default();
         let model = DiscoveredModel {
             context_tokens: Some(tokens),
-            ..DiscoveredModel::new(id, id, provider, "")
+            ..DiscoveredModel::new(id, id, "")
         };
         catalog.set(provider, ProviderModels::Ready(vec![model]));
         catalog
