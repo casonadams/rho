@@ -82,14 +82,10 @@ async fn write_edit_result(
     count: usize,
 ) -> Result<ToolResult, AppError> {
     match atomic_write(path, content.as_bytes()).await {
-        Ok(_) => Ok(ToolResult {
-            content: format!("Successfully applied {count} replacement(s) to {clean_path}"),
-            is_error: false,
-            metadata: Some(serde_json::json!({ "line_numbers": line_numbers })),
-            image: None,
-            display: None,
-            ends_turn: false,
-        }),
+        Ok(_) => Ok(
+            ToolResult::success(format!("Successfully applied {count} replacement(s) to {clean_path}"))
+                .with_metadata(serde_json::json!({ "line_numbers": line_numbers })),
+        ),
         Err(e) => Ok(ToolResult::error(format!(
             "Failed to write updated file {clean_path}: {e}"
         ))),

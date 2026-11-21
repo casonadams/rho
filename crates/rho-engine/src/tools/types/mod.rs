@@ -35,38 +35,57 @@ pub struct ToolResult {
 }
 
 impl ToolResult {
-    pub fn success(content: impl Into<String>) -> Self {
+    fn new(content: impl Into<String>, is_error: bool) -> Self {
         Self {
             content: content.into(),
-            is_error: false,
+            is_error,
             metadata: None,
             image: None,
             display: None,
             ends_turn: false,
         }
+    }
+
+    pub fn success(content: impl Into<String>) -> Self {
+        Self::new(content, false)
     }
 
     /// Successful result whose model-visible output is `content` followed by an
     /// inline image block.
     pub fn success_with_image(content: impl Into<String>, image: ToolImage) -> Self {
         Self {
-            content: content.into(),
-            is_error: false,
-            metadata: None,
             image: Some(Box::new(image)),
-            display: None,
-            ends_turn: false,
+            ..Self::success(content)
         }
     }
 
     pub fn error(content: impl Into<String>) -> Self {
+        Self::new(content, true)
+    }
+
+    pub fn with_metadata(self, metadata: serde_json::Value) -> Self {
         Self {
-            content: content.into(),
-            is_error: true,
-            metadata: None,
-            image: None,
-            display: None,
-            ends_turn: false,
+            metadata: Some(metadata),
+            ..self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructors_set_only_their_own_fields() {
+        let ok = ToolResult::success("fine");
+        assert_eq!((ok.content.as_str(), ok.is_error), ("fine", false));
+        assert!(ok.metadata.is_none() && ok.image.is_none() && ok.display.is_none() && !ok.ends_turn);
+
+        let err = ToolResult::error("bad");
+        assert_eq!((err.content.as_str(), err.is_error), ("bad", true));
+
+        let with_meta = ToolResult::success("x").with_metadata(serde_json::json!({ "k": 1 }));
+        assert_eq!(with_meta.metadata, Some(serde_json::json!({ "k": 1 })));
+        assert!(!with_meta.is_error);
     }
 }
