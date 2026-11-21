@@ -245,7 +245,7 @@ fn response_completed_usage_maps_cached_and_reasoning_tokens() {
     assert!(has_event(&events, |e| matches!(
         e,
         ModelStreamEvent::Usage(u)
-            if u.input_tokens == 5
+            if u.input_tokens == 3
                 && u.output_tokens == 6
                 && u.total_tokens == 11
                 && u.cached_input_tokens == Some(2)

@@ -358,7 +358,7 @@ impl OpenAiSseParser {
     fn handle_usage(&self, usage: ChunkUsage, events: &mut Vec<Result<ModelStreamEvent, AppError>>) {
         let cached = usage.prompt_tokens_details.and_then(|d| d.cached_tokens);
         let structural = StructuralUsage {
-            input_tokens: usage.prompt_tokens.unwrap_or(0),
+            input_tokens: usage.prompt_tokens.unwrap_or(0).saturating_sub(cached.unwrap_or(0)),
             output_tokens: usage.completion_tokens.unwrap_or(0),
             total_tokens: usage.total_tokens.unwrap_or(0),
             cached_input_tokens: cached,
@@ -509,7 +509,7 @@ mod tests {
             Ok(ModelStreamEvent::Finish(FinishReason::ToolCalls))
         ));
         assert!(
-            matches!(&events[4], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 15 && u.cached_input_tokens == Some(2))
+            matches!(&events[4], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 15 && u.input_tokens == 8 && u.cached_input_tokens == Some(2))
         );
     }
 

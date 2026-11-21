@@ -112,7 +112,7 @@ impl AgentEngine {
     ) -> Result<Option<crate::engine::CompactionStats>> {
         let reported = self.usage.latest().filter(|_| !history_pruned);
         let history_tokens = reported
-            .map(|u| u.input_tokens as usize)
+            .map(|u| self.consumed_context(&u) as usize)
             .unwrap_or_else(|| self.context.estimate_messages_tokens(history, &self.config.model));
         let total_tokens = history_tokens.saturating_add(additional_tokens);
         let limit = self

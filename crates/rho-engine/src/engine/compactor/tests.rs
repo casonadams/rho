@@ -1375,4 +1375,28 @@ mod auto_compact {
         let notices = presenter.notices.lock().unwrap().clone();
         assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
     }
+
+    #[tokio::test]
+    async fn test_proactive_compaction_counts_cached_prompt_tokens() {
+        let dir = std::env::temp_dir().join(format!("proactive_cached_{}", uuid::Uuid::new_v4()));
+        let engine = threshold_engine(&dir);
+        let mut history = seed_threshold_history(&engine).await;
+        let presenter = Arc::new(CapturingPresenter::default());
+        let usage = crate::engine::metrics::StructuralUsage {
+            input_tokens: 1_617,
+            cached_input_tokens: Some(100_000),
+            cache_creation_input_tokens: Some(10_000),
+            ..Default::default()
+        };
+        engine
+            .usage
+            .record_turn(crate::engine::tracking::TurnUsage::single(usage), 100);
+
+        engine
+            .check_proactive_compaction(presenter.as_ref(), &mut history, 0, false)
+            .await
+            .unwrap();
+        let notices = presenter.notices.lock().unwrap().clone();
+        assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
+    }
 }
