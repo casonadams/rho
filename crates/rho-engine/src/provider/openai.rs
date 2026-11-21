@@ -11,7 +11,6 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 
 use crate::engine::metrics::StructuralUsage;
-use crate::http::CLIENT;
 use crate::provider::adapter::{
     FinishReason, ModelAdapter, ModelCompletionRequest, ModelEventStream, ModelStreamEvent, ModelToolDefinition,
 };
@@ -389,29 +388,25 @@ impl ModelAdapter for OpenAiClient {
     async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
         use crate::provider::error::HttpFailure;
         let body = build_request_body(&req, &self.model, true);
-        let provider = self.provider_name.clone();
-        let resp = CLIENT
-            .post(self.endpoint_url())
-            .headers(self.build_headers())
-            .json(&body)
-            .send()
+        let provider = self.provider_name.as_str();
+        let resp = crate::http::post_json_checked(&self.endpoint_url(), self.build_headers(), &body)
             .await
-            .map_err(|e| AppError::Network(format!("Failed to connect to {provider}: {e}")))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status().as_u16();
-            let retry_after = crate::provider::error::parse_retry_after(resp.headers(), chrono::Utc::now());
-            let text = resp
-                .text()
-                .await
-                .unwrap_or_else(|e| format!("(failed to read error body: {e})"));
-            let failure = HttpFailure::Status {
-                status,
-                body: format!("HTTP {status} from {provider}: {text}"),
-                retry_after,
-            };
-            return Err(failure.into_app_error(|_, body| body.to_string()));
-        }
+            .map_err(|failure| match failure {
+                HttpFailure::Status {
+                    status,
+                    body,
+                    retry_after,
+                } => HttpFailure::Status {
+                    status,
+                    body: format!("HTTP {status} from {provider}: {body}"),
+                    retry_after,
+                },
+                HttpFailure::Transport(error) => {
+                    HttpFailure::Transport(format!("Failed to connect to {provider}: {error}"))
+                }
+                local => local,
+            })
+            .map_err(|failure| failure.into_app_error(|_, body| body.to_string()))?;
 
         let parser = OpenAiSseParser::new();
         Ok(unfold_sse_stream(resp.bytes_stream(), parser))
