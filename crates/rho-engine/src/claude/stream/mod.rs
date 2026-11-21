@@ -9,6 +9,7 @@ pub use wire::map_finish_reason;
 use wire::{ContentBlockStartPayload, ContentDeltaPayload, SseMessage};
 
 use crate::engine::metrics::StructuralUsage;
+use crate::engine::metrics::types::nonzero;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
 use rho_harness_core::model::{Reasoning, ReasoningContent, ToolCall, ToolFunction};
@@ -113,45 +114,38 @@ impl SseParser {
                 + self.cache_read_input_tokens
                 + self.cache_creation_input_tokens
                 + self.output_tokens,
-            cached_input_tokens: if self.cache_read_input_tokens > 0 {
-                Some(self.cache_read_input_tokens)
-            } else {
-                None
-            },
-            cache_creation_input_tokens: if self.cache_creation_input_tokens > 0 {
-                Some(self.cache_creation_input_tokens)
-            } else {
-                None
-            },
+            cached_input_tokens: nonzero(self.cache_read_input_tokens),
+            cache_creation_input_tokens: nonzero(self.cache_creation_input_tokens),
             tool_use_prompt_tokens: None,
-            reasoning_tokens: if self.reasoning_tokens > 0 {
-                Some(self.reasoning_tokens)
-            } else {
-                None
-            },
+            reasoning_tokens: nonzero(self.reasoning_tokens),
         };
         events.push(Ok(ModelStreamEvent::Usage(usage)));
         events.push(Ok(ModelStreamEvent::Finish(self.stop_reason)));
     }
 
-    fn handle_message_delta(&mut self, delta: wire::MessageDeltaPayload, usage: Option<wire::MessageDeltaUsage>) {
+    /// Records the counts a usage block reports; counts it omits keep their earlier values.
+    fn apply_usage(&mut self, usage: &wire::MessageUsage) {
+        if let Some(input) = usage.input_tokens {
+            self.input_tokens = input;
+        }
+        if let Some(cache_read) = usage.cache_read_input_tokens {
+            self.cache_read_input_tokens = cache_read;
+        }
+        if let Some(cache_write) = usage.cache_creation_input_tokens {
+            self.cache_creation_input_tokens = cache_write;
+        }
+        if let Some(details) = usage.output_tokens_details {
+            self.reasoning_tokens = details.thinking_tokens;
+        }
+    }
+
+    fn handle_message_delta(&mut self, delta: wire::MessageDeltaPayload, usage: Option<wire::MessageUsage>) {
         if let Some(reason) = delta.stop_reason {
             self.stop_reason = map_finish_reason(&reason);
         }
         if let Some(usage) = usage {
             self.output_tokens = usage.output_tokens;
-            if let Some(inp) = usage.input_tokens {
-                self.input_tokens = inp;
-            }
-            if let Some(cr) = usage.cache_read_input_tokens {
-                self.cache_read_input_tokens = cr;
-            }
-            if let Some(cw) = usage.cache_creation_input_tokens {
-                self.cache_creation_input_tokens = cw;
-            }
-            if let Some(details) = usage.output_tokens_details {
-                self.reasoning_tokens = details.thinking_tokens;
-            }
+            self.apply_usage(&usage);
         }
     }
 
@@ -159,16 +153,7 @@ impl SseParser {
         match msg {
             SseMessage::MessageStart { message } => {
                 if let Some(usage) = message.usage {
-                    self.input_tokens = usage.input_tokens;
-                    if let Some(cr) = usage.cache_read_input_tokens {
-                        self.cache_read_input_tokens = cr;
-                    }
-                    if let Some(cw) = usage.cache_creation_input_tokens {
-                        self.cache_creation_input_tokens = cw;
-                    }
-                    if let Some(details) = usage.output_tokens_details {
-                        self.reasoning_tokens = details.thinking_tokens;
-                    }
+                    self.apply_usage(&usage);
                 }
             }
             SseMessage::ContentBlockStart { index, content_block } => {

@@ -30,7 +30,7 @@ pub(super) enum SseMessage {
     #[serde(rename = "message_delta")]
     MessageDelta {
         delta: MessageDeltaPayload,
-        usage: Option<MessageDeltaUsage>,
+        usage: Option<MessageUsage>,
     },
     #[serde(rename = "message_stop")]
     MessageStop,
@@ -42,19 +42,7 @@ pub(super) enum SseMessage {
 
 #[derive(Deserialize)]
 pub(super) struct MessageStartPayload {
-    pub usage: Option<MessageStartUsage>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct MessageStartUsage {
-    #[serde(default)]
-    pub input_tokens: u64,
-    #[serde(default)]
-    pub cache_creation_input_tokens: Option<u64>,
-    #[serde(default)]
-    pub cache_read_input_tokens: Option<u64>,
-    #[serde(default)]
-    pub output_tokens_details: Option<OutputTokensDetails>,
+    pub usage: Option<MessageUsage>,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +84,7 @@ pub(super) struct MessageDeltaPayload {
 }
 
 #[derive(Deserialize)]
-pub(super) struct MessageDeltaUsage {
+pub(super) struct MessageUsage {
     #[serde(default)]
     pub output_tokens: u64,
     #[serde(default)]
