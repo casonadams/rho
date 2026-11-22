@@ -13,11 +13,12 @@ async fn cancelling_a_turn_kills_tool_jobs_but_leaves_session_servers() {
         registry.track(pid, scope);
         (child, pid)
     };
-    let (_job, job_pid) = spawn(Scope::Turn);
-    let (_server, server_pid) = spawn(Scope::Session);
+    let (mut job, job_pid) = spawn(Scope::Turn);
+    let (mut server, server_pid) = spawn(Scope::Session);
 
     registry.kill_turn();
 
+    job.wait().await.expect("reap job");
     wait_group_dead(job_pid).await;
     assert!(!registry.lock().contains_key(&job_pid));
     assert!(registry.lock().contains_key(&server_pid));
@@ -26,6 +27,7 @@ async fn cancelling_a_turn_kills_tool_jobs_but_leaves_session_servers() {
         "server group must survive"
     );
     registry.kill_all();
+    server.wait().await.expect("reap server");
     wait_group_dead(server_pid).await;
 }
 
@@ -36,7 +38,7 @@ async fn a_poisoned_registry_still_kills_tracked_groups() {
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg("sleep 30 & wait");
     isolate_group(&mut cmd);
-    let child = cmd.spawn().expect("spawn test shell");
+    let mut child = cmd.spawn().expect("spawn test shell");
     let pid = child.id().expect("child pid");
     registry.track(pid, Scope::Turn);
 
@@ -51,8 +53,8 @@ async fn a_poisoned_registry_still_kills_tracked_groups() {
 
     registry.kill_all();
 
+    child.wait().await.expect("reap child");
     wait_group_dead(pid).await;
-    drop(child);
 }
 
 #[tokio::test]
