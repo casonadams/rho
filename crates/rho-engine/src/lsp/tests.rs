@@ -170,6 +170,22 @@ fn watched(launcher: &test_server::FakeLauncher) -> Vec<Value> {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_check_that_starts_after_the_server_goes_idle_is_not_missed() {
+    let (dir, lib) = project();
+    let options = FakeOptions {
+        check_on_save: true,
+        ..FakeOptions::default()
+    };
+    let (manager, _) = fake_manager(dir.path(), options);
+
+    let report = diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(10))
+        .await
+        .unwrap();
+
+    assert_eq!(report, "LSP (1 error, 0 warnings):\n1:1 error [fake] ERR found");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_rewritten_open_file_is_resynced_so_stale_diagnostics_clear() {
     let (dir, lib) = project();
     let (manager, _) = fake_manager(dir.path(), FakeOptions::default());

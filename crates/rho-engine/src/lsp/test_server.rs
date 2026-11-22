@@ -46,6 +46,9 @@ pub struct FakeOptions {
     pub no_status: bool,
     /// Milliseconds the server takes to publish diagnostics after a document opens or changes.
     pub publish_delay_ms: u64,
+    /// Like rust-analyzer: publish nothing on open, then after a save start a `cargo check` that
+    /// reports the real diagnostics a moment later.
+    pub check_on_save: bool,
 }
 
 #[derive(Default)]
@@ -242,10 +245,30 @@ impl FakeServer {
                 }
                 let _ = write_message(&mut writer, &notification).await;
             }
+            if method == "textDocument/didSave" && self.options.check_on_save {
+                let uri = params["textDocument"]["uri"].as_str().unwrap_or("").to_string();
+                self.run_check(&uri, &mut writer).await;
+            }
             if method == "exit" {
                 return;
             }
         }
+    }
+
+    async fn run_check(&self, uri: &str, writer: &mut super::rpc::BoxedWriter) {
+        let pause = |ms| tokio::time::sleep(std::time::Duration::from_millis(ms));
+        let progress = |kind: &str| {
+            json!({ "jsonrpc": "2.0", "method": "$/progress", "params": {
+                "token": "flycheck", "value": { "kind": kind, "title": "cargo check" } } })
+        };
+        pause(300).await;
+        let _ = write_message(writer, &progress("begin")).await;
+        pause(1000).await;
+        let (version, text) = self.docs.get(uri).cloned().unwrap_or_default();
+        let publish = json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": {
+            "uri": uri, "version": version, "diagnostics": marked_diagnostics(&text) } });
+        let _ = write_message(writer, &publish).await;
+        let _ = write_message(writer, &progress("end")).await;
     }
 
     /// An error to answer `method` with instead of handling it.
@@ -355,6 +378,9 @@ impl FakeServer {
             return (Value::Null, Vec::new());
         }
         let mut params = json!({ "uri": uri, "diagnostics": marked_diagnostics(text) });
+        if self.options.check_on_save {
+            params["diagnostics"] = json!([]);
+        }
         if !self.options.unversioned {
             let shown = if self.options.stale_version {
                 version - 1

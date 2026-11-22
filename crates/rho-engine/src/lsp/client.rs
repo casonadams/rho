@@ -18,7 +18,7 @@ pub const DIAGNOSTICS_SETTLE: Duration = Duration::from_millis(250);
 /// After initialization, how long a server that reports no progress counts as still starting.
 pub const STARTUP_GRACE: Duration = Duration::from_millis(500);
 /// How long to wait for work a change starts on its own (e.g. a check run on save) to show up.
-pub const FOLLOW_UP_GRACE: Duration = Duration::from_millis(200);
+pub const FOLLOW_UP_GRACE: Duration = Duration::from_millis(500);
 /// How long a server gets to answer `shutdown` before it is dropped without ceremony.
 pub const SHUTDOWN_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a server gets to exit after `exit` before its process is killed.
@@ -418,10 +418,10 @@ impl LspClient {
             Some(items) => Some(items),
             None => self.wait_for_push(&uri, synced, deadline).await,
         };
-        if self.state.reports_progress() {
-            tokio::time::sleep_until((Instant::now() + FOLLOW_UP_GRACE).min(deadline)).await;
-        }
-        let idle = self.wait_until_idle(deadline).await;
+        let idle = match self.state.reports_progress() {
+            true => self.wait_until_stably_idle(deadline).await,
+            false => self.wait_until_idle(deadline).await,
+        };
         let latest = match pulled {
             Some(items) => Some(items),
             None => self.state.latest_after(&uri, synced.baseline, synced.version).or(first),
@@ -430,6 +430,18 @@ impl LspClient {
             (Some(items), Ok(())) => DiagnosticsOutcome::Ready(items),
             (Some(items), Err(busy)) => DiagnosticsOutcome::Partial(items, busy),
             (None, idle) => DiagnosticsOutcome::Pending(idle.err()),
+        }
+    }
+
+    /// Waits until the server has stayed idle for `FOLLOW_UP_GRACE`: rust-analyzer goes idle and only
+    /// then starts `cargo check`, whose diagnostics arrive well after the first, empty ones.
+    async fn wait_until_stably_idle(&self, deadline: Instant) -> Result<(), String> {
+        loop {
+            self.wait_until_idle(deadline).await?;
+            tokio::time::sleep_until((Instant::now() + FOLLOW_UP_GRACE).min(deadline)).await;
+            if self.busy().is_none() {
+                return Ok(());
+            }
         }
     }
 
