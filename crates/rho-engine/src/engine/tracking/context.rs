@@ -47,16 +47,22 @@ pub struct ContextBudget {
 
 impl ContextBudget {
     /// The notice for a request whose prompt used `used` tokens, when it crossed a new notice percentage.
-    pub fn notice(&self, used: u64) -> Option<String> {
+    /// The crossing counts as reported only once `deliver` accepts the notice.
+    pub fn notice(&self, used: u64, deliver: impl FnOnce(&str) -> bool) {
         let mut notified = self.notified_percent.lock().unwrap();
-        *notified = Some(crossed_notice_percent(used, self.limit, *notified)?);
-        Some(format!(
+        let Some(percent) = crossed_notice_percent(used, self.limit, *notified) else {
+            return;
+        };
+        let notice = format!(
             "[context: {} of {} tokens used ({}%); auto-compaction at {}]",
             format_tokens(used),
             format_tokens(self.limit),
             used.saturating_mul(100) / self.limit,
             format_tokens(self.compaction_at)
-        ))
+        );
+        if deliver(&notice) {
+            *notified = Some(percent);
+        }
     }
 }
 
@@ -203,11 +209,21 @@ mod tests {
         }
     }
 
+    fn delivered(budget: &super::ContextBudget, used: u64, accept: bool) -> Option<String> {
+        let mut seen = None;
+        budget.notice(used, |notice| {
+            seen = Some(notice.to_string());
+            accept
+        });
+        seen
+    }
+
     #[test]
     fn budget_notices_each_crossing_once_until_compaction() {
         let tracker = ContextTracker::new(None);
         let budget = tracker.budget(200_000, 183_616);
-        let notices = |used: &[u64]| -> Vec<Option<String>> { used.iter().map(|&u| budget.notice(u)).collect() };
+        let notices =
+            |used: &[u64]| -> Vec<Option<String>> { used.iter().map(|&u| delivered(&budget, u, true)).collect() };
         assert_eq!(
             notices(&[90_000, 142_000, 145_000, 160_000]),
             [
@@ -219,9 +235,17 @@ mod tests {
         );
         tracker.reset_notices();
         assert_eq!(
-            tracker.budget(200_000, 183_616).notice(100_000).as_deref(),
+            delivered(&tracker.budget(200_000, 183_616), 100_000, true).as_deref(),
             Some("[context: 100k of 200k tokens used (50%); auto-compaction at 184k]")
         );
+    }
+
+    #[test]
+    fn a_notice_that_could_not_be_delivered_is_offered_again() {
+        let budget = ContextTracker::new(None).budget(200_000, 183_616);
+        assert!(delivered(&budget, 120_000, false).is_some());
+        assert!(delivered(&budget, 121_000, true).is_some());
+        assert_eq!(delivered(&budget, 122_000, true), None);
     }
 
     #[test]

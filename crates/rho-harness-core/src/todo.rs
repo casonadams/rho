@@ -71,7 +71,10 @@ pub fn parse_todos(text: &str) -> Option<Vec<TodoItem>> {
     let mut lines = text.trim().lines();
     let (done, total) = lines.next()?.strip_suffix(" done")?.split_once('/')?;
     let (done, total): (usize, usize) = (done.parse().ok()?, total.parse().ok()?);
-    let todos = lines.map(parse_item).collect::<Option<Vec<_>>>()?;
+    let todos = lines
+        .take_while(|line| !line.trim().is_empty())
+        .map(parse_item)
+        .collect::<Option<Vec<_>>>()?;
     let completed = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
     (todos.len() == total && completed == done).then_some(todos)
 }
@@ -149,6 +152,12 @@ mod tests {
         assert_eq!(parse_todos(&render_todos(&[])), Some(Vec::new()));
         assert_eq!(parse_todos("Only one todo may be in_progress"), None);
         assert_eq!(parse_todos("2/3 done\n[x] a\n[ ] b\n[ ] c"), None);
+        let with_notice = format!("{rendered}\n\n[context: 142k of 200k tokens used (71%); auto-compaction at 184k]");
+        assert_eq!(
+            parse_todos(&with_notice),
+            Some(plan()),
+            "a notice after the list is not part of it"
+        );
     }
 
     #[test]

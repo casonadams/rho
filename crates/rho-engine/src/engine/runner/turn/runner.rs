@@ -373,20 +373,22 @@ fn tool_result_contents(message: ChatMessage) -> Vec<rho_harness_core::model::Us
     }
 }
 
-/// Appends `notice` to the last tool result in `results`, the newest content of the next request.
-fn append_to_last_tool_result(results: &mut [rho_harness_core::model::UserContent], notice: &str) {
+/// Appends `notice` to the last tool result in `results`, the newest content of the next request;
+/// false when there is none.
+fn append_to_last_tool_result(results: &mut [rho_harness_core::model::UserContent], notice: &str) -> bool {
     use rho_harness_core::model::{ToolResultContent, UserContent};
     let Some(UserContent::ToolResult(result)) = results
         .iter_mut()
         .rev()
         .find(|item| matches!(item, UserContent::ToolResult(_)))
     else {
-        return;
+        return false;
     };
     match result.content.last_mut() {
         Some(ToolResultContent::Text(text)) => text.text.push_str(&format!("\n\n{notice}")),
         _ => result.content.push(ToolResultContent::text(notice)),
     }
+    true
 }
 
 /// Runs the batch and adds its results to the turn; returns whether a tool ended the turn.
@@ -435,8 +437,8 @@ async fn dispatch_tool_calls(
         }
     }
     let used = crate::engine::display::consumed_context_tokens(&outcome.usage);
-    if let Some(notice) = runner.context_budget.as_ref().and_then(|budget| budget.notice(used)) {
-        append_to_last_tool_result(&mut results, &notice);
+    if let Some(budget) = &runner.context_budget {
+        budget.notice(used, |notice| append_to_last_tool_result(&mut results, notice));
     }
     let batch = ChatMessage::User { content: results };
     ctx.current_messages.push(batch.clone());
