@@ -77,6 +77,12 @@ impl ClaudeClient {
         self
     }
 
+    /// A copy with short-lived cache retention, or `None` when the retention would not change.
+    pub(crate) fn short_lived(&self) -> Option<Self> {
+        let retention = self.cache_retention.for_short_lived_work();
+        (retention != self.cache_retention).then(|| self.clone().with_cache_retention(retention))
+    }
+
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = Some(endpoint.into());
         self

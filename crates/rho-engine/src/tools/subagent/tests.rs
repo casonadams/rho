@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct TestModel {
     answer: String,
     usage: crate::engine::metrics::StructuralUsage,
+    short_lived_answer: Option<String>,
 }
 
 impl TestModel {
@@ -24,6 +25,7 @@ impl TestModel {
         Self {
             answer: answer.into(),
             usage: Default::default(),
+            short_lived_answer: None,
         }
     }
 }
@@ -57,6 +59,11 @@ impl ModelAdapter for TestModel {
             Ok(ModelStreamEvent::Usage(self.usage)),
         ];
         Ok(Box::pin(futures::stream::iter(events)))
+    }
+
+    fn for_short_lived_work(&self) -> Option<ModelHandle> {
+        let answer = self.short_lived_answer.as_deref()?;
+        Some(Arc::new(TestModel::answering(answer)))
     }
 }
 
@@ -119,6 +126,7 @@ async fn the_footer_counts_cached_and_written_tokens() {
             cache_creation_input_tokens: Some(3_000),
             ..Default::default()
         },
+        short_lived_answer: None,
     });
     let tool = SubagentTool::new(Some(model), Vec::new());
     let result = tool.execute(json!({ "prompt": "survey" })).await.unwrap();
@@ -132,15 +140,22 @@ async fn the_footer_counts_cached_and_written_tokens() {
 }
 
 #[tokio::test]
-async fn replacing_the_models_reaches_every_copy_of_the_tool() {
+async fn replacing_the_models_moves_every_copy_to_the_short_lived_session_model() {
     let tool = SubagentTool::new(Some(Arc::new(TestModel::answering("from old model"))), Vec::new());
     let copy = tool.clone();
     tool.models().replace(
-        Some(Arc::new(TestModel::answering("from new model"))),
+        Some(Arc::new(TestModel {
+            short_lived_answer: Some("from short-lived copy".into()),
+            ..TestModel::answering("from session model")
+        })),
         Arc::new(|model| Err(format!("unexpected model {model}"))),
     );
     let result = copy.execute(json!({ "prompt": "survey" })).await.unwrap();
-    assert!(result.content.starts_with("from new model"), "{}", result.content);
+    assert!(
+        result.content.starts_with("from short-lived copy"),
+        "{}",
+        result.content
+    );
 }
 
 #[test]

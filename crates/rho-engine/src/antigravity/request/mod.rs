@@ -49,7 +49,6 @@ pub struct RequestTarget<'a> {
     pub effort: Effort,
 }
 
-/// Build the full Antigravity request envelope for a completion request.
 fn build_generation_config(runtime_model: &str, effort: Effort, request: &ModelCompletionRequest) -> Value {
     let mut config = json!({
         "maxOutputTokens": cap_max_tokens(runtime_model, request.max_tokens),

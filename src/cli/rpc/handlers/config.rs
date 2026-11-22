@@ -138,12 +138,17 @@ pub(crate) async fn handle_set_thinking_cmd<W: tokio::io::AsyncWrite + Unpin>(
         }
     };
     let mut cfg = ctx.config.write().await;
-    cfg.thinking_level.clone_from(&level);
     let mut eng = ctx.engine.write().await;
-    eng.config.thinking_level = level;
+    let previous = std::mem::replace(&mut eng.config.thinking_level, level.clone());
     let resp = match eng.update_model().await {
-        Ok(()) => RpcResponse::success(req_id, "set_thinking", None),
-        Err(e) => RpcResponse::failure(req_id, "set_thinking", &e.to_string()),
+        Ok(()) => {
+            cfg.thinking_level = level;
+            RpcResponse::success(req_id, "set_thinking", None)
+        }
+        Err(e) => {
+            eng.config.thinking_level = previous;
+            RpcResponse::failure(req_id, "set_thinking", &e.to_string())
+        }
     };
     ctx.writer.write_message(&resp).await?;
     Ok(())
@@ -154,15 +159,21 @@ pub(crate) async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
+    let busy_command = match &cmd {
+        RpcCommand::Compact { .. } => Some("compact"),
+        RpcCommand::SetModel { .. } => Some("set_model"),
+        RpcCommand::SetThinking { .. } => Some("set_thinking"),
+        _ => None,
+    };
+    if let Some(command) = busy_command.filter(|_| ctx.active_turn.is_some()) {
+        let res = RpcResponse::failure(
+            req_id,
+            command,
+            "A turn is in progress. Wait for it to finish or abort it first.",
+        );
+        return ctx.writer.write_message(&res).await;
+    }
     match cmd {
-        RpcCommand::Compact { .. } if ctx.active_turn.is_some() => {
-            let res = RpcResponse::failure(
-                req_id,
-                "compact",
-                "A turn is in progress. Wait for it to finish or abort it before compacting.",
-            );
-            ctx.writer.write_message(&res).await?;
-        }
         RpcCommand::Compact { instructions } => {
             let eng = ctx.engine.read().await;
             let res = handle_compact_cmd(&eng, instructions, req_id).await;

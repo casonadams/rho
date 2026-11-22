@@ -91,6 +91,16 @@ pub trait ModelAdapter: Send + Sync + std::fmt::Debug {
     }
 
     async fn stream(&self, request: ModelCompletionRequest) -> Result<ModelEventStream, AppError>;
+
+    /// This model for short-lived work such as subagents; `None` when it has no cache lifetime to shorten.
+    fn for_short_lived_work(&self) -> Option<ModelHandle> {
+        None
+    }
+
+    /// Request settings besides the model that select a separate prompt cache, such as Claude's thinking.
+    fn cache_settings(&self) -> Option<&str> {
+        None
+    }
 }
 
 type MockTurns = Arc<Mutex<Vec<Vec<Result<ModelStreamEvent, AppError>>>>>;

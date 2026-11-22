@@ -314,25 +314,36 @@ async fn test_rpc_config_update_handlers() {
 }
 
 #[tokio::test]
-async fn compact_is_rejected_while_a_turn_is_running() {
+async fn engine_changes_are_rejected_while_a_turn_is_running() {
     let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_compact_busy");
     let mut active_turn = Some(tokio::spawn(std::future::pending::<
         crate::error::Result<rho_engine::engine::runner::TurnOutput>,
     >()));
     let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    let commands = [
+        (RpcCommand::Compact { instructions: None }, "compact"),
+        (
+            RpcCommand::SetModel {
+                model: "llama3.2".to_string(),
+                provider: Some("local".to_string()),
+            },
+            "set_model",
+        ),
+        (
+            RpcCommand::SetThinking {
+                level: "high".to_string(),
+            },
+            "set_thinking",
+        ),
+    ];
 
-    handle_config_update_cmd(
-        RpcCommand::Compact { instructions: None },
-        Some("req-compact".to_string()),
-        &mut ctx,
-    )
-    .await
-    .unwrap();
-
-    let resp = read_response(&mut client_reader).await;
-    assert_eq!(resp.command, "compact");
-    assert!(!resp.success);
-    assert!(resp.error.unwrap().contains("turn is in progress"));
+    for (command, name) in commands {
+        handle_config_update_cmd(command, None, &mut ctx).await.unwrap();
+        let resp = read_response(&mut client_reader).await;
+        assert_eq!(resp.command, name);
+        assert!(!resp.success);
+        assert!(resp.error.unwrap().contains("turn is in progress"));
+    }
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 

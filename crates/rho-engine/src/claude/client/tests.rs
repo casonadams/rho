@@ -353,7 +353,7 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
 fn test_thinking_level_request_shapes() {
     use serde_json::{Value, json};
     type Check = (&'static str, Option<Value>);
-    let cases: [(&str, Option<&str>, Vec<Check>); 10] = [
+    let cases: [(&str, Option<&str>, Vec<Check>); 12] = [
         (
             "claude-haiku-4-5",
             None,
@@ -414,6 +414,12 @@ fn test_thinking_level_request_shapes() {
             None,
             vec![("/thinking", None), ("/temperature", Some(json!(0.7)))],
         ),
+        ("claude-opus-4.7", Some("off"), vec![("/temperature", None)]),
+        (
+            "claude-sonnet-4-6",
+            Some("off"),
+            vec![("/temperature", Some(json!(0.7)))],
+        ),
         (
             "claude-sonnet-5-5",
             Some("off"),
@@ -443,6 +449,21 @@ fn test_thinking_level_request_shapes() {
         let body = login_body(model, level, &sample_request());
         for (pointer, expected) in checks {
             assert_eq!(body.pointer(pointer), expected.as_ref(), "{model} {level:?} {pointer}");
+        }
+    }
+}
+
+#[test]
+fn short_lived_copy_shortens_only_auto_retention() {
+    use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
+    for (configured, expected) in [(Auto, Some(Short)), (Short, None), (Long, None)] {
+        let client = ClaudeClient::new("t", "claude-sonnet-5-5")
+            .with_thinking_level(Some("high"))
+            .with_cache_retention(configured);
+        let copy = client.short_lived();
+        assert_eq!(copy.as_ref().map(|c| c.cache_retention), expected, "{configured}");
+        if let Some(copy) = copy {
+            assert_eq!(copy.thinking_level.as_deref(), Some("high"));
         }
     }
 }

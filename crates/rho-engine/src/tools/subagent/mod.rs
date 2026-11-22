@@ -42,27 +42,36 @@ struct ModelSource {
 }
 
 impl SubagentModels {
-    fn new(default: Option<ModelHandle>) -> Self {
+    fn new(session: Option<ModelHandle>) -> Self {
         Self(Arc::new(std::sync::RwLock::new(ModelSource {
-            default,
+            default: session.map(short_lived),
             resolver: None,
         })))
     }
 
-    pub fn replace(&self, default: Option<ModelHandle>, resolver: SubagentModelResolver) {
-        *self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = ModelSource {
-            default,
+    /// Moves subagents to the session model (short-lived where it has a cache lifetime) and `resolver`.
+    pub fn replace(&self, session: Option<ModelHandle>, resolver: SubagentModelResolver) {
+        *self.write() = ModelSource {
+            default: session.map(short_lived),
             resolver: Some(resolver),
         };
     }
 
     fn set_resolver(&self, resolver: SubagentModelResolver) {
-        self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner()).resolver = Some(resolver);
+        self.write().resolver = Some(resolver);
     }
 
     fn current(&self) -> ModelSource {
         self.0.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
     }
+
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, ModelSource> {
+        self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+fn short_lived(model: ModelHandle) -> ModelHandle {
+    model.for_short_lived_work().unwrap_or(model)
 }
 
 #[derive(Clone)]

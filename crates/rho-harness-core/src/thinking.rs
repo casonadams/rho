@@ -40,7 +40,7 @@ impl ThinkingLevel {
             Self::Off => "No reasoning",
             Self::Minimal => "Very brief reasoning (~1k tokens)",
             Self::Low => "Light reasoning (~2k tokens)",
-            Self::Medium => "Moderate reasoning (~8k tokens)",
+            Self::Medium => "Moderate reasoning (~4k tokens)",
             Self::High => "Deep reasoning (~16k tokens)",
             Self::XHigh => "Extra-high reasoning (~32k tokens)",
             Self::Max => "Maximum reasoning",

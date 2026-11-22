@@ -31,7 +31,7 @@ fn usage_records_optional_cache_and_reasoning_only_when_reported() {
 #[test]
 fn tracker_counts_tool_errors_and_denials_separately() {
     let tracker = RunTracker::default();
-    tracker.start("model");
+    tracker.start("model", PromptCacheKey::default());
     tracker.tool_called();
     tracker.tool_finished("denied");
     tracker.tool_called();
@@ -45,7 +45,7 @@ fn tracker_counts_tool_errors_and_denials_separately() {
 
 fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
     let tracker = RunTracker::default();
-    tracker.start("model");
+    tracker.start("model", PromptCacheKey::default());
     tracker.tool_called();
     tracker.tool_finished("success");
     tracker
@@ -77,7 +77,7 @@ fn structural_metrics_contain_no_response_or_identity_content() {
         CompletionCall::new(0, usage()).with_finish_reason(Some(FinishReason::Other)),
     ]);
     let tracker = RunTracker::default();
-    tracker.start("model");
+    tracker.start("model", PromptCacheKey::default());
     let encoded = serde_json::to_string(&tracker.complete(CompletionOutcome {
         session_id: "safe-session",
         status: TerminalStatus::Completed,
@@ -93,8 +93,13 @@ fn structural_metrics_contain_no_response_or_identity_content() {
 #[test]
 fn run_summary_records_the_model_and_when_each_request_was_sent() {
     let tracker = RunTracker::default();
-    assert_eq!(tracker.last_request_started(), None);
-    tracker.start("claude-opus-5-5");
+    assert!(tracker.last_request().is_none());
+    let key = PromptCacheKey {
+        provider: "claude".into(),
+        model: "claude-opus-5-5".into(),
+        settings: Some("high".into()),
+    };
+    tracker.start("claude-opus-5-5", key.clone());
     let sent = std::time::Instant::now();
     tracker.completion(CompletionCall::new(0, usage()), sent);
 
@@ -103,13 +108,25 @@ fn run_summary_records_the_model_and_when_each_request_was_sent() {
     assert_eq!(metrics.model, "claude-opus-5-5");
     assert_eq!(metrics.completion_calls.len(), 1);
     assert!(metrics.completion_calls[0].started_ms.is_some());
-    assert_eq!(tracker.last_request_started(), Some(sent));
+    let last = tracker.last_request().unwrap();
+    assert_eq!((last.started, last.cache_key), (sent, key));
+}
+
+#[test]
+fn a_cache_reset_is_noted_once_per_request() {
+    let tracker = RunTracker::default();
+    assert!(!tracker.note_cache_reset());
+    tracker.completion(CompletionCall::new(0, usage()), std::time::Instant::now());
+    assert!(tracker.note_cache_reset());
+    assert!(!tracker.note_cache_reset());
+    tracker.completion(CompletionCall::new(0, usage()), std::time::Instant::now());
+    assert!(tracker.note_cache_reset());
 }
 
 #[test]
 fn run_metrics_record_the_prune_decision() {
     let tracker = RunTracker::default();
-    tracker.start("claude-opus-5-5");
+    tracker.start("claude-opus-5-5", PromptCacheKey::default());
     let decision = PruneDecision::new(PruneAction::Kept, 100, 900);
     tracker.pruned(decision);
 

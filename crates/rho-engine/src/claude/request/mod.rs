@@ -130,7 +130,7 @@ fn is_at_least(model: &str, major: u32, minor: u32) -> bool {
     if lower.contains("fable") || lower.contains("mythos") {
         return true;
     }
-    let tokens: Vec<&str> = lower.split('-').collect();
+    let tokens: Vec<&str> = lower.split(['-', '.']).collect();
     tokens.iter().enumerate().find_map(|(idx, token)| {
         let found = token.parse::<u32>().ok()?;
         let found_minor = tokens

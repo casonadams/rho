@@ -171,16 +171,19 @@ async fn handle_thinking_selected(
     level: Option<String>,
     save_as_default: bool,
 ) -> Result<bool> {
+    let changed = ctx.engine.config.thinking_level != level;
     ctx.session.config.thinking_level = level.clone();
     ctx.engine.config.thinking_level = level.clone();
     save_or_print_thinking(ctx, level.as_deref(), save_as_default).await;
-    let result = ctx.engine.update_model().await;
-    crate::repl::live::navigation::report_model_update(
-        ctx.session,
-        ctx.engine,
-        result,
-        "Could not update thinking level",
-    );
+    if changed {
+        let result = ctx.engine.update_model().await;
+        crate::repl::live::navigation::report_model_update(
+            ctx.session,
+            ctx.engine,
+            result,
+            "Could not update thinking level",
+        );
+    }
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.controller.redraw()?;
     Ok(true)

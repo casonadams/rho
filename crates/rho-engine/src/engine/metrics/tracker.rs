@@ -8,12 +8,29 @@ use std::time::Instant;
 #[derive(Clone, Default)]
 pub struct RunTracker {
     state: Arc<Mutex<Option<RunObservation>>>,
-    last_request_started: Arc<Mutex<Option<Instant>>>,
+    last_request: Arc<Mutex<Option<SentRequest>>>,
+}
+
+/// What selects a provider's prompt cache besides the request content.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PromptCacheKey {
+    pub provider: String,
+    pub model: String,
+    pub settings: Option<String>,
+}
+
+/// The most recent model request of any run.
+#[derive(Clone, Debug)]
+pub struct SentRequest {
+    pub started: Instant,
+    pub cache_key: PromptCacheKey,
+    reset_noted: bool,
 }
 
 pub(crate) struct RunObservation {
     pub(crate) started: Instant,
     pub(crate) model: String,
+    pub(crate) cache_key: PromptCacheKey,
     pub(crate) tool_calls: usize,
     pub(crate) tool_errors: usize,
     pub(crate) tool_denials: usize,
@@ -24,10 +41,11 @@ pub(crate) struct RunObservation {
 }
 
 impl RunTracker {
-    pub fn start(&self, model: &str) {
+    pub fn start(&self, model: &str, cache_key: PromptCacheKey) {
         *self.state() = Some(RunObservation {
             started: Instant::now(),
             model: model.to_string(),
+            cache_key,
             tool_calls: 0,
             tool_errors: 0,
             tool_denials: 0,
@@ -70,8 +88,13 @@ impl RunTracker {
 
     /// Records a finished model request that was sent at `started`.
     pub fn completion(&self, call: CompletionCall, started: Instant) {
-        *lock(&self.last_request_started) = Some(started);
-        if let Some(state) = self.state().as_mut() {
+        let mut state = self.state();
+        *lock(&self.last_request) = Some(SentRequest {
+            started,
+            cache_key: state.as_ref().map(|s| s.cache_key.clone()).unwrap_or_default(),
+            reset_noted: false,
+        });
+        if let Some(state) = state.as_mut() {
             if let Some(ref req_id) = call.provider_request_id {
                 state.last_request_id = Some(req_id.clone());
             }
@@ -81,9 +104,15 @@ impl RunTracker {
         }
     }
 
-    /// When the most recent model request of any run was sent.
-    pub fn last_request_started(&self) -> Option<Instant> {
-        *lock(&self.last_request_started)
+    pub fn last_request(&self) -> Option<SentRequest> {
+        lock(&self.last_request).clone()
+    }
+
+    /// True only the first time since the last request, so a cache reset is reported once.
+    pub fn note_cache_reset(&self) -> bool {
+        lock(&self.last_request)
+            .as_mut()
+            .is_some_and(|sent| !std::mem::replace(&mut sent.reset_noted, true))
     }
 
     pub fn complete(&self, outcome: CompletionOutcome<'_>) -> RunMetrics {

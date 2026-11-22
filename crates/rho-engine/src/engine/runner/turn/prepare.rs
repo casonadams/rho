@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::engine::AgentEngine;
 use crate::engine::metrics::PruneDecision;
+use crate::engine::metrics::tracker::{PromptCacheKey, SentRequest};
 use crate::engine::runner::history::continuation_history;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use rho_harness_core::error::{AppError, Result};
@@ -54,7 +55,7 @@ pub(super) struct TurnLoopState {
 
 impl AgentEngine {
     fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage], history_pruned: bool) {
-        self.run_tracker.start(&self.config.model);
+        self.run_tracker.start(&self.config.model, self.prompt_cache_key());
         let anchor = if !history.is_empty() && !history_pruned {
             self.usage
                 .latest()
@@ -113,14 +114,16 @@ impl AgentEngine {
         })
     }
 
-    /// What a model or thinking change costs while the prompt cache is warm: the next request rewrites it.
+    /// Notice for the first model or thinking change since the last request while its prompt cache is alive:
+    /// the next request rewrites the cache.
     pub fn cache_reset_warning(&self) -> Option<String> {
-        if self.prompt_cache() != PromptCache::Warm {
+        let sent = self.live_prompt_cache()?;
+        if sent.cache_key == self.prompt_cache_key() {
             return None;
         }
         let usage = self.usage.latest()?;
         let cached = usage.cached_input_tokens.unwrap_or(0) + usage.cache_creation_input_tokens.unwrap_or(0);
-        (cached > 0).then(|| {
+        (cached > 0 && self.run_tracker.note_cache_reset()).then(|| {
             format!(
                 "The next request rewrites the prompt cache (about {} tokens at the cache-write price).",
                 crate::engine::metrics::types::format_tokens(cached)
@@ -128,18 +131,32 @@ impl AgentEngine {
         })
     }
 
-    fn prompt_cache(&self) -> PromptCache {
-        let subscription = self
-            .model
+    fn prompt_cache_key(&self) -> PromptCacheKey {
+        self.model
             .as_ref()
-            .is_some_and(|model| model.provider_name() == ProviderId::ClaudeCode.as_str());
+            .map(|model| PromptCacheKey {
+                provider: model.provider_name().to_string(),
+                model: model.model_name().to_string(),
+                settings: model.cache_settings().map(String::from),
+            })
+            .unwrap_or_default()
+    }
+
+    /// The last request, while the prompt cache it wrote is still alive.
+    fn live_prompt_cache(&self) -> Option<SentRequest> {
+        let sent = self.run_tracker.last_request()?;
+        let subscription = sent.cache_key.provider == ProviderId::ClaudeCode.as_str();
         let lifetime = self
             .config
             .cache_retention
             .ttl(subscription)
             .saturating_sub(CACHE_EXPIRY_MARGIN);
-        match self.run_tracker.last_request_started() {
-            Some(sent) if sent.elapsed() < lifetime => PromptCache::Warm,
+        (sent.started.elapsed() < lifetime).then_some(sent)
+    }
+
+    fn prompt_cache(&self) -> PromptCache {
+        match self.live_prompt_cache() {
+            Some(sent) if sent.cache_key == self.prompt_cache_key() => PromptCache::Warm,
             _ => PromptCache::Cold,
         }
     }
@@ -378,69 +395,80 @@ mod tests {
     use rho_harness_core::config::Config;
     use rho_harness_core::model::ChatMessage;
 
+    use crate::engine::AgentEngine;
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::metrics::StructuralUsage;
     use crate::engine::tracking::TurnUsage;
     use crate::provider::adapter::MockAdapter;
 
-    #[test]
-    fn prompt_cache_is_warm_only_within_the_configured_retention() {
-        use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
-        use crate::engine::runner::turn::prune::PromptCache;
-        use rho_harness_core::config::CacheRetention;
-        use std::time::{Duration, Instant};
-
-        let dir = tempfile::tempdir().unwrap();
-        let ten_minutes_ago = Instant::now().checked_sub(Duration::from_secs(600)).unwrap();
-        let cases = [
-            (CacheRetention::Short, "claude", None, PromptCache::Cold),
-            (CacheRetention::Short, "claude", Some(Instant::now()), PromptCache::Warm),
-            (
-                CacheRetention::Short,
-                "claude",
-                Some(ten_minutes_ago),
-                PromptCache::Cold,
-            ),
-            (
-                CacheRetention::Long,
-                "anthropic",
-                Some(ten_minutes_ago),
-                PromptCache::Warm,
-            ),
-            (CacheRetention::Auto, "claude", Some(ten_minutes_ago), PromptCache::Warm),
-            (
-                CacheRetention::Auto,
-                "anthropic",
-                Some(ten_minutes_ago),
-                PromptCache::Cold,
-            ),
-        ];
-        for (retention, provider, sent, expected) in cases {
-            let engine = mock_engine(
-                Arc::new(MockAdapter::new("mock-model", provider)),
-                MockEngineConfig {
-                    base_dir: dir.path(),
-                    app_config: Config {
-                        cache_retention: retention,
-                        auth_file: dir.path().join("auth.json"),
-                        ..Config::default()
-                    },
-                    session_manager: None,
-                    built_in_tools: None,
+    fn cache_test_engine(
+        dir: &std::path::Path,
+        retention: rho_harness_core::config::CacheRetention,
+        provider: &str,
+    ) -> AgentEngine {
+        mock_engine(
+            Arc::new(MockAdapter::new("mock-model", provider)),
+            MockEngineConfig {
+                base_dir: dir,
+                app_config: Config {
+                    cache_retention: retention,
+                    auth_file: dir.join("auth.json"),
+                    ..Config::default()
                 },
-            );
-            if let Some(sent) = sent {
-                engine
-                    .run_tracker
-                    .completion(CompletionCall::new(0, StructuralUsage::default()), sent);
-            }
-            assert_eq!(engine.prompt_cache(), expected, "{retention} {provider} {sent:?}");
+                session_manager: None,
+                built_in_tools: None,
+            },
+        )
+    }
+
+    /// Records a request sent at `sent` and, when `switch` is set, then moves the engine to another model.
+    fn send_then_maybe_switch(engine: &mut AgentEngine, sent: Option<std::time::Instant>, switch: bool) {
+        use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
+        if let Some(sent) = sent {
+            engine.run_tracker.start("mock-model", engine.prompt_cache_key());
+            engine
+                .run_tracker
+                .completion(CompletionCall::new(0, StructuralUsage::default()), sent);
+        }
+        if switch {
+            let provider = engine.model.as_ref().unwrap().provider_name().to_string();
+            engine.model = Some(Arc::new(MockAdapter::new("other-model", provider)));
         }
     }
 
     #[test]
-    fn cache_reset_warning_needs_a_warm_cache_with_cached_tokens() {
-        use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
+    fn prompt_cache_is_warm_only_for_the_same_model_within_the_configured_retention() {
+        use crate::engine::runner::turn::prune::PromptCache;
+        use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
+        use std::time::{Duration, Instant};
+
+        let dir = tempfile::tempdir().unwrap();
+        let now = Some(Instant::now());
+        let ten_minutes_ago = Instant::now().checked_sub(Duration::from_secs(600));
+        let cases = [
+            (Short, "claude", None, false, PromptCache::Cold),
+            (Short, "claude", now, false, PromptCache::Warm),
+            (Short, "claude", now, true, PromptCache::Cold),
+            (Short, "claude", ten_minutes_ago, false, PromptCache::Cold),
+            (Long, "anthropic", ten_minutes_ago, false, PromptCache::Warm),
+            (Auto, "claude", ten_minutes_ago, false, PromptCache::Warm),
+            (Auto, "anthropic", ten_minutes_ago, false, PromptCache::Cold),
+        ];
+        for (retention, provider, sent, switch, expected) in cases {
+            let mut engine = cache_test_engine(dir.path(), retention, provider);
+            send_then_maybe_switch(&mut engine, sent, switch);
+            assert_eq!(
+                engine.prompt_cache(),
+                expected,
+                "{retention} {provider} {sent:?} {switch}"
+            );
+        }
+    }
+
+    #[test]
+    fn cache_reset_warning_is_shown_once_for_a_model_change_over_a_live_cache() {
+        use crate::engine::metrics::types::StructuralUsage;
+        use rho_harness_core::config::CacheRetention;
         use std::time::{Duration, Instant};
 
         let dir = tempfile::tempdir().unwrap();
@@ -452,46 +480,33 @@ mod tests {
             cache_creation_input_tokens: Some(4_000),
             ..StructuralUsage::default()
         };
-        let an_hour_ago = Instant::now().checked_sub(Duration::from_secs(3_700)).unwrap();
+        let uncached = StructuralUsage {
+            input_tokens: 10,
+            ..StructuralUsage::default()
+        };
+        let now = Some(Instant::now());
+        let an_hour_ago = Instant::now().checked_sub(Duration::from_secs(3_700));
         let cases = [
-            (None, Some(cached), None),
-            (Some(Instant::now()), None, None),
-            (
-                Some(Instant::now()),
-                Some(StructuralUsage {
-                    input_tokens: 10,
-                    ..StructuralUsage::default()
-                }),
-                None,
-            ),
-            (Some(an_hour_ago), Some(cached), None),
-            (Some(Instant::now()), Some(cached), Some("about 124k tokens")),
+            (None, Some(cached), true, None),
+            (now, None, true, None),
+            (now, Some(uncached), true, None),
+            (an_hour_ago, Some(cached), true, None),
+            (now, Some(cached), false, None),
+            (now, Some(cached), true, Some("about 124k tokens")),
         ];
-        for (sent, usage, expected) in cases {
-            let engine = mock_engine(
-                Arc::new(MockAdapter::new("mock-model", "claude")),
-                MockEngineConfig {
-                    base_dir: dir.path(),
-                    app_config: Config {
-                        auth_file: dir.path().join("auth.json"),
-                        ..Config::default()
-                    },
-                    session_manager: None,
-                    built_in_tools: None,
-                },
-            );
-            if let Some(sent) = sent {
-                engine
-                    .run_tracker
-                    .completion(CompletionCall::new(0, StructuralUsage::default()), sent);
-            }
+        for (sent, usage, switch, expected) in cases {
+            let mut engine = cache_test_engine(dir.path(), CacheRetention::Auto, "claude");
             if let Some(usage) = usage {
                 engine.usage.record(usage);
             }
+            send_then_maybe_switch(&mut engine, sent, switch);
             let warning = engine.cache_reset_warning();
             match expected {
-                Some(text) => assert!(warning.as_deref().is_some_and(|w| w.contains(text)), "{warning:?}"),
-                None => assert_eq!(warning, None, "{sent:?} {usage:?}"),
+                Some(text) => {
+                    assert!(warning.as_deref().is_some_and(|w| w.contains(text)), "{warning:?}");
+                    assert_eq!(engine.cache_reset_warning(), None, "shown twice");
+                }
+                None => assert_eq!(warning, None, "{sent:?} {usage:?} {switch}"),
             }
         }
     }
