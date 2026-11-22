@@ -6,7 +6,7 @@ use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::types::InteractionResponse;
 use serde_json::Value;
 
-use super::eval::{ask_drafts, decide_tool_call, runs_shell_command};
+use super::eval::{ask_drafts, decide_tool_call};
 use super::guard::GuardEvaluator;
 use super::policy::{Policy, load_policy, save_allow_rule, target_config_path};
 use super::prompt::{build_permission_prompt_with_evaluator, rewrite_tool_args};
@@ -171,7 +171,7 @@ impl PermissionHook {
     }
 
     async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> PermissionAction {
-        if runs_shell_command(req.tool, req.args) {
+        if req.tool == "bash" {
             let cmd = match_input(req.args);
             if let Some(guard) = &self.guard_evaluator {
                 let verdict = guard.evaluate(&cmd).await;

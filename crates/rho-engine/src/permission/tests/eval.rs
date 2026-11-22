@@ -364,54 +364,6 @@ fn policy_allows_explicit_bash_rules() {
 }
 
 #[test]
-fn terminal_start_follows_bash_rules_and_other_actions_are_allowed() {
-    let scope = parse_scope_from_str(
-        "[permission.bash]\n\"vim *\" = \"allow\"\n\"rm *\" = { action = \"deny\", reason = \"no rm\" }\n",
-    )
-    .unwrap();
-    let policy = build_policy(Some(scope), None);
-    let start = |command: &str| json!({"action": "start", "command": command});
-
-    assert_eq!(check_eval(&policy, "terminal", start("vim notes.md")), Decision::Allow);
-    assert_eq!(
-        check_eval(&policy, "terminal", start("rm -rf build")),
-        Decision::Deny("no rm".to_string())
-    );
-    assert_eq!(check_eval(&policy, "terminal", start("python3")), Decision::Ask);
-    assert_eq!(check_eval(&policy, "terminal", start("vim /etc/hosts")), Decision::Ask);
-    let drafts = ask_drafts(
-        &policy,
-        EvalRequest {
-            tool: "terminal",
-            args: &start("python3"),
-            mcp_servers: &[],
-            working_dir: ws(),
-        },
-    );
-    assert_eq!(
-        drafts
-            .iter()
-            .map(|d| (d.surface.as_str(), d.pattern.as_str()))
-            .collect::<Vec<_>>(),
-        [("bash", "python3")]
-    );
-
-    for action in [
-        json!({"action": "send", "id": 1, "text": "rm -rf /", "keys": ["Enter"]}),
-        json!({"action": "screen", "id": 1}),
-        json!({"action": "resize", "id": 1, "cols": 80, "rows": 24}),
-        json!({"action": "close", "id": 1}),
-        json!({"action": "list"}),
-    ] {
-        assert_eq!(
-            check_eval(&policy, "terminal", action.clone()),
-            Decision::Allow,
-            "{action}"
-        );
-    }
-}
-
-#[test]
 fn mcp_direct_tool_permission_evaluation() {
     let scope = crate::permission::policy::parse_scope_from_str(
         "[allow]\nmcp = [\"github:*\"]\n[deny]\nmcp = [\"postgres:drop_db\"]\n",

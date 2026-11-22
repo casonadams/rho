@@ -344,7 +344,7 @@ happen.
 
 - **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`
   and `planner` (read, fd, rg), and `general` (read, write, edit, undo, bash,
-  terminal, fd, rg, web_fetch, web_search, todo). Each subagent keeps its own
+  fd, rg, web_fetch, web_search, todo). Each subagent keeps its own
   `todo` list.
 - **Safety**: subagent tool calls go through the same permission rules and
   lifecycle hooks as the main agent, and `Esc` cancels them. (Agents inside a

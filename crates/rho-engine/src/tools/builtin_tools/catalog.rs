@@ -8,7 +8,7 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::{MemoryArgs, SubagentArgs, TerminalArgs, TodoArgs, UndoArgs, WorktreeArgs};
+use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, UndoArgs, WorktreeArgs};
 
 pub static PROMPT_UNDO: &str = "\
 Revert the last edit or write this session's tools made to a file.
@@ -136,18 +136,6 @@ Usage:
 - Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep. Background jobs are killed after 1 hour.
 - Non-zero exit codes return an error result ending in `[exit N]`. Successful output over 50 lines shows only the first 10 and last 15 lines, and long or truncated output ends with `log: PATH`, the full output file to search with rg or page with read. When clipped output has failing tests (cargo test, nextest, pytest, go test, Jest, Vitest), a `[N failing tests; details from log]` section above the last line lists each with its key failure lines. Filter output with rg, head, or tail instead of dumping everything.";
 
-pub static PROMPT_TERMINAL: &str = "\
-Drive an interactive program (vim, nvim, a REPL, a TUI, a pager) in a pseudo-terminal and read its rendered screen.
-
-Usage:
-- Use terminal only for programs that need a real terminal or keyboard interaction; run ordinary commands with bash.
-- `start` runs `command` through the shell in the working directory with TERM=xterm-256color, at `cols` x `rows` (default 120x40), and returns the session id and its first screen. Up to 8 sessions can be open; they keep running between calls until you close them.
-- `send` types `text` literally, then presses `keys` in order: Enter, Esc, Tab, Backspace, Up, Down, Left, Right, Home, End, PageUp, PageDown, Delete, C-a..C-z (Ctrl+letter), F1..F12. Use keys: [\"Enter\"] to submit a line; a newline inside text is a line feed (C-j), not Enter.
-- `start` and `send` wait until output pauses for 150 ms (at most `wait_ms`, default 2000), then return the screen. For slow programs pass `wait_for`: the wait ends as soon as that text is on screen, and a note says if it never appeared.
-- Every screen starts with a header like `[terminal 1: nvim 120x40, cursor 5:12, running]` (cursor is row:column, 1-based; the status becomes `exited N` or `terminated by SIGNAL`), followed by one `N|text` line per screen row with trailing spaces and trailing blank rows dropped. The `N|` prefix is not part of the screen.
-- `screen` shows the current screen without sending anything, `resize` changes the size (the program gets SIGWINCH), `list` shows every session's header, and `close` kills the program and frees its slot.
-- Close every session you start when you are done with it, including exited ones.";
-
 pub static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
@@ -177,7 +165,7 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
-- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, undo, bash, terminal, and todo. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
+- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, undo, bash, and todo. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
 - In a git repository each subagent works in its own worktree, a snapshot of your working tree including uncommitted edits. Its changes do not appear in your files until you review and merge them with the worktree tool.
 - Subagents start with no memory of your conversation, so put everything they need in `prompt` or `context_slice`. `inherit_context` shares only the last 20 text messages, each clipped to 1,500 characters.
 - Subagent calls in the same response run in parallel: all of them in a git repository, where each has its own worktree, otherwise only new read-only ones (scout, critic, planner). Parallel subagents still share the machine (ports, installed dependencies, build caches), so give them non-conflicting commands, and give two subagents disjoint files to avoid merge conflicts.
@@ -250,13 +238,6 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_BASH,
         prompt_snippet: "Run git, builds, tests, and linters in the current working directory",
         schema: generated_schema::<BashArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "terminal",
-        capability: BuiltinToolKind::Shell,
-        prompt: PROMPT_TERMINAL,
-        prompt_snippet: "Drive interactive programs (vim, REPLs, TUIs) in a pseudo-terminal: send keys, read the screen",
-        schema: generated_schema::<TerminalArgs>,
     },
     BuiltinToolDeclaration {
         name: "fd",

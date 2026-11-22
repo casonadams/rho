@@ -189,12 +189,6 @@ Rules can be manually authored or inspected in `.rho/permission.toml`
 "/tmp/*" = "allow"
 ```
 
-`[permission.bash]` rules also govern the `terminal` tool's `start` command:
-`"vim *" = "allow"` lets the agent open vim in a pseudo-terminal without a
-prompt. Its other actions (`send`, `screen`, `resize`, `close`, `list`) only
-drive sessions a `start` was allowed to open and never prompt, so text sent to
-an allowed shell or REPL is not checked again.
-
 #### Custom Deny Reasons
 
 You can provide an explicit `reason` for any denied rule using inline tables.

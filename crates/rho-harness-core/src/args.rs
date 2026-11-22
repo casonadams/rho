@@ -257,7 +257,6 @@ impl SubagentRole {
                 "edit",
                 "undo",
                 "bash",
-                "terminal",
                 "fd",
                 "rg",
                 "web_fetch",
@@ -432,53 +431,6 @@ pub struct TodoArgs {
     pub todos: Option<Vec<TodoItem>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum TerminalAction {
-    /// Run `command` in a new pseudo-terminal and return its id and first screen
-    Start,
-    /// Type `text` and/or press `keys` in session `id`, then return the screen once output settles
-    Send,
-    /// Return the current screen of session `id`
-    Screen,
-    /// Change the size of session `id` to `cols` x `rows`
-    Resize,
-    /// Kill session `id` and report how it ended
-    Close,
-    /// List the sessions with their command, size, and status
-    List,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct TerminalArgs {
-    /// What to do
-    pub action: TerminalAction,
-    /// Shell command to run (start only)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
-    /// Session id returned by start (required except for start and list)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<u32>,
-    /// Literal text to type (send); sent before keys
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    /// Named keys to press in order after text (send): Enter, Esc, Tab, Backspace, Up, Down, Left, Right, Home, End, PageUp, PageDown, Delete, C-a..C-z, F1..F12
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keys: Option<Vec<String>>,
-    /// Terminal width in columns (start default: 120; required for resize)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cols: Option<u16>,
-    /// Terminal height in rows (start default: 40; required for resize)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rows: Option<u16>,
-    /// Longest time in milliseconds to wait for output to settle or for wait_for to appear (start and send; default: 2000, max: 60000)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wait_ms: Option<u64>,
-    /// Text that ends the wait as soon as it appears on screen (start and send)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wait_for: Option<String>,
-}
-
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};
@@ -529,6 +481,39 @@ mod tests {
         );
         assert_eq!(SubagentRole::Critic.allowed_tools(), &["read", "fd", "rg"]);
         assert_eq!(SubagentRole::Planner.allowed_tools(), &["read", "fd", "rg"]);
+        assert_eq!(
+            SubagentRole::General.allowed_tools(),
+            &[
+                "read",
+                "write",
+                "edit",
+                "undo",
+                "bash",
+                "fd",
+                "rg",
+                "web_fetch",
+                "web_search",
+                "todo"
+            ]
+        );
+    }
+
+    #[test]
+    fn read_only_roles_never_get_tools_that_change_state_or_spawn_work() {
+        let mutating = [
+            "write", "edit", "undo", "bash", "lsp", "todo", "memory", "subagent", "worktree",
+        ];
+        for role in [SubagentRole::Scout, SubagentRole::Critic, SubagentRole::Planner] {
+            for tool in role.allowed_tools() {
+                assert!(!mutating.contains(tool), "{} must not get {tool}", role.as_str());
+            }
+        }
+        for tool in SubagentRole::General.allowed_tools() {
+            assert!(
+                !["memory", "subagent", "worktree", "lsp"].contains(tool),
+                "general must not get {tool}"
+            );
+        }
     }
 
     #[test]

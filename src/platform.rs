@@ -68,7 +68,6 @@ mod tests {
                     "bash",
                     "fd",
                     "rg",
-                    "terminal",
                     "web_search",
                     "web_fetch",
                     "todo",
@@ -87,7 +86,6 @@ mod tests {
                     "bash",
                     "fd",
                     "rg",
-                    "terminal",
                     "web_fetch",
                     "todo",
                     "memory",
@@ -105,7 +103,6 @@ mod tests {
                     "bash",
                     "fd",
                     "rg",
-                    "terminal",
                     "web_search",
                     "todo",
                     "memory",
@@ -116,7 +113,7 @@ mod tests {
                 false,
                 false,
                 vec![
-                    "read", "write", "edit", "undo", "bash", "fd", "rg", "terminal", "todo", "memory", "subagent",
+                    "read", "write", "edit", "undo", "bash", "fd", "rg", "todo", "memory", "subagent",
                 ],
             ),
         ];

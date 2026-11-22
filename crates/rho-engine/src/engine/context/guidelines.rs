@@ -46,7 +46,6 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                 || (!matches!(
                     t.as_str(),
                     "bash"
-                        | "terminal"
                         | "read"
                         | "write"
                         | "edit"
