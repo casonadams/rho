@@ -159,7 +159,7 @@ pub(crate) async fn handle_session_diagnostics<B: TerminalBackend>(
             ctx.session.renderer.print_status(&format!("Session name: \"{name}\""));
         }
         CommandResult::Rewind { turn } => {
-            let retained_count = ctx.engine.session_manager.rewind_to_turn(*turn).await?;
+            let retained_count = ctx.engine.rewind_to_turn(*turn).await?;
             ctx.session.renderer.print_notice(&format!(
                 "  [Rewound context to Turn {turn} ({retained_count} messages retained)]\n"
             ));
@@ -244,10 +244,7 @@ async fn switch_and_hydrate(
     summary: Option<String>,
     old_leaf: &str,
 ) -> Result<()> {
-    ctx.engine
-        .session_manager
-        .switch_branch(Some(leaf_id.to_string()))
-        .await?;
+    ctx.engine.switch_branch(Some(leaf_id.to_string())).await?;
     if let Some(summary) = summary.as_deref() {
         let _ = ctx
             .engine

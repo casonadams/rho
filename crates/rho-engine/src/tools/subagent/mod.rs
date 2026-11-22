@@ -421,7 +421,8 @@ impl SubagentTool {
     }
 }
 
-/// A custom agent gets the tools its `tools:` list names (never `subagent` or `lsp`); without a list it
+/// A custom agent gets the tools its `tools:` list names (never `subagent`, `lsp`, `memory`, or
+/// `worktree`); without a list it
 /// gets the read-only set a scout has, so an agent file has to ask for write or shell access.
 fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) -> Vec<Arc<dyn EngineTool>> {
     let listed = |names: &Option<Vec<String>>, name: &str| {
@@ -431,8 +432,7 @@ fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) 
     };
     let read_only = SubagentRole::Scout.allowed_tools();
     runner::tools_named(tools, |name| {
-        name != "subagent"
-            && name != "lsp"
+        !matches!(name, "subagent" | "lsp" | "memory" | "worktree")
             && listed(&agent.tools, name).unwrap_or_else(|| read_only.contains(&name))
             && !listed(&agent.disallowed_tools, name).unwrap_or(false)
     })

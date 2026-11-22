@@ -313,6 +313,7 @@ impl AgentEngine {
             .worktrees(self.worktrees.clone())
             .context_budget(Some(self.context.budget(
                 self.context_limit(),
+                self.context_limit_source(),
                 self.context_limit().saturating_sub(self.config.reserve_tokens),
             )))
             .working_dir(self.base_dir.clone());

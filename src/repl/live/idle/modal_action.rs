@@ -73,7 +73,7 @@ async fn handle_model_selected(
 }
 
 async fn handle_node_selected(ctx: &mut ModalActionContext<'_, impl TerminalBackend>, node_id: String) -> Result<bool> {
-    match ctx.engine.session_manager.switch_branch(Some(node_id.clone())).await {
+    match ctx.engine.switch_branch(Some(node_id.clone())).await {
         Ok(_) => {
             if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
                 let _ = hydrate_session_transcript(ctx.controller, &tree, ctx.history);

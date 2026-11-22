@@ -220,6 +220,8 @@ fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
         dummy_tool("edit"),
         dummy_tool("lsp"),
         dummy_tool("subagent"),
+        dummy_tool("memory"),
+        dummy_tool("worktree"),
     ];
     let list = |names: &[&str]| Some(names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
     let cases = [
@@ -228,6 +230,7 @@ fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
         (None, list(&["rg"]), vec!["read"]),
         (list(&["read", "bash"]), list(&["bash"]), vec!["read"]),
         (list(&["edit", "lsp", "bash", "subagent"]), None, vec!["bash", "edit"]),
+        (list(&["read", "memory", "worktree"]), None, vec!["read"]),
     ];
     for (tools, disallowed_tools, expected) in cases {
         let agent = AgentMetadata {

@@ -158,9 +158,10 @@ background work running.
 - **Context budget notices.** The first time a request's prompt passes 50%,
   75%, or 90% of the context window, the next tool results sent to the model
   end with one line such as
-  `[context: 142k of 200k tokens used (71%); auto-compaction at 184k]`, so it
+  `[context: 142k of 200k tokens used (71%); compaction starts near 184k at the next turn]`, so it
   can delegate to subagents or read less. Each percentage is reported once
-  until the next compaction. The line goes only on the newest tool results (a
+  until the next compaction, branch switch, or rewind, and no notice is sent
+  while the window size is only an estimate. The line goes only on the newest tool results (a
   turn that ends without tool calls reports it on a later one), so the cached
   prompt prefix never changes, and it is saved with that tool result.
   Subagents do not receive it.

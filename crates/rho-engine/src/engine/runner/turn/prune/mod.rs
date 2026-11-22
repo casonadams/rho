@@ -121,11 +121,12 @@ fn extract_file_path_arg(args: &serde_json::Value) -> Option<&str> {
 }
 
 fn is_full_read(args: &serde_json::Value) -> bool {
+    let symbol_unset = args.get("symbol").is_none_or(serde_json::Value::is_null);
     let offset_unset = args
         .get("offset")
         .and_then(serde_json::Value::as_u64)
         .is_none_or(|offset| offset <= 1);
-    offset_unset && args.get("limit").is_none_or(serde_json::Value::is_null)
+    symbol_unset && offset_unset && args.get("limit").is_none_or(serde_json::Value::is_null)
 }
 
 fn process_tool_call_path<'a>(call: &'a ToolCall, seen_paths: &mut HashSet<&'a str>, superseded: &mut HashSet<String>) {

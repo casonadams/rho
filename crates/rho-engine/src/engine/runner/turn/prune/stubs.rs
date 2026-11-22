@@ -173,6 +173,10 @@ fn is_read_error(text: &str) -> bool {
         || text.starts_with("Failed to read")
         || text.starts_with("Empty file path")
         || text.starts_with("File contains invalid UTF-8")
+        || text.starts_with("No symbol")
+        || text.starts_with("symbol needs a language server")
+        || text.starts_with("symbol cannot be combined")
+        || (text.starts_with('\'') && text.contains(" symbols; qualify it"))
         || (text.starts_with("Offset ") && text.contains("is beyond end of file"))
 }
 

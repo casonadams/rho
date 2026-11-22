@@ -331,7 +331,11 @@ async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_
     ]));
     let (runner, _temp, _, _) = test_agent_env(model.clone());
     let store = crate::engine::runner::turn::MemoryStore::new("budgeted", Vec::new());
-    let budget = crate::engine::tracking::ContextTracker::new(None).budget(200_000, 183_616);
+    let budget = crate::engine::tracking::ContextTracker::new(None).budget(
+        200_000,
+        crate::engine::tracking::ContextLimitSource::Provider,
+        183_616,
+    );
     let runner = AgentRunner {
         tools: vec![Arc::new(ScriptedTool {
             name: "probe",
@@ -345,7 +349,7 @@ async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_
 
     run_agent_loop(runner, &acking_emitter()).await.unwrap();
 
-    let notice = "ok\n\n[context: 142k of 200k tokens used (71%); auto-compaction at 184k]";
+    let notice = "ok\n\n[context: 142k of 200k tokens used (71%); compaction starts near 184k at the next turn]";
     let requests = model.requests();
     let newest: Vec<String> = requests[1..]
         .iter()

@@ -1,9 +1,9 @@
 use crate::lsp::client::file_uri;
 use crate::lsp::position::{character_offset, locate_symbol};
 use crate::lsp::{LspClient, LspManager, render};
-use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::{ToolResult, resolve_tool_path};
+use crate::tools::undo::EditHistory;
 pub use rho_harness_core::args::{LspAction, LspArgs};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
@@ -19,6 +19,7 @@ pub const READY_WAIT: Duration = Duration::from_secs(30);
 pub struct LspTool {
     base_dir: PathBuf,
     manager: Arc<LspManager>,
+    history: Option<EditHistory>,
 }
 
 /// A file synced to its server, ready for position queries.
@@ -82,7 +83,13 @@ impl LspTool {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
             manager,
+            history: None,
         }
+    }
+
+    pub fn with_history(mut self, history: Option<EditHistory>) -> Self {
+        self.history = history;
+        self
     }
 
     fn resolve(&self, path: Option<&str>) -> Result<PathBuf, String> {
@@ -96,6 +103,7 @@ impl LspTool {
             .await
             .map_err(|error| format!("reading {}: {error}", path.display()))?;
         let client = self.manager.client_for(&path).await?;
+        client.sync_open_documents_from_disk().await?;
         let language = self.language_id(&client, &path);
         client.sync(&path, &text, &language).await?;
         let busy = client
@@ -193,13 +201,24 @@ impl LspTool {
             return Err("no language server is running for this workspace; pass path to start one".into());
         }
         let mut merged = Vec::new();
+        let mut failures = Vec::new();
         for client in clients {
             let _ = client.wait_until_idle(tokio::time::Instant::now() + READY_WAIT).await;
-            if let Ok(Value::Array(items)) = client.request("workspace/symbol", json!({ "query": query })).await {
-                merged.extend(items);
+            let answer = match client.sync_open_documents_from_disk().await {
+                Ok(()) => client.request("workspace/symbol", json!({ "query": query })).await,
+                Err(error) => Err(error),
+            };
+            match answer {
+                Ok(Value::Array(items)) => merged.extend(items),
+                Ok(_) => {}
+                Err(error) => failures.push(format!("{}: {error}", client.name)),
             }
         }
-        Ok(render::format_workspace_symbols(&self.base_dir, &Value::Array(merged)))
+        let mut out = render::format_workspace_symbols(&self.base_dir, &Value::Array(merged));
+        if !failures.is_empty() {
+            out.push_str(&format!("\n[symbol search failed: {}]", failures.join("; ")));
+        }
+        Ok(out)
     }
 
     async fn diagnostics(&self, path: Option<&str>) -> Result<String, String> {
@@ -245,48 +264,6 @@ impl LspTool {
         format!("{}\n\n{}", render::count_summary(&total), sections.join("\n\n"))
     }
 
-    async fn rename(&self, args: &LspArgs) -> Result<String, String> {
-        let new_name = args.new_name.clone().ok_or("rename needs new_name")?;
-        let client = self.manager.client_for(&self.resolve(args.path.as_deref())?).await?;
-        client.sync_open_documents_from_disk().await?;
-        let (file, response) = self
-            .position_request(args, "textDocument/rename", json!({ "newName": new_name }))
-            .await?;
-        if response.is_null() {
-            return Err(format!("{} found nothing to rename there", file.client.name));
-        }
-        let by_file = render::workspace_edits(&response)?;
-        let workspace = self.manager.workspace();
-        if let Some(outside) = by_file.keys().find(|path| !path.starts_with(workspace)) {
-            return Err(format!(
-                "rename would change {}, outside the workspace; nothing was written",
-                outside.display()
-            ));
-        }
-        let mut updated = Vec::new();
-        for (path, edits) in &by_file {
-            let text = tokio::fs::read_to_string(path)
-                .await
-                .map_err(|error| format!("reading {}: {error}", path.display()))?;
-            let next = render::apply_text_edits(&text, edits, file.client.encoding())?;
-            updated.push((path.clone(), next, edits.len()));
-        }
-        let mut lines = Vec::new();
-        for (path, next, count) in updated {
-            atomic_write(&path, next.as_bytes())
-                .await
-                .map_err(|error| format!("writing {}: {error}", path.display()))?;
-            let language = self.language_id(&file.client, &path);
-            file.client.sync(&path, &next, &language).await?;
-            lines.push(format!("{} ({count})", render::display_path(&self.base_dir, &path)));
-        }
-        Ok(format!(
-            "Renamed to {new_name} in {}:\n{}",
-            crate::tools::listing::count_noun(lines.len(), "file"),
-            lines.join("\n")
-        ))
-    }
-
     fn status(&self) -> String {
         let running = self.manager.status_lines();
         let mut out = if running.is_empty() {
@@ -306,7 +283,9 @@ impl LspTool {
             .collect();
         let missing: Vec<&str> = missing.iter().map(|server| server.name.as_str()).collect();
         out.push_str(&format!("\n\nInstalled: {}", installed.join("; ")));
-        out.push_str(&format!("\nNot on PATH: {}", missing.join(", ")));
+        if !missing.is_empty() {
+            out.push_str(&format!("\nNot on PATH: {}", missing.join(", ")));
+        }
         if let Some(notice) = self.manager.notice() {
             out.push_str(&format!("\nNote: {notice}"));
         }
@@ -328,5 +307,8 @@ impl TypedTool for LspTool {
     }
 }
 
+mod rename;
+#[cfg(test)]
+mod rename_tests;
 #[cfg(test)]
 mod tests;

@@ -72,7 +72,7 @@ Usage:
 - Use read to examine files instead of cat or sed; path may be relative to the working directory or absolute.
 - Each line is prefixed with its line number and a tab; the prefix is not part of the file, so never include it in edit oldText.
 - Output is capped at 2000 lines or 50KB, whichever comes first. A trailing note ending in `Use offset=N to continue.` gives the next offset; pass it, optionally with limit, to page through large files. A single line longer than 50KB is shown cut to its first 50KB, and an empty file returns `[File is empty]`.
-- For a known region, read it with offset and limit instead of the whole file. To read one function, type, or method, pass symbol (e.g. 'parse', 'Config.load') instead: the file's language server finds its lines.
+- For a known region, read it with offset and limit instead of the whole file. To read one function, type, or method, pass symbol (e.g. 'parse', 'Config.load') instead of offset and limit (they cannot be combined): the file's language server finds its lines.
 - Read a file before editing it so oldText matches exactly. Reads run in parallel when every call in a response is read-only, so read independent files together.
 - Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text. Binary files return a short placeholder, and other non-UTF-8 files return an error. Use fd, not read, to list a directory.";
 

@@ -101,6 +101,12 @@ impl ReadTool {
             return Ok(ToolResult::error("Empty file path provided for read tool"));
         }
 
+        if args.symbol.is_some() && (args.offset.is_some() || args.limit.is_some()) {
+            return Ok(ToolResult::error(
+                "symbol cannot be combined with offset or limit; pass one or the other",
+            ));
+        }
+
         if is_skill_first_read(clean_path, &self.base_dir, args.offset) {
             args.limit = None;
         }

@@ -427,3 +427,24 @@ async fn test_read_skill_full_content_on_first_read() {
     assert!(res_page2.content.contains("line 20"));
     assert!(!res_page2.content.contains("line 21"));
 }
+
+#[tokio::test]
+async fn symbol_cannot_be_combined_with_offset_or_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
+    for (offset, limit) in [(Some(2), None), (None, Some(5))] {
+        let args = ReadArgs {
+            path: "a.rs".into(),
+            offset,
+            limit,
+            symbol: Some("a".into()),
+        };
+        let result = ReadTool::new(dir.path()).execute(args).await.unwrap();
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("symbol cannot be combined"),
+            "{}",
+            result.content
+        );
+    }
+}

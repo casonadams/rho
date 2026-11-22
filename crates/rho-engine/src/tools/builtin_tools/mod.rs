@@ -40,7 +40,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
             .with_lsp(lsp.clone())
             .with_history(Some(history.clone())),
     );
-    let undo = Arc::new(UndoTool::new(base_dir, history));
+    let undo = Arc::new(UndoTool::new(base_dir, history.clone()));
     let read = Arc::new(
         ReadTool::new(base_dir)
             .with_artifact_dir(Some(base_dir.join(".rho/artifacts")))
@@ -60,7 +60,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
         rg as Arc<dyn EngineTool>,
     ];
     if let Some(lsp) = lsp {
-        tools.push(Arc::new(LspTool::new(base_dir, lsp)) as Arc<dyn EngineTool>);
+        tools.push(Arc::new(LspTool::new(base_dir, lsp).with_history(Some(history))) as Arc<dyn EngineTool>);
     }
     tools
 }
@@ -166,12 +166,18 @@ pub fn build_builtin_toolset(
         subagent = subagent.with_worktrees(store.clone());
         tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
     }
-    if let Some(home) = rho_harness_core::config::home_dir() {
-        let store = rho_harness_core::memory::MemoryStore::in_home(&home, base_dir);
-        tools.push(Arc::new(crate::tools::MemoryTool::new(store)) as Arc<dyn EngineTool>);
+    if let Some(memory) = memory_tool(rho_harness_core::config::home_dir().as_deref(), base_dir, config) {
+        tools.push(memory);
     }
     tools.push(Arc::new(subagent.clone()) as Arc<dyn EngineTool>);
     Ok((tools, subagent))
+}
+
+/// The memory tool, unless there is no home to keep memory in or context files are disabled.
+fn memory_tool(home: Option<&Path>, base_dir: &Path, config: &Config) -> Option<Arc<dyn EngineTool>> {
+    let home = home.filter(|_| !config.no_context_files)?;
+    let store = rho_harness_core::memory::MemoryStore::in_home(home, base_dir);
+    Some(Arc::new(crate::tools::MemoryTool::new(store)))
 }
 
 /// `tools` with the workspace-native ones (read, write, edit, undo, bash, fd, rg) rooted at

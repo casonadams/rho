@@ -384,6 +384,20 @@ impl AgentEngine {
         self.session_compactor().compact(instructions).await
     }
 
+    /// Switches the session to another branch; the new context starts its budget notices over.
+    pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<ChatMessage>> {
+        let messages = self.session_manager.switch_branch(leaf_id).await?;
+        self.context.reset_notices();
+        Ok(messages)
+    }
+
+    /// Rewinds the session to `target_turn`; the shorter context starts its budget notices over.
+    pub async fn rewind_to_turn(&self, target_turn: usize) -> Result<usize> {
+        let retained = self.session_manager.rewind_to_turn(target_turn).await?;
+        self.context.reset_notices();
+        Ok(retained)
+    }
+
     /// Compaction summarizes canonical history only, so an unfinished turn's saved steps join it first.
     async fn promote_unfinished_turn(&self) -> Result<()> {
         let Some(pending) = self.session_manager.load_checkpoint().await? else {

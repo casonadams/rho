@@ -1343,6 +1343,53 @@ fn test_full_read_supersedes_earlier_partial_read() {
 }
 
 #[test]
+fn test_symbol_read_is_partial_and_never_supersedes_a_full_read() {
+    let messages = vec![
+        call_message("c1", "read", serde_json::json!({ "path": "src/lib.rs" })),
+        call_message(
+            "c2",
+            "read",
+            serde_json::json!({ "path": "src/lib.rs", "symbol": "Config.load" }),
+        ),
+    ];
+    assert!(collect_superseded_tool_call_ids(&messages).is_empty());
+}
+
+#[test]
+fn test_symbol_read_failures_are_not_pruned() {
+    let ambiguous = format!(
+        "'load' matches 2 symbols; qualify it (e.g. Type.method) or read by offset:\n{}",
+        "1-4 function load\n".repeat(80)
+    );
+    for output in [
+        ambiguous.as_str(),
+        "No symbol 'x' in src/lib.rs; lsp symbols with path lists them",
+        "symbol needs a language server, and none is enabled here",
+        "symbol cannot be combined with offset or limit; pass one or the other",
+    ] {
+        let (call_msg, res_msg) = make_read_turn("c1", "src/lib.rs", output);
+        let history = vec![
+            ChatMessage::user("Read"),
+            call_msg,
+            res_msg,
+            ChatMessage::assistant("ok"),
+            ChatMessage::user("Next"),
+        ];
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let ChatMessage::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let ToolResultContent::Text(text) = &res.content[0] else {
+            panic!()
+        };
+        assert_eq!(text.text, output);
+    }
+}
+
+#[test]
 fn test_tool_name_matching_ignores_case_when_superseding_reads() {
     let messages = vec![
         call_message("c1", "read", serde_json::json!({ "path": "src/lib.rs" })),
