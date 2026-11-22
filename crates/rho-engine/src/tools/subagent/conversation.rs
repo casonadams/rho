@@ -291,8 +291,9 @@ impl Exchange {
             RoundInput::Prompt(&noted)
         };
         let transcript = std::mem::take(&mut self.transcript);
+        let lsp_guard = runner.worktree_lsp_guard();
         let round = runner.run_round(transcript, round_input).await;
-        runner.close_worktree_lsp().await;
+        lsp_guard.close().await;
         let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
         let file_versions = versions(&root, tracked).await;
         let worktree = match self.current_worktree() {

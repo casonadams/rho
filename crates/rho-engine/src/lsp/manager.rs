@@ -551,10 +551,15 @@ fn managed(workspace: &Path, init: impl FnOnce() -> Arc<LspManager>) -> Arc<LspM
 /// Shuts down the servers of `workspace` and forgets its manager, so a later [`LspManager::for_workspace`]
 /// starts fresh. Does nothing for a workspace without a manager.
 pub async fn shutdown_workspace(workspace: &Path) {
-    let manager = lock(&MANAGERS).remove(&canonical(workspace));
-    if let Some(manager) = manager {
+    if let Some(manager) = forget_workspace(workspace) {
         manager.shutdown_all().await;
     }
+}
+
+/// Drops the registry's hold on the manager of `workspace`. Without other holders its clients drop,
+/// and dropping a client kills its server's process group; usable where nothing can be awaited.
+pub fn forget_workspace(workspace: &Path) -> Option<Arc<LspManager>> {
+    lock(&MANAGERS).remove(&canonical(workspace))
 }
 
 #[cfg(test)]

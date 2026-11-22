@@ -33,8 +33,10 @@ fn disabled_reason(action: &Value) -> Option<&str> {
 }
 
 fn describe(index: usize, action: &Value) -> String {
-    let kind = action.get("kind").and_then(Value::as_str).unwrap_or("action");
-    let mut row = format!("{index}. [{kind}] {}", title(action));
+    let mut row = match action.get("kind").and_then(Value::as_str) {
+        Some(kind) if !kind.is_empty() => format!("{index}. [{kind}] {}", title(action)),
+        _ => format!("{index}. {}", title(action)),
+    };
     if action.get("isPreferred").and_then(Value::as_bool) == Some(true) {
         row.push_str(" (preferred)");
     }
@@ -195,5 +197,34 @@ impl LspTool {
             out.push_str(&format!("\n[{note}]"));
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::describe;
+    use serde_json::json;
+
+    #[test]
+    fn the_kind_is_bracketed_only_when_the_server_gave_one() {
+        let rows = [
+            (
+                json!({ "title": "Gen", "kind": "refactor.generate" }),
+                "1. [refactor.generate] Gen",
+            ),
+            (json!({ "title": "Gen", "kind": "" }), "1. Gen"),
+            (json!({ "title": "Gen" }), "1. Gen"),
+            (
+                json!({ "title": "Run", "command": "x.run" }),
+                "1. Run (runs a server command; rho cannot apply it)",
+            ),
+            (
+                json!({ "title": "Off", "kind": "quickfix", "disabled": { "reason": "no" } }),
+                "1. [quickfix] Off (disabled: no)",
+            ),
+        ];
+        for (action, expected) in rows {
+            assert_eq!(describe(1, &action), expected);
+        }
     }
 }

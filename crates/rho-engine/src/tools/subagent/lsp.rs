@@ -7,11 +7,35 @@ use crate::tools::types::{ToolResult, parse_tool_args};
 use rho_harness_core::args::{LspAction, LspArgs};
 use rho_harness_core::error::AppError;
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Opens the language-server manager for a subagent's worktree.
 pub type WorktreeLsp = Arc<dyn Fn(&Path) -> Arc<LspManager> + Send + Sync>;
+
+/// Stops the language servers of a subagent's worktree when it goes out of scope, so a round that
+/// is force-aborted does not leave them running. [`Self::close`] is the graceful path.
+pub(crate) struct WorktreeLspGuard(pub(super) Option<PathBuf>);
+
+impl WorktreeLspGuard {
+    pub(crate) async fn close(mut self) {
+        if let Some(root) = self.0.take() {
+            crate::lsp::manager::shutdown_workspace(&root).await;
+        }
+    }
+}
+
+impl Drop for WorktreeLspGuard {
+    fn drop(&mut self) {
+        let Some(root) = self.0.take() else { return };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async move { crate::lsp::manager::shutdown_workspace(&root).await });
+            }
+            Err(_) => drop(crate::lsp::manager::forget_workspace(&root)),
+        }
+    }
+}
 
 /// `tools` with `lsp` limited to queries when neither `write` nor `edit` is among them.
 pub(crate) fn restrict_lsp(tools: Vec<Arc<dyn EngineTool>>) -> Vec<Arc<dyn EngineTool>> {
@@ -120,6 +144,17 @@ mod tests {
     use crate::tools::builtin_tools::rerooted;
     use crate::tools::lsp::LspTool;
     use serde_json::json;
+
+    #[test]
+    fn a_guard_dropped_outside_a_runtime_forgets_the_workspace_manager() {
+        let dir = project();
+        let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
+        crate::lsp::manager::register_manager(&manager);
+
+        drop(WorktreeLspGuard(Some(dir.path().to_path_buf())));
+
+        assert!(!crate::lsp::manager::is_registered(dir.path()));
+    }
 
     fn project() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();

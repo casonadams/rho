@@ -4,7 +4,7 @@
 //! when it stops early, and a pause when it asks the delegating agent a question.
 
 use super::evidence::evidence;
-use super::lsp::WorktreeLsp;
+use super::lsp::{WorktreeLsp, WorktreeLspGuard};
 use super::observed::{AskParentTool, RecordedTool, Recorder, take_question};
 use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
@@ -187,12 +187,10 @@ impl SubagentRunner {
         self.tools.iter().find(|t| t.name() == name)
     }
 
-    /// Shuts down the language servers the round started in its worktree, so the worktree can be
-    /// merged or removed.
-    pub(crate) async fn close_worktree_lsp(&self) {
-        if let Some(root) = &self.lsp_root {
-            crate::lsp::manager::shutdown_workspace(root).await;
-        }
+    /// Stops the language servers the round starts in its worktree, on every exit path including
+    /// the round being dropped.
+    pub(crate) fn worktree_lsp_guard(&self) -> WorktreeLspGuard {
+        WorktreeLspGuard(self.lsp_root.clone())
     }
 
     /// How much recent conversation a compaction keeps word for word.
