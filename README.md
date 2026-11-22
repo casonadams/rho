@@ -56,9 +56,12 @@ resume the exact session of each pane with `rho --resume <id>`.
   file; a file `write` created is deleted). It refuses when the file changed
   after that tool wrote it, so it never discards changes it did not make.
 - **`lsp`**: Ask the file's [language server](docs/configuration.md#language-servers)
-  for diagnostics, definitions, references, hover, implementations, symbols, or
-  a workspace-wide rename. `edit` and `write` results end with the server's
-  errors and warnings for the new content.
+  for diagnostics, definitions, references, hover, implementations, symbols,
+  quick fixes (`code_actions`), formatting, or a workspace-wide rename. Changes
+  from rename, code actions and formatting go through the same protected-path
+  checks as `edit` and are all-or-nothing and undoable. `edit` and `write`
+  results end with the server's errors and warnings for the new content, and
+  diagnostics that arrive later are delivered as a notice.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization. Commands run with color enabled so you
   see it in the terminal; the model receives the same output without escape

@@ -346,7 +346,8 @@ happen.
   `critic` and `planner` (read, fd, rg, lsp), and `general` (read, write, edit,
   undo, bash, fd, rg, lsp, web_fetch, web_search, todo). Each subagent keeps its
   own `todo` list. An agent without `write` or `edit` gets `lsp` without the
-  `rename` action, so read-only roles never change files through it.
+  `rename` and `format` actions and without applying code actions, so read-only
+  roles never change files through it.
 - **Safety**: subagent tool calls go through the same permission rules and
   lifecycle hooks as the main agent, and `Esc` cancels them. (Agents inside a
   [workflow](workflows.md#trust) are trusted and skip both.)
@@ -407,7 +408,7 @@ You are a strict reviewer. Report concrete bugs with file:line evidence.
 |---|---|
 | `name` | Name used to call the agent; defaults to the file name |
 | `description` | Shown to the main agent when it picks a subagent |
-| `tools` | Allowlist of tools; omit it to get the read-only set (`read`, `fd`, `rg`, `lsp` without `rename`, `web_fetch`, `web_search`), so an agent that edits files or runs commands must list `write`, `edit`, or `bash` |
+| `tools` | Allowlist of tools; omit it to get the read-only set (`read`, `fd`, `rg`, `lsp` without `rename`, `format`, or code-action edits, `web_fetch`, `web_search`), so an agent that edits files or runs commands must list `write`, `edit`, or `bash` |
 | `disallowed_tools` | Tools removed from the allowed set |
 
 `model` and `max_turns` in agent files are ignored; pass them from the caller
@@ -599,8 +600,8 @@ the workspace (such as a dependency a definition points into) are answered by
 an already running server, never a new one. Subagents working in their own git
 worktrees start their own servers for the worktree on first use (never
 automatically in a project that is not trusted) and shut them down when the
-subagent's round ends. A subagent without `write` or `edit` has no `rename`
-action. Like an editor, a language server
+subagent's round ends. A subagent without `write` or `edit` cannot `rename`,
+`format`, or apply code actions. Like an editor, a language server
 analyzes the project, which for some languages runs its build scripts. Set
 `tools.lsp.enabled = false` (or `rho config tools.lsp.enabled false`) to remove
 the `lsp` tool and run `read`, `edit`, and `write` without language servers.

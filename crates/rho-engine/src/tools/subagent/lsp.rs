@@ -35,35 +35,45 @@ struct ReadOnlyLsp {
 impl ReadOnlyLsp {
     fn new(inner: Arc<dyn EngineTool>) -> Self {
         let description = format!(
-            "{}\n- This agent cannot rename: that action is unavailable.",
+            "{}\n- This agent cannot rename, format, or apply code actions: those are unavailable.",
             inner.description()
         );
         Self { inner, description }
     }
 }
 
-fn without_rename(value: &mut Value) {
+fn without_writes(value: &mut Value) {
     match value {
         Value::Object(map) => {
             if let Some(Value::Object(properties)) = map.get_mut("properties") {
                 properties.remove("new_name");
+                properties.remove("apply");
             }
             for (key, child) in map.iter_mut() {
                 if matches!(key.as_str(), "enum" | "oneOf" | "anyOf")
                     && let Value::Array(items) = child
                 {
-                    items.retain(|item| !is_rename(item));
+                    items.retain(|item| !is_writing_action(item));
                 }
-                without_rename(child);
+                without_writes(child);
             }
         }
-        Value::Array(items) => items.iter_mut().for_each(without_rename),
+        Value::Array(items) => items.iter_mut().for_each(without_writes),
         _ => {}
     }
 }
 
-fn is_rename(item: &Value) -> bool {
-    item.as_str() == Some("rename") || item.get("const").and_then(Value::as_str) == Some("rename")
+fn is_writing_action(item: &Value) -> bool {
+    let name = item.as_str().or_else(|| item.get("const").and_then(Value::as_str));
+    matches!(name, Some("rename" | "format"))
+}
+
+fn writes_files(args: &LspArgs) -> bool {
+    match args.action {
+        LspAction::Rename | LspAction::Format => true,
+        LspAction::CodeActions => args.apply == Some(true),
+        _ => false,
+    }
 }
 
 #[async_trait::async_trait]
@@ -78,15 +88,15 @@ impl EngineTool for ReadOnlyLsp {
 
     fn parameters(&self) -> Value {
         let mut schema = self.inner.parameters();
-        without_rename(&mut schema);
+        without_writes(&mut schema);
         schema
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
         match parse_tool_args::<LspArgs>("lsp", args.clone(), || self.parameters()) {
-            Ok(parsed) if parsed.action == LspAction::Rename => {
-                Ok(ToolResult::error("lsp rename is not available to this agent"))
-            }
+            Ok(parsed) if writes_files(&parsed) => Ok(ToolResult::error(
+                "lsp rename, format, and applying code actions are not available to this agent",
+            )),
             Ok(_) => self.inner.execute(args).await,
             Err(invalid) => Ok(invalid),
         }
@@ -146,10 +156,24 @@ mod tests {
         let lsp = tools.iter().find(|t| t.name() == "lsp").unwrap();
         let schema = lsp.parameters().to_string();
         assert!(!schema.contains("rename") && !schema.contains("new_name"), "{schema}");
-        assert!(schema.contains("diagnostics") && schema.contains("definition"));
+        assert!(
+            !schema.contains("\"const\":\"format\"") && !schema.contains("\"apply\":"),
+            "{schema}"
+        );
+        assert!(schema.contains("diagnostics") && schema.contains("definition") && schema.contains("code_actions"));
 
         let refused = lsp.execute(rename_call()).await.unwrap();
         assert!(refused.is_error && refused.content.contains("not available"));
+        let format = json!({"action": "format", "path": "src/lib.rs"});
+        let apply = json!({"action": "code_actions", "path": "src/lib.rs", "line": 1, "apply": true, "query": "1"});
+        for call in [format, apply] {
+            let refused = lsp.execute(call).await.unwrap();
+            assert!(
+                refused.is_error && refused.content.contains("not available"),
+                "{}",
+                refused.content
+            );
+        }
         assert!(launcher.received.lock().unwrap().is_empty());
         assert!(
             std::fs::read_to_string(dir.path().join("src/lib.rs"))
