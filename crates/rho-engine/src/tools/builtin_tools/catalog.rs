@@ -11,184 +11,137 @@ use crate::tools::write::WriteArgs;
 use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, UndoArgs, WaitArgs, WorktreeArgs};
 
 pub static PROMPT_WAIT: &str = "\
-Block until background work reports back, instead of polling it.
+Block until one of your background bash jobs or subagent tasks finishes, or a user message arrives.
 
 Usage:
-- Call it after starting a background bash command or a subagent task when you need the result before you can continue. It takes no arguments.
-- It returns as soon as one background bash job or subagent task of yours finishes, with the same result notice that would otherwise arrive as a follow-up message (that notice is then not delivered again), or when a new message from the user arrives. Other jobs may still be running: call wait again if you need them too.
-- If nothing is running it returns at once. After 10 minutes it returns `Still running:` with the ids and ages of what is left; call it again or end your turn.
-- Never poll with sleep, ps, or pgrep, and do not wait when you have other work to do: continue that work, or end your turn, and results arrive on their own.";
+- Use it only when you cannot continue without the result; otherwise keep working or end your turn, and results arrive on their own.
+- It returns one finished job's result notice, which is then not delivered again; call it again for the others.
+- It returns at once when nothing is running, and after 10 minutes returns `Still running:` with what is left.";
 
 pub static PROMPT_UNDO: &str = "\
-Revert the last edit, write, or lsp change (rename, code action, format) this session's tools made to a file.
+Revert the most recent edit, write, or lsp change (rename, code action, format) this session made to a file.
 
 Usage:
-- Each call restores the file to its contents before the most recent change; call again to step further back (up to 20 changes per file). A file that write created is deleted, with any empty directories write created for it.
-- It refuses when the file changed after that change (by the user, bash, or a formatter), so it never discards changes it did not make; then read the file and edit it instead.
-- The result lists the restored regions numbered like read. Use it to back out a wrong change instead of re-editing by hand; it also undoes lsp rename, code_actions and format, file by file, but it does not undo bash commands.";
+- Call again to step further back, up to 20 changes per file. A file that write created is deleted. Bash commands are not undone.
+- It refuses when the file changed since (by the user, bash, or a formatter); then read and edit it instead.
+- The result shows the restored regions numbered like read.";
 
 pub static PROMPT_MEMORY: &str = "\
-Keep short notes that persist across sessions; saved notes are loaded into your context at the start of every later session.
+Keep short notes that are loaded into your context at the start of every later session.
 
 Usage:
-- Save only durable, non-obvious facts that would help a future session and that the code or docs do not already say: e.g. 'fidelity tests are slow; run X first', 'file Y is high risk'. Do not save task progress, obvious conventions, or anything temporary.
-- Never save secrets, credentials, tokens, or personal data.
-- scope 'project' (default) is for this workspace only; 'global' applies to every project, so use it only for facts that hold everywhere.
-- Keep each note to one short line. Each scope holds at most 50 notes (8KB); when it is full, remove stale notes first.
-- `view` lists the notes numbered per scope; `remove` takes that number as `index`. Remove a note as soon as it becomes wrong or obsolete.
-- Notes you add or remove take effect in the next session; this session's context does not change.";
+- Save only durable, non-obvious facts the code and docs do not say (e.g. 'fidelity tests are slow; run X first'). Never save task progress, temporary details, secrets, credentials, or personal data.
+- scope 'project' (default) is this workspace; 'global' is only for facts true in every project.
+- One short line per note, at most 50 notes (8KB) per scope. view numbers the notes and remove takes that number; remove a note as soon as it is wrong.
+- Changes take effect next session, not in this one.";
 
 pub static PROMPT_TODO: &str = "\
-Keep an ordered task list for multi-step work and show your progress.
+Keep an ordered task list for multi-step work; the user sees it, and it survives compaction and resume.
 
 Usage:
-- Use it for tasks with 3 or more distinct steps, or when the user gives several tasks at once. Do not use it for trivial or single-step tasks or for answering questions.
-- Each call with `todos` replaces the whole list: send every item, in order, each with one-line `content` and a `status` of pending, in_progress, or completed. Call without `todos` to see the current list.
-- Keep exactly one item in_progress while you work: mark it in_progress before starting it, and mark it completed as soon as it is done instead of batching completions. A list with two in_progress items is rejected.
-- Mark an item completed only when it is fully done and verified; if it is blocked, keep it in_progress and add an item for the blocker.
-- Add steps you discover and remove ones that no longer apply.
-- The list survives context compaction and session resume, so keep it current rather than restating the plan in prose.";
+- Use it for 3 or more distinct steps or several requested tasks, not for trivial work or questions.
+- Each call with todos replaces the whole list; call without todos to see it.
+- Keep exactly one item in_progress. Mark each item completed as soon as it is done and verified, not in batches; if blocked, keep it in_progress and add an item for the blocker.
+- Add steps you discover and remove ones that no longer apply.";
 
 pub static PROMPT_WORKTREE: &str = "\
-Review and land work that subagents and workflows did in their own git worktrees.
+Review and land the work subagents and workflows did in their own git worktrees; their changes reach your working tree only when you merge them.
 
 Usage:
-- Every subagent and workflow works in its own worktree, a separate checkout outside your working tree. Their changes reach your working tree only when you merge them.
-- `list` shows every agent worktree in this repository, oldest first, including ones from other sessions; act only on ids your own subagents or workflows reported. `diff` shows one worktree's stat summary and patch (long patches are clipped; read the files in the worktree path for the rest).
-- Review before merging: read the diff, and run checks in the worktree directory if needed.
-- `diff` and `merge` include a static review of the added code (smells, clean-code and duplication findings with file:line); it never blocks a merge and does not run tests or linters, so run those.
-- `merge` applies the changes to your working tree with a three-way merge against your current files (uncommitted edits included), then removes the worktree. Files changed on both sides get <<<<<<< conflict markers: resolve them with edit, then re-run checks.
-- `discard` deletes a worktree you do not want.
-- You own the worktrees your subagents and workflows create: merge or discard each before you finish, or tell the user why one is kept. Unmerged worktrees are deleted 24 hours after they were created.
-- To have a subagent fix its work before merging, continue its task with the subagent tool's `task_id`; it keeps working in the same worktree.";
+- list shows every agent worktree in the repository, including other sessions'; act only on ids your own subagents or workflows reported.
+- diff shows the stat summary, the patch (long patches are clipped; read the rest in the worktree path), and a static code review that does not run tests or linters, so run those in the worktree before merging.
+- merge three-way merges into your working tree, uncommitted edits included, and removes the worktree; conflicting files get <<<<<<< markers to resolve with edit.
+- Merge or discard every worktree your subagents create before you finish, or say why one is kept; unmerged worktrees are deleted after 24 hours. To get fixes first, continue the subagent with its task_id.";
 
 pub static PROMPT_LSP: &str = "\
-Query the language server for a file's language: compiler diagnostics, definitions, references, hover, implementations, symbols, and renames.
+Query the language server for a file's language: diagnostics, definitions, references, hover, implementations, symbols, renames, code actions, and formatting.
 
 Usage:
-- Name a position with path, line (1-based, as shown by read or rg), and symbol (the identifier's text on that line; its first whole-word occurrence is used). Prefer this over rg when you need the real definition or every use of a symbol, not text matches.
-- definition, type_definition, implementation, and references return locations grouped by file as `LINE:text` rows.
-- hover returns the symbol's type and documentation.
-- symbols with path returns the file's outline as `START-END kind name` rows (pass query to filter by name); with query and no path it searches symbols across the workspace.
-- diagnostics with path returns the file's current errors and warnings; without path it lists everything the running servers have reported.
-- rename changes the symbol at the position to new_name in every file and writes them; review the listed files afterwards.
-- code_actions lists the server's quick fixes and refactors for the diagnostics on path and line (symbol narrows it to that position; without line it covers the file). With apply=true and query (the number from the list, or part of its title) it applies that action's edit to every file it names, like rename. Actions that only run a server command are refused.
-- format runs the server's formatter on path and writes the file, using the .editorconfig indent when there is one.
-- status lists started servers and which configured servers are installed.
-- Servers start on first use (reading a file also starts its server in the background), so the first query can take a few seconds. If no server handles a file the error says why (not installed, no project root marker); fall back to rg and read.";
+- Name a position with path, line (1-based, as shown by read or rg), and symbol (the identifier's text on that line).
+- Locations come back grouped by file as `LINE:text` rows. symbols with path gives the file's outline; with query and no path it searches the workspace.
+- rename, format, and code_actions with apply: true write files; check the files they list. Actions that only run a server command are refused.
+- Servers start on first use, so the first query can take a few seconds. If no server handles a file the error says why; fall back to rg and read.";
 
 pub static PROMPT_READ: &str = "\
 Read a text file with line numbers, or attach an image.
 
 Usage:
-- Use read to examine files instead of cat or sed; path may be relative to the working directory or absolute.
-- Each line is prefixed with its line number and a tab; the prefix is not part of the file, so never include it in edit oldText.
-- Output is capped at 2000 lines or 50KB, whichever comes first. A trailing note ending in `Use offset=N to continue.` gives the next offset; pass it, optionally with limit, to page through large files. A single line longer than 50KB is shown cut to its first 50KB, and an empty file returns `[File is empty]`.
-- For a known region, read it with offset and limit instead of the whole file. To read one function, type, or method, pass symbol (e.g. 'parse', 'Config.load') instead of offset and limit (they cannot be combined): the file's language server finds its lines.
-- Read a file before editing it so oldText matches exactly. Reads run in parallel when every call in a response is read-only, so read independent files together.
-- Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text. Binary files return a short placeholder, and other non-UTF-8 files return an error. Use fd, not read, to list a directory.";
+- Each line starts with its number and a tab; that prefix is not file content, so never copy it into edit oldText.
+- Output stops at 2000 lines or 50KB with a `Use offset=N to continue.` note. For large files read a range with offset and limit, or one function or type with symbol.
+- Images (png, jpeg, gif, webp, bmp) are attached; other binary files return a placeholder. Use fd, not read, to list a directory.";
 
 pub static PROMPT_WRITE: &str = "\
-Create a file or completely overwrite an existing one. Parent directories are created automatically.
+Create a file or replace its entire content; parent directories are created.
 
 Usage:
-- Use write only for new files or complete rewrites; content replaces the whole file, so include everything that should remain.
-- For small or targeted changes to existing files, use edit instead.
-- Use write instead of shell redirects, heredocs, or scripts to create files.
-- When a language server handles the file, the result ends with its errors and warnings for the new content (`LSP (...)` rows of `LINE:COL severity message`).";
+- content replaces the whole file, so include everything that should remain; change existing files with edit instead.
+- When a language server handles the file, the result ends with its diagnostics.";
 
 pub static PROMPT_EDIT: &str = "\
-Edit an existing file with exact text replacements, applied in order.
+Edit an existing file with exact text replacements.
 
 Usage:
 - Each edits[] entry is one of:
-  - {oldText, newText}: oldText must match exactly once, including whitespace and indentation; keep it as small as possible while still unique.
-  - {oldText, newText, replaceAll: true}: replace every occurrence, e.g. a rename within the file.
-  - {startText, endText, newText}: replace the region from startText through the first endText after it, inclusive; startText must match exactly once. Use this to delete or rewrite a block without copying it into oldText.
-- Entries apply sequentially, so each one matches against the result of the previous entry. If any entry fails, nothing is written; fix that entry and resend all of them.
-- Put all changes to one file in one call; for changes across files, make one edit call per file in the same response.
-- If two changes touch the same lines, merge them into one entry instead of emitting overlapping edits.
-- Line endings are matched and preserved automatically; to create a new file use write.
-- The result lists each changed region of the new file numbered like read, so you can check the change without re-reading. When a language server handles the file, the result ends with its errors and warnings for the new content; fix errors you introduced, but expect transient ones while a multi-step change is half done.
-- Use edit for every change to an existing file; never sed -i, perl -pi, python or awk scripts, or shell redirects.";
+  - {oldText, newText}: oldText must match exactly once, whitespace included; keep it as small as possible while unique.
+  - {oldText, newText, replaceAll: true}: replace every occurrence, e.g. a rename.
+  - {startText, endText, newText}: replace from startText through the first endText after it, inclusive; use it to rewrite or delete a block without copying it.
+- Entries apply in order, each against the previous result. If any fails, nothing is written; fix it and resend them all.
+- Put all changes to one file in one call, merging changes to the same lines into one entry; edit other files with separate calls in the same response.
+- The result shows each changed region numbered like read, so there is no need to re-read. With a language server it also lists diagnostics: fix errors you introduced, but expect transient ones mid-change. Line endings are preserved.";
 
 pub static PROMPT_FD: &str = "\
-Find files and directories by workspace-relative path pattern.
+Find files and directories by path.
 
 Usage:
-- pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched unanchored against workspace-relative paths, not a glob; if omitted, all entries in the search root match.
-- Files and directories both match; directories end with `/`. Output starts with the total, then lists entries grouped under their parent directory (`dir/` header, one indented name per line; `./` is the root). A directory whose entries are listed appears only as their header and is not counted. The search path itself is not listed, and depth counts from it. Entries are sorted by directory, then name.
-- Output fills a 20KB page; when more remain, the last line names the exact next offset. Pass offset to page through every result, or narrow with path, pattern, type, or depth. limit caps results per page.
-- Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
-- Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. depth 2 for top-level layout.
-- Set stats: true for a table of line counts, byte sizes, and full paths; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines' or 'size', both descending, or 'path') to order results.";
+- pattern is a smart-case regex matched anywhere in the workspace-relative path, not a glob; omit it to list everything under path.
+- Results are grouped under their directory, and directories end with `/`. Ignored files are excluded; hidden: true adds dotfiles.
+- Use depth for a bounded overview (depth 2 for top-level layout) and type to filter by language. stats adds line counts and sizes; with sort and min_lines it finds large files.";
 
 pub static PROMPT_RG: &str = "\
-Search file contents with a regex and return line-oriented matches.
+Search file contents with a smart-case Rust regex (no lookaround or backreferences).
 
 Usage:
-- pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against each line; escape regex metacharacters (e.g. `\\(`, `\\.`) when searching for literal text, and use `a|b` to search several terms at once.
-- Output starts with the total (`N matches in M files`). In the default output_mode 'content', matches are grouped by file: the path on its own line, then one `LINE:text` row per match, sorted by line, with a blank line between files; pass the path and LINE to read as path and offset. Match lines are truncated at 500 characters.
-- Set context (0-10) to see lines around each match without a follow-up read: context lines print as `LINE-text` and `--` separates non-adjacent blocks. Paging still counts matches.
-- output_mode 'files' lists only the matching file paths and 'count' adds `:N` matches per file, both grouped under their parent directory; use them to survey a broad pattern before reading lines.
-- Output fills a 20KB page; when more remain, the last line names the exact next offset. Pass offset to page through every result, or narrow with path or type. limit caps results per page.
-- Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
-- Regex syntax is Rust regex: no lookaround or backreferences. Matches stay within one line unless multiline: true, which lets `\n` in the pattern span lines.
-- Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.
-- path may be a single file. Use fd instead to find files by name.";
+- Escape metacharacters for literal text (e.g. `foo\\(`); use `a|b` for several terms.
+- Matches print as `LINE:text` rows under each file path; pass them to read as path and offset. context adds surrounding lines; output_mode 'files' or 'count' surveys broad patterns cheaply.
+- Matches stay within one line unless multiline: true.
+- Ignored files, binary files, and files over 1 MB are skipped; hidden: true adds dotfiles. path may be a single file; use fd to find files by name.";
 
 pub static PROMPT_BASH: &str = "\
 Execute a bash command in the working directory and return combined stdout and stderr.
 
 Usage:
-- Commands run directly in the working directory; do not prefix commands with cd. Each call is a fresh, non-interactive shell: environment changes do not persist, stdin is closed, pagers and git prompts are disabled, and CI=true is set.
-- Use fd for file discovery, rg for content search; use bash for git actions, cargo builds, tests, and linters.
-- Never read files with cat, sed, or awk, and never create or modify files with bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, tee, mv over a file); use read, edit, and write. Project formatters and generators (cargo fmt, make) are fine.
-- timeout is in seconds (default 30). A command that exceeds it is NOT killed: it moves to a background job and its output arrives later as a follow-up message. Set background: false to kill it on timeout instead.
-- Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep: call wait to block until it finishes, or end your turn. Background jobs are killed after 1 hour.
-- Non-zero exit codes return an error result ending in `[exit N]`. Successful output over 50 lines shows only the first 10 and last 15 lines, and long or truncated output ends with `log: PATH`, the full output file to search with rg or page with read. When clipped output has failing tests (cargo test, nextest, pytest, go test, Jest, Vitest), a `[N failing tests; details from log]` section above the last line lists each with its key failure lines. Filter output with rg, head, or tail instead of dumping everything.";
+- Each call is a fresh non-interactive shell already in the working directory, so do not cd: environment changes do not persist, stdin is closed, pagers and git prompts are disabled, and CI=true.
+- Use it for git, builds, tests, and linters, not for reading or editing files.
+- A command that exceeds timeout (default 30s) is not killed: it moves to the background and its output arrives later as a message. background: true does that immediately; false kills it on timeout. Background jobs are killed after 1 hour.
+- Never poll with sleep, ps, or pgrep: keep working, call wait, or end your turn.
+- Failures end with `[exit N]`. Long output is clipped to its head and tail and ends with `log: PATH` (search it with rg or page it with read), plus a summary of failing tests when it finds any. Pipe noisy commands through rg, head, or tail.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
-Search the web and return structured summaries and URLs.
+Search the web and return titles, URLs, and snippets.
 
 Usage:
-- Prefer web_search for finding public documentation, repositories, package releases, and technical references; then open the best results with web_fetch, since snippets alone are rarely authoritative.
-- Returns concise result summaries with title, URL, and snippet (default 5 results, max 20; raise limit for broader surveys).
-- Use recency ('day', 'week', 'month', 'year') to filter results by freshness; factor in today's date when asking about latest versions.
-- Use domains to limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com']).
-- Prefer primary sources (official docs, release notes, upstream repositories).";
+- Snippets are rarely authoritative: open the best results with web_fetch, preferring primary sources (official docs, release notes, upstream repositories).
+- For recent events or latest versions, set recency and account for today's date.";
 
 pub static PROMPT_WEB_FETCH: &str = "\
-Fetch HTML, JSON, Markdown, text, CSV, XML, or PDF content from a URL and return clean text.
+Fetch a URL and return its content as clean text (HTML, JSON, Markdown, text, CSV, XML, or PDF).
 
 Usage:
-- Extracts clean markdown/text without navigation bloat or HTML tags; the format is detected automatically, and format overrides it when detection is wrong.
-- Output is paginated by lines (default limit 200): pass offset to read further pages of long documents.
-- mode 'auto' (default) extracts the main article content when the page has a clear one and falls back to the full page; 'main' requires main content and errors when there is none; use mode: 'full' when navigation, sidebars, or other page chrome are needed.
-- JavaScript is not executed: pages that render client-side return an error saying so. Private network addresses are blocked unless configured.
-- Use it on URLs from the user or from web_search results; for local files use read.
-- Responses are cached briefly, so paging with offset or refetching the same URL is cheap.";
+- Output is paged by lines; pass offset to continue. Responses are cached briefly, so paging is cheap.
+- JavaScript is not executed: client-rendered pages return an error. Private network addresses are blocked unless configured.
+- Use it on URLs from the user or web_search; use read for local files.";
 
 pub static PROMPT_SUBAGENT: &str = "\
-Spawn a specialized subagent in an isolated context to perform focused research, code review, or planning.
+Run a subagent in an isolated context for focused research, review, planning, or self-contained work.
 
 Usage:
-- Use role 'scout' for read-only codebase exploration, searching files, and locating symbols without polluting parent context.
-- Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
-- Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
-- Use role 'general' for self-contained multi-step tasks.
-- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, lsp, web_fetch, web_search; critic and planner have read, fd, rg, lsp; general has all of those plus write, edit, undo, bash, and todo (lsp has no rename unless the agent can write). Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
-- In a git repository each subagent works in its own worktree, a snapshot of your working tree including uncommitted edits. Its changes do not appear in your files until you review and merge them with the worktree tool.
-- Subagents start with no memory of your conversation, so put everything they need in `prompt` or `context_slice`. `inherit_context` shares only the last 20 text messages, each clipped to 1,500 characters.
-- Subagent calls in the same response run in parallel: all of them in a git repository, where each has its own worktree, otherwise only new read-only ones (scout, critic, planner). Parallel subagents still share the machine (ports, installed dependencies, build caches), so give them non-conflicting commands, and give two subagents disjoint files to avoid merge conflicts.
-- Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'); without one they use the role or agent's model configured by the user, else 'smol' when it is configured, otherwise the session model. They return a concise summary to the parent.
-- A subagent runs in the background: the call returns its task id at once and its result arrives later as a follow-up message; your turn waits for it before ending. Call wait only when you cannot continue without the result; otherwise continue the parts of the task that do not depend on it, and do not inspect that task until its result arrives. To redirect a running subagent, call subagent with its `task_id` and a `prompt` (optionally `context_slice`): the message is queued and reaches it before its next model call. Omit `model` and `turns`, which cannot change mid-round.
-- Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, its task id, and its result.
-- Each result ends with a task id and state. Treat the answer as a claim, not proof: before accepting, review its changes (worktree diff) and re-run the relevant checks yourself. If something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
-- Results list 'Files changed' (its write/edit calls), 'Also changed in the workspace' (bash, formatters, other agents), and 'Tool outcomes' (errors and permission denials). A footer with 'failed tool calls' means part of the work may not have happened even if the answer says it did.
-- Pass `inspect: true` without `task_id` to list the session's subagent tasks (use it to recover task ids after compaction); with a `task_id` it shows that task's messages, final answer, every tool call with its outcome, and its files, without running it.
-- State 'input-required' means the subagent is waiting: it asked you a question ('Question for you: ...') or stopped early (turn limit or no final answer) with a summary. Reply with the same `task_id` and your answer or 'continue'. Do not redo its work yourself.
-- State 'failed' may still report findings and 'Files changed'; build on them or send the `task_id` follow-up instead of starting over.";
+- Roles: 'scout' (default) explores read-only with read, fd, rg, lsp, web_fetch, and web_search; 'critic' reviews adversarially and 'planner' plans, both with read, fd, rg, and lsp; 'general' adds write, edit, undo, bash, todo, and wait and is the only role that changes files. Tools are limited to those enabled in this session.
+- Subagents do not see your conversation: give the goal, relevant paths, constraints, and expected output in prompt or context_slice. inherit_context shares only the last 20 text messages, clipped.
+- Always pass name, a short camelCase label (e.g. 'performanceAudit').
+- In a git repository each subagent works in its own worktree, a snapshot of your working tree; its changes reach your files only when you merge them with the worktree tool. Calls in one response run in parallel (outside a git repository only read-only roles do); give parallel subagents disjoint files and non-conflicting commands.
+- The call returns a task id at once and the result arrives later as a message; your turn waits for it. Keep working meanwhile and call wait only when blocked on it. To steer a running subagent, call again with its task_id and a prompt.
+- Treat a result as a claim: review its changes and rerun checks yourself; a 'failed tool calls' footer means work may be missing. To fix, continue, or answer its question, call again with the same task_id; it keeps its history. Do not redo its work yourself.
+- inspect: true lists your subagent tasks, or with task_id shows one task's full record; use it to recover task ids after compaction.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {

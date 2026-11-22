@@ -41,18 +41,17 @@ fn dynamic_tools_omits_unregistered_guidelines() {
         &assembled,
         &[
             "Use read to examine files instead of cat or sed",
-            "Use fd for file discovery",
+            "Use fd to find files",
         ],
     );
     assert_contains_none(
         &assembled,
         &[
-            "Use edit for precise changes",
+            "Use edit for every change",
             "Use write only for new files",
-            "Commands run directly in the working directory",
-            "Never use bash for file inspection",
+            "Never create or modify files through bash",
             "Never use bash when a specialized tool or MCP tool exists",
-            "Use rg for content search",
+            "Use rg to search file contents",
         ],
     );
 }
@@ -83,14 +82,8 @@ fn bash_fallback_guideline_when_search_tools_absent() {
     let shell_tools = vec!["bash".to_string(), "read".to_string()];
     let assembled = assemble_base_system_prompt(&shell_tools);
 
-    assert_contains_all(
-        &assembled,
-        &[
-            "Use bash for file operations like ls, rg, find",
-            "Commands run directly in the working directory",
-        ],
-    );
-    assert_contains_none(&assembled, &["Use fd for file discovery"]);
+    assert_contains_all(&assembled, &["Use bash for file operations like ls, rg, find"]);
+    assert_contains_none(&assembled, &["Use fd to find files"]);
 }
 
 #[test]
