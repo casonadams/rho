@@ -118,14 +118,18 @@ impl AgentEngineBuilder {
 /// Subagent model roles; a spec without a provider uses the session's provider.
 fn subagent_model_resolver(router: &ModelRouter, config: &Config) -> crate::tools::subagent::SubagentModelResolver {
     let router = router.clone();
-    let config = Config {
-        cache_retention: config.cache_retention.for_short_lived_work(),
-        ..config.clone()
-    };
+    let config = short_lived_config(config);
     Arc::new(move |spec: &str| {
         let route = ModelRoute::parse(spec, None, &config.route().connection.to_string());
         router.build_blocking(&config, &route).map_err(|e| e.to_string())
     })
+}
+
+fn short_lived_config(config: &Config) -> Config {
+    Config {
+        cache_retention: config.cache_retention.for_short_lived_work(),
+        ..config.clone()
+    }
 }
 
 struct SubagentModels<'a> {
@@ -196,6 +200,16 @@ impl AgentEngineBuilder {
         Ok(session_manager)
     }
 
+    /// The session model built with short-lived cache retention for subagents that run on it; `None`
+    /// when the model was supplied directly or none is selected.
+    async fn resolve_subagent_default(&self, router: &ModelRouter) -> Result<Option<ModelHandle>> {
+        if self.model.is_some() || self.config.model.trim().is_empty() {
+            return Ok(None);
+        }
+        let config = short_lived_config(&self.config);
+        router.build(&config, &config.route()).await.map(Some)
+    }
+
     /// `None` until a model is selected: an empty `config.model` means none was chosen or saved.
     async fn resolve_model(&mut self, router: &ModelRouter) -> Result<Option<ModelHandle>> {
         if let Some(m) = self.model.take() {
@@ -257,6 +271,7 @@ impl AgentEngineBuilder {
         let session_manager = self.resolve_session().await?;
         let shared_auth = Arc::new(tokio::sync::Mutex::new(self.auth_store.clone()));
         let router = ModelRouter::new(shared_auth, self.model_catalog.clone());
+        let subagent_default = self.resolve_subagent_default(&router).await?;
         let model = self.resolve_model(&router).await?;
 
         let history_messages = session_manager.active_messages().await.unwrap_or_default();
@@ -266,7 +281,7 @@ impl AgentEngineBuilder {
             &base_dir,
             &self.config,
             SubagentModels {
-                default: model.as_ref(),
+                default: subagent_default.as_ref().or(model.as_ref()),
                 resolver: subagent_model_resolver(&router, &self.config),
                 runtime: &self.subagent_runtime,
             },
@@ -329,5 +344,28 @@ mod tests {
             .to_string();
         assert!(error.contains("No model selected"), "{error}");
         assert!(engine.session_manager.active_messages().await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn subagents_get_short_retention_only_under_auto() {
+        use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
+        for (configured, expected) in [(Auto, Short), (Short, Short), (Long, Long)] {
+            let config = Config {
+                cache_retention: configured,
+                ..Config::default()
+            };
+            assert_eq!(short_lived_config(&config).cache_retention, expected, "{configured}");
+        }
+    }
+
+    #[tokio::test]
+    async fn subagent_default_model_needs_a_selected_config_model() {
+        let (_auth_dir, store) = temp_auth_store();
+        let router = ModelRouter::new(
+            Arc::new(tokio::sync::Mutex::new(store.clone())),
+            crate::provider::ModelCatalog::default(),
+        );
+        let builder = AgentEngineBuilder::new(Config::default(), store);
+        assert!(builder.resolve_subagent_default(&router).await.unwrap().is_none());
     }
 }
