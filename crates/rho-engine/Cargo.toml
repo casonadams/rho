@@ -43,6 +43,7 @@ ignore = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 memchr = "2"
+similar.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 

@@ -1,5 +1,6 @@
 pub mod matching;
 pub mod normalize;
+pub mod preview;
 #[cfg(test)]
 mod tests;
 
@@ -74,18 +75,32 @@ fn apply_all_edits(content: &str, edits: &[EditReplacement]) -> std::result::Res
     Ok((current, line_numbers))
 }
 
-async fn write_edit_result(
-    path: &Path,
-    clean_path: &str,
-    content: String,
+struct EditOutcome<'a> {
+    clean_path: &'a str,
+    before: &'a str,
+    after: String,
     line_numbers: Vec<usize>,
     count: usize,
-) -> Result<ToolResult, AppError> {
-    match atomic_write(path, content.as_bytes()).await {
-        Ok(_) => Ok(
-            ToolResult::success(format!("Successfully applied {count} replacement(s) to {clean_path}"))
-                .with_metadata(serde_json::json!({ "line_numbers": line_numbers })),
-        ),
+}
+
+async fn write_edit_result(path: &Path, outcome: EditOutcome<'_>) -> Result<ToolResult, AppError> {
+    let EditOutcome {
+        clean_path,
+        before,
+        after,
+        line_numbers,
+        count,
+    } = outcome;
+    match atomic_write(path, after.as_bytes()).await {
+        Ok(_) => {
+            let regions = preview::changed_regions(before, &after);
+            let mut message = format!("Successfully applied {count} replacement(s) to {clean_path}");
+            if !regions.is_empty() {
+                message.push('\n');
+                message.push_str(&regions);
+            }
+            Ok(ToolResult::success(message).with_metadata(serde_json::json!({ "line_numbers": line_numbers })))
+        }
         Err(e) => Ok(ToolResult::error(format!(
             "Failed to write updated file {clean_path}: {e}"
         ))),
@@ -122,7 +137,17 @@ impl EditTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        write_edit_result(&path, clean_path, updated, lines, args.edits.len()).await
+        write_edit_result(
+            &path,
+            EditOutcome {
+                clean_path,
+                before: &content,
+                after: updated,
+                line_numbers: lines,
+                count: args.edits.len(),
+            },
+        )
+        .await
     }
 }
 

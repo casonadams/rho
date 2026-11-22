@@ -156,6 +156,53 @@ async fn region_and_replace_all_edits_apply_in_order() {
 }
 
 #[tokio::test]
+async fn result_shows_each_changed_region_with_line_numbers() {
+    let dir = fixture("preview");
+    let file = dir.path().join("lib.rs");
+    let body: String = (1..=20).map(|n| format!("line {n}\n")).collect();
+    tokio::fs::write(&file, &body).await.unwrap();
+    let args: EditArgs = serde_json::from_value(serde_json::json!({
+        "path": file.to_str().unwrap(),
+        "edits": [
+            { "oldText": "line 3\n", "newText": "three\nthree b\n" },
+            { "oldText": "line 15\n", "newText": "" }
+        ]
+    }))
+    .unwrap();
+
+    let res = EditTool::new(dir.path()).execute(args).await.unwrap();
+
+    let path = file.to_str().unwrap();
+    assert_eq!(
+        res.content,
+        format!(
+            "Successfully applied 2 replacement(s) to {path}\n@@ 2-5\n2\tline 2\n3\tthree\n4\tthree b\n5\tline 4\n@@ 15-16\n15\tline 14\n16\tline 16"
+        )
+    );
+}
+
+#[test]
+fn preview_caps_the_lines_it_shows() {
+    let before: String = (0..200).map(|n| format!("{n}\n")).collect();
+    let after: String = (0..200)
+        .map(|n| {
+            if n % 5 == 0 {
+                format!("x{n}\n")
+            } else {
+                format!("{n}\n")
+            }
+        })
+        .collect();
+    let preview = preview::changed_regions(&before, &after);
+    let numbered = preview.lines().filter(|line| line.contains('\t')).count();
+    assert!(numbered <= preview::PREVIEW_MAX_LINES, "{preview}");
+    assert!(
+        preview.ends_with("more lines in other changed regions; read the file to see them]"),
+        "{preview}"
+    );
+}
+
+#[tokio::test]
 async fn test_edit_rejects_directory() {
     let dir = fixture("dir");
     let sub = dir.path().join("subdir");
