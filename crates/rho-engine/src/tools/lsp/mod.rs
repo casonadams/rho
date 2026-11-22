@@ -272,9 +272,8 @@ impl LspTool {
         } else {
             format!("Started:\n{}", running.join("\n"))
         };
-        let (installed, missing): (Vec<_>, Vec<_>) = self
-            .manager
-            .servers()
+        let servers = self.manager.servers();
+        let (installed, missing): (Vec<_>, Vec<_>) = servers
             .iter()
             .partition(|server| self.manager.is_installed(server));
         let installed: Vec<String> = installed

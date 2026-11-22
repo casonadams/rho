@@ -229,7 +229,7 @@ async fn silent_servers_report_that_diagnostics_are_not_ready() {
         .unwrap();
     assert_eq!(
         report,
-        "LSP: no diagnostics yet\n[fake has not reported diagnostics yet]"
+        "LSP: no diagnostics yet\n[fake has not reported diagnostics yet; run lsp diagnostics path=src/lib.rs in a moment]"
     );
 }
 
@@ -256,7 +256,7 @@ async fn busy_servers_say_so_instead_of_reporting_clean_or_empty_results() {
         .unwrap();
     assert_eq!(
         report,
-        "LSP so far: no errors or warnings\n[fake is still busy (Indexing); more diagnostics may follow]"
+        "LSP so far: no errors or warnings\n[fake is still busy (Indexing); run lsp diagnostics path=src/lib.rs in a moment for the rest]"
     );
 }
 

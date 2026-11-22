@@ -106,11 +106,12 @@ impl ClientState {
         self.published().get(uri).map_or(0, |p| p.seq)
     }
 
-    /// The latest diagnostics for `uri` published after sequence number `after`.
-    pub(super) fn latest_after(&self, uri: &str, after: u64) -> Option<Vec<Diagnostic>> {
+    /// The latest diagnostics for `uri` published after sequence number `after`, unless they are
+    /// for a document version older than `version`.
+    pub(super) fn latest_after(&self, uri: &str, after: u64, version: i64) -> Option<Vec<Diagnostic>> {
         self.published()
             .get(uri)
-            .filter(|p| p.seq > after)
+            .filter(|p| p.seq > after && p.version.is_none_or(|v| v >= version))
             .map(|p| p.items.clone())
     }
 
@@ -320,6 +321,6 @@ mod tests {
             json!({ "uri": "file:///ws/node_modules/%40scope/a.ts", "diagnostics": [diagnostic] }),
         );
         let ours = super::super::client::file_uri(Path::new("/ws/node_modules/@scope/a.ts"));
-        assert_eq!(state.latest_after(&ours, 0).map(|items| items.len()), Some(1));
+        assert_eq!(state.latest_after(&ours, 0, 1).map(|items| items.len()), Some(1));
     }
 }

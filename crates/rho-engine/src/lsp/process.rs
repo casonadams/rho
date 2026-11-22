@@ -49,9 +49,28 @@ pub trait Launcher: Send + Sync {
 
 pub struct ProcessLauncher;
 
+/// Whether an inherited variable looks like a credential a language server has no use for.
+fn is_secret_var(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    const SUFFIXES: &[&str] = &["_API_KEY", "_TOKEN", "_SECRET"];
+    const PREFIXES: &[&str] = &["ANTHROPIC_", "OPENAI_", "GEMINI_", "GOOGLE_API", "AWS_SECRET"];
+    name == "API_KEY"
+        || SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
+        || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+}
+
+fn scrub_secrets(cmd: &mut tokio::process::Command) {
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(is_secret_var) {
+            cmd.env_remove(name);
+        }
+    }
+}
+
 impl Launcher for ProcessLauncher {
     fn launch(&self, server: &ServerConfig, command: &Path, root: &Path) -> Result<Launched, String> {
         let mut cmd = tokio::process::Command::new(command);
+        scrub_secrets(&mut cmd);
         cmd.args(&server.args)
             .current_dir(root)
             .envs(&server.env)
@@ -87,6 +106,27 @@ impl Launcher for ProcessLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_variables_are_recognized_and_ordinary_ones_kept() {
+        for secret in [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_BASE_URL",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "GITHUB_TOKEN",
+            "client_secret",
+            "BRAVE_API_KEY",
+            "API_KEY",
+        ] {
+            assert!(is_secret_var(secret), "{secret}");
+        }
+        for ordinary in ["PATH", "HOME", "RUSTUP_HOME", "LANG", "TERM", "GOPATH", "AWS_REGION", "KEYBOARD"] {
+            assert!(!is_secret_var(ordinary), "{ordinary}");
+        }
+    }
 
     #[test]
     fn stderr_tail_keeps_the_last_lines_within_its_budget() {

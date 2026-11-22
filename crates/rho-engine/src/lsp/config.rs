@@ -270,6 +270,16 @@ pub fn read_layer(path: &Path) -> Result<Map<String, Value>, String> {
 pub struct ServerSet {
     pub servers: Vec<ServerConfig>,
     pub notice: Option<String>,
+    /// The top-level `idleTimeoutMs` of the last applied file that sets it; 0 never stops idle servers.
+    pub idle_timeout_ms: Option<u64>,
+}
+
+/// The user's `lsp.json` (when there is a home), then the project's two files.
+pub fn layer_paths(home: Option<&Path>, workspace: &Path) -> Vec<PathBuf> {
+    home.map(|home| home.join(".agents").join("lsp.json"))
+        .into_iter()
+        .chain([workspace.join(".lsp.json"), workspace.join(".agents").join("lsp.json")])
+        .collect()
 }
 
 /// Built-in servers, then `~/.agents/lsp.json`, then the project's `.lsp.json` and
@@ -296,6 +306,7 @@ pub fn load_servers(home: Option<&Path>, workspace: &Path, trust_project: bool) 
         return Ok(ServerSet {
             servers: Vec::new(),
             notice: Some("language servers are turned off (\"enabled\": false in lsp.json)".into()),
+            idle_timeout_ms: None,
         });
     }
     let notice = (!ignored.is_empty()).then(|| {
@@ -304,9 +315,14 @@ pub fn load_servers(home: Option<&Path>, workspace: &Path, trust_project: bool) 
             ignored.join(" and ")
         )
     });
+    let idle_timeout_ms = layers
+        .iter()
+        .rev()
+        .find_map(|layer| layer.get("idleTimeoutMs")?.as_u64());
     Ok(ServerSet {
         servers: resolve_servers(layers)?,
         notice,
+        idle_timeout_ms,
     })
 }
 

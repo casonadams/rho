@@ -5,8 +5,8 @@ pub use super::state::{ClientState, Diagnostic};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -18,6 +18,12 @@ pub const DIAGNOSTICS_SETTLE: Duration = Duration::from_millis(250);
 pub const STARTUP_GRACE: Duration = Duration::from_millis(500);
 /// How long to wait for work a change starts on its own (e.g. a check run on save) to show up.
 pub const FOLLOW_UP_GRACE: Duration = Duration::from_millis(200);
+/// How long a server gets to answer `shutdown` before it is dropped without ceremony.
+pub const SHUTDOWN_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a server gets to exit after `exit` before its process is killed.
+pub const EXIT_WAIT: Duration = Duration::from_millis(500);
+/// Documents held open per server; opening more closes the least recently used.
+pub const MAX_OPEN_DOCUMENTS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PositionEncoding {
@@ -36,6 +42,35 @@ pub fn uri_path(uri: &str) -> Option<PathBuf> {
 struct OpenDocument {
     version: i64,
     text: String,
+    /// The diagnostics sequence number before the last change, so unchanged text still accepts
+    /// the publishes that followed that change and nothing older.
+    baseline: u64,
+    used: u64,
+}
+
+#[derive(Default)]
+struct Documents {
+    open: HashMap<String, OpenDocument>,
+    clock: u64,
+}
+
+impl Documents {
+    fn tick(&mut self) -> u64 {
+        self.clock += 1;
+        self.clock
+    }
+
+    /// The least recently used document other than `keep`, once more than the cap are open.
+    fn evict_candidate(&self, keep: &str) -> Option<String> {
+        if self.open.len() <= MAX_OPEN_DOCUMENTS {
+            return None;
+        }
+        self.open
+            .iter()
+            .filter(|(uri, _)| uri.as_str() != keep)
+            .min_by_key(|(_, doc)| doc.used)
+            .map(|(uri, _)| uri.clone())
+    }
 }
 
 /// What a sync sent: the document version, and the diagnostics sequence number before it, so a
@@ -62,9 +97,10 @@ pub struct LspClient {
     state: Arc<ClientState>,
     capabilities: Value,
     encoding: PositionEncoding,
-    documents: tokio::sync::Mutex<HashMap<String, OpenDocument>>,
+    documents: tokio::sync::Mutex<Documents>,
     started: Instant,
-    _process: Option<Box<dyn Send + Sync>>,
+    last_used: Mutex<Instant>,
+    process: Mutex<Option<Box<dyn Send + Sync>>>,
 }
 
 pub struct ClientSpec<'a> {
@@ -138,10 +174,39 @@ impl LspClient {
             state,
             capabilities,
             encoding,
-            documents: tokio::sync::Mutex::new(HashMap::new()),
+            documents: tokio::sync::Mutex::new(Documents::default()),
             started: Instant::now(),
-            _process: process,
+            last_used: Mutex::new(Instant::now()),
+            process: Mutex::new(process),
         })
+    }
+
+    pub(super) fn touch(&self) {
+        *self.last_used.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+    }
+
+    /// How long since anything last used this server.
+    pub fn idle_for(&self) -> Duration {
+        self.last_used
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .elapsed()
+    }
+
+    /// Asks the server to shut down and exit, then kills whatever is left of its process.
+    pub async fn shutdown(&self) {
+        if self.is_alive() {
+            let _ = self
+                .connection
+                .request("shutdown", Value::Null, SHUTDOWN_REQUEST_TIMEOUT)
+                .await;
+            let _ = self.connection.notify("exit", Value::Null);
+            let deadline = Instant::now() + EXIT_WAIT;
+            while self.is_alive() && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+        drop(self.process.lock().unwrap_or_else(PoisonError::into_inner).take());
     }
 
     pub fn encoding(&self) -> PositionEncoding {
@@ -163,6 +228,7 @@ impl LspClient {
     }
 
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
+        self.touch();
         self.connection.request(method, params, REQUEST_TIMEOUT).await
     }
 
@@ -189,35 +255,57 @@ impl LspClient {
         }
     }
 
-    /// Brings every open document up to date with disk, before a request whose answer spans files.
+    /// Brings every open document up to date with disk, before a request whose answer spans files;
+    /// a document whose file is gone or unreadable is closed.
     pub async fn sync_open_documents_from_disk(&self) -> Result<(), String> {
-        let uris: Vec<String> = self.documents.lock().await.keys().cloned().collect();
+        let uris: Vec<String> = self.documents.lock().await.open.keys().cloned().collect();
         for uri in uris {
-            let Some(path) = uri_path(&uri) else {
-                continue;
+            let path = uri_path(&uri);
+            let text = match &path {
+                Some(path) => tokio::fs::read_to_string(path).await.ok(),
+                None => None,
             };
-            if let Ok(text) = tokio::fs::read_to_string(&path).await {
-                self.sync(&path, &text, "").await?;
+            match (path, text) {
+                (Some(path), Some(text)) => drop(self.sync(&path, &text, "").await?),
+                _ => self.close_uri(&uri).await?,
             }
         }
         Ok(())
     }
 
+    /// Tells the server the document is closed; a document that is not open is left alone.
+    pub async fn close_document(&self, path: &Path) -> Result<(), String> {
+        self.close_uri(&file_uri(path)).await
+    }
+
+    async fn close_uri(&self, uri: &str) -> Result<(), String> {
+        if self.documents.lock().await.open.remove(uri).is_none() {
+            return Ok(());
+        }
+        self.connection
+            .notify("textDocument/didClose", json!({ "textDocument": { "uri": uri } }))
+    }
+
     /// Sends `text` as the document's full content: `didOpen` the first time, `didChange` after.
     pub async fn sync(&self, path: &Path, text: &str, language_id: &str) -> Result<Synced, String> {
+        self.touch();
         let uri = file_uri(path);
         let mut documents = self.documents.lock().await;
+        let used = documents.tick();
         let baseline = self.state.seq_for(&uri);
-        let (method, params, version) = match documents.get_mut(&uri) {
+        let (method, params, version) = match documents.open.get_mut(&uri) {
             Some(open) if open.text == text => {
+                open.used = used;
                 return Ok(Synced {
                     version: open.version,
-                    baseline: 0,
+                    baseline: open.baseline,
                 });
             }
             Some(open) => {
                 open.version += 1;
                 open.text = text.to_string();
+                open.baseline = baseline;
+                open.used = used;
                 let params = json!({
                     "textDocument": { "uri": uri, "version": open.version },
                     "contentChanges": [{ "text": text }],
@@ -225,13 +313,13 @@ impl LspClient {
                 ("textDocument/didChange", params, open.version)
             }
             None => {
-                documents.insert(
-                    uri.clone(),
-                    OpenDocument {
-                        version: 1,
-                        text: text.to_string(),
-                    },
-                );
+                let open = OpenDocument {
+                    version: 1,
+                    text: text.to_string(),
+                    baseline,
+                    used,
+                };
+                documents.open.insert(uri.clone(), open);
                 let params = json!({
                     "textDocument": { "uri": uri, "languageId": language_id, "version": 1, "text": text },
                 });
@@ -239,10 +327,16 @@ impl LspClient {
             }
         };
         self.connection.notify(method, params)?;
+        if let Some(stale) = documents.evict_candidate(&uri) {
+            documents.open.remove(&stale);
+            self.connection
+                .notify("textDocument/didClose", json!({ "textDocument": { "uri": stale } }))?;
+        }
         Ok(Synced { version, baseline })
     }
 
     pub async fn did_save(&self, path: &Path, text: &str) -> Result<(), String> {
+        self.touch();
         let params = json!({ "textDocument": { "uri": file_uri(path) }, "text": text });
         self.connection.notify("textDocument/didSave", params)
     }
@@ -266,6 +360,7 @@ impl LspClient {
     /// Diagnostics for `path` as of `synced`, within `wait`; also waits out work the change started
     /// (such as a check on save), which publishes more diagnostics for the file.
     pub async fn diagnostics(&self, path: &Path, synced: Synced, wait: Duration) -> DiagnosticsOutcome {
+        self.touch();
         let deadline = Instant::now() + wait;
         let uri = file_uri(path);
         let pulled = match self.pulls_diagnostics() {
@@ -282,7 +377,7 @@ impl LspClient {
         let idle = self.wait_until_idle(deadline).await;
         let latest = match pulled {
             Some(items) => Some(items),
-            None => self.state.latest_after(&uri, synced.baseline).or(first),
+            None => self.state.latest_after(&uri, synced.baseline, synced.version).or(first),
         };
         match (latest, idle) {
             (Some(items), Ok(())) => DiagnosticsOutcome::Ready(items),
@@ -328,3 +423,6 @@ enum PushState {
     SettlesAt(Instant),
     Waiting,
 }
+
+#[cfg(test)]
+mod tests;

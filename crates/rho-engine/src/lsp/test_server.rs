@@ -25,6 +25,20 @@ pub struct FakeOptions {
     pub fail: bool,
     /// Exit when a document changes.
     pub exit_on_change: bool,
+    /// Offer UTF-8 positions.
+    pub utf8: bool,
+    /// Register pull diagnostics dynamically instead of advertising them.
+    pub dynamic_pull: bool,
+    /// Advertise pull diagnostics but answer every pull with an error, and publish instead.
+    pub pull_fails: bool,
+    /// Publish diagnostics for the version before the one just received.
+    pub stale_version: bool,
+    /// Ask the client for its `fake.opt` configuration after startup.
+    pub ask_configuration: bool,
+    /// Never answer a request other than `initialize`.
+    pub unresponsive: bool,
+    /// Never answer `initialize`.
+    pub hang_init: bool,
 }
 
 #[derive(Default)]
@@ -32,31 +46,48 @@ pub struct FakeLauncher {
     pub options: FakeOptions,
     pub launches: AtomicUsize,
     pub received: Arc<Mutex<Vec<String>>>,
+    /// The results of the requests the server sent the client.
+    pub responses: Arc<Mutex<Vec<Value>>>,
 }
 
-/// A manager whose only server is the fake one, for `.rs` files under a `Cargo.toml`.
-pub fn fake_manager(workspace: &Path, options: FakeOptions) -> (Arc<LspManager>, Arc<FakeLauncher>) {
-    let launcher = Arc::new(FakeLauncher {
-        options,
-        ..FakeLauncher::default()
-    });
+/// The fake server's configuration: `.rs` files under a `Cargo.toml`.
+pub fn fake_server(name: &str, linter: bool) -> ServerConfig {
     let command = std::env::current_exe().unwrap();
     let mut server: ServerConfig = serde_json::from_value(json!({
         "command": command,
         "extensions": ["rs"],
         "rootMarkers": ["Cargo.toml"],
+        "linter": linter,
     }))
     .unwrap();
-    server.name = "fake".into();
+    server.name = name.into();
+    server
+}
+
+/// A trusting manager whose only server is the fake one.
+pub fn fake_manager(workspace: &Path, options: FakeOptions) -> (Arc<LspManager>, Arc<FakeLauncher>) {
+    fake_manager_with(workspace, options, vec![fake_server("fake", false)])
+}
+
+pub fn fake_manager_with(
+    workspace: &Path,
+    options: FakeOptions,
+    servers: Vec<ServerConfig>,
+) -> (Arc<LspManager>, Arc<FakeLauncher>) {
+    let launcher = Arc::new(FakeLauncher {
+        options,
+        ..FakeLauncher::default()
+    });
     let manager = LspManager::new(
         workspace,
         Ok(crate::lsp::config::ServerSet {
-            servers: vec![server],
-            notice: None,
+            servers,
+            ..Default::default()
         }),
         None,
         Arc::clone(&launcher) as Arc<dyn Launcher>,
-    );
+    )
+    .with_trust(true);
     (Arc::new(manager), launcher)
 }
 
@@ -73,6 +104,7 @@ impl Launcher for FakeLauncher {
             options: self.options,
             docs: HashMap::new(),
             received: Arc::clone(&self.received),
+            responses: Arc::clone(&self.responses),
         };
         tokio::spawn(server.run(Box::new(server_read), Box::new(server_write)));
         Ok(Launched {
@@ -88,6 +120,7 @@ struct FakeServer {
     options: FakeOptions,
     docs: HashMap<String, (i64, String)>,
     received: Arc<Mutex<Vec<String>>>,
+    responses: Arc<Mutex<Vec<Value>>>,
 }
 
 fn word_at(text: &str, line: u64, character: u64) -> String {
@@ -155,9 +188,25 @@ impl FakeServer {
         let mut reader = BufReader::new(reader);
         while let Ok(Some(message)) = read_message(&mut reader).await {
             let method = message.get("method").and_then(Value::as_str).unwrap_or("").to_string();
+            if method.is_empty() {
+                self.responses
+                    .lock()
+                    .unwrap()
+                    .push(message.get("result").cloned().unwrap_or(Value::Null));
+                continue;
+            }
             self.received.lock().unwrap().push(method.clone());
             if method == "textDocument/didChange" && self.options.exit_on_change {
                 return;
+            }
+            if let Some(id) = message.get("id")
+                && let Some(error) = self.refusal(&method)
+            {
+                let _ = write_message(&mut writer, &json!({ "jsonrpc": "2.0", "id": id, "error": error })).await;
+                continue;
+            }
+            if message.get("id").is_some() && self.ignores(&method) {
+                continue;
             }
             let params = message.get("params").cloned().unwrap_or(Value::Null);
             let outgoing = self.handle(&method, &params);
@@ -171,6 +220,20 @@ impl FakeServer {
             if method == "exit" {
                 return;
             }
+        }
+    }
+
+    /// An error to answer `method` with instead of handling it.
+    fn refusal(&self, method: &str) -> Option<Value> {
+        (method == "textDocument/diagnostic" && self.options.pull_fails)
+            .then(|| json!({ "code": -32803, "message": "pull refused" }))
+    }
+
+    /// Whether the request is left unanswered.
+    fn ignores(&self, method: &str) -> bool {
+        match method {
+            "initialize" => self.options.hang_init,
+            _ => self.options.unresponsive,
         }
     }
 
@@ -214,17 +277,27 @@ impl FakeServer {
     fn startup_notifications(&self) -> Vec<Value> {
         let notification =
             |method: &str, params: Value| json!({ "jsonrpc": "2.0", "method": method, "params": params });
-        if self.options.indexing {
-            vec![notification(
+        let request = |id: i64, method: &str, params: Value| {
+            json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
+        };
+        let mut messages = Vec::new();
+        if self.options.dynamic_pull {
+            let registration = json!({ "registrations": [{ "id": "1", "method": "textDocument/diagnostic" }] });
+            messages.push(request(9001, "client/registerCapability", registration));
+        }
+        if self.options.ask_configuration {
+            let items = json!({ "items": [{ "section": "fake.opt" }] });
+            messages.push(request(9002, "workspace/configuration", items));
+        }
+        messages.push(if self.options.indexing {
+            notification(
                 "$/progress",
                 json!({ "token": "index", "value": { "kind": "begin", "title": "Indexing" } }),
-            )]
+            )
         } else {
-            vec![notification(
-                "experimental/serverStatus",
-                json!({ "quiescent": true, "health": "ok" }),
-            )]
-        }
+            notification("experimental/serverStatus", json!({ "quiescent": true, "health": "ok" }))
+        });
+        messages
     }
 
     fn capabilities(&self) -> Value {
@@ -233,20 +306,25 @@ impl FakeServer {
             "referencesProvider": true, "documentSymbolProvider": true, "renameProvider": true,
             "workspaceSymbolProvider": true,
         });
-        if self.options.pull {
+        if self.options.pull || self.options.pull_fails {
             caps["diagnosticProvider"] = json!({ "interFileDependencies": false, "workspaceDiagnostics": false });
+        }
+        if self.options.utf8 {
+            caps["positionEncoding"] = json!("utf-8");
         }
         json!({ "capabilities": caps })
     }
 
     fn store(&mut self, uri: &str, version: i64, text: &str) -> (Value, Vec<Value>) {
         self.docs.insert(uri.to_string(), (version, text.to_string()));
-        if self.options.pull || self.options.silent {
+        let pulled = (self.options.pull && !self.options.pull_fails) || self.options.dynamic_pull;
+        if pulled || self.options.silent {
             return (Value::Null, Vec::new());
         }
         let mut params = json!({ "uri": uri, "diagnostics": marked_diagnostics(text) });
         if !self.options.unversioned {
-            params["version"] = json!(version);
+            let shown = if self.options.stale_version { version - 1 } else { version };
+            params["version"] = json!(shown);
         }
         let publish = json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": params });
         (Value::Null, vec![publish])
