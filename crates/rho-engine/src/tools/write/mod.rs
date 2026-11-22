@@ -81,10 +81,10 @@ impl WriteTool {
             return Ok(e);
         }
 
-        let before = tokio::fs::read(&path).await.ok();
+        let before = crate::tools::undo::read_before(&path).await;
         let result = perform_atomic_write(&path, clean_path, &args.content).await?;
         if !result.is_error
-            && let Some(history) = &self.history
+            && let (Some(history), Some(before)) = (&self.history, before)
         {
             history.record(&path, before, args.content.as_bytes());
         }
