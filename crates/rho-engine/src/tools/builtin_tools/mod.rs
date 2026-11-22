@@ -15,6 +15,7 @@ use crate::tools::fd::FdTool;
 use crate::tools::lsp::LspTool;
 use crate::tools::read::ReadTool;
 use crate::tools::rg::RgTool;
+use crate::tools::subagent::lsp::WorktreeLsp;
 use crate::tools::subagent::{SubagentModelResolver, SubagentRuntime, SubagentTool};
 use crate::tools::todo::TodoTool;
 use crate::tools::undo::{EditHistory, UndoTool};
@@ -108,6 +109,7 @@ pub fn build_builtin_toolset(
     services: ToolsetServices,
     runtime: &SubagentRuntime,
 ) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
+    let has_lsp = services.lsp.is_some();
     let mut tools = build_workspace_native_tools(base_dir, services.lsp);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
@@ -162,6 +164,9 @@ pub fn build_builtin_toolset(
             config.slot_model(ModelSlot::Slow).map(str::to_string),
         );
     }
+    if has_lsp {
+        subagent = subagent.with_worktree_lsp(Arc::new(LspManager::for_workspace));
+    }
     if let Some(store) = services.worktrees {
         subagent = subagent.with_worktrees(store.clone());
         tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
@@ -181,18 +186,21 @@ fn memory_tool(home: Option<&Path>, base_dir: &Path, config: &Config) -> Option<
 }
 
 /// `tools` with the workspace-native ones (read, write, edit, undo, bash, fd, rg) rooted at
-/// `root` instead. Rerooted tools run without language servers.
-pub(crate) fn rerooted(tools: &[Arc<dyn EngineTool>], root: &Path) -> Vec<Arc<dyn EngineTool>> {
-    let native = build_workspace_native_tools(root, None);
-    tools
+/// `root` instead. With `lsp`, they and the `lsp` tool use the manager it opens for `root`;
+/// without it they run without language servers.
+pub(crate) fn rerooted(
+    tools: &[Arc<dyn EngineTool>],
+    root: &Path,
+    lsp: Option<&WorktreeLsp>,
+) -> Vec<Arc<dyn EngineTool>> {
+    let native = build_workspace_native_tools(root, lsp.map(|open| open(root)));
+    let rooted = tools
         .iter()
-        .filter(|tool| tool.name() != "lsp")
-        .map(|tool| {
-            native
-                .iter()
-                .find(|n| n.name() == tool.name())
-                .cloned()
-                .unwrap_or_else(|| tool.clone())
+        .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {
+            Some(native) => Some(native.clone()),
+            None if tool.name() == "lsp" => None,
+            None => Some(tool.clone()),
         })
-        .collect()
+        .collect();
+    crate::tools::subagent::lsp::restrict_lsp(rooted)
 }

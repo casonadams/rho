@@ -182,6 +182,7 @@ fn test_role_tool_filtering() {
         dummy_tool("bash"),
         dummy_tool("fd"),
         dummy_tool("rg"),
+        dummy_tool("lsp"),
         dummy_tool("web_fetch"),
         dummy_tool("web_search"),
     ];
@@ -194,14 +195,24 @@ fn test_role_tool_filtering() {
     };
 
     let scout = names(SubagentRole::Scout);
-    assert_eq!(scout, vec!["fd", "read", "rg", "web_fetch", "web_search"]);
+    assert_eq!(scout, vec!["fd", "lsp", "read", "rg", "web_fetch", "web_search"]);
     assert!(!scout.iter().any(|n| n == "write" || n == "bash"));
 
-    assert_eq!(names(SubagentRole::Critic), vec!["fd", "read", "rg"]);
-    assert_eq!(names(SubagentRole::Planner), vec!["fd", "read", "rg"]);
+    assert_eq!(names(SubagentRole::Critic), vec!["fd", "lsp", "read", "rg"]);
+    assert_eq!(names(SubagentRole::Planner), vec!["fd", "lsp", "read", "rg"]);
     assert_eq!(
         names(SubagentRole::General),
-        vec!["bash", "edit", "fd", "read", "rg", "web_fetch", "web_search", "write"]
+        vec![
+            "bash",
+            "edit",
+            "fd",
+            "lsp",
+            "read",
+            "rg",
+            "web_fetch",
+            "web_search",
+            "write"
+        ]
     );
 }
 
@@ -225,11 +236,15 @@ fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
     ];
     let list = |names: &[&str]| Some(names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
     let cases = [
-        (None, None, vec!["read", "rg"]),
+        (None, None, vec!["lsp", "read", "rg"]),
         (list(&["READ", "subagent"]), None, vec!["read"]),
-        (None, list(&["rg"]), vec!["read"]),
+        (None, list(&["rg"]), vec!["lsp", "read"]),
         (list(&["read", "bash"]), list(&["bash"]), vec!["read"]),
-        (list(&["edit", "lsp", "bash", "subagent"]), None, vec!["bash", "edit"]),
+        (
+            list(&["edit", "lsp", "bash", "subagent"]),
+            None,
+            vec!["bash", "edit", "lsp"],
+        ),
         (list(&["read", "memory", "worktree"]), None, vec!["read"]),
     ];
     for (tools, disallowed_tools, expected) in cases {
@@ -1423,4 +1438,43 @@ async fn an_empty_final_answer_is_salvaged_instead_of_discarding_the_work() {
         monitor.summaries()[0].status,
         rho_harness_core::agents::AgentStatus::InputRequired
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn finished_worktree_round_shuts_down_the_worktree_language_servers() {
+    use crate::lsp::manager::{is_registered, register_manager};
+    use crate::lsp::test_server::{FakeOptions, fake_manager};
+    let worktree = tempfile::tempdir().unwrap();
+    std::fs::write(worktree.path().join("Cargo.toml"), "").unwrap();
+    std::fs::create_dir(worktree.path().join("src")).unwrap();
+    std::fs::write(worktree.path().join("src/lib.rs"), "fn helper() {}\n").unwrap();
+    let (manager, launcher) = fake_manager(worktree.path(), FakeOptions::default());
+    let opened: lsp::WorktreeLsp = {
+        let manager = manager.clone();
+        Arc::new(move |_| {
+            register_manager(&manager);
+            manager.clone()
+        })
+    };
+    let parent_lsp: Arc<dyn EngineTool> = Arc::new(crate::tools::lsp::LspTool::new(worktree.path(), manager.clone()));
+    let runner = SubagentRunner::new(
+        Arc::new(TestModel::answering("done")),
+        SubagentRole::Scout,
+        &[parent_lsp],
+        5,
+    )
+    .with_worktree_lsp(Some(opened))
+    .in_worktree(worktree.path());
+    let lsp = runner.tool("lsp").unwrap();
+    lsp.execute(json!({"action": "symbols", "path": "src/lib.rs"}))
+        .await
+        .unwrap();
+    assert_eq!(manager.running_clients().len(), 1);
+    assert!(is_registered(worktree.path()));
+
+    runner.close_worktree_lsp().await;
+
+    assert!(manager.running_clients().is_empty());
+    assert!(launcher.received.lock().unwrap().iter().any(|m| m == "shutdown"));
+    assert!(!is_registered(worktree.path()));
 }

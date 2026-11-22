@@ -3,6 +3,7 @@ pub(crate) mod conversation;
 pub(crate) mod evidence;
 pub(crate) mod handoff;
 mod inspect;
+pub(crate) mod lsp;
 mod models;
 mod observed;
 mod presenter;
@@ -43,6 +44,7 @@ pub struct SubagentTool {
     pinned_models: BTreeMap<String, ModelRole>,
     busy: conversation::BusyContexts,
     worktrees: Option<crate::worktree::WorktreeStore>,
+    worktree_lsp: Option<lsp::WorktreeLsp>,
     background: background::Backgrounding,
     /// Recent conversation a subagent keeps word for word when it compacts.
     keep_recent_tokens: usize,
@@ -93,6 +95,7 @@ impl SubagentTool {
             pinned_models: BTreeMap::new(),
             busy: conversation::BusyContexts::default(),
             worktrees: None,
+            worktree_lsp: None,
             background: background::Backgrounding::default(),
             keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
             description: String::new(),
@@ -164,6 +167,14 @@ impl SubagentTool {
     #[must_use]
     pub fn with_worktrees(mut self, store: crate::worktree::WorktreeStore) -> Self {
         self.worktrees = Some(store);
+        self
+    }
+
+    /// Gives subagents in a worktree an `lsp` tool, and `read`, `edit`, and `write` diagnostics, backed
+    /// by the manager `open` returns for the worktree.
+    #[must_use]
+    pub fn with_worktree_lsp(mut self, open: lsp::WorktreeLsp) -> Self {
+        self.worktree_lsp = Some(open);
         self
     }
 
@@ -357,6 +368,7 @@ impl SubagentTool {
         };
         let runner = runner
             .with_context(self.ctx.clone())
+            .with_worktree_lsp(self.worktree_lsp.clone())
             .with_keep_recent_tokens(self.keep_recent_tokens);
         let runner = match persona {
             Some(persona) => runner.with_persona(persona),
@@ -421,9 +433,9 @@ impl SubagentTool {
     }
 }
 
-/// A custom agent gets the tools its `tools:` list names (never `subagent`, `lsp`, `memory`, or
-/// `worktree`); without a list it
-/// gets the read-only set a scout has, so an agent file has to ask for write or shell access.
+/// A custom agent gets the tools its `tools:` list names (never `subagent`, `memory`, or
+/// `worktree`); without a list it gets the read-only set a scout has, so an agent file has to ask
+/// for write or shell access.
 fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) -> Vec<Arc<dyn EngineTool>> {
     let listed = |names: &Option<Vec<String>>, name: &str| {
         names
@@ -432,7 +444,7 @@ fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) 
     };
     let read_only = SubagentRole::Scout.allowed_tools();
     runner::tools_named(tools, |name| {
-        !matches!(name, "subagent" | "lsp" | "memory" | "worktree")
+        !matches!(name, "subagent" | "memory" | "worktree")
             && listed(&agent.tools, name).unwrap_or_else(|| read_only.contains(&name))
             && !listed(&agent.disallowed_tools, name).unwrap_or(false)
     })

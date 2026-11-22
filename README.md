@@ -83,7 +83,8 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents),
   optionally with a [persona](docs/configuration.md#personas) that changes how it behaves.
-  Each subagent works in its own git worktree.
+  Each subagent works in its own git worktree, with language-server queries (`lsp`)
+  against that worktree; only `general` can rename.
 - **`worktree`**: Review, merge (three-way, leaving conflict markers to fix), or discard the
   worktrees where subagents and workflows did their work.
 - **`memory`**: Keep short notes across sessions (`view`, `add`, `remove`), for

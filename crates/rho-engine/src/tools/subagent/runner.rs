@@ -4,6 +4,7 @@
 //! when it stops early, and a pause when it asks the delegating agent a question.
 
 use super::evidence::evidence;
+use super::lsp::WorktreeLsp;
 use super::observed::{AskParentTool, RecordedTool, Recorder, take_question};
 use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
@@ -31,7 +32,7 @@ use std::sync::Arc;
 
 pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
 const DEFAULT_MONITOR_GROUP: &str = "subagents";
-pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
+pub(crate) const READ_ONLY_TOOLS: [&str; 6] = ["read", "fd", "rg", "lsp", "web_fetch", "web_search"];
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
 const REPLY_HEADING: &str = "Reply from the delegating agent";
 /// Times one round may compact its conversation after overflowing the model's context.
@@ -43,10 +44,11 @@ pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) 
 }
 
 /// The tools whose names `keep` accepts, sorted by name so the tool list is stable across requests.
+/// `lsp` is limited to queries unless the tools can change files.
 pub(super) fn tools_named(tools: &[Arc<dyn EngineTool>], keep: impl Fn(&str) -> bool) -> Vec<Arc<dyn EngineTool>> {
     let mut kept: Vec<Arc<dyn EngineTool>> = tools.iter().filter(|t| keep(t.name())).cloned().collect();
     kept.sort_by(|a, b| a.name().cmp(b.name()));
-    kept
+    super::lsp::restrict_lsp(kept)
 }
 
 #[derive(Clone)]
@@ -68,6 +70,9 @@ pub struct SubagentRunner {
     task_id: Option<String>,
     /// Recent conversation a compaction keeps word for word.
     keep_recent_tokens: usize,
+    worktree_lsp: Option<WorktreeLsp>,
+    /// The worktree whose language servers the round started.
+    lsp_root: Option<std::path::PathBuf>,
 }
 
 /// How the turn loop finished: with the model's final text, stopped by the round's stop signal, or
@@ -166,6 +171,27 @@ impl SubagentRunner {
             inbox: None,
             task_id: None,
             keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
+            worktree_lsp: None,
+            lsp_root: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_worktree_lsp(mut self, open: Option<WorktreeLsp>) -> Self {
+        self.worktree_lsp = open;
+        self
+    }
+
+    #[cfg(test)]
+    pub(super) fn tool(&self, name: &str) -> Option<&Arc<dyn EngineTool>> {
+        self.tools.iter().find(|t| t.name() == name)
+    }
+
+    /// Shuts down the language servers the round started in its worktree, so the worktree can be
+    /// merged or removed.
+    pub(crate) async fn close_worktree_lsp(&self) {
+        if let Some(root) = &self.lsp_root {
+            crate::lsp::manager::shutdown_workspace(root).await;
         }
     }
 
@@ -188,7 +214,8 @@ impl SubagentRunner {
     #[must_use]
     pub fn in_worktree(mut self, root: &std::path::Path) -> Self {
         self.isolated = true;
-        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root);
+        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root, self.worktree_lsp.as_ref());
+        self.lsp_root = self.worktree_lsp.as_ref().map(|_| root.to_path_buf());
         if let Some(project) = &self.ctx.project {
             let mut moved = (**project).clone();
             moved.current_dir = root.to_path_buf();

@@ -248,9 +248,9 @@ impl SubagentRole {
     #[must_use]
     pub fn allowed_tools(&self) -> &'static [&'static str] {
         match self {
-            Self::Scout => &["read", "fd", "rg", "web_fetch", "web_search"],
-            Self::Critic => &["read", "fd", "rg"],
-            Self::Planner => &["read", "fd", "rg"],
+            Self::Scout => &["read", "fd", "rg", "lsp", "web_fetch", "web_search"],
+            Self::Critic => &["read", "fd", "rg", "lsp"],
+            Self::Planner => &["read", "fd", "rg", "lsp"],
             Self::General => &[
                 "read",
                 "write",
@@ -259,6 +259,7 @@ impl SubagentRole {
                 "bash",
                 "fd",
                 "rg",
+                "lsp",
                 "web_fetch",
                 "web_search",
                 "todo",
@@ -477,10 +478,10 @@ mod tests {
 
         assert_eq!(
             SubagentRole::Scout.allowed_tools(),
-            &["read", "fd", "rg", "web_fetch", "web_search"]
+            &["read", "fd", "rg", "lsp", "web_fetch", "web_search"]
         );
-        assert_eq!(SubagentRole::Critic.allowed_tools(), &["read", "fd", "rg"]);
-        assert_eq!(SubagentRole::Planner.allowed_tools(), &["read", "fd", "rg"]);
+        assert_eq!(SubagentRole::Critic.allowed_tools(), &["read", "fd", "rg", "lsp"]);
+        assert_eq!(SubagentRole::Planner.allowed_tools(), &["read", "fd", "rg", "lsp"]);
         assert_eq!(
             SubagentRole::General.allowed_tools(),
             &[
@@ -491,6 +492,7 @@ mod tests {
                 "bash",
                 "fd",
                 "rg",
+                "lsp",
                 "web_fetch",
                 "web_search",
                 "todo"
@@ -501,7 +503,7 @@ mod tests {
     #[test]
     fn read_only_roles_never_get_tools_that_change_state_or_spawn_work() {
         let mutating = [
-            "write", "edit", "undo", "bash", "lsp", "todo", "memory", "subagent", "worktree",
+            "write", "edit", "undo", "bash", "todo", "memory", "subagent", "worktree",
         ];
         for role in [SubagentRole::Scout, SubagentRole::Critic, SubagentRole::Planner] {
             for tool in role.allowed_tools() {
@@ -510,7 +512,7 @@ mod tests {
         }
         for tool in SubagentRole::General.allowed_tools() {
             assert!(
-                !["memory", "subagent", "worktree", "lsp"].contains(tool),
+                !["memory", "subagent", "worktree"].contains(tool),
                 "general must not get {tool}"
             );
         }

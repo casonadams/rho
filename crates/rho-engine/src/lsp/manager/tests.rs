@@ -285,6 +285,20 @@ async fn shutdown_all_stops_every_running_server() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn shutdown_workspace_stops_its_servers_and_forgets_the_manager() {
+    let (dir, lib) = project();
+    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    register_manager(&manager);
+    let client = manager.client_for(&lib).await.unwrap();
+    assert!(is_registered(dir.path()));
+    shutdown_workspace(dir.path()).await;
+    assert!(!client.is_alive());
+    assert_eq!(count(&launcher, "shutdown"), 1);
+    assert!(!is_registered(dir.path()));
+    shutdown_workspace(dir.path()).await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn shutdown_all_is_bounded_when_a_server_hangs() {
     let (dir, lib) = project();
     let options = FakeOptions {

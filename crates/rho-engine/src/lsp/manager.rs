@@ -541,6 +541,25 @@ fn managed(workspace: &Path, init: impl FnOnce() -> Arc<LspManager>) -> Arc<LspM
     Arc::clone(managers.entry(canonical(workspace)).or_insert_with(init))
 }
 
+/// Shuts down the servers of `workspace` and forgets its manager, so a later [`LspManager::for_workspace`]
+/// starts fresh. Does nothing for a workspace without a manager.
+pub async fn shutdown_workspace(workspace: &Path) {
+    let manager = lock(&MANAGERS).remove(&canonical(workspace));
+    if let Some(manager) = manager {
+        manager.shutdown_all().await;
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn register_manager(manager: &Arc<LspManager>) {
+    lock(&MANAGERS).insert(manager.workspace.clone(), Arc::clone(manager));
+}
+
+#[cfg(test)]
+pub(crate) fn is_registered(workspace: &Path) -> bool {
+    lock(&MANAGERS).contains_key(&canonical(workspace))
+}
+
 /// Shuts down the servers of every workspace in this process.
 pub async fn shutdown_all_managers() {
     let managers: Vec<Arc<LspManager>> = lock(&MANAGERS).values().cloned().collect();
