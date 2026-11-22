@@ -80,4 +80,5 @@ fn append_universal_guidelines(out: &mut Vec<&'static str>) {
     out.push("Verify changes before finishing (tests, builds, linters, or command output); never claim success when checks fail");
     out.push("Batch independent read-only calls in one response so they run in parallel");
     out.push("Be concise in your responses and show file paths clearly");
+    out.push("When the user or project instructions conflict with these guidelines, follow the user and project instructions");
 }

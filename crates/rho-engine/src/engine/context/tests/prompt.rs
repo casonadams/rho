@@ -93,6 +93,7 @@ fn custom_or_unknown_tools_render_gracefully() {
 
     assert!(assembled.contains("- custom_analyzer\n"));
     assert!(assembled.contains("Be concise in your responses"));
+    assert!(assembled.contains("- When the user or project instructions conflict with these guidelines, follow the user and project instructions\n"));
 }
 
 #[test]

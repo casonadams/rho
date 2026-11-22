@@ -30,3 +30,4 @@ Guidelines:
 - Verify changes before finishing (tests, builds, linters, or command output); never claim success when checks fail
 - Batch independent read-only calls in one response so they run in parallel
 - Be concise in your responses and show file paths clearly
+- When the user or project instructions conflict with these guidelines, follow the user and project instructions
