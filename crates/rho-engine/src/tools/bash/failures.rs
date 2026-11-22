@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 const MAX_FAILURES: usize = 20;
+const MAX_TRACKED: usize = 5000;
 const MAX_DETAILS: usize = 5;
 const MAX_LINES: usize = 60;
 const SECTION_ENDS: [&str; 9] = [
@@ -214,7 +215,10 @@ impl Scan {
     }
 
     fn start(&mut self, header: Header<'_>) {
-        let index = self.entry(header.name);
+        let Some(index) = self.entry(header.name) else {
+            self.open = None;
+            return;
+        };
         let failure = &mut self.failures[index];
         failure.failed |= header.failed;
         if let Some(message) = header.message
@@ -226,19 +230,24 @@ impl Scan {
         self.continuing = false;
     }
 
-    fn entry(&mut self, name: String) -> usize {
+    /// The index of the failure named `name`, adding it; `None` once `MAX_TRACKED` tests are tracked,
+    /// which keeps the same-test lookup bounded on logs with huge numbers of test headers.
+    fn entry(&mut self, name: String) -> Option<usize> {
         if let Some(index) = self.failures.iter().position(|f| same_test(&f.name, &name)) {
             if name.len() > self.failures[index].name.len() {
                 self.failures[index].name = name;
             }
-            return index;
+            return Some(index);
+        }
+        if self.failures.len() >= MAX_TRACKED {
+            return None;
         }
         self.failures.push(Failure {
             name,
             failed: false,
             details: Vec::new(),
         });
-        self.failures.len() - 1
+        Some(self.failures.len() - 1)
     }
 }
 

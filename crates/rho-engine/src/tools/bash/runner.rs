@@ -250,7 +250,9 @@ where
     let mut acc = OutputAccumulator::new();
     let exec = execute_process_loop(&mut rx, &mut on_chunk, &mut acc, &mut cmd);
     match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
-        Ok(Ok(status)) => Ok(format_exit_result(status, &acc)),
+        Ok(Ok(status)) => Ok(tokio::task::spawn_blocking(move || format_exit_result(status, &acc))
+            .await
+            .map_err(|e| AppError::Tool(format!("formatting bash output failed: {e}")))?),
         Ok(Err(e)) => Ok(ToolResult::error(format!(
             "Failed waiting for command '{}': {e}",
             args.command
