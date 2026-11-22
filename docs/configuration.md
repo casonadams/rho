@@ -406,7 +406,7 @@ You are a strict reviewer. Report concrete bugs with file:line evidence.
 |---|---|
 | `name` | Name used to call the agent; defaults to the file name |
 | `description` | Shown to the main agent when it picks a subagent |
-| `tools` | Allowlist of tools; omit it to allow every tool |
+| `tools` | Allowlist of tools; omit it to get the read-only set (`read`, `fd`, `rg`, `web_fetch`, `web_search`), so an agent that edits files or runs commands must list `write`, `edit`, or `bash` |
 | `disallowed_tools` | Tools removed from the allowed set |
 
 `model` and `max_turns` in agent files are ignored; pass them from the caller
@@ -415,8 +415,8 @@ instead.
 Agents load from `~/.agents/agents/`, then `.claude/agents/` and
 `.agents/agents/` in the project (subdirectories included). A later file with
 the same `name` replaces an earlier one. Asking for an agent name or role that
-doesn't exist is an error. Agents never get the `subagent` tool themselves,
-even without a `tools` list.
+doesn't exist is an error. Agents never get the `subagent` or `lsp` tool,
+even when their `tools` list names them.
 
 ### Personas
 

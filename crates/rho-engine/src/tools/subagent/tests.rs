@@ -206,7 +206,7 @@ fn test_role_tool_filtering() {
 }
 
 #[test]
-fn custom_agent_tools_follow_allow_and_deny_lists_and_never_include_subagent() {
+fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
     use rho_harness_core::agents::AgentMetadata;
     fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
         Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
@@ -217,14 +217,17 @@ fn custom_agent_tools_follow_allow_and_deny_lists_and_never_include_subagent() {
         dummy_tool("rg"),
         dummy_tool("read"),
         dummy_tool("bash"),
+        dummy_tool("edit"),
+        dummy_tool("lsp"),
         dummy_tool("subagent"),
     ];
     let list = |names: &[&str]| Some(names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
     let cases = [
-        (None, None, vec!["bash", "read", "rg"]),
+        (None, None, vec!["read", "rg"]),
         (list(&["READ", "subagent"]), None, vec!["read"]),
-        (None, list(&["Bash"]), vec!["read", "rg"]),
+        (None, list(&["rg"]), vec!["read"]),
         (list(&["read", "bash"]), list(&["bash"]), vec!["read"]),
+        (list(&["edit", "lsp", "bash", "subagent"]), None, vec!["bash", "edit"]),
     ];
     for (tools, disallowed_tools, expected) in cases {
         let agent = AgentMetadata {
@@ -948,7 +951,7 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
     let tool = SubagentTool::new(None, tools).with_agents(vec![
         agent("reader", Some(&["read", "rg"])),
         agent("writer", Some(&["read", "write"])),
-        agent("everything", None),
+        agent("unlisted", None),
         agent("toolless", Some(&[])),
     ]);
     let cases = [
@@ -957,7 +960,7 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
         (json!({ "role": "general", "prompt": "p" }), false),
         (json!({ "agent": "reader", "prompt": "p" }), true),
         (json!({ "agent": "writer", "prompt": "p" }), false),
-        (json!({ "agent": "everything", "prompt": "p" }), false),
+        (json!({ "agent": "unlisted", "prompt": "p" }), true),
         (json!({ "agent": "toolless", "prompt": "p" }), false),
         (json!({ "agent": "missing", "prompt": "p" }), false),
         (json!({ "prompt": 7 }), false),
