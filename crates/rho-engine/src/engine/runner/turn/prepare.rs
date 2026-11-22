@@ -333,6 +333,39 @@ impl AgentEngine {
         )
     }
 
+    /// The permission hook for a turn; a guard model that cannot be built is reported and the turn
+    /// runs without it.
+    async fn permission_hook(
+        &self,
+        cwd: std::path::PathBuf,
+        presenter: &Arc<dyn Presenter>,
+    ) -> Option<Arc<crate::permission::PermissionHook>> {
+        if !self.config.permission.enabled {
+            return None;
+        }
+        let mcp_servers = if self.config.mcp.enabled {
+            self.config
+                .mcp
+                .servers
+                .keys()
+                .map(|name| crate::mcp::naming::sanitize_segment(name))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut hook =
+            crate::permission::PermissionHook::new(Some(cwd), presenter.clone()).with_mcp_servers(mcp_servers);
+        match self.router.build_guard(&self.config).await {
+            Ok(Some(guard)) => hook = hook.with_guard(crate::permission::guard::GuardEvaluator::new(guard)),
+            Ok(None) => {}
+            Err(err) => presenter.print_notice(&format!(
+                "[Guard model '{}' unavailable, running without it: {err}]",
+                self.config.guard_model().unwrap_or_default()
+            )),
+        }
+        Some(Arc::new(hook))
+    }
+
     pub(super) async fn prepare_step_runner<'a>(
         &self,
         sink: &Arc<TerminalApprovalSink>,
@@ -345,26 +378,7 @@ impl AgentEngine {
         let cwd = self.base_dir.clone();
         lifecycle_hook.notify_turn_start(&loop_state.current_prompt).await;
 
-        let permission_hook = if self.config.permission.enabled {
-            let mcp_servers = if self.config.mcp.enabled {
-                self.config
-                    .mcp
-                    .servers
-                    .keys()
-                    .map(|name| crate::mcp::naming::sanitize_segment(name))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let mut perm =
-                crate::permission::PermissionHook::new(Some(cwd), presenter.clone()).with_mcp_servers(mcp_servers);
-            if let Ok(Some(guard_model)) = self.router.build_guard(&self.config).await {
-                perm = perm.with_guard(crate::permission::guard::GuardEvaluator::new(guard_model));
-            }
-            Some(Arc::new(perm))
-        } else {
-            None
-        };
+        let permission_hook = self.permission_hook(cwd, presenter).await;
 
         let runner = self
             .build_turn_runner(
@@ -509,6 +523,44 @@ mod tests {
                 None => assert_eq!(warning, None, "{sent:?} {usage:?} {switch}"),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn an_unbuildable_guard_is_reported_and_the_turn_runs_without_it() {
+        use crate::engine::compactor::tests::common::CapturingPresenter;
+        use rho_harness_core::presentation::presenter::Presenter;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut app_config = Config {
+            auth_file: dir.path().join("auth.json"),
+            ..Config::default()
+        };
+        app_config.permission.enabled = true;
+        app_config
+            .models
+            .insert("guard".to_string(), "mystery/model".to_string());
+        let engine = mock_engine(
+            Arc::new(MockAdapter::new("mock-model", "claude")),
+            MockEngineConfig {
+                base_dir: dir.path(),
+                app_config,
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let capturing = Arc::new(CapturingPresenter::default());
+        let presenter: Arc<dyn Presenter> = capturing.clone();
+
+        let hook = engine.permission_hook(dir.path().to_path_buf(), &presenter).await;
+
+        assert!(hook.is_some());
+        let notices = capturing.notices.lock().unwrap();
+        assert!(
+            notices
+                .iter()
+                .any(|n| n.contains("Guard model 'mystery/model' unavailable")),
+            "{notices:?}"
+        );
     }
 
     #[test]

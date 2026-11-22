@@ -4,7 +4,7 @@ pub mod llm;
 pub mod orchestrator;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use artifact_spill::{ArtifactDemotionHook, DemotionHook};
 pub use llm::LlmCompactor;
