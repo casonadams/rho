@@ -9,12 +9,11 @@ pub(super) fn resolve_model_with_provider(config: &mut Config, model_spec: &str,
         && Connection::parse(flag) != route.connection
     {
         let warning = format!(
-            "Warning: Provider '{}' overridden by provider in model spec '{}'.",
+            "Provider '{}' overridden by provider in model spec '{}'.",
             flag.trim(),
             route.connection
         );
-        eprintln!("{warning}");
-        config.migration_warnings.push(warning);
+        config.config_warnings.push(warning);
     }
     config.set_route(route);
 }

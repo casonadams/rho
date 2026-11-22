@@ -93,6 +93,9 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let cli = <Cli as clap::Parser>::parse();
     let config = Config::load(Some(&cli))?;
+    for warning in &config.config_warnings {
+        eprintln!("Warning: {warning}");
+    }
     config.ensure_dirs_async().await?;
 
     let mut auth_store = AuthStore::load_async(&config.auth_file).await?;

@@ -509,7 +509,6 @@ fn mcp_server_added_to_config_dir_is_removed_exactly_once() {
         serde_json::from_str(&std::fs::read_to_string(dir.join("mcp.json")).unwrap()).unwrap();
     assert_eq!(root["mcpServers"]["echo"]["command"], "echo");
 
-    let removed = Config::remove_mcp_server(&dir, "echo").unwrap();
-    assert_eq!(removed.command.as_deref(), Some("echo"));
+    Config::remove_mcp_server(&dir, "echo").unwrap();
     assert!(Config::remove_mcp_server(&dir, "echo").is_err());
 }

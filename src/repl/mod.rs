@@ -103,6 +103,9 @@ impl ReplSession {
     /// rebuild the engine, and preserve the session history.
     pub(crate) async fn reload_engine(&mut self, engine: &AgentEngine) -> Result<AgentEngine> {
         let mut config = Config::load(self.cli.as_ref())?;
+        for warning in &config.config_warnings {
+            self.renderer.notice(crate::ui::render::NoticeKind::Warn, warning);
+        }
         config.sessions_dir = self.config.sessions_dir.clone();
         config.config_dir = self.config.config_dir.clone();
         config.auth_file = self.config.auth_file.clone();

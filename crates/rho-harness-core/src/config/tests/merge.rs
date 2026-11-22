@@ -397,11 +397,14 @@ fn test_cli_override_model_resolution() {
         assert_eq!(config.provider, expected_p);
         assert_eq!(config.model, expected_m);
         if expect_warn {
-            assert!(config.migration_warnings.iter().any(|w| w.contains(
-                "Warning: Provider 'openai' overridden by provider in model spec 'anthropic'."
-            )));
+            assert!(
+                config
+                    .config_warnings
+                    .iter()
+                    .any(|w| w.contains("Provider 'openai' overridden by provider in model spec 'anthropic'."))
+            );
         } else {
-            assert!(config.migration_warnings.is_empty());
+            assert!(config.config_warnings.is_empty());
         }
     }
 }
@@ -432,9 +435,9 @@ fn test_env_override_model_resolution() {
     assert_eq!(config.model, "claude-3-7-sonnet");
     assert!(
         config
-            .migration_warnings
+            .config_warnings
             .iter()
-            .any(|w| w.contains("Warning: Provider 'openai' overridden by provider in model spec 'anthropic'."))
+            .any(|w| w.contains("Provider 'openai' overridden by provider in model spec 'anthropic'."))
     );
 }
 
@@ -534,8 +537,8 @@ fn malformed_project_config_is_reported_as_warning() {
     let model_before = cfg.model.clone();
     super::super::merge_project_config(&mut cfg, &dir);
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(cfg.migration_warnings.len(), 1);
-    assert!(cfg.migration_warnings[0].contains("Ignoring project config"));
+    assert_eq!(cfg.config_warnings.len(), 1);
+    assert!(cfg.config_warnings[0].contains("Ignoring project config"));
     assert_eq!(cfg.model, model_before);
 }
 

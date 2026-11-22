@@ -86,7 +86,7 @@ impl super::Config {
         super::mcp::write_mcp_server_json(&config_dir.join("mcp.json"), name, &server)
     }
 
-    pub fn remove_mcp_server(config_dir: &Path, name: &str) -> Result<McpServerConfig> {
+    pub fn remove_mcp_server(config_dir: &Path, name: &str) -> Result<()> {
         super::mcp::remove_mcp_server_json(&config_dir.join("mcp.json"), name)
     }
 }

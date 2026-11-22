@@ -38,9 +38,10 @@ impl Config {
             merge::merge_file(&mut config, file_cfg);
         }
 
-        if let Ok(Some(global_mcp)) = mcp::load_global_mcp_config(&config.config_dir) {
-            config.mcp.enabled = config.mcp.enabled && global_mcp.enabled;
-            config.mcp.servers.extend(global_mcp.servers);
+        match mcp::load_global_mcp_config(&config.config_dir) {
+            Ok(Some(global_mcp)) => config.mcp.servers.extend(global_mcp.servers),
+            Ok(None) => {}
+            Err(e) => config.config_warnings.push(format!("Ignoring global MCP config: {e}")),
         }
 
         if let Ok(cwd) = std::env::current_dir()
@@ -80,7 +81,7 @@ fn merge_project_config(config: &mut Config, workspace: &Path) {
     match parsed {
         Ok(file) => merge::merge_project_file(config, &file),
         Err(e) => config
-            .migration_warnings
+            .config_warnings
             .push(format!("Ignoring project config {}: {e}", path.display())),
     }
 }
@@ -88,7 +89,6 @@ fn merge_project_config(config: &mut Config, workspace: &Path) {
 fn merge_project_mcp(config: &mut Config, workspace: &Path) {
     match mcp::load_project_mcp_config(workspace) {
         Ok(Some(project_mcp)) => {
-            config.mcp.enabled = config.mcp.enabled && project_mcp.enabled;
             config.mcp.project = Some(ProjectMcpServers {
                 workspace: workspace.to_path_buf(),
                 names: project_mcp.servers.keys().cloned().collect(),
@@ -97,7 +97,7 @@ fn merge_project_mcp(config: &mut Config, workspace: &Path) {
         }
         Ok(None) => {}
         Err(e) => config
-            .migration_warnings
+            .config_warnings
             .push(format!("Ignoring project MCP config in {}: {e}", workspace.display())),
     }
 }

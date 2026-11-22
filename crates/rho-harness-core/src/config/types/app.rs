@@ -79,8 +79,9 @@ pub struct Config {
     pub models: BTreeMap<String, String>,
     #[serde(default)]
     pub session_retention_days: Option<u32>,
+    /// Problems found while loading config; shown to the user and otherwise ignored.
     #[serde(skip)]
-    pub migration_warnings: Vec<String>,
+    pub config_warnings: Vec<String>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
     pub permission: PermissionConfig,
@@ -128,7 +129,7 @@ macro_rules! default_config_literal {
             default_model: None,
             models: BTreeMap::new(),
             session_retention_days: Some(5),
-            migration_warnings: Vec::new(),
+            config_warnings: Vec::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             permission: PermissionConfig::default(),

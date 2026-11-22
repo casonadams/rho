@@ -31,7 +31,7 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
         match crate::thinking::ThinkingLevel::parse_setting(t) {
             Ok(setting) => config.thinking_level = setting,
             Err(e) => config
-                .migration_warnings
+                .config_warnings
                 .push(format!("Ignoring thinking_level in config.toml: {e}")),
         }
     }

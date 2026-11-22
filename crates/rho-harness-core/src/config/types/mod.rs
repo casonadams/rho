@@ -13,7 +13,7 @@ pub use file::ModelsConfig;
 pub(crate) use file::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
 pub use integrations::{
     McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind,
-    PermissionConfig, ProjectMcpServers, ProviderConfig, default_idle_timeout_seconds, default_startup_timeout_ms,
+    PermissionConfig, ProjectMcpServers, ProviderConfig, default_idle_timeout_seconds,
 };
 pub(crate) use key::ConfigKey;
 pub use paths::{config_dir, default_config_dir, dirs_fallback, home_dir};
