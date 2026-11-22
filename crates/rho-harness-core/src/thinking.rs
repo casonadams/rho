@@ -54,17 +54,17 @@ impl ThinkingLevel {
             .find(|level| level.as_str().eq_ignore_ascii_case(name))
     }
 
-    /// The level a stored `thinking_level` setting selects; unset and unknown values mean off.
+    /// The level a stored `thinking_level` setting selects; `None` and unknown values mean off.
     pub fn from_setting(setting: Option<&str>) -> Self {
         setting.and_then(Self::parse).unwrap_or(Self::Off)
     }
 
-    /// The stored form of this level: `None` for off.
+    /// The stored form of this level; off is stored explicitly so it is not replaced by the default.
     pub fn setting(self) -> Option<String> {
-        (self != Self::Off).then(|| self.as_str().to_string())
+        Some(self.as_str().to_string())
     }
 
-    /// Validates a user-entered level and returns its stored form (`None` for off).
+    /// Validates a user-entered level and returns its stored form.
     pub fn parse_setting(value: &str) -> Result<Option<String>, String> {
         let names: Vec<&str> = Self::ALL.iter().map(|level| level.as_str()).collect();
         Self::parse(value).map(Self::setting).ok_or_else(|| {
@@ -105,9 +105,10 @@ mod tests {
         }
         assert_eq!(ThinkingLevel::parse("ultra"), None);
         assert_eq!(ThinkingLevel::from_setting(Some("ultra")), ThinkingLevel::Off);
-        assert_eq!(ThinkingLevel::Off.setting(), None);
+        assert_eq!(ThinkingLevel::from_setting(None), ThinkingLevel::Off);
+        assert_eq!(ThinkingLevel::Off.setting().as_deref(), Some("off"));
         assert_eq!(ThinkingLevel::parse_setting(" High "), Ok(Some("high".to_string())));
-        assert_eq!(ThinkingLevel::parse_setting("off"), Ok(None));
+        assert_eq!(ThinkingLevel::parse_setting("off"), Ok(Some("off".to_string())));
         assert!(ThinkingLevel::parse_setting("hgih").unwrap_err().contains("got 'hgih'"));
     }
 

@@ -137,7 +137,8 @@ impl ReplSession {
             engine.config.model = self.config.model.clone();
             engine.config.provider = self.config.provider.clone();
             engine.config.thinking_level = self.config.thinking_level.clone();
-            let _ = engine.update_model().await;
+            let result = engine.update_model().await;
+            live::navigation::report_model_update(self, engine, result, "Could not update model");
         }
     }
 

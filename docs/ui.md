@@ -97,7 +97,7 @@ autocomplete):
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
 | `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                    |
 | `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly.                                 |
-| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
+| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`). Default `medium`; subagents follow the current level. A change while the prompt cache is warm shows a notice that the next request rewrites the cache. |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). |
 | `/resume [id]`              | Open session selector (rows show name or first message, age, turns, ID), or resume a session by ID.      |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |

@@ -30,15 +30,49 @@ use std::sync::Arc;
 /// Resolves a configured `<provider>/<model>` name to a handle; the error text is shown to the caller.
 pub type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String> + Send + Sync>;
 
+/// The session model and resolver subagents run on, shared by every copy of the tool so a model or
+/// thinking change reaches all of them.
+#[derive(Clone, Default)]
+pub struct SubagentModels(Arc<std::sync::RwLock<ModelSource>>);
+
+#[derive(Clone, Default)]
+struct ModelSource {
+    default: Option<ModelHandle>,
+    resolver: Option<SubagentModelResolver>,
+}
+
+impl SubagentModels {
+    fn new(default: Option<ModelHandle>) -> Self {
+        Self(Arc::new(std::sync::RwLock::new(ModelSource {
+            default,
+            resolver: None,
+        })))
+    }
+
+    pub fn replace(&self, default: Option<ModelHandle>, resolver: SubagentModelResolver) {
+        *self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = ModelSource {
+            default,
+            resolver: Some(resolver),
+        };
+    }
+
+    fn set_resolver(&self, resolver: SubagentModelResolver) {
+        self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner()).resolver = Some(resolver);
+    }
+
+    fn current(&self) -> ModelSource {
+        self.0.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+}
+
 #[derive(Clone)]
 pub struct SubagentTool {
-    model: Option<ModelHandle>,
+    models: SubagentModels,
     tools: Vec<Arc<dyn EngineTool>>,
     agents: Vec<AgentMetadata>,
     personas: Vec<PersonaMetadata>,
     description: String,
     ctx: TurnToolContext,
-    model_resolver: Option<SubagentModelResolver>,
     roles: BTreeMap<ModelRole, String>,
     pinned_models: BTreeMap<String, ModelRole>,
     busy: conversation::BusyContexts,
@@ -84,12 +118,11 @@ impl SubagentTool {
     #[must_use]
     pub fn new(model: Option<ModelHandle>, tools: Vec<Arc<dyn EngineTool>>) -> Self {
         Self {
-            model,
+            models: SubagentModels::new(model),
             tools,
             agents: Vec::new(),
             personas: Vec::new(),
             ctx: TurnToolContext::default(),
-            model_resolver: None,
             roles: BTreeMap::new(),
             pinned_models: BTreeMap::new(),
             busy: conversation::BusyContexts::default(),
@@ -150,9 +183,14 @@ impl SubagentTool {
     }
 
     #[must_use]
-    pub fn with_model_resolver(mut self, resolver: SubagentModelResolver) -> Self {
-        self.model_resolver = Some(resolver);
+    pub fn with_model_resolver(self, resolver: SubagentModelResolver) -> Self {
+        self.models.set_resolver(resolver);
         self
+    }
+
+    /// The models every copy of this tool runs subagents on.
+    pub fn models(&self) -> SubagentModels {
+        self.models.clone()
     }
 
     /// Where every subagent's worktree is created; without a store subagents work in the project itself.
@@ -293,7 +331,12 @@ impl SubagentTool {
     }
 
     /// Resolves a model role: an explicit role must be configured; no role means `smol`, else the session model.
-    async fn model_for(&self, role: Option<ModelRole>, default: &ModelHandle) -> Result<ModelHandle, String> {
+    async fn model_for(
+        &self,
+        role: Option<ModelRole>,
+        default: &ModelHandle,
+        resolver: Option<SubagentModelResolver>,
+    ) -> Result<ModelHandle, String> {
         let name = match role {
             Some(ModelRole::Default) => return Ok(default.clone()),
             Some(role) => Some(self.roles.get(&role).ok_or_else(|| {
@@ -308,10 +351,8 @@ impl SubagentTool {
         let Some(name) = name else {
             return Ok(default.clone());
         };
-        let resolver = self
-            .model_resolver
-            .clone()
-            .ok_or_else(|| format!("model '{name}' requested but no model resolver is configured"))?;
+        let resolver =
+            resolver.ok_or_else(|| format!("model '{name}' requested but no model resolver is configured"))?;
         let name = name.clone();
         let label = name.clone();
         tokio::task::spawn_blocking(move || resolver(&name))
@@ -321,8 +362,9 @@ impl SubagentTool {
     }
 
     pub(crate) async fn runner_for(&self, spec: RunnerSpec<'_>) -> Result<SubagentRunner, String> {
-        let default_model = self
-            .model
+        let source = self.models.current();
+        let default_model = source
+            .default
             .as_ref()
             .ok_or_else(|| "No model handle configured for subagent execution.".to_string())?;
         let target = self.resolve_target(spec.agent, spec.local_agents)?;
@@ -332,7 +374,7 @@ impl SubagentTool {
             .or_else(|| self.pinned_model(&target));
         let requested = spec.model.or(pinned.as_ref().map(|(role, _)| *role));
         let model = self
-            .model_for(requested, default_model)
+            .model_for(requested, default_model, source.resolver.clone())
             .await
             .map_err(|e| match (&spec.model, &pinned) {
                 (None, Some((_, key))) => format!("{e}; it is pinned for '{key}' in [subagents.models]"),

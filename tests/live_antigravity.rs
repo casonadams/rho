@@ -115,7 +115,9 @@ async fn live_antigravity_multi_turn_session_recalls_planted_fact() {
 
     let workspace = temp_dir("rho_live_antigravity");
     let mut config = live_config(&workspace);
-    config.thinking_level = std::env::var("RHO_LIVE_AG_THINKING").ok().filter(|l| l != "off");
+    if let Ok(level) = std::env::var("RHO_LIVE_AG_THINKING") {
+        config.thinking_level = Some(level);
+    }
     let auth_store = seed_auth(&config);
     let engine = AgentEngine::new(config, auth_store, None).await.unwrap();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =

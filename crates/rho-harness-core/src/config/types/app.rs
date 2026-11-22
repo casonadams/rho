@@ -119,7 +119,7 @@ macro_rules! default_config_literal {
             show_label: false,
             steering_mode: crate::queue::QueueMode::OneAtATime,
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
-            thinking_level: None,
+            thinking_level: crate::thinking::ThinkingLevel::Medium.setting(),
             cache_retention: CacheRetention::Auto,
             context_injection_max_tokens: 4000,
             system_prompt: None,

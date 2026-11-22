@@ -49,7 +49,7 @@ fn append_session_help(output: &mut String, config: &Config) {
     } else {
         let _ = writeln!(output, "  Provider                    {}", config.provider);
     }
-    let thinking = config.thinking_level.as_deref().unwrap_or("none");
+    let thinking = rho_harness_core::thinking::ThinkingLevel::from_setting(config.thinking_level.as_deref()).as_str();
     let _ = writeln!(output, "  Thinking                    {thinking}");
 }
 

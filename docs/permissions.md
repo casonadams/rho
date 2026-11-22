@@ -111,7 +111,7 @@ Every tool invocation flows through a multi-tiered security pipeline before exec
 
 - **Deep DevOps & CLI Domain Comprehension**: Pretrained heavily on source code, shell scripts, CLI flags, and DevOps/SRE/Cloud infrastructure tools (git, kubectl, terraform, docker, helm, cloud CLIs, database clients). It accurately discriminates between safe local developer commands (`rm -rf target/`, `git checkout -b fix`, `kubectl get pods`) and hazardous system mutations (`rm -rf /`, `git push --force`, `kubectl delete namespace`).
 - **Low Latency & Compact Footprint**: At ~4.7 GB quantized (Q4_K_M), it fits easily into Apple Silicon unified memory (M1/M2/M3/M4 with 8GB+ RAM) or consumer GPUs (RTX 3060/4060+). It evaluates commands in sub-second time, eliminating perceptible CLI lag during rapid autonomous agent turns.
-- **Reliable Structured Output**: Operates deterministically at `temperature: 0.0` with non-thinking execution (`thinking_level: None`), consistently returning raw JSON matching `{"safe": boolean, "reason": "..."}` without conversational filler or hallucinated explanations.
+- **Reliable Structured Output**: Operates deterministically at `temperature: 0.0` with non-thinking execution (`thinking_level: off`), consistently returning raw JSON matching `{"safe": boolean, "reason": "..."}` without conversational filler or hallucinated explanations.
 - **Air-Gapped Privacy & Zero Data Leakage**: Shell command strings, internal repository paths, CLI arguments, and sensitive parameters remain 100% on-device and are never transmitted to external APIs or third-party cloud relays.
 - **Offline Resilience**: Guards remain fully operational during flights, offline travel, or inside strict air-gapped enterprise networks.
 

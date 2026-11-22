@@ -131,6 +131,18 @@ async fn the_footer_counts_cached_and_written_tokens() {
     );
 }
 
+#[tokio::test]
+async fn replacing_the_models_reaches_every_copy_of_the_tool() {
+    let tool = SubagentTool::new(Some(Arc::new(TestModel::answering("from old model"))), Vec::new());
+    let copy = tool.clone();
+    tool.models().replace(
+        Some(Arc::new(TestModel::answering("from new model"))),
+        Arc::new(|model| Err(format!("unexpected model {model}"))),
+    );
+    let result = copy.execute(json!({ "prompt": "survey" })).await.unwrap();
+    assert!(result.content.starts_with("from new model"), "{}", result.content);
+}
+
 #[test]
 fn test_subagent_tool_metadata() {
     let tool = SubagentTool::new(None, Vec::new());

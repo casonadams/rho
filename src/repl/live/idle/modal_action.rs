@@ -62,12 +62,8 @@ async fn handle_model_selected(
     if ctx.controller.state().active_modal().is_none() {
         print_model_status(ctx, saved_default);
     }
-    if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
-        ctx.session.renderer.notice(
-            crate::ui::render::NoticeKind::Warn,
-            &format!("Could not switch model: {err}"),
-        );
-    }
+    let result = ctx.engine.switch_model(&model, &provider).await;
+    crate::repl::live::navigation::report_model_update(ctx.session, ctx.engine, result, "Could not switch model");
     super::super::modal::update_models_role_description(ctx.controller, None, &model);
     super::super::modal::update_settings_model_description(ctx.controller, &model);
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
@@ -178,12 +174,13 @@ async fn handle_thinking_selected(
     ctx.session.config.thinking_level = level.clone();
     ctx.engine.config.thinking_level = level.clone();
     save_or_print_thinking(ctx, level.as_deref(), save_as_default).await;
-    if let Err(err) = ctx.engine.update_model().await {
-        ctx.session.renderer.notice(
-            crate::ui::render::NoticeKind::Warn,
-            &format!("Could not update thinking level: {err}"),
-        );
-    }
+    let result = ctx.engine.update_model().await;
+    crate::repl::live::navigation::report_model_update(
+        ctx.session,
+        ctx.engine,
+        result,
+        "Could not update thinking level",
+    );
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.controller.redraw()?;
     Ok(true)

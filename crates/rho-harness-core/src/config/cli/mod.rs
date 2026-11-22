@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 /// Accepts any thinking level and keeps its canonical name (`off` included, so it can override).
 fn parse_thinking_level(value: &str) -> Result<String, String> {
-    crate::thinking::ThinkingLevel::parse_setting(value).map(|setting| setting.unwrap_or_else(|| "off".to_string()))
+    crate::thinking::ThinkingLevel::parse_setting(value).map(|setting| setting.unwrap_or_default())
 }
 
 const PATH_LIST_SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };

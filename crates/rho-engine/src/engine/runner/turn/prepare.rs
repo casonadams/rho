@@ -113,6 +113,21 @@ impl AgentEngine {
         })
     }
 
+    /// What a model or thinking change costs while the prompt cache is warm: the next request rewrites it.
+    pub fn cache_reset_warning(&self) -> Option<String> {
+        if self.prompt_cache() != PromptCache::Warm {
+            return None;
+        }
+        let usage = self.usage.latest()?;
+        let cached = usage.cached_input_tokens.unwrap_or(0) + usage.cache_creation_input_tokens.unwrap_or(0);
+        (cached > 0).then(|| {
+            format!(
+                "The next request rewrites the prompt cache (about {} tokens at the cache-write price).",
+                crate::engine::metrics::types::format_tokens(cached)
+            )
+        })
+    }
+
     fn prompt_cache(&self) -> PromptCache {
         let subscription = self
             .model
@@ -420,6 +435,64 @@ mod tests {
                     .completion(CompletionCall::new(0, StructuralUsage::default()), sent);
             }
             assert_eq!(engine.prompt_cache(), expected, "{retention} {provider} {sent:?}");
+        }
+    }
+
+    #[test]
+    fn cache_reset_warning_needs_a_warm_cache_with_cached_tokens() {
+        use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
+        use std::time::{Duration, Instant};
+
+        let dir = tempfile::tempdir().unwrap();
+        let cached = StructuralUsage {
+            input_tokens: 10,
+            output_tokens: 200,
+            total_tokens: 124_210,
+            cached_input_tokens: Some(120_000),
+            cache_creation_input_tokens: Some(4_000),
+            ..StructuralUsage::default()
+        };
+        let an_hour_ago = Instant::now().checked_sub(Duration::from_secs(3_700)).unwrap();
+        let cases = [
+            (None, Some(cached), None),
+            (Some(Instant::now()), None, None),
+            (
+                Some(Instant::now()),
+                Some(StructuralUsage {
+                    input_tokens: 10,
+                    ..StructuralUsage::default()
+                }),
+                None,
+            ),
+            (Some(an_hour_ago), Some(cached), None),
+            (Some(Instant::now()), Some(cached), Some("about 124k tokens")),
+        ];
+        for (sent, usage, expected) in cases {
+            let engine = mock_engine(
+                Arc::new(MockAdapter::new("mock-model", "claude")),
+                MockEngineConfig {
+                    base_dir: dir.path(),
+                    app_config: Config {
+                        auth_file: dir.path().join("auth.json"),
+                        ..Config::default()
+                    },
+                    session_manager: None,
+                    built_in_tools: None,
+                },
+            );
+            if let Some(sent) = sent {
+                engine
+                    .run_tracker
+                    .completion(CompletionCall::new(0, StructuralUsage::default()), sent);
+            }
+            if let Some(usage) = usage {
+                engine.usage.record(usage);
+            }
+            let warning = engine.cache_reset_warning();
+            match expected {
+                Some(text) => assert!(warning.as_deref().is_some_and(|w| w.contains(text)), "{warning:?}"),
+                None => assert_eq!(warning, None, "{sent:?} {usage:?}"),
+            }
         }
     }
 

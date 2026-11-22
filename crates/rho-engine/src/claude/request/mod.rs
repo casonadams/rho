@@ -115,23 +115,42 @@ pub fn resolve_effort(level: Option<&str>) -> Option<&'static str> {
 }
 
 pub fn is_adaptive_model(model: &str) -> bool {
+    is_at_least(model, 4, 6)
+}
+
+/// Claude 4.7+ and Mythos/Fable reject a non-default `temperature`, `top_p` or `top_k` with a 400 error
+/// (Anthropic Messages API docs, sampling parameters).
+fn rejects_sampling_params(model: &str) -> bool {
+    is_at_least(model, 4, 7)
+}
+
+/// Fable and Mythos count as newer than every numbered Claude version.
+fn is_at_least(model: &str, major: u32, minor: u32) -> bool {
     let lower = model.to_ascii_lowercase();
     if lower.contains("fable") || lower.contains("mythos") {
         return true;
     }
     let tokens: Vec<&str> = lower.split('-').collect();
-    for (idx, token) in tokens.iter().enumerate() {
-        if let Ok(major) = token.parse::<u32>() {
-            let minor = tokens.get(idx + 1).and_then(|t| t.parse::<u32>().ok()).unwrap_or(0);
-            return major > 4 || (major == 4 && minor >= 6);
-        }
-    }
-    false
+    tokens.iter().enumerate().find_map(|(idx, token)| {
+        let found = token.parse::<u32>().ok()?;
+        let found_minor = tokens
+            .get(idx + 1)
+            .filter(|t| t.len() <= 2)
+            .and_then(|t| t.parse::<u32>().ok())
+            .unwrap_or(0);
+        Some((found, found_minor) >= (major, minor))
+    }) == Some(true)
 }
 
 pub fn is_always_on_thinking_model(model: &str) -> bool {
     let lower = model.to_ascii_lowercase();
     lower.contains("opus-5-5") || lower.contains("opus-5.5") || lower.contains("fable") || lower.contains("mythos")
+}
+
+/// Claude Sonnet 5.5 rejects `disabled`; `between_tools` is its lowest setting (Anthropic thinking docs).
+fn turns_off_with_between_tools(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    lower.contains("sonnet-5-5") || lower.contains("sonnet-5.5")
 }
 
 pub fn is_thinking_on_by_default(model: &str) -> bool {
@@ -173,6 +192,8 @@ fn calculate_max_tokens(
 fn attach_disabled_thinking(body: &mut Value, model: &str, temp: Option<f64>) {
     if is_always_on_thinking_model(model) {
         body["output_config"] = json!({ "effort": "low" });
+    } else if turns_off_with_between_tools(model) {
+        body["thinking"] = json!({ "type": "between_tools" });
     } else {
         body["thinking"] = json!({ "type": "disabled" });
         if let Some(temperature) = temp {
@@ -181,17 +202,9 @@ fn attach_disabled_thinking(body: &mut Value, model: &str, temp: Option<f64>) {
     }
 }
 
-fn default_adaptive_effort(model: &str) -> &'static str {
-    if is_always_on_thinking_model(model) && (model.contains("opus-5-5") || model.contains("opus-5.5")) {
-        "medium"
-    } else {
-        "high"
-    }
-}
-
-fn attach_enabled_adaptive_thinking(body: &mut Value, model: &str, thinking_level: Option<&str>) {
+fn attach_enabled_adaptive_thinking(body: &mut Value, thinking_level: Option<&str>) {
     body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
-    let effort = resolve_effort(thinking_level).unwrap_or_else(|| default_adaptive_effort(model));
+    let effort = resolve_effort(thinking_level).unwrap_or("medium");
     body["output_config"] = json!({ "effort": effort });
 }
 
@@ -202,7 +215,7 @@ fn attach_adaptive_thinking(body: &mut Value, model: &str, thinking_level: Optio
     if is_off {
         attach_disabled_thinking(body, model, temp);
     } else if thinking_level.is_some() || is_thinking_on_by_default(model) {
-        attach_enabled_adaptive_thinking(body, model, thinking_level);
+        attach_enabled_adaptive_thinking(body, thinking_level);
     } else if let Some(temperature) = temp {
         body["temperature"] = json!(temperature);
     }
@@ -250,12 +263,15 @@ pub fn build_request_body(
         "stream": true,
     });
 
+    let temperature = request
+        .temperature
+        .filter(|_| !rejects_sampling_params(normalized_model));
     attach_thinking_or_temp(
         &mut body,
         normalized_model,
         thinking_level,
         thinking_budget,
-        request.temperature,
+        temperature,
     );
     let mut system_blocks = Vec::new();
     if auth == ClaudeAuth::Login {

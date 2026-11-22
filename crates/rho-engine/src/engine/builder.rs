@@ -116,13 +116,22 @@ impl AgentEngineBuilder {
 }
 
 /// Subagent model roles; a spec without a provider uses the session's provider.
-fn subagent_model_resolver(router: &ModelRouter, config: &Config) -> crate::tools::subagent::SubagentModelResolver {
+pub(super) fn subagent_model_resolver(
+    router: &ModelRouter,
+    config: &Config,
+) -> crate::tools::subagent::SubagentModelResolver {
     let router = router.clone();
     let config = short_lived_config(config);
     Arc::new(move |spec: &str| {
         let route = ModelRoute::parse(spec, None, &config.route().connection.to_string());
         router.build_blocking(&config, &route).map_err(|e| e.to_string())
     })
+}
+
+/// The session model with short-lived cache retention, for subagents that run on it.
+pub(super) async fn short_lived_session_model(router: &ModelRouter, config: &Config) -> Result<ModelHandle> {
+    let config = short_lived_config(config);
+    router.build(&config, &config.route()).await
 }
 
 fn short_lived_config(config: &Config) -> Config {
@@ -206,8 +215,7 @@ impl AgentEngineBuilder {
         if self.model.is_some() || self.config.model.trim().is_empty() {
             return Ok(None);
         }
-        let config = short_lived_config(&self.config);
-        router.build(&config, &config.route()).await.map(Some)
+        short_lived_session_model(router, &self.config).await.map(Some)
     }
 
     /// `None` until a model is selected: an empty `config.model` means none was chosen or saved.
@@ -260,6 +268,7 @@ impl AgentEngineBuilder {
             turn_notes: self.turn_notes,
             prune_memory: std::sync::Mutex::default(),
             workflows: None,
+            subagent_models: None,
             worktrees: None,
             mcp: super::EngineMcp::default(),
             ollama_host: crate::ollama::local::local_host(),
@@ -294,6 +303,7 @@ impl AgentEngineBuilder {
         let tool_names = tools.iter().map(|t| t.name().to_string()).collect::<Vec<_>>();
         let tools_lock = Arc::new(tokio::sync::RwLock::new(tools));
         let home = rho_harness_core::config::home_dir();
+        let subagent_models = subagents.as_ref().map(crate::tools::subagent::SubagentTool::models);
         let workflows = subagents.map(|s| crate::tools::workflow::WorkflowRunner::new(s, base_dir.clone(), home));
         let worktrees = workflows.as_ref().and_then(|w| w.worktrees().cloned());
         let assembly = EngineAssembly {
@@ -303,6 +313,7 @@ impl AgentEngineBuilder {
         };
         let mut engine = self.into_engine(base_dir, session_manager, router, assembly);
         engine.workflows = workflows;
+        engine.subagent_models = subagent_models;
         engine.worktrees = worktrees;
         engine.mcp = super::EngineMcp {
             diagnostics: mcp.diagnostics,

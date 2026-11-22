@@ -308,10 +308,12 @@ async fn test_new_and_thinking_commands() {
     let cases = [
         (
             "/thinking OFF",
-            Some(CommandResult::ThinkingChanged { level: None }),
-            None,
+            Some(CommandResult::ThinkingChanged {
+                level: Some("off".to_string()),
+            }),
+            Some("off"),
         ),
-        ("/thinking hgih", Some(CommandResult::Continue), None),
+        ("/thinking hgih", Some(CommandResult::Continue), Some("off")),
     ];
     for (input, expected, level) in cases {
         assert_eq!(

@@ -58,6 +58,8 @@ pub struct AgentEngine {
     /// Tool-result stubs sent in the last request, replayed while the prompt cache is warm.
     pub(crate) prune_memory: std::sync::Mutex<runner::PruneMemory>,
     pub(crate) workflows: Option<crate::tools::workflow::WorkflowRunner>,
+    /// Shared with the subagent tool so `update_model` moves subagents to the new model and thinking level.
+    pub(crate) subagent_models: Option<crate::tools::subagent::SubagentModels>,
     /// Where subagent and workflow worktrees live; the parent is reminded to merge or discard its own.
     pub(crate) worktrees: Option<crate::worktree::WorktreeStore>,
     pub(crate) mcp: EngineMcp,

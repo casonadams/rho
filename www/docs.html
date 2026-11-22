@@ -381,7 +381,7 @@ enabled = true                  # Enable or disable mutation guardrails</code></
       <ul>
         <li><strong>Domain Comprehension:</strong> Pretrained extensively on code, shell scripts, CLI flags, and DevOps tools (<code>git</code>, <code>kubectl</code>, <code>terraform</code>, <code>docker</code>, cloud CLIs, database clients), accurately discriminating benign dev tasks from destructive commands.</li>
         <li><strong>Low Latency &amp; Small Footprint:</strong> At ~4.7 GB quantized (Q4_K_M), it fits easily into Apple Silicon unified memory or consumer GPUs, providing sub-second classification without perceptible CLI pauses.</li>
-        <li><strong>Reliable Structured JSON:</strong> Runs deterministically at <code>temperature: 0.0</code> with non-thinking execution (<code>thinking_level: None</code>), consistently producing clean JSON schemas.</li>
+        <li><strong>Reliable Structured JSON:</strong> Runs deterministically at <code>temperature: 0.0</code> with non-thinking execution (<code>thinking_level: off</code>), consistently producing clean JSON schemas.</li>
         <li><strong>Air-Gapped Privacy:</strong> Shell commands, repository paths, and sensitive CLI arguments remain 100% on-device and are never transmitted to cloud endpoints.</li>
         <li><strong>Offline Resilience:</strong> Functions seamlessly during network disruptions, air-gapped environments, or offline travel.</li>
       </ul>
@@ -532,7 +532,7 @@ rho config models.guard none</code></pre>
             </tr>
             <tr>
               <td><code>/thinking</code></td>
-              <td>Set reasoning effort level (<kbd class="kbd">Shift+Tab</kbd>)</td>
+              <td>Set reasoning effort level, default <code>medium</code>; subagents follow it. A change while the prompt cache is warm shows a notice that the next request rewrites the cache (<kbd class="kbd">Shift+Tab</kbd>)</td>
             </tr>
             <tr>
               <td><code>/settings</code></td>

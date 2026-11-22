@@ -245,6 +245,16 @@ async fn test_rpc_config_update_handlers() {
     .unwrap();
 
     handle_config_update_cmd(
+        RpcCommand::SetThinking {
+            level: "ultra".to_string(),
+        },
+        Some("req-thinking-invalid".to_string()),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    handle_config_update_cmd(
         RpcCommand::SetModel {
             model: "llama3.2".to_string(),
             provider: Some("local".to_string()),
@@ -283,6 +293,11 @@ async fn test_rpc_config_update_handlers() {
     let resp_thinking = read_response(&mut client_reader).await;
     assert_eq!(resp_thinking.id, Some("req-thinking".to_string()));
     assert!(resp_thinking.success);
+
+    let resp_invalid = read_response(&mut client_reader).await;
+    assert_eq!(resp_invalid.id, Some("req-thinking-invalid".to_string()));
+    assert!(!resp_invalid.success);
+    assert_eq!(ctx.config.read().await.thinking_level.as_deref(), Some("high"));
 
     let resp_model_ok = read_response(&mut client_reader).await;
     assert_eq!(resp_model_ok.id, Some("req-model-success".to_string()));

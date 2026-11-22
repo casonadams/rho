@@ -158,7 +158,9 @@ history:
 Configure model roles in `~/.config/rho/config.toml` or `.rho/config.toml` under the `[models]` table using the unified `<provider>/<model>` format:
 
 ```toml
-# off, minimal, low, medium, high, xhigh or max; other values are rejected
+# off, minimal, low, medium (default), high, xhigh or max; other values are rejected.
+# Subagents use the same level. Changing the level or model mid-session makes the
+# next request rewrite the prompt cache; rho shows a notice when the cache is warm.
 thinking_level = "high"
 
 # Claude prompt-cache lifetime: auto (default: 1 hour on `claude` subscription
@@ -199,7 +201,7 @@ provider's model id, so OpenRouter ids keep their vendor segment:
 
 The guard model evaluates shell commands before execution to determine whether they can run automatically or require interactive human authorization.
 
-- **Non-Thinking & Deterministic**: The guard model strictly executes without thinking tokens (`thinking_level: None`) at `temperature: 0.0` to ensure fast, deterministic, sub-second security evaluation. Reasoning effort for the primary assistant remains governed by `thinking_level` (adjustable interactively via `/thinking` or `Shift+Tab`).
+- **Non-Thinking & Deterministic**: The guard model strictly executes without thinking tokens (`thinking_level: off`) at `temperature: 0.0` to ensure fast, deterministic, sub-second security evaluation. Reasoning effort for the primary assistant remains governed by `thinking_level` (adjustable interactively via `/thinking` or `Shift+Tab`).
 - **Recommended Local Model (`qwen2.5-coder:7b`)**: For fast, offline security checks without API costs or cloud latency, `ollama/qwen2.5-coder:7b` (or `local/qwen2.5-coder:7b`) is strongly recommended:
   - *Domain Comprehension*: Pretrained extensively on source code, shell scripts, CLI flags, and DevOps/SRE tooling (git, kubectl, terraform, docker, cloud CLIs, database clients), accurately discriminating benign developer commands from destructive mutations.
   - *Low Latency & Compact Footprint*: At ~4.7 GB quantized (Q4_K_M), it fits easily into consumer GPUs or Apple Silicon unified memory (M1-M4 with 8GB+ RAM), delivering sub-second evaluations without perceptible CLI lag.

@@ -21,7 +21,17 @@ impl AgentEngine {
         let route = self.config.route();
         self.config.set_route(route);
         let model_handle = self.build_model_handle(&self.config).await?;
+        let subagent_default = match self.subagent_models {
+            Some(_) => Some(super::builder::short_lived_session_model(&self.router, &self.config).await?),
+            None => None,
+        };
         self.model = Some(model_handle);
+        if let Some(models) = &self.subagent_models {
+            models.replace(
+                subagent_default,
+                super::builder::subagent_model_resolver(&self.router, &self.config),
+            );
+        }
         self.context = ContextTracker::new(self.config.context_limit);
 
         self.force_refresh_quota();

@@ -353,7 +353,7 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
 fn test_thinking_level_request_shapes() {
     use serde_json::{Value, json};
     type Check = (&'static str, Option<Value>);
-    let cases: [(&str, Option<&str>, Vec<Check>); 5] = [
+    let cases: [(&str, Option<&str>, Vec<Check>); 10] = [
         (
             "claude-haiku-4-5",
             None,
@@ -401,7 +401,41 @@ fn test_thinking_level_request_shapes() {
             vec![
                 ("/model", Some(json!("claude-sonnet-5"))),
                 ("/thinking/type", Some(json!("disabled"))),
-                ("/temperature", Some(json!(0.7))),
+                ("/temperature", None),
+            ],
+        ),
+        (
+            "claude-sonnet-4-5",
+            Some("off"),
+            vec![("/thinking", None), ("/temperature", Some(json!(0.7)))],
+        ),
+        (
+            "claude-opus-4-20250514",
+            None,
+            vec![("/thinking", None), ("/temperature", Some(json!(0.7)))],
+        ),
+        (
+            "claude-sonnet-5-5",
+            Some("off"),
+            vec![
+                ("/thinking", Some(json!({ "type": "between_tools" }))),
+                ("/output_config", None),
+            ],
+        ),
+        (
+            "claude-sonnet-5-5",
+            None,
+            vec![
+                ("/thinking/type", Some(json!("adaptive"))),
+                ("/output_config/effort", Some(json!("medium"))),
+            ],
+        ),
+        (
+            "claude-haiku-5-5",
+            Some("medium"),
+            vec![
+                ("/thinking/type", Some(json!("adaptive"))),
+                ("/output_config/effort", Some(json!("medium"))),
             ],
         ),
     ];

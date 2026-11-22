@@ -128,14 +128,24 @@ pub(crate) async fn handle_set_thinking_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
+    let level = match rho_harness_core::thinking::ThinkingLevel::parse_setting(&level) {
+        Ok(level) => level,
+        Err(err) => {
+            return ctx
+                .writer
+                .write_message(&RpcResponse::failure(req_id, "set_thinking", &err))
+                .await;
+        }
+    };
     let mut cfg = ctx.config.write().await;
-    cfg.thinking_level = Some(level.clone());
+    cfg.thinking_level.clone_from(&level);
     let mut eng = ctx.engine.write().await;
-    eng.config.thinking_level = Some(level);
-    let _ = eng.update_model().await;
-    ctx.writer
-        .write_message(&RpcResponse::success(req_id, "set_thinking", None))
-        .await?;
+    eng.config.thinking_level = level;
+    let resp = match eng.update_model().await {
+        Ok(()) => RpcResponse::success(req_id, "set_thinking", None),
+        Err(e) => RpcResponse::failure(req_id, "set_thinking", &e.to_string()),
+    };
+    ctx.writer.write_message(&resp).await?;
     Ok(())
 }
 

@@ -63,6 +63,24 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.show_label = session.config.show_label;
 }
 
+/// Reports a model or thinking change: a warning when it failed, a notice when it resets a warm prompt cache.
+pub(crate) fn report_model_update(
+    session: &ReplSession,
+    engine: &AgentEngine,
+    result: rho_harness_core::error::Result<()>,
+    failure: &str,
+) {
+    use crate::ui::render::NoticeKind;
+    match result {
+        Err(err) => session.renderer.notice(NoticeKind::Warn, &format!("{failure}: {err}")),
+        Ok(()) => {
+            if let Some(warning) = engine.cache_reset_warning() {
+                session.renderer.notice(NoticeKind::Info, &warning);
+            }
+        }
+    }
+}
+
 pub async fn cycle_thinking_level<B: TerminalBackend>(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
@@ -72,12 +90,8 @@ pub async fn cycle_thinking_level<B: TerminalBackend>(
     session.config.thinking_level = next_level.setting();
 
     engine.config.thinking_level = session.config.thinking_level.clone();
-    if let Err(err) = engine.update_model().await {
-        session.renderer.notice(
-            crate::ui::render::NoticeKind::Warn,
-            &format!("Could not update thinking level: {err}"),
-        );
-    }
+    let result = engine.update_model().await;
+    report_model_update(session, engine, result, "Could not update thinking level");
 
     update_footer(controller.state_mut(), session, engine);
     session
@@ -116,12 +130,8 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     ctx.session.config.model.clone_from(&spec);
     ctx.session.config.provider = item.provider.clone();
 
-    if let Err(err) = ctx.engine.switch_model(&spec, &item.provider).await {
-        ctx.session.renderer.notice(
-            crate::ui::render::NoticeKind::Warn,
-            &format!("Could not switch model: {err}"),
-        );
-    }
+    let result = ctx.engine.switch_model(&spec, &item.provider).await;
+    report_model_update(ctx.session, ctx.engine, result, "Could not switch model");
 
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.session.renderer.print_status(&format!(

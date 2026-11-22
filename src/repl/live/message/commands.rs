@@ -41,12 +41,13 @@ pub(crate) async fn handle_thinking_changed(
 ) {
     ctx.session.config.thinking_level = level.map(ToString::to_string);
     ctx.engine.config.thinking_level = ctx.session.config.thinking_level.clone();
-    if let Err(err) = ctx.engine.update_model().await {
-        ctx.session.renderer.notice(
-            crate::ui::render::NoticeKind::Warn,
-            &format!("Could not update thinking level: {err}"),
-        );
-    }
+    let result = ctx.engine.update_model().await;
+    crate::repl::live::navigation::report_model_update(
+        ctx.session,
+        ctx.engine,
+        result,
+        "Could not update thinking level",
+    );
     crate::repl::live::navigation::update_footer(io_controller.state_mut(), ctx.session, ctx.engine);
     let _ = io_controller.redraw();
 }
@@ -61,12 +62,8 @@ pub(crate) async fn handle_model_changed(
         ctx.session.config.provider = provider.to_string();
     }
     let provider = ctx.session.config.provider.clone();
-    if let Err(err) = ctx.engine.switch_model(new_model, &provider).await {
-        ctx.session.renderer.notice(
-            crate::ui::render::NoticeKind::Warn,
-            &format!("Could not switch model: {err}"),
-        );
-    }
+    let result = ctx.engine.switch_model(new_model, &provider).await;
+    crate::repl::live::navigation::report_model_update(ctx.session, ctx.engine, result, "Could not switch model");
 }
 
 pub(crate) async fn handle_compact<B: TerminalBackend>(

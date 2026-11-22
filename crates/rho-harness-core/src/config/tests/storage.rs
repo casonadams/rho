@@ -417,7 +417,7 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     let file: FileConfig = toml::from_str(&content).unwrap();
 
     assert_eq!(file.models.default.as_deref(), Some("claude-3-7-sonnet"));
-    assert_eq!(file.thinking_level, None);
+    assert_eq!(file.thinking_level.as_deref(), Some("off"));
     assert_eq!(file.region.as_deref(), Some("us-east-1"));
     assert_eq!(file.steering_mode, Some(crate::queue::QueueMode::All));
     assert_eq!(file.follow_up_mode, Some(crate::queue::QueueMode::OneAtATime));

@@ -52,6 +52,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         prune_memory: std::sync::Mutex::default(),
         worktrees: None,
         workflows: None,
+        subagent_models: None,
         mcp: crate::engine::EngineMcp::default(),
         ollama_host: crate::ollama::local::local_host(),
     }

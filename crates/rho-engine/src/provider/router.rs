@@ -82,7 +82,7 @@ impl ModelRouter {
             return Ok(None);
         };
         let config = Config {
-            thinking_level: None,
+            thinking_level: rho_harness_core::thinking::ThinkingLevel::Off.setting(),
             ..config.clone()
         };
         self.build(&config, &route).await.map(Some)
