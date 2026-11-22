@@ -1,4 +1,4 @@
-use super::super::{SubagentTool, runner::ASK_PARENT_TOOL};
+use super::super::{SubagentTool, observed::ASK_PARENT_TOOL};
 use super::*;
 use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};

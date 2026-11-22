@@ -206,28 +206,40 @@ fn test_role_tool_filtering() {
 }
 
 #[test]
-fn custom_agents_never_get_the_subagent_tool() {
+fn custom_agent_tools_follow_allow_and_deny_lists_and_never_include_subagent() {
     use rho_harness_core::agents::AgentMetadata;
     fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
         Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
             Ok(crate::tools::ToolResult::success("ok"))
         }))
     }
-    let all_tools = vec![dummy_tool("read"), dummy_tool("subagent")];
-    let agent = |tools: Option<Vec<String>>| AgentMetadata {
-        name: "a".into(),
-        description: String::new(),
-        location: String::new(),
-        tools,
-        disallowed_tools: None,
-        system_prompt: String::new(),
-    };
-    for tools in [None, Some(vec!["read".into(), "subagent".into()])] {
-        let names: Vec<String> = filter_tools_for_agent(&all_tools, &agent(tools.clone()))
+    let all_tools = vec![
+        dummy_tool("rg"),
+        dummy_tool("read"),
+        dummy_tool("bash"),
+        dummy_tool("subagent"),
+    ];
+    let list = |names: &[&str]| Some(names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+    let cases = [
+        (None, None, vec!["bash", "read", "rg"]),
+        (list(&["READ", "subagent"]), None, vec!["read"]),
+        (None, list(&["Bash"]), vec!["read", "rg"]),
+        (list(&["read", "bash"]), list(&["bash"]), vec!["read"]),
+    ];
+    for (tools, disallowed_tools, expected) in cases {
+        let agent = AgentMetadata {
+            name: "a".into(),
+            description: String::new(),
+            location: String::new(),
+            tools: tools.clone(),
+            disallowed_tools: disallowed_tools.clone(),
+            system_prompt: String::new(),
+        };
+        let names: Vec<String> = filter_tools_for_agent(&all_tools, &agent)
             .iter()
             .map(|t| t.name().to_string())
             .collect();
-        assert_eq!(names, vec!["read"], "tools: {tools:?}");
+        assert_eq!(names, expected, "tools: {tools:?}, disallowed: {disallowed_tools:?}");
     }
 }
 
@@ -1047,13 +1059,13 @@ fn parent_transcript_keeps_only_recent_messages_and_truncates_long_ones() {
     let mut history: Vec<ChatMessage> = (0..30).map(|i| ChatMessage::user(format!("message {i}"))).collect();
     history.push(ChatMessage::user("x".repeat(5_000)));
 
-    let rendered = runner::render_parent_conversation(&history);
+    let rendered = round::render_parent_conversation(&history);
 
     assert!(!rendered.contains("message 9\n"));
     assert!(rendered.contains("message 11"));
     assert_eq!(rendered.matches("User: ").count(), 20);
     assert!(rendered.chars().filter(|c| *c == 'x').count() == 1_500);
-    assert_eq!(runner::render_parent_conversation(&[]), "");
+    assert_eq!(round::render_parent_conversation(&[]), "");
 }
 
 #[tokio::test]
@@ -1101,7 +1113,7 @@ fn long_parent_message_keeps_both_its_opening_and_its_closing_text() {
     let long = format!("OPENING {} codeword is kumquat CLOSING", "filler ".repeat(1_500));
     let history = vec![ChatMessage::user(long)];
 
-    let rendered = runner::render_parent_conversation(&history);
+    let rendered = round::render_parent_conversation(&history);
 
     assert!(rendered.contains("OPENING"));
     assert!(rendered.contains("kumquat CLOSING"));
@@ -1123,9 +1135,9 @@ async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round()
     let runner =
         SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5).with_keep_recent_tokens(1);
 
-    let round = runner.run_round(Vec::new(), runner::RoundInput::Prompt("look")).await;
+    let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
-    assert_eq!(round.end, runner::RoundEnd::Answered("Done after compacting.".into()));
+    assert_eq!(round.end, round::RoundEnd::Answered("Done after compacting.".into()));
     assert_eq!(round.turns, 3, "turns before and after the compaction add up");
     assert!(
         matches!(&round.transcript[0], ChatMessage::System { content } if content.contains("Read big and bigger")),
@@ -1149,11 +1161,11 @@ async fn a_failure_before_the_first_reply_keeps_the_instruction_in_the_transcrip
     let round = runner
         .run_round(
             vec![ChatMessage::user("earlier")],
-            runner::RoundInput::Prompt("check the lexer"),
+            round::RoundInput::Prompt("check the lexer"),
         )
         .await;
 
-    assert!(matches!(round.end, runner::RoundEnd::Failed(_)), "{:?}", round.end);
+    assert!(matches!(round.end, round::RoundEnd::Failed(_)), "{:?}", round.end);
     assert_eq!(round.transcript.last(), Some(&ChatMessage::user("check the lexer")));
     assert_eq!(round.transcript.len(), 2);
 }
@@ -1177,10 +1189,10 @@ async fn an_overflow_on_the_first_call_compacts_and_still_gives_the_model_the_in
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_keep_recent_tokens(1);
 
     let round = runner
-        .run_round(history, runner::RoundInput::Prompt("check the lexer"))
+        .run_round(history, round::RoundInput::Prompt("check the lexer"))
         .await;
 
-    assert_eq!(round.end, runner::RoundEnd::Answered("Lexer checked.".into()));
+    assert_eq!(round.end, round::RoundEnd::Answered("Lexer checked.".into()));
     assert!(round.compacted);
     let last = adapter.requests().pop().unwrap();
     assert_eq!(last.asked(), "check the lexer");
@@ -1211,7 +1223,7 @@ async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
         .with_inbox(inbox)
         .with_cancellation(stop.clone());
 
-    let round = tokio::spawn(async move { runner.run_round(Vec::new(), runner::RoundInput::Prompt("look")).await });
+    let round = tokio::spawn(async move { runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     assert!(!round.is_finished(), "the round waits for its own background job");
     stop.cancel();
@@ -1220,7 +1232,7 @@ async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(round.end, runner::RoundEnd::Cancelled);
+    assert_eq!(round.end, round::RoundEnd::Cancelled);
     assert!(job.is_cancelled(), "the round's own job is stopped with it");
     crate::tools::jobs::JobManager::global().update_status(
         "round-jobs-7a1-job",
@@ -1253,10 +1265,10 @@ impl ModelAdapter for CrashingModel {
 async fn a_turn_that_dies_is_reported_as_a_failure_not_an_interruption() {
     let runner = SubagentRunner::new(Arc::new(CrashingModel), SubagentRole::Scout, &[], 5);
 
-    let round = runner.run_round(Vec::new(), runner::RoundInput::Prompt("go")).await;
+    let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("go")).await;
 
     assert!(
-        matches!(&round.end, runner::RoundEnd::Failed(text) if text.contains("ended unexpectedly")),
+        matches!(&round.end, round::RoundEnd::Failed(text) if text.contains("ended unexpectedly")),
         "{:?}",
         round.end
     );

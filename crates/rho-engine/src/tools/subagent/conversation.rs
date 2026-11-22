@@ -1,5 +1,6 @@
 use super::handoff::{WORKTREE_ARTIFACT, WorktreeRecord, changed_since, moved_note, pending_note, settle};
-use super::runner::{Round, RoundEnd, RoundInput, SubagentRunner};
+use super::round::{Round, RoundEnd, RoundInput};
+use super::runner::SubagentRunner;
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths, versions};
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::tools::types::ToolResult;

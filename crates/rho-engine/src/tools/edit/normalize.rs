@@ -32,8 +32,6 @@ fn has_isolated_lf(text: &str) -> bool {
     false
 }
 
-/// Checks if `content` contains a sequence of lines that matches `old_text`
-/// when intra-line and leading/trailing whitespace are collapsed.
 pub fn truncate_snippet(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s.to_string()
@@ -43,6 +41,8 @@ pub fn truncate_snippet(s: &str, max_chars: usize) -> String {
     }
 }
 
+/// Checks if `content` contains a sequence of lines that matches `old_text`
+/// when intra-line and leading/trailing whitespace are collapsed.
 pub fn has_whitespace_relaxed_match(content: &str, old_text: &str) -> bool {
     let clean_old = collapse_whitespace(old_text);
     if clean_old.is_empty() {

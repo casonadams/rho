@@ -1,4 +1,4 @@
-use crate::tools::subagent::runner::Round;
+use crate::tools::subagent::round::Round;
 use crate::tools::subagent::workspace::WorkspaceChange;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -103,7 +103,7 @@ impl AgentFileLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::subagent::runner::RoundEnd;
+    use crate::tools::subagent::round::RoundEnd;
     use std::time::Duration;
 
     fn round(changed: &[&str], workspace: &[(&str, Option<&str>)]) -> Round {

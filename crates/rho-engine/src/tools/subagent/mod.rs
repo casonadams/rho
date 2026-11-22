@@ -3,9 +3,11 @@ pub(crate) mod conversation;
 pub(crate) mod evidence;
 pub(crate) mod handoff;
 mod inspect;
+mod models;
 mod observed;
 mod presenter;
 mod recovery;
+pub mod round;
 pub mod runner;
 mod snapshot;
 #[cfg(test)]
@@ -15,6 +17,7 @@ pub(crate) mod workspace;
 
 pub(crate) use background::RoundSlot;
 pub use background::{DEFAULT_FOREGROUND_SECONDS, SubagentRuntime};
+pub use models::{SubagentModelResolver, SubagentModels};
 pub use runner::SubagentRunner;
 pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
 
@@ -26,53 +29,6 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::workflow::ModelRole;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
-/// Resolves a configured `<provider>/<model>` name to a handle; the error text is shown to the caller.
-pub type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String> + Send + Sync>;
-
-/// The session model and resolver subagents run on, shared by every copy of the tool so a model or
-/// thinking change reaches all of them.
-#[derive(Clone, Default)]
-pub struct SubagentModels(Arc<std::sync::RwLock<ModelSource>>);
-
-#[derive(Clone, Default)]
-struct ModelSource {
-    default: Option<ModelHandle>,
-    resolver: Option<SubagentModelResolver>,
-}
-
-impl SubagentModels {
-    fn new(session: Option<ModelHandle>) -> Self {
-        Self(Arc::new(std::sync::RwLock::new(ModelSource {
-            default: session.map(short_lived),
-            resolver: None,
-        })))
-    }
-
-    /// Moves subagents to the session model (short-lived where it has a cache lifetime) and `resolver`.
-    pub fn replace(&self, session: Option<ModelHandle>, resolver: SubagentModelResolver) {
-        *self.write() = ModelSource {
-            default: session.map(short_lived),
-            resolver: Some(resolver),
-        };
-    }
-
-    fn set_resolver(&self, resolver: SubagentModelResolver) {
-        self.write().resolver = Some(resolver);
-    }
-
-    fn current(&self) -> ModelSource {
-        self.0.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
-    }
-
-    fn write(&self) -> std::sync::RwLockWriteGuard<'_, ModelSource> {
-        self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-}
-
-fn short_lived(model: ModelHandle) -> ModelHandle {
-    model.for_short_lived_work().unwrap_or(model)
-}
 
 #[derive(Clone)]
 pub struct SubagentTool {
@@ -138,8 +94,9 @@ impl SubagentTool {
             worktrees: None,
             background: background::Backgrounding::default(),
             keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
-            description: crate::tools::ToolRegistry::builtin_description("subagent").to_string(),
+            description: String::new(),
         }
+        .describe()
     }
 
     /// How much recent conversation a subagent keeps word for word when it compacts.
@@ -433,7 +390,7 @@ impl SubagentTool {
         let parent = args
             .inherit_context
             .unwrap_or(false)
-            .then(|| runner::render_parent_conversation(&self.ctx.parent_history))
+            .then(|| round::render_parent_conversation(&self.ctx.parent_history))
             .filter(|text| !text.is_empty());
         match (parent, args.context_slice.as_deref().filter(|s| !s.trim().is_empty())) {
             (Some(parent), Some(slice)) => Some(format!("{parent}\n\n{slice}")),
@@ -533,7 +490,7 @@ impl SubagentTool {
         }
         let exchange = conversation::Exchange::start(&settings).claimed(&self.busy)?;
         let exchange = self.attach_worktree(exchange).await?;
-        let input = runner::build_subagent_prompt(&args.prompt, context.as_deref());
+        let input = round::build_subagent_prompt(&args.prompt, context.as_deref());
         Ok(self.converse(slot, exchange, runner, input, None).await)
     }
 
@@ -550,7 +507,7 @@ impl SubagentTool {
                     "task '{task_id}' is still running, so `model` and `turns` cannot change; omit them to send it a message, or pass them after its result arrives"
                 ));
             }
-            let message = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
+            let message = round::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
             if let Some(queued) = self.background.steer(task_id, &message) {
                 return Ok(ToolResult::success(queued));
             }
@@ -572,7 +529,7 @@ impl SubagentTool {
         let exchange = self
             .attach_worktree(exchange.with_settings(&settings).claimed(&self.busy)?)
             .await?;
-        let input = runner::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
+        let input = round::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
         Ok(self
             .converse(slot, exchange, runner, input, Some(task_id.to_string()))
             .await)
@@ -622,21 +579,16 @@ impl SubagentTool {
 }
 
 fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) -> Vec<Arc<dyn EngineTool>> {
-    let mut filtered: Vec<Arc<dyn EngineTool>> = if let Some(allowed) = &agent.tools {
-        tools
-            .iter()
-            .filter(|t| allowed.iter().any(|a| a.eq_ignore_ascii_case(t.name())))
-            .cloned()
-            .collect()
-    } else {
-        tools.to_vec()
+    let listed = |names: &Option<Vec<String>>, name: &str| {
+        names
+            .as_ref()
+            .map(|names| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
     };
-    if let Some(disallowed) = &agent.disallowed_tools {
-        filtered.retain(|t| !disallowed.iter().any(|d| d.eq_ignore_ascii_case(t.name())));
-    }
-    filtered.retain(|t| t.name() != "subagent");
-    filtered.sort_by(|a, b| a.name().cmp(b.name()));
-    filtered
+    runner::tools_named(tools, |name| {
+        name != "subagent"
+            && listed(&agent.tools, name).unwrap_or(true)
+            && !listed(&agent.disallowed_tools, name).unwrap_or(false)
+    })
 }
 
 /// Refuses a role, agent, or persona that differs from the one the task already runs as.

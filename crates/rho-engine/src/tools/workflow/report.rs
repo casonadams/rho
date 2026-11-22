@@ -138,7 +138,7 @@ impl RunLog {
     pub(crate) fn agent_files(
         &self,
         step: &str,
-        round: &crate::tools::subagent::runner::Round,
+        round: &crate::tools::subagent::round::Round,
         ran: std::ops::Range<std::time::Instant>,
     ) {
         self.files
