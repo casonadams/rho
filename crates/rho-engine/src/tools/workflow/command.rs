@@ -63,15 +63,10 @@ pub(crate) async fn run_command(
     let child = command
         .spawn()
         .map_err(|e| format!("failed to start `{program}`: {e}"))?;
-    let output = child.wait_with_output();
-    let output = match cancel {
-        Some(cancel) => tokio::select! {
-            out = output => out,
-            () = cancel.wait_cancelled() => return Err(CANCELLED.to_string()),
-        },
-        None => output.await,
-    }
-    .map_err(|e| format!("`{program}` failed: {e}"))?;
+    let output = crate::engine::runner::turn::types::unless_cancelled(cancel, child.wait_with_output())
+        .await
+        .ok_or_else(|| CANCELLED.to_string())?
+        .map_err(|e| format!("`{program}` failed: {e}"))?;
     Ok(CommandOutcome {
         exit: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),

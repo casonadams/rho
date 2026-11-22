@@ -1,14 +1,13 @@
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse, StructuralUsage};
 use crate::engine::runner::sink::TerminalApprovalSink;
-use crate::engine::runner::turn::types::{CancellationSignal, SteeringQueueProvider};
+use crate::engine::runner::turn::types::{CancellationSignal, SteeringQueueProvider, unless_cancelled};
 use crate::hook::LifecycleHook;
-use crate::provider::adapter::{FinishReason, ModelCompletionRequest, ModelStreamEvent, ModelToolDefinition};
+use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use crate::repeat::RepeatedCallTracker;
 use crate::tools::EngineTool;
 use crate::tools::engine_tool::TurnToolContext;
 use futures::Stream;
-use futures::StreamExt;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{AssistantContent, ChatMessage, Reasoning, ToolCall};
 use rho_harness_core::presentation::ToolStreamPort;
@@ -16,8 +15,13 @@ use rho_harness_core::session::SessionManager;
 use std::pin::Pin;
 use std::sync::Arc;
 
+mod delivery;
 mod dispatch;
+mod model_call;
 
+use delivery::wait_for_background_jobs;
+#[cfg(test)]
+use delivery::{WaitStepResult, deliver_messages, wait_step};
 pub use dispatch::ToolObserver;
 use dispatch::{
     CallControl, ToolExecutionContext, batch_is_concurrency_safe, execute_concurrent_tool_calls,
@@ -25,6 +29,9 @@ use dispatch::{
 };
 #[cfg(test)]
 use dispatch::{DispatchDecision, evaluate_tool_dispatch};
+#[cfg(test)]
+use model_call::{MODEL_CALL_ATTEMPTS, retry_delay};
+use model_call::{TurnStreamOutcome, call_model};
 
 #[derive(Clone, Debug)]
 pub enum StreamEvent {
@@ -59,14 +66,9 @@ pub struct ModelRetry {
     pub discarded_tool_calls: usize,
 }
 
-const MODEL_CALL_ATTEMPTS: usize = 3;
-const MODEL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
-fn retry_delay(attempt: usize, error: &AppError) -> std::time::Duration {
-    let backoff = std::time::Duration::from_secs(1 << attempt.min(5));
-    error
-        .retry_after()
-        .map_or(backoff, |wait| wait.min(crate::provider::error::MAX_RETRY_AFTER))
+/// The error a turn ends with when the operator interrupts it.
+fn interrupted() -> AppError {
+    AppError::Cancelled("operator interrupt".to_string())
 }
 
 struct TurnStream {
@@ -96,17 +98,14 @@ struct TurnEmitter {
 impl TurnEmitter {
     fn ensure_live(&self) -> Result<(), AppError> {
         if self.tx.is_closed() || self.cancellation.as_ref().is_some_and(CancellationSignal::is_cancelled) {
-            return Err(AppError::Cancelled("operator interrupt".to_string()));
+            return Err(interrupted());
         }
         Ok(())
     }
 
     async fn send(&self, item: MultiTurnStreamItem) -> Result<(), AppError> {
         self.ensure_live()?;
-        self.tx
-            .send(Ok(item))
-            .await
-            .map_err(|_| AppError::Cancelled("operator interrupt".to_string()))
+        self.tx.send(Ok(item)).await.map_err(|_| interrupted())
     }
 
     /// Direct sink calls from the runner task must not overtake display items still queued
@@ -147,6 +146,12 @@ pub struct AgentRunner {
 }
 
 impl AgentRunner {
+    /// Runs `fut` unless the turn is interrupted first.
+    async fn unless_cancelled<T>(&self, fut: impl std::future::Future<Output = T>) -> Result<T, AppError> {
+        unless_cancelled(self.cancellation.as_ref(), fut)
+            .await
+            .ok_or_else(interrupted)
+    }
     pub fn new(
         model: ModelHandle,
         tools: Vec<Arc<dyn EngineTool>>,
@@ -343,244 +348,6 @@ impl AgentRunner {
     }
 }
 
-#[derive(Default)]
-struct TurnStreamOutcome {
-    text: String,
-    reasoning: String,
-    content: Vec<AssistantContent>,
-    tool_calls: Vec<ToolCall>,
-    usage: StructuralUsage,
-    finish_reason: Option<FinishReason>,
-}
-
-impl TurnStreamOutcome {
-    fn push_text(&mut self, text: &str) {
-        self.text.push_str(text);
-        if let Some(AssistantContent::Text(last)) = self.content.last_mut() {
-            last.text.push_str(text);
-        } else {
-            self.content.push(AssistantContent::text(text));
-        }
-    }
-}
-
-async fn stream_single_event(
-    event: ModelStreamEvent,
-    outcome: &mut TurnStreamOutcome,
-    emitter: &TurnEmitter,
-) -> Result<(), AppError> {
-    match event {
-        ModelStreamEvent::Text(t) => {
-            outcome.push_text(&t);
-            emitter
-                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(t)))
-                .await
-        }
-        ModelStreamEvent::Reasoning(r) => {
-            outcome.reasoning.push_str(&r);
-            emitter
-                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(r)))
-                .await
-        }
-        ModelStreamEvent::ReasoningBlock(block) => {
-            outcome.content.push(AssistantContent::Reasoning(block));
-            Ok(())
-        }
-        ModelStreamEvent::ToolCall(tc) => {
-            let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
-            emitter
-                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments {
-                    id: tc.id.clone(),
-                    json: args_str,
-                }))
-                .await?;
-            emitter
-                .send(MultiTurnStreamItem::ToolCall { tool_call: tc.clone() })
-                .await?;
-            outcome.content.push(AssistantContent::ToolCall(tc.clone()));
-            outcome.tool_calls.push(tc);
-            Ok(())
-        }
-        ModelStreamEvent::Usage(u) => {
-            outcome.usage = outcome.usage.merge(&u);
-            Ok(())
-        }
-        ModelStreamEvent::Finish(f) => {
-            outcome.finish_reason = Some(f);
-            Ok(())
-        }
-    }
-}
-
-async fn stream_turn(
-    mut stream: Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>,
-    emitter: &TurnEmitter,
-    outcome: &mut TurnStreamOutcome,
-) -> Result<(), AppError> {
-    while let Some(res) = stream.next().await {
-        stream_single_event(res?, outcome, emitter).await?;
-    }
-    Ok(())
-}
-
-async fn attempt_model_call(
-    runner: &AgentRunner,
-    req: ModelCompletionRequest,
-    emitter: &TurnEmitter,
-    outcome: &mut TurnStreamOutcome,
-) -> Result<(), AppError> {
-    let stream = tokio::time::timeout(MODEL_RESPONSE_TIMEOUT, runner.model.stream(req))
-        .await
-        .map_err(|_| {
-            AppError::Network(format!(
-                "model provider sent no response within {}s",
-                MODEL_RESPONSE_TIMEOUT.as_secs()
-            ))
-        })??;
-    stream_turn(stream, emitter, outcome).await
-}
-
-async fn sleep_unless_cancelled(delay: std::time::Duration, runner: &AgentRunner) -> Result<(), AppError> {
-    tokio::select! {
-        () = tokio::time::sleep(delay) => Ok(()),
-        () = async {
-            match runner.cancellation.as_ref() {
-                Some(c) => c.wait_cancelled().await,
-                None => std::future::pending::<()>().await,
-            }
-        } => Err(AppError::Cancelled("operator interrupt".to_string())),
-    }
-}
-
-/// Retries one model request on transient failures so a dropped connection costs a request, not the whole turn.
-async fn call_model(
-    runner: &AgentRunner,
-    req: &ModelCompletionRequest,
-    emitter: &TurnEmitter,
-) -> Result<TurnStreamOutcome, AppError> {
-    let mut attempt = 1;
-    loop {
-        let mut outcome = TurnStreamOutcome::default();
-        let error = match attempt_model_call(runner, req.clone(), emitter, &mut outcome).await {
-            Ok(()) => return Ok(outcome),
-            Err(error) if attempt < MODEL_CALL_ATTEMPTS && error.is_transient() => error,
-            Err(error) => return Err(error),
-        };
-        let retry = ModelRetry {
-            attempt,
-            max_attempts: MODEL_CALL_ATTEMPTS,
-            delay: retry_delay(attempt, &error),
-            reason: error.to_string(),
-            discarded_tool_calls: outcome.tool_calls.len(),
-        };
-        let delay = retry.delay;
-        emitter.send(MultiTurnStreamItem::ModelTurnRetried(retry)).await?;
-        sleep_unless_cancelled(delay, runner).await?;
-        attempt += 1;
-    }
-}
-
-fn append_notification_messages(
-    notifications: Vec<String>,
-    current_messages: &mut Vec<ChatMessage>,
-    new_turn_messages: &mut Vec<ChatMessage>,
-) {
-    for notification in notifications {
-        let notif_msg = ChatMessage::user(notification);
-        current_messages.push(notif_msg.clone());
-        new_turn_messages.push(notif_msg);
-    }
-}
-
-/// Adds the agent's waiting messages to the turn: its mailbox (background notices, messages from
-/// other agents and the user) and the user's queued steering. Returns whether any arrived.
-async fn deliver_messages(runner: &AgentRunner, ctx: &mut RunnerStepContext<'_>, emitter: &TurnEmitter) -> bool {
-    let mut messages: Vec<String> = Vec::new();
-    if let Some(inbox) = &runner.inbox {
-        let parent = inbox.parent();
-        messages.extend(inbox.take().iter().map(|m| m.for_model(parent.as_deref())));
-    }
-    if let Some(provider) = &runner.steering {
-        messages.extend(provider.poll_steering().await);
-    }
-    let delivered = !messages.is_empty();
-    if delivered {
-        let _ = emitter
-            .send(MultiTurnStreamItem::MessagesDelivered(messages.clone()))
-            .await;
-    }
-    append_notification_messages(messages, ctx.current_messages, ctx.new_turn_messages);
-    delivered
-}
-
-/// Waits for a message, a cancellation, or a short tick (a job can end without sending anything).
-async fn wait_for_message(runner: &AgentRunner) -> Result<(), AppError> {
-    tokio::select! {
-        () = async {
-            match &runner.inbox {
-                Some(inbox) => inbox.wait().await,
-                None => std::future::pending::<()>().await,
-            }
-        } => Ok(()),
-        () = async {
-            match runner.cancellation.as_ref() {
-                Some(c) => c.wait_cancelled().await,
-                None => std::future::pending::<()>().await,
-            }
-        } => Err(AppError::Cancelled("operator interrupt".to_string())),
-        () = tokio::time::sleep(std::time::Duration::from_millis(250)) => Ok(()),
-    }
-}
-
-enum WaitStepResult {
-    EventDelivered,
-    ContinueWaiting,
-}
-
-async fn wait_step(
-    runner: &AgentRunner,
-    ctx: &mut RunnerStepContext<'_>,
-    emitter: &TurnEmitter,
-) -> Result<WaitStepResult, AppError> {
-    if runner.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
-        return Err(AppError::Cancelled("operator interrupt".to_string()));
-    }
-    if deliver_messages(runner, ctx, emitter).await {
-        return Ok(WaitStepResult::EventDelivered);
-    }
-    wait_for_message(runner).await?;
-    if deliver_messages(runner, ctx, emitter).await {
-        return Ok(WaitStepResult::EventDelivered);
-    }
-    Ok(WaitStepResult::ContinueWaiting)
-}
-
-/// Before a turn ends: delivers waiting messages, and while the agent's background jobs run, waits
-/// for their notices. Returns whether anything arrived, so the agent continues instead of finishing.
-async fn wait_for_background_jobs(
-    runner: &AgentRunner,
-    ctx: &mut RunnerStepContext<'_>,
-    emitter: &TurnEmitter,
-) -> Result<bool, AppError> {
-    let owner = runner.store.owner();
-    let jobs = crate::tools::jobs::JobManager::global();
-    if !jobs.has_running(owner) {
-        return Ok(deliver_messages(runner, ctx, emitter).await);
-    }
-
-    emitter.wait_for_display_drain().await?;
-    runner.sink.resume_spinner_with_message("waiting...");
-    while jobs.has_running(owner) {
-        if let WaitStepResult::EventDelivered = wait_step(runner, ctx, emitter).await? {
-            runner.sink.resume_spinner_with_message("thinking...");
-            return Ok(true);
-        }
-    }
-
-    runner.sink.resume_spinner_with_message("thinking...");
-    Ok(deliver_messages(runner, ctx, emitter).await)
-}
-
 struct RunnerStepContext<'a> {
     current_messages: &'a mut Vec<ChatMessage>,
     new_turn_messages: &'a mut Vec<ChatMessage>,
@@ -734,7 +501,7 @@ async fn execute_agent_step(
     if dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await? {
         return Ok(StepExecutionResult::Complete(prompt_response(outcome.text, ctx)));
     }
-    deliver_messages(runner, ctx, emitter).await;
+    delivery::deliver_messages(runner, ctx, emitter).await?;
     Ok(StepExecutionResult::Continue)
 }
 

@@ -18,7 +18,7 @@ use crate::engine::runner::turn::MemoryStore;
 use crate::engine::runner::turn::runner::{
     AgentRunner, EMPTY_RESPONSE_ERROR, MultiTurnStreamItem, StreamEvent, ToolObserver,
 };
-use crate::engine::runner::turn::types::CancellationSignal;
+use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
@@ -455,14 +455,6 @@ impl SubagentRunner {
         &self.model
     }
 
-    /// Resolves to `None` when `stop` fires before `fut` completes.
-    async fn unless_stopped<T>(stop: &CancellationSignal, fut: impl std::future::Future<Output = T>) -> Option<T> {
-        tokio::select! {
-            value = fut => Some(value),
-            () = stop.wait_cancelled() => None,
-        }
-    }
-
     pub async fn run(&self, prompt: &str, context_slice: Option<&str>) -> ToolResult {
         let task = build_subagent_prompt(prompt, context_slice);
         let round = self.run_round(Vec::new(), RoundInput::Prompt(&task)).await;
@@ -782,7 +774,7 @@ impl SubagentRunner {
         let mut pending_names: Vec<String> = Vec::new();
         let mut output = None;
         loop {
-            let Some(item) = Self::unless_stopped(stop, stream.next()).await else {
+            let Some(item) = unless_cancelled(Some(stop), stream.next()).await else {
                 sink.flush_display();
                 return Finish::Stopped;
             };
@@ -903,8 +895,8 @@ impl SubagentRunner {
         if stop.is_cancelled() {
             return RoundEnd::Cancelled;
         }
-        let synthesis = Self::unless_stopped(
-            stop,
+        let synthesis = unless_cancelled(
+            Some(stop),
             attempt_recovery_synthesis(&self.model, &self.instructions, transcript),
         )
         .await;

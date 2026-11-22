@@ -1,5 +1,6 @@
 use super::command::CANCELLED;
 use super::executor::{Executor, Frame, Scope};
+use crate::engine::runner::turn::types::unless_cancelled;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
 use crate::tools::subagent::handoff::settle;
@@ -266,14 +267,9 @@ impl Executor<'_> {
 
     /// Waits for a free subagent round slot, giving up if the workflow is cancelled meanwhile.
     async fn round_slot(&self) -> Result<RoundSlot, String> {
-        let wait = self.subagents.wait_for_round_slot();
-        match &self.ctx().cancellation {
-            Some(cancel) => tokio::select! {
-                slot = wait => Ok(slot),
-                () = cancel.wait_cancelled() => Err(CANCELLED.to_string()),
-            },
-            None => Ok(wait.await),
-        }
+        unless_cancelled(self.ctx().cancellation.as_ref(), self.subagents.wait_for_round_slot())
+            .await
+            .ok_or_else(|| CANCELLED.to_string())
     }
 
     async fn parse_json(&self, runner: &SubagentRunner, text: &str) -> Result<Value, String> {
@@ -296,13 +292,7 @@ impl Executor<'_> {
             temperature: Some(0.0),
         };
         let repair = runner.model().complete(request);
-        let response = match &self.ctx().cancellation {
-            Some(cancel) => tokio::select! {
-                response = repair => response.ok()?,
-                () = cancel.wait_cancelled() => return None,
-            },
-            None => repair.await.ok()?,
-        };
+        let response = unless_cancelled(self.ctx().cancellation.as_ref(), repair).await?.ok()?;
         extract_json(&response.content)
     }
 }

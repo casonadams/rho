@@ -1,5 +1,6 @@
 use super::*;
-use crate::provider::adapter::MockAdapter;
+use crate::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
+use futures::StreamExt;
 use rho_harness_core::model::ToolFunction;
 
 #[derive(Default)]
@@ -981,6 +982,33 @@ async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn delivering_messages_to_an_interrupted_turn_reports_the_interrupt() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let owner = runner.session_file().session_id.clone();
+    let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+    runner
+        .inbox
+        .as_ref()
+        .unwrap()
+        .registry()
+        .send(crate::mailbox::Envelope::new(
+            crate::mailbox::Party::System,
+            owner,
+            crate::mailbox::Kind::Event,
+            "late-notice",
+        ))
+        .unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    drop(rx);
+    let emitter = TurnEmitter { tx, cancellation: None };
+
+    let result = deliver_messages(&runner, &mut ctx, &emitter).await;
+
+    assert!(matches!(result, Err(AppError::Cancelled(_))), "{result:?}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn background_notification_is_injected_once_when_woken() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
@@ -1002,7 +1030,7 @@ async fn background_notification_is_injected_once_when_woken() {
     let emitter = acking_emitter();
     let step = wait_step(&runner, &mut ctx, &emitter).await.unwrap();
     enqueue.await.unwrap();
-    deliver_messages(&runner, &mut ctx, &emitter).await;
+    deliver_messages(&runner, &mut ctx, &emitter).await.unwrap();
 
     assert!(matches!(step, WaitStepResult::EventDelivered));
     assert_eq!(

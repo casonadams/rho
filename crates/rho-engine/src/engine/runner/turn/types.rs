@@ -56,6 +56,20 @@ impl CancellationSignal {
     }
 }
 
+/// Runs `fut` to completion, or resolves to `None` when `signal` fires first; no signal means it always completes.
+pub async fn unless_cancelled<T>(
+    signal: Option<&CancellationSignal>,
+    fut: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    let Some(signal) = signal else {
+        return Some(fut.await);
+    };
+    tokio::select! {
+        value = fut => Some(value),
+        () = signal.wait_cancelled() => None,
+    }
+}
+
 #[async_trait]
 pub trait SteeringQueueProvider: Send + Sync {
     async fn poll_steering(&self) -> Vec<String> {
