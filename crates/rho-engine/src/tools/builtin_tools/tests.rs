@@ -65,7 +65,7 @@ fn names_without_memory(tools: &[Arc<dyn EngineTool>]) -> Vec<&str> {
 fn builtin_tools_build_successfully() {
     let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None).unwrap();
     let names = names_without_memory(&tools);
-    assert_eq!(names.len(), 11);
+    assert_eq!(names.len(), 12);
     for exp in [
         "read",
         "write",
@@ -77,6 +77,7 @@ fn builtin_tools_build_successfully() {
         "web_search",
         "web_fetch",
         "todo",
+        "wait",
         "subagent",
     ] {
         assert!(names.contains(&exp));
@@ -126,7 +127,7 @@ fn builtin_tools_omit_web_when_disabled() {
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
     let tools = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
-    assert_eq!(names_without_memory(&tools).len(), 9);
+    assert_eq!(names_without_memory(&tools).len(), 10);
 }
 
 #[test]

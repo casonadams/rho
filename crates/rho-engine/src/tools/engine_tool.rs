@@ -24,6 +24,8 @@ pub struct TurnToolContext {
     pub session: Option<rho_harness_core::session::SessionManager>,
     /// The running agent's mailbox; background work a tool starts reports to it.
     pub inbox: Option<crate::mailbox::Mailbox>,
+    /// The user's queued steering, which ends a wait for background work.
+    pub steering: Option<Arc<dyn crate::engine::runner::SteeringQueueProvider>>,
 }
 
 #[async_trait::async_trait]

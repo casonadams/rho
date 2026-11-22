@@ -8,7 +8,16 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, UndoArgs, WorktreeArgs};
+use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, UndoArgs, WaitArgs, WorktreeArgs};
+
+pub static PROMPT_WAIT: &str = "\
+Block until background work reports back, instead of polling it.
+
+Usage:
+- Call it after starting a background bash command or a subagent task when you need the result before you can continue. It takes no arguments.
+- It returns as soon as one background bash job or subagent task of yours finishes, with the same result notice that would otherwise arrive as a follow-up message (that notice is then not delivered again), or when a new message from the user arrives. Other jobs may still be running: call wait again if you need them too.
+- If nothing is running it returns at once. After 10 minutes it returns `Still running:` with the ids and ages of what is left; call it again or end your turn.
+- Never poll with sleep, ps, or pgrep, and do not wait when you have other work to do: continue that work, or end your turn, and results arrive on their own.";
 
 pub static PROMPT_UNDO: &str = "\
 Revert the last edit, write, or lsp change (rename, code action, format) this session's tools made to a file.
@@ -136,7 +145,7 @@ Usage:
 - Use fd for file discovery, rg for content search; use bash for git actions, cargo builds, tests, and linters.
 - Never read files with cat, sed, or awk, and never create or modify files with bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, tee, mv over a file); use read, edit, and write. Project formatters and generators (cargo fmt, make) are fine.
 - timeout is in seconds (default 30). A command that exceeds it is NOT killed: it moves to a background job and its output arrives later as a follow-up message. Set background: false to kill it on timeout instead.
-- Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep. Background jobs are killed after 1 hour.
+- Set background: true for long-running work (full builds, test suites, servers); you get a job id immediately and the output is delivered when the job finishes. Never poll with sleep, ps, or pgrep: call wait to block until it finishes, or end your turn. Background jobs are killed after 1 hour.
 - Non-zero exit codes return an error result ending in `[exit N]`. Successful output over 50 lines shows only the first 10 and last 15 lines, and long or truncated output ends with `log: PATH`, the full output file to search with rg or page with read. When clipped output has failing tests (cargo test, nextest, pytest, go test, Jest, Vitest), a `[N failing tests; details from log]` section above the last line lists each with its key failure lines. Filter output with rg, head, or tail instead of dumping everything.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
@@ -173,7 +182,7 @@ Usage:
 - Subagents start with no memory of your conversation, so put everything they need in `prompt` or `context_slice`. `inherit_context` shares only the last 20 text messages, each clipped to 1,500 characters.
 - Subagent calls in the same response run in parallel: all of them in a git repository, where each has its own worktree, otherwise only new read-only ones (scout, critic, planner). Parallel subagents still share the machine (ports, installed dependencies, build caches), so give them non-conflicting commands, and give two subagents disjoint files to avoid merge conflicts.
 - Subagents run up to `turns` model calls (default 100) on the `model` role you pass ('default', 'smol', or 'slow'); without one they use the role or agent's model configured by the user, else 'smol' when it is configured, otherwise the session model. They return a concise summary to the parent.
-- A subagent still running after the foreground budget (60 seconds unless configured) moves to the background: the call returns its task id at once, its result arrives later as a follow-up message, and your turn waits for it before ending. Meanwhile continue the parts of the task that do not depend on it instead of waiting, and do not inspect that task until its result arrives. To redirect a running subagent, call subagent with its `task_id` and a `prompt` (optionally `context_slice`): the message is queued and reaches it before its next model call. Omit `model` and `turns`, which cannot change mid-round.
+- A subagent runs in the background: the call returns its task id at once and its result arrives later as a follow-up message; your turn waits for it before ending. Call wait only when you cannot continue without the result; otherwise continue the parts of the task that do not depend on it, and do not inspect that task until its result arrives. To redirect a running subagent, call subagent with its `task_id` and a `prompt` (optionally `context_slice`): the message is queued and reaches it before its next model call. Omit `model` and `turns`, which cannot change mid-round.
 - Always pass `name`: a short camelCase label for the task (e.g. 'performanceAudit', 'retryAfterReview'); it identifies the subagent in progress lines, /agents, its task id, and its result.
 - Each result ends with a task id and state. Treat the answer as a claim, not proof: before accepting, review its changes (worktree diff) and re-run the relevant checks yourself. If something was missed or wrong, call subagent again with that `task_id` and your feedback (e.g. 'you missed X, fix it'); the subagent continues with everything it already read and did. Repeat until the work is right.
 - Results list 'Files changed' (its write/edit calls), 'Also changed in the workspace' (bash, formatters, other agents), and 'Tool outcomes' (errors and permission denials). A footer with 'failed tool calls' means part of the work may not have happened even if the answer says it did.
@@ -304,6 +313,13 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_TODO,
         prompt_snippet: "Track an ordered task list for multi-step work (pending, in_progress, completed)",
         schema: generated_schema::<TodoArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "wait",
+        capability: BuiltinToolKind::ReadOnly,
+        prompt: PROMPT_WAIT,
+        prompt_snippet: "Block until a background job or subagent task finishes, instead of polling with sleep",
+        schema: generated_schema::<WaitArgs>,
     },
 ];
 

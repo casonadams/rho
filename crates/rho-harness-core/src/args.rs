@@ -343,6 +343,7 @@ impl SubagentRole {
                 "web_fetch",
                 "web_search",
                 "todo",
+                "wait",
             ],
         }
     }
@@ -360,7 +361,7 @@ impl SubagentRole {
                 "You are a software architect and planner. Your role is to decompose tasks into clean, sequential, testable vertical slices and identify risks, invariants, and reuse opportunities. Do not write full code solutions."
             }
             Self::General => {
-                "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome."
+                "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome. When you wait for a background command, call wait or end your turn; never poll with sleep."
             }
         }
     }
@@ -420,6 +421,10 @@ pub struct UndoArgs {
     /// File whose last edit or write to undo (relative or absolute)
     pub path: String,
 }
+
+/// The `wait` tool takes no arguments.
+#[derive(Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct WaitArgs {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -575,7 +580,8 @@ mod tests {
                 "lsp",
                 "web_fetch",
                 "web_search",
-                "todo"
+                "todo",
+                "wait"
             ]
         );
     }
@@ -583,7 +589,7 @@ mod tests {
     #[test]
     fn read_only_roles_never_get_tools_that_change_state_or_spawn_work() {
         let mutating = [
-            "write", "edit", "undo", "bash", "todo", "memory", "subagent", "worktree",
+            "write", "edit", "undo", "bash", "todo", "wait", "memory", "subagent", "worktree",
         ];
         for role in [SubagentRole::Scout, SubagentRole::Critic, SubagentRole::Planner] {
             for tool in role.allowed_tools() {

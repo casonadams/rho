@@ -32,17 +32,7 @@ pub(super) async fn deliver_messages(
 /// Waits for a message, a cancellation, or a short tick (a job can end without sending anything).
 async fn wait_for_message(runner: &AgentRunner) -> Result<(), AppError> {
     runner
-        .unless_cancelled(async {
-            tokio::select! {
-                () = async {
-                    match &runner.inbox {
-                        Some(inbox) => inbox.wait().await,
-                        None => std::future::pending::<()>().await,
-                    }
-                } => {}
-                () = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
-            }
-        })
+        .unless_cancelled(crate::mailbox::wait_for_message_or_tick(runner.inbox.as_ref()))
         .await
 }
 

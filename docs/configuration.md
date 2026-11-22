@@ -363,7 +363,7 @@ happen.
 
 - **Built-in roles**: `scout` (read, fd, rg, lsp, web_fetch, web_search),
   `critic` and `planner` (read, fd, rg, lsp), and `general` (read, write, edit,
-  undo, bash, fd, rg, lsp, web_fetch, web_search, todo). Each subagent keeps its
+  undo, bash, fd, rg, lsp, web_fetch, web_search, todo, wait). Each subagent keeps its
   own `todo` list. An agent without `write` or `edit` gets `lsp` without the
   `rename` and `format` actions and without applying code actions, so read-only
   roles never change files through it.
@@ -378,10 +378,14 @@ happen.
   elsewhere only subagents whose tools are all read-only. Parallel subagents
   still share ignored build and dependency directories, ports, and the machine.
   Permission prompts still appear one at a time.
-- **Background**: a subagent still running after `subagents.foreground_seconds`
-  (default 60) moves to the background. The call returns its task id at once so
-  the main agent can keep working; the result arrives as a follow-up message
-  when the subagent finishes, and the turn waits for it before ending. Until
+- **Background**: a subagent starts in the background by default. The call
+  returns its task id at once (set `subagents.foreground_seconds` to a nonzero
+  number to run it inline for that long first, and only then move it to the
+  background); the main agent can keep working, call `wait` to block until a
+  result arrives, or end its turn. The result arrives as a follow-up message
+  when the subagent finishes, and the turn waits for it before ending. The tool
+  card tells the user that it runs in the background and that `Left` on an empty
+  prompt watches it (the model is not told this). Until
   then, inspecting that task says it is still running, and continuing it
   queues the prompt (with any `context_slice`) as a message the subagent reads
   before its next model call (also when it answers: it keeps working with the
@@ -494,7 +498,7 @@ subagent tasks:
 
 ```toml
 [subagents]
-foreground_seconds = 60
+foreground_seconds = 0      # 0 (default): subagents start in the background
 approval_focus = "switch"   # or "indicate"
 
 [subagents.models]
@@ -661,6 +665,57 @@ Fields: `command`, `args`, `extensions` (or `extensionToLanguage`, mapping
 `.ext` to a language id), `rootMarkers` (file names, or `*.ext`),
 `initializationOptions`, `settings` (answered to `workspace/configuration` and
 sent with `didChangeConfiguration`), `env`, `disabled`, and `linter`.
+
+### Adding a language server
+
+To add a language rho does not know (Dart, for example):
+
+1. Install the server so its command runs from your shell. Dart and Flutter
+   ship it as `dart language-server`.
+2. Add an entry to `~/.agents/lsp.json`, which applies to every project
+   without needing trust:
+
+   ```json
+   {
+     "dart": {
+       "command": "dart",
+       "args": ["language-server"],
+       "extensions": ["dart"],
+       "rootMarkers": ["pubspec.yaml"]
+     }
+   }
+   ```
+
+3. Run `lsp status` (or ask the agent to). `Installed:` lists the servers whose
+   command resolves, with their extensions; a server that is not there shows
+   under `Not on PATH:`. Then try `lsp symbols path=lib/main.dart`. If the file
+   has no server, the error says whether the command is missing or no root
+   marker was found above the file, and a server that fails to start shows the
+   last lines it wrote to stderr (a `mise` or `asdf` shim with no version set
+   shows up this way).
+
+What each field does for a new server:
+
+- `command` is required, and is looked up on `PATH` (or use an absolute path).
+- `extensions` (with or without the dot) decides which files it handles. Without
+  `extensions` or `extensionToLanguage` it never matches a file.
+- `rootMarkers` pick the project root: the workspace root when it holds a
+  marker, else the nearest ancestor of the file that does, so a monorepo whose
+  root has no `pubspec.yaml` gets one server per package. With no markers the
+  server runs at the workspace root.
+- The language id sent to the server comes from `extensionToLanguage`
+  (`{ ".dart": "dart" }`), then rho's built-in table, then the extension itself,
+  which is already right for Dart. Set it only when the server expects another
+  id.
+- `settings` holds the server's own configuration, for example Dart's `dart.*`
+  options from its documentation; rho answers the server's
+  `workspace/configuration` requests from it.
+
+Use `.agents/lsp.json` or `.lsp.json` in a project only for servers that should
+run there for everyone; they apply only to trusted projects. To change a
+built-in server, repeat just its name and the fields to change; `"disabled": true`
+turns one off. A server whose rename needs file operations (create, rename,
+delete) is refused for that action: rho applies text edits only.
 
 After `edit` or `write`, rho sends the new content to every server for the
 file and waits up to 3 seconds for its diagnostics. The result ends with the

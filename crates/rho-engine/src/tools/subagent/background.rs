@@ -4,7 +4,8 @@ use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
 use crate::tools::bash::runner::neutralize_notice_tags;
 use crate::tools::jobs::{JobManager, JobStatus, job_notice};
 use crate::tools::types::ToolResult;
-use rho_harness_core::presentation::{ToolStreamPort, ToolStreamSink};
+use rho_harness_core::args::SubagentRole;
+use rho_harness_core::presentation::{SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use tokio::task::{AbortHandle, JoinHandle};
 
-pub const DEFAULT_FOREGROUND_SECONDS: u64 = 60;
+pub const DEFAULT_FOREGROUND_SECONDS: u64 = 0;
 /// Subagent rounds that may run at once, in the foreground or the background.
 const MAX_ACTIVE_ROUNDS: usize = 8;
 /// Longest subagent result placed in a completion notice; the full record stays in the session.
@@ -228,10 +229,10 @@ fn joined(result: Result<ToolResult, tokio::task::JoinError>) -> ToolResult {
     result.unwrap_or_else(|e| ToolResult::error(format!("subagent stopped unexpectedly: {e}")))
 }
 
-fn moved_notice(task_id: &str, budget: Duration) -> String {
+fn started_notice(task_id: &str, settings: &ConversationSettings) -> String {
+    let agent = settings.agent.as_deref().unwrap_or(SubagentRole::default().as_str());
     format!(
-        "Still running after {}s, so subagent task '{task_id}' moved to the background. Its result arrives as a follow-up message when it finishes, and your turn waits for it before ending. Do not poll or inspect it: continue other work now, or end your response to wait. To redirect it, call subagent with this task_id and a prompt; the message reaches it before its next model call.",
-        budget.as_secs()
+        "{SUBAGENT_STARTED_MARKER}{task_id}' ({agent}). Its result arrives as a follow-up message when it finishes; call wait if you need it now, or continue other work or end your turn. To redirect it, call subagent with this task_id and a prompt."
     )
 }
 
@@ -423,15 +424,26 @@ impl Backgrounding {
             with_undelivered(result, &open_inbox.close())
         });
         let mut guard = AbortOnDrop(Some(handle.abort_handle()));
-        match tokio::time::timeout(self.budget, &mut handle).await {
-            Ok(result) => joined(result),
-            Err(_) => {
+        match self.wait_inline(&mut handle).await {
+            Some(result) => joined(result),
+            None => {
                 guard.0 = None;
                 open.store(false, Ordering::Relaxed);
                 self.detach(handle, &task, stop);
-                ToolResult::success(moved_notice(task.id, self.budget))
+                ToolResult::success(started_notice(task.id, &task.settings))
             }
         }
+    }
+
+    /// The round's outcome if it ends within the foreground budget; a zero budget never waits.
+    async fn wait_inline(
+        &self,
+        handle: &mut JoinHandle<ToolResult>,
+    ) -> Option<Result<ToolResult, tokio::task::JoinError>> {
+        if self.budget.is_zero() {
+            return None;
+        }
+        tokio::time::timeout(self.budget, handle).await.ok()
     }
 
     /// Tracks a round that moved to the background. Stopping its job asks the round to stop so it can

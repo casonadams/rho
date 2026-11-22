@@ -71,6 +71,7 @@ mod tests {
                     "web_search",
                     "web_fetch",
                     "todo",
+                    "wait",
                     "memory",
                     "subagent",
                 ],
@@ -88,6 +89,7 @@ mod tests {
                     "rg",
                     "web_fetch",
                     "todo",
+                    "wait",
                     "memory",
                     "subagent",
                 ],
@@ -105,6 +107,7 @@ mod tests {
                     "rg",
                     "web_search",
                     "todo",
+                    "wait",
                     "memory",
                     "subagent",
                 ],
@@ -113,7 +116,7 @@ mod tests {
                 false,
                 false,
                 vec![
-                    "read", "write", "edit", "undo", "bash", "fd", "rg", "todo", "memory", "subagent",
+                    "read", "write", "edit", "undo", "bash", "fd", "rg", "todo", "wait", "memory", "subagent",
                 ],
             ),
         ];

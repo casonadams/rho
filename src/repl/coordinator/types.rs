@@ -45,6 +45,10 @@ impl SteeringQueueProvider for SharedSteeringQueue {
         }
         drained
     }
+
+    fn has_steering(&self) -> bool {
+        !self.queue.lock().unwrap().is_empty()
+    }
 }
 
 #[cfg(test)]

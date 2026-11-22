@@ -23,6 +23,7 @@ pub(crate) mod traversal;
 pub mod truncate;
 pub mod types;
 pub mod undo;
+pub mod wait;
 pub mod web;
 pub mod workflow;
 pub mod worktree_tool;

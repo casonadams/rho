@@ -19,6 +19,7 @@ use crate::tools::subagent::lsp::WorktreeLsp;
 use crate::tools::subagent::{SubagentModelResolver, SubagentRuntime, SubagentTool};
 use crate::tools::todo::TodoTool;
 use crate::tools::undo::{EditHistory, UndoTool};
+use crate::tools::wait::WaitTool;
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
@@ -145,6 +146,7 @@ pub fn build_builtin_toolset(
         }
     }
     tools.push(Arc::new(TodoTool::default()));
+    tools.push(Arc::new(WaitTool::default()));
     let resolved_agents = rho_harness_core::agents::resolved_agents(Some(base_dir));
     let agent_metas: Vec<_> = resolved_agents.into_iter().map(|a| a.metadata).collect();
     let mut subagent = crate::tools::subagent::SubagentTool::new(model, tools.clone())

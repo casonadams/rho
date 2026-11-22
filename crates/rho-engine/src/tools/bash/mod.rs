@@ -3,6 +3,7 @@ pub mod failures;
 pub mod footer;
 mod log;
 pub mod normalize;
+mod poll;
 pub mod runner;
 pub mod sanitize;
 pub mod shell;
@@ -77,6 +78,9 @@ impl TypedTool for BashTool {
     const NAME: &'static str = "bash";
 
     async fn run(&self, args: BashArgs) -> Result<ToolResult, AppError> {
+        if let Some(refusal) = poll::refusal(self.owner.as_ref(), &args.command) {
+            return Ok(refusal);
+        }
         self.execute(args).await
     }
 

@@ -11,4 +11,5 @@ pub const BASELINE_TOOLS: &[&str] = &[
     "worktree",
     "memory",
     "todo",
+    "wait",
 ];

@@ -59,6 +59,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                         | "lsp"
                         | "memory"
                         | "todo"
+                        | "wait"
                 ))
         });
         if has_specialized {
@@ -74,7 +75,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
     append_mutation_guidelines(active_tools, out);
     if has_tool(active_tools, "bash") {
         out.push(
-            "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; continue other productive work or end your turn to wait for the completion signal",
+            "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; call wait to block until a job finishes, continue other productive work, or end your turn",
         );
     }
 }

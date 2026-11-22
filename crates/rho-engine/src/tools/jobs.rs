@@ -197,6 +197,13 @@ impl JobManager {
         self.running_count(owner) > 0
     }
 
+    /// `owner`'s running jobs, oldest first.
+    pub fn running(&self, owner: &str) -> Vec<BackgroundJobInfo> {
+        let mut running = self.list();
+        running.retain(|j| j.owner == owner && j.status == JobStatus::Running);
+        running
+    }
+
     /// Signals every running job of `owner` to stop; each job records its own failure when it does.
     pub fn cancel_owner(&self, owner: &str) {
         let running: Vec<CancellationSignal> = self

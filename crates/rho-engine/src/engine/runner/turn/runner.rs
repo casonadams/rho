@@ -327,6 +327,7 @@ impl AgentRunner {
             project: self.project.clone(),
             session: self.session_manager.clone(),
             inbox: self.inbox.clone(),
+            steering: self.steering.clone(),
         };
         self.tools = self
             .tools

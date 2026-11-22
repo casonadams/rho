@@ -44,7 +44,7 @@ resume the exact session of each pane with `rho --resume <id>`.
 
 ## Built-in Tools
 
-`rho` includes 14 fast, native tools designed for coding agents:
+`rho` includes 15 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
   safeguards. Supports image sniffing and downscaling. `symbol` reads just one
@@ -106,6 +106,13 @@ resume the exact session of each pane with `rho --resume <id>`.
   item in progress; a call without `todos` shows the current list. The list is
   read back from the conversation, so it survives `--resume`, and compaction
   copies an unfinished list into its summary. Each subagent keeps its own list.
+- **`wait`**: Block until background work reports back, instead of polling with
+  `sleep`. It returns on the first finished background `bash` job or subagent
+  task (with the result the follow-up message would have carried, which is then
+  not delivered again), when a new message arrives, or after 10 minutes with a
+  `Still running:` list. With nothing running it returns at once. `Esc` ends the
+  wait without stopping the jobs. `bash` refuses a bare `sleep`, `pgrep`, `ps`,
+  or `tail -f` poll while a job or subagent task is running and points to `wait`.
 
 When `read`, `edit`, `fd`, or `rg` gets a path that does not exist, the error
 ends with up to three close workspace paths (`Did you mean: ...?`), matching
@@ -114,10 +121,11 @@ moved files, typos, and `foo.rs` versus `foo/mod.rs`.
 When every tool call in one model response is read-only (`read`, `fd`, `rg`,
 `web_search`, `web_fetch`, or read-only subagents), the calls run in parallel.
 In a git repository, every subagent has its own worktree, so a response's
-subagent calls all run in parallel. A subagent still running after 60 seconds
-(configurable) moves to the background: the main agent keeps working, can send
-it more instructions with its `task_id`, and gets its result as a follow-up
-message.
+subagent calls all run in parallel. A subagent starts in the background: the
+call returns its task id at once, the main agent keeps working (or calls
+`wait`), can send it more instructions with its `task_id`, and gets its result
+as a follow-up message. The card tells you to press the left arrow on an empty prompt to
+watch it.
 
 `rho stats [--last N]` reports per-tool call and error counts, the most common
 errors, and file edits made through bash (`sed -i`, scripts, redirects) instead

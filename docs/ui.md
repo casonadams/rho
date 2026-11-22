@@ -121,7 +121,8 @@ autocomplete):
 | `/workflow <name> [inputs]` | Run a workflow, e.g. `/workflow refine security`. Arguments fill inputs in order; `name=value` sets one by name. |
 | `/exit`                     | Exit rho (alias: `/quit`).                                                                                |
 
-Background work (subagents that outlast their foreground budget, and `bash`
+Background work (subagents, which start in the background unless
+`subagents.foreground_seconds` is set, and `bash`
 commands that move to the background) belongs to the session that started it.
 A turn waits for, and is told about, only its own session's background jobs.
 Switching to another session with `/resume` or `/clear` stops the old session's
