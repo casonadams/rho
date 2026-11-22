@@ -18,6 +18,7 @@ pub mod registry;
 pub mod rg;
 pub mod subagent;
 pub mod suggest;
+pub mod todo;
 pub(crate) mod traversal;
 pub mod truncate;
 pub mod types;
@@ -40,6 +41,7 @@ pub use rg::{RgArgs, RgTool};
 pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
+pub use todo::TodoTool;
 pub use traversal::list_workspace_files;
 pub use types::{ToolResult, generated_schema, normalize_schema};
 pub use web::{

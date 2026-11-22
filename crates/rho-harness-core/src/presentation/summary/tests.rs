@@ -280,3 +280,25 @@ fn format_tool_args_summary_sanitization_and_truncation() {
     let long_formatted = format_tool_args_summary("custom", &long_arg);
     assert!(long_formatted.contains("..."));
 }
+
+#[test]
+fn format_tool_args_summary_todo_shows_progress_and_the_active_item() {
+    let todos = |statuses: &[&str]| {
+        let items: Vec<_> = statuses
+            .iter()
+            .enumerate()
+            .map(|(idx, status)| serde_json::json!({ "content": format!("Step {idx}"), "status": status }))
+            .collect();
+        serde_json::json!({ "todos": items })
+    };
+
+    assert_eq!(
+        format_tool_args_summary("todo", &todos(&["completed", "in_progress", "pending"])),
+        "1/3 done \u{b7} Step 1"
+    );
+    assert_eq!(
+        format_tool_args_summary("todo", &todos(&["completed", "completed"])),
+        "2/2 done"
+    );
+    assert_eq!(format_tool_args_summary("todo", &serde_json::json!({})), "");
+}

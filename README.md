@@ -88,6 +88,11 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.
+- **`todo`**: Keep an ordered task list (`pending`, `in_progress`, `completed`)
+  for multi-step work. Each call replaces the whole list and allows at most one
+  item in progress; a call without `todos` shows the current list. The list is
+  read back from the conversation, so it survives `--resume`, and compaction
+  copies an unfinished list into its summary. Each subagent keeps its own list.
 
 When `read`, `edit`, `fd`, or `rg` gets a path that does not exist, the error
 ends with up to three close workspace paths (`Did you mean: ...?`), matching

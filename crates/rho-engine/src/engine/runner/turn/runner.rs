@@ -316,21 +316,13 @@ impl AgentRunner {
         self
     }
 
-    fn parent_history_snapshot(&self) -> Arc<[ChatMessage]> {
-        let mut snapshot: Vec<ChatMessage> = self.history.clone();
-        if !self.prompt.trim().is_empty() {
-            snapshot.push(ChatMessage::user(self.prompt.clone()));
-        }
-        snapshot.into()
-    }
-
-    pub fn stream(mut self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
+    fn bind_tools(&mut self, history: &[ChatMessage]) {
         let turn_ctx = TurnToolContext {
             permission: self.permission.clone(),
             lifecycle: self.lifecycle.clone(),
             cancellation: self.cancellation.clone(),
             progress: self.stream_port.clone().unwrap_or_default(),
-            parent_history: self.parent_history_snapshot(),
+            parent_history: history.into(),
             monitor: self.monitor.clone(),
             project: self.project.clone(),
             session: self.session_manager.clone(),
@@ -341,6 +333,9 @@ impl AgentRunner {
             .iter()
             .map(|tool| tool.bind_turn(&turn_ctx).unwrap_or_else(|| tool.clone()))
             .collect();
+    }
+
+    pub fn stream(self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let emitter = TurnEmitter {
             tx,
@@ -583,12 +578,13 @@ async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>
     Ok((current_messages, new_turn_messages))
 }
 
-async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
+async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
     let mut saved = TurnCheckpoint {
         exists: runner.store.has_checkpoint().await?,
         len: 0,
     };
     let (mut current_messages, mut new_turn_messages) = initial_turn_messages(&runner).await?;
+    runner.bind_tools(&current_messages);
 
     let mut turn = 0;
     let mut total_usage = StructuralUsage::default();

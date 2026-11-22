@@ -1099,3 +1099,59 @@ async fn background_notification_is_injected_once_when_woken() {
         1
     );
 }
+
+async fn todo_turn(dir: &std::path::Path, resume: Option<&str>, model: Arc<MockAdapter>) -> (String, String) {
+    let sm = rho_harness_core::session::SessionManager::new(dir, resume).unwrap();
+    let pres: Arc<dyn rho_harness_core::presentation::Presenter> =
+        Arc::new(crate::engine::eval::presenter::NoopPresenter);
+    let cfg = crate::engine::runner::sink::TerminalSinkConfig {
+        model_label: "test".into(),
+        run_tracker: Default::default(),
+    };
+    let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
+    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(crate::tools::TodoTool::default())];
+    let runner = AgentRunner::new(model, tools, sm.clone(), sink).prompt("go");
+    run_agent_loop(runner, &acking_emitter()).await.unwrap();
+    let last_result = sm
+        .active_messages()
+        .await
+        .unwrap()
+        .iter()
+        .rev()
+        .find_map(|message| match message {
+            ChatMessage::User { content } => content.iter().find_map(|item| match item {
+                rho_harness_core::model::UserContent::ToolResult(result) => Some(result.text()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .unwrap();
+    (sm.session_id.clone(), last_result)
+}
+
+fn todo_then_answer(args: serde_json::Value) -> Arc<MockAdapter> {
+    Arc::new(MockAdapter::from_turns(vec![
+        vec![ModelStreamEvent::ToolCall(ToolCall::new(
+            "todo-1",
+            ToolFunction::new("todo", args),
+        ))],
+        vec![ModelStreamEvent::Text("ok".into())],
+    ]))
+}
+
+#[tokio::test]
+async fn a_resumed_session_shows_the_todo_list_it_ended_with() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = serde_json::json!({ "todos": [
+        { "content": "Fix the bug", "status": "in_progress" },
+        { "content": "Add a test", "status": "pending" },
+    ] });
+
+    let (session_id, written) = todo_turn(dir.path(), None, todo_then_answer(plan)).await;
+    let (_, resumed) = todo_turn(dir.path(), Some(&session_id), todo_then_answer(serde_json::json!({}))).await;
+    let (_, fresh) = todo_turn(dir.path(), None, todo_then_answer(serde_json::json!({}))).await;
+
+    assert_eq!(written, "0/2 done\n[>] Fix the bug\n[ ] Add a test");
+    assert_eq!(resumed, written);
+    assert_eq!(fresh, "0/0 done");
+}

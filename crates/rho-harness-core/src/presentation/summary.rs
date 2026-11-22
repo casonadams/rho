@@ -1,6 +1,7 @@
 //! Path-cleaning and tool-arg summarization helpers.
 
 use crate::args::read::DEFAULT_READ_LIMIT;
+use crate::args::{TodoArgs, TodoStatus};
 use std::path::Path;
 
 pub fn to_relative_path(raw_path: &str) -> String {
@@ -389,6 +390,22 @@ fn format_generic_args_summary(args: &serde_json::Value) -> String {
     }
 }
 
+fn format_todo_summary(args: &serde_json::Value) -> String {
+    let Ok(TodoArgs { todos: Some(todos) }) = serde_json::from_value(args.clone()) else {
+        return String::new();
+    };
+    let done = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
+    let progress = format!("{done}/{} done", todos.len());
+    match todos.iter().find(|todo| todo.status == TodoStatus::InProgress) {
+        Some(active) => {
+            let (preview, truncated) = truncate_preview(active.content.trim(), 60);
+            let ellipsis = if truncated { "..." } else { "" };
+            format!("{progress} \u{b7} {preview}{ellipsis}")
+        }
+        None => progress,
+    }
+}
+
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => format_read_summary(args),
@@ -400,6 +417,7 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
         "mcp" => format_mcp_summary(args),
         "mcpScript" => format_mcp_script_summary(args),
+        "todo" => format_todo_summary(args),
         _ => format_generic_args_summary(args),
     }
 }

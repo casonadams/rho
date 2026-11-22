@@ -8,7 +8,7 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::{MemoryArgs, SubagentArgs, WorktreeArgs};
+use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, WorktreeArgs};
 
 pub static PROMPT_MEMORY: &str = "\
 Keep short notes that persist across sessions; saved notes are loaded into your context at the start of every later session.
@@ -20,6 +20,17 @@ Usage:
 - Keep each note to one short line. Each scope holds at most 50 notes (8KB); when it is full, remove stale notes first.
 - `view` lists the notes numbered per scope; `remove` takes that number as `index`. Remove a note as soon as it becomes wrong or obsolete.
 - Notes you add or remove take effect in the next session; this session's context does not change.";
+
+pub static PROMPT_TODO: &str = "\
+Keep an ordered task list for multi-step work and show your progress.
+
+Usage:
+- Use it for tasks with 3 or more distinct steps, or when the user gives several tasks at once. Do not use it for trivial or single-step tasks or for answering questions.
+- Each call with `todos` replaces the whole list: send every item, in order, each with one-line `content` and a `status` of pending, in_progress, or completed. Call without `todos` to see the current list.
+- Keep exactly one item in_progress while you work: mark it in_progress before starting it, and mark it completed as soon as it is done instead of batching completions. A list with two in_progress items is rejected.
+- Mark an item completed only when it is fully done and verified; if it is blocked, keep it in_progress and add an item for the blocker.
+- Add steps you discover and remove ones that no longer apply.
+- The list survives context compaction and session resume, so keep it current rather than restating the plan in prose.";
 
 pub static PROMPT_WORKTREE: &str = "\
 Review and land work that subagents and workflows did in their own git worktrees.
@@ -146,7 +157,7 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
-- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, and bash. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
+- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, bash, and todo. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
 - In a git repository each subagent works in its own worktree, a snapshot of your working tree including uncommitted edits. Its changes do not appear in your files until you review and merge them with the worktree tool.
 - Subagents start with no memory of your conversation, so put everything they need in `prompt` or `context_slice`. `inherit_context` shares only the last 20 text messages, each clipped to 1,500 characters.
 - Subagent calls in the same response run in parallel: all of them in a git repository, where each has its own worktree, otherwise only new read-only ones (scout, critic, planner). Parallel subagents still share the machine (ports, installed dependencies, build caches), so give them non-conflicting commands, and give two subagents disjoint files to avoid merge conflicts.
@@ -268,6 +279,13 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_MEMORY,
         prompt_snippet: "Keep short notes across sessions (durable, non-obvious project facts; never secrets)",
         schema: generated_schema::<MemoryArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "todo",
+        capability: BuiltinToolKind::ReadOnly,
+        prompt: PROMPT_TODO,
+        prompt_snippet: "Track an ordered task list for multi-step work (pending, in_progress, completed)",
+        schema: generated_schema::<TodoArgs>,
     },
 ];
 

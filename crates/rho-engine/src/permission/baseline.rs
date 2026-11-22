@@ -9,4 +9,5 @@ pub const BASELINE_TOOLS: &[&str] = &[
     "web_fetch",
     "worktree",
     "memory",
+    "todo",
 ];

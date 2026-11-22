@@ -149,7 +149,9 @@ background work running.
   stubs it sent last time and prunes further only when the saving is at least
   a quarter of the history it would have to re-cache.
 - **Auto-compaction.** When the history approaches the context limit minus the
-  reserve (default 16,384 tokens), earlier turns are summarized. After pruning
+  reserve (default 16,384 tokens), earlier turns are summarized. A `todo` list
+  with unfinished items is copied into the summary as a `<todos>` block, so the
+  agent keeps its plan. After pruning
   changes the history, the size check estimates the pruned history instead of
   reusing the previous request's reported usage. Use `/compact` to run it
   manually.
@@ -189,7 +191,9 @@ always matches your terminal emulator, in dark or light mode.
 - Every finished tool card ends with a dim `Took 6.054s` line on its own line.
   While a tool runs, its live card shows `Elapsed ...` in the same place.
   `web_fetch` shows the content kind inline and dim, such as
-  `web_fetch https://example.com (text)`.
+  `web_fetch https://example.com (text)`. `todo` shows the list's progress and
+  the item in progress, such as `todo 1/3 done · Add tests`; `Ctrl+O` shows the
+  whole list.
 - Edit cards show `N edits · +added -removed` in the header and label every
   edit in a multi-edit call (`@@ edit #1/3 · line 12 @@`). Write cards show
   line count, size, and whether the file was new or overwritten. Line numbers

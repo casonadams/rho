@@ -251,7 +251,17 @@ impl SubagentRole {
             Self::Scout => &["read", "fd", "rg", "web_fetch", "web_search"],
             Self::Critic => &["read", "fd", "rg"],
             Self::Planner => &["read", "fd", "rg"],
-            Self::General => &["read", "write", "edit", "bash", "fd", "rg", "web_fetch", "web_search"],
+            Self::General => &[
+                "read",
+                "write",
+                "edit",
+                "bash",
+                "fd",
+                "rg",
+                "web_fetch",
+                "web_search",
+                "todo",
+            ],
         }
     }
 
@@ -389,6 +399,29 @@ pub struct MemoryArgs {
     /// Number of the note to remove, as shown by view (1-based)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct TodoItem {
+    /// The task, one line in imperative form (e.g. 'Add tests for the parser')
+    pub content: String,
+    /// 'pending', 'in_progress' (at most one item), or 'completed'
+    pub status: TodoStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct TodoArgs {
+    /// The complete, ordered list; it replaces the previous one. Omit to show the current list
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todos: Option<Vec<TodoItem>>,
 }
 
 // Submodule aliases for backwards compatibility

@@ -70,6 +70,7 @@ mod tests {
                     "web_search",
                     "web_fetch",
                     "memory",
+                    "todo",
                     "subagent",
                 ],
             ),
@@ -85,6 +86,7 @@ mod tests {
                     "rg",
                     "web_fetch",
                     "memory",
+                    "todo",
                     "subagent",
                 ],
             ),
@@ -100,13 +102,16 @@ mod tests {
                     "rg",
                     "web_search",
                     "memory",
+                    "todo",
                     "subagent",
                 ],
             ),
             (
                 false,
                 false,
-                vec!["read", "write", "edit", "bash", "fd", "rg", "memory", "subagent"],
+                vec![
+                    "read", "write", "edit", "bash", "fd", "rg", "memory", "todo", "subagent",
+                ],
             ),
         ];
         for (search_enabled, fetch_enabled, expected) in cases {

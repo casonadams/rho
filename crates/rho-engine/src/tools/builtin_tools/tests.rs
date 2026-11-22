@@ -14,6 +14,7 @@ fn builtin_tools_build_successfully() {
         "rg",
         "web_search",
         "web_fetch",
+        "todo",
         "subagent",
         "memory",
     ] {

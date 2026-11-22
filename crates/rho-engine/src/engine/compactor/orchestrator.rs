@@ -7,6 +7,7 @@ use rho_harness_core::session::compaction::{
     extract_file_ops, render_file_lists_xml,
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
+use rho_harness_core::todo::carried_todos;
 use rho_harness_core::tokens::{find_token_cut_point, is_tool_result_message};
 use std::sync::Arc;
 
@@ -56,6 +57,20 @@ fn noop_stats(tokens: usize) -> CompactionStats {
     }
 }
 
+fn fit_summary(summary: &str, todos: &str, max_bytes: usize) -> String {
+    let reserved = if todos.is_empty() { 0 } else { todos.len() + 2 };
+    let fitted = if max_bytes > 0 {
+        &summary[..summary.floor_char_boundary(max_bytes.saturating_sub(reserved))]
+    } else {
+        summary
+    };
+    if todos.is_empty() {
+        fitted.to_string()
+    } else {
+        format!("{fitted}\n\n{todos}")
+    }
+}
+
 /// Folds the older part of an in-memory conversation (one with no session tree, such as a
 /// subagent's) into a summary, keeping its most recent `keep_recent_tokens` as they are. The result
 /// starts with the summary, like a session's history after compaction. `None` when nothing can be
@@ -86,6 +101,7 @@ pub async fn compact_messages(
     }
     let files = extract_file_ops(folded, None);
     let summary = compose_compaction_summary(&summary, &render_file_lists_xml(&files));
+    let summary = compose_compaction_summary(&summary, &carried_todos(None, folded, kept));
     let mut compacted = vec![compaction_summary_message(&summary)];
     compacted.extend_from_slice(kept);
     Some(compacted)
@@ -313,12 +329,12 @@ impl SessionCompactor {
             .await;
         let file_details = extract_file_ops(to_sum, plan.prior_details);
         let summary = compose_compaction_summary(&md_summary, &render_file_lists_xml(&file_details));
-        let redacted_summary = self.session_manager.redact_credentials(&summary);
-        let final_summary = if self.max_bytes > 0 {
-            redacted_summary[..redacted_summary.floor_char_boundary(self.max_bytes)].to_string()
-        } else {
-            redacted_summary
-        };
+        let todos = carried_todos(plan.prior_summary, to_sum, kept);
+        let final_summary = fit_summary(
+            &self.session_manager.redact_credentials(&summary),
+            &self.session_manager.redact_credentials(&todos),
+            self.max_bytes,
+        );
 
         let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name, &self.context);
         let saved_tokens = plan.tokens_before.saturating_sub(tokens_after);
@@ -391,5 +407,22 @@ pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, sessio
         let hook = Arc::clone(hook);
         let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(session_id, messages).await });
         let _ = futures::FutureExt::catch_unwind(fut).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_summary;
+
+    #[test]
+    fn the_summary_gives_way_so_the_todo_block_stays_whole_within_the_limit() {
+        let todos = "<todos>\n0/1 done\n[>] Ship\n</todos>";
+
+        let fitted = fit_summary(&"s".repeat(100), todos, 60);
+
+        assert_eq!(fitted.len(), 60);
+        assert!(fitted.ends_with(&format!("\n\n{todos}")), "{fitted}");
+        assert_eq!(fit_summary("summary", "", 3), "sum");
+        assert_eq!(fit_summary("summary", todos, 0), format!("summary\n\n{todos}"));
     }
 }

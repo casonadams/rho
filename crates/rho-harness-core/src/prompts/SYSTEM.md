@@ -13,6 +13,7 @@ Available tools:
 - subagent: Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')
 - worktree: Review, merge, or discard the git worktrees where subagents and workflows did their work
 - memory: Keep short notes across sessions (durable, non-obvious project facts; never secrets)
+- todo: Track an ordered task list for multi-step work (pending, in_progress, completed)
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

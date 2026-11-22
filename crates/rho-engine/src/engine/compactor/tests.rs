@@ -592,6 +592,56 @@ mod orchestrator {
     }
 
     #[tokio::test]
+    async fn compaction_keeps_the_unfinished_todo_list_visible() {
+        use rho_harness_core::args::{TodoItem, TodoStatus};
+        use rho_harness_core::todo::{latest_todos, render_todos};
+
+        let plan = vec![
+            TodoItem {
+                content: "Refactor storage".into(),
+                status: TodoStatus::InProgress,
+            },
+            TodoItem {
+                content: "Run the tests".into(),
+                status: TodoStatus::Pending,
+            },
+        ];
+        let mock = Arc::new(MockAdapter::text("## Summary\nPrior work completed"));
+        let engine = test_engine("todo_carry_over", Some(mock)).await;
+        let sm = &engine.session_manager;
+        let session_id = sm.session_id.clone();
+        let call = ToolCall::new("todo-1", ToolFunction::new("todo", serde_json::json!({})));
+        let todo_turn = vec![
+            ChatMessage::user("Plan it"),
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            ChatMessage::User {
+                content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
+                    "todo-1",
+                    "todo",
+                    render_todos(&plan),
+                ))],
+            },
+            ChatMessage::assistant("Planned"),
+        ];
+        common::append_test_messages(sm, &session_id, todo_turn).await;
+        populate_test_turns(sm, &session_id).await;
+
+        let first = engine.compact_session(None).await.unwrap();
+        populate_test_turns(sm, &session_id).await;
+        let second = engine.compact_session(None).await.unwrap();
+
+        let block = format!("<todos>\n{}\n</todos>", render_todos(&plan));
+        assert!(first.summary.ends_with(&block), "{}", first.summary);
+        assert!(second.summary.ends_with(&block), "{}", second.summary);
+        let active = sm.load_tree().await.unwrap().active_messages();
+        assert!(matches!(&active[0], ChatMessage::System { .. }));
+        assert_eq!(latest_todos(&active), Some(plan));
+    }
+
+    #[tokio::test]
     async fn test_compact_session_empty_or_single_node() {
         let engine = test_engine("empty_session", None).await;
         let stats = engine.compact_session(None).await.unwrap();
