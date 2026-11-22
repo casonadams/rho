@@ -145,7 +145,7 @@ async fn rename_rewrites_every_file_the_server_names() {
     assert!(definition.content.contains("5:fn assist() {"), "{}", definition.content);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn diagnostics_cover_push_unversioned_and_pull_servers() {
     for options in [
         FakeOptions::default(),
@@ -216,7 +216,7 @@ async fn workspace_diagnostics_list_what_running_servers_reported() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn silent_servers_report_that_diagnostics_are_not_ready() {
     let dir = project();
     let options = FakeOptions {
@@ -287,6 +287,106 @@ async fn a_server_that_fails_to_start_is_reported_once_and_not_relaunched() {
     );
     let diagnostics = run(&tool, args(LspAction::Diagnostics)).await;
     assert_eq!(diagnostics.content, "fake: command not found");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_server_that_exits_is_reported_and_restarted_on_next_use() {
+    let dir = project();
+    let options = FakeOptions {
+        exit_on_change: true,
+        ..FakeOptions::default()
+    };
+    let (manager, launcher) = fake_manager(dir.path(), options);
+    let path = dir.path().join("src/lib.rs");
+    let first = crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(3)).await;
+    assert_eq!(first.as_deref(), Some("LSP: no errors or warnings"));
+
+    let changed = format!("{LIB}// edit\n");
+    let crashed = crate::lsp::diagnostics_for(&manager, &path, &changed, Duration::from_secs(3)).await;
+    assert_eq!(crashed.as_deref(), Some("LSP: no diagnostics yet\n[fake exited]"));
+
+    let restarted = crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(3)).await;
+    assert_eq!(restarted.as_deref(), Some("LSP: no errors or warnings"));
+    assert_eq!(launcher.launches.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_start_is_retried_after_a_minute() {
+    let dir = project();
+    let options = FakeOptions {
+        fail: true,
+        ..FakeOptions::default()
+    };
+    let (manager, launcher) = fake_manager(dir.path(), options);
+    let path = dir.path().join("src/lib.rs");
+    assert!(
+        crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(1))
+            .await
+            .is_some()
+    );
+    tokio::time::advance(crate::lsp::manager::RETRY_FAILED_AFTER + Duration::from_secs(1)).await;
+    let again = crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(1)).await;
+    assert_eq!(
+        again.as_deref(),
+        Some("LSP: no diagnostics yet\n[fake: command not found]")
+    );
+    assert_eq!(launcher.launches.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn files_outside_the_workspace_use_the_running_server_and_rename_stays_inside() {
+    let dir = project();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("dep.rs"), "fn helper() {}\n").unwrap();
+    let dep = outside.path().join("dep.rs");
+    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    let tool = LspTool::new(dir.path(), manager);
+
+    let cold = run(&tool, at(LspAction::Hover, dep.to_str().unwrap(), 1, "helper")).await;
+    assert!(
+        cold.content.contains("outside the workspace and no server is running"),
+        "{}",
+        cold.content
+    );
+
+    run(&tool, at(LspAction::Hover, "src/lib.rs", 5, "helper")).await;
+    let warm = run(&tool, at(LspAction::Hover, dep.to_str().unwrap(), 1, "helper")).await;
+    assert_eq!(warm.content, "`helper`: hover");
+    assert_eq!(launcher.launches.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    let rename = LspArgs {
+        new_name: Some("assist".into()),
+        ..at(LspAction::Rename, "src/lib.rs", 5, "helper")
+    };
+    let refused = run(&tool, rename).await;
+    assert!(refused.is_error);
+    assert!(
+        refused.content.contains("outside the workspace; nothing was written"),
+        "{}",
+        refused.content
+    );
+    assert_eq!(std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap(), LIB);
+}
+
+#[tokio::test]
+async fn rename_uses_disk_contents_even_when_files_changed_after_opening() {
+    let dir = project();
+    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
+    let tool = LspTool::new(dir.path(), manager);
+    run(&tool, at(LspAction::Hover, "src/other.rs", 2, "helper")).await;
+    std::fs::write(
+        dir.path().join("src/other.rs"),
+        "// moved\nfn caller() {\n    helper();\n}\n",
+    )
+    .unwrap();
+
+    let rename = LspArgs {
+        new_name: Some("assist".into()),
+        ..at(LspAction::Rename, "src/lib.rs", 5, "helper")
+    };
+    run(&tool, rename).await;
+    let other = std::fs::read_to_string(dir.path().join("src/other.rs")).unwrap();
+    assert_eq!(other, "// moved\nfn caller() {\n    assist();\n}\n");
 }
 
 #[tokio::test]

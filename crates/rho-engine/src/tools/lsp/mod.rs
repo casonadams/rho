@@ -247,6 +247,8 @@ impl LspTool {
 
     async fn rename(&self, args: &LspArgs) -> Result<String, String> {
         let new_name = args.new_name.clone().ok_or("rename needs new_name")?;
+        let client = self.manager.client_for(&self.resolve(args.path.as_deref())?).await?;
+        client.sync_open_documents_from_disk().await?;
         let (file, response) = self
             .position_request(args, "textDocument/rename", json!({ "newName": new_name }))
             .await?;
@@ -254,6 +256,13 @@ impl LspTool {
             return Err(format!("{} found nothing to rename there", file.client.name));
         }
         let by_file = render::workspace_edits(&response)?;
+        let workspace = self.manager.workspace();
+        if let Some(outside) = by_file.keys().find(|path| !path.starts_with(workspace)) {
+            return Err(format!(
+                "rename would change {}, outside the workspace; nothing was written",
+                outside.display()
+            ));
+        }
         let mut updated = Vec::new();
         for (path, edits) in &by_file {
             let text = tokio::fs::read_to_string(path)
@@ -298,6 +307,9 @@ impl LspTool {
         let missing: Vec<&str> = missing.iter().map(|server| server.name.as_str()).collect();
         out.push_str(&format!("\n\nInstalled: {}", installed.join("; ")));
         out.push_str(&format!("\nNot on PATH: {}", missing.join(", ")));
+        if let Some(notice) = self.manager.notice() {
+            out.push_str(&format!("\nNote: {notice}"));
+        }
         out
     }
 }

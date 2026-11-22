@@ -107,10 +107,12 @@ async fn collect(
         }
         DiagnosticsOutcome::Pending(busy) => {
             report.complete = false;
-            let busy = busy.map(|b| format!(" ({b})")).unwrap_or_default();
-            return report
-                .notes
-                .push(format!("{} has not reported diagnostics yet{busy}", client.name));
+            let note = match busy {
+                _ if !client.is_alive() => format!("{} exited", client.name),
+                Some(busy) => format!("{} has not reported diagnostics yet ({busy})", client.name),
+                None => format!("{} has not reported diagnostics yet", client.name),
+            };
+            return report.notes.push(note);
         }
     };
     let uri = client::file_uri(path);

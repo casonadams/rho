@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::Instant;
 use tokio::sync::Notify;
+use tokio::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -78,6 +78,11 @@ fn progress_token(params: &Value) -> String {
     }
 }
 
+/// The URI rho itself would build for the same file, so lookups match however the server encodes it.
+pub fn normalize_uri(uri: &str) -> String {
+    super::client::uri_path(uri).map_or_else(|| uri.to_string(), |path| super::client::file_uri(&path))
+}
+
 impl ClientState {
     pub fn new(settings: Option<Value>, root: &Path) -> Self {
         let uri = super::client::file_uri(root);
@@ -125,7 +130,7 @@ impl ClientState {
             seq,
             received: Instant::now(),
         };
-        self.published().insert(uri.to_string(), published);
+        self.published().insert(normalize_uri(uri), published);
     }
 
     fn progress(&self, params: &Value) {
@@ -233,16 +238,23 @@ impl ServerMessages for ClientState {
         self.changed.notify_waiters();
     }
 
-    fn request(&self, method: &str, params: &Value) -> Value {
+    fn closed(&self) {
+        self.changed.notify_waiters();
+    }
+
+    fn request(&self, method: &str, params: &Value) -> Option<Value> {
         match method {
-            "workspace/configuration" => self.configuration(params),
-            "workspace/workspaceFolders" => json!([self.workspace_folder]),
+            "workspace/configuration" => Some(self.configuration(params)),
+            "workspace/workspaceFolders" => Some(json!([self.workspace_folder])),
             "client/registerCapability" => {
                 self.register(params);
-                Value::Null
+                Some(Value::Null)
             }
-            "workspace/applyEdit" => json!({ "applied": false, "failureReason": "rho applies edits itself" }),
-            _ => Value::Null,
+            "client/unregisterCapability" | "window/workDoneProgress/create" => Some(Value::Null),
+            "workspace/applyEdit" => Some(json!({ "applied": false, "failureReason": "rho applies edits itself" })),
+            "window/showDocument" => Some(json!({ "success": false })),
+            "window/showMessageRequest" => Some(Value::Null),
+            _ => None,
         }
     }
 }
@@ -295,6 +307,19 @@ mod tests {
             "workspace/configuration",
             &json!({ "items": [{ "section": "rust-analyzer.check" }, { "section": "a.b" }, { "section": "none" }] }),
         );
-        assert_eq!(answer, json!([{ "command": "clippy" }, 1, null]));
+        assert_eq!(answer, Some(json!([{ "command": "clippy" }, 1, null])));
+        assert_eq!(state.request("workspace/unknownThing", &Value::Null), None);
+    }
+
+    #[test]
+    fn diagnostics_match_however_the_server_encodes_the_uri() {
+        let state = ClientState::new(None, Path::new("/ws"));
+        let diagnostic = json!({ "range": { "start": { "line": 0, "character": 0 } }, "message": "bad" });
+        state.notification(
+            "textDocument/publishDiagnostics",
+            json!({ "uri": "file:///ws/node_modules/%40scope/a.ts", "diagnostics": [diagnostic] }),
+        );
+        let ours = super::super::client::file_uri(Path::new("/ws/node_modules/@scope/a.ts"));
+        assert_eq!(state.latest_after(&ours, 0).map(|items| items.len()), Some(1));
     }
 }

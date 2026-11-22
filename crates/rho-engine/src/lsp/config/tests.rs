@@ -55,14 +55,47 @@ fn layer_files_are_optional_but_must_hold_an_object() {
             .unwrap_err()
             .contains("JSON object")
     );
-    assert_eq!(
-        layer_paths(Some(Path::new("/home/u")), Path::new("/ws")),
-        [
-            PathBuf::from("/home/u/.agents/lsp.json"),
-            PathBuf::from("/ws/.lsp.json"),
-            PathBuf::from("/ws/.agents/lsp.json"),
-        ]
+}
+
+fn write_layer(path: &Path, json: Value) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, json.to_string()).unwrap();
+}
+
+#[test]
+fn project_files_apply_only_to_trusted_projects() {
+    let dir = tempfile::tempdir().unwrap();
+    let (home, ws) = (dir.path().join("home"), dir.path().join("ws"));
+    write_layer(&home.join(".agents/lsp.json"), json!({ "gopls": { "args": ["-v"] } }));
+    write_layer(
+        &ws.join(".lsp.json"),
+        json!({ "evil": { "command": "sh", "extensions": ["rs"] } }),
     );
+
+    let untrusted = load_servers(Some(&home), &ws, false).unwrap();
+    assert!(untrusted.servers.iter().all(|s| s.name != "evil"));
+    assert_eq!(
+        untrusted.servers.iter().find(|s| s.name == "gopls").unwrap().args,
+        ["-v"]
+    );
+    let notice = untrusted.notice.unwrap();
+    assert!(
+        notice.contains(".lsp.json") && notice.contains("RHO_TRUST_PROJECT=1"),
+        "{notice}"
+    );
+
+    let trusted = load_servers(Some(&home), &ws, true).unwrap();
+    assert!(trusted.servers.iter().any(|s| s.name == "evil"));
+    assert_eq!(trusted.notice, None);
+}
+
+#[test]
+fn enabled_false_turns_every_server_off() {
+    let dir = tempfile::tempdir().unwrap();
+    write_layer(&dir.path().join(".agents/lsp.json"), json!({ "enabled": false }));
+    let set = load_servers(Some(dir.path()), &dir.path().join("ws"), false).unwrap();
+    assert!(set.servers.is_empty());
+    assert!(set.notice.unwrap().contains("turned off"));
 }
 
 #[test]

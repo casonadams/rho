@@ -50,9 +50,13 @@ pub fn locate_symbol(line: &str, symbol: Option<&str>) -> Result<usize, String> 
     if let Some(&index) = matches.first() {
         return Ok(index);
     }
-    line.to_lowercase()
-        .find(&symbol.to_lowercase())
-        .filter(|&index| line.is_char_boundary(index))
+    let wanted: Vec<char> = symbol.chars().flat_map(char::to_lowercase).collect();
+    line.char_indices()
+        .map(|(index, _)| index)
+        .find(|&index| {
+            let mut rest = line[index..].chars().flat_map(char::to_lowercase);
+            wanted.iter().all(|want| rest.next() == Some(*want))
+        })
         .ok_or_else(|| format!("'{symbol}' does not appear on that line: {}", line.trim()))
 }
 
@@ -67,6 +71,7 @@ mod tests {
             ("let foobar = foo(1);", Some("bar"), Ok(7)),
             ("    self.run()", None, Ok(4)),
             ("Widget::new()", Some("widget"), Ok(0)),
+            ("\u{130}x Foo", Some("foo"), Ok(4)),
             ("a.b", Some(".b"), Ok(1)),
         ];
         for (line, symbol, expected) in cases {

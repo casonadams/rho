@@ -142,11 +142,17 @@ const DEFAULT_SERVERS: &[DefaultServer] = &[
         "bash-language-server",
         &["start"],
         &["sh", "bash"],
-        &[],
+        &[".git"],
     ),
-    ("terraform-ls", "terraform-ls", &["serve"], &["tf", "tfvars"], &[]),
+    (
+        "terraform-ls",
+        "terraform-ls",
+        &["serve"],
+        &["tf", "tfvars"],
+        &[".terraform", ".git"],
+    ),
     ("nil", "nil", &[], &["nix"], &["flake.nix"]),
-    ("taplo", "taplo", &["lsp", "stdio"], &["toml"], &[]),
+    ("taplo", "taplo", &["lsp", "stdio"], &["toml"], &[".git"]),
 ];
 
 const LANGUAGE_IDS: &[(&str, &str)] = &[
@@ -259,15 +265,49 @@ pub fn read_layer(path: &Path) -> Result<Map<String, Value>, String> {
     }
 }
 
-/// `lsp.json` locations from lowest to highest precedence.
-pub fn layer_paths(home: Option<&Path>, workspace: &Path) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
+/// The servers a workspace may run, with a notice for the status report when something was left out.
+#[derive(Debug, Default)]
+pub struct ServerSet {
+    pub servers: Vec<ServerConfig>,
+    pub notice: Option<String>,
+}
+
+/// Built-in servers, then `~/.agents/lsp.json`, then the project's `.lsp.json` and
+/// `.agents/lsp.json`. Project files choose which commands run, so they apply only when
+/// `trust_project`; a top-level `"enabled": false` in any applied file turns every server off.
+pub fn load_servers(home: Option<&Path>, workspace: &Path, trust_project: bool) -> Result<ServerSet, String> {
+    let mut layers = Vec::new();
     if let Some(home) = home {
-        paths.push(home.join(".agents").join("lsp.json"));
+        layers.push(read_layer(&home.join(".agents").join("lsp.json"))?);
     }
-    paths.push(workspace.join(".lsp.json"));
-    paths.push(workspace.join(".agents").join("lsp.json"));
-    paths
+    let mut ignored = Vec::new();
+    for path in [workspace.join(".lsp.json"), workspace.join(".agents").join("lsp.json")] {
+        let layer = read_layer(&path)?;
+        match (layer.is_empty(), trust_project) {
+            (true, _) => {}
+            (false, true) => layers.push(layer),
+            (false, false) => ignored.push(path.display().to_string()),
+        }
+    }
+    if layers
+        .iter()
+        .any(|layer| layer.get("enabled") == Some(&Value::Bool(false)))
+    {
+        return Ok(ServerSet {
+            servers: Vec::new(),
+            notice: Some("language servers are turned off (\"enabled\": false in lsp.json)".into()),
+        });
+    }
+    let notice = (!ignored.is_empty()).then(|| {
+        format!(
+            "ignored {}: project files choose commands to run, so they apply only with RHO_TRUST_PROJECT=1; copy trusted servers to ~/.agents/lsp.json",
+            ignored.join(" and ")
+        )
+    });
+    Ok(ServerSet {
+        servers: resolve_servers(layers)?,
+        notice,
+    })
 }
 
 fn extension_of(path: &Path) -> Option<String> {

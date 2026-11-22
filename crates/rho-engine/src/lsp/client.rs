@@ -122,11 +122,9 @@ impl LspClient {
             "initializationOptions": spec.initialization_options.unwrap_or(Value::Null),
         });
         let response = connection.request("initialize", params, INITIALIZE_TIMEOUT).await?;
-        connection.notify("initialized", json!({})).await?;
+        connection.notify("initialized", json!({}))?;
         if let Some(settings) = spec.settings {
-            connection
-                .notify("workspace/didChangeConfiguration", json!({ "settings": settings }))
-                .await?;
+            connection.notify("workspace/didChangeConfiguration", json!({ "settings": settings }))?;
         }
         let capabilities = response.get("capabilities").cloned().unwrap_or(Value::Null);
         let encoding = match capabilities.get("positionEncoding").and_then(Value::as_str) {
@@ -191,6 +189,20 @@ impl LspClient {
         }
     }
 
+    /// Brings every open document up to date with disk, before a request whose answer spans files.
+    pub async fn sync_open_documents_from_disk(&self) -> Result<(), String> {
+        let uris: Vec<String> = self.documents.lock().await.keys().cloned().collect();
+        for uri in uris {
+            let Some(path) = uri_path(&uri) else {
+                continue;
+            };
+            if let Ok(text) = tokio::fs::read_to_string(&path).await {
+                self.sync(&path, &text, "").await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Sends `text` as the document's full content: `didOpen` the first time, `didChange` after.
     pub async fn sync(&self, path: &Path, text: &str, language_id: &str) -> Result<Synced, String> {
         let uri = file_uri(path);
@@ -226,13 +238,13 @@ impl LspClient {
                 ("textDocument/didOpen", params, 1)
             }
         };
-        self.connection.notify(method, params).await?;
+        self.connection.notify(method, params)?;
         Ok(Synced { version, baseline })
     }
 
     pub async fn did_save(&self, path: &Path, text: &str) -> Result<(), String> {
         let params = json!({ "textDocument": { "uri": file_uri(path) }, "text": text });
-        self.connection.notify("textDocument/didSave", params).await
+        self.connection.notify("textDocument/didSave", params)
     }
 
     fn pulls_diagnostics(&self) -> bool {
@@ -284,7 +296,7 @@ impl LspClient {
             let notified = self.state.changed.notified();
             let wake = match self.check_published(uri, synced) {
                 PushState::Done(items) => return Some(items),
-                PushState::SettlesAt(at) => Instant::from_std(at).min(deadline),
+                PushState::SettlesAt(at) => at.min(deadline),
                 PushState::Waiting => deadline,
             };
             if Instant::now() >= deadline || !self.is_alive() {
@@ -313,6 +325,6 @@ impl LspClient {
 
 enum PushState {
     Done(Vec<Diagnostic>),
-    SettlesAt(std::time::Instant),
+    SettlesAt(Instant),
     Waiting,
 }

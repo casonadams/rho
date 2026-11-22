@@ -23,6 +23,8 @@ pub struct FakeOptions {
     pub indexing: bool,
     /// Fail to launch.
     pub fail: bool,
+    /// Exit when a document changes.
+    pub exit_on_change: bool,
 }
 
 #[derive(Default)]
@@ -48,7 +50,10 @@ pub fn fake_manager(workspace: &Path, options: FakeOptions) -> (Arc<LspManager>,
     server.name = "fake".into();
     let manager = LspManager::new(
         workspace,
-        Ok(vec![server]),
+        Ok(crate::lsp::config::ServerSet {
+            servers: vec![server],
+            notice: None,
+        }),
         None,
         Arc::clone(&launcher) as Arc<dyn Launcher>,
     );
@@ -151,6 +156,9 @@ impl FakeServer {
         while let Ok(Some(message)) = read_message(&mut reader).await {
             let method = message.get("method").and_then(Value::as_str).unwrap_or("").to_string();
             self.received.lock().unwrap().push(method.clone());
+            if method == "textDocument/didChange" && self.options.exit_on_change {
+                return;
+            }
             let params = message.get("params").cloned().unwrap_or(Value::Null);
             let outgoing = self.handle(&method, &params);
             if let Some(id) = message.get("id") {

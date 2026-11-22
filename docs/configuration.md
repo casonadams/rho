@@ -582,19 +582,27 @@ runs only when its command is on `PATH` and a root marker is found: the
 workspace root when it holds a marker (one server for the whole repository),
 else the nearest ancestor of the file that does. Servers start on first use
 (reading a file starts its server in the background), stay up for the rest of
-the session, and are stopped when rho exits. Subagents working in their own
-git worktrees run without language servers.
+the session, and are stopped when rho exits. A server that fails to start is
+retried after a minute; one that exits is restarted on next use. Files outside
+the workspace (such as a dependency a definition points into) are answered by
+an already running server, never a new one. Subagents working in their own git
+worktrees run without language servers. Like an editor, a language server
+analyzes the project, which for some languages runs its build scripts.
 
 Built in: rust-analyzer, gopls, typescript-language-server, pyright,
 basedpyright, clangd, zls, lua-language-server, jdtls, kotlin-language-server,
 ruby-lsp, sourcekit-lsp, haskell-language-server, ocamllsp, csharp-ls,
-elixir-ls, intelephense, bash-language-server, terraform-ls, nil, and taplo.
-When several servers handle an extension, the first installed one answers;
-servers marked `linter` add their diagnostics alongside it.
+elixir-ls, intelephense, bash-language-server, terraform-ls, nil, and taplo
+(the last three run in git repositories). When several servers handle an
+extension, the first installed one answers; servers marked `linter` add their
+diagnostics alongside it.
 
 Add or change servers in `~/.agents/lsp.json`, `.lsp.json`, or
 `.agents/lsp.json` (later files win, field by field per server name). The
-format matches Claude Code's `.lsp.json`:
+project files choose which commands run, so they apply only when the project is
+trusted (`RHO_TRUST_PROJECT=1`); otherwise `lsp status` says they were ignored.
+A top-level `"enabled": false` turns every server off. The format matches
+Claude Code's `.lsp.json`:
 
 ```json
 {

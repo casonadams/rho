@@ -391,42 +391,39 @@ fn text_edit(value: &Value) -> Option<TextEdit> {
     })
 }
 
-/// The edits of a `WorkspaceEdit`, by file. File creation, renaming, and deletion are rejected.
+/// The edits of a `WorkspaceEdit`, by file: `documentChanges` when present (the spec prefers it
+/// over `changes`), else `changes`. File creation, renaming, and deletion are rejected.
 pub fn workspace_edits(edit: &Value) -> Result<BTreeMap<PathBuf, Vec<Value>>, String> {
     let mut by_file: BTreeMap<PathBuf, Vec<Value>> = BTreeMap::new();
-    if let Some(changes) = edit.get("changes").and_then(Value::as_object) {
-        for (uri, edits) in changes {
+    if let Some(changes) = edit.get("documentChanges").and_then(Value::as_array) {
+        for change in changes {
+            let Some(uri) = change
+                .get("textDocument")
+                .and_then(|d| d.get("uri"))
+                .and_then(Value::as_str)
+            else {
+                let kind = change.get("kind").and_then(Value::as_str).unwrap_or("unknown");
+                return Err(format!(
+                    "the server wants a file {kind} operation, which rho does not apply"
+                ));
+            };
             let path = uri_path(uri).ok_or_else(|| format!("unsupported URI {uri}"))?;
-            by_file
-                .entry(path)
-                .or_default()
-                .extend(edits.as_array().cloned().unwrap_or_default());
+            by_file.entry(path).or_default().extend(
+                change
+                    .get("edits")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
         }
+        return Ok(by_file);
     }
-    for change in edit
-        .get("documentChanges")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let Some(uri) = change
-            .get("textDocument")
-            .and_then(|d| d.get("uri"))
-            .and_then(Value::as_str)
-        else {
-            let kind = change.get("kind").and_then(Value::as_str).unwrap_or("unknown");
-            return Err(format!(
-                "the server wants a file {kind} operation, which rho does not apply"
-            ));
-        };
+    for (uri, edits) in edit.get("changes").and_then(Value::as_object).into_iter().flatten() {
         let path = uri_path(uri).ok_or_else(|| format!("unsupported URI {uri}"))?;
-        by_file.entry(path).or_default().extend(
-            change
-                .get("edits")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-        );
+        by_file
+            .entry(path)
+            .or_default()
+            .extend(edits.as_array().cloned().unwrap_or_default());
     }
     Ok(by_file)
 }
@@ -442,6 +439,7 @@ fn byte_offset(text: &str, starts: &[usize], (line, character): (u32, u32), enco
         return text.len();
     };
     let end = starts.get(line as usize + 1).map_or(text.len(), |next| next - 1);
+    let end = if text[start..end].ends_with('\r') { end - 1 } else { end };
     start + byte_index(&text[start..end], character, encoding)
 }
 
@@ -449,16 +447,16 @@ fn byte_offset(text: &str, starts: &[usize], (line, character): (u32, u32), enco
 pub fn apply_text_edits(text: &str, edits: &[Value], encoding: PositionEncoding) -> Result<String, String> {
     let starts = line_starts(text);
     let mut spans = Vec::new();
-    for value in edits {
+    for (index, value) in edits.iter().enumerate() {
         let edit = text_edit(value).ok_or("malformed text edit")?;
         let from = byte_offset(text, &starts, edit.start, encoding);
         let to = byte_offset(text, &starts, edit.end, encoding);
-        spans.push((from, to.max(from), edit.new_text));
+        spans.push((from, to.max(from), index, edit.new_text));
     }
-    spans.sort_by_key(|span| std::cmp::Reverse(span.0));
+    spans.sort_by_key(|span| std::cmp::Reverse((span.0, span.2)));
     let mut out = text.to_string();
     let mut limit = usize::MAX;
-    for (from, to, new_text) in spans {
+    for (from, to, _, new_text) in spans {
         if to > limit {
             return Err("overlapping text edits".into());
         }

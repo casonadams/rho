@@ -64,6 +64,7 @@ fn path_module_tool_extraction() {
 
     let tool_args = json!({"path": "src/main.rs", "old_text": "foo"});
     assert_eq!(extract_tool_path("read", &tool_args), Some("src/main.rs".to_string()));
+    assert_eq!(extract_tool_path("lsp", &tool_args), Some("src/main.rs".to_string()));
     assert_eq!(extract_tool_path("bash", &tool_args), None);
 }
 

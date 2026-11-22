@@ -124,16 +124,29 @@ fn text_edits_apply_from_the_end_in_the_negotiated_encoding() {
     assert_eq!(utf8, "let \u{1F600} = new;\nold();\n");
     let overlap = apply_text_edits(text, &[edit(1, 0, 3), edit(1, 1, 2)], PositionEncoding::Utf8);
     assert!(overlap.unwrap_err().contains("overlapping"));
+
+    let inserts = apply_text_edits(
+        "ab\r\n",
+        &[edit(0, 1, 1), edit(0, 1, 1), edit(0, 9, 9)],
+        PositionEncoding::Utf8,
+    );
+    assert_eq!(
+        inserts.unwrap(),
+        "anewnewbnew\r\n",
+        "same-position inserts keep their order; past-the-end stays before CRLF"
+    );
 }
 
 #[test]
-fn workspace_edits_merge_changes_and_reject_file_operations() {
+fn workspace_edits_prefer_document_changes_and_reject_file_operations() {
     let edits = workspace_edits(&json!({
         "changes": { "file:///a.rs": [{ "newText": "x" }] },
-        "documentChanges": [{ "textDocument": { "uri": "file:///a.rs", "version": 1 }, "edits": [{ "newText": "y" }] }],
+        "documentChanges": [{ "textDocument": { "uri": "file:///b.rs", "version": 1 }, "edits": [{ "newText": "y" }] }],
     }))
     .unwrap();
-    assert_eq!(edits[&PathBuf::from("/a.rs")].len(), 2);
+    assert_eq!(edits.keys().collect::<Vec<_>>(), [&PathBuf::from("/b.rs")]);
+    let only_changes = workspace_edits(&json!({ "changes": { "file:///a.rs": [{ "newText": "x" }] } })).unwrap();
+    assert_eq!(only_changes[&PathBuf::from("/a.rs")].len(), 1);
     let rename = workspace_edits(
         &json!({ "documentChanges": [{ "kind": "rename", "oldUri": "file:///a", "newUri": "file:///b" }] }),
     );
