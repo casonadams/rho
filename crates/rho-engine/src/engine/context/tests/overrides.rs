@@ -3,7 +3,7 @@ use rho_harness_core::config::Config;
 
 #[tokio::test]
 async fn test_system_prompt_override_ignores_system_md() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_sys_override_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     tokio::fs::write(
         temp_dir.join("SYSTEM.md"),
@@ -31,7 +31,7 @@ async fn test_system_prompt_override_ignores_system_md() {
 
 #[tokio::test]
 async fn test_append_system_prompt() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_append_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
 
     let ctx = ProjectContext::discover_with_dirs(
@@ -56,7 +56,7 @@ async fn test_append_system_prompt() {
 
 #[tokio::test]
 async fn test_system_prompt_override_and_append() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_sys_and_append_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
 
     let ctx = ProjectContext::discover_with_dirs(
@@ -92,7 +92,7 @@ fn setup_suppression_files(temp_dir: &Path) {
 
 #[tokio::test]
 async fn test_no_context_files_suppression() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_no_ctx_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     setup_suppression_files(&temp_dir);
 
     let ctx = ProjectContext::discover_with_dirs(
@@ -116,7 +116,7 @@ async fn test_no_context_files_suppression() {
 
 #[tokio::test]
 async fn test_discover_with_config() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_cfg_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     tokio::fs::write(temp_dir.join("AGENTS.md"), "# Suppressed Rules\n")
         .await

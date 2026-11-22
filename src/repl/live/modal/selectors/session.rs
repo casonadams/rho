@@ -67,7 +67,7 @@ mod tests {
 
     #[tokio::test]
     async fn opening_selector_keeps_the_active_header_only_session() {
-        let dir = std::env::temp_dir().join(format!("rho_selector_prune_{}", uuid::Uuid::new_v4()));
+        let dir = rho_test_support::TestDir::new();
         let session = SessionManager::new_async(&dir, None).await.unwrap();
         let (backend, _, _) = FakeTerminal::new(80);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
@@ -79,6 +79,5 @@ mod tests {
             .append_event(SessionEventKind::UserMessage, serde_json::json!({}))
             .await
             .unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

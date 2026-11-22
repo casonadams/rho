@@ -14,7 +14,7 @@ fn setup_project_context(temp_dir: &std::path::Path) {
 
 #[tokio::test]
 async fn test_project_context_discovery() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     setup_project_context(&temp_dir);
 
     let ctx = ProjectContext::discover(&temp_dir, None).await;
@@ -58,7 +58,7 @@ fn setup_user_skills(home: &std::path::Path, config: &std::path::Path, proj: &st
 
 #[tokio::test]
 async fn test_user_config_skills_discovery() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_override_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let (home_dir, config_dir, project_dir) =
         (temp_dir.join("home"), temp_dir.join("config"), temp_dir.join("project"));
     setup_user_skills(&home_dir, &config_dir, &project_dir);
@@ -101,7 +101,7 @@ fn setup_hierarchy_agents_files(home: &std::path::Path, cfg: &std::path::Path, p
 
 #[tokio::test]
 async fn test_global_agents_md_discovery_hierarchy() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_hierarchy_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let (home_dir, config_dir, project_dir) =
         (temp_dir.join("home"), temp_dir.join("config"), temp_dir.join("project"));
     setup_hierarchy_agents_files(&home_dir, &config_dir, &project_dir);
@@ -129,7 +129,7 @@ async fn test_global_agents_md_discovery_hierarchy() {
 
 #[tokio::test]
 async fn test_instruction_deduplication_via_symlink() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dedup_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let home_dir = temp_dir.join("home");
     let config_dir = temp_dir.join("config");
     let project_dir = temp_dir.join("project");
@@ -163,7 +163,7 @@ async fn test_instruction_deduplication_via_symlink() {
 
 #[tokio::test]
 async fn test_project_context_discovery_with_transclusion() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_trans_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
 
     let docs_dir = temp_dir.join("docs");
@@ -189,7 +189,7 @@ async fn test_project_context_discovery_with_transclusion() {
 
 #[tokio::test]
 async fn test_repository_ancestry_walk_up_ordering() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_ancestry_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let (repo_root, crates_dir) = (temp_dir.join("repo"), temp_dir.join("repo/crates"));
     let engine_dir = crates_dir.join("engine");
 
@@ -209,7 +209,7 @@ async fn test_repository_ancestry_walk_up_ordering() {
 
 #[tokio::test]
 async fn test_find_repo_root_and_ancestry_helpers() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_repo_root_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub_dir = repo_root.join("a").join("b").join("c");
     let non_repo = temp_dir.join("other");
@@ -239,7 +239,7 @@ async fn test_find_repo_root_and_ancestry_helpers() {
 
 #[tokio::test]
 async fn test_ancestry_walk_up_with_global_and_transclusion() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_global_trans_ancestry_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let (home_dir, repo_root) = (temp_dir.join("home"), temp_dir.join("repo"));
     let (leaf_dir, docs_dir) = (repo_root.join("crates/engine"), repo_root.join("docs"));
 

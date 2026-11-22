@@ -18,7 +18,6 @@ async fn setup_live_session_and_engine(
 }
 
 struct LiveFixture {
-    _temp: tempfile::TempDir,
     controller: TerminalController<NullBackend>,
     _ui: crate::ui::interactive::InteractiveUi,
     events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
@@ -27,6 +26,7 @@ struct LiveFixture {
     completions: CompletionSet,
     session: crate::repl::ReplSession,
     engine: crate::engine::AgentEngine,
+    _temp: tempfile::TempDir,
 }
 
 impl LiveFixture {

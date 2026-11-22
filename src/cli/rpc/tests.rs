@@ -87,7 +87,7 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
     // 3. Resolve approval via handle_tool_response_cmd
     let (_client_io, server_io) = duplex(1024);
     let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = rho_test_support::TestDir::new();
     let config = Config {
         sessions_dir: temp_dir.join("sessions"),
         auth_file: temp_dir.join("auth.json"),
@@ -169,10 +169,10 @@ fn rpc_fixture(
 ) -> (
     ClientReader,
     JsonLinesWriter<tokio::io::DuplexStream>,
-    std::path::PathBuf,
+    rho_test_support::TestDir,
 ) {
     let (client_io, server_io) = duplex(4096);
-    let temp_dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
+    let temp_dir = rho_test_support::TestDir::with_prefix(&format!("{prefix}_"));
     (
         JsonLinesReader::new(tokio::io::BufReader::new(client_io)),
         JsonLinesWriter::new(server_io),
@@ -438,7 +438,7 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     let (server_read, server_write) = tokio::io::split(server_io);
     let (client_read, client_write) = tokio::io::split(client_io);
 
-    let temp_dir = std::env::temp_dir().join(format!("rpc_stream_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = rho_test_support::TestDir::new();
     let handle = setup_rpc_test_server(server_read, server_write, &temp_dir).await;
 
     let mut writer = JsonLinesWriter::new(client_write);

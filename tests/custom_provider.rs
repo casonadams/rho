@@ -5,11 +5,10 @@ use rho_harness_core::config::Config;
 fn with_test_env<T, F: FnOnce(&std::path::Path) -> T>(toml: &str, env_pair: (&str, &str), f: F) -> T {
     let (key_var, key_val) = env_pair;
     let prev_rho_home = std::env::var_os("RHO_HOME");
-    let home = std::env::temp_dir().join(format!("rho_e2e_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&home).unwrap();
+    let home = rho_test_support::TestDir::with_prefix("rho_e2e_");
     std::fs::write(home.join("config.toml"), toml).unwrap();
     unsafe {
-        std::env::set_var("RHO_HOME", &home);
+        std::env::set_var("RHO_HOME", &*home);
         std::env::set_var(key_var, key_val);
     }
     let result = f(&home);
@@ -21,7 +20,6 @@ fn with_test_env<T, F: FnOnce(&std::path::Path) -> T>(toml: &str, env_pair: (&st
             std::env::remove_var("RHO_HOME");
         }
     }
-    let _ = std::fs::remove_dir_all(home);
     result
 }
 

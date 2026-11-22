@@ -17,13 +17,14 @@ fn collect_output_events(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEve
 fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
+    let (session, _dir) = terminal_session();
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
+        session,
     );
 
     sink.emit_reasoning("Analyzing the code.\n\n\n");
@@ -42,13 +43,14 @@ fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
 fn token_by_token_reasoning_with_trailing_newlines_collapses_cleanly() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
+    let (session, _dir) = terminal_session();
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
+        session,
     );
 
     sink.emit_reasoning("Analyzing");
@@ -68,13 +70,14 @@ fn token_by_token_reasoning_with_trailing_newlines_collapses_cleanly() {
 fn internal_reasoning_paragraphs_preserve_single_blank_line() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
+    let (session, _dir) = terminal_session();
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
+        session,
     );
 
     sink.emit_reasoning("Paragraph 1.\n\n\n\n");
@@ -96,13 +99,14 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
 fn thinking_followed_by_tool_closes_line_cleanly() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
+    let (session, _dir) = terminal_session();
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
+        session,
     );
 
     sink.emit_reasoning("Let me read the file.\n\n\n");
@@ -120,13 +124,14 @@ fn thinking_followed_by_tool_closes_line_cleanly() {
 fn thinking_followed_by_skipped_tool_flushes_reasoning_and_closes_line() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
+    let (session, _dir) = terminal_session();
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
+        session,
     );
 
     sink.emit_reasoning("Let me read the file.\n\n\n");

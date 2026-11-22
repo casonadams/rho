@@ -325,7 +325,7 @@ async fn test_completion_model_aggregates_unary_response() {
 
 #[tokio::test]
 async fn test_claude_system_prompt_remains_invariant_across_git_status_updates() {
-    let temp = std::env::temp_dir().join(format!("test_claude_cache_{}", uuid::Uuid::new_v4()));
+    let temp = crate::test_support::TestDir::new();
     let _ = tokio::fs::create_dir_all(&temp).await;
     let mut ctx = crate::engine::context::ProjectContext::discover(&temp, None).await;
 

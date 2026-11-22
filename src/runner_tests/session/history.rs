@@ -1,4 +1,4 @@
-use super::super::helpers::{presenter, request, test_engine, test_engine_with_session};
+use super::super::helpers::{TestEngine, presenter, request, test_engine, test_engine_with_session};
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::session::SessionManager;
@@ -36,8 +36,8 @@ async fn process_style_reopen_resumes_canonical_history_once() {
         .await
         .unwrap();
     let id = first.session_manager.session_id.clone();
-    let dir = first.session_manager.file_path.parent().unwrap().to_path_buf();
-    drop(first);
+    let root = first.into_dir();
+    let dir = root.join("sessions");
 
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
     let resumed_model = Arc::new(MockAdapter::text("resumed answer"));
@@ -53,7 +53,7 @@ async fn process_style_reopen_resumes_canonical_history_once() {
     assert_eq!(encoded.matches("persisted answer").count(), 1);
 }
 
-async fn seed_rebuild_engine(config: Config) -> (crate::engine::AgentEngine, String) {
+async fn seed_rebuild_engine(config: Config) -> (TestEngine, String) {
     let model = Arc::new(MockAdapter::text("stored answer"));
     let engine = test_engine(model, config);
     engine

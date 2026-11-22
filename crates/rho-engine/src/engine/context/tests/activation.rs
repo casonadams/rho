@@ -14,7 +14,7 @@ fn setup_monorepo_dirs(repo_root: &Path) {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_in_monorepo() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_monorepo_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     setup_monorepo_dirs(&repo_root);
 
@@ -55,7 +55,7 @@ async fn dynamic_instructions_are_cut_to_the_byte_budget_on_a_character_boundary
 
 #[tokio::test]
 async fn test_dynamic_path_activation_deduplication() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_dedup_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("packages").join("pkg-a");
 
@@ -84,7 +84,7 @@ async fn test_dynamic_path_activation_deduplication() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_bounds_file_limit() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_files_bound_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
 
@@ -114,7 +114,7 @@ async fn test_dynamic_path_activation_bounds_file_limit() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_bounds_byte_limit() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_bytes_bound_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("sub");
 
@@ -139,7 +139,7 @@ async fn test_dynamic_path_activation_bounds_byte_limit() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_respects_no_context_files() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_no_ctx_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("sub");
 
@@ -168,7 +168,7 @@ async fn test_dynamic_path_activation_respects_no_context_files() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_confinement() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_confine_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let external_dir = temp_dir.join("external");
 
@@ -197,7 +197,7 @@ async fn test_dynamic_path_activation_confinement() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_with_transclusion() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_trans_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("crates").join("sub");
     let docs = sub.join("docs");
@@ -226,7 +226,7 @@ async fn test_dynamic_path_activation_with_transclusion() {
 
 #[tokio::test]
 async fn test_async_path_activation_loads_subcrate_and_honors_no_context() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_async_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     setup_monorepo_dirs(&repo_root);
 

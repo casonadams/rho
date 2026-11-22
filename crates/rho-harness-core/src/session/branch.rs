@@ -213,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fork_and_clone_session() {
-        let dir = std::env::temp_dir().join(format!("session_fork_test_{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::temp_dir();
         std::fs::create_dir_all(&dir).unwrap();
         let session = SessionManager::new(&dir, None).unwrap();
         let sid = session.session_id.clone();
@@ -240,7 +240,7 @@ mod tests {
 
     #[tokio::test]
     async fn fork_multi_node_session_writes_one_record_per_ancestor() {
-        let dir = std::env::temp_dir().join(format!("session_fork_multi_{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::temp_dir();
         let session = SessionManager::new_async(&dir, None).await.unwrap();
         let sid = session.session_id.clone();
         let mut expected = Vec::new();

@@ -570,8 +570,7 @@ mod tests {
 
     #[test]
     fn test_pruned_history_estimate_replaces_stale_usage_anchor() {
-        let dir = std::env::temp_dir().join(format!("turn_metrics_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_support::TestDir::new();
         let app_config = Config {
             auth_file: dir.join("auth.json"),
             ..Config::default()

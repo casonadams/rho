@@ -150,8 +150,8 @@ fn test_modal_tree_input_ctrl_c_clears_input_text() {
 #[tokio::test]
 async fn test_resume_session_does_not_deadlock_idle_step() {
     let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
-    let temp_dir = std::env::temp_dir().join(format!("test_resume_deadlock_{}", uuid::Uuid::new_v4()));
-    session.config.sessions_dir = temp_dir.clone();
+    let temp_dir = rho_test_support::TestDir::new();
+    session.config.sessions_dir = temp_dir.to_path_buf();
     let mgr = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
     let session_id = mgr.session_id.clone();
 

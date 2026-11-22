@@ -1,5 +1,3 @@
-use std::fs;
-
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, TerminalController};
@@ -25,22 +23,20 @@ fn step_next(controller: &mut TerminalController<NullBackend>, history: &mut Int
 
 #[test]
 fn active_history_navigation_previous_steps() {
-    let path = std::env::temp_dir().join(format!("rho-live-history-{}.txt", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
+    let path = dir.join("history.txt");
     let (mut history, mut controller) = setup_history_and_controller(&path);
 
     assert_eq!(step_previous(&mut controller, &mut history), "draft\nline");
     assert_eq!(step_previous(&mut controller, &mut history), "newer\nsecond");
     assert_eq!(step_previous(&mut controller, &mut history), "newer\nsecond");
     assert_eq!(step_previous(&mut controller, &mut history), "older");
-
-    drop(controller);
-    drop(history);
-    let _ = fs::remove_file(path);
 }
 
 #[test]
 fn active_history_navigation_next_restores_draft() {
-    let path = std::env::temp_dir().join(format!("rho-live-history-{}.txt", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
+    let path = dir.join("history.txt");
     let (mut history, mut controller) = setup_history_and_controller(&path);
 
     step_previous(&mut controller, &mut history);
@@ -50,10 +46,6 @@ fn active_history_navigation_next_restores_draft() {
 
     assert_eq!(step_next(&mut controller, &mut history), "newer\nsecond");
     assert_eq!(step_next(&mut controller, &mut history), "draft\nline");
-
-    drop(controller);
-    drop(history);
-    let _ = fs::remove_file(path);
 }
 
 #[test]
@@ -108,11 +100,10 @@ fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
 fn test_hydrate_session_transcript_populates_items_and_history() {
     let tree = sample_qa_tree();
     let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
-    let path = std::env::temp_dir().join(format!("test_hist_{}.txt", uuid::Uuid::new_v4()));
-    let mut history = InteractiveHistory::with_file(100, path.clone()).unwrap();
+    let dir = rho_test_support::TestDir::new();
+    let mut history = InteractiveHistory::with_file(100, dir.join("history.txt")).unwrap();
 
     super::super::navigation::hydrate_session_transcript(&mut controller, &tree, &mut history).unwrap();
     assert_eq!(controller.transcript().len(), 2);
     assert_eq!(history.previous(""), Some("What is life?".to_string()));
-    let _ = std::fs::remove_file(path);
 }

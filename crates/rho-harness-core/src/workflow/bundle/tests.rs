@@ -5,8 +5,8 @@ fn write(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("rho_workflow_{label}_{}", uuid::Uuid::new_v4()))
+fn temp_root(label: &str) -> rho_test_support::TestDir {
+    rho_test_support::TestDir::with_prefix(&format!("rho_workflow_{label}_"))
 }
 
 #[test]

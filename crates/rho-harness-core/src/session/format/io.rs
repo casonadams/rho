@@ -189,7 +189,7 @@ mod tests {
             ("tail_spanning_chunks", vec![b'x'; 5000]),
         ];
         for (name, tail) in tails {
-            let dir = std::env::temp_dir().join(format!("rho_torn_tail_{}", uuid::Uuid::new_v4()));
+            let dir = crate::test_support::temp_dir();
             let first = SessionManager::new_async(&dir, None).await.unwrap();
             let session_id = first.session_id.clone();
             first

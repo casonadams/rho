@@ -39,7 +39,8 @@ fn sequential_mutation_model(marker: &std::path::Path) -> Arc<MockAdapter> {
 #[cfg(unix)]
 #[tokio::test]
 async fn mutating_tools_execute_sequentially() {
-    let marker = std::env::temp_dir().join(format!("sequential_marker_{}", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
+    let marker = dir.join("sequential_marker");
     let model = sequential_mutation_model(&marker);
     let config = Config {
         permission: crate::config::PermissionConfig { enabled: false },
@@ -52,7 +53,6 @@ async fn mutating_tools_execute_sequentially() {
         .unwrap();
 
     assert_eq!(tokio::fs::read_to_string(&marker).await.unwrap(), "12");
-    let _ = tokio::fs::remove_file(marker).await;
 }
 
 #[cfg(unix)]

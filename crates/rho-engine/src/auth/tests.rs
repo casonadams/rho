@@ -1,11 +1,11 @@
 use super::*;
 use rho_harness_core::auth::StoredCredential;
+use rho_test_support::TestFile;
 use std::collections::HashMap;
-use tempfile::NamedTempFile;
 
 #[test]
 fn loads_legacy_flat_key_json() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let path = file.path();
     std::fs::write(path, r#"{"anthropic": "sk-ant-legacy-123", "openai": "sk-legacy-456"}"#).unwrap();
 
@@ -19,7 +19,7 @@ fn loads_legacy_flat_key_json() {
 
 #[test]
 fn stores_and_persists_oauth_credentials() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let path = file.path();
 
     {
@@ -164,7 +164,7 @@ async fn expired_oauth_token_that_cannot_refresh_is_an_error() {
 
 #[test]
 fn loads_auth_file_with_utf8_bom() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let path = file.path();
     let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"openrouter\": \"key-openrouter-456\"}";
     std::fs::write(path, bom_content).unwrap();
@@ -192,7 +192,7 @@ fn loads_auth_file_with_utf8_bom() {
 
 #[test]
 fn unparseable_non_empty_auth_file_fails_closed() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let path = file.path();
     std::fs::write(path, "{ corrupt json ...").unwrap();
 
@@ -202,7 +202,7 @@ fn unparseable_non_empty_auth_file_fails_closed() {
 
 #[tokio::test]
 async fn loads_auth_file_with_utf8_bom_async() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let path = file.path();
     let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"openrouter\": \"key-openrouter-456\"}";
     std::fs::write(path, bom_content).unwrap();
@@ -229,7 +229,7 @@ async fn loads_auth_file_with_utf8_bom_async() {
 
 #[tokio::test]
 async fn unparseable_non_empty_auth_file_fails_closed_async() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let path = file.path();
     std::fs::write(path, "{ corrupt json ...").unwrap();
 

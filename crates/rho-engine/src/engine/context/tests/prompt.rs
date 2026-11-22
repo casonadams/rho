@@ -129,7 +129,7 @@ fn sample_skills() -> Vec<SkillMetadata> {
 
 #[tokio::test]
 async fn skills_instruction_uses_read_tool_when_available() {
-    let temp = std::env::temp_dir().join(format!("test_read_{}", uuid::Uuid::new_v4()));
+    let temp = crate::test_support::TestDir::new();
     let _ = tokio::fs::create_dir_all(&temp).await;
     let mut ctx = ProjectContext::discover_with_dirs(
         &temp,
@@ -152,7 +152,7 @@ async fn skills_instruction_uses_read_tool_when_available() {
 
 #[tokio::test]
 async fn skills_instruction_uses_bash_when_read_absent() {
-    let temp = std::env::temp_dir().join(format!("test_bash_{}", uuid::Uuid::new_v4()));
+    let temp = crate::test_support::TestDir::new();
     let _ = tokio::fs::create_dir_all(&temp).await;
     let mut ctx = ProjectContext::discover_with_dirs(
         &temp,
@@ -175,7 +175,7 @@ async fn skills_instruction_uses_bash_when_read_absent() {
 
 #[tokio::test]
 async fn skills_omitted_when_no_reader_tool_active() {
-    let temp = std::env::temp_dir().join(format!("test_none_{}", uuid::Uuid::new_v4()));
+    let temp = crate::test_support::TestDir::new();
     let _ = tokio::fs::create_dir_all(&temp).await;
     let mut ctx = ProjectContext::discover_with_dirs(
         &temp,
@@ -194,7 +194,7 @@ async fn skills_omitted_when_no_reader_tool_active() {
 
 #[tokio::test]
 async fn system_prompt_omits_git_status_to_preserve_cache_prefix() {
-    let temp = std::env::temp_dir().join(format!("test_git_cache_{}", uuid::Uuid::new_v4()));
+    let temp = crate::test_support::TestDir::new();
     let _ = tokio::fs::create_dir_all(&temp).await;
     let mut ctx = ProjectContext::discover(&temp, None).await;
     ctx.git_status = Some("## main...origin/main [ahead 1] M src/lib.rs".to_string());
@@ -229,7 +229,7 @@ fn test_escape_xml() {
 async fn system_prompt_renders_available_agents() {
     use rho_harness_core::agents::AgentMetadata;
 
-    let temp = std::env::temp_dir().join(format!("test_agents_prompt_{}", uuid::Uuid::new_v4()));
+    let temp = crate::test_support::TestDir::new();
     let _ = tokio::fs::create_dir_all(&temp).await;
     let mut ctx = ProjectContext::discover_with_dirs(
         &temp,

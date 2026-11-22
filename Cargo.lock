@@ -2287,6 +2287,7 @@ dependencies = [
  "reqwest",
  "rho-engine",
  "rho-harness-core",
+ "rho-test-support",
  "rpassword",
  "rustls",
  "serde",
@@ -2332,6 +2333,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rho-harness-core",
+ "rho-test-support",
  "rustls",
  "schemars",
  "scraper",
@@ -2358,6 +2360,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "futures",
+ "rho-test-support",
  "schemars",
  "serde",
  "serde_json",
@@ -2368,6 +2371,13 @@ dependencies = [
  "toml 1.2.1+spec-1.1.0",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "rho-test-support"
+version = "0.16.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

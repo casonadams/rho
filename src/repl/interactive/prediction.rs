@@ -53,8 +53,8 @@ mod tests {
             description: "Switch model".to_string(),
         }]);
 
-        let temp_dir = std::env::temp_dir().join(format!("rho-hist-{}", uuid::Uuid::new_v4()));
-        let history = InteractiveHistory::with_file(10, temp_dir).unwrap();
+        let temp_dir = rho_test_support::TestDir::new();
+        let history = InteractiveHistory::with_file(10, temp_dir.join("history.txt")).unwrap();
 
         assert_eq!(
             predict_inline_completion("/mod", 4, &history, &completions),
@@ -66,8 +66,8 @@ mod tests {
     #[test]
     fn test_predict_history() {
         let completions = CompletionSet::from_sources(CompletionSources::new());
-        let temp_dir = std::env::temp_dir().join(format!("rho-hist-{}", uuid::Uuid::new_v4()));
-        let mut history = InteractiveHistory::with_file(10, temp_dir).unwrap();
+        let temp_dir = rho_test_support::TestDir::new();
+        let mut history = InteractiveHistory::with_file(10, temp_dir.join("history.txt")).unwrap();
         history.record("git status").unwrap();
         history.record("git commit -m 'feat: test'").unwrap();
 

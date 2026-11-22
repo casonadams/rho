@@ -31,5 +31,6 @@ skip-fsync = []
 
 [dev-dependencies]
 serde_json.workspace = true
+rho-test-support.workspace = true
 tempfile = "3.17"
 futures.workspace = true

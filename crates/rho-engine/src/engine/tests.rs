@@ -4,11 +4,10 @@ use crate::mcp::load_mcp_tools;
 use crate::test_support::temp_dir;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-fn test_config(label: &str) -> (Config, PathBuf) {
+fn test_config(label: &str) -> (Config, crate::test_support::TestDir) {
     let dir = temp_dir(label);
-    std::fs::create_dir_all(&dir).unwrap();
     let config = Config {
         sessions_dir: dir.join("sessions"),
         auth_file: dir.join("auth.json"),
@@ -134,7 +133,7 @@ struct BuiltinEngine {
     config: Config,
     auth_store: AuthStore,
     tool_count: usize,
-    dir: PathBuf,
+    dir: crate::test_support::TestDir,
 }
 
 async fn builtin_engine(label: &str) -> BuiltinEngine {
@@ -325,7 +324,7 @@ async fn build_engine_offline_with_expired_oauth_token_succeeds_without_blocking
 
     let start = std::time::Instant::now();
     let engine = builder::AgentEngineBuilder::new(config, auth_store)
-        .base_dir(dir.clone())
+        .base_dir(dir.to_path_buf())
         .lsp(None)
         .quota_endpoints(crate::engine::quota_refresh::QuotaEndpoints::all_at(
             "http://127.0.0.1:9",
@@ -498,7 +497,7 @@ async fn context_limit_uses_the_providers_listed_window() {
     let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store)
-        .base_dir(dir.clone())
+        .base_dir(dir.to_path_buf())
         .lsp(None)
         .model_catalog(catalog)
         .build()
@@ -526,7 +525,7 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
     };
 
     let result = builder::AgentEngineBuilder::new(config, auth_store)
-        .base_dir(dir.clone())
+        .base_dir(dir.to_path_buf())
         .lsp(None)
         .build()
         .await;
@@ -571,7 +570,7 @@ async fn rate_limited_model_request_retries_and_succeeds() {
     use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
     use rho_harness_core::error::AppError;
 
-    let dir = std::env::temp_dir().join(format!("retry_429_{}", uuid::Uuid::new_v4()));
+    let dir = crate::test_support::TestDir::new();
 
     let model = Arc::new(MockAdapter::default());
     model.add_turn(vec![Err(AppError::RateLimited {

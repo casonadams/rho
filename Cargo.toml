@@ -4,6 +4,7 @@ members = [
     ".",
     "crates/rho-harness-core",
     "crates/rho-engine",
+    "crates/rho-test-support",
 ]
 
 [workspace.lints.rust]
@@ -33,6 +34,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 fuzzy-matcher = "0.3.7"
 rho-harness-core = { version = "0.16.0", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.16.0", path = "crates/rho-engine" }
+rho-test-support = { version = "0.16.0", path = "crates/rho-test-support" }
 similar = "3.2"
 strip-ansi-escapes = "0.2"
 rpassword = "7.5"
@@ -132,6 +134,7 @@ winres = "0.1"
 
 [dev-dependencies]
 rho-harness-core = { workspace = true, features = ["skip-fsync"] }
+rho-test-support.workspace = true
 tempfile = "3.17"
 
 [profile.dev]

@@ -127,9 +127,10 @@ mod tests {
     use crate::ui::interactive::{InteractiveState, NullBackend};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    fn remote_config(url: &str) -> Config {
+    fn remote_config(url: &str) -> (Config, rho_test_support::TestDir) {
+        let dir = rho_test_support::TestDir::new();
         let mut config = Config {
-            config_dir: tempfile::tempdir().unwrap().keep(),
+            config_dir: dir.to_path_buf(),
             ..Default::default()
         };
         let server = rho_harness_core::config::McpServerConfig {
@@ -138,7 +139,7 @@ mod tests {
             ..Default::default()
         };
         config.mcp.servers.insert("srv".into(), server);
-        config
+        (config, dir)
     }
 
     fn transcript(controller: &TerminalController<NullBackend>) -> String {
@@ -195,7 +196,7 @@ mod tests {
 
     #[tokio::test]
     async fn esc_cancels_a_pending_sign_in_and_reports_it_in_the_transcript() {
-        let config = remote_config(&oauth_server().await);
+        let (config, _dir) = remote_config(&oauth_server().await);
         let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let url_shown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -219,7 +220,7 @@ mod tests {
 
     #[tokio::test]
     async fn failures_are_reported_without_leaving_the_tui() {
-        let config = remote_config("http://127.0.0.1:9/mcp");
+        let (config, _dir) = remote_config("http://127.0.0.1:9/mcp");
         let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
         let mut input = TerminalInputReader::spawn_dummy();
         let theme = Theme::default();

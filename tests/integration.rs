@@ -1,7 +1,9 @@
 pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-pub(crate) fn temp_dir(name: &str) -> std::path::PathBuf {
-    tempfile::Builder::new().prefix(name).tempdir().unwrap().keep()
+pub(crate) use rho_test_support::TestDir;
+
+pub(crate) fn temp_dir(name: &str) -> TestDir {
+    TestDir::with_prefix(name)
 }
 
 pub(crate) fn write_script(path: &std::path::Path, contents: &str) {

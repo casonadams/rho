@@ -9,7 +9,7 @@ async fn read_text(
     let dir = file_path.parent().unwrap();
     tokio::fs::create_dir_all(dir).await.unwrap();
     tokio::fs::write(&file_path, content).await.unwrap();
-    let result = ReadTool::new(dir)
+    ReadTool::new(dir)
         .execute(ReadArgs {
             path: file_path.to_string_lossy().into_owned(),
             offset,
@@ -17,14 +17,12 @@ async fn read_text(
             symbol: None,
         })
         .await
-        .unwrap();
-    let _ = tokio::fs::remove_dir_all(dir).await;
-    result
+        .unwrap()
 }
 
 #[tokio::test]
 async fn test_read_tool_happy_path() {
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     let file_path = temp_dir.join("sample.txt");
     tokio::fs::write(&file_path, "line1\nline2\nline3\n").await.unwrap();
@@ -54,7 +52,7 @@ fn numbered_lines(count: usize) -> String {
 
 #[tokio::test]
 async fn test_read_oversized_line_shows_its_first_50kb() {
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let line = format!(
         "{}{}",
         "x".repeat(DEFAULT_MAX_BYTES),
@@ -78,7 +76,7 @@ async fn test_read_oversized_line_shows_its_first_50kb() {
 
 #[tokio::test]
 async fn test_read_oversized_line_reached_by_offset_cuts_on_char_boundary() {
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let content = format!("short\n{}", "é".repeat(DEFAULT_MAX_BYTES));
     let result = read_text(temp_dir.join("wide.txt"), &content, (Some(2), None)).await;
 
@@ -102,7 +100,7 @@ async fn test_read_oversized_line_reached_by_offset_cuts_on_char_boundary() {
 async fn test_read_byte_truncation_shows_range_and_next_offset() {
     // 1000 fixed-width lines: 51200 bytes fits 506 whole lines (51105 bytes).
     let content = vec!["x".repeat(100); 1000].join("\n");
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let result = read_text(temp_dir.join("wide.txt"), &content, (None, None)).await;
 
     assert!(!result.is_error);
@@ -117,7 +115,7 @@ async fn test_read_byte_truncation_shows_range_and_next_offset() {
 #[tokio::test]
 async fn test_read_line_truncation_shows_continuation() {
     let content = numbered_lines(2500);
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let result = read_text(temp_dir.join("long.txt"), &content, (None, None)).await;
 
     assert!(!result.is_error);
@@ -133,7 +131,7 @@ async fn test_read_line_truncation_shows_continuation() {
 #[tokio::test]
 async fn test_read_user_limit_reports_remaining_lines() {
     let content = numbered_lines(25);
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let result = read_text(temp_dir.join("medium.txt"), &content, (None, Some(10))).await;
 
     assert!(!result.is_error);
@@ -149,7 +147,7 @@ async fn test_read_user_limit_reports_remaining_lines() {
 #[tokio::test]
 async fn test_read_user_limit_at_end_has_no_notice() {
     let content = numbered_lines(25);
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let result = read_text(temp_dir.join("exact.txt"), &content, (None, Some(25))).await;
 
     assert!(!result.is_error);
@@ -160,7 +158,7 @@ async fn test_read_user_limit_at_end_has_no_notice() {
 #[tokio::test]
 async fn test_read_offset_continues_numbering() {
     let content = numbered_lines(2500);
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let result = read_text(temp_dir.join("long.txt"), &content, (Some(2001), None)).await;
 
     assert!(!result.is_error);
@@ -172,7 +170,7 @@ async fn test_read_offset_continues_numbering() {
 #[tokio::test]
 async fn test_read_offset_beyond_end_of_file_errors() {
     let content = numbered_lines(5);
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let result = read_text(temp_dir.join("short.txt"), &content, (Some(100), None)).await;
 
     assert!(result.is_error);
@@ -185,7 +183,7 @@ async fn test_read_offset_beyond_end_of_file_errors() {
 
 #[tokio::test]
 async fn test_read_empty_file_reports_empty() {
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     for offset in [None, Some(5)] {
         let result = read_text(temp_dir.join("empty.txt"), "", (offset, None)).await;
         assert!(!result.is_error, "{offset:?}");
@@ -225,11 +223,11 @@ use base64::engine::general_purpose::STANDARD;
 use image::{ImageFormat, Rgba, RgbaImage};
 use std::io::Cursor;
 
-async fn write_and_read(dir: std::path::PathBuf, name: &str, bytes: &[u8]) -> ToolResult {
-    tokio::fs::create_dir_all(&dir).await.unwrap();
+async fn write_and_read(name: &str, bytes: &[u8]) -> ToolResult {
+    let dir = crate::test_support::TestDir::new();
     let file_path = dir.join(name);
     tokio::fs::write(&file_path, bytes).await.unwrap();
-    let result = ReadTool::new(&dir)
+    ReadTool::new(&dir)
         .execute(ReadArgs {
             path: file_path.to_string_lossy().into_owned(),
             offset: None,
@@ -237,9 +235,7 @@ async fn write_and_read(dir: std::path::PathBuf, name: &str, bytes: &[u8]) -> To
             symbol: None,
         })
         .await
-        .unwrap();
-    let _ = tokio::fs::remove_dir_all(dir).await;
-    result
+        .unwrap()
 }
 
 fn solid_png(width: u32, height: u32) -> Vec<u8> {
@@ -267,12 +263,7 @@ fn png_chunk(chunk_type: &[u8; 4], data: &[u8]) -> Vec<u8> {
 #[tokio::test]
 async fn test_read_png_attaches_inline_image() {
     let bytes = solid_png(8, 8);
-    let res = write_and_read(
-        std::env::temp_dir().join(format!("read_img_{}", uuid::Uuid::new_v4())),
-        "img.png",
-        &bytes,
-    )
-    .await;
+    let res = write_and_read("img.png", &bytes).await;
 
     assert!(!res.is_error);
     assert_eq!(res.content, "Read image file [image/png]");
@@ -283,12 +274,7 @@ async fn test_read_png_attaches_inline_image() {
 
 #[tokio::test]
 async fn test_read_bmp_converts_to_png_with_hint() {
-    let res = write_and_read(
-        std::env::temp_dir().join(format!("read_bmp_{}", uuid::Uuid::new_v4())),
-        "img.bmp",
-        &solid_bmp(8, 8),
-    )
-    .await;
+    let res = write_and_read("img.bmp", &solid_bmp(8, 8)).await;
 
     assert!(!res.is_error);
     assert_eq!(
@@ -307,12 +293,7 @@ async fn test_read_corrupt_image_reports_omission_without_block() {
     bytes.extend(png_chunk(b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]));
     bytes.extend(png_chunk(b"IDAT", &[0xDE, 0xAD, 0xBE, 0xEF]));
     bytes.extend(png_chunk(b"IEND", &[]));
-    let res = write_and_read(
-        std::env::temp_dir().join(format!("read_corrupt_{}", uuid::Uuid::new_v4())),
-        "img.png",
-        &bytes,
-    )
-    .await;
+    let res = write_and_read("img.png", &bytes).await;
 
     assert!(!res.is_error, "pi delivers the omission note as a successful result");
     assert_eq!(
@@ -329,12 +310,7 @@ async fn test_read_apng_falls_back_to_binary_marker() {
     bytes.extend(png_chunk(b"acTL", &[0, 0, 0, 2, 0, 0, 0, 0]));
     bytes.extend(png_chunk(b"IDAT", &[0x01, 0x02, 0x03, 0x04]));
     bytes.extend(png_chunk(b"IEND", &[]));
-    let res = write_and_read(
-        std::env::temp_dir().join(format!("read_apng_{}", uuid::Uuid::new_v4())),
-        "anim.png",
-        &bytes,
-    )
-    .await;
+    let res = write_and_read("anim.png", &bytes).await;
 
     assert!(!res.is_error);
     assert!(res.content.contains("[Binary file:"));

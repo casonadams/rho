@@ -133,8 +133,9 @@ async fn write_export_creates_parents_and_renders_selected_format() {
         ("out.md", ExportFormat::Markdown, "# rho session: export demo"),
     ];
     let tree = tree_with_conversation();
+    let dir = crate::test_support::temp_dir();
     for (file, format, prefix) in cases {
-        let path = crate::test_support::temp_dir().join("nested").join(file);
+        let path = dir.join("nested").join(file);
         write_export(&path, &tree, "session-1", format).await.unwrap();
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(written.starts_with(prefix), "{file}: {written}");

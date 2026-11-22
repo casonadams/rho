@@ -1,5 +1,6 @@
-use std::path::PathBuf;
 use std::sync::Mutex;
+
+pub(crate) use rho_test_support::TestDir;
 
 use rho_harness_core::presentation::activity::ActivityToken;
 use rho_harness_core::presentation::presenter::Presenter;
@@ -42,12 +43,8 @@ impl Presenter for CapturingPresenter {
     }
 }
 
-pub(crate) fn temp_dir(label: &str) -> PathBuf {
-    tempfile::Builder::new()
-        .prefix(&format!("rho-{label}-"))
-        .tempdir()
-        .unwrap()
-        .keep()
+pub(crate) fn temp_dir(label: &str) -> TestDir {
+    TestDir::with_prefix(&format!("rho-{label}-"))
 }
 
 pub(crate) fn temp_auth_store() -> (tempfile::TempDir, crate::auth::AuthStore) {

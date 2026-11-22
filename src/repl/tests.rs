@@ -65,10 +65,9 @@ async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
     unsafe {
         std::env::set_var("ANTHROPIC_API_KEY", "test-key-not-real");
     }
-    let home = std::env::temp_dir().join(format!("repl_reload_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&home).unwrap();
+    let home = rho_test_support::TestDir::new();
     unsafe {
-        std::env::set_var("RHO_HOME", &home);
+        std::env::set_var("RHO_HOME", &*home);
     }
 
     let (mut session, engine) = setup_reload_session(&home).await;
@@ -125,7 +124,7 @@ async fn resume_hint_names_the_session_only_when_it_has_content() {
     use rho_harness_core::model::ChatMessage;
     use rho_harness_core::session::SessionManager;
 
-    let dir = std::env::temp_dir().join(format!("rho_resume_hint_{}", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
     let empty = SessionManager::new_async(&dir, None).await.unwrap();
     let used = SessionManager::new_async(&dir, None).await.unwrap();
     used.append_messages(

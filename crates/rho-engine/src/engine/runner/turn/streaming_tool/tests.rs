@@ -9,17 +9,18 @@ fn extract_json_streaming_content(json: &str) -> Option<String> {
     decoder.body_start.map(|_| decoder.decoded)
 }
 
-fn mock_sink() -> Arc<TerminalApprovalSink> {
-    let temp_dir = std::env::temp_dir().join(format!("streaming_test_{}", uuid::Uuid::new_v4()));
+fn mock_sink() -> (Arc<TerminalApprovalSink>, crate::test_support::TestDir) {
+    let temp_dir = crate::test_support::TestDir::new();
     let session = SessionManager::new(&temp_dir, None).unwrap();
-    TerminalApprovalSink::new(
+    let sink = TerminalApprovalSink::new(
         &crate::engine::eval::presenter::presenter(),
         TerminalSinkConfig {
             model_label: "test-model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,
-    )
+    );
+    (sink, temp_dir)
 }
 
 #[test]
@@ -110,7 +111,7 @@ fn extract_missing_or_malformed_fields() {
 
 #[test]
 fn streaming_tool_tracker_write_lifecycle() {
-    let sink = mock_sink();
+    let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
     tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
@@ -138,7 +139,7 @@ fn streaming_tool_tracker_write_lifecycle() {
 
 #[test]
 fn streaming_tool_tracker_file_path_fallback() {
-    let sink = mock_sink();
+    let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
     tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
@@ -152,7 +153,7 @@ fn streaming_tool_tracker_file_path_fallback() {
 
 #[test]
 fn streaming_tool_tracker_non_write_tool_ignored() {
-    let sink = mock_sink();
+    let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
     tracker.handle_tool_call_delta(ToolCallDelta::Name("bash".to_string()), &sink);
@@ -163,7 +164,7 @@ fn streaming_tool_tracker_non_write_tool_ignored() {
 
 #[test]
 fn streaming_tool_tracker_partial_without_path() {
-    let sink = mock_sink();
+    let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
     tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);

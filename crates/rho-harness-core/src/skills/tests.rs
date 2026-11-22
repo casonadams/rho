@@ -2,20 +2,14 @@ use super::*;
 use std::path::{Path, PathBuf};
 
 struct SkillFixture {
-    root: PathBuf,
+    _root: crate::test_support::TestDir,
     config_dir: PathBuf,
     project_dir: PathBuf,
     home_dir: PathBuf,
 }
 
-impl Drop for SkillFixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
 fn fixture() -> SkillFixture {
-    let root = std::env::temp_dir().join(format!("skills_{}", uuid::Uuid::new_v4()));
+    let root = crate::test_support::temp_dir();
     let config_dir = root.join("config");
     let project_dir = root.join("project");
     let home_dir = root.join("home");
@@ -23,7 +17,7 @@ fn fixture() -> SkillFixture {
     std::fs::create_dir_all(&project_dir).unwrap();
     std::fs::create_dir_all(&home_dir).unwrap();
     SkillFixture {
-        root,
+        _root: root,
         config_dir,
         project_dir,
         home_dir,

@@ -163,8 +163,7 @@ fn antigravity_collapse_sorts_newest_first() {
 
 #[test]
 fn claude_provider_builds_model_handle() {
-    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::TestDir::new();
     let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
     auth_store
         .set_credential(

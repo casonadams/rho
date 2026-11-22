@@ -67,7 +67,7 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
     servers.insert("srv".to_string(), cfg);
 
     let config = Config {
-        config_dir: workspace.clone(),
+        config_dir: workspace.to_path_buf(),
         sessions_dir: workspace.join("sessions"),
         auth_file: workspace.join("auth.json"),
         mcp: McpConfig {
@@ -83,7 +83,7 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
 
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = AgentEngineBuilder::new(config, auth_store)
-        .base_dir(workspace.clone())
+        .base_dir(workspace.to_path_buf())
         .build()
         .await
         .unwrap();

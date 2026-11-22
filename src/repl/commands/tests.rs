@@ -132,7 +132,7 @@ fn setup_compact_env(
 
 #[tokio::test]
 async fn compact_context_executes_and_prints_token_savings() {
-    let temp = std::env::temp_dir().join(format!("compact_cmd_{}", uuid::Uuid::new_v4()));
+    let temp = rho_test_support::TestDir::new();
     let (session, engine, mut events) = setup_compact_env(&temp);
     seed_long_turns(&engine.session_manager, &engine.session_manager.session_id).await;
 
@@ -364,7 +364,7 @@ async fn setup_export_session(workspace: &std::path::Path) -> (Config, SessionMa
 
 #[tokio::test]
 async fn export_command_writes_markdown_default_path() {
-    let workspace = std::env::temp_dir().join(format!("export_cmd_{}", uuid::Uuid::new_v4()));
+    let workspace = rho_test_support::TestDir::new();
     let (mut config, session_manager, session_id) = setup_export_session(&workspace).await;
     let msgs = vec![
         rho_harness_core::model::ChatMessage::user("hello for export"),
@@ -395,7 +395,7 @@ async fn export_command_writes_markdown_default_path() {
 
 #[tokio::test]
 async fn export_command_writes_html_to_override_path() {
-    let workspace = std::env::temp_dir().join(format!("export_cmd_{}", uuid::Uuid::new_v4()));
+    let workspace = rho_test_support::TestDir::new();
     let override_path = workspace.join("out/transcript.html");
     let (mut config, session_manager, session_id) = setup_export_session(&workspace).await;
 
@@ -423,7 +423,7 @@ async fn export_command_writes_html_to_override_path() {
 
 #[tokio::test]
 async fn export_command_rejects_unknown_format_with_usage() {
-    let workspace = std::env::temp_dir().join(format!("export_cmd_{}", uuid::Uuid::new_v4()));
+    let workspace = rho_test_support::TestDir::new();
     let mut config = Config {
         sessions_dir: workspace.join("sessions"),
         ..Config::default()
@@ -480,7 +480,7 @@ async fn setup_engine_session(temp: &std::path::Path, config: Config) -> (crate:
 
 #[tokio::test]
 async fn session_command_prints_diagnostics_with_engine() {
-    let temp = std::env::temp_dir().join(format!("session_diag_{}", uuid::Uuid::new_v4()));
+    let temp = rho_test_support::TestDir::new();
     let mut config = Config {
         sessions_dir: temp.join("sessions"),
         thinking_level: Some("high".to_string()),
@@ -519,7 +519,7 @@ fn skill_context<'a>(
 
 #[tokio::test]
 async fn skill_command_lists_resolved_overrides_with_origin() {
-    let workspace = std::env::temp_dir().join(format!("skill_cmd_{}", uuid::Uuid::new_v4()));
+    let workspace = rho_test_support::TestDir::new();
     write_test_skill(
         &workspace,
         "team-notes",
@@ -561,7 +561,7 @@ async fn skill_command_reports_unknown_names_with_available_skills() {
 
 #[tokio::test]
 async fn test_slash_skill_colon_invocation() {
-    let workspace = std::env::temp_dir().join(format!("skill_colon_{}", uuid::Uuid::new_v4()));
+    let workspace = rho_test_support::TestDir::new();
     write_test_skill(
         &workspace,
         "my-flow",

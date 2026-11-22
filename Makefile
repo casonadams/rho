@@ -53,6 +53,14 @@ test: ## Run the workspace tests (uses nextest when available)
 		$(CARGO) test --workspace; \
 	fi
 
+.PHONY: leak-check
+leak-check: ## Run the tests with a private TMPDIR and fail if they leave files behind (rho-bash is the bash tool's age-swept log cache)
+	@dir=$$(mktemp -d) || exit 1; \
+	TMPDIR=$$dir $(MAKE) --no-print-directory test; status=$$?; \
+	leaked=$$(find "$$dir" -mindepth 1 -maxdepth 1 ! -name rho-bash); \
+	if [ -n "$$leaked" ]; then echo "Tests leaked into the temp dir ($$dir):"; echo "$$leaked"; exit 1; fi; \
+	rm -rf "$$dir"; exit $$status
+
 .PHONY: complexity
 complexity: ## Gate on the cognitive complexity limit set in cccc.toml
 	@command -v cccc >/dev/null 2>&1 || { echo "Error: cccc not found. Install with: cargo install cccc-cli"; exit 1; }

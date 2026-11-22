@@ -32,6 +32,10 @@
 ## Testing and performance
 
 - Use `make test` to run the workspace tests.
+- Use `make leak-check` to run them with a private `TMPDIR` and fail if any test
+  leaves files behind. Tests must create scratch paths with
+  `rho_test_support::TestDir` (removed on drop, even on panic), never with
+  `std::env::temp_dir().join(..)`, `.keep()`, or `NamedTempFile` in the shared temp dir.
 - Test duration limits: Individual unit tests must complete in milliseconds.
   No test may exceed 2.5 seconds (target < 500ms; hard ceiling 2.5 seconds for
   full engine initialization or subprocess lifecycle tests). The entire workspace

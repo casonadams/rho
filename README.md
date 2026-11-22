@@ -190,6 +190,7 @@ Run the test suite, linter, and format checks:
 cargo test --workspace
 make clippy
 cargo fmt --all -- --check
+make leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
 ```
 
 ---

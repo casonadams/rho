@@ -2,7 +2,7 @@ use crate::permission::policy::{Policy, build_policy, load_policy, parse_scope_f
 use crate::permission::{Decision, EvalRequest, decide_tool_call};
 use crate::test_support::temp_dir;
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn ws() -> Option<&'static Path> {
     Some(Path::new("/ws"))
@@ -129,7 +129,7 @@ fn malformed_scope_fails_safely() {
     assert!(parse_scope_from_str(malformed).is_err());
 }
 
-fn setup_hierarchical_dirs() -> (PathBuf, PathBuf) {
+fn setup_hierarchical_dirs() -> (crate::test_support::TestDir, crate::test_support::TestDir) {
     let global_dir = temp_dir("global");
     std::fs::write(
         global_dir.join("permission.toml"),

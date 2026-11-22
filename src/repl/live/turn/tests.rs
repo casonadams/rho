@@ -15,13 +15,13 @@ fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 }
 
 struct TurnTestFixture {
-    _temp: tempfile::TempDir,
     controller: TerminalController<NullBackend>,
     history: InteractiveHistory,
     completions: CompletionSet,
     batch: super::LiveBatch,
     steering: SharedSteeringQueue,
     session: crate::repl::ReplSession,
+    _temp: tempfile::TempDir,
 }
 
 impl TurnTestFixture {
@@ -62,13 +62,13 @@ impl TurnTestFixture {
 }
 
 struct LoopFixture {
-    _temp: tempfile::TempDir,
     engine: crate::engine::AgentEngine,
     base: TurnTestFixture,
     tx: tokio::sync::mpsc::UnboundedSender<crate::ui::interactive::UiEvent>,
     ui_events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
     cancellation: crate::engine::runner::CancellationSignal,
     input_reader: crate::repl::input_reader::TerminalInputReader,
+    _temp: tempfile::TempDir,
 }
 
 impl LoopFixture {
@@ -315,7 +315,6 @@ async fn test_turn_input_display_toggles() {
 }
 
 struct ActiveTurnHarness {
-    _temp: tempfile::TempDir,
     session: crate::repl::ReplSession,
     engine: crate::engine::AgentEngine,
     controller: TerminalController<NullBackend>,
@@ -323,6 +322,8 @@ struct ActiveTurnHarness {
     input_reader: crate::repl::input_reader::TerminalInputReader,
     history: InteractiveHistory,
     completions: CompletionSet,
+    // Declared last so it is dropped after the fields that may still write into it.
+    _temp: tempfile::TempDir,
 }
 
 async fn create_harness_engine(

@@ -79,10 +79,7 @@ fn sync_dir(dir: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temp_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("rho_fs_test_{}", uuid::Uuid::new_v4()))
-    }
+    use crate::test_support::temp_dir;
 
     #[cfg(unix)]
     #[test]
@@ -90,7 +87,6 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = temp_dir();
-        std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
         std::fs::write(&path, b"old").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
@@ -104,7 +100,6 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec!["state.json".to_string()]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -122,6 +117,5 @@ mod tests {
         std::fs::write(&blocker, b"file").unwrap();
         let blocked = write_atomic_async(&blocker.join("child.json"), b"{}".to_vec(), 0o600).await;
         assert!(blocked.is_err());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

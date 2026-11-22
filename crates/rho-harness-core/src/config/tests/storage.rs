@@ -15,7 +15,7 @@ fn load_config_with_rho_home(dir: &std::path::Path) -> Config {
     config
 }
 
-fn config_dir_with(entries: &[(&str, &str)]) -> std::path::PathBuf {
+fn config_dir_with(entries: &[(&str, &str)]) -> crate::test_support::TestDir {
     let dir = crate::test_support::created_temp_dir();
     for (key, value) in entries {
         Config::set_file_value(&dir, key, value).unwrap();
@@ -48,8 +48,7 @@ fn test_config_file_loads_model_provider_and_thinking_level() {
 
 #[test]
 fn test_config_file_aliases_load_correctly() {
-    let dir = std::env::temp_dir().join(format!("rho_cfg_alias_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
     let toml = "default_thinking = \"medium\"\n[models]\ndefault = \"anthropic/claude-3-7-sonnet-20250219\"\n";
     std::fs::write(dir.join("config.toml"), toml).unwrap();
 
@@ -82,8 +81,7 @@ fn stale_theme_key_in_config_file_is_ignored() {
 
 #[test]
 fn test_set_file_value_persists_and_validates() {
-    let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "model", "gpt-test").unwrap();
     Config::set_file_value(&dir, "max_turns", "7").unwrap();
@@ -139,8 +137,7 @@ async fn test_save_default_model_persists_both_fields() {
         ),
     ];
     for ((model, provider), (expected_model, expected_provider)) in cases {
-        let dir = std::env::temp_dir().join(format!("rho_save_default_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_support::temp_dir();
         Config::save_default_model_async(&dir, model, provider).await.unwrap();
 
         let config = load_config_with_rho_home(&dir);
@@ -162,8 +159,7 @@ async fn test_save_default_model_persists_both_fields() {
 
 #[tokio::test]
 async fn test_save_default_thinking_level_persists() {
-    let dir = std::env::temp_dir().join(format!("rho_save_thinking_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::save_default_thinking_level_async(&dir, Some("high"))
         .await
@@ -188,8 +184,7 @@ async fn test_save_default_thinking_level_persists() {
 #[test]
 fn test_config_file_model_infers_provider_when_unspecified() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let dir = std::env::temp_dir().join(format!("rho_infer_cfg_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "model", "gemini-2.0-flash").unwrap();
 
@@ -208,8 +203,7 @@ fn test_config_file_model_infers_provider_when_unspecified() {
 
 #[tokio::test]
 async fn test_save_ui_settings_async_helpers_persist() {
-    let dir = std::env::temp_dir().join(format!("rho_ui_storage_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::save_ui_block_style_async(&dir, "solid").await.unwrap();
     Config::save_ui_agent_box_async(&dir, true).await.unwrap();
@@ -233,8 +227,7 @@ async fn test_save_ui_settings_async_helpers_persist() {
 
 #[test]
 fn test_set_file_value_ui_keys_and_aliases() {
-    let dir = std::env::temp_dir().join(format!("rho_ui_set_val_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "ui.block_style", "border").unwrap();
     Config::set_file_value(&dir, "ui.agent_block_output", "true").unwrap();
@@ -269,8 +262,7 @@ fn test_set_file_value_ui_keys_and_aliases() {
 
 #[tokio::test]
 async fn test_set_file_value_tools_and_permissions_keys() {
-    let dir = std::env::temp_dir().join(format!("rho_tools_set_val_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "tools.web.search.default", "duckduckgo").unwrap();
     Config::set_file_value(&dir, "tools.web.search.enabled", "false").unwrap();
@@ -325,8 +317,7 @@ async fn test_set_file_value_tools_and_permissions_keys() {
 
 #[test]
 fn test_set_file_value_limits_keys() {
-    let dir = std::env::temp_dir().join(format!("rho_limits_set_val_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "max_output_tokens", "4096").unwrap();
     Config::set_file_value(&dir, "max_turns", "50").unwrap();
@@ -352,8 +343,7 @@ fn test_set_file_value_limits_keys() {
 
 #[test]
 fn test_set_file_value_network_and_retention_keys() {
-    let dir = std::env::temp_dir().join(format!("rho_net_set_val_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "search_min_interval_ms", "500").unwrap();
     Config::set_file_value(&dir, "search_timeout_sec", "15").unwrap();
@@ -391,8 +381,7 @@ fn test_set_file_value_network_and_retention_keys() {
 
 #[test]
 fn test_set_provider_without_a_default_model_is_an_error() {
-    let dir = std::env::temp_dir().join(format!("rho_provider_no_model_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
     let error = Config::set_file_value(&dir, "provider", "anthropic").unwrap_err();
     assert!(
         error.to_string().contains("rho config model anthropic/<model>"),
@@ -404,8 +393,7 @@ fn test_set_provider_without_a_default_model_is_an_error() {
 
 #[test]
 fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
-    let dir = std::env::temp_dir().join(format!("rho_model_rt_set_val_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "model", "claude-3-7-sonnet").unwrap();
     Config::set_file_value(&dir, "thinking_level", "off").unwrap();
@@ -454,8 +442,7 @@ fn test_config_file_guard_model() {
 
 #[test]
 fn test_set_file_value_models() {
-    let dir = std::env::temp_dir().join(format!("rho_set_models_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "models.default", "anthropic/claude-3-7-sonnet").unwrap();
     Config::set_file_value(&dir, "models.guard", "local/qwen2.5-coder:7b").unwrap();

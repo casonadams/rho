@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discover_prompt_templates_precedence() {
-        let temp_dir = std::env::temp_dir().join(format!("prompts_test_{}", uuid::Uuid::new_v4()));
+        let temp_dir = crate::test_support::temp_dir();
         let user_config = temp_dir.join("user_config").join("prompts");
         let user_home = temp_dir.join("home");
         let user_agents = user_home.join(".agents").join("prompts");
@@ -162,7 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ignores_legacy_rho_prompts() {
-        let temp_dir = std::env::temp_dir().join(format!("prompts_legacy_{}", uuid::Uuid::new_v4()));
+        let temp_dir = crate::test_support::temp_dir();
         let project_dir = temp_dir.join("project");
         let legacy_rho = project_dir.join(".rho").join("prompts");
         std::fs::create_dir_all(&legacy_rho).unwrap();
@@ -181,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_markdown_directories_and_unreadable_files_are_skipped() {
-        let temp_dir = std::env::temp_dir().join(format!("prompts_skip_{}", uuid::Uuid::new_v4()));
+        let temp_dir = crate::test_support::temp_dir();
         let user_config = temp_dir.join("user_config");
         let prompts = user_config.join("prompts");
         std::fs::create_dir_all(prompts.join("folder.md")).unwrap();

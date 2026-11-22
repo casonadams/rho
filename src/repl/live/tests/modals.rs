@@ -822,6 +822,7 @@ fn mcp_controller(remote_enabled: bool) -> TerminalController<NullBackend> {
     };
     servers.insert("remote_tool".to_string(), remote);
 
+    let config_dir = rho_test_support::TestDir::new();
     let config = Config {
         mcp: McpConfig {
             enabled: true,
@@ -831,7 +832,7 @@ fn mcp_controller(remote_enabled: bool) -> TerminalController<NullBackend> {
             servers,
             project: None,
         },
-        config_dir: tempfile::tempdir().unwrap().keep(),
+        config_dir: config_dir.to_path_buf(),
         ..Default::default()
     };
     let session = ReplSession::new(config, AuthStore::default(), None);
@@ -909,8 +910,10 @@ fn mcp_selector_cancels_on_esc() {
 // Session Modal Tests
 // =========================================================================
 
-async fn open_session_selector_for_test(prefix: &str) -> (std::path::PathBuf, String, TerminalController<NullBackend>) {
-    let temp_dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
+async fn open_session_selector_for_test(
+    prefix: &str,
+) -> (rho_test_support::TestDir, String, TerminalController<NullBackend>) {
+    let temp_dir = rho_test_support::TestDir::with_prefix(&format!("{prefix}_"));
     let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
     manager.set_session_name("Test Session").await.unwrap();
     let session_id = manager.session_id.clone();
@@ -924,10 +927,9 @@ async fn press_session_selector_key(
     code: KeyCode,
     modifiers: KeyModifiers,
 ) -> (String, ModalKeyResult, TerminalController<NullBackend>) {
-    let (temp_dir, session_id, mut controller) = open_session_selector_for_test(prefix).await;
+    let (_temp_dir, session_id, mut controller) = open_session_selector_for_test(prefix).await;
     assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
     let res = handle_modal_key(&mut controller, KeyEvent::new(code, modifiers), &mut None).unwrap();
-    let _ = std::fs::remove_dir_all(temp_dir);
     (session_id, res, controller)
 }
 

@@ -1,5 +1,3 @@
-use std::fs;
-
 use super::{CompletionSet, InteractiveHistory, ModelItem};
 
 #[test]
@@ -77,8 +75,9 @@ fn mcp_completion_offers_subcommands_then_oauth_servers() {
 
 #[test]
 fn history_navigation_previous_and_next() {
-    let path = std::env::temp_dir().join(format!("rho-history-{}.txt", uuid::Uuid::new_v4()));
-    let mut history = InteractiveHistory::with_file(3, path.clone()).unwrap();
+    let dir = rho_test_support::TestDir::new();
+    let path = dir.join("history.txt");
+    let mut history = InteractiveHistory::with_file(3, path).unwrap();
     history.record("first").unwrap();
     history.record("second").unwrap();
 
@@ -97,5 +96,4 @@ fn history_navigation_previous_and_next() {
         ),
         (Some("second"), Some("draft"), None)
     );
-    let _ = fs::remove_file(path);
 }

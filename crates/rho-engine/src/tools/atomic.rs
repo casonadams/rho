@@ -61,8 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_atomic_write_creates_and_overwrites() {
-        let temp_dir = std::env::temp_dir().join(format!("atomic_test_{}", uuid::Uuid::new_v4()));
-        tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+        let temp_dir = crate::test_support::TestDir::new();
         let target = temp_dir.join("test.txt");
 
         atomic_write(&target, b"initial").await.unwrap();
@@ -70,7 +69,5 @@ mod tests {
 
         atomic_write(&target, b"updated content").await.unwrap();
         assert_eq!(tokio::fs::read(&target).await.unwrap(), b"updated content");
-
-        let _ = tokio::fs::remove_dir_all(temp_dir).await;
     }
 }

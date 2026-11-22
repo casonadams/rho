@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_lock_is_exclusive_across_openers_and_shared_in_process() {
-        let dir = std::env::temp_dir().join(format!("rho_session_lock_{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::temp_dir();
         let owner = SessionManager::new_async(&dir, None).await.unwrap();
         let session_id = owner.session_id.clone();
         let path = owner.file_path.clone();
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn reopening_while_the_last_holder_drops_never_reports_a_conflict() {
-        let dir = std::env::temp_dir().join(format!("rho_session_lock_race_{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::temp_dir();
         let session_id = SessionManager::new(&dir, None).unwrap().session_id.clone();
         for _ in 0..16 {
             let holder = SessionManager::new(&dir, Some(&session_id)).unwrap();
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn session_lock_stays_held_while_a_keeper_lives() {
         for keeper in KEEPERS {
-            let dir = std::env::temp_dir().join(format!("rho_session_lock_keeper_{}", uuid::Uuid::new_v4()));
+            let dir = crate::test_support::temp_dir();
             let owner = SessionManager::new(&dir, None).unwrap();
             let session_id = owner.session_id.clone();
             let path = owner.file_path.clone();
