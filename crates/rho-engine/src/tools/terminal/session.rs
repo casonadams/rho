@@ -1,6 +1,5 @@
-use super::keys::InputModes;
 use super::screen::{SessionHeader, format_screen};
-use crate::tools::bash::shell::{cargo_build_vars, shell_argv};
+use crate::tools::bash::shell::{is_cargo_build_var, shell_argv};
 use portable_pty::{Child, CommandBuilder, ExitStatus, MasterPty, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::num::NonZeroU16;
@@ -11,11 +10,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 const QUIET: Duration = Duration::from_millis(150);
-const BRIEF_QUIET: Duration = Duration::from_millis(50);
-const BRIEF_LIMIT: Duration = Duration::from_millis(300);
-const REDRAW_LIMIT: Duration = Duration::from_secs(1);
 const EXIT_POLL: Duration = Duration::from_millis(5);
-const SCROLLBACK_CAPACITY: usize = 1000;
 const MAX_COLS: u16 = 400;
 const MAX_ROWS: u16 = 200;
 
@@ -50,48 +45,10 @@ impl TermSize {
     }
 }
 
-/// How long to wait for a program to react: until its output pauses, or until `until` is on screen
-/// once new output has arrived.
+/// How long to wait for a program to react: until its output pauses, or until `until` is on screen.
 pub struct Wait {
     pub limit: Duration,
     pub until: Option<String>,
-    quiet: Duration,
-    /// How long to wait for a first byte of output before a pause counts.
-    patience: Duration,
-}
-
-impl Wait {
-    pub fn new(limit: Duration, until: Option<String>) -> Self {
-        Self {
-            limit,
-            until,
-            quiet: QUIET,
-            patience: Duration::ZERO,
-        }
-    }
-
-    /// For a program that has only just been started and may be slow to print anything.
-    pub fn patient(self, patience: Duration) -> Self {
-        Self { patience, ..self }
-    }
-
-    /// A short pause for the tty to echo between writes.
-    fn brief() -> Self {
-        Self {
-            quiet: BRIEF_QUIET,
-            ..Self::new(BRIEF_LIMIT, None)
-        }
-    }
-
-    fn window(&self, began: Instant, deadline: Instant, arrived: bool) -> Instant {
-        let pause = Instant::now() + self.quiet;
-        let end = match (self.until.is_some(), arrived) {
-            (true, _) => deadline,
-            (false, false) => pause.max(began + self.patience),
-            (false, true) => pause,
-        };
-        end.min(deadline)
-    }
 }
 
 /// Answers the terminal queries the emulator leaves to its host, as xterm would, so programs that
@@ -114,13 +71,7 @@ impl vt100::Callbacks for Replies {
                 let (row, col) = screen.cursor_position();
                 format!("\x1b[{};{}R", row + 1, col + 1)
             }
-            (Some(b'?'), 'n', [[6]]) => {
-                let (row, col) = screen.cursor_position();
-                format!("\x1b[?{};{}R", row + 1, col + 1)
-            }
             (None, 'c', [] | [[0]]) => "\x1b[?1;2c".to_string(),
-            (Some(b'>'), 'c', [] | [[0]]) => "\x1b[>0;0;0c".to_string(),
-            (Some(b'>'), 'q', [] | [[0]]) => "\x1bP>|rho\x1b\\".to_string(),
             _ => return,
         };
         self.0.extend(reply.into_bytes());
@@ -156,58 +107,39 @@ pub struct TerminalSession {
     output: watch::Receiver<()>,
 }
 
-struct Attached {
-    parser: SharedParser,
-    writer: SharedWriter,
-    output: watch::Receiver<()>,
-}
-
-fn attach(id: u32, master: &(dyn MasterPty + Send), size: TermSize) -> Result<Attached, String> {
-    let pty_error = |e: anyhow::Error| format!("cannot attach to the pseudo-terminal: {e}");
-    let reader = master.try_clone_reader().map_err(pty_error)?;
-    let writer: SharedWriter = Arc::new(Mutex::new(master.take_writer().map_err(pty_error)?));
-    let parser: SharedParser = Arc::new(Mutex::new(vt100::Parser::new_with_callbacks(
-        size.rows,
-        size.cols,
-        SCROLLBACK_CAPACITY,
-        Replies::default(),
-    )));
-    let (notify, output) = watch::channel(());
-    let (thread_parser, thread_writer) = (parser.clone(), writer.clone());
-    std::thread::Builder::new()
-        .name(format!("terminal-{id}"))
-        .spawn(move || pump(reader, &thread_parser, &thread_writer, &notify))
-        .map_err(|e| format!("cannot start the terminal reader: {e}"))?;
-    Ok(Attached { parser, writer, output })
-}
-
 impl TerminalSession {
     pub fn spawn(id: u32, command: &str, cwd: &Path, size: TermSize) -> Result<Self, String> {
         let pair = native_pty_system()
             .openpty(size.pty())
             .map_err(|e| format!("cannot open a pseudo-terminal: {e}"))?;
-        let mut child = pair
+        let child = pair
             .slave
             .spawn_command(shell_command(command, cwd))
             .map_err(|e| format!("cannot start '{command}': {e}"))?;
         drop(pair.slave);
-        let attached = match attach(id, &*pair.master, size) {
-            Ok(attached) => attached,
-            Err(error) => {
-                kill_process_groups(&*pair.master, child.process_id());
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
-            }
-        };
+        let pty_error = |e: anyhow::Error| format!("cannot attach to the pseudo-terminal: {e}");
+        let reader = pair.master.try_clone_reader().map_err(pty_error)?;
+        let writer: SharedWriter = Arc::new(Mutex::new(pair.master.take_writer().map_err(pty_error)?));
+        let parser: SharedParser = Arc::new(Mutex::new(vt100::Parser::new_with_callbacks(
+            size.rows,
+            size.cols,
+            0,
+            Replies::default(),
+        )));
+        let (notify, output) = watch::channel(());
+        let (thread_parser, thread_writer) = (parser.clone(), writer.clone());
+        std::thread::Builder::new()
+            .name(format!("terminal-{id}"))
+            .spawn(move || pump(reader, &thread_parser, &thread_writer, &notify))
+            .map_err(|e| format!("cannot start the terminal reader: {e}"))?;
         Ok(Self {
             id,
             command: command.to_string(),
-            parser: attached.parser,
-            writer: attached.writer,
+            parser,
+            writer,
             master: Mutex::new(pair.master),
             child: Mutex::new(child),
-            output: attached.output,
+            output,
         })
     }
 
@@ -218,20 +150,11 @@ impl TerminalSession {
         output
     }
 
-    /// A receiver that also reports any output that arrived before this call.
-    pub fn subscribe_from_start(&self) -> watch::Receiver<()> {
-        self.output.clone()
+    pub fn application_cursor(&self) -> bool {
+        lock(&self.parser).screen().application_cursor()
     }
 
-    pub fn input_modes(&self) -> InputModes {
-        let parser = lock(&self.parser);
-        InputModes {
-            application_cursor: parser.screen().application_cursor(),
-            bracketed_paste: parser.screen().bracketed_paste(),
-        }
-    }
-
-    async fn write(&self, bytes: Vec<u8>) -> Result<(), String> {
+    pub async fn write(&self, bytes: Vec<u8>) -> Result<(), String> {
         let writer = self.writer.clone();
         tokio::task::spawn_blocking(move || {
             let mut writer = lock(&writer);
@@ -242,35 +165,27 @@ impl TerminalSession {
         .map_err(|e| format!("cannot write to terminal {}: {e}", self.id))
     }
 
-    /// Writes each segment in turn, pausing briefly between them so the tty can echo one before the
-    /// next can flush its queues.
-    pub async fn write_segments(&self, segments: Vec<Vec<u8>>) -> Result<(), String> {
-        let last = segments.len().saturating_sub(1);
-        for (index, bytes) in segments.into_iter().enumerate() {
-            let output = self.subscribe();
-            self.write(bytes).await?;
-            if index < last {
-                self.settle(output, &Wait::brief()).await;
-            }
-        }
-        Ok(())
-    }
-
-    /// Waits until output pauses for a moment (or `wait.until` shows up in newly arrived output), the
-    /// program closes the terminal, or `wait.limit` passes.
+    /// Waits until output pauses for a moment (or `wait.until` shows up), the program closes the
+    /// terminal, or `wait.limit` passes.
     pub async fn settle(&self, mut output: watch::Receiver<()>, wait: &Wait) {
-        let began = Instant::now();
-        let deadline = began + wait.limit;
-        let mut arrived = false;
-        while Instant::now() < deadline {
-            let window = wait.window(began, deadline, arrived);
-            match tokio::time::timeout_at(window, output.changed()).await {
-                Ok(Ok(())) => arrived = true,
-                Ok(Err(_)) => return self.reap_until(deadline).await,
-                Err(_) => return,
-            }
+        let deadline = Instant::now() + wait.limit;
+        loop {
             if wait.until.as_deref().is_some_and(|text| self.shows(text)) {
                 return;
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return;
+            }
+            let window = if wait.until.is_some() {
+                deadline
+            } else {
+                (now + QUIET).min(deadline)
+            };
+            match tokio::time::timeout_at(window, output.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return self.reap_until(deadline).await,
+                Err(_) => return,
             }
         }
     }
@@ -287,14 +202,11 @@ impl TerminalSession {
         lock(&self.parser).screen().contents().contains(text)
     }
 
-    /// Resizes the terminal and waits for the program to redraw.
-    pub async fn resize(&self, size: TermSize) -> Result<(), String> {
-        lock(&self.parser).screen_mut().set_size(size.rows, size.cols);
-        let output = self.subscribe();
+    pub fn resize(&self, size: TermSize) -> Result<(), String> {
         lock(&self.master)
             .resize(size.pty())
             .map_err(|e| format!("cannot resize terminal {}: {e}", self.id))?;
-        self.settle(output, &Wait::new(REDRAW_LIMIT, None)).await;
+        lock(&self.parser).screen_mut().set_size(size.rows, size.cols);
         Ok(())
     }
 
@@ -318,15 +230,14 @@ impl TerminalSession {
         self.header(parser.screen(), &status).line()
     }
 
-    /// The header, up to `scrollback` lines that scrolled off the top, and the numbered screen rows.
-    pub fn render(&self, scrollback: usize) -> String {
+    /// The header and the numbered screen rows.
+    pub fn render(&self) -> String {
         let status = self.status();
-        let mut parser = lock(&self.parser);
-        let lines = scrollback_lines(parser.screen_mut(), scrollback);
+        let parser = lock(&self.parser);
         let screen = parser.screen();
         let (_, cols) = screen.size();
         let rows: Vec<String> = screen.rows(0, cols.get()).collect();
-        format_screen(&self.header(screen, &status), &lines, &rows)
+        format_screen(&self.header(screen, &status), &rows)
     }
 
     fn header<'a>(&'a self, screen: &vt100::Screen, status: &'a str) -> SessionHeader<'a> {
@@ -341,20 +252,13 @@ impl TerminalSession {
         }
     }
 
-    /// Kills the program and everything in its foreground process group, and reaps it. Blocks for up
-    /// to a few hundred milliseconds while a program that ignores SIGHUP is given time before SIGKILL.
+    /// Kills the program if it still runs and reaps it. Blocks for up to a few hundred milliseconds
+    /// while a program that ignores SIGHUP is given time before SIGKILL.
     pub fn terminate(&self) -> String {
         let mut child = lock(&self.child);
-        let master = lock(&self.master);
         let ended = match child.try_wait() {
-            Ok(Some(status)) => {
-                kill_process_groups(&**master, None);
-                Ok(status)
-            }
-            _ => {
-                kill_process_groups(&**master, child.process_id());
-                child.kill().and_then(|()| child.wait())
-            }
+            Ok(Some(status)) => Ok(status),
+            _ => child.kill().and_then(|()| child.wait()),
         };
         match ended {
             Ok(status) => describe_exit(&status),
@@ -369,44 +273,16 @@ impl Drop for TerminalSession {
     }
 }
 
-/// The last `count` lines (at most what was kept) that scrolled off the top, oldest first. The
-/// emulator views at most one screenful of history at a time, so longer requests are read in chunks.
-fn scrollback_lines(screen: &mut vt100::Screen, count: usize) -> Vec<String> {
-    let (rows, cols) = screen.size();
-    let mut offset = count.min(screen.scrollback_len());
-    let mut lines = Vec::with_capacity(offset);
-    while offset > 0 {
-        screen.set_scrollback(offset);
-        lines.extend(screen.rows(0, cols.get()).take(offset.min(rows.get().into())));
-        offset = offset.saturating_sub(rows.get().into());
-    }
-    screen.set_scrollback(0);
-    lines
-}
-
-#[cfg(unix)]
-fn kill_process_groups(master: &(dyn MasterPty + Send), child_pid: Option<u32>) {
-    let leader = child_pid.and_then(|pid| libc::pid_t::try_from(pid).ok());
-    for group in master.process_group_leader().into_iter().chain(leader) {
-        if group > 1 {
-            // SAFETY: killpg only sends a signal; a group that no longer exists yields ESRCH.
-            unsafe { libc::killpg(group, libc::SIGKILL) };
-        }
-    }
-}
-
-#[cfg(not(unix))]
-fn kill_process_groups(_: &(dyn MasterPty + Send), _: Option<u32>) {}
-
 fn shell_command(command: &str, cwd: &Path) -> CommandBuilder {
     let mut cmd = CommandBuilder::from_argv(shell_argv(command));
     cmd.cwd(cwd);
-    for key in cargo_build_vars() {
+    for key in std::env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| is_cargo_build_var(key))
+    {
         cmd.env_remove(key);
     }
     cmd.env("TERM", "xterm-256color");
-    cmd.env("PAGER", "cat");
-    cmd.env("GIT_PAGER", "cat");
     cmd
 }
 
@@ -450,8 +326,9 @@ mod tests {
     fn terminal_queries_are_answered_in_order() {
         let size = TermSize::new(20, 5).unwrap();
         let mut parser = vt100::Parser::new_with_callbacks(size.rows, size.cols, 0, Replies::default());
-        parser.process(b"\x1b[3;5H\x1b[6n\x1b[5n\x1b]11;?\x1b\\\x1b[c\x1b]10;?\x07\x1b[0c\x1b[>c\x1b[>q\x1b[?6n");
-        let expected: &[u8] = b"\x1b[3;5R\x1b[0n\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[?1;2c\x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b[?1;2c\x1b[>0;0;0c\x1bP>|rho\x1b\\\x1b[?3;5R";
+        parser.process(b"\x1b[3;5H\x1b[6n\x1b[5n\x1b]11;?\x1b\\\x1b[c\x1b]10;?\x07\x1b[0c\x1b[>c");
+        let expected: &[u8] =
+            b"\x1b[3;5R\x1b[0n\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[?1;2c\x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b[?1;2c";
         assert_eq!(parser.callbacks_mut().take(), expected);
         assert!(parser.callbacks_mut().take().is_empty());
     }

@@ -50,46 +50,17 @@ pub fn resolve_shell_command(command: &str) -> Command {
     let argv = shell_argv(command);
     let mut cmd = Command::new(&argv[0]);
     cmd.args(&argv[1..]);
-    for key in cargo_build_vars() {
+    for key in std::env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| is_cargo_build_var(key))
+    {
         cmd.env_remove(key);
     }
     cmd
 }
 
-/// The names of the inherited variables cargo set for the build of rho itself.
-pub fn cargo_build_vars() -> impl Iterator<Item = OsString> {
-    std::env::vars_os()
-        .map(|(key, _)| key)
-        .filter(|key| is_cargo_build_var(key))
-}
-
 /// Variables cargo sets for the build of rho itself, which must not leak into commands the model runs.
-fn is_cargo_build_var(key: &std::ffi::OsStr) -> bool {
-    const PREFIXES: [&str; 4] = ["CARGO_PKG_", "CARGO_MANIFEST_", "CARGO_BIN_EXE_", "CARGO_CRATE_"];
-    const NAMES: [&str; 3] = ["OUT_DIR", "CARGO_BIN_NAME", "CARGO_PRIMARY_PACKAGE"];
+pub fn is_cargo_build_var(key: &std::ffi::OsStr) -> bool {
     let key = key.to_string_lossy();
-    PREFIXES.iter().any(|prefix| key.starts_with(prefix)) || NAMES.contains(&key.as_ref())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cargo_build_variables_are_recognised() {
-        for name in [
-            "CARGO_PKG_NAME",
-            "CARGO_MANIFEST_DIR",
-            "OUT_DIR",
-            "CARGO_CRATE_NAME",
-            "CARGO_BIN_NAME",
-            "CARGO_PRIMARY_PACKAGE",
-            "CARGO_BIN_EXE_rho",
-        ] {
-            assert!(is_cargo_build_var(name.as_ref()), "{name}");
-        }
-        for name in ["PATH", "CARGO_HOME", "CARGO_TARGET_DIR", "RUSTUP_HOME"] {
-            assert!(!is_cargo_build_var(name.as_ref()), "{name}");
-        }
-    }
+    key.starts_with("CARGO_PKG_") || key.starts_with("CARGO_MANIFEST_") || key == "OUT_DIR"
 }

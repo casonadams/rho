@@ -48,8 +48,12 @@ async fn sent_text_and_keys_reach_the_program() {
     let interrupted = ok(&tool, json!({ "action": "send", "id": 1, "keys": ["C-c"] })).await;
     assert!(interrupted.contains(", terminated by "), "{interrupted}");
 
-    let after_exit = ok(&tool, json!({ "action": "send", "id": 1, "text": "x" })).await;
-    assert!(after_exit.contains("has exited"), "{after_exit}");
+    let after_exit = call(&tool, json!({ "action": "send", "id": 1, "text": "x" })).await;
+    assert!(
+        after_exit.is_error && after_exit.content.contains("has exited"),
+        "{}",
+        after_exit.content
+    );
     let closed = ok(&tool, json!({ "action": "close", "id": 1 })).await;
     assert!(closed.contains("Closed: terminated by"), "{closed}");
     assert_eq!(ok(&tool, json!({ "action": "list" })).await, "No terminal sessions.");
@@ -172,157 +176,4 @@ async fn invalid_requests_are_errors() {
             result.content
         );
     }
-}
-
-#[tokio::test]
-async fn text_echoed_before_a_control_key_survives_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    ok(
-        &tool,
-        json!({ "action": "start", "command": "cat", "cols": 40, "rows": 6, "wait_ms": 300 }),
-    )
-    .await;
-
-    let screen = ok(
-        &tool,
-        json!({ "action": "send", "id": 1, "text": "hello", "keys": ["Enter", "C-c"] }),
-    )
-    .await;
-
-    assert!(screen.contains("\n1|hello\n"), "{screen}");
-    assert!(screen.contains(", terminated by "), "{screen}");
-}
-
-#[tokio::test]
-async fn wait_for_ignores_text_already_on_screen() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    let started = ok(
-        &tool,
-        json!({ "action": "start", "command": "printf 'READY\\n'; cat", "cols": 40, "rows": 6, "wait_for": "READY" }),
-    )
-    .await;
-    assert!(started.contains("1|READY"), "{started}");
-
-    let screen = ok(
-        &tool,
-        json!({ "action": "send", "id": 1, "text": "x", "keys": ["Enter"], "wait_for": "READY", "wait_ms": 1000 }),
-    )
-    .await;
-
-    assert!(screen.contains("2|x"), "{screen}");
-}
-
-#[tokio::test]
-async fn resize_returns_the_redrawn_screen() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    ok(
-        &tool,
-        json!({
-            "action": "start",
-            "command": "trap 'stty size' WINCH; echo ready; while :; do sleep 0.05; done",
-            "cols": 50, "rows": 10, "wait_for": "ready"
-        }),
-    )
-    .await;
-
-    let resized = ok(&tool, json!({ "action": "resize", "id": 1, "cols": 70, "rows": 20 })).await;
-
-    assert!(resized.contains(" 70x20, ") && resized.contains("|20 70"), "{resized}");
-}
-
-#[tokio::test]
-async fn sending_to_an_exited_program_returns_its_final_screen() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    ok(&tool, json!({ "action": "start", "command": "echo bye" })).await;
-
-    let screen = ok(&tool, json!({ "action": "send", "id": 1, "text": "x" })).await;
-
-    assert!(screen.contains(", exited 0]\n1|bye\n"), "{screen}");
-    assert!(
-        screen.ends_with("The program has exited; close the session."),
-        "{screen}"
-    );
-}
-
-#[tokio::test]
-async fn scrollback_shows_lines_above_the_screen() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    ok(
-        &tool,
-        json!({ "action": "start", "command": "seq 1 100", "cols": 20, "rows": 10 }),
-    )
-    .await;
-
-    let short = ok(&tool, json!({ "action": "screen", "id": 1, "scrollback": 3 })).await;
-    assert!(
-        short.contains("scrollback (last 3 lines):\n-|89\n-|90\n-|91\nscreen:\n1|92\n"),
-        "{short}"
-    );
-
-    let long = ok(&tool, json!({ "action": "screen", "id": 1, "scrollback": 25 })).await;
-    assert!(
-        long.contains("scrollback (last 25 lines):\n-|67\n-|68\n") && long.contains("\n-|91\nscreen:\n1|92\n"),
-        "{long}"
-    );
-    let plain = ok(&tool, json!({ "action": "screen", "id": 1 })).await;
-    assert!(!plain.contains("scrollback") && plain.contains("\n1|92\n"), "{plain}");
-}
-
-#[tokio::test]
-async fn start_waits_for_a_slow_first_screen() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-
-    let screen = ok(&tool, json!({ "action": "start", "command": "sleep 0.3; echo late" })).await;
-
-    assert!(screen.contains("1|late"), "{screen}");
-}
-
-#[tokio::test]
-async fn a_start_dropped_before_returning_leaves_no_session() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    let args: TerminalArgs =
-        serde_json::from_value(json!({ "action": "start", "command": "cat", "wait_for": "never" })).unwrap();
-
-    let started = tokio::time::timeout(std::time::Duration::from_millis(100), tool.run(args)).await;
-
-    assert!(started.is_err());
-    assert_eq!(ok(&tool, json!({ "action": "list" })).await, "No terminal sessions.");
-}
-
-fn process_running(pattern: &str) -> bool {
-    std::process::Command::new("pgrep")
-        .args(["-f", pattern])
-        .output()
-        .unwrap()
-        .status
-        .success()
-}
-
-#[tokio::test]
-async fn closing_kills_the_programs_children_too() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = TerminalTool::new(dir.path());
-    ok(
-        &tool,
-        json!({ "action": "start", "command": "sleep 30173 & wait", "wait_ms": 100 }),
-    )
-    .await;
-    assert!(process_running("sleep 30173"));
-
-    ok(&tool, json!({ "action": "close", "id": 1 })).await;
-
-    for _ in 0..100 {
-        if !process_running("sleep 30173") {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    panic!("the background sleep outlived its terminal");
 }
