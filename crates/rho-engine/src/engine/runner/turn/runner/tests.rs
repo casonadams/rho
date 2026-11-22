@@ -306,6 +306,64 @@ async fn a_tool_can_end_the_turn_once_its_batch_is_answered() {
     assert_eq!(result_text(&messages[2]), "question sent");
 }
 
+fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
+    vec![
+        ModelStreamEvent::ToolCall(ToolCall::new(
+            format!("c{i}"),
+            ToolFunction::new("probe", serde_json::json!({ "i": i })),
+        )),
+        ModelStreamEvent::Usage(StructuralUsage {
+            input_tokens: 1_000,
+            cached_input_tokens: Some(used - 1_000),
+            ..Default::default()
+        }),
+    ]
+}
+
+#[tokio::test]
+async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_percentage() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let model = Arc::new(MockAdapter::from_turns(vec![
+        probe_then_usage(0, 90_000),
+        probe_then_usage(1, 142_000),
+        probe_then_usage(2, 145_000),
+        vec![ModelStreamEvent::Text("done".into())],
+    ]));
+    let (runner, _temp, _, _) = test_agent_env(model.clone());
+    let store = crate::engine::runner::turn::MemoryStore::new("budgeted", Vec::new());
+    let budget = crate::engine::tracking::ContextTracker::new(None).budget(200_000, 183_616);
+    let runner = AgentRunner {
+        tools: vec![Arc::new(ScriptedTool {
+            name: "probe",
+            result: crate::tools::ToolResult::success("ok"),
+        })],
+        ..runner
+    }
+    .store(Arc::new(store.clone()))
+    .context_budget(Some(budget))
+    .prompt("go");
+
+    run_agent_loop(runner, &acking_emitter()).await.unwrap();
+
+    let notice = "ok\n\n[context: 142k of 200k tokens used (71%); auto-compaction at 184k]";
+    let requests = model.requests();
+    let newest: Vec<String> = requests[1..]
+        .iter()
+        .map(|r| result_text(r.messages.last().unwrap()))
+        .collect();
+    assert_eq!(newest, ["ok", notice, "ok"]);
+    assert_eq!(
+        requests[3].messages[..5],
+        requests[2].messages[..],
+        "earlier messages stay as sent"
+    );
+    assert_eq!(
+        result_text(&store.messages()[4]),
+        notice,
+        "the notice is kept with its tool result"
+    );
+}
+
 #[derive(Default)]
 struct SeenCalls(std::sync::Mutex<Vec<String>>);
 

@@ -311,6 +311,10 @@ impl AgentEngine {
             .monitor(Some(self.agent_monitor.clone()))
             .project_context(self.project_context().await.ok().map(Arc::new))
             .worktrees(self.worktrees.clone())
+            .context_budget(Some(self.context.budget(
+                self.context_limit(),
+                self.context_limit().saturating_sub(self.config.reserve_tokens),
+            )))
             .working_dir(self.base_dir.clone());
 
         if let Some(pending) = params.checkpoint {

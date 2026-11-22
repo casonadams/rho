@@ -153,6 +153,15 @@ background work running.
   changes the history, the size check estimates the pruned history instead of
   reusing the previous request's reported usage. Use `/compact` to run it
   manually.
+- **Context budget notices.** The first time a request's prompt passes 50%,
+  75%, or 90% of the context window, the next tool results sent to the model
+  end with one line such as
+  `[context: 142k of 200k tokens used (71%); auto-compaction at 184k]`, so it
+  can delegate to subagents or read less. Each percentage is reported once
+  until the next compaction. The line goes only on the newest tool results (a
+  turn that ends without tool calls reports it on a later one), so the cached
+  prompt prefix never changes, and it is saved with that tool result.
+  Subagents do not receive it.
 - **Context window source.** `context_limit` (or `AI_CONTEXT_LIMIT`) always
   wins. Otherwise rho uses the window the provider lists for the model in its
   live model list (fetched each session, never cached on disk). For local

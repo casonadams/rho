@@ -293,6 +293,7 @@ impl SessionCompactor {
             ..Default::default()
         });
         self.run_tracker.forget_last_request();
+        self.context.reset_notices();
         Ok(())
     }
 
