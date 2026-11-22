@@ -1,53 +1,58 @@
 use super::*;
-use std::sync::PoisonError;
 
 #[tokio::test]
 #[cfg(unix)]
 async fn cancelling_a_turn_kills_tool_jobs_but_leaves_session_servers() {
-    let spawn = || {
+    let registry = Registry::default();
+    let spawn = |scope| {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg("sleep 31 & wait");
         isolate_group(&mut cmd);
-        cmd.spawn().expect("spawn test shell")
+        let child = cmd.spawn().expect("spawn test shell");
+        let pid = child.id().expect("pid");
+        registry.track(pid, scope);
+        (child, pid)
     };
-    let (job, server) = (spawn(), spawn());
-    let (job_pid, server_pid) = (job.id().expect("pid"), server.id().expect("pid"));
-    let _job = ProcessTreeGuard::new(job);
-    let _server = ProcessTreeGuard::for_session(server);
+    let (_job, job_pid) = spawn(Scope::Turn);
+    let (_server, server_pid) = spawn(Scope::Session);
 
-    kill_turn_processes();
+    registry.kill_turn();
 
     wait_group_dead(job_pid).await;
-    assert!(!is_pid_tracked(job_pid));
-    assert!(is_pid_tracked(server_pid));
+    assert!(!registry.lock().contains_key(&job_pid));
+    assert!(registry.lock().contains_key(&server_pid));
     assert!(
         unsafe { libc::kill(-(server_pid as libc::pid_t), 0) } == 0,
         "server group must survive"
     );
-    kill_all_tracked_processes();
+    registry.kill_all();
     wait_group_dead(server_pid).await;
 }
 
 #[tokio::test]
 #[cfg(unix)]
 async fn a_poisoned_registry_still_kills_tracked_groups() {
+    let registry = Registry::default();
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg("sleep 30 & wait");
     isolate_group(&mut cmd);
     let child = cmd.spawn().expect("spawn test shell");
     let pid = child.id().expect("child pid");
-    let _guard = ProcessTreeGuard::new(child);
+    registry.track(pid, Scope::Turn);
 
-    let poisoner = std::thread::spawn(|| {
-        let _held = TRACKED_PIDS.lock().unwrap_or_else(PoisonError::into_inner);
-        panic!("poison the tracked pid registry");
+    std::thread::scope(|scope| {
+        let poisoner = scope.spawn(|| {
+            let _held = registry.lock();
+            panic!("poison the tracked pid registry");
+        });
+        assert!(poisoner.join().is_err());
     });
-    assert!(poisoner.join().is_err());
-    assert!(TRACKED_PIDS.is_poisoned());
+    assert!(registry.pids.is_poisoned());
 
-    kill_all_tracked_processes();
+    registry.kill_all();
 
     wait_group_dead(pid).await;
+    drop(child);
 }
 
 #[tokio::test]
@@ -145,4 +150,45 @@ async fn isolated_child_cannot_open_the_controlling_terminal() {
         .expect("tty read must fail immediately instead of stopping the child")
         .expect("wait succeeds");
     assert!(!status.success());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_child_caught_between_fork_and_exec_does_not_keep_a_session_locked() {
+    use rho_harness_core::session::SessionManager;
+    use std::os::unix::process::CommandExt;
+
+    fn pipe() -> [libc::c_int; 2] {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        fds
+    }
+    let dir = crate::test_support::temp_dir("fork-window");
+    let session_id = SessionManager::new(&dir, None).unwrap().session_id.clone();
+    let holder = SessionManager::new(&dir, Some(&session_id)).unwrap();
+    let [forked_rd, forked_wr] = pipe();
+    let [release_rd, release_wr] = pipe();
+
+    let spawner = std::thread::spawn(move || {
+        let mut cmd = std::process::Command::new("true");
+        unsafe {
+            cmd.pre_exec(move || {
+                let byte = 1u8;
+                libc::write(forked_wr, (&raw const byte).cast(), 1);
+                let mut sink = 0u8;
+                libc::read(release_rd, (&raw mut sink).cast(), 1);
+                Ok(())
+            });
+        }
+        cmd.status().unwrap()
+    });
+    let mut byte = 0u8;
+    assert_eq!(unsafe { libc::read(forked_rd, (&raw mut byte).cast(), 1) }, 1);
+
+    drop(holder);
+    let reopened = SessionManager::new(&dir, Some(&session_id));
+
+    assert_eq!(unsafe { libc::write(release_wr, (&raw const byte).cast(), 1) }, 1);
+    assert!(spawner.join().unwrap().success());
+    assert!(reopened.is_ok(), "{:?}", reopened.err());
 }

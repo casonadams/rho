@@ -6,8 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 struct Entry {
-    _file: File,
+    file: File,
     holders: usize,
+}
+
+impl Drop for Entry {
+    /// A child forked by another thread inherits this descriptor until it execs, and the lock
+    /// lives on the shared open file description, so closing alone would leave it held.
+    fn drop(&mut self) {
+        drop(self.file.unlock());
+    }
 }
 
 /// Open handles keyed by session path. Managers in this process share one handle so
@@ -49,13 +57,7 @@ pub(crate) fn acquire(path: &Path) -> Result<Arc<SessionLock>> {
             }
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
-        held.insert(
-            path.to_path_buf(),
-            Entry {
-                _file: file,
-                holders: 1,
-            },
-        );
+        held.insert(path.to_path_buf(), Entry { file, holders: 1 });
     }
     Ok(Arc::new(SessionLock {
         path: path.to_path_buf(),
