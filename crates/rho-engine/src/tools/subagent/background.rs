@@ -239,10 +239,7 @@ fn clipped(text: &str) -> String {
     if text.len() <= MAX_NOTICE_BYTES {
         return text.to_string();
     }
-    let mut end = MAX_NOTICE_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
+    let end = text.floor_char_boundary(MAX_NOTICE_BYTES);
     format!(
         "{}\n[clipped {} more bytes; inspect the task for the full record]",
         &text[..end],

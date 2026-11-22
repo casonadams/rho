@@ -160,15 +160,7 @@ pub fn truncate_head(content: &str, max_lines: usize, max_bytes: usize) -> Trunc
 /// Truncate a string to fit within a byte limit counted from the end, keeping
 /// a valid UTF-8 character boundary.
 fn truncate_string_to_bytes_from_end(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
-    }
-    let start = s.len().saturating_sub(max_bytes);
-    let mut boundary = start;
-    while boundary < s.len() && !s.is_char_boundary(boundary) {
-        boundary += 1;
-    }
-    &s[boundary..]
+    &s[s.ceil_char_boundary(s.len().saturating_sub(max_bytes))..]
 }
 
 fn collect_tail_lines<'a>(

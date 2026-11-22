@@ -218,10 +218,7 @@ impl OutputAccumulator {
             return;
         }
         let target_start = self.tail_text.len().saturating_sub(self.max_rolling_bytes);
-        let mut boundary = target_start;
-        while boundary < self.tail_text.len() && !self.tail_text.is_char_boundary(boundary) {
-            boundary += 1;
-        }
+        let mut boundary = self.tail_text.ceil_char_boundary(target_start);
         if let Some(next_newline) = self.tail_text[boundary..].find('\n') {
             boundary += next_newline + 1;
         }

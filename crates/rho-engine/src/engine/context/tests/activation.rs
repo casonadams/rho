@@ -37,6 +37,23 @@ async fn test_dynamic_path_activation_in_monorepo() {
 }
 
 #[tokio::test]
+async fn dynamic_instructions_are_cut_to_the_byte_budget_on_a_character_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo_root = dir.path().join("repo");
+    let sub = repo_root.join("pkg");
+    std::fs::create_dir_all(repo_root.join(".git")).unwrap();
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("AGENTS.md"), "éé").unwrap();
+    std::fs::write(sub.join("a.rs"), "fn a() {}\n").unwrap();
+
+    let mut ctx = ProjectContext::discover(&repo_root, None).await;
+    ctx.dynamic_instructions_bytes = super::super::activation::MAX_DYNAMIC_INSTRUCTION_BYTES - 3;
+    ctx.activate_path_instructions(Path::new("pkg/a.rs"));
+
+    assert_eq!(ctx.instruction_files.last().unwrap().1, "é");
+}
+
+#[tokio::test]
 async fn test_dynamic_path_activation_deduplication() {
     let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_dedup_{}", uuid::Uuid::new_v4()));
     let repo_root = temp_dir.join("repo");

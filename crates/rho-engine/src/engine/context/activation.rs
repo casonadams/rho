@@ -136,7 +136,8 @@ fn try_load_candidate(file_path: &Path, dir: &Path, ctx: &mut ProjectContext) ->
     if remaining_bytes == 0 {
         return false;
     }
-    let final_content = truncate_to_char_boundary(expanded.trim(), remaining_bytes);
+    let trimmed = expanded.trim();
+    let final_content = trimmed[..trimmed.floor_char_boundary(remaining_bytes)].to_string();
     ctx.dynamic_instructions_bytes += final_content.len();
     ctx.dynamic_instructions_count += 1;
     ctx.instruction_files
@@ -175,15 +176,4 @@ fn load_candidate_instructions(dir: &Path, ctx: &mut ProjectContext) {
             }
         }
     }
-}
-
-fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> String {
-    if s.len() <= max_bytes {
-        return s.to_string();
-    }
-    let mut boundary = max_bytes;
-    while boundary > 0 && !s.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    s[..boundary].to_string()
 }

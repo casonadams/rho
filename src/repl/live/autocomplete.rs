@@ -16,8 +16,8 @@ fn apply_selected_completion<B: TerminalBackend>(
     let state = controller.state_mut();
     let editor = state.editor_mut();
     let text = editor.text();
-    let start = floor_char_boundary(text, replacement.start);
-    let end = floor_char_boundary(text, replacement.end).max(start);
+    let start = text.floor_char_boundary(replacement.start);
+    let end = text.floor_char_boundary(replacement.end).max(start);
 
     let mut new_text = String::new();
     new_text.push_str(&text[..start]);
@@ -29,14 +29,6 @@ fn apply_selected_completion<B: TerminalBackend>(
     let new_cursor = new_text.len();
     new_text.push_str(&text[end..]);
     editor.set_text_with_cursor(new_text, new_cursor);
-}
-
-fn floor_char_boundary(text: &str, index: usize) -> usize {
-    let mut index = index.min(text.len());
-    while !text.is_char_boundary(index) {
-        index -= 1;
-    }
-    index
 }
 
 fn handle_accept_key<B: TerminalBackend>(

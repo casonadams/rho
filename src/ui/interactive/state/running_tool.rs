@@ -24,14 +24,7 @@ fn drain_or_join_ansi(pending_ansi: &mut String, chunk: &str) -> String {
 }
 
 fn clamp_sanitized_chunk(sanitized_str: &str, max_bytes: usize) -> &str {
-    if sanitized_str.len() <= max_bytes {
-        return sanitized_str;
-    }
-    let mut start = sanitized_str.len().saturating_sub(max_bytes);
-    while start < sanitized_str.len() && !sanitized_str.is_char_boundary(start) {
-        start += 1;
-    }
-    &sanitized_str[start..]
+    &sanitized_str[sanitized_str.ceil_char_boundary(sanitized_str.len().saturating_sub(max_bytes))..]
 }
 
 impl RunningTool {
@@ -77,10 +70,7 @@ impl RunningTool {
             return;
         }
         let target_start = self.output.len().saturating_sub(Self::MAX_RUNNING_OUTPUT_BYTES);
-        let mut boundary = target_start;
-        while boundary < self.output.len() && !self.output.is_char_boundary(boundary) {
-            boundary += 1;
-        }
+        let mut boundary = self.output.ceil_char_boundary(target_start);
         if let Some(next_newline) = self.output[boundary..].find('\n') {
             let newline_idx = boundary + next_newline + 1;
             if newline_idx < self.output.len() {
