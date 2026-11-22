@@ -16,6 +16,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[derive(Debug)]
 struct TestModel {
     answer: String,
+    usage: crate::engine::metrics::StructuralUsage,
+}
+
+impl TestModel {
+    fn answering(answer: &str) -> Self {
+        Self {
+            answer: answer.into(),
+            usage: Default::default(),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -44,9 +54,7 @@ impl ModelAdapter for TestModel {
     {
         let events = vec![
             Ok(ModelStreamEvent::Text(self.answer.clone())),
-            Ok(ModelStreamEvent::Usage(
-                crate::engine::metrics::StructuralUsage::default(),
-            )),
+            Ok(ModelStreamEvent::Usage(self.usage)),
         ];
         Ok(Box::pin(futures::stream::iter(events)))
     }
@@ -87,7 +95,7 @@ async fn test_subagent_tool_success() {
         ),
     ];
     for (answer, args) in cases {
-        let model = Arc::new(TestModel { answer: answer.into() });
+        let model = Arc::new(TestModel::answering(answer));
         let tool: Arc<dyn EngineTool> = Arc::new(SubagentTool::new(Some(model), Vec::new()));
         let result = tool.execute(args).await.unwrap();
         assert!(!result.is_error);
@@ -98,6 +106,29 @@ async fn test_subagent_tool_success() {
                 .contains("[subagent: 1 turns, 0 tool calls, 0 tokens, test-provider/test-subagent-model]")
         );
     }
+}
+
+#[tokio::test]
+async fn the_footer_counts_cached_and_written_tokens() {
+    let model = Arc::new(TestModel {
+        answer: "done".into(),
+        usage: crate::engine::metrics::StructuralUsage {
+            input_tokens: 10,
+            output_tokens: 40,
+            cached_input_tokens: Some(20_000),
+            cache_creation_input_tokens: Some(3_000),
+            ..Default::default()
+        },
+    });
+    let tool = SubagentTool::new(Some(model), Vec::new());
+    let result = tool.execute(json!({ "prompt": "survey" })).await.unwrap();
+    assert!(
+        result.content.ends_with(
+            "[subagent: 1 turns, 0 tool calls, 23050 tokens (20000 cached), test-provider/test-subagent-model]"
+        ),
+        "{}",
+        result.content
+    );
 }
 
 #[test]
@@ -177,9 +208,7 @@ fn custom_agents_never_get_the_subagent_tool() {
 async fn test_subagent_custom_agent_execution() {
     use rho_harness_core::agents::AgentMetadata;
 
-    let model = Arc::new(TestModel {
-        answer: "Code reviewer: Clean code, no issues found".into(),
-    });
+    let model = Arc::new(TestModel::answering("Code reviewer: Clean code, no issues found"));
     let custom_agent = AgentMetadata {
         name: "code-reviewer".to_string(),
         description: "Reviews code diffs".to_string(),
@@ -215,9 +244,7 @@ async fn test_subagent_custom_agent_execution() {
 #[tokio::test]
 async fn test_subagent_runner_budget_exhaustion_scenarios() {
     let ok_runner = SubagentRunner::new(
-        Arc::new(TestModel {
-            answer: "Synthesized findings after turn exhaustion.".into(),
-        }),
+        Arc::new(TestModel::answering("Synthesized findings after turn exhaustion.")),
         SubagentRole::Scout,
         &[],
         0,
@@ -238,12 +265,7 @@ async fn test_subagent_runner_budget_exhaustion_scenarios() {
             .ends_with("[subagent: incomplete, 0 turns, 0 tool calls, 0 tokens, test-provider/test-subagent-model]")
     );
 
-    let empty_runner = SubagentRunner::new(
-        Arc::new(TestModel { answer: String::new() }),
-        SubagentRole::Scout,
-        &[],
-        0,
-    );
+    let empty_runner = SubagentRunner::new(Arc::new(TestModel::answering("")), SubagentRole::Scout, &[], 0);
     let err_res = empty_runner.run("search", None).await;
     assert!(err_res.is_error);
     assert!(err_res.content.contains("without producing output"));

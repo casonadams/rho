@@ -113,6 +113,7 @@ mod tests {
             turns: 1,
             tool_calls: 0,
             tokens: 0,
+            cached_tokens: 0,
             changed_files: changed.iter().map(|f| (*f).to_string()).collect(),
             workspace_changes: workspace
                 .iter()

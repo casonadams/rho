@@ -65,6 +65,7 @@ pub struct Round {
     pub turns: usize,
     pub tool_calls: usize,
     pub tokens: u64,
+    pub cached_tokens: u64,
     pub changed_files: BTreeSet<String>,
     /// Every uncommitted-file change in the git work tree during the round, whoever made it.
     pub workspace_changes: BTreeSet<WorkspaceChange>,
@@ -239,6 +240,7 @@ struct Tally {
     turns: usize,
     tool_calls: usize,
     tokens: u64,
+    cached_tokens: u64,
 }
 
 /// A round in progress across runs of the turn loop (one per compaction).
@@ -502,14 +504,19 @@ impl SubagentRunner {
         }
     }
 
-    /// The run footer, e.g. `[subagent audit: 3 turns, 5 tool calls, 900 tokens, acme/smol]`; `detail` follows the name.
+    /// The run footer, e.g. `[subagent audit: 3 turns, 5 tool calls, 900 tokens (600 cached), acme/smol]`;
+    /// `detail` follows the name.
     pub(crate) fn footer(&self, round: &Round, detail: &str) -> String {
         let incomplete = if round.is_incomplete() { "incomplete, " } else { "" };
         let problems = super::evidence::failed_calls_text(round.problem_count())
             .map(|text| format!("{text}, "))
             .unwrap_or_default();
+        let cached = match round.cached_tokens {
+            0 => String::new(),
+            cached => format!(" ({cached} cached)"),
+        };
         format!(
-            "{RUN_FOOTER_PREFIX}{}{detail}: {incomplete}{problems}{} turns, {} tool calls, {} tokens, {}]",
+            "{RUN_FOOTER_PREFIX}{}{detail}: {incomplete}{problems}{} turns, {} tool calls, {} tokens{cached}, {}]",
             self.label.strip_prefix("subagent").unwrap_or_default(),
             round.turns,
             round.tool_calls,
@@ -566,6 +573,7 @@ impl SubagentRunner {
             turns: drive.tally.turns,
             tool_calls: drive.tally.tool_calls,
             tokens: drive.tally.tokens,
+            cached_tokens: drive.tally.cached_tokens,
             changed_files: evidence.changed_files,
             workspace_changes,
             workspace_complete,
@@ -819,7 +827,10 @@ impl SubagentRunner {
             }
             MultiTurnStreamItem::CompletionCall(call) => {
                 tally.turns += 1;
-                tally.tokens += call.usage.input_tokens + call.usage.output_tokens;
+                let cached = call.usage.cached_input_tokens.unwrap_or(0);
+                let written = call.usage.cache_creation_input_tokens.unwrap_or(0);
+                tally.tokens += call.usage.input_tokens + cached + written + call.usage.output_tokens;
+                tally.cached_tokens += cached;
                 sink.flush_display();
                 if let Some(tracker) = tracker {
                     tracker.turn(tally.turns);
