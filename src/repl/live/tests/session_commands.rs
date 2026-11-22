@@ -6,15 +6,13 @@ use crate::repl::live::message::types::{LiveCommandContext, SessionCommandIo};
 #[tokio::test]
 async fn session_diagnostics_open_name_and_rewind_commands() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, _batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, _batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
     let mut ctx = LiveCommandContext {
         session: &mut session,
         engine: &mut engine,
     };
     let mut io = SessionCommandIo {
         controller: &mut controller,
-        history: &mut history,
         input: &mut input,
     };
 

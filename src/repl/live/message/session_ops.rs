@@ -41,7 +41,7 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     ctx.engine.switch_to(next);
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-        let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree, io.history);
+        let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree);
     }
     ctx.session
         .renderer
@@ -131,7 +131,6 @@ pub(crate) async fn switch_branch_for_command<B: TerminalBackend>(
             session: ctx.session,
             engine: ctx.engine,
             controller: io.controller,
-            history: io.history,
             input: io.input,
         },
         leaf_id.to_string(),
@@ -230,7 +229,7 @@ async fn rebuild_and_hydrate(
         .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
         .await?;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-        let _ = crate::repl::live::navigation::hydrate_session_transcript(ctx.controller, &tree, ctx.history);
+        let _ = crate::repl::live::navigation::hydrate_session_transcript(ctx.controller, &tree);
     }
     ctx.session
         .renderer

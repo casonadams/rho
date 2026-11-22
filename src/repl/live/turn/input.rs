@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 
 use super::super::batch::LiveBatch;
 use super::super::navigation::{
-    apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard_async,
+    apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard_async, record_submission,
 };
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
@@ -51,6 +51,7 @@ async fn handle_edit_action<B: TerminalBackend>(
 ) -> Result<TurnKeyResult> {
     let effect = ctx.controller.state_mut().apply(action);
     if let UiEffect::Queued(ref msg) = effect {
+        record_submission(ctx.history, &msg.text)?;
         queue_status_message(ctx, msg.kind, &msg.text);
     }
     ctx.batch.flush(ctx.controller, true)?;

@@ -155,8 +155,6 @@ async fn test_resume_session_does_not_deadlock_idle_step() {
     let mgr = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
     let session_id = mgr.session_id.clone();
 
-    let mut history =
-        crate::repl::interactive::InteractiveHistory::with_file(100, temp_dir.join("history.txt")).unwrap();
     let mut input =
         crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![crossterm::event::Event::Key(
             KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
@@ -165,7 +163,6 @@ async fn test_resume_session_does_not_deadlock_idle_step() {
 
     let modal_ctx = crate::repl::live::idle::modal_action::ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,

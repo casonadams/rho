@@ -395,16 +395,9 @@ async fn setup_model_switch_env(temp: &std::path::Path) -> (crate::repl::ReplSes
     (session, engine)
 }
 
-fn modal_test_env(
-    temp: &std::path::Path,
-) -> (
-    TerminalController<NullBackend>,
-    crate::repl::interactive::InteractiveHistory,
-    crate::repl::live::batch::LiveBatch,
-) {
+fn modal_test_env() -> (TerminalController<NullBackend>, crate::repl::live::batch::LiveBatch) {
     (
         TerminalController::new(NullBackend, InteractiveState::default()).unwrap(),
-        crate::repl::interactive::InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap(),
         crate::repl::live::batch::LiveBatch::new(),
     )
 }
@@ -416,7 +409,7 @@ async fn model_selector_selection_applies_model_switch_without_rebuild() {
     }
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
-    let (mut controller, mut history, mut batch) = modal_test_env(temp.path());
+    let (mut controller, mut batch) = modal_test_env();
 
     super::super::modal::open_model_selector(&session, &mut controller);
     let modal_res = send_modal_key(&mut controller, KeyCode::Enter);
@@ -428,7 +421,6 @@ async fn model_selector_selection_applies_model_switch_without_rebuild() {
     let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
     let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -444,7 +436,7 @@ async fn model_selector_selection_applies_model_switch_without_rebuild() {
 async fn model_selector_modal_with_save_as_default_emits_true_on_enter() {
     let temp = tempfile::tempdir().unwrap();
     let (session, _) = setup_model_switch_env(temp.path()).await;
-    let (mut controller, _, _) = modal_test_env(temp.path());
+    let (mut controller, _) = modal_test_env();
 
     super::super::modal::open_model_selector_with_default(&session, &mut controller, true);
     let modal_res = send_modal_key(&mut controller, KeyCode::Enter);
@@ -458,7 +450,7 @@ async fn model_selector_modal_with_save_as_default_emits_true_on_enter() {
 async fn settings_modal_actions_persist_to_disk() {
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
-    let (mut controller, mut history, mut batch) = modal_test_env(temp.path());
+    let (mut controller, mut batch) = modal_test_env();
 
     let actions = vec![
         super::super::modal::ModalKeyResult::BlockStyleToggled {
@@ -486,7 +478,6 @@ async fn settings_modal_actions_persist_to_disk() {
     for action in actions {
         let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
             controller: &mut controller,
-            history: &mut history,
             session: &mut session,
             engine: &mut engine,
             input: &mut input,
@@ -781,12 +772,11 @@ fn login_selector_cancels_on_esc() {
 async fn login_provider_selected_dispatches_with_input_pause_and_resume() {
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
-    let (mut controller, mut history, mut batch) = modal_test_env(temp.path());
+    let (mut controller, mut batch) = modal_test_env();
     let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
 
     let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,

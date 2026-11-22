@@ -5,13 +5,11 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::input_reader::TerminalInputReader;
-use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 use rho_harness_core::config::ModelSlot;
 
 pub(crate) struct ModalActionContext<'a, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
-    pub history: &'a mut InteractiveHistory,
     pub session: &'a mut ReplSession,
     pub engine: &'a mut AgentEngine,
     pub input: &'a mut TerminalInputReader,
@@ -76,7 +74,7 @@ async fn handle_node_selected(ctx: &mut ModalActionContext<'_, impl TerminalBack
     match ctx.engine.switch_branch(Some(node_id.clone())).await {
         Ok(_) => {
             if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-                let _ = hydrate_session_transcript(ctx.controller, &tree, ctx.history);
+                let _ = hydrate_session_transcript(ctx.controller, &tree);
             }
             ctx.session
                 .renderer
@@ -136,7 +134,7 @@ async fn handle_session_selected(
     }
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-        let _ = hydrate_session_transcript(ctx.controller, &tree, ctx.history);
+        let _ = hydrate_session_transcript(ctx.controller, &tree);
     }
     ctx.session
         .renderer

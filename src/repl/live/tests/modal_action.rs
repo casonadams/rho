@@ -1,4 +1,3 @@
-use crate::repl::interactive::InteractiveHistory;
 use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::idle::modal_action::{ModalActionContext, apply_modal_key_result};
 use crate::repl::live::modal::ModalKeyResult;
@@ -10,14 +9,12 @@ pub(super) async fn setup_modal_action_harness(
     temp: &std::path::Path,
 ) -> (
     TerminalController<NullBackend>,
-    InteractiveHistory,
     LiveBatch,
     crate::repl::ReplSession,
     crate::engine::AgentEngine,
     crate::repl::input_reader::TerminalInputReader,
 ) {
     let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
-    let history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
     let batch = LiveBatch::new();
     let config = rho_harness_core::config::Config {
         config_dir: temp.to_path_buf(),
@@ -30,18 +27,16 @@ pub(super) async fn setup_modal_action_harness(
     let session = crate::repl::ReplSession::new(config, auth, None);
     let engine = session.new_engine(None).await.unwrap();
     let input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
-    (controller, history, batch, session, engine, input)
+    (controller, batch, session, engine, input)
 }
 
 #[tokio::test]
 async fn test_modal_action_handled_and_not_handled() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -54,7 +49,6 @@ async fn test_modal_action_handled_and_not_handled() {
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -69,12 +63,10 @@ async fn test_modal_action_handled_and_not_handled() {
 #[tokio::test]
 async fn test_modal_action_menu_openers() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -93,7 +85,6 @@ async fn test_modal_action_menu_openers() {
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -108,7 +99,6 @@ async fn test_modal_action_menu_openers() {
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -123,7 +113,6 @@ async fn test_modal_action_menu_openers() {
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -143,12 +132,10 @@ async fn test_modal_action_menu_openers() {
 #[tokio::test]
 async fn test_modal_action_guard_model_selected() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -171,7 +158,6 @@ async fn test_modal_action_guard_model_selected() {
 
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -196,11 +182,9 @@ async fn test_modal_action_guard_model_selected() {
 #[tokio::test]
 async fn test_modal_action_search_help_and_login_results() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -239,8 +223,7 @@ async fn test_modal_action_search_help_and_login_results() {
 #[tokio::test]
 async fn test_modal_action_tool_settings_toggled() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     let actions = [
         ModalKeyResult::WebSearchToggled { enabled: true },
@@ -256,7 +239,6 @@ async fn test_modal_action_tool_settings_toggled() {
     for action in actions {
         let ctx = ModalActionContext {
             controller: &mut controller,
-            history: &mut history,
             session: &mut session,
             engine: &mut engine,
             input: &mut input,
@@ -273,8 +255,7 @@ async fn test_modal_action_tool_settings_toggled() {
 #[tokio::test]
 async fn test_modal_action_ui_settings_toggled() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     session.config.mcp.servers.insert(
         "test_srv".to_string(),
@@ -293,7 +274,6 @@ async fn test_modal_action_ui_settings_toggled() {
     for action in actions {
         let ctx = ModalActionContext {
             controller: &mut controller,
-            history: &mut history,
             session: &mut session,
             engine: &mut engine,
             input: &mut input,
@@ -307,15 +287,13 @@ async fn test_modal_action_ui_settings_toggled() {
 #[tokio::test]
 async fn test_modal_action_session_operations() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     let node_action = ModalKeyResult::TreeNodeSelected {
         node_id: "nonexistent-node".to_string(),
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -328,7 +306,6 @@ async fn test_modal_action_session_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -341,7 +318,6 @@ async fn test_modal_action_session_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -353,7 +329,6 @@ async fn test_modal_action_session_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -365,7 +340,6 @@ async fn test_modal_action_session_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -376,8 +350,7 @@ async fn test_modal_action_session_operations() {
 #[tokio::test]
 async fn test_modal_action_selection_operations() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     let model_action = ModalKeyResult::ModelSelected {
         model: "claude-3-5-sonnet-20241022".to_string(),
@@ -386,7 +359,6 @@ async fn test_modal_action_selection_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -401,7 +373,6 @@ async fn test_modal_action_selection_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -419,7 +390,6 @@ async fn test_modal_action_selection_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -433,7 +403,6 @@ async fn test_modal_action_selection_operations() {
     };
     let ctx = ModalActionContext {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -448,7 +417,6 @@ async fn test_modal_action_selection_operations() {
 
 struct ModalTestCtx<'a> {
     controller: &'a mut TerminalController<NullBackend>,
-    history: &'a mut InteractiveHistory,
     session: &'a mut crate::repl::ReplSession,
     engine: &'a mut crate::engine::AgentEngine,
     input: &'a mut crate::repl::input_reader::TerminalInputReader,
@@ -459,7 +427,6 @@ impl<'a> ModalTestCtx<'a> {
     async fn dispatch(&mut self, res: ModalKeyResult) -> bool {
         let ctx = ModalActionContext {
             controller: self.controller,
-            history: self.history,
             session: self.session,
             engine: self.engine,
             input: self.input,
@@ -471,8 +438,7 @@ impl<'a> ModalTestCtx<'a> {
 #[tokio::test]
 async fn test_settings_and_models_modal_stack_preservation_and_updates() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     crate::repl::live::modal::open_settings_selector(Some("initial-model"), None, Some("off"), &mut controller);
     assert_eq!(controller.state().modal_depth(), 1);
@@ -486,7 +452,6 @@ async fn test_settings_and_models_modal_stack_preservation_and_updates() {
 
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -545,15 +510,13 @@ async fn test_settings_and_models_modal_stack_preservation_and_updates() {
 #[tokio::test]
 async fn test_role_model_selection_updates_models_menu_in_place() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     crate::repl::live::modal::open_models_selector(&session, &mut controller);
     assert_eq!(controller.state().modal_depth(), 1);
 
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -594,15 +557,13 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
 #[tokio::test]
 async fn test_tools_and_permissions_modal_stack_preservation_and_updates() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
 
     crate::repl::live::modal::open_settings_selector(Some("default-model"), None, Some("off"), &mut controller);
     assert_eq!(controller.state().modal_depth(), 1);
 
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -656,11 +617,9 @@ async fn test_tools_and_permissions_modal_stack_preservation_and_updates() {
 #[tokio::test]
 async fn test_modal_action_model_role_openers_open_their_selectors() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -681,11 +640,9 @@ async fn test_modal_action_model_role_openers_open_their_selectors() {
 #[tokio::test]
 async fn test_modal_action_remaining_role_model_selections_update_config() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -738,11 +695,9 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
 #[tokio::test]
 async fn test_modal_action_ui_setting_toggles_update_config() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,
@@ -783,14 +738,12 @@ async fn test_modal_action_ui_setting_toggles_update_config() {
 #[tokio::test]
 async fn test_modal_action_failed_saves_keep_in_memory_settings() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
-        setup_modal_action_harness(temp.path()).await;
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
     let blocker = temp.path().join("not-a-dir");
     std::fs::write(&blocker, "").unwrap();
     session.config.config_dir = blocker.clone();
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
-        history: &mut history,
         session: &mut session,
         engine: &mut engine,
         input: &mut input,

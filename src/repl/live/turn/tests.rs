@@ -158,6 +158,22 @@ async fn test_turn_input_alt_enter_queues_follow_up_without_steering() {
 }
 
 #[tokio::test]
+async fn prompts_submitted_during_a_turn_are_recorded_in_history() {
+    let mut f = TurnTestFixture::new("steer now");
+    let mut ctx = f.context();
+    handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::empty()), &mut ctx)
+        .await
+        .unwrap();
+    f.controller.state_mut().editor_mut().set_text("after the turn");
+    let mut ctx = f.context();
+    handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::ALT), &mut ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(f.history.entries(), ["steer now", "after the turn"]);
+}
+
+#[tokio::test]
 async fn test_turn_input_multiple_queued_messages() {
     let mut f = TurnTestFixture::new("steer 1");
     let mut ctx = f.context();

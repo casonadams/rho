@@ -97,13 +97,10 @@ fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
 }
 
 #[test]
-fn test_hydrate_session_transcript_populates_items_and_history() {
+fn test_hydrate_session_transcript_populates_items() {
     let tree = sample_qa_tree();
     let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
-    let dir = rho_test_support::TestDir::new();
-    let mut history = InteractiveHistory::with_file(100, dir.join("history.txt")).unwrap();
 
-    super::super::navigation::hydrate_session_transcript(&mut controller, &tree, &mut history).unwrap();
+    super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
     assert_eq!(controller.transcript().len(), 2);
-    assert_eq!(history.previous(""), Some("What is life?".to_string()));
 }
