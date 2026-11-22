@@ -1,6 +1,7 @@
 pub mod accumulator;
 pub mod failures;
 pub mod footer;
+mod log;
 pub mod normalize;
 pub mod runner;
 pub mod sanitize;

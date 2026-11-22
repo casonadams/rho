@@ -57,7 +57,8 @@ impl AgentEngineBuilder {
     }
 
     /// Language servers for the built-in tools: `None` runs without any, and without this call the
-    /// workspace's shared manager is used when `tools.lsp.enabled` is on.
+    /// workspace's shared manager is used when `tools.lsp.enabled` is on. A manager passed here
+    /// wins over `tools.lsp.enabled = false`: the caller injected it deliberately.
     pub fn lsp(mut self, lsp: Option<Arc<crate::lsp::LspManager>>) -> Self {
         self.lsp = Some(lsp);
         self
@@ -380,7 +381,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (manager, _) = crate::lsp::test_server::fake_manager(dir.path(), Default::default());
         let cases = [
-            (true, Some(Some(manager)), true),
+            (true, Some(Some(manager.clone())), true),
+            (false, Some(Some(manager)), true),
             (true, Some(None), false),
             (false, None, false),
         ];
@@ -403,6 +405,29 @@ mod tests {
                 "enabled={enabled}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn rebuild_keeps_the_engines_base_dir_instead_of_the_process_cwd() {
+        let dir = rho_test_support::TestDir::new();
+        let (_auth_dir, store) = temp_auth_store();
+        let config = Config {
+            config_dir: dir.to_path_buf(),
+            sessions_dir: dir.join("sessions"),
+            ..Config::default()
+        };
+        let engine = AgentEngineBuilder::new(config.clone(), store)
+            .base_dir(dir.to_path_buf())
+            .lsp(None)
+            .build()
+            .await
+            .unwrap();
+        assert_ne!(std::env::current_dir().unwrap(), dir.to_path_buf());
+
+        let (_rebuilt_auth_dir, rebuilt_store) = temp_auth_store();
+        let rebuilt = engine.rebuild(config, rebuilt_store).await.unwrap();
+
+        assert_eq!(rebuilt.base_dir, dir.to_path_buf());
     }
 
     #[test]

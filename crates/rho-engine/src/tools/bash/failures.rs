@@ -7,17 +7,21 @@ const MAX_FAILURES: usize = 20;
 const MAX_TRACKED: usize = 5000;
 const MAX_DETAILS: usize = 5;
 const MAX_LINES: usize = 60;
-const SECTION_ENDS: [&str; 9] = [
+const SECTION_END_PREFIXES: [&str; 7] = [
     "failures:",
     "test result:",
     "===",
-    "FAIL",
-    "PASS",
-    "ok ",
-    "ok\t",
     "Test Suites:",
     "Test Files",
+    "ok  ",
+    "ok\t",
 ];
+const SECTION_END_WORDS: [&str; 2] = ["FAIL", "PASS"];
+/// A runner's own totals reporting failures: libtest, nextest, pytest, Jest and Vitest print `N failed`,
+/// Go prints a bare `FAIL` line.
+static FAILED_TOTALS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?m)^test result: FAILED|\b[1-9]\d* failed\b|^FAIL(\s|$)").expect("valid totals regex")
+});
 static DURATION: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\s+\(?\d+(?:\.\d+)?\s?m?s\)?$").expect("valid duration regex"));
 
@@ -137,6 +141,9 @@ fn pytest_summary(line: &str) -> Option<Header<'_>> {
         Some((name, message)) => (name, Some(message)),
         None => (rest, None),
     };
+    if !name.contains("::") && !name.contains(".py") {
+        return None;
+    }
     Some(Header {
         message,
         ..Header::failed(name.trim())
@@ -173,9 +180,15 @@ fn same_test(a: &str, b: &str) -> bool {
         .is_some_and(|head| head.is_empty() || head.ends_with("::") || head.ends_with(' '))
 }
 
+/// A runner's section markers end the open block; a detail line merely starting with the same
+/// letters (`FAILED to connect`, `PASSWORD missing`) does not.
 fn ends_section(line: &str) -> bool {
     let line = line.strip_prefix(' ').unwrap_or(line);
-    SECTION_ENDS.iter().any(|end| line.starts_with(end))
+    SECTION_END_PREFIXES.iter().any(|end| line.starts_with(end))
+        || SECTION_END_WORDS.iter().any(|word| {
+            line.strip_prefix(word)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+        })
 }
 
 struct Failure {
@@ -265,6 +278,17 @@ impl Scan {
             details: Vec::new(),
         });
         Some(self.failures.len() - 1)
+    }
+}
+
+/// Like [`summarize_test_failures`] for a command that exited 0, whose output merely quoting test
+/// results (`cat`, `git diff`) is not a failing run: needs the runner's own totals to report failures.
+pub fn summarize_reported_failures(output: &str) -> Option<String> {
+    let output = super::sanitize::strip_ansi(output);
+    if FAILED_TOTALS.is_match(&output) {
+        summarize_test_failures(&output)
+    } else {
+        None
     }
 }
 

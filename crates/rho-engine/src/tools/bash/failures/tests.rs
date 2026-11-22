@@ -237,6 +237,19 @@ fn output_without_failing_tests_has_no_summary() {
 }
 
 #[test]
+fn detail_lines_that_start_like_a_section_marker_stay_in_the_block() {
+    let output = "test net::connects ... FAILED\n---- net::connects stdout ----\n\
+                  thread 'net::connects' panicked at src/net.rs:3:5:\nFAILED to connect\nPASSWORD missing\n\
+                  ok so far\n\nfailures:\n";
+
+    let summary = summarize_test_failures(output).unwrap();
+
+    for detail in ["FAILED to connect", "PASSWORD missing", "ok so far"] {
+        assert!(summary.contains(&format!("    {detail}")), "{detail}: {summary}");
+    }
+}
+
+#[test]
 fn long_failure_lists_are_capped_and_name_how_many_more_are_in_the_log() {
     let cases = [(25, 0, 20), (30, 3, 14)];
     for (count, details, shown) in cases {

@@ -13,6 +13,7 @@ pub use builder::AgentEngineBuilder;
 pub mod compactor;
 pub mod context;
 mod display;
+mod locking;
 pub mod metrics;
 mod model;
 mod notes;
@@ -160,14 +161,13 @@ impl AgentEngine {
     }
 
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
-        let base_dir = std::env::current_dir()?;
         let mut builder = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
             .agent_monitor(self.agent_monitor.clone())
             .subagent_runtime(self.subagent_runtime.clone())
             .turn_notes(self.turn_notes.clone())
             .model_catalog(self.model_catalog().clone())
-            .base_dir(base_dir);
+            .base_dir(self.base_dir.clone());
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));
         }

@@ -167,7 +167,7 @@ fn format_pruned_stub(cmd: &str, details: &BashPruneDetails) -> String {
     )
 }
 
-fn is_read_error(text: &str) -> bool {
+pub(super) fn is_read_error(text: &str) -> bool {
     text.starts_with("Error")
         || text.starts_with("File not found")
         || text.starts_with("Failed to read")

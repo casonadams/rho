@@ -86,7 +86,8 @@ async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
     let tool = LoggedTool::new();
     let run = "printf 'test math::subtracts ... FAILED\\n'; seq 1 2100; \
                printf -- '---- math::subtracts stdout ----\\n'; \
-               printf \"thread 'math::subtracts' panicked at src/math.rs:12:9:\\nassertion failed\\n\\n\"; seq 1 30";
+               printf \"thread 'math::subtracts' panicked at src/math.rs:12:9:\\nassertion failed\\n\\n\"; seq 1 30; \
+               printf 'test result: FAILED. 0 passed; 1 failed\\n'";
     let summary = "[1 failing test; details from log]\n- math::subtracts\n    \
                    thread 'math::subtracts' panicked at src/math.rs:12:9:\n    assertion failed";
     for exit in [0, 101] {
@@ -96,12 +97,31 @@ async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
         assert!(body.ends_with(summary), "exit {exit}: {}", res.content);
         if exit == 0 {
             let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
-            assert_eq!(parsed.lines, 2135);
-            assert!(footer.starts_with("[exit 0; 2135 lines"), "{footer}");
+            assert_eq!(parsed.lines, 2136);
+            assert!(footer.starts_with("[exit 0; 2136 lines"), "{footer}");
         } else {
             assert_eq!(footer, "[exit 101]");
         }
     }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_successful_command_quoting_failure_markers_gets_no_failure_summary() {
+    let tool = LoggedTool::new();
+    let quoted = "printf 'FAILED tests/test_a.py::test_x - boom\\n\\342\\234\\225 adds (3 ms)\\n\\303\\227 subtracts\\n\
+                  ___ test_y ___\\nE assert 1 == 2\\n'; seq 1 2100";
+
+    let plain = tool.execute(bash_args(quoted)).await.unwrap();
+    assert!(!plain.content.contains("failing test"), "{}", plain.content);
+
+    let with_totals = format!("{quoted}; printf '1 failed, 1 passed in 0.1s\\n'");
+    let reported = tool.execute(bash_args(&with_totals)).await.unwrap();
+    assert!(
+        reported.content.contains(" failing tests; details from log]"),
+        "{}",
+        reported.content
+    );
 }
 
 #[cfg(unix)]

@@ -3,7 +3,7 @@
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::SessionManager;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// A turn's history and the id that owns its background work and messages.
 ///
@@ -80,7 +80,7 @@ impl MemoryStore {
     }
 
     fn lock(&self) -> MutexGuard<'_, Memory> {
-        self.memory.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::engine::locking::lock(&self.memory)
     }
 
     /// The whole conversation: committed messages, then any checkpointed steps of an unfinished turn.

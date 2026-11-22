@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::PoisonError;
 
 #[tokio::test]
 #[cfg(unix)]
@@ -25,6 +26,28 @@ async fn cancelling_a_turn_kills_tool_jobs_but_leaves_session_servers() {
     );
     kill_all_tracked_processes();
     wait_group_dead(server_pid).await;
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn a_poisoned_registry_still_kills_tracked_groups() {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c").arg("sleep 30 & wait");
+    isolate_group(&mut cmd);
+    let child = cmd.spawn().expect("spawn test shell");
+    let pid = child.id().expect("child pid");
+    let _guard = ProcessTreeGuard::new(child);
+
+    let poisoner = std::thread::spawn(|| {
+        let _held = TRACKED_PIDS.lock().unwrap_or_else(PoisonError::into_inner);
+        panic!("poison the tracked pid registry");
+    });
+    assert!(poisoner.join().is_err());
+    assert!(TRACKED_PIDS.is_poisoned());
+
+    kill_all_tracked_processes();
+
+    wait_group_dead(pid).await;
 }
 
 #[tokio::test]

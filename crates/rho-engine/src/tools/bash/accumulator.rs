@@ -11,6 +11,9 @@ pub const BASH_MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
 const LOG_DIR_NAME: &str = "rho-bash";
 const LOG_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const LOG_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+/// Logs this young may still be read by a live session (the footer path is handed to the model),
+/// possibly in another rho process, so the size cap never evicts them.
+const LOG_SPARE_WINDOW: Duration = Duration::from_secs(60 * 60);
 
 /// Where full output logs go unless a tool is given its own directory.
 pub fn default_log_dir() -> PathBuf {
@@ -20,9 +23,13 @@ pub fn default_log_dir() -> PathBuf {
 /// Removes full output logs under `temp_root` older than a day or beyond the total size cap, and
 /// day-old `rho-bash-*.log` files that earlier versions left loose in `temp_root`. Returns the count.
 pub fn sweep_logs(temp_root: &Path) -> usize {
-    let removed =
-        crate::tools::artifact::cleanup_artifacts(&temp_root.join(LOG_DIR_NAME), LOG_MAX_AGE, LOG_MAX_TOTAL_BYTES)
-            .unwrap_or(0);
+    let removed = crate::tools::artifact::cleanup_artifacts(
+        &temp_root.join(LOG_DIR_NAME),
+        LOG_MAX_AGE,
+        LOG_MAX_TOTAL_BYTES,
+        LOG_SPARE_WINDOW,
+    )
+    .unwrap_or(0);
     removed + remove_loose_logs(temp_root)
 }
 
@@ -87,7 +94,7 @@ impl Default for OutputAccumulator {
 
 fn format_truncation_notice(
     truncation: &Truncation,
-    path_str: &str,
+    log_path: Option<&str>,
     current_line_bytes: usize,
     max_bytes: usize,
 ) -> String {
@@ -96,20 +103,18 @@ fn format_truncation_notice(
         .total_lines
         .saturating_sub(truncation.output_lines)
         .saturating_add(1);
+    let log = log_path.map_or_else(String::new, |path| format!("; log: {path}"));
 
     if truncation.last_line_partial {
         let size = format_size(truncation.output_bytes);
         let line_size = format_size(current_line_bytes);
-        format!("\n\n[last {size} of line {end_line} (line is {line_size}); log: {path_str}]")
+        format!("\n\n[last {size} of line {end_line} (line is {line_size}){log}]")
     } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-        format!(
-            "\n\n[lines {start_line}-{end_line} of {}; log: {path_str}]",
-            truncation.total_lines
-        )
+        format!("\n\n[lines {start_line}-{end_line} of {}{log}]", truncation.total_lines)
     } else {
         let limit = format_size(max_bytes);
         format!(
-            "\n\n[lines {start_line}-{end_line} of {} ({limit} limit); log: {path_str}]",
+            "\n\n[lines {start_line}-{end_line} of {} ({limit} limit){log}]",
             truncation.total_lines
         )
     }
@@ -243,7 +248,7 @@ impl OutputAccumulator {
         let plain = super::sanitize::strip_ansi(text);
         if self.temp_file_writer.is_some() || self.should_use_temp_file() {
             self.ensure_temp_file();
-            self.write_log(plain.as_bytes());
+            self.write_log(&plain);
         } else {
             self.unwritten_log.push_str(&plain);
         }
@@ -261,16 +266,16 @@ impl OutputAccumulator {
         }
         let dir = &self.log_dir;
         let path = dir.join(format!("{}.log", &uuid::Uuid::new_v4().simple().to_string()[..12]));
-        let Ok(file) = std::fs::create_dir_all(dir).and_then(|()| File::create(&path)) else {
+        let Ok(file) = super::log::create_private_dir(dir).and_then(|()| super::log::create_log_file(&path)) else {
             return;
         };
         self.temp_file_path = Some(path);
         self.temp_file_writer = Some(BufWriter::new(file));
         let unwritten = std::mem::take(&mut self.unwritten_log);
-        self.write_log(unwritten.as_bytes());
+        self.write_log(&unwritten);
     }
 
-    fn write_log(&mut self, data: &[u8]) {
+    fn write_log(&mut self, data: &str) {
         if self.log_truncated {
             return;
         }
@@ -279,11 +284,11 @@ impl OutputAccumulator {
         };
         let remaining = self.max_log_bytes.saturating_sub(self.log_bytes);
         if data.len() <= remaining {
-            let _ = writer.write_all(data);
+            let _ = writer.write_all(data.as_bytes());
             self.log_bytes += data.len();
             return;
         }
-        let _ = writer.write_all(&data[..remaining]);
+        let _ = writer.write_all(&data.as_bytes()[..data.floor_char_boundary(remaining)]);
         let _ = writer.write_all(format!("\n[log truncated at {} bytes]\n", self.max_log_bytes).as_bytes());
         self.log_bytes = self.max_log_bytes;
         self.log_truncated = true;
@@ -292,12 +297,8 @@ impl OutputAccumulator {
     fn format_snapshot_text(&self, truncation: &Truncation) -> String {
         let mut text = truncation.content.clone();
         if truncation.truncated {
-            let path_str = self
-                .temp_file_path
-                .as_ref()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| "temp log".to_string());
-            let notice = format_truncation_notice(truncation, &path_str, self.current_line_bytes, self.max_bytes);
+            let log = self.temp_file_path.as_ref().map(|p| p.to_string_lossy());
+            let notice = format_truncation_notice(truncation, log.as_deref(), self.current_line_bytes, self.max_bytes);
             text.push_str(&notice);
         }
         text

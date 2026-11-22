@@ -123,7 +123,11 @@ fn format_success(snapshot: &OutputSnapshot, raw_text: &str) -> ToolResult {
     let clipped = snapshot.truncation.truncated || body != collapsed;
     let mut sections = vec![body];
     if clipped {
-        sections.extend(failure_summary(snapshot, raw_text));
+        sections.extend(failure_summary(
+            snapshot,
+            raw_text,
+            super::failures::summarize_reported_failures,
+        ));
     }
     if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
         let footer = super::footer::BashFooter {
@@ -146,13 +150,17 @@ fn format_failure(status: std::process::ExitStatus, snapshot: &OutputSnapshot, r
     }
     let mut sections = vec![super::normalize::collapse_consecutive_lines(raw_text)];
     if snapshot.truncation.truncated {
-        sections.extend(failure_summary(snapshot, raw_text));
+        sections.extend(failure_summary(
+            snapshot,
+            raw_text,
+            super::failures::summarize_test_failures,
+        ));
     }
     sections.push(msg);
     ToolResult::error(sections.join("\n\n"))
 }
 
-fn failure_summary(snapshot: &OutputSnapshot, raw_text: &str) -> Option<String> {
+fn failure_summary(snapshot: &OutputSnapshot, raw_text: &str, summarize: fn(&str) -> Option<String>) -> Option<String> {
     let log = snapshot
         .full_output_path
         .as_ref()
@@ -162,7 +170,7 @@ fn failure_summary(snapshot: &OutputSnapshot, raw_text: &str) -> Option<String> 
         Some(bytes) => String::from_utf8_lossy(bytes),
         None => super::sanitize::strip_ansi(raw_text),
     };
-    super::failures::summarize_test_failures(&text)
+    summarize(&text)
 }
 
 async fn consume_stream_chunks<F: FnMut(&str)>(

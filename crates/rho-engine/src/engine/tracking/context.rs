@@ -1,13 +1,10 @@
+use crate::engine::locking::lock;
 use crate::engine::metrics::format_tokens;
 use crate::provider::ModelCatalog;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::tokens::{ContextTokenStats, MessageTokenCache};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextLimitSource {

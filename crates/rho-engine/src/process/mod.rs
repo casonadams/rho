@@ -11,7 +11,7 @@ pub use shutdown::{install_panic_hook, shutdown_children};
 pub use streaming::{StreamingCommand, configure_shell_command};
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 use tokio::process::Command;
 
 static TRACKED_PIDS: LazyLock<Mutex<HashMap<u32, Scope>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -93,52 +93,63 @@ pub(crate) fn kill_group_by_pid(pid: u32) {
     let _ = pid;
 }
 
+/// Like [`kill_group_by_pid`] but leaves the macOS straggler sweep to a background thread, for
+/// callers on async workers that must not sleep. Not for exit paths, which must finish the sweep.
+pub(crate) fn kill_group_detached(pid: u32) {
+    #[cfg(target_os = "macos")]
+    if pid > 1 {
+        signal_group(pid, libc::SIGKILL);
+        std::thread::spawn(move || kill_forked_stragglers(pid));
+    }
+    #[cfg(not(target_os = "macos"))]
+    kill_group_by_pid(pid);
+}
+
 /// Registers a child PID to be terminated if the harness shuts down unexpectedly.
 pub fn track_pid(pid: u32) {
     track(pid, Scope::Turn);
 }
 
+/// The panic hook kills tracked processes after a panic that may have poisoned the lock, so
+/// poisoning is ignored: the map is always left consistent by its short critical sections.
+fn tracked() -> MutexGuard<'static, HashMap<u32, Scope>> {
+    TRACKED_PIDS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 pub(crate) fn track(pid: u32, scope: Scope) {
-    if pid > 1
-        && let Ok(mut map) = TRACKED_PIDS.lock()
-    {
-        map.insert(pid, scope);
+    if pid > 1 {
+        tracked().insert(pid, scope);
     }
 }
 
 /// Unregisters a child PID once it has been reaped or cleaned up.
 pub fn untrack_pid(pid: u32) {
-    if let Ok(mut map) = TRACKED_PIDS.lock() {
-        map.remove(&pid);
-    }
+    tracked().remove(&pid);
 }
 
 /// Synchronously kills all currently tracked process groups, including session-long servers.
 pub fn kill_all_tracked_processes() {
-    if let Ok(mut map) = TRACKED_PIDS.lock() {
-        for (pid, _) in map.drain() {
-            kill_group_by_pid(pid);
-        }
-    }
+    let pids: Vec<u32> = tracked().drain().map(|(pid, _)| pid).collect();
+    pids.into_iter().for_each(kill_group_by_pid);
 }
 
 /// Kills the tracked tool jobs of the current turn (for example when it is cancelled) and leaves
 /// session-long servers running.
 pub fn kill_turn_processes() {
-    if let Ok(mut map) = TRACKED_PIDS.lock() {
-        map.retain(|pid, scope| {
-            let turn = *scope == Scope::Turn;
-            if turn {
-                kill_group_by_pid(*pid);
-            }
-            !turn
-        });
-    }
+    let mut turn_pids = Vec::new();
+    tracked().retain(|pid, scope| {
+        let turn = *scope == Scope::Turn;
+        if turn {
+            turn_pids.push(*pid);
+        }
+        !turn
+    });
+    turn_pids.into_iter().for_each(kill_group_detached);
 }
 
 #[cfg(test)]
 pub fn is_pid_tracked(pid: u32) -> bool {
-    TRACKED_PIDS.lock().map(|m| m.contains_key(&pid)).unwrap_or(false)
+    tracked().contains_key(&pid)
 }
 
 #[cfg(all(test, unix))]

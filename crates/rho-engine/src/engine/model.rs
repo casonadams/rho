@@ -200,6 +200,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn switching_models_starts_the_context_notices_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = crate::engine::eval::mock::mock_engine(
+            std::sync::Arc::new(MockAdapter::text("unused")),
+            crate::engine::eval::mock::MockEngineConfig {
+                base_dir: dir.path(),
+                app_config: Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let notices_at = |engine: &AgentEngine, used: u64| {
+            let mut seen = None;
+            engine
+                .context
+                .budget(200_000, ContextLimitSource::Provider, 183_616)
+                .notice(used, |notice| {
+                    seen = Some(notice.to_string());
+                    true
+                });
+            seen
+        };
+        assert!(notices_at(&engine, 180_000).unwrap().contains("(90%)"));
+        assert_eq!(notices_at(&engine, 180_000), None);
+
+        engine.switch_model("local/qwen2.5-coder:7b", "ollama").await.unwrap();
+
+        assert!(notices_at(&engine, 100_000).unwrap().contains("(50%)"));
+    }
+
+    #[tokio::test]
     async fn probe_reports_failures_until_the_next_success() {
         let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new(None));
         let host = serve_http(vec![

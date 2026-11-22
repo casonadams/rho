@@ -1389,6 +1389,43 @@ fn test_symbol_read_failures_are_not_pruned() {
     }
 }
 
+fn make_turn(cid: &str, tool: &str, output: &str) -> (ChatMessage, ChatMessage) {
+    let (mut call, mut result) = make_read_turn(cid, "src/lib.rs", output);
+    if let ChatMessage::Assistant { content, .. } = &mut call
+        && let AssistantContent::ToolCall(tool_call) = &mut content[0]
+    {
+        tool_call.function.name = tool.to_string();
+    }
+    if let ChatMessage::User { content } = &mut result
+        && let UserContent::ToolResult(tool_result) = &mut content[0]
+    {
+        tool_result.name = tool.to_string();
+    }
+    (call, result)
+}
+
+#[test]
+fn a_later_call_supersedes_an_earlier_read_only_when_its_result_took_effect() {
+    let clipped = "line 1\n[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]";
+    let cases = [
+        ("edit", "Successfully applied 1 replacement(s) to src/lib.rs", true),
+        ("edit", "Edit #1: could not find the text to replace", false),
+        ("write", "Successfully wrote 4 bytes (1 lines) to src/lib.rs", true),
+        ("write", "Failed to write file src/lib.rs: denied", false),
+        ("read", "fn main() {}", true),
+        ("read", clipped, false),
+        ("read", "File not found: src/lib.rs", false),
+    ];
+    for (later, output, superseded) in cases {
+        let (earlier_call, earlier_result) = make_read_turn("c1", "src/lib.rs", "old content");
+        let (later_call, later_result) = make_turn("c2", later, output);
+
+        let ids = collect_superseded_tool_call_ids(&[earlier_call, earlier_result, later_call, later_result]);
+
+        assert_eq!(ids.contains("c1"), superseded, "{later}: {output}");
+    }
+}
+
 #[test]
 fn test_tool_name_matching_ignores_case_when_superseding_reads() {
     let messages = vec![

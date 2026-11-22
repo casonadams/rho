@@ -95,11 +95,7 @@ impl AgentEngine {
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         let sizes = self.context.estimate_each_message_tokens(&raw, &self.config.model);
         let cache = self.prompt_cache();
-        let (pruned, decision) = self
-            .prune_memory
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .prune(&raw, &sizes, &policy, cache);
+        let (pruned, decision) = crate::engine::locking::lock(&self.prune_memory).prune(&raw, &sizes, &policy, cache);
         Ok(match pruned {
             Some(pruned) => LoadedHistory {
                 messages: pruned,

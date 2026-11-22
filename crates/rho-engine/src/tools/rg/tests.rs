@@ -1,5 +1,7 @@
 mod bounds;
 mod search;
+#[cfg(unix)]
+mod unreadable;
 
 use super::*;
 use tempfile::TempDir;
