@@ -146,4 +146,39 @@ mod tests {
             remove.content
         );
     }
+
+    #[tokio::test]
+    async fn removing_a_missing_note_number_is_an_error_that_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new(dir.path().join("memory"), dir.path());
+        let tool = MemoryTool::new(store.clone());
+        call(&tool, json!({ "action": "add", "text": "only note" })).await;
+        for index in [0, 2] {
+            let result = call(&tool, json!({ "action": "remove", "index": index })).await;
+            assert!(
+                result.is_error && result.content.contains("no note"),
+                "{}",
+                result.content
+            );
+        }
+        assert_eq!(store.notes(MemoryScope::Project).unwrap(), ["only note"]);
+    }
+
+    #[tokio::test]
+    async fn a_note_that_looks_like_a_credential_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new(dir.path().join("memory"), dir.path());
+        let tool = MemoryTool::new(store.clone());
+        let result = call(
+            &tool,
+            json!({ "action": "add", "text": "api key sk-abcdefghijklmnopqrstuvwx" }),
+        )
+        .await;
+        assert!(
+            result.is_error && result.content.contains("credential"),
+            "{}",
+            result.content
+        );
+        assert!(store.notes(MemoryScope::Project).unwrap().is_empty());
+    }
 }

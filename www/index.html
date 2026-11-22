@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>rho · Minimal Agentic Coding CLI</title>
-  <meta name="description" content="A fast, clean, local, private, and secure coding agent CLI in Rust. Native speed, zero telemetry, 8 built-in tools, MCP servers, and lightweight lifecycle hooks.">
+  <meta name="description" content="A fast, clean, local, private, and secure coding agent CLI in Rust. Native speed, zero telemetry, 14 built-in tools, MCP servers, and lightweight lifecycle hooks.">
   
   <meta property="og:title" content="rho · Minimal Coding Agent CLI">
   <meta property="og:description" content="Fast, clean, local, private, and secure coding agent CLI in Rust with standard MCP integration and lifecycle hooks.">
@@ -86,7 +86,7 @@
       </h1>
 
       <p class="hero-subtitle">
-        Zero telemetry, zero bloated runtimes. 8 native agent tools, interactive session picker, standard MCP integration, and one-shot lifecycle hooks.
+        Zero telemetry, zero bloated runtimes. 14 native agent tools, interactive session picker, standard MCP integration, and one-shot lifecycle hooks.
       </p>
 
       <!-- Multi-tab Install Switcher -->
@@ -337,12 +337,12 @@ rho --mode rpc
     </div>
   </section>
 
-  <!-- Section: 8 Built-in Tools -->
+  <!-- Section: 14 Built-in Tools -->
   <section class="section">
     <div class="container">
       <div class="section-header">
         <span class="section-badge">Native Tooling</span>
-        <h2 class="section-title">8 native agent tools, zero setup</h2>
+        <h2 class="section-title">14 native agent tools, zero setup</h2>
         <p class="section-description">
           rho includes native tools specifically designed and bounded for coding agents.
         </p>
@@ -365,6 +365,12 @@ rho --mode rpc
           <div class="card-icon icon-green">🎯</div>
           <h3 class="card-title">edit</h3>
           <p class="card-desc">Targeted, exact text replacements with strict single-match verification.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-green">↩️</div>
+          <h3 class="card-title">undo</h3>
+          <p class="card-desc">Reverts the last edit or write to a file, and refuses when the file changed since.</p>
         </div>
 
         <div class="card">
@@ -395,6 +401,24 @@ rho --mode rpc
           <div class="card-icon icon-cyan">🤖</div>
           <h3 class="card-title">subagent</h3>
           <p class="card-desc">Isolated subagent delegation for research, code review, and planning.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-cyan">🌲</div>
+          <h3 class="card-title">worktree</h3>
+          <p class="card-desc">Review, merge, or discard the git worktrees where subagents and workflows worked.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-cyan">🧠</div>
+          <h3 class="card-title">memory</h3>
+          <p class="card-desc">Short notes that persist across sessions, per project or global.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-cyan">✅</div>
+          <h3 class="card-title">todo</h3>
+          <p class="card-desc">An ordered task list that survives resume and compaction.</p>
         </div>
 
         <div class="card">

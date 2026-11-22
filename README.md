@@ -66,6 +66,10 @@ resume the exact session of each pane with `rho --resume <id>`.
   full log; when the clipped output has failing tests (cargo test, nextest,
   pytest, go test, Jest, Vitest), a short section lists each failing test with
   its key failure lines.
+
+  Interactive programs (vim, REPLs) can be driven from `bash` through mpx:
+  start one with `mpx run --pty`, type with `send-keys`, read the screen with
+  `capture-pane -p -S -N`, and stop it with `kill`.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
   indented names; directories end with `/`) after a total count. A directory

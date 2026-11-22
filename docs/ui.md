@@ -194,7 +194,9 @@ always matches your terminal emulator, in dark or light mode.
   `web_fetch` shows the content kind inline and dim, such as
   `web_fetch https://example.com (text)`. `todo` shows the list's progress and
   the item in progress, such as `todo 1/3 done · Add tests`; `Ctrl+O` shows the
-  whole list.
+  whole list. `undo` shows the file path, `lsp` the action with `path:line`
+  and symbol, `memory` the action and scope, and `read` with a `symbol` shows
+  `path symbol=name`.
 - Edit cards show `N edits · +added -removed` in the header and label every
   edit in a multi-edit call (`@@ edit #1/3 · line 12 @@`). Write cards show
   line count, size, and whether the file was new or overwritten. Line numbers

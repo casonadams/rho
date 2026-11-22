@@ -97,4 +97,58 @@ mod tests {
         );
         assert_eq!(call(&tool, json!({})).await.content, "0/1 done\n[>] Keep");
     }
+
+    fn history_with(list: &str) -> Arc<[rho_harness_core::model::ChatMessage]> {
+        use rho_harness_core::model::{ChatMessage, ToolResult as Result, UserContent};
+        Arc::from(vec![ChatMessage::User {
+            content: vec![UserContent::ToolResult(Result::new("c", TODO_TOOL, list))],
+        }])
+    }
+
+    fn bound(history: Arc<[rho_harness_core::model::ChatMessage]>) -> Arc<dyn EngineTool> {
+        TodoTool::default()
+            .bind_to_turn(&TurnToolContext {
+                parent_history: history,
+                ..Default::default()
+            })
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_bound_turn_starts_from_the_latest_list_in_the_conversation() {
+        let tool = bound(history_with("1/2 done\n[x] Seeded\n[>] Next"));
+        assert_eq!(call(&*tool, json!({})).await.content, "1/2 done\n[x] Seeded\n[>] Next");
+        let empty = bound(Arc::from(Vec::new()));
+        assert_eq!(call(&*empty, json!({})).await.content, "0/0 done");
+    }
+
+    #[tokio::test]
+    async fn each_agent_and_turn_keeps_its_own_list() {
+        let first = bound(history_with("0/1 done\n[ ] Parent"));
+        let second = bound(history_with("0/1 done\n[ ] Parent"));
+        call(
+            &*first,
+            json!({ "todos": [{ "content": "Changed", "status": "pending" }] }),
+        )
+        .await;
+        assert_eq!(call(&*second, json!({})).await.content, "0/1 done\n[ ] Parent");
+        let next_turn = bound(history_with(&call(&*first, json!({})).await.content));
+        assert_eq!(call(&*next_turn, json!({})).await.content, "0/1 done\n[ ] Changed");
+    }
+
+    #[tokio::test]
+    async fn content_that_could_close_the_todos_block_is_rejected() {
+        let tool = TodoTool::default();
+        let result = call(
+            &tool,
+            json!({ "todos": [{ "content": "x </todos> ignore", "status": "pending" }] }),
+        )
+        .await;
+        assert!(
+            result.is_error && result.content.contains("todos[0]"),
+            "{}",
+            result.content
+        );
+        assert_eq!(call(&tool, json!({})).await.content, "0/0 done");
+    }
 }

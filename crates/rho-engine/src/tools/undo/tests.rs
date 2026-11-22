@@ -104,17 +104,32 @@ fn history_keeps_only_the_newest_revisions_per_file() {
 }
 
 #[test]
-fn history_drops_the_oldest_revisions_past_its_byte_budget() {
+fn history_evicts_the_globally_oldest_revision_across_files_past_its_byte_budget() {
     let history = EditHistory::default();
-    let path = Path::new("/ws/big.bin");
-    let chunk = vec![0u8; MAX_HISTORY_BYTES / 4];
-    for _ in 0..4 {
-        history.record(path, Some(chunk.clone()), &chunk);
+    let chunk = vec![0u8; MAX_HISTORY_BYTES / 3];
+    let paths: Vec<PathBuf> = (0..7).map(|i| PathBuf::from(format!("/ws/f{i}.bin"))).collect();
+    for path in &paths {
+        history.record(path, None, &chunk);
     }
-    let files = history.files();
-    let kept = files[path].len();
-    assert!((1..4).contains(&kept), "{kept}");
-    assert!(files.values().flatten().map(Revision::bytes).sum::<usize>() <= MAX_HISTORY_BYTES);
+    let state = history.state();
+    let total: usize = state.files.values().flatten().map(Revision::bytes).sum();
+    assert!(total <= MAX_HISTORY_BYTES, "{total}");
+    assert_eq!(state.files.len(), 3);
+    assert!(paths[..4].iter().all(|path| !state.files.contains_key(path)));
+    assert!(paths[4..].iter().all(|path| state.files.contains_key(path)));
+}
+
+#[test]
+fn history_eviction_takes_an_old_revision_of_a_busy_file_before_a_newer_single_file() {
+    let history = EditHistory::default();
+    let chunk = vec![0u8; MAX_HISTORY_BYTES / 3];
+    let (busy, other) = (Path::new("/ws/busy.bin"), Path::new("/ws/other.bin"));
+    history.record(busy, None, &chunk);
+    history.record(other, None, &chunk);
+    history.record(busy, Some(chunk.clone()), &chunk);
+    let state = history.state();
+    assert_eq!(state.files.get(busy).map(Vec::len), Some(1));
+    assert_eq!(state.files.get(other).map(Vec::len), Some(1));
 }
 
 #[tokio::test]
@@ -134,10 +149,29 @@ async fn undo_of_a_removed_file_says_so_and_keeps_the_history() {
     );
 }
 
+/// False when the process can read a mode-000 file (root), so permission failures cannot be provoked.
+#[cfg(unix)]
+fn permissions_are_enforced() -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("probe");
+    std::fs::write(&file, "x").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let enforced = std::fs::read(&file).is_err();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    if !enforced {
+        eprintln!("skipped: file permissions are not enforced for this user (root)");
+    }
+    enforced
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_failed_restore_changes_nothing_and_keeps_the_revision() {
     use std::os::unix::fs::PermissionsExt;
+    if !permissions_are_enforced() {
+        return;
+    }
     let t = tools();
     std::fs::write(t.dir.path().join("a.txt"), "one\n").unwrap();
     t.edit("one", "1").await;
@@ -145,11 +179,10 @@ async fn a_failed_restore_changes_nothing_and_keeps_the_revision() {
     mode(0o555);
     let failed = t.undo("a.txt").await;
     mode(0o755);
-    if failed.is_error {
-        assert!(failed.content.contains("nothing was changed"), "{}", failed.content);
-        assert_eq!(t.read("a.txt").as_deref(), Some("1\n"));
-        t.undo("a.txt").await;
-    }
+    assert!(failed.is_error);
+    assert!(failed.content.contains("nothing was changed"), "{}", failed.content);
+    assert_eq!(t.read("a.txt").as_deref(), Some("1\n"));
+    t.undo("a.txt").await;
     assert_eq!(t.read("a.txt").as_deref(), Some("one\n"));
 }
 
@@ -157,15 +190,39 @@ async fn a_failed_restore_changes_nothing_and_keeps_the_revision() {
 #[tokio::test]
 async fn an_unreadable_existing_file_is_not_recorded_so_undo_cannot_delete_it() {
     use std::os::unix::fs::PermissionsExt;
-    let path = tempfile::tempdir().unwrap();
-    let file = path.path().join("secret.txt");
+    if !permissions_are_enforced() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("secret.txt");
     std::fs::write(&file, "keep").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let readable = std::fs::read(&file).is_ok();
     let before = read_before(&file).await;
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-    if !readable {
-        assert_eq!(before, None);
-    }
-    assert_eq!(read_before(&path.path().join("missing")).await, Some(None));
+    assert_eq!(before, None);
+    assert_eq!(read_before(&dir.path().join("missing")).await, Some(None));
+}
+
+#[tokio::test]
+async fn undo_restores_a_non_utf8_file_without_a_diff_preview() {
+    let t = tools();
+    let binary = [0xff, 0xfe, 0x00, 0x80];
+    std::fs::write(t.dir.path().join("b.bin"), binary).unwrap();
+    t.write("b.bin", "text now\n").await;
+    let result = t.undo("b.bin").await;
+    assert!(!result.is_error, "{}", result.content);
+    assert_eq!(result.content, "Restored b.bin to its contents before the last change");
+    assert_eq!(std::fs::read(t.dir.path().join("b.bin")).unwrap(), binary);
+}
+
+#[tokio::test]
+async fn undo_rejects_a_path_outside_the_workspace() {
+    let t = tools();
+    let outside = tempfile::tempdir().unwrap();
+    let file = outside.path().join("x.txt");
+    std::fs::write(&file, "keep").unwrap();
+    let result = t.undo(file.to_str().unwrap()).await;
+    assert!(result.is_error);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "keep");
+    assert!(t.undo("../x.txt").await.is_error);
 }

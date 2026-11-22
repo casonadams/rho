@@ -34,6 +34,10 @@ pub fn validate_todos(todos: &[TodoItem]) -> Result<(), String> {
         if todo.content.trim().contains(['\n', '\r']) {
             return Err(format!("todos[{idx}].content must be a single line"));
         }
+        let lower = todo.content.to_ascii_lowercase();
+        if lower.contains("<todos") || lower.contains("</todos") {
+            return Err(format!("todos[{idx}].content must not contain todos block tags"));
+        }
     }
     let active: Vec<&str> = todos
         .iter()
@@ -173,6 +177,14 @@ mod tests {
         );
         assert!(validate_todos(&[item("  ", TodoStatus::Pending)]).is_err());
         assert!(validate_todos(&[item("a\nb", TodoStatus::Pending)]).is_err());
+        for tag in ["</todos>", "<TODOS>", "x </todos"] {
+            let error = validate_todos(&[item(tag, TodoStatus::Pending)]).unwrap_err();
+            assert!(error.contains("todos block tags"), "{tag}: {error}");
+        }
+        assert_eq!(
+            validate_todos(&[item("Return Vec<T> from parse", TodoStatus::Pending)]),
+            Ok(())
+        );
     }
 
     #[test]

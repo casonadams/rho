@@ -21,6 +21,8 @@ struct Revision {
     /// `None` when the change created the file.
     before: Option<Vec<u8>>,
     after: Vec<u8>,
+    /// Insertion order across all files, so the globally oldest revision can be evicted.
+    seq: u64,
 }
 
 impl Revision {
@@ -41,30 +43,40 @@ pub async fn read_before(path: &Path) -> Option<Option<Vec<u8>>> {
 
 /// The changes the agent's tools made to each file this session, newest last.
 #[derive(Clone, Default)]
-pub struct EditHistory(Arc<Mutex<HashMap<PathBuf, Vec<Revision>>>>);
+pub struct EditHistory(Arc<Mutex<State>>);
+
+#[derive(Default)]
+struct State {
+    files: HashMap<PathBuf, Vec<Revision>>,
+    next_seq: u64,
+}
 
 impl EditHistory {
-    fn files(&self) -> MutexGuard<'_, HashMap<PathBuf, Vec<Revision>>> {
+    fn state(&self) -> MutexGuard<'_, State> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn record(&self, path: &Path, before: Option<Vec<u8>>, after: &[u8]) {
-        let mut files = self.files();
-        let revisions = files.entry(path.to_path_buf()).or_default();
+        let mut state = self.state();
+        let seq = state.next_seq;
+        state.next_seq += 1;
+        let revisions = state.files.entry(path.to_path_buf()).or_default();
         revisions.push(Revision {
             before,
             after: after.to_vec(),
+            seq,
         });
         if revisions.len() > MAX_REVISIONS_PER_FILE {
             revisions.remove(0);
         }
-        trim_to_budget(&mut files);
+        trim_to_budget(&mut state.files);
     }
 
     /// The newest revision's contents when the file still holds what the tool wrote.
     fn peek_if_current(&self, path: &Path, current: Option<&[u8]>) -> Result<(Option<Vec<u8>>, Vec<u8>), String> {
-        let files = self.files();
-        let last = files
+        let state = self.state();
+        let last = state
+            .files
             .get(path)
             .and_then(|revisions| revisions.last())
             .ok_or("no edit or write by this session's tools to undo for this file")?;
@@ -79,14 +91,14 @@ impl EditHistory {
 
     /// Drops the newest revision once it was undone; returns how many remain.
     fn pop(&self, path: &Path) -> usize {
-        let mut files = self.files();
-        let Some(revisions) = files.get_mut(path) else {
+        let mut state = self.state();
+        let Some(revisions) = state.files.get_mut(path) else {
             return 0;
         };
         revisions.pop();
         let remaining = revisions.len();
         if remaining == 0 {
-            files.remove(path);
+            state.files.remove(path);
         }
         remaining
     }
@@ -98,16 +110,19 @@ fn trim_to_budget(files: &mut HashMap<PathBuf, Vec<Revision>>) {
         if total <= MAX_HISTORY_BYTES {
             return;
         }
-        let Some(largest) = files
+        let Some(oldest) = files
             .iter()
-            .filter(|(_, revisions)| revisions.len() > 1)
-            .max_by_key(|(_, revisions)| revisions.iter().map(Revision::bytes).sum::<usize>())
-            .map(|(path, _)| path.clone())
+            .filter_map(|(path, revisions)| revisions.first().map(|revision| (revision.seq, path)))
+            .min()
+            .map(|(_, path)| path.clone())
         else {
             return;
         };
-        if let Some(revisions) = files.get_mut(&largest) {
+        if let Some(revisions) = files.get_mut(&oldest) {
             revisions.remove(0);
+            if revisions.is_empty() {
+                files.remove(&oldest);
+            }
         }
     }
 }

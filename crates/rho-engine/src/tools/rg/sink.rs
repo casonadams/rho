@@ -106,3 +106,69 @@ impl Sink for BlockSink {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use grep_regex::RegexMatcher;
+    use grep_searcher::SearcherBuilder;
+
+    fn run(content: &str, context: usize, stop_at_first: bool) -> BlockSink {
+        let matcher = RegexMatcher::new("needle").unwrap();
+        let mut searcher = SearcherBuilder::new()
+            .line_number(true)
+            .before_context(context)
+            .after_context(context)
+            .build();
+        let mut sink = BlockSink::new(true, stop_at_first);
+        searcher.search_slice(&matcher, content.as_bytes(), &mut sink).unwrap();
+        sink
+    }
+
+    fn numbers(block: &MatchBlock) -> Vec<(u64, char)> {
+        block.lines.iter().map(|l| (l.number, l.marker)).collect()
+    }
+
+    #[test]
+    fn a_gap_between_blocks_marks_only_the_later_block_as_detached() {
+        let content = format!("needle\n{}needle\n", "x\n".repeat(10));
+        let sink = run(&content, 1, false);
+        let detached: Vec<bool> = sink.blocks.iter().map(|b| b.detached).collect();
+        assert_eq!(detached, [false, true]);
+        assert_eq!(numbers(&sink.blocks[1]), [(11, '-'), (12, ':')]);
+    }
+
+    #[test]
+    fn blocks_whose_context_touches_are_not_detached() {
+        let sink = run("needle\nx\nneedle\n", 1, false);
+        assert_eq!(sink.blocks.len(), 2);
+        assert!(sink.blocks.iter().all(|b| !b.detached));
+    }
+
+    #[test]
+    fn a_cut_line_marks_the_block_that_shows_it_as_truncated() {
+        let long = "y".repeat(crate::tools::truncate::GREP_MAX_LINE_LENGTH + 10);
+        let before = run(&format!("{long}\nneedle\n"), 1, false);
+        let matched = run(&format!("needle {long}\n"), 0, false);
+        let after = run(&format!("needle\n{long}\n"), 1, false);
+        let plain = run("x\nneedle\ny\n", 1, false);
+        let flags = [&before, &matched, &after, &plain].map(|sink| sink.blocks[0].truncated);
+        assert_eq!(flags, [true, true, true, false]);
+        assert!(before.blocks[0].lines[0].text.ends_with("... [truncated]"));
+    }
+
+    #[test]
+    fn crlf_line_endings_are_stripped_from_matches_and_context() {
+        let sink = run("before\r\nneedle\r\nafter\r\n", 1, false);
+        let texts: Vec<&str> = sink.blocks[0].lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["before", "needle", "after"]);
+    }
+
+    #[test]
+    fn stopping_at_the_first_match_keeps_its_leading_context_and_ignores_later_matches() {
+        let sink = run("a\nb\nneedle\nc\nneedle\n", 2, true);
+        assert_eq!(sink.count, 1);
+        assert_eq!(sink.blocks.len(), 1);
+        assert_eq!(numbers(&sink.blocks[0]), [(1, '-'), (2, '-'), (3, ':')]);
+    }
+}
