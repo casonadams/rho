@@ -108,6 +108,11 @@ impl RunTracker {
         lock(&self.last_request).clone()
     }
 
+    /// Compaction rewrites the history, so the last request's prompt cache no longer matches it.
+    pub fn forget_last_request(&self) {
+        *lock(&self.last_request) = None;
+    }
+
     /// True only the first time since the last request, so a cache reset is reported once.
     pub fn note_cache_reset(&self) -> bool {
         lock(&self.last_request)

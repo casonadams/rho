@@ -616,6 +616,24 @@ mod orchestrator {
     }
 
     #[tokio::test]
+    async fn compaction_leaves_the_prompt_cache_cold() {
+        use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
+
+        let mock = Arc::new(MockAdapter::text("## Summary\nPrior work completed"));
+        let engine = test_engine("compaction_cache", Some(mock)).await;
+        let session_id = engine.session_manager.session_id.clone();
+        populate_test_turns(&engine.session_manager, &session_id).await;
+        engine.run_tracker.completion(
+            CompletionCall::new(0, StructuralUsage::default()),
+            std::time::Instant::now(),
+        );
+
+        engine.compact_session(None).await.unwrap();
+
+        assert!(engine.run_tracker.last_request().is_none());
+    }
+
+    #[tokio::test]
     async fn test_compact_session_empty_or_single_node() {
         let engine = test_engine("empty_session", None).await;
         let stats = engine.compact_session(None).await.unwrap();

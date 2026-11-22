@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use super::llm::LlmCompactor;
 use crate::engine::AgentEngine;
-use crate::engine::metrics::StructuralUsage;
+use crate::engine::metrics::{RunTracker, StructuralUsage};
 use crate::engine::tracking::{ContextTracker, UsageTracker};
 use rho_harness_core::session::SessionManager;
 
@@ -183,6 +183,7 @@ fn filter_conversation_messages(
 pub struct SessionCompactor {
     session_manager: SessionManager,
     usage: UsageTracker,
+    run_tracker: RunTracker,
     context: ContextTracker,
     model: Option<ModelHandle>,
     model_name: String,
@@ -202,6 +203,7 @@ impl SessionCompactor {
     pub fn new(
         session_manager: SessionManager,
         usage: UsageTracker,
+        run_tracker: RunTracker,
         context: ContextTracker,
         model: Option<ModelHandle>,
         config: SessionCompactorConfig,
@@ -209,6 +211,7 @@ impl SessionCompactor {
         Self {
             session_manager,
             usage,
+            run_tracker,
             context,
             model,
             model_name: config.model_name,
@@ -289,6 +292,7 @@ impl SessionCompactor {
             input_tokens: tokens_after as u64,
             ..Default::default()
         });
+        self.run_tracker.forget_last_request();
         Ok(())
     }
 
@@ -309,12 +313,8 @@ impl SessionCompactor {
         let file_details = extract_file_ops(to_sum, plan.prior_details);
         let summary = compose_compaction_summary(&md_summary, &render_file_lists_xml(&file_details));
         let redacted_summary = self.session_manager.redact_credentials(&summary);
-        let final_summary = if self.max_bytes > 0 && redacted_summary.len() > self.max_bytes {
-            let mut end = self.max_bytes;
-            while end > 0 && !redacted_summary.is_char_boundary(end) {
-                end -= 1;
-            }
-            redacted_summary[..end].to_string()
+        let final_summary = if self.max_bytes > 0 {
+            redacted_summary[..redacted_summary.floor_char_boundary(self.max_bytes)].to_string()
         } else {
             redacted_summary
         };
@@ -347,6 +347,7 @@ impl AgentEngine {
         let mut compactor = SessionCompactor::new(
             self.session_manager.clone(),
             self.usage.clone(),
+            self.run_tracker.clone(),
             self.context.clone(),
             self.compactor_model.clone(),
             SessionCompactorConfig {
