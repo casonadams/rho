@@ -371,7 +371,7 @@ enabled = true                  # Enable or disable mutation guardrails</code></
       <ul>
         <li><strong>Frictionless Safe Execution:</strong> Benign developer tasks—running builds, tests, typecheckers, linters, local git inspections, and read-only diagnostics—are classified as safe (<code>{"safe": true}</code>) and execute immediately without manual prompts.</li>
         <li><strong>Targeted Risk Interception:</strong> Hazardous operations—remote git pushes, remote branch deletions, cluster/cloud infrastructure mutations, privilege escalation, credential access, or mass deletions—are flagged (<code>{"safe": false}</code>) and pause for confirmation with the model's security rationale.</li>
-        <li><strong>Fail-Safe Closed Architecture:</strong> If the guard model times out (10s), is offline, encounters an error, or returns unparseable text, <code>rho</code> fails closed and falls back to manual human confirmation (or denial in headless mode). Commands never slip through silently on error.</li>
+        <li><strong>Fail-Safe Closed Architecture:</strong> If the guard model times out (10s), is offline, encounters an error, or returns unparseable text, <code>rho</code> fails closed and falls back to manual human confirmation (or denial in headless mode). Commands never slip through silently on error. If the guard model cannot be built at all, <code>rho</code> shows a notice naming it and asks for approval on every unclassified command.</li>
       </ul>
 
       <h3>Recommended Local Model: <code>qwen2.5-coder:7b</code></h3>

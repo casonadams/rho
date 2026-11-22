@@ -99,7 +99,7 @@ Every tool invocation flows through a multi-tiered security pipeline before exec
 3. **Guard Model Security Evaluation**: For unclassified bash commands, `rho` encapsulates the full command string inside `<command_to_evaluate>` and invokes the configured guard model with a specialized security classification system prompt.
 4. **Frictionless Safe Execution**: If the guard model classifies the command as safe (`{"safe": true, "reason": "..."}`), execution proceeds immediately without interrupting your flow.
 5. **Targeted Interception**: If classified as unsafe (`{"safe": false, "reason": "..."}`), execution pauses and surfaces the interactive approval modal displaying the guard's specific security rationale.
-6. **Fail-Safe Closed Fallback**: If the guard model times out (10 seconds), is offline, encounters an error, or returns unparseable output, execution safely fails closed: interactive mode displays the approval prompt with the failure notice, and headless mode rejects execution. Commands never execute silently on failure.
+6. **Fail-Safe Closed Fallback**: If the guard model times out (10 seconds), is offline, encounters an error, or returns unparseable output, execution safely fails closed: interactive mode displays the approval prompt with the failure notice, and headless mode rejects execution. Commands never execute silently on failure. If the guard model cannot be built at all (for example, an unknown provider), `rho` shows a notice naming the model and runs the turn without it, so every unclassified command asks for approval.
 
 ---
 
