@@ -9,7 +9,7 @@ pub mod sse;
 
 pub use adapter::{ModelAdapter, ModelCompletionRequest, ModelCompletionResponse, ModelStreamEvent};
 
-pub use catalog::{ModelCatalog, ProviderModels};
+pub use catalog::{ModelCatalog, ProviderModels, resolve_model_route};
 pub use discovery::DiscoveredModel;
 pub use openai::OpenAiClient;
 pub use router::{ModelRouter, guard_route};

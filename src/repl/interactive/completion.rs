@@ -433,25 +433,24 @@ fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<C
 }
 
 fn complete_models(models: &[ModelItem], argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i64, &ModelItem)> = models
+    // Insert the listing's `provider/model` spec, not the bare id: a bare `deepseek-v4.1-flash`
+    // would be routed to DeepSeek by name inference instead of the Ollama Cloud provider that listed it.
+    let mut scored: Vec<(i64, String, &ModelItem)> = models
         .iter()
         .filter_map(|m| {
+            let canonical = m.canonical_id();
             if argument.is_empty() {
-                Some((0, m))
-            } else {
-                let query_target = format!("{}:{}", m.provider, m.id);
-                fuzzy_score(argument, &m.id)
-                    .or_else(|| fuzzy_score(argument, &query_target))
-                    .map(|score| (score, m))
+                return Some((0, canonical, m));
             }
+            fuzzy_score(argument, &canonical).map(|score| (score, canonical, m))
         })
         .collect();
-    scored.sort_by_key(|(score, m)| (Reverse(*score), m.id.clone()));
+    scored.sort_by_key(|(score, canonical, _)| (Reverse(*score), canonical.clone()));
 
     scored
         .into_iter()
-        .map(|(_, m)| Completion {
-            value: format!("/model {}", m.id),
+        .map(|(_, canonical, m)| Completion {
+            value: format!("/model {canonical}"),
             description: Some(format!("{} · {}", m.provider, m.description)),
             replacement: 0..cursor,
         })

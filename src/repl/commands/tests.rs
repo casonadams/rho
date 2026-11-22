@@ -257,6 +257,52 @@ async fn model_switch_is_emitted_and_updates_configuration() {
 }
 
 #[tokio::test]
+async fn model_command_keeps_the_selected_provider_that_lists_the_model() {
+    let temp = std::env::temp_dir().join(format!("model_provider_{}", uuid::Uuid::new_v4()));
+    let mut config = Config {
+        provider: "ollama-cloud".to_string(),
+        sessions_dir: temp.join("sessions"),
+        ..Config::default()
+    };
+    std::fs::create_dir_all(&config.sessions_dir).unwrap();
+    let session_manager = SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_id = session_manager.session_id.clone();
+    let engine = mock_engine(
+        Arc::new(MockAdapter::default()),
+        MockEngineConfig {
+            base_dir: &temp,
+            app_config: config.clone(),
+            session_manager: Some(session_manager),
+            built_in_tools: None,
+        },
+    );
+    engine.model_catalog().set(
+        "ollama-cloud",
+        rho_engine::provider::ProviderModels::Ready(vec![rho_engine::provider::DiscoveredModel::new(
+            "deepseek-v4.1-flash",
+            "deepseek-v4.1-flash",
+            "1M ctx",
+        )]),
+    );
+
+    let result = run_command("/model deepseek-v4.1-flash", &mut config, &session_id, Some(&engine))
+        .await
+        .0;
+    assert_eq!(
+        result,
+        Some(CommandResult::ModelChanged {
+            new_model: "deepseek-v4.1-flash".to_string(),
+            new_provider: Some("ollama-cloud".to_string()),
+        })
+    );
+    assert_eq!(
+        (config.model.as_str(), config.provider.as_str()),
+        ("deepseek-v4.1-flash", "ollama-cloud")
+    );
+    let _ = std::fs::remove_dir_all(temp);
+}
+
+#[tokio::test]
 async fn tree_and_rewind_commands_return_expected_results() {
     let mut config = Config::default();
     let mut auth = AuthStore::default();

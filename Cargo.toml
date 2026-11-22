@@ -132,6 +132,7 @@ winres = "0.1"
 
 [dev-dependencies]
 tempfile = "3.17"
+test-case = "3.4"
 
 [profile.dev]
 opt-level = 0

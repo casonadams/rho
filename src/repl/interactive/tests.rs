@@ -18,8 +18,25 @@ fn completion_reports_replacement_spans_for_commands_and_arguments() {
     assert_eq!(command[0].replacement, 0..4);
 
     let model = completions.complete("/model gpt-4o suffix", 13);
-    assert_eq!(model[0].value, "/model gpt-4o");
+    assert_eq!(model[0].value, "/model openai/gpt-4o");
     assert_eq!(model[0].replacement, 0..13);
+}
+
+#[test]
+fn model_completion_keeps_the_listing_provider() {
+    let sources = super::CompletionSources::new().with_models(vec![ModelItem {
+        id: "deepseek-v4.1-flash".to_string(),
+        provider: "ollama-cloud".to_string(),
+        description: "1M ctx".to_string(),
+    }]);
+    let completions = CompletionSet::from_sources(sources);
+
+    let matched = completions.complete("/model deepseek", 15);
+    assert_eq!(matched[0].value, "/model ollama-cloud/deepseek-v4.1-flash");
+
+    let route =
+        rho_harness_core::provider::ModelRoute::parse(matched[0].value.trim_start_matches("/model "), None, "local");
+    assert_eq!(route.to_string(), "ollama-cloud/deepseek-v4.1-flash");
 }
 
 #[test]

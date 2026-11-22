@@ -56,6 +56,12 @@ up without updating rho. Nothing is written to disk.
 - The model selector (`/model`, `Ctrl+L`) and `/model` completions fill in as
   each list arrives. Providers still loading or that failed to list are named
   at the top of the selector.
+- Both insert the listing's full `<provider>/<model>` spec, so a model keeps the
+  provider that listed it. Typing a bare id keeps the provider you are already
+  using when its live list carries that model, which matters whenever a model
+  id is not unique across providers: Ollama Cloud's `deepseek-v4.1-flash` and
+  local Ollama's `gpt-oss:20b` stay on the provider serving them, instead of
+  being routed to `deepseek` or `openai` by the model's name.
 - `rho models` fetches the active provider's list and exits with an error if
   the provider cannot be reached.
 - Context windows come from the same lists where the provider publishes them

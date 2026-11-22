@@ -86,7 +86,13 @@ pub(crate) fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) ->
 
 pub(crate) fn handle_model(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     if let Some(spec) = parts.get(1) {
-        let route = ModelRoute::parse(spec, parts.get(2).copied(), &ctx.config.provider);
+        let current = ctx.config.provider.clone();
+        let route = match ctx.engine {
+            Some(engine) => {
+                rho_engine::provider::resolve_model_route(spec, parts.get(2).copied(), &current, engine.model_catalog())
+            }
+            None => ModelRoute::parse(spec, parts.get(2).copied(), &current),
+        };
         ctx.config.set_route(route);
         ctx.renderer
             .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
