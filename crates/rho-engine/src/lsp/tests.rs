@@ -170,6 +170,29 @@ fn watched(launcher: &test_server::FakeLauncher) -> Vec<Value> {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_rewritten_open_file_is_resynced_so_stale_diagnostics_clear() {
+    let (dir, lib) = project();
+    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
+    let wait = Duration::from_secs(3);
+    let bad = diagnostics_for(&manager, &lib, "ERR\n", wait).await.unwrap();
+    assert!(bad.contains("1 error"), "{bad}");
+
+    std::fs::write(&lib, "fn ok() {}\n").unwrap();
+    manager.refresh_after_write(std::slice::from_ref(&lib)).await;
+
+    let client = manager.running_clients().remove(0);
+    client
+        .request("workspace/symbol", json!({ "query": "" }))
+        .await
+        .unwrap();
+    let listed = client.state().all_published();
+    assert!(
+        listed.is_empty(),
+        "the restored file must publish no diagnostics: {listed:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn servers_hear_about_files_rho_creates_changes_and_deletes() {
     let (dir, lib) = project();
     let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());

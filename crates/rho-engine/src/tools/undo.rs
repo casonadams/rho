@@ -154,7 +154,7 @@ impl UndoTool {
             &self.lsp,
             resolve_tool_path(&Workspace::new(&self.base_dir), clean_path, "undo"),
         ) {
-            lsp.files_changed(&[path]);
+            lsp.refresh_after_write(&[path]).await;
         }
         Ok(message)
     }

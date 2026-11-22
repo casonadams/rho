@@ -43,6 +43,24 @@ impl LspManager {
         });
     }
 
+    /// Announces files rho just rewrote and gives each server that has one open its new contents and
+    /// a save, so its diagnostics follow the file instead of the text it held before.
+    pub async fn refresh_after_write(&self, paths: &[PathBuf]) {
+        self.files_changed(paths);
+        for client in self.running_clients() {
+            let _ = client.sync_open_documents_from_disk().await;
+            for path in paths
+                .iter()
+                .map(|path| canonical(path))
+                .filter(|path| path.starts_with(&client.root))
+            {
+                if let Ok(text) = tokio::fs::read_to_string(&path).await {
+                    let _ = client.did_save(&path, &text).await;
+                }
+            }
+        }
+    }
+
     /// Like [`LspManager::files_changed`], for files that did not exist before.
     pub fn files_created(&self, paths: &[PathBuf]) {
         self.announce(paths, |_| FileChange::Created);
