@@ -1,17 +1,30 @@
 //! Starts language servers on demand and routes each file to the servers that handle it.
 
-use super::client::{ClientSpec, LspClient};
+mod registry;
+mod slots;
+
+use super::client::LspClient;
 use super::config::{ServerConfig, ServerSet, layer_paths, load_servers, resolve_command};
 pub use super::process::{Launched, Launcher, ProcessLauncher};
+use super::support::{canonical, lock};
 use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
-use std::collections::{HashMap, HashSet};
+use slots::{
+    Key, Reuse, Slot, Slots, StartFuture, first_report, prune_exited, reap_idle, start_client, stop_least_recently_used,
+};
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::time::Instant;
+
+#[cfg(test)]
+use registry::block_on_runtime;
+use registry::managed;
+pub use registry::{forget_workspace, shutdown_all_blocking, shutdown_all_managers, shutdown_workspace};
+#[cfg(test)]
+pub(crate) use registry::{is_registered, register_manager};
 
 /// How long a server that failed to start, or died right after a restart, waits before the next
 /// use tries again.
@@ -25,28 +38,11 @@ pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(3);
 const REAP_INTERVAL: Duration = Duration::from_secs(30);
 const CONFIG_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 
-type StartFuture = Shared<BoxFuture<'static, Result<Arc<LspClient>, String>>>;
-type Key = (String, PathBuf);
-type Slots = HashMap<Key, Slot>;
-
-struct Slot {
-    start: StartFuture,
-    started: Instant,
-    /// Replaces a client that died, so a second death soon after is not restarted at once.
-    respawn: bool,
-}
-
-impl Slot {
-    fn client(&self) -> Option<&Arc<LspClient>> {
-        match self.start.peek() {
-            Some(Ok(client)) => Some(client),
-            _ => None,
-        }
-    }
-
-    fn running(&self) -> Option<&Arc<LspClient>> {
-        self.client().filter(|client| client.is_alive())
-    }
+/// Who is asking for servers: only the model may start them in a project that is not trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Initiator {
+    Automatic,
+    Model,
 }
 
 /// A server that handles a file, with the root it runs in.
@@ -60,12 +56,6 @@ impl Candidate {
     fn key(&self) -> Key {
         (self.server.name.clone(), self.root.clone())
     }
-}
-
-enum Reuse {
-    Keep,
-    Backoff(String),
-    Replace { respawn: bool },
 }
 
 #[derive(Default)]
@@ -102,15 +92,9 @@ pub struct LspManager {
     path_var: Option<OsString>,
     launcher: Arc<dyn Launcher>,
     slots: Arc<Mutex<Slots>>,
-    reaper: AtomicBool,
+    reaper: Mutex<Option<tokio::task::JoinHandle<()>>>,
     reported_failures: Mutex<HashSet<Key>>,
     pub(super) epochs: super::watch::Epochs,
-}
-
-static MANAGERS: LazyLock<Mutex<HashMap<PathBuf, Arc<LspManager>>>> = LazyLock::new(Default::default);
-
-pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn loaded_from(result: Result<ServerSet, String>) -> (Loaded, u64) {
@@ -145,7 +129,7 @@ impl LspManager {
             path_var,
             launcher,
             slots: Arc::default(),
-            reaper: AtomicBool::new(false),
+            reaper: Mutex::new(None),
             reported_failures: Mutex::new(HashSet::new()),
             epochs: Default::default(),
         }
@@ -237,7 +221,7 @@ impl LspManager {
     }
 
     pub fn is_installed(&self, server: &ServerConfig) -> bool {
-        resolve_command(&server.command, self.path_var.as_deref()).is_some()
+        resolve_command(&server.command, self.path_var.as_deref(), &self.workspace).is_some()
     }
 
     /// The root of a running server named `name`: a file outside the workspace (a dependency the
@@ -254,11 +238,11 @@ impl LspManager {
     }
 
     fn candidate(&self, server: &ServerConfig, path: &Path) -> Option<Candidate> {
-        let command = resolve_command(&server.command, self.path_var.as_deref())?;
         let root = match path.starts_with(&self.workspace) {
             true => server.root_for(path, &self.workspace)?,
             false => self.running_root(&server.name)?,
         };
+        let command = resolve_command(&server.command, self.path_var.as_deref(), &root)?;
         Some(Candidate {
             server: server.clone(),
             command,
@@ -328,29 +312,12 @@ impl LspManager {
         })
     }
 
-    fn reuse(existing: &Slot) -> Reuse {
-        match existing.start.peek() {
-            Some(Ok(client)) if client.is_alive() => Reuse::Keep,
-            Some(Ok(_)) if existing.respawn && existing.started.elapsed() < RETRY_FAILED_AFTER => {
-                let wait = RETRY_FAILED_AFTER.saturating_sub(existing.started.elapsed());
-                Reuse::Backoff(format!(
-                    "the language server exited again right after a restart; not restarting it for {}s",
-                    wait.as_secs() + 1
-                ))
-            }
-            Some(Ok(_)) => Reuse::Replace { respawn: true },
-            Some(Err(_)) if existing.started.elapsed() < RETRY_FAILED_AFTER => Reuse::Keep,
-            Some(Err(_)) => Reuse::Replace { respawn: false },
-            None => Reuse::Keep,
-        }
-    }
-
     fn slot(&self, candidate: &Candidate) -> StartFuture {
         let key = candidate.key();
         let mut slots = lock(&self.slots);
         let mut respawn = false;
         if let Some(existing) = slots.get(&key) {
-            match Self::reuse(existing) {
+            match existing.reuse() {
                 Reuse::Keep => {
                     if let Some(client) = existing.running() {
                         client.touch();
@@ -385,12 +352,13 @@ impl LspManager {
     }
 
     fn ensure_reaper(&self) {
-        if self.reaper.swap(true, Ordering::SeqCst) {
+        let mut reaper = lock(&self.reaper);
+        if reaper.as_ref().is_some_and(|task| !task.is_finished()) {
             return;
         }
         let slots = Arc::downgrade(&self.slots);
         let idle_ms = Arc::clone(&self.idle_ms);
-        tokio::spawn(async move {
+        *reaper = Some(tokio::spawn(async move {
             loop {
                 tokio::time::sleep(REAP_INTERVAL).await;
                 let Some(slots) = slots.upgrade() else {
@@ -398,7 +366,7 @@ impl LspManager {
                 };
                 reap_idle(&slots, Duration::from_millis(idle_ms.load(Ordering::SeqCst))).await;
             }
-        });
+        }));
     }
 
     /// The slot already holding a server (running or still starting) for `key`.
@@ -437,23 +405,24 @@ impl LspManager {
     /// servers that already run are used.
     pub async fn clients_within(&self, path: &Path, wait: Duration) -> Vec<Result<Arc<LspClient>, String>> {
         let retry = format!("run lsp diagnostics path={} in a moment", self.relative(path));
-        self.clients_within_hinting(path, wait, &retry, false).await
+        self.clients_within_hinting(path, wait, &retry, Initiator::Automatic)
+            .await
     }
 
-    /// [`LspManager::clients_within`], with `retry` as the advice for a server still starting. An
-    /// `explicit` request (the model asked) may start servers even in a project that is not trusted.
+    /// [`LspManager::clients_within`], with `retry` as the advice for a server still starting. A
+    /// request from the `Model` may start servers even in a project that is not trusted.
     pub async fn clients_within_hinting(
         &self,
         path: &Path,
         wait: Duration,
         retry: &str,
-        explicit: bool,
+        initiator: Initiator,
     ) -> Vec<Result<Arc<LspClient>, String>> {
         let starts: Vec<(Key, StartFuture)> = self
             .candidates(path)
             .iter()
             .filter_map(|c| {
-                let start = if self.trusted || explicit {
+                let start = if self.trusted || initiator == Initiator::Model {
                     Some(self.slot(c))
                 } else {
                     self.existing(&c.key())
@@ -472,7 +441,11 @@ impl LspManager {
         let mut reported = lock(&self.reported_failures);
         results
             .into_iter()
-            .filter(|(failed, _)| failed.as_ref().is_none_or(|key| reported.insert(key.clone())))
+            .filter(|(failed, _)| {
+                failed
+                    .as_ref()
+                    .is_none_or(|key| first_report(&mut reported, key.clone()))
+            })
             .map(|(_, result)| result)
             .collect()
     }
@@ -496,8 +469,8 @@ impl LspManager {
             .into_iter()
             .filter(|server| !server.linter && !server.root_markers.is_empty())
             .filter_map(|server| {
-                let command = resolve_command(&server.command, self.path_var.as_deref())?;
                 let root = server.root_for(&self.workspace.join("_"), &self.workspace)?;
+                let command = resolve_command(&server.command, self.path_var.as_deref(), &root)?;
                 (root == self.workspace).then(|| self.slot(&Candidate { server, command, root }))
             })
             .collect();
@@ -542,152 +515,7 @@ impl LspManager {
     }
 }
 
-/// The manager registered for `workspace` (by its resolved path), made by `init` the first time.
-fn managed(workspace: &Path, init: impl FnOnce() -> Arc<LspManager>) -> Arc<LspManager> {
-    let mut managers = lock(&MANAGERS);
-    Arc::clone(managers.entry(canonical(workspace)).or_insert_with(init))
-}
-
-/// Shuts down the servers of `workspace` and forgets its manager, so a later [`LspManager::for_workspace`]
-/// starts fresh. Does nothing for a workspace without a manager.
-pub async fn shutdown_workspace(workspace: &Path) {
-    if let Some(manager) = forget_workspace(workspace) {
-        manager.shutdown_all().await;
-    }
-}
-
-/// Drops the registry's hold on the manager of `workspace`. Without other holders its clients drop,
-/// and dropping a client kills its server's process group; usable where nothing can be awaited.
-pub fn forget_workspace(workspace: &Path) -> Option<Arc<LspManager>> {
-    lock(&MANAGERS).remove(&canonical(workspace))
-}
-
 #[cfg(test)]
-pub(crate) fn register_manager(manager: &Arc<LspManager>) {
-    lock(&MANAGERS).insert(manager.workspace.clone(), Arc::clone(manager));
-}
-
-#[cfg(test)]
-pub(crate) fn is_registered(workspace: &Path) -> bool {
-    lock(&MANAGERS).contains_key(&canonical(workspace))
-}
-
-/// Shuts down the servers of every workspace in this process.
-pub async fn shutdown_all_managers() {
-    let managers: Vec<Arc<LspManager>> = lock(&MANAGERS).values().cloned().collect();
-    futures::future::join_all(managers.iter().map(|manager| manager.shutdown_all())).await;
-}
-
-/// [`shutdown_all_managers`] for code that cannot await, such as a `Drop` or an exit path. Needs a
-/// multi-threaded runtime to run the shutdown; on any other runtime it does nothing.
-pub fn shutdown_all_blocking() {
-    block_on_runtime(shutdown_all_managers(), SHUTDOWN_BUDGET + Duration::from_secs(1));
-}
-
-/// Runs `work` on the current runtime from a separate thread and waits up to `budget` for it. Waiting
-/// on a task spawned from a runtime worker can stall: that worker is blocked, and a task in its
-/// scheduler slot cannot be stolen.
-fn block_on_runtime(work: impl Future<Output = ()> + Send + 'static, budget: Duration) {
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return;
-    };
-    if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
-        return;
-    }
-    let (done, finished) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        handle.block_on(work);
-        let _ = done.send(());
-    });
-    let _ = finished.recv_timeout(budget);
-}
-
-/// Forgets servers that exited long enough ago that restarting one is no longer held back.
-fn prune_exited(slots: &mut Slots) {
-    slots.retain(|_, slot| {
-        slot.running().is_some() || slot.client().is_none() || slot.started.elapsed() < RETRY_FAILED_AFTER
-    });
-}
-
-/// Stops the server that has been idle longest when the cap on running servers is reached.
-fn stop_least_recently_used(slots: &mut Slots) {
-    let running = slots.iter().filter(|(_, slot)| slot.running().is_some()).count();
-    if running < MAX_RUNNING_SERVERS {
-        return;
-    }
-    let idlest = slots
-        .iter()
-        .filter_map(|(key, slot)| Some((key, slot.running()?.idle_for())))
-        .max_by_key(|(_, idle)| *idle)
-        .map(|(key, _)| key.clone());
-    let stopped = idlest
-        .and_then(|key| slots.remove(&key))
-        .and_then(|slot| slot.running().cloned());
-    if let Some(client) = stopped {
-        tokio::spawn(async move { client.shutdown().await });
-    }
-}
-
-/// Shuts down the servers unused for `idle`; zero keeps them forever.
-async fn reap_idle(slots: &Mutex<Slots>, idle: Duration) {
-    if idle.is_zero() {
-        return;
-    }
-    let stale: Vec<Arc<LspClient>> = {
-        let mut slots = lock(slots);
-        let keys: Vec<Key> = slots
-            .iter()
-            .filter(|(_, slot)| slot.running().is_some_and(|client| client.idle_for() >= idle))
-            .map(|(key, _)| key.clone())
-            .collect();
-        keys.iter()
-            .filter_map(|key| slots.remove(key))
-            .filter_map(|slot| slot.running().cloned())
-            .collect()
-    };
-    futures::future::join_all(stale.iter().map(|client| client.shutdown())).await;
-}
-
-/// `path` with symlinks resolved, so one file always maps to the same server root; a file that does
-/// not exist yet resolves through its parent directory.
-pub(super) fn canonical(path: &Path) -> PathBuf {
-    path.canonicalize()
-        .ok()
-        .or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
-        .unwrap_or_else(|| path.to_path_buf())
-}
-
-async fn start_client(
-    launcher: Arc<dyn Launcher>,
-    server: ServerConfig,
-    command: PathBuf,
-    root: PathBuf,
-) -> Result<Arc<LspClient>, String> {
-    let launched = launcher.launch(&server, &command, &root)?;
-    let stderr = launched.stderr.clone();
-    let spec = ClientSpec {
-        name: &server.name,
-        root: &root,
-        initialization_options: server.initialization_options.clone(),
-        settings: server.settings.clone(),
-    };
-    match LspClient::start(spec, launched.reader, launched.writer, launched.process).await {
-        Ok(client) => Ok(Arc::new(client)),
-        Err(error) => {
-            let deadline = Instant::now() + Duration::from_millis(200);
-            while stderr.last_lines(1).is_empty() && Instant::now() < deadline {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            let output = stderr.last_lines(3);
-            let output = if output.is_empty() {
-                String::new()
-            } else {
-                format!("; stderr: {output}")
-            };
-            Err(format!("{} failed to initialize: {error}{output}", server.name))
-        }
-    }
-}
-
+mod reload_tests;
 #[cfg(test)]
 mod tests;

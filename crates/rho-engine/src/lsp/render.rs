@@ -1,7 +1,7 @@
 //! Rendering LSP responses as compact text for the model, and applying workspace edits.
 
 use super::client::{Diagnostic, PositionEncoding, uri_path};
-use super::position::byte_index;
+use super::position::{byte_index, json_u32};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -76,8 +76,8 @@ fn location_from(value: &Value) -> Option<Location> {
     let start = range.get("start")?;
     Some(Location {
         path: uri_path(uri)?,
-        line: start.get("line")?.as_u64()? as u32 + 1,
-        character: start.get("character")?.as_u64()? as u32,
+        line: json_u32(start.get("line"))?.checked_add(1)?,
+        character: json_u32(start.get("character"))?,
     })
 }
 
@@ -113,7 +113,9 @@ pub fn format_locations(workspace: &Path, noun: &str, found: &[Location]) -> Str
             lines = file_lines(&location.path);
             let _ = write!(out, "\n\n{}", display_path(workspace, &location.path));
         }
-        let text = lines.get(location.line as usize - 1).map_or("", |line| line.trim());
+        let text = lines
+            .get((location.line as usize).saturating_sub(1))
+            .map_or("", |line| line.trim());
         let _ = write!(
             out,
             "\n{}:{}",
@@ -223,7 +225,7 @@ pub struct SymbolEntry {
 }
 
 fn line_of(value: &Value, key: &str) -> Option<u32> {
-    Some(value.get(key)?.get("line")?.as_u64()? as u32 + 1)
+    json_u32(value.get(key)?.get("line"))?.checked_add(1)
 }
 
 fn flatten_symbol(value: &Value, parents: &[String], out: &mut Vec<SymbolEntry>) {
@@ -382,7 +384,7 @@ fn text_edit(value: &Value) -> Option<TextEdit> {
     let range = value.get("range")?;
     let point = |key: &str| -> Option<(u32, u32)> {
         let p = range.get(key)?;
-        Some((p.get("line")?.as_u64()? as u32, p.get("character")?.as_u64()? as u32))
+        Some((json_u32(p.get("line"))?, json_u32(p.get("character"))?))
     };
     Some(TextEdit {
         start: point("start")?,
@@ -395,7 +397,11 @@ fn text_edit(value: &Value) -> Option<TextEdit> {
 /// over `changes`), else `changes`. File creation, renaming, and deletion are rejected.
 pub fn workspace_edits(edit: &Value) -> Result<BTreeMap<PathBuf, Vec<Value>>, String> {
     let mut by_file: BTreeMap<PathBuf, Vec<Value>> = BTreeMap::new();
-    if let Some(changes) = edit.get("documentChanges").and_then(Value::as_array) {
+    let document_changes = edit
+        .get("documentChanges")
+        .and_then(Value::as_array)
+        .filter(|changes| !changes.is_empty());
+    if let Some(changes) = document_changes {
         for change in changes {
             let Some(uri) = change
                 .get("textDocument")
@@ -453,7 +459,7 @@ pub fn apply_text_edits(text: &str, edits: &[Value], encoding: PositionEncoding)
         let to = byte_offset(text, &starts, edit.end, encoding);
         spans.push((from, to.max(from), index, edit.new_text));
     }
-    spans.sort_by_key(|span| std::cmp::Reverse((span.0, span.2)));
+    spans.sort_by_key(|span| std::cmp::Reverse((span.0, span.1, span.2)));
     let mut out = text.to_string();
     let mut limit = usize::MAX;
     for (from, to, _, new_text) in spans {

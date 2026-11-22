@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::BufReader;
 
+mod queries;
+
 #[derive(Clone, Copy, Default)]
 pub struct FakeOptions {
     /// Answer `textDocument/diagnostic` instead of publishing.
@@ -49,6 +51,10 @@ pub struct FakeOptions {
     /// Like rust-analyzer: publish nothing on open, then after a save start a `cargo check` that
     /// reports the real diagnostics a moment later.
     pub check_on_save: bool,
+    /// Do not advertise `textDocumentSync.save`.
+    pub no_save: bool,
+    /// Ask for the text in `didSave`.
+    pub save_text: bool,
 }
 
 #[derive(Default)]
@@ -58,9 +64,21 @@ pub struct FakeLauncher {
     pub received: Arc<Mutex<Vec<String>>>,
     /// The results of the requests the server sent the client.
     pub responses: Arc<Mutex<Vec<Value>>>,
-    /// The method and params of each `initialize`, `workspace/didChangeWatchedFiles`,
+    /// The method and params of each `initialize`, `workspace/didChangeWatchedFiles`, `textDocument/didSave`,
     /// `textDocument/codeAction` and `textDocument/formatting` the server received.
     pub params: Arc<Mutex<Vec<(String, Value)>>>,
+}
+
+/// Polls `condition` every 10ms of (virtual) time and fails the test if it stays false for 30 seconds.
+pub async fn until(what: &str, mut condition: impl FnMut() -> bool) {
+    let waiting = async {
+        while !condition() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(30), waiting)
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {what}"));
 }
 
 /// The fake server's configuration: `.rs` files under a `Cargo.toml`.
@@ -215,6 +233,7 @@ impl FakeServer {
                 method.as_str(),
                 "initialize"
                     | "workspace/didChangeWatchedFiles"
+                    | "textDocument/didSave"
                     | "textDocument/codeAction"
                     | "textDocument/formatting"
             ) {
@@ -356,8 +375,12 @@ impl FakeServer {
     }
 
     fn capabilities(&self) -> Value {
+        let mut sync = json!({ "openClose": true, "change": 1 });
+        if !self.options.no_save {
+            sync["save"] = json!({ "includeText": self.options.save_text });
+        }
         let mut caps = json!({
-            "textDocumentSync": 1, "hoverProvider": true, "definitionProvider": true,
+            "textDocumentSync": sync, "hoverProvider": true, "definitionProvider": true,
             "referencesProvider": true, "documentSymbolProvider": true, "renameProvider": true,
             "workspaceSymbolProvider": true, "codeActionProvider": { "resolveProvider": true },
             "documentFormattingProvider": true,
@@ -405,122 +428,5 @@ impl FakeServer {
             position["line"].as_u64().unwrap_or(0),
             position["character"].as_u64().unwrap_or(0),
         )
-    }
-
-    fn occurrences(&self, word: &str) -> Vec<Value> {
-        let mut found = Vec::new();
-        let mut uris: Vec<&String> = self.docs.keys().collect();
-        uris.sort();
-        for uri in uris {
-            for (index, line) in self.text(uri).lines().enumerate() {
-                for (col, _) in line.match_indices(word) {
-                    if word_at(line, 0, col as u64) == word {
-                        found.push(json!({ "uri": uri, "range": range(index, col, index, col + word.len()) }));
-                    }
-                }
-            }
-        }
-        found
-    }
-
-    fn definition(&self, params: &Value) -> Value {
-        let word = self.word(params);
-        let definitions: Vec<Value> = self
-            .occurrences(&word)
-            .into_iter()
-            .filter(|location| {
-                let uri = location["uri"].as_str().unwrap_or("");
-                let line = location["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
-                let text = self.text(uri).lines().nth(line).unwrap_or("");
-                text.contains(&format!("fn {word}")) || text.contains(&format!("struct {word}"))
-            })
-            .collect();
-        Value::Array(definitions)
-    }
-
-    fn rename(&self, params: &Value) -> Value {
-        let new_name = params["newName"].as_str().unwrap_or("");
-        let mut changes = serde_json::Map::new();
-        for location in self.occurrences(&self.word(params)) {
-            let uri = location["uri"].as_str().unwrap_or("").to_string();
-            let edit = json!({ "range": location["range"], "newText": new_name });
-            changes
-                .entry(uri)
-                .or_insert_with(|| json!([]))
-                .as_array_mut()
-                .unwrap()
-                .push(edit);
-        }
-        json!({ "changes": changes })
-    }
-
-    fn code_actions(&self, params: &Value) -> Value {
-        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
-        let first = params["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
-        let last = params["range"]["end"]["line"].as_u64().unwrap_or(0) as usize;
-        let mut actions = Vec::new();
-        for (index, line) in self
-            .text(uri)
-            .lines()
-            .enumerate()
-            .filter(|(i, _)| (first..=last).contains(i))
-        {
-            let at = |marker: &str| {
-                line.find(marker)
-                    .map(|col| range(index, col, index, col + marker.len()))
-            };
-            let edit_to = |target: &str, range: Value, text: &str| json!({ "changes": { target: [{ "range": range, "newText": text }] } });
-            if let Some(found) = at("ERR") {
-                actions.push(json!({ "title": "Remove ERR", "kind": "quickfix", "isPreferred": true,
-                    "edit": edit_to(uri, found, "") }));
-            }
-            if let Some(found) = at("WARN") {
-                actions.push(json!({ "title": "Fix WARN lazily", "kind": "quickfix",
-                    "data": { "uri": uri, "range": found } }));
-            }
-            if at("CMD").is_some() {
-                actions.push(json!({ "title": "Run fake command", "kind": "refactor",
-                    "command": { "title": "Run fake command", "command": "fake.run" } }));
-            }
-            if let Some(found) = at("SECRET") {
-                let target = uri
-                    .rsplit_once('/')
-                    .map_or(String::new(), |(dir, _)| format!("{dir}/.env.rs"));
-                actions.push(json!({ "title": "Touch secrets", "kind": "quickfix",
-                    "edit": edit_to(&target, found, "x") }));
-            }
-        }
-        Value::Array(actions)
-    }
-
-    fn resolve_action(&self, action: &Value) -> Value {
-        let data = &action["data"];
-        let uri = data["uri"].as_str().unwrap_or("");
-        let mut resolved = action.clone();
-        resolved["edit"] = json!({ "changes": { uri: [{ "range": data["range"], "newText": "ok" }] } });
-        resolved
-    }
-
-    fn formatting(&self, uri: &str) -> Value {
-        let edits: Vec<Value> = self
-            .text(uri)
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.ends_with(' '))
-            .map(|(index, line)| {
-                let kept = line.trim_end().len();
-                json!({ "range": range(index, kept, index, line.len()), "newText": "" })
-            })
-            .collect();
-        Value::Array(edits)
-    }
-
-    fn workspace_symbols(&self, query: &str) -> Value {
-        let found: Vec<Value> = self
-            .occurrences(query)
-            .into_iter()
-            .map(|location| json!({ "name": query, "kind": 12, "location": location }))
-            .collect();
-        Value::Array(found)
     }
 }

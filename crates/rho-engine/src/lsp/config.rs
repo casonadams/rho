@@ -33,32 +33,47 @@ pub struct ServerConfig {
     pub linter: bool,
 }
 
-/// Name, command, args, file extensions, and root markers.
-type DefaultServer = (
-    &'static str,
-    &'static str,
-    &'static [&'static str],
-    &'static [&'static str],
-    &'static [&'static str],
-);
+struct DefaultServer {
+    name: &'static str,
+    command: &'static str,
+    args: &'static [&'static str],
+    extensions: &'static [&'static str],
+    root_markers: &'static [&'static str],
+}
+
+const fn default_server(
+    name: &'static str,
+    command: &'static str,
+    args: &'static [&'static str],
+    extensions: &'static [&'static str],
+    root_markers: &'static [&'static str],
+) -> DefaultServer {
+    DefaultServer {
+        name,
+        command,
+        args,
+        extensions,
+        root_markers,
+    }
+}
 
 const DEFAULT_SERVERS: &[DefaultServer] = &[
-    (
+    default_server(
         "rust-analyzer",
         "rust-analyzer",
         &[],
         &["rs"],
         &["Cargo.toml", "rust-project.json"],
     ),
-    ("gopls", "gopls", &[], &["go"], &["go.work", "go.mod"]),
-    (
+    default_server("gopls", "gopls", &[], &["go"], &["go.work", "go.mod"]),
+    default_server(
         "typescript-language-server",
         "typescript-language-server",
         &["--stdio"],
         &["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"],
         &["tsconfig.json", "jsconfig.json", "package.json"],
     ),
-    (
+    default_server(
         "pyright",
         "pyright-langserver",
         &["--stdio"],
@@ -71,7 +86,7 @@ const DEFAULT_SERVERS: &[DefaultServer] = &[
             "requirements.txt",
         ],
     ),
-    (
+    default_server(
         "basedpyright",
         "basedpyright-langserver",
         &["--stdio"],
@@ -84,7 +99,7 @@ const DEFAULT_SERVERS: &[DefaultServer] = &[
             "requirements.txt",
         ],
     ),
-    (
+    default_server(
         "clangd",
         "clangd",
         &[],
@@ -96,63 +111,63 @@ const DEFAULT_SERVERS: &[DefaultServer] = &[
             "CMakeLists.txt",
         ],
     ),
-    ("zls", "zls", &[], &["zig"], &["build.zig"]),
-    (
+    default_server("zls", "zls", &[], &["zig"], &["build.zig"]),
+    default_server(
         "lua-language-server",
         "lua-language-server",
         &[],
         &["lua"],
         &[".luarc.json", ".luarc.jsonc"],
     ),
-    (
+    default_server(
         "jdtls",
         "jdtls",
         &[],
         &["java"],
         &["pom.xml", "build.gradle", "build.gradle.kts"],
     ),
-    (
+    default_server(
         "kotlin-language-server",
         "kotlin-language-server",
         &[],
         &["kt", "kts"],
         &["settings.gradle", "settings.gradle.kts", "build.gradle.kts"],
     ),
-    ("ruby-lsp", "ruby-lsp", &[], &["rb"], &["Gemfile"]),
-    ("sourcekit-lsp", "sourcekit-lsp", &[], &["swift"], &["Package.swift"]),
-    (
+    default_server("ruby-lsp", "ruby-lsp", &[], &["rb"], &["Gemfile"]),
+    default_server("sourcekit-lsp", "sourcekit-lsp", &[], &["swift"], &["Package.swift"]),
+    default_server(
         "haskell-language-server",
         "haskell-language-server-wrapper",
         &["--lsp"],
         &["hs"],
         &["stack.yaml", "cabal.project", "*.cabal", "hie.yaml"],
     ),
-    ("ocamllsp", "ocamllsp", &[], &["ml", "mli"], &["dune-project", "*.opam"]),
-    ("csharp-ls", "csharp-ls", &[], &["cs"], &["*.sln", "*.csproj"]),
-    ("elixir-ls", "elixir-ls", &[], &["ex", "exs"], &["mix.exs"]),
-    (
+    default_server("ocamllsp", "ocamllsp", &[], &["ml", "mli"], &["dune-project", "*.opam"]),
+    default_server("csharp-ls", "csharp-ls", &[], &["cs"], &["*.sln", "*.csproj"]),
+    default_server("elixir-ls", "elixir-ls", &[], &["ex", "exs"], &["mix.exs"]),
+    default_server(
         "intelephense",
         "intelephense",
         &["--stdio"],
         &["php"],
         &["composer.json"],
     ),
-    (
+    default_server(
         "bash-language-server",
         "bash-language-server",
         &["start"],
         &["sh", "bash"],
         &[".git"],
     ),
-    (
+    default_server(
         "terraform-ls",
         "terraform-ls",
         &["serve"],
         &["tf", "tfvars"],
         &[".terraform", ".git"],
     ),
-    ("nil", "nil", &[], &["nix"], &["flake.nix"]),
-    ("taplo", "taplo", &["lsp", "stdio"], &["toml"], &[".git"]),
+    default_server("nil", "nil", &[], &["nix"], &["flake.nix"]),
+    default_server("taplo", "taplo", &["lsp", "stdio"], &["toml"], &[".git"]),
 ];
 
 const LANGUAGE_IDS: &[(&str, &str)] = &[
@@ -203,14 +218,14 @@ const LANGUAGE_IDS: &[(&str, &str)] = &[
 fn default_server_values() -> Map<String, Value> {
     DEFAULT_SERVERS
         .iter()
-        .map(|(name, command, args, extensions, markers)| {
+        .map(|server| {
             let value = json!({
-                "command": command,
-                "args": args,
-                "extensions": extensions,
-                "rootMarkers": markers,
+                "command": server.command,
+                "args": server.args,
+                "extensions": server.extensions,
+                "rootMarkers": server.root_markers,
             });
-            ((*name).to_string(), value)
+            (server.name.to_string(), value)
         })
         .collect()
 }
@@ -236,7 +251,7 @@ pub fn resolve_servers(layers: Vec<Map<String, Value>>) -> Result<Vec<ServerConf
     for layer in layers {
         merge_layer(&mut merged, layer);
     }
-    let order: Vec<&str> = DEFAULT_SERVERS.iter().map(|server| server.0).collect();
+    let order: Vec<&str> = DEFAULT_SERVERS.iter().map(|server| server.name).collect();
     let mut servers = Vec::new();
     for (name, value) in merged {
         let mut server: ServerConfig =
@@ -282,6 +297,52 @@ pub fn layer_paths(home: Option<&Path>, workspace: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The project's two files as layers. A file that cannot be read is an error only when it would
+/// apply; an untrusted project's broken file is a notice, so it cannot disable the user's servers.
+struct ProjectLayers {
+    layers: Vec<Map<String, Value>>,
+    notices: Vec<String>,
+}
+
+fn project_layers(workspace: &Path, trust_project: bool) -> Result<ProjectLayers, String> {
+    let mut layers = Vec::new();
+    let mut ignored = Vec::new();
+    let mut notices = Vec::new();
+    for path in [workspace.join(".lsp.json"), workspace.join(".agents").join("lsp.json")] {
+        match (read_layer(&path), trust_project) {
+            (Ok(layer), _) if layer.is_empty() => {}
+            (Ok(layer), true) => layers.push(layer),
+            (Ok(_), false) => ignored.push(path.display().to_string()),
+            (Err(error), true) => return Err(error),
+            (Err(error), false) => notices.push(format!("ignored project file: {error}")),
+        }
+    }
+    if !ignored.is_empty() {
+        notices.push(format!(
+            "ignored {}: project files choose commands to run, so they apply only with RHO_TRUST_PROJECT=1; copy trusted servers to ~/.agents/lsp.json",
+            ignored.join(" and ")
+        ));
+    }
+    Ok(ProjectLayers { layers, notices })
+}
+
+/// The `idleTimeoutMs` of the last layer that sets a valid one; invalid values are skipped with a notice.
+fn idle_timeout(layers: &[Map<String, Value>], notices: &mut Vec<String>) -> Option<u64> {
+    let mut invalid = false;
+    let mut found = None;
+    for value in layers.iter().rev().filter_map(|layer| layer.get("idleTimeoutMs")) {
+        match value.as_u64() {
+            Some(ms) if found.is_none() => found = Some(ms),
+            Some(_) => {}
+            None => invalid = true,
+        }
+    }
+    if invalid {
+        notices.push("ignored idleTimeoutMs: it must be a whole number of milliseconds".into());
+    }
+    found
+}
+
 /// Built-in servers, then `~/.agents/lsp.json`, then the project's `.lsp.json` and
 /// `.agents/lsp.json`. Project files choose which commands run, so they apply only when
 /// `trust_project`; a top-level `"enabled": false` in any applied file turns every server off.
@@ -290,15 +351,11 @@ pub fn load_servers(home: Option<&Path>, workspace: &Path, trust_project: bool) 
     if let Some(home) = home {
         layers.push(read_layer(&home.join(".agents").join("lsp.json"))?);
     }
-    let mut ignored = Vec::new();
-    for path in [workspace.join(".lsp.json"), workspace.join(".agents").join("lsp.json")] {
-        let layer = read_layer(&path)?;
-        match (layer.is_empty(), trust_project) {
-            (true, _) => {}
-            (false, true) => layers.push(layer),
-            (false, false) => ignored.push(path.display().to_string()),
-        }
-    }
+    let ProjectLayers {
+        layers: project,
+        mut notices,
+    } = project_layers(workspace, trust_project)?;
+    layers.extend(project);
     if layers
         .iter()
         .any(|layer| layer.get("enabled") == Some(&Value::Bool(false)))
@@ -309,19 +366,10 @@ pub fn load_servers(home: Option<&Path>, workspace: &Path, trust_project: bool) 
             idle_timeout_ms: None,
         });
     }
-    let notice = (!ignored.is_empty()).then(|| {
-        format!(
-            "ignored {}: project files choose commands to run, so they apply only with RHO_TRUST_PROJECT=1; copy trusted servers to ~/.agents/lsp.json",
-            ignored.join(" and ")
-        )
-    });
-    let idle_timeout_ms = layers
-        .iter()
-        .rev()
-        .find_map(|layer| layer.get("idleTimeoutMs")?.as_u64());
+    let idle_timeout_ms = idle_timeout(&layers, &mut notices);
     Ok(ServerSet {
         servers: resolve_servers(layers)?,
-        notice,
+        notice: (!notices.is_empty()).then(|| notices.join("; ")),
         idle_timeout_ms,
     })
 }
@@ -394,14 +442,16 @@ impl ServerConfig {
     }
 }
 
-/// Resolves a command name against `path_var` (a `PATH`-style list); names with a slash are used
-/// as given when they exist.
-pub fn resolve_command(command: &str, path_var: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+/// Resolves a command name against `path_var` (a `PATH`-style list); a name with a slash is taken
+/// relative to `root`, where the server runs. The result is absolute: relative `PATH` entries mean
+/// different directories to the check and the spawn, so they are skipped.
+pub fn resolve_command(command: &str, path_var: Option<&std::ffi::OsStr>, root: &Path) -> Option<PathBuf> {
     if command.contains('/') {
-        let path = PathBuf::from(command);
+        let path = root.join(command);
         return is_executable(&path).then_some(path);
     }
     std::env::split_paths(path_var?)
+        .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join(command))
         .find(|candidate| is_executable(candidate))
 }

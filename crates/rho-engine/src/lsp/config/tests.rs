@@ -1,4 +1,5 @@
 use super::*;
+use rho_test_support::TestDir;
 
 fn layer(json: Value) -> Map<String, Value> {
     json.as_object().unwrap().clone()
@@ -47,11 +48,11 @@ fn invalid_server_entries_name_the_server() {
 
 #[test]
 fn layer_files_are_optional_but_must_hold_an_object() {
-    let dir = tempfile::tempdir().unwrap();
-    assert!(read_layer(&dir.path().join("missing.json")).unwrap().is_empty());
-    std::fs::write(dir.path().join("list.json"), "[]").unwrap();
+    let dir = TestDir::new();
+    assert!(read_layer(&dir.as_ref().join("missing.json")).unwrap().is_empty());
+    std::fs::write(dir.as_ref().join("list.json"), "[]").unwrap();
     assert!(
-        read_layer(&dir.path().join("list.json"))
+        read_layer(&dir.as_ref().join("list.json"))
             .unwrap_err()
             .contains("JSON object")
     );
@@ -64,8 +65,8 @@ fn write_layer(path: &Path, json: Value) {
 
 #[test]
 fn project_files_apply_only_to_trusted_projects() {
-    let dir = tempfile::tempdir().unwrap();
-    let (home, ws) = (dir.path().join("home"), dir.path().join("ws"));
+    let dir = TestDir::new();
+    let (home, ws) = (dir.as_ref().join("home"), dir.as_ref().join("ws"));
     write_layer(&home.join(".agents/lsp.json"), json!({ "gopls": { "args": ["-v"] } }));
     write_layer(
         &ws.join(".lsp.json"),
@@ -91,9 +92,9 @@ fn project_files_apply_only_to_trusted_projects() {
 
 #[test]
 fn enabled_false_turns_every_server_off() {
-    let dir = tempfile::tempdir().unwrap();
-    write_layer(&dir.path().join(".agents/lsp.json"), json!({ "enabled": false }));
-    let set = load_servers(Some(dir.path()), &dir.path().join("ws"), false).unwrap();
+    let dir = TestDir::new();
+    write_layer(&dir.as_ref().join(".agents/lsp.json"), json!({ "enabled": false }));
+    let set = load_servers(Some(dir.as_ref()), &dir.as_ref().join("ws"), false).unwrap();
     assert!(set.servers.is_empty());
     assert!(set.notice.unwrap().contains("turned off"));
 }
@@ -110,8 +111,8 @@ fn language_ids_and_extension_matching() {
 
 #[test]
 fn roots_prefer_the_workspace_then_the_nearest_marked_ancestor() {
-    let dir = tempfile::tempdir().unwrap();
-    let ws = dir.path();
+    let dir = TestDir::new();
+    let ws = dir.as_ref();
     let nested = ws.join("tools/cli/src");
     std::fs::create_dir_all(&nested).unwrap();
     std::fs::write(ws.join("tools/cli/Cargo.toml"), "").unwrap();
@@ -131,14 +132,77 @@ fn roots_prefer_the_workspace_then_the_nearest_marked_ancestor() {
 #[test]
 fn commands_resolve_only_to_executables_on_the_given_path() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().unwrap();
-    let tool = dir.path().join("mylsp");
+    let dir = TestDir::new();
+    let tool = dir.as_ref().join("mylsp");
     std::fs::write(&tool, "").unwrap();
-    let path_var = std::env::join_paths([dir.path()]).unwrap();
+    let path_var = std::env::join_paths([dir.as_ref()]).unwrap();
 
-    assert_eq!(resolve_command("mylsp", Some(&path_var)), None, "not executable yet");
+    let root = Path::new("/");
+    assert_eq!(
+        resolve_command("mylsp", Some(&path_var), root),
+        None,
+        "not executable yet"
+    );
     std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(resolve_command("mylsp", Some(&path_var)), Some(tool.clone()));
-    assert_eq!(resolve_command("mylsp", None), None);
-    assert_eq!(resolve_command(tool.to_str().unwrap(), None), Some(tool));
+    assert_eq!(resolve_command("mylsp", Some(&path_var), root), Some(tool.clone()));
+    assert_eq!(resolve_command("mylsp", None, root), None);
+    assert_eq!(resolve_command(tool.to_str().unwrap(), None, root), Some(tool));
+}
+
+#[cfg(unix)]
+#[test]
+fn relative_commands_resolve_to_absolute_paths_so_check_and_spawn_agree() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TestDir::new();
+    let tool = dir.as_ref().join("bin/mylsp");
+    std::fs::create_dir(dir.as_ref().join("bin")).unwrap();
+    std::fs::write(&tool, "").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(resolve_command("bin/mylsp", None, dir.as_ref()), Some(tool));
+    assert_eq!(resolve_command("bin/mylsp", None, Path::new("/")), None);
+
+    let path_var = std::env::join_paths(["bin"]).unwrap();
+    assert_eq!(
+        resolve_command("mylsp", Some(&path_var), dir.as_ref()),
+        None,
+        "relative PATH entries are skipped"
+    );
+}
+
+#[test]
+fn a_malformed_untrusted_project_file_is_a_notice_not_a_failure() {
+    let dir = TestDir::new();
+    let (home, ws) = (dir.as_ref().join("home"), dir.as_ref().join("ws"));
+    write_layer(&home.join(".agents/lsp.json"), json!({ "mine": { "command": "m" } }));
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join(".lsp.json"), "{ not json").unwrap();
+
+    let set = load_servers(Some(&home), &ws, false).unwrap();
+    assert!(set.servers.iter().any(|s| s.name == "mine"));
+    assert!(set.notice.unwrap().contains(".lsp.json"));
+    assert!(
+        load_servers(Some(&home), &ws, true).is_err(),
+        "a trusted file must parse"
+    );
+}
+
+#[test]
+fn idle_timeouts_must_be_unsigned_integers_and_others_are_ignored_with_a_notice() {
+    let dir = TestDir::new();
+    let cases = [
+        (json!(5000), Some(5000), false),
+        (json!("5000"), None, true),
+        (json!(-1), None, true),
+        (json!(1.5), None, true),
+    ];
+    for (value, expected, notice) in cases {
+        write_layer(
+            &dir.as_ref().join(".agents/lsp.json"),
+            json!({ "idleTimeoutMs": value }),
+        );
+        let set = load_servers(Some(dir.as_ref()), &dir.as_ref().join("ws"), false).unwrap();
+        assert_eq!(set.idle_timeout_ms, expected, "{value}");
+        let noticed = set.notice.is_some_and(|n| n.contains("idleTimeoutMs"));
+        assert_eq!(noticed, notice, "{value}");
+    }
 }

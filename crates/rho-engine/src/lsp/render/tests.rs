@@ -1,4 +1,5 @@
 use super::*;
+use rho_test_support::TestDir;
 use serde_json::json;
 
 fn uri(path: &Path) -> String {
@@ -7,9 +8,9 @@ fn uri(path: &Path) -> String {
 
 #[test]
 fn locations_accept_location_lists_and_links_sorted_without_duplicates() {
-    let dir = tempfile::tempdir().unwrap();
-    let a = dir.path().join("a.rs");
-    let b = dir.path().join("src/b.rs");
+    let dir = TestDir::new();
+    let a = dir.as_ref().join("a.rs");
+    let b = dir.as_ref().join("src/b.rs");
     std::fs::create_dir_all(b.parent().unwrap()).unwrap();
     std::fs::write(&a, "fn one() {}\n  fn two() {}\n").unwrap();
     std::fs::write(&b, "use crate::two;\n").unwrap();
@@ -24,11 +25,11 @@ fn locations_accept_location_lists_and_links_sorted_without_duplicates() {
     let found = locations(&response);
     assert_eq!(found.len(), 2);
     assert_eq!(
-        format_locations(dir.path(), "reference", &found),
+        format_locations(dir.as_ref(), "reference", &found),
         "2 references\n\na.rs\n2:fn two() {}\n\nsrc/b.rs\n1:use crate::two;"
     );
     assert_eq!(locations(&json!({ "uri": uri(&a), "range": range(0) })).len(), 1);
-    assert_eq!(format_locations(dir.path(), "definition", &[]), "No definition found");
+    assert_eq!(format_locations(dir.as_ref(), "definition", &[]), "No definition found");
 }
 
 fn diag(severity: u8, line: u32, message: &str) -> Diagnostic {
@@ -152,4 +153,46 @@ fn workspace_edits_prefer_document_changes_and_reject_file_operations() {
         &json!({ "documentChanges": [{ "kind": "rename", "oldUri": "file:///a", "newUri": "file:///b" }] }),
     );
     assert!(rename.unwrap_err().contains("rename operation"));
+}
+
+#[test]
+fn empty_document_changes_fall_back_to_changes() {
+    let edits = workspace_edits(&json!({
+        "changes": { "file:///a.rs": [{ "newText": "x" }] },
+        "documentChanges": [],
+    }))
+    .unwrap();
+    assert_eq!(edits[&PathBuf::from("/a.rs")].len(), 1);
+}
+
+#[test]
+fn inserts_at_the_start_of_a_replacement_are_valid_in_either_array_order() {
+    let edit = |start: u32, end: u32, text: &str| json!({ "range": { "start": { "line": 0, "character": start }, "end": { "line": 0, "character": end } }, "newText": text });
+    let utf8 = PositionEncoding::Utf8;
+    let insert_then_replace = apply_text_edits("abc", &[edit(1, 1, "I"), edit(1, 2, "R")], utf8);
+    assert_eq!(insert_then_replace.unwrap(), "aIRc");
+    let replace_then_insert = apply_text_edits("abc", &[edit(1, 2, "R"), edit(1, 1, "I")], utf8);
+    assert_eq!(replace_then_insert.unwrap(), "aIRc");
+    let two_inserts = apply_text_edits("abc", &[edit(1, 1, "1"), edit(1, 1, "2"), edit(1, 2, "R")], utf8);
+    assert_eq!(two_inserts.unwrap(), "a12Rc");
+    let inside = apply_text_edits("abcd", &[edit(1, 3, "R"), edit(2, 2, "I")], utf8);
+    assert!(inside.unwrap_err().contains("overlapping"));
+}
+
+#[test]
+fn server_numbers_outside_the_u32_range_never_panic_or_wrap() {
+    let diagnostic = |severity: u64, line: u64| json!({ "range": { "start": { "line": line, "character": 0 } }, "severity": severity, "message": "m" });
+    let wrapped = Diagnostic::from_lsp(&diagnostic(256, 0)).unwrap();
+    assert!(wrapped.severity > 2, "256 must not wrap to {}", wrapped.severity);
+    assert!(Diagnostic::from_lsp(&diagnostic(1, u64::from(u32::MAX))).is_none());
+    assert!(Diagnostic::from_lsp(&diagnostic(1, u64::MAX)).is_none());
+    let at = |line: u64| json!({ "uri": "file:///a.rs", "range": { "start": { "line": line, "character": 0 } } });
+    assert!(locations(&json!([at(u64::MAX)])).is_empty());
+
+    let zero_line = Location {
+        path: PathBuf::from("/nonexistent.rs"),
+        line: 0,
+        character: 0,
+    };
+    assert!(format_locations(Path::new("/"), "reference", &[zero_line]).starts_with("1 reference"));
 }

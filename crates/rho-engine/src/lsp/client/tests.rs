@@ -1,8 +1,9 @@
 use super::*;
-use crate::lsp::test_server::{FakeLauncher, FakeOptions, fake_manager, fake_manager_with, fake_server};
+use crate::lsp::test_server::{FakeLauncher, FakeOptions, fake_manager, fake_manager_with, fake_server, until};
+use rho_test_support::TestDir;
 
 struct Fixture {
-    dir: tempfile::TempDir,
+    dir: TestDir,
     launcher: Arc<FakeLauncher>,
     client: Arc<LspClient>,
 }
@@ -10,13 +11,13 @@ struct Fixture {
 impl Fixture {
     async fn new(options: FakeOptions) -> Self {
         let (dir, path) = project();
-        let (manager, launcher) = fake_manager(dir.path(), options);
+        let (manager, launcher) = fake_manager(dir.as_ref(), options);
         let client = manager.client_for(&path).await.unwrap();
         Self { dir, launcher, client }
     }
 
     fn lib(&self) -> PathBuf {
-        self.dir.path().join("src/lib.rs")
+        self.dir.as_ref().join("src/lib.rs")
     }
 
     fn received(&self) -> Vec<String> {
@@ -33,11 +34,11 @@ impl Fixture {
     }
 }
 
-fn project() -> (tempfile::TempDir, PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.path().join("src")).unwrap();
-    let lib = dir.path().join("src/lib.rs");
+fn project() -> (TestDir, PathBuf) {
+    let dir = TestDir::new();
+    std::fs::write(dir.as_ref().join("Cargo.toml"), "").unwrap();
+    std::fs::create_dir(dir.as_ref().join("src")).unwrap();
+    let lib = dir.as_ref().join("src/lib.rs");
     std::fs::write(&lib, "fn ok() {}\n").unwrap();
     (dir, lib)
 }
@@ -67,9 +68,7 @@ async fn a_request_that_times_out_is_canceled_on_the_server() {
         .await
         .unwrap_err();
     assert!(error.contains("timed out"), "{error}");
-    while fixture.count("$/cancelRequest") == 0 {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    until("the cancel", || fixture.count("$/cancelRequest") > 0).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -80,9 +79,10 @@ async fn dynamically_registered_pull_diagnostics_are_pulled() {
     })
     .await;
     assert!(!fixture.client.supports("diagnosticProvider"));
-    while !fixture.client.state().pull_registered.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    until("the pull registration", || {
+        fixture.client.state().pull_registered.load(Ordering::SeqCst)
+    })
+    .await;
     let synced = fixture.client.sync(&fixture.lib(), "ERR here\n", "rust").await.unwrap();
     let outcome = fixture
         .client
@@ -139,11 +139,12 @@ async fn workspace_configuration_requests_are_answered_from_the_server_settings(
         ask_configuration: true,
         ..FakeOptions::default()
     };
-    let (manager, launcher) = fake_manager_with(dir.path(), options, vec![server]);
+    let (manager, launcher) = fake_manager_with(dir.as_ref(), options, vec![server]);
     manager.client_for(&path).await.unwrap();
-    while launcher.responses.lock().unwrap().is_empty() {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    until("the configuration answer", || {
+        !launcher.responses.lock().unwrap().is_empty()
+    })
+    .await;
     assert_eq!(launcher.responses.lock().unwrap()[0], json!([5]));
 }
 
@@ -193,7 +194,7 @@ async fn unchanged_text_still_reports_the_diagnostics_published_since_its_last_c
 #[tokio::test(start_paused = true)]
 async fn documents_whose_file_is_gone_are_closed_when_syncing_from_disk() {
     let fixture = Fixture::new(FakeOptions::default()).await;
-    let gone = fixture.dir.path().join("src/gone.rs");
+    let gone = fixture.dir.as_ref().join("src/gone.rs");
     std::fs::write(&gone, "fn gone() {}\n").unwrap();
     fixture.client.sync(&gone, "fn gone() {}\n", "rust").await.unwrap();
     fixture
@@ -250,7 +251,7 @@ async fn close_document_closes_an_open_document_once() {
 #[tokio::test(start_paused = true)]
 async fn opening_more_than_the_cap_closes_the_least_recently_used_document() {
     let fixture = Fixture::new(FakeOptions::default()).await;
-    let path = |index: usize| fixture.dir.path().join(format!("src/f{index}.rs"));
+    let path = |index: usize| fixture.dir.as_ref().join(format!("src/f{index}.rs"));
     for index in 0..MAX_OPEN_DOCUMENTS {
         fixture.client.sync(&path(index), "fn a() {}\n", "rust").await.unwrap();
     }
@@ -303,4 +304,119 @@ async fn shutdown_gives_up_on_a_server_that_never_answers() {
         waited >= SHUTDOWN_REQUEST_TIMEOUT && waited < Duration::from_secs(4),
         "{waited:?}"
     );
+}
+
+impl Fixture {
+    fn params(&self, method: &str) -> Vec<Value> {
+        let params = self.launcher.params.lock().unwrap();
+        params
+            .iter()
+            .filter(|(m, _)| m == method)
+            .map(|(_, p)| p.clone())
+            .collect()
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn one_file_reached_by_two_spellings_is_one_document() {
+    let fixture = Fixture::new(FakeOptions::default()).await;
+    let alias = fixture.dir.as_ref().join("alias");
+    std::os::unix::fs::symlink(fixture.dir.as_ref().join("src"), &alias).unwrap();
+    let through_alias = alias.join("lib.rs");
+
+    fixture
+        .client
+        .sync(&fixture.lib(), "fn a() {}\n", "rust")
+        .await
+        .unwrap();
+    fixture
+        .client
+        .sync(&through_alias, "fn a() {}\n", "rust")
+        .await
+        .unwrap();
+    fixture.settle().await;
+
+    assert_eq!(fixture.count("textDocument/didOpen"), 1);
+    assert!(fixture.client.is_open(&through_alias).await);
+    fixture.client.close_document(&through_alias).await.unwrap();
+    assert!(!fixture.client.is_open(&fixture.lib()).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_document_closed_while_syncing_from_disk_stays_closed() {
+    let fixture = Fixture::new(FakeOptions::default()).await;
+    let other = fixture.dir.as_ref().join("src/other.rs");
+    std::fs::write(&other, "fn o() {}\n").unwrap();
+    fixture
+        .client
+        .sync(&fixture.lib(), "fn ok() {}\n", "rust")
+        .await
+        .unwrap();
+    fixture.client.sync(&other, "fn o() {}\n", "rust").await.unwrap();
+
+    let (synced, closed) = tokio::join!(
+        fixture.client.sync_open_documents_from_disk(),
+        fixture.client.close_document(&other)
+    );
+    synced.unwrap();
+    closed.unwrap();
+    fixture.settle().await;
+
+    assert!(
+        !fixture.client.is_open(&other).await,
+        "the closed document was reopened"
+    );
+    assert_eq!(fixture.count("textDocument/didOpen"), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn did_save_follows_the_servers_save_capability() {
+    let cases = [
+        (FakeOptions::default(), true, false),
+        (
+            FakeOptions {
+                save_text: true,
+                ..FakeOptions::default()
+            },
+            true,
+            true,
+        ),
+        (
+            FakeOptions {
+                no_save: true,
+                ..FakeOptions::default()
+            },
+            false,
+            false,
+        ),
+    ];
+    for (options, sent, with_text) in cases {
+        let fixture = Fixture::new(options).await;
+        fixture
+            .client
+            .sync(&fixture.lib(), "fn a() {}\n", "rust")
+            .await
+            .unwrap();
+        fixture.client.did_save(&fixture.lib(), "fn a() {}\n").await.unwrap();
+        fixture.settle().await;
+        let saves = fixture.params("textDocument/didSave");
+        assert_eq!(saves.len(), usize::from(sent));
+        assert!(saves.iter().all(|p| p.get("text").is_some() == with_text), "{saves:?}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn closing_a_document_forgets_its_published_diagnostics() {
+    let fixture = Fixture::new(FakeOptions::default()).await;
+    let synced = fixture.client.sync(&fixture.lib(), "ERR here\n", "rust").await.unwrap();
+    fixture
+        .client
+        .diagnostics(&fixture.lib(), synced, Duration::from_secs(3))
+        .await;
+    assert!(!fixture.client.state().all_published().is_empty());
+
+    fixture.client.close_document(&fixture.lib()).await.unwrap();
+
+    assert!(fixture.client.state().published_len() == 0);
 }

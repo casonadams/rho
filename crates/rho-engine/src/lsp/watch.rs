@@ -2,7 +2,8 @@
 //! each file's changes are counted so late diagnostics can tell they went stale.
 
 use super::client::file_uri;
-use super::manager::{LspManager, canonical, lock};
+use super::manager::LspManager;
+use super::support::{canonical, lock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -26,7 +27,8 @@ impl FileChange {
     }
 }
 
-/// How many times rho changed each file, and how many late-diagnostics waits are running.
+/// How many times rho changed each file, and how many late-diagnostics waits are running. A file
+/// whose count was dropped to stay within [`MAX_EPOCH_FILES`] reads as changed since any earlier stamp.
 #[derive(Default)]
 pub(super) struct Epochs {
     files: Mutex<HashMap<PathBuf, u64>>,
@@ -48,14 +50,17 @@ impl LspManager {
         for client in self.running_clients() {
             let inside: Vec<&PathBuf> = paths.iter().filter(|path| path.starts_with(&client.root)).collect();
             let mut unopened = Vec::new();
-            for path in &inside {
-                if !client.is_open(path).await {
+            let mut open = Vec::new();
+            for path in inside {
+                if client.is_open(path).await {
+                    open.push(path);
+                } else {
                     unopened.push((file_uri(path), file_change(path)));
                 }
             }
             let _ = client.sync_open_documents_from_disk().await;
             let _ = client.did_change_watched_files(&unopened);
-            for path in inside {
+            for path in open {
                 if let Ok(text) = tokio::fs::read_to_string(path).await {
                     let _ = client.did_save(path, &text).await;
                 }
@@ -78,6 +83,12 @@ impl LspManager {
         let mut epochs = lock(&self.epochs.files);
         for path in paths {
             *epochs.entry(path.clone()).or_default() += 1;
+            while epochs.len() > MAX_EPOCH_FILES {
+                let Some(stale) = epochs.keys().find(|key| *key != path).cloned() else {
+                    break;
+                };
+                epochs.remove(&stale);
+            }
         }
     }
 
@@ -100,5 +111,27 @@ fn file_change(path: &Path) -> FileChange {
     match path.exists() {
         true => FileChange::Changed,
         false => FileChange::Deleted,
+    }
+}
+
+const MAX_EPOCH_FILES: usize = 1024;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lsp::test_server::{FakeOptions, fake_manager};
+    use rho_test_support::TestDir;
+
+    #[tokio::test(start_paused = true)]
+    async fn the_change_counts_kept_per_file_are_bounded() {
+        let dir = TestDir::new();
+        let (manager, _) = fake_manager(dir.as_ref(), FakeOptions::default());
+        let paths: Vec<PathBuf> = (0..MAX_EPOCH_FILES + 20)
+            .map(|index| dir.as_ref().join(format!("f{index}.rs")))
+            .collect();
+        manager.files_changed(&paths);
+        assert!(lock(&manager.epochs.files).len() <= MAX_EPOCH_FILES);
+        let last = paths.last().unwrap();
+        assert_eq!(manager.change_count(last), 1, "the files just bumped are kept");
     }
 }

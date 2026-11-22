@@ -1,12 +1,13 @@
 use super::*;
-use crate::lsp::test_server::{FakeOptions, fake_manager, fake_manager_with, fake_server};
+use crate::lsp::test_server::{FakeOptions, fake_manager, fake_manager_with, fake_server, until};
+use rho_test_support::TestDir;
 use serde_json::{Value, json};
 
-fn project() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.path().join("src")).unwrap();
-    let lib = dir.path().join("src/lib.rs");
+fn project() -> (TestDir, std::path::PathBuf) {
+    let dir = TestDir::new();
+    std::fs::write(dir.as_ref().join("Cargo.toml"), "").unwrap();
+    std::fs::create_dir(dir.as_ref().join("src")).unwrap();
+    let lib = dir.as_ref().join("src/lib.rs");
     std::fs::write(&lib, "fn ok() {}\n").unwrap();
     (dir, lib)
 }
@@ -14,15 +15,13 @@ fn project() -> (tempfile::TempDir, std::path::PathBuf) {
 #[tokio::test(start_paused = true)]
 async fn errors_in_other_files_count_only_files_that_still_exist() {
     let (dir, lib) = project();
-    let other = dir.path().join("src/other.rs");
+    let other = dir.as_ref().join("src/other.rs");
     std::fs::write(&other, "ERR\n").unwrap();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, _) = fake_manager(dir.as_ref(), FakeOptions::default());
     let client = manager.client_for(&lib).await.unwrap();
     client.sync(&other, "ERR\n", "rust").await.unwrap();
     let wait = Duration::from_secs(3);
-    while client.state().all_published().is_empty() {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    until("the diagnostics", || !client.state().all_published().is_empty()).await;
 
     let report = diagnostics_for(&manager, &lib, "fn ok() {}\n", wait).await.unwrap();
     assert_eq!(
@@ -43,7 +42,7 @@ async fn every_server_reports_within_one_shared_deadline() {
         ..FakeOptions::default()
     };
     let servers = vec![fake_server("fake", false), fake_server("lint", true)];
-    let (manager, _) = fake_manager_with(dir.path(), options, servers);
+    let (manager, _) = fake_manager_with(dir.as_ref(), options, servers);
 
     let started = Instant::now();
     let report = diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(3))
@@ -75,7 +74,7 @@ async fn edited(manager: &Arc<LspManager>, inbox: Option<&crate::mailbox::Mailbo
 #[tokio::test(start_paused = true)]
 async fn diagnostics_that_miss_the_wait_arrive_later_as_an_untrusted_notice() {
     let (dir, lib) = project();
-    let (manager, _) = fake_manager(dir.path(), late_server());
+    let (manager, _) = fake_manager(dir.as_ref(), late_server());
     let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
 
     let content = edited(&manager, Some(&inbox), &lib).await;
@@ -102,7 +101,7 @@ async fn diagnostics_that_miss_the_wait_arrive_later_as_an_untrusted_notice() {
 #[tokio::test(start_paused = true)]
 async fn without_a_mailbox_the_report_still_tells_the_model_to_ask_again() {
     let (dir, lib) = project();
-    let (manager, _) = fake_manager(dir.path(), late_server());
+    let (manager, _) = fake_manager(dir.as_ref(), late_server());
 
     let content = edited(&manager, None, &lib).await;
 
@@ -115,7 +114,7 @@ async fn without_a_mailbox_the_report_still_tells_the_model_to_ask_again() {
 #[tokio::test(start_paused = true)]
 async fn a_file_edited_again_drops_the_late_notice() {
     let (dir, lib) = project();
-    let (manager, _) = fake_manager(dir.path(), late_server());
+    let (manager, _) = fake_manager(dir.as_ref(), late_server());
     let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
     edited(&manager, Some(&inbox), &lib).await;
 
@@ -132,7 +131,7 @@ async fn late_diagnostics_equal_to_the_reported_ones_are_not_repeated() {
         indexing: true,
         ..FakeOptions::default()
     };
-    let (manager, _) = fake_manager(dir.path(), busy);
+    let (manager, _) = fake_manager(dir.as_ref(), busy);
     let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
 
     let content = edited(&manager, Some(&inbox), &lib).await;
@@ -148,16 +147,18 @@ async fn late_diagnostics_equal_to_the_reported_ones_are_not_repeated() {
 #[tokio::test(start_paused = true)]
 async fn follow_up_waits_are_capped() {
     let (dir, lib) = project();
-    let (manager, _) = fake_manager(dir.path(), late_server());
+    let options = FakeOptions {
+        silent: true,
+        ..FakeOptions::default()
+    };
+    let (manager, _) = fake_manager(dir.as_ref(), options);
     let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
-    for _ in 0..deferred::MAX_FOLLOW_UPS + 3 {
-        edited(&manager, Some(&inbox), &lib).await;
-    }
+    let running = || manager.epochs.follow_ups.load(std::sync::atomic::Ordering::SeqCst);
 
-    let running = manager.epochs.follow_ups.load(std::sync::atomic::Ordering::SeqCst);
-    assert!(running <= deferred::MAX_FOLLOW_UPS, "{running}");
-    tokio::time::sleep(Duration::from_secs(60)).await;
-    assert_eq!(manager.epochs.follow_ups.load(std::sync::atomic::Ordering::SeqCst), 0);
+    futures::future::join_all((0..deferred::MAX_FOLLOW_UPS + 3).map(|_| edited(&manager, Some(&inbox), &lib))).await;
+
+    assert_eq!(running(), deferred::MAX_FOLLOW_UPS);
+    until("the follow-up waits to end", || running() == 0).await;
 }
 
 fn watched(launcher: &test_server::FakeLauncher) -> Vec<Value> {
@@ -176,7 +177,7 @@ async fn a_check_that_starts_after_the_server_goes_idle_is_not_missed() {
         check_on_save: true,
         ..FakeOptions::default()
     };
-    let (manager, _) = fake_manager(dir.path(), options);
+    let (manager, _) = fake_manager(dir.as_ref(), options);
 
     let report = diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(10))
         .await
@@ -188,7 +189,7 @@ async fn a_check_that_starts_after_the_server_goes_idle_is_not_missed() {
 #[tokio::test(start_paused = true)]
 async fn a_rewritten_open_file_is_resynced_so_stale_diagnostics_clear() {
     let (dir, lib) = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, _) = fake_manager(dir.as_ref(), FakeOptions::default());
     let wait = Duration::from_secs(3);
     let bad = diagnostics_for(&manager, &lib, "ERR\n", wait).await.unwrap();
     assert!(bad.contains("1 error"), "{bad}");
@@ -211,10 +212,10 @@ async fn a_rewritten_open_file_is_resynced_so_stale_diagnostics_clear() {
 #[tokio::test(start_paused = true)]
 async fn servers_hear_about_files_rho_creates_changes_and_deletes() {
     let (dir, lib) = project();
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, launcher) = fake_manager(dir.as_ref(), FakeOptions::default());
     let client = manager.client_for(&lib).await.unwrap();
-    let made = dir.path().join("src/made.rs");
-    let gone = dir.path().join("src/gone.rs");
+    let made = dir.as_ref().join("src/made.rs");
+    let gone = dir.as_ref().join("src/gone.rs");
     std::fs::write(&made, "").unwrap();
 
     manager.files_changed(&[lib.clone(), gone.clone()]);
@@ -253,9 +254,9 @@ async fn servers_hear_about_files_rho_creates_changes_and_deletes() {
 #[tokio::test(start_paused = true)]
 async fn a_disk_change_found_while_syncing_open_documents_is_announced() {
     let (dir, lib) = project();
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, launcher) = fake_manager(dir.as_ref(), FakeOptions::default());
     let client = manager.client_for(&lib).await.unwrap();
-    let other = dir.path().join("src/other.rs");
+    let other = dir.as_ref().join("src/other.rs");
     client.sync(&lib, "fn ok() {}\n", "rust").await.unwrap();
     client.sync(&other, "fn a() {}\n", "rust").await.unwrap();
     std::fs::write(&other, "fn a() {}\n").unwrap();
@@ -298,7 +299,7 @@ async fn a_disk_change_found_while_syncing_open_documents_is_announced() {
 #[tokio::test(start_paused = true)]
 async fn the_client_advertises_the_capabilities_the_new_actions_rely_on() {
     let (dir, lib) = project();
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, launcher) = fake_manager(dir.as_ref(), FakeOptions::default());
     manager.client_for(&lib).await.unwrap();
 
     let params = launcher.params.lock().unwrap();
@@ -310,4 +311,29 @@ async fn the_client_advertises_the_capabilities_the_new_actions_rely_on() {
     );
     assert!(caps["textDocument"]["codeAction"]["codeActionLiteralSupport"].is_object());
     assert!(caps["textDocument"]["formatting"].is_object());
+}
+
+#[tokio::test(start_paused = true)]
+async fn only_open_documents_are_saved_after_a_write() {
+    let (dir, lib) = project();
+    let other = dir.as_ref().join("src/other.rs");
+    std::fs::write(&other, "fn o() {}\n").unwrap();
+    let (manager, launcher) = fake_manager(dir.as_ref(), FakeOptions::default());
+    let client = manager.client_for(&lib).await.unwrap();
+    client.sync(&lib, "fn ok() {}\n", "rust").await.unwrap();
+
+    manager.refresh_after_write(&[lib.clone(), other.clone()]).await;
+    client
+        .request("workspace/symbol", json!({ "query": "" }))
+        .await
+        .unwrap();
+
+    let params = launcher.params.lock().unwrap();
+    let saved: Vec<&str> = params
+        .iter()
+        .filter(|(method, _)| method == "textDocument/didSave")
+        .filter_map(|(_, p)| p["textDocument"]["uri"].as_str())
+        .collect();
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    assert!(saved[0].ends_with("/lib.rs"), "{saved:?}");
 }

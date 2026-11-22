@@ -2,13 +2,17 @@
 //! configuration.
 
 use super::rpc::ServerMessages;
+use super::support::lock;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use tokio::sync::Notify;
 use tokio::time::Instant;
+
+const MAX_PUBLISHED: usize = 2048;
+const MAX_PROGRESS: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -31,10 +35,13 @@ impl Diagnostic {
             Value::Number(number) => Some(number.to_string()),
             _ => None,
         });
+        let line = super::position::json_u32(start.get("line"))?.checked_add(1)?;
+        let column = super::position::json_u32(start.get("character"))?.checked_add(1)?;
+        let severity = value.get("severity").and_then(Value::as_u64).unwrap_or(1);
         Some(Self {
-            line: start.get("line")?.as_u64()? as u32 + 1,
-            column: start.get("character")?.as_u64()? as u32 + 1,
-            severity: value.get("severity").and_then(Value::as_u64).unwrap_or(1) as u8,
+            line,
+            column,
+            severity: u8::try_from(severity).unwrap_or(u8::MAX),
             message: value.get("message")?.as_str()?.to_string(),
             source: value.get("source").and_then(Value::as_str).map(str::to_string),
             code,
@@ -69,10 +76,6 @@ pub struct ClientState {
     pub(super) pull_registered: AtomicBool,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 fn progress_token(params: &Value) -> String {
     match params.get("token") {
         Some(Value::String(token)) => token.clone(),
@@ -103,6 +106,11 @@ impl ClientState {
 
     pub(super) fn published(&self) -> MutexGuard<'_, HashMap<String, Published>> {
         lock(&self.published)
+    }
+
+    #[cfg(test)]
+    pub(super) fn published_len(&self) -> usize {
+        self.published().len()
     }
 
     pub(super) fn seq_for(&self, uri: &str) -> u64 {
@@ -141,7 +149,23 @@ impl ClientState {
             seq,
             received: Instant::now(),
         };
-        self.published().insert(normalize_uri(uri), published);
+        let mut published_map = self.published();
+        published_map.insert(normalize_uri(uri), published);
+        while published_map.len() > MAX_PUBLISHED {
+            let Some(oldest) = published_map
+                .iter()
+                .min_by_key(|(_, p)| p.seq)
+                .map(|(uri, _)| uri.clone())
+            else {
+                break;
+            };
+            published_map.remove(&oldest);
+        }
+    }
+
+    /// Drops what was published for a document that was closed.
+    pub(super) fn forget(&self, uri: &str) {
+        self.published().remove(&normalize_uri(uri));
     }
 
     fn progress(&self, params: &Value) {
@@ -151,7 +175,9 @@ impl ClientState {
         match value.get("kind").and_then(Value::as_str) {
             Some("begin") => {
                 let title = value.get("title").and_then(Value::as_str).unwrap_or("working");
-                activity.progress.insert(token, title.to_string());
+                if activity.progress.len() < MAX_PROGRESS || activity.progress.contains_key(&token) {
+                    activity.progress.insert(token, title.to_string());
+                }
                 activity.progress_seen = true;
             }
             Some("end") => {
@@ -308,6 +334,27 @@ mod tests {
             json!({ "quiescent": true, "health": "ok" }),
         );
         assert_eq!(state.busy(true), None);
+    }
+
+    #[test]
+    fn what_a_server_reports_is_bounded() {
+        let state = ClientState::new(None, Path::new("/ws"));
+        for index in 0..MAX_PUBLISHED + 10 {
+            let uri = format!("file:///ws/f{index}.rs");
+            state.notification(
+                "textDocument/publishDiagnostics",
+                json!({ "uri": uri, "diagnostics": [] }),
+            );
+        }
+        assert!(state.published_len() <= MAX_PUBLISHED, "{}", state.published_len());
+        let newest = format!("file:///ws/f{}.rs", MAX_PUBLISHED + 9);
+        assert!(state.published().contains_key(&newest), "the newest entry is kept");
+
+        for index in 0..MAX_PROGRESS + 50 {
+            progress(&state, &format!("t{index}"), "begin", "work");
+        }
+        assert!(lock(&state.activity).progress.len() <= MAX_PROGRESS);
+        assert!(state.busy(true).is_some());
     }
 
     #[test]

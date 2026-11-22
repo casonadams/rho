@@ -26,15 +26,24 @@ pub fn byte_index(line: &str, character: u32, encoding: PositionEncoding) -> usi
     line.len()
 }
 
+/// A non-negative JSON integer that fits an LSP position component, or `None`.
+pub fn json_u32(value: Option<&serde_json::Value>) -> Option<u32> {
+    u32::try_from(value?.as_u64()?).ok()
+}
+
 fn is_ident(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
 
+/// Whether the match is bounded by non-identifier characters wherever the symbol itself begins or
+/// ends with an identifier character.
 fn whole_word_at(line: &str, start: usize, symbol: &str) -> bool {
     let before = line[..start].chars().next_back();
     let after = line[start + symbol.len()..].chars().next();
-    let bounded = |c: Option<char>| c.is_none_or(|c| !is_ident(c));
-    !symbol.chars().all(is_ident) || (bounded(before) && bounded(after))
+    let bounded = |edge: Option<char>, neighbour: Option<char>| {
+        !edge.is_some_and(is_ident) || neighbour.is_none_or(|c| !is_ident(c))
+    };
+    bounded(symbol.chars().next(), before) && bounded(symbol.chars().next_back(), after)
 }
 
 /// Byte index of `symbol` on `line`: the first whole-word occurrence, else the first substring
@@ -73,6 +82,8 @@ mod tests {
             ("Widget::new()", Some("widget"), Ok(0)),
             ("\u{130}x Foo", Some("foo"), Ok(4)),
             ("a.b", Some(".b"), Ok(1)),
+            ("xfoo.bar foo.bar", Some("foo.bar"), Ok(9)),
+            ("(foo) xfoo", Some("(foo)"), Ok(0)),
         ];
         for (line, symbol, expected) in cases {
             assert_eq!(locate_symbol(line, symbol), expected, "{line} {symbol:?}");

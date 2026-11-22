@@ -1,7 +1,7 @@
 //! Diagnostics that miss an edit's short wait: a background wait keeps going and, when the server
 //! reports something new, delivers it to the agent's mailbox like a finished background job.
 
-use super::{Diagnostic, LspManager, Pass, Report, check, render_report};
+use super::{Diagnostic, Initiator, LspManager, Pass, Report, check, render_report};
 use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
 use crate::tools::jobs::job_notice;
 use std::path::{Path, PathBuf};
@@ -79,7 +79,7 @@ impl Wait {
             &self.text,
             FOLLOW_UP_WAIT,
             Pass::FollowUp,
-            false,
+            Initiator::Automatic,
         )
         .await
         else {

@@ -52,32 +52,52 @@ pub struct ProcessLauncher;
 /// Whether an inherited variable looks like a credential a language server has no use for.
 fn is_secret_var(name: &str) -> bool {
     let name = name.to_ascii_uppercase();
-    const SUFFIXES: &[&str] = &["_API_KEY", "_TOKEN", "_SECRET"];
-    const PREFIXES: &[&str] = &["ANTHROPIC_", "OPENAI_", "GEMINI_", "GOOGLE_API", "AWS_SECRET"];
-    name == "API_KEY"
+    const SUFFIXES: &[&str] = &[
+        "_API_KEY",
+        "_TOKEN",
+        "_SECRET",
+        "_PASSWORD",
+        "_PASSPHRASE",
+        "_CREDENTIALS",
+    ];
+    const EXACT: &[&str] = &["API_KEY", "SSH_AUTH_SOCK", "DATABASE_URL", "AWS_ACCESS_KEY_ID"];
+    const PREFIXES: &[&str] = &["ANTHROPIC_", "OPENAI_", "GEMINI_", "GOOGLE_API", "AWS_SECRET", "AZURE_"];
+    EXACT.contains(&name.as_str())
         || SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
         || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
-fn scrub_secrets(cmd: &mut tokio::process::Command) {
-    for (name, _) in std::env::vars_os() {
+fn scrub_secrets(cmd: &mut tokio::process::Command, inherited: impl IntoIterator<Item = std::ffi::OsString>) {
+    for name in inherited {
         if name.to_str().is_some_and(is_secret_var) {
             cmd.env_remove(name);
         }
     }
 }
 
+/// The server's command: inherited credentials removed first, so `env` in the server's config can
+/// still pass one on deliberately.
+fn build_command(
+    server: &ServerConfig,
+    command: &Path,
+    root: &Path,
+    inherited: impl IntoIterator<Item = std::ffi::OsString>,
+) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(command);
+    scrub_secrets(&mut cmd, inherited);
+    cmd.args(&server.args)
+        .current_dir(root)
+        .envs(&server.env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    cmd
+}
+
 impl Launcher for ProcessLauncher {
     fn launch(&self, server: &ServerConfig, command: &Path, root: &Path) -> Result<Launched, String> {
-        let mut cmd = tokio::process::Command::new(command);
-        scrub_secrets(&mut cmd);
-        cmd.args(&server.args)
-            .current_dir(root)
-            .envs(&server.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        let mut cmd = build_command(server, command, root, std::env::vars_os().map(|(name, _)| name));
         crate::process::isolate_group(&mut cmd);
         let mut child = cmd
             .spawn()
@@ -120,6 +140,15 @@ mod tests {
             "client_secret",
             "BRAVE_API_KEY",
             "API_KEY",
+            "MYSQL_PASSWORD",
+            "GPG_PASSPHRASE",
+            "SERVICE_CREDENTIALS",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "AWS_ACCESS_KEY_ID",
+            "AZURE_CLIENT_ID",
+            "SSH_AUTH_SOCK",
+            "DATABASE_URL",
+            "NPM_TOKEN",
         ] {
             assert!(is_secret_var(secret), "{secret}");
         }
@@ -135,6 +164,25 @@ mod tests {
         ] {
             assert!(!is_secret_var(ordinary), "{ordinary}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_spawned_command_loses_inherited_secrets_but_keeps_what_the_server_config_sets() {
+        let mut server: ServerConfig = serde_json::from_value(serde_json::json!({ "command": "x" })).unwrap();
+        server.env.insert("NPM_TOKEN".into(), "from-config".into());
+        let inherited = ["HOME", "ANTHROPIC_API_KEY", "NPM_TOKEN", "SSH_AUTH_SOCK"].map(std::ffi::OsString::from);
+
+        let cmd = build_command(&server, Path::new("/bin/x"), Path::new("/"), inherited);
+
+        let envs: std::collections::HashMap<_, _> = cmd.as_std().get_envs().collect();
+        assert_eq!(envs.get(std::ffi::OsStr::new("ANTHROPIC_API_KEY")), Some(&None));
+        assert_eq!(envs.get(std::ffi::OsStr::new("SSH_AUTH_SOCK")), Some(&None));
+        assert!(!envs.contains_key(std::ffi::OsStr::new("HOME")));
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("NPM_TOKEN")),
+            Some(&Some(std::ffi::OsStr::new("from-config")))
+        );
     }
 
     #[test]

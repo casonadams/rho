@@ -15,9 +15,10 @@ pub(crate) mod test_server;
 pub mod watch;
 
 mod deferred;
+mod support;
 
 pub use client::{Diagnostic, DiagnosticsOutcome, LspClient};
-pub use manager::{Launched, Launcher, LspManager, shutdown_all_blocking, shutdown_all_managers};
+pub use manager::{Initiator, Launched, Launcher, LspManager, shutdown_all_blocking, shutdown_all_managers};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -49,7 +50,7 @@ pub async fn append_diagnostics(
     } else {
         Pass::Explicit
     };
-    let Some(report) = check(manager, path, text, EDIT_DIAGNOSTICS_WAIT, pass, false).await else {
+    let Some(report) = check(manager, path, text, EDIT_DIAGNOSTICS_WAIT, pass, Initiator::Automatic).await else {
         return result;
     };
     result.content.push_str("\n\n");
@@ -125,26 +126,25 @@ impl Report {
 /// in total. `None` when no server handles the file, or it lies outside the workspace (a server
 /// would have no project for it and report it clean).
 pub async fn diagnostics_for(manager: &LspManager, path: &Path, text: &str, wait: Duration) -> Option<String> {
-    let report = check(manager, path, text, wait, Pass::Explicit, true).await?;
+    let report = check(manager, path, text, wait, Pass::Explicit, Initiator::Model).await?;
     Some(render_report(&report))
 }
 
-/// `may_start` lets the check start servers in a project that is not trusted: only a request the
-/// model made itself does.
+/// `initiator` decides whether the check may start servers in a project that is not trusted.
 async fn check(
     manager: &LspManager,
     path: &Path,
     text: &str,
     wait: Duration,
     pass: Pass,
-    may_start: bool,
+    initiator: Initiator,
 ) -> Option<Report> {
     if !manager.in_workspace(path) {
         return None;
     }
     let deadline = Instant::now() + wait;
     let later = pass.later(&manager.relative(path));
-    let clients = manager.clients_within_hinting(path, wait, &later, may_start).await;
+    let clients = manager.clients_within_hinting(path, wait, &later, initiator).await;
     if clients.is_empty() {
         return None;
     }
@@ -211,7 +211,7 @@ async fn collect(
         }
     };
     Report {
-        other_errors: errors_in_other_files(client, &client::file_uri(path)),
+        other_errors: errors_in_other_files(client, &client::document_uri(path)),
         found: items,
         answered: true,
         incomplete,
