@@ -1,6 +1,6 @@
 # Handoff: prompt-cache and token work
 
-State: everything is committed and pushed to `origin/main` (latest `33b17ab9`). `make all` passes (2395 tests).
+State: the prune-decision logging below is **uncommitted** in the working tree (7 files under `crates/rho-engine/src/engine/`: `metrics/{mod,tests,tracker,types}.rs`, `runner/turn/prepare.rs`, `runner/turn/prune/{cache,tests}.rs`). Everything before it is pushed to `origin/main` (`4de2a28c`). `make all` passes (2397 tests) with the uncommitted changes. Commit them first, e.g. `feat(metrics): record prune decisions in run summaries`.
 
 ## What changed
 
@@ -53,11 +53,33 @@ Not yet verified. All idle gaps so far were under 3 minutes.
 - Run `sleep 40` with a 5s timeout. Expect `[timeout 5s; background job ...]`, then a follow-up notice when it ends.
 - After a few turns, check that old long results show as `[read 'x': pruned N lines, SIZE]`.
 
+## Prune-decision logging (new, uncommitted)
+
+Each run summary now has an optional `prune` field: `{action, saved_tokens, rebuilt_tokens}`.
+
+- `action`: `cold` (cache expired, pruned from scratch), `unchanged` (warm, nothing differs), `kept` (warm, old stubs resent), `rewritten` (warm, re-pruned; the 25% rule fired).
+- `saved_tokens` / `rebuilt_tokens` are the two numbers the `WARM_REBUILD_RATIO` rule compared. Both are 0 for `cold` and `unchanged`.
+- Pruning runs once per prompt, so there is one decision per run, not per request.
+- Recorded in `prepare.rs` via `RunTracker::pruned`, after `RunTracker::start` (which resets state).
+
+The installed binary (`~/.cargo/bin/rho`, 16:57) includes it, but the session that was open then does not. Start a fresh session.
+
+## Test 3: which prune decision precedes a cache loss?
+
+1. Use rho in a new session for a while, with several prompts and some short gaps.
+2. Run `python3 /tmp/prunecheck.py | tail -30` (prints gap, action, saved, rebuilt, first-request cached/written, requests; it covers the 6 newest sessions).
+3. Look for runs with a short gap but `cached` about 19.9k and large `written`.
+   - If these are `rewritten`, the 25% rule is too eager: raise `WARM_REBUILD_RATIO` or weigh the remaining requests.
+   - If they are `kept`/`unchanged`, pruning is not the cause; look elsewhere (system prompt, tool list or preamble changes).
+4. If `prune` never appears, check `mise which rho`: the mise shim may launch a different binary than `~/.cargo/bin/rho`.
+
+`/tmp/prunecheck.py` is also in `/tmp` only; copy it out if the machine restarts.
+
 ## Open question
 
-On 2026-11-21 at 23:29 a run with a 0.8m idle gap lost its whole cache (cached 19.9k, written 291k). Likely cause: the 25% rewrite rule in the pruner decided to re-prune after a 141-request run. Prune decisions are not logged, so this is a guess.
+On 2026-11-21 at 23:29 a run with a 0.8m idle gap lost its whole cache (cached 19.9k, written 291k). Likely cause: the 25% rewrite rule in the pruner decided to re-prune after a 141-request run. This was a guess until Test 3 gives data.
 
-Proposed next step: log each prune decision (kept or rewritten, tokens saved, tokens re-cached) in the run summary, then tune `WARM_REBUILD_RATIO` from real data. The rule also ignores how many requests remain in the run.
+Next step after Test 3: tune `WARM_REBUILD_RATIO` from real data. The rule also ignores how many requests remain in the run. `docs/ui.md` mentions pruning; check whether it needs a note on the new field.
 
 ## Not done
 

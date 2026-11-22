@@ -225,6 +225,39 @@ impl From<&CompletionCall> for ModelCallMetrics {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PruneAction {
+    /// The prompt cache was cold, so history was pruned from scratch.
+    Cold,
+    /// The prompt cache was warm and pruning would not change the sent prefix.
+    Unchanged,
+    /// The prompt cache was warm and the previously sent stubs were resent.
+    Kept,
+    /// The prompt cache was warm and history was re-pruned, rewriting the cached suffix.
+    Rewritten,
+}
+
+/// How history was pruned before a run's first request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PruneDecision {
+    pub action: PruneAction,
+    /// Tokens a fresh prune would remove from the suffix the cache would have to rewrite.
+    pub saved_tokens: usize,
+    /// Tokens of the pruned suffix that the provider would have to cache again.
+    pub rebuilt_tokens: usize,
+}
+
+impl PruneDecision {
+    pub const fn new(action: PruneAction, saved_tokens: usize, rebuilt_tokens: usize) -> Self {
+        Self {
+            action,
+            saved_tokens,
+            rebuilt_tokens,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RunMetrics {
     pub session_id: String,
@@ -242,6 +275,8 @@ pub struct RunMetrics {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<StructuralUsage>,
     pub completion_calls: Vec<ModelCallMetrics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prune: Option<PruneDecision>,
 }
 
 impl RunMetrics {
@@ -272,6 +307,7 @@ pub(crate) struct ObservationMetricsInput<'a> {
 }
 
 pub(crate) fn metrics_from_observation(input: ObservationMetricsInput<'_>) -> RunMetrics {
+    let prune = input.observation.as_ref().and_then(|state| state.prune);
     let (elapsed_ms, model, tool_calls, tool_errors, tool_denials) =
         input.observation.map_or((0, String::new(), 0, 0, 0), |state| {
             (
@@ -296,6 +332,7 @@ pub(crate) fn metrics_from_observation(input: ObservationMetricsInput<'_>) -> Ru
         usage_available: input.usage.is_some(),
         usage: input.usage,
         completion_calls: input.completion_calls,
+        prune,
     }
 }
 

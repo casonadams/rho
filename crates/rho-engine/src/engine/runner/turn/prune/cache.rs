@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use rho_harness_core::model::{ChatMessage, UserContent};
 use rho_harness_core::tokens::estimate_message_tokens;
 
+use crate::engine::metrics::{PruneAction, PruneDecision};
+
 use super::{PrunePolicy, prune_historical_tool_outputs_with_sizes};
 
 /// Re-pruning a warm prefix rewrites everything after the first changed message, so a warm
@@ -31,16 +33,16 @@ impl PruneMemory {
         sizes: &[usize],
         policy: &PrunePolicy,
         cache: PromptCache,
-    ) -> Option<Vec<ChatMessage>> {
+    ) -> (Option<Vec<ChatMessage>>, PruneDecision) {
         let fresh = prune_historical_tool_outputs_with_sizes(messages, sizes, policy);
-        let chosen = match cache {
-            PromptCache::Cold => fresh,
+        let (chosen, decision) = match cache {
+            PromptCache::Cold => (fresh, PruneDecision::new(PruneAction::Cold, 0, 0)),
             PromptCache::Warm => {
                 choose_for_warm_cache(messages, self.replay(messages), fresh, policy.tokenizer_model())
             }
         };
         self.remember(messages, chosen.as_deref());
-        chosen
+        (chosen, decision)
     }
 
     fn replay(&self, messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
@@ -99,17 +101,17 @@ fn choose_for_warm_cache(
     kept: Option<Vec<ChatMessage>>,
     fresh: Option<Vec<ChatMessage>>,
     model: &str,
-) -> Option<Vec<ChatMessage>> {
+) -> (Option<Vec<ChatMessage>>, PruneDecision) {
     let kept_view = kept.as_deref().unwrap_or(raw);
     let fresh_view = fresh.as_deref().unwrap_or(raw);
     let Some(first_change) = kept_view.iter().zip(fresh_view).position(|(a, b)| a != b) else {
-        return kept;
+        return (kept, PruneDecision::new(PruneAction::Unchanged, 0, 0));
     };
     let rebuilt = suffix_tokens(fresh_view, first_change, model);
     let saved = suffix_tokens(kept_view, first_change, model).saturating_sub(rebuilt);
     if saved as f64 >= rebuilt as f64 * WARM_REBUILD_RATIO {
-        fresh
+        (fresh, PruneDecision::new(PruneAction::Rewritten, saved, rebuilt))
     } else {
-        kept
+        (kept, PruneDecision::new(PruneAction::Kept, saved, rebuilt))
     }
 }

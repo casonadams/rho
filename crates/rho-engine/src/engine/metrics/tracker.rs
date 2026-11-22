@@ -1,6 +1,6 @@
 use super::types::{
-    CompletionCall, CompletionOutcome, ModelCallMetrics, ObservationMetricsInput, RunMetrics, StructuralUsage,
-    TerminalStatus, metrics_from_observation,
+    CompletionCall, CompletionOutcome, ModelCallMetrics, ObservationMetricsInput, PruneDecision, RunMetrics,
+    StructuralUsage, TerminalStatus, metrics_from_observation,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -20,6 +20,7 @@ pub(crate) struct RunObservation {
     pub(crate) completion_calls: Vec<CompletionCall>,
     pub(crate) call_offsets_ms: Vec<u64>,
     pub(crate) last_request_id: Option<String>,
+    pub(crate) prune: Option<PruneDecision>,
 }
 
 impl RunTracker {
@@ -33,7 +34,14 @@ impl RunTracker {
             completion_calls: Vec::new(),
             call_offsets_ms: Vec::new(),
             last_request_id: None,
+            prune: None,
         });
+    }
+
+    pub fn pruned(&self, decision: PruneDecision) {
+        if let Some(state) = self.state().as_mut() {
+            state.prune = Some(decision);
+        }
     }
 
     pub fn tool_called(&self) {

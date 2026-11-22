@@ -107,6 +107,20 @@ fn run_summary_records_the_model_and_when_each_request_was_sent() {
 }
 
 #[test]
+fn run_metrics_record_the_prune_decision() {
+    let tracker = RunTracker::default();
+    tracker.start("claude-opus-5-5");
+    let decision = PruneDecision::new(PruneAction::Kept, 100, 900);
+    tracker.pruned(decision);
+
+    let metrics = tracker.terminate("session", TerminalStatus::Cancelled);
+
+    assert_eq!(metrics.prune, Some(decision));
+    let json = serde_json::to_value(&metrics).unwrap();
+    assert_eq!(json["prune"]["action"], "kept");
+}
+
+#[test]
 fn cached_prompt_usage_reports_only_the_uncached_input() {
     let usage = StructuralUsage::from_cached_prompt(Some(100), Some(7), Some(107), Some(60), Some(3));
     assert_eq!(usage.input_tokens, 40);

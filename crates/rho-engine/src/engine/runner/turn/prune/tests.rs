@@ -1,4 +1,6 @@
 use super::*;
+use crate::engine::metrics::{PruneAction, PruneDecision};
+use crate::engine::runner::turn::prune::cache::WARM_REBUILD_RATIO;
 use rho_harness_core::model::*;
 
 fn prune_historical_tool_outputs(
@@ -1436,11 +1438,34 @@ fn count_prefix_rewrites(
 }
 
 fn send_with_memory(memory: &mut PruneMemory, history: &[ChatMessage], cache: PromptCache) -> Vec<ChatMessage> {
+    decide_with_memory(memory, history, cache).0
+}
+
+fn decide_with_memory(
+    memory: &mut PruneMemory,
+    history: &[ChatMessage],
+    cache: PromptCache,
+) -> (Vec<ChatMessage>, PruneDecision) {
     let policy = cache_test_policy();
     let sizes = rho_harness_core::tokens::estimate_each_message_tokens(history, "claude-sonnet-4");
-    memory
-        .prune(history, &sizes, &policy, cache)
-        .unwrap_or_else(|| history.to_vec())
+    let (sent, decision) = memory.prune(history, &sizes, &policy, cache);
+    (sent.unwrap_or_else(|| history.to_vec()), decision)
+}
+
+#[test]
+fn prune_decisions_report_cache_state_and_tokens() {
+    let mut memory = PruneMemory::default();
+    let (_, cold) = decide_with_memory(&mut memory, &verbose_read_history(30, None), PromptCache::Cold);
+    assert_eq!(cold.action, PruneAction::Cold);
+
+    let (_, same) = decide_with_memory(&mut memory, &verbose_read_history(30, None), PromptCache::Warm);
+    assert_eq!(same.action, PruneAction::Unchanged);
+
+    let (_, grown) = decide_with_memory(&mut memory, &verbose_read_history(45, None), PromptCache::Warm);
+    assert!(matches!(grown.action, PruneAction::Kept | PruneAction::Rewritten));
+    assert!(grown.rebuilt_tokens > 0);
+    let rewrote = grown.saved_tokens as f64 >= grown.rebuilt_tokens as f64 * WARM_REBUILD_RATIO;
+    assert_eq!(grown.action == PruneAction::Rewritten, rewrote);
 }
 
 #[test]

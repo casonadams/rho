@@ -4,4 +4,7 @@ pub mod tracker;
 pub mod types;
 
 pub use tracker::RunTracker;
-pub use types::{CompletionOutcome, ModelCallMetrics, RunMetrics, StructuralUsage, TerminalStatus, format_tokens};
+pub use types::{
+    CompletionOutcome, ModelCallMetrics, PruneAction, PruneDecision, RunMetrics, StructuralUsage, TerminalStatus,
+    format_tokens,
+};

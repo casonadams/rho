@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine::AgentEngine;
+use crate::engine::metrics::PruneDecision;
 use crate::engine::runner::history::continuation_history;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use rho_harness_core::error::{AppError, Result};
@@ -40,6 +41,7 @@ pub(super) struct PreparedTurn {
 pub(super) struct LoadedHistory {
     pub messages: Vec<ChatMessage>,
     pub pruned: bool,
+    pub decision: PruneDecision,
 }
 
 pub(super) struct TurnLoopState {
@@ -92,7 +94,7 @@ impl AgentEngine {
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         let sizes = self.context.estimate_each_message_tokens(&raw, &self.config.model);
         let cache = self.prompt_cache();
-        let pruned = self
+        let (pruned, decision) = self
             .prune_memory
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -101,10 +103,12 @@ impl AgentEngine {
             Some(pruned) => LoadedHistory {
                 messages: pruned,
                 pruned: true,
+                decision,
             },
             None => LoadedHistory {
                 messages: raw,
                 pruned: false,
+                decision,
             },
         })
     }
@@ -185,6 +189,7 @@ impl AgentEngine {
         let LoadedHistory {
             messages: history,
             pruned: history_pruned,
+            decision,
         } = loaded;
         self.session_manager
             .append_event(
@@ -197,6 +202,7 @@ impl AgentEngine {
             rho_harness_core::tokens::estimate_text_tokens(effective_prompt, &self.config.model),
         );
         self.start_turn_metrics(add_tokens, &history, history_pruned);
+        self.run_tracker.pruned(decision);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
             visible_history: history,
