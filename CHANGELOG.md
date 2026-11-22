@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.16.0](https://github.com/casonadams/rho/compare/v0.15.0...v0.16.0) (2026-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **engine:** an unset thinking_level now means medium instead of off; set thinking_level = "off" to keep the previous behavior.
+
+### Features
+
+* **claude:** cache-aware pruning and configurable prompt-cache retention ([32c04a3](https://github.com/casonadams/rho/commit/32c04a3b4782c8ce301f5097f6aa0cd27cf5b5f8))
+* **metrics:** record prune decisions in run summaries ([96a9455](https://github.com/casonadams/rho/commit/96a945530b1ea5b96dc9739b63d7cbe555a44428))
+* **thinking:** default to medium and keep subagents in sync ([c01173f](https://github.com/casonadams/rho/commit/c01173f048399ae8160dc30ba95f4ed9b134635f))
+
+
+### Bug Fixes
+
+* **antigravity:** omit temperature for Gemini models ([48b2314](https://github.com/casonadams/rho/commit/48b23148ae6b3d927f88bc19437a5cb3204c4e8d))
+* **auth:** build ChatGPT credentials through the shared OAuth helper ([c7e5c8e](https://github.com/casonadams/rho/commit/c7e5c8e2c45f428a621564da0744782ea01bf961))
+* **compactor:** treat the prompt cache as cold after compaction ([d1e8401](https://github.com/casonadams/rho/commit/d1e8401b3333ce62cba9006fa226e3418e8de259))
+* **engine:** build the subagent fallback model with short cache retention ([45caea8](https://github.com/casonadams/rho/commit/45caea873e2e299baa1984c1f79d6c50b7560436))
+* **engine:** track prompt cache per model and harden model changes ([67bf7be](https://github.com/casonadams/rho/commit/67bf7bedc11cec8d2c1030203541f6bf53c71d35))
+* **permission:** report a guard model that cannot be built ([6bd8c86](https://github.com/casonadams/rho/commit/6bd8c865f1ccce84ac6d4052e28032cae304e35a))
+* **providers:** fail locally when a credential cannot be sent as an HTTP header ([a57cb91](https://github.com/casonadams/rho/commit/a57cb91264082ccf69439c1d56f33df7167ff14d))
+* **subagent:** count cached and written tokens in the run footer ([a382d48](https://github.com/casonadams/rho/commit/a382d48c49788e503c3894e758e6785d480459b2))
+* **subagent:** use the 5m prompt cache for subagent models under auto retention ([40aacfd](https://github.com/casonadams/rho/commit/40aacfd48c8c005ee37eda890f11d12523eef6e3))
+
+
+### Performance Improvements
+
+* **tools:** shorten bash footers, job notices and pruned-result stubs ([33b17ab](https://github.com/casonadams/rho/commit/33b17ab970a428bb46cad5a977b4cca76372dff8))
+
 ## [0.15.0](https://github.com/casonadams/rho/compare/v0.14.0...v0.15.0) (2026-11-21)
 
 
