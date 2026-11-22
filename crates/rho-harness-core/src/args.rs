@@ -147,6 +147,10 @@ pub enum LspAction {
     Rename,
     /// Configured servers and which are running
     Status,
+    /// Quick fixes and refactors for the diagnostics on `path`/`line` (or the symbol there); with `apply` true, applies the one picked by `query` (title substring or 1-based number)
+    CodeActions,
+    /// Format `path` with its language server and write the file
+    Format,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -168,6 +172,9 @@ pub struct LspArgs {
     /// New name for rename
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_name: Option<String>,
+    /// Apply the code action picked by `query` instead of only listing the actions (code_actions)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apply: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]

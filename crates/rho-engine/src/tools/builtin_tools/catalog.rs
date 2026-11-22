@@ -62,6 +62,8 @@ Usage:
 - symbols with path returns the file's outline as `START-END kind name` rows (pass query to filter by name); with query and no path it searches symbols across the workspace.
 - diagnostics with path returns the file's current errors and warnings; without path it lists everything the running servers have reported.
 - rename changes the symbol at the position to new_name in every file and writes them; review the listed files afterwards.
+- code_actions lists the server's quick fixes and refactors for the diagnostics on path and line (symbol narrows it to that position; without line it covers the file). With apply=true and query (the number from the list, or part of its title) it applies that action's edit to every file it names, like rename. Actions that only run a server command are refused.
+- format runs the server's formatter on path and writes the file, using the .editorconfig indent when there is one.
 - status lists started servers and which configured servers are installed.
 - Servers start on first use (reading a file also starts its server in the background), so the first query can take a few seconds. If no server handles a file the error says why (not installed, no project root marker); fall back to rg and read.";
 

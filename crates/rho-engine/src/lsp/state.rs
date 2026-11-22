@@ -19,6 +19,8 @@ pub struct Diagnostic {
     pub message: String,
     pub source: Option<String>,
     pub code: Option<String>,
+    /// The diagnostic as the server sent it, to hand back as code action context.
+    pub raw: Value,
 }
 
 impl Diagnostic {
@@ -36,6 +38,7 @@ impl Diagnostic {
             message: value.get("message")?.as_str()?.to_string(),
             source: value.get("source").and_then(Value::as_str).map(str::to_string),
             code,
+            raw: value.clone(),
         })
     }
 }
@@ -104,6 +107,13 @@ impl ClientState {
 
     pub(super) fn seq_for(&self, uri: &str) -> u64 {
         self.published().get(uri).map_or(0, |p| p.seq)
+    }
+
+    /// The diagnostics last published for `uri`.
+    pub fn published_for(&self, uri: &str) -> Vec<Diagnostic> {
+        self.published()
+            .get(&normalize_uri(uri))
+            .map_or_else(Vec::new, |p| p.items.clone())
     }
 
     /// The latest diagnostics for `uri` published after sequence number `after`, unless they are

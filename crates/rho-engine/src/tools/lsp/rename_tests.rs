@@ -23,6 +23,7 @@ fn rename_args(path: &str, line: usize) -> LspArgs {
         symbol: Some("helper".into()),
         query: None,
         new_name: Some("assist".into()),
+        apply: None,
     }
 }
 
@@ -42,11 +43,11 @@ fn symlinks_are_resolved_before_the_workspace_check() {
     {
         std::os::unix::fs::symlink(outside.path().join("dep.rs"), dir.path().join("src/link.rs")).unwrap();
         let by_file = BTreeMap::from([(dir.path().join("src/link.rs"), vec![json!({})])]);
-        let error = confine(by_file, dir.path()).unwrap_err();
+        let error = confine(by_file, dir.path(), "rename").unwrap_err();
         assert!(error.contains("outside the workspace; nothing was written"), "{error}");
     }
     let inside = BTreeMap::from([(dir.path().join("src/../src/lib.rs"), vec![json!(1)])]);
-    let kept = confine(inside, dir.path()).unwrap();
+    let kept = confine(inside, dir.path(), "rename").unwrap();
     assert_eq!(kept.len(), 1);
 }
 
@@ -55,7 +56,7 @@ fn protected_paths_are_refused() {
     let dir = project();
     for name in [".env.rs", ".git/hooks.rs", ".rho/notes.rs"] {
         let by_file = BTreeMap::from([(dir.path().join(name), vec![json!({})])]);
-        let error = confine(by_file, dir.path()).unwrap_err();
+        let error = confine(by_file, dir.path(), "rename").unwrap_err();
         assert!(error.contains("a protected path"), "{name}: {error}");
     }
 }
@@ -133,6 +134,7 @@ async fn status_omits_the_missing_list_when_every_server_is_installed() {
             symbol: None,
             query: None,
             new_name: None,
+            apply: None,
         })
         .await
         .unwrap();

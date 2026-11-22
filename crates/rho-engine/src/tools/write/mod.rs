@@ -1,6 +1,6 @@
 use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
-use crate::tools::engine_tool::TypedTool;
+use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::{ToolResult, resolve_tool_path};
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
@@ -15,6 +15,8 @@ pub struct WriteTool {
     pub base_dir: PathBuf,
     pub lsp: Option<Arc<LspManager>>,
     pub history: Option<crate::tools::undo::EditHistory>,
+    /// The agent's mailbox, where diagnostics that arrive late are delivered.
+    inbox: Option<crate::mailbox::Mailbox>,
 }
 
 async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
@@ -54,6 +56,7 @@ impl WriteTool {
             base_dir: base_dir.as_ref().to_path_buf(),
             lsp: None,
             history: None,
+            inbox: None,
         }
     }
 
@@ -82,13 +85,22 @@ impl WriteTool {
         }
 
         let before = crate::tools::undo::read_before(&path).await;
+        let created = matches!(before, Some(None));
         let result = perform_atomic_write(&path, clean_path, &args.content).await?;
         if !result.is_error
             && let (Some(history), Some(before)) = (&self.history, before)
         {
             history.record(&path, before, args.content.as_bytes());
         }
-        Ok(crate::lsp::append_diagnostics(result, self.lsp.as_deref(), &path, &args.content).await)
+        Ok(crate::lsp::append_diagnostics(
+            result,
+            self.lsp.as_ref(),
+            self.inbox.as_ref(),
+            &path,
+            &args.content,
+            created,
+        )
+        .await)
     }
 }
 
@@ -99,5 +111,15 @@ impl TypedTool for WriteTool {
 
     async fn run(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
+    }
+
+    fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        self.lsp.as_ref()?;
+        Some(Arc::new(Self {
+            base_dir: self.base_dir.clone(),
+            lsp: self.lsp.clone(),
+            history: self.history.clone(),
+            inbox: Some(ctx.inbox.clone()?),
+        }))
     }
 }

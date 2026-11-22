@@ -1,5 +1,8 @@
 //! An in-process language server for tests. Diagnostics: a line containing `ERR` is an error and
 //! `WARN` a warning. Symbols: `struct Name` and `fn name` lines; a block ends at a line `}`.
+//! Code actions: `ERR` offers a quick fix removing it, `WARN` a fix that needs `codeAction/resolve`,
+//! `CMD` an action that only has a command, `SECRET` an edit to `.env.rs`. Formatting trims
+//! trailing spaces.
 
 use super::config::ServerConfig;
 use super::manager::{Launched, Launcher, LspManager};
@@ -39,6 +42,10 @@ pub struct FakeOptions {
     pub unresponsive: bool,
     /// Never answer `initialize`.
     pub hang_init: bool,
+    /// Report neither progress nor status after startup.
+    pub no_status: bool,
+    /// Milliseconds the server takes to publish diagnostics after a document opens or changes.
+    pub publish_delay_ms: u64,
 }
 
 #[derive(Default)]
@@ -48,6 +55,9 @@ pub struct FakeLauncher {
     pub received: Arc<Mutex<Vec<String>>>,
     /// The results of the requests the server sent the client.
     pub responses: Arc<Mutex<Vec<Value>>>,
+    /// The method and params of each `initialize`, `workspace/didChangeWatchedFiles`,
+    /// `textDocument/codeAction` and `textDocument/formatting` the server received.
+    pub params: Arc<Mutex<Vec<(String, Value)>>>,
 }
 
 /// The fake server's configuration: `.rs` files under a `Cargo.toml`.
@@ -105,6 +115,7 @@ impl Launcher for FakeLauncher {
             docs: HashMap::new(),
             received: Arc::clone(&self.received),
             responses: Arc::clone(&self.responses),
+            params: Arc::clone(&self.params),
         };
         tokio::spawn(server.run(Box::new(server_read), Box::new(server_write)));
         Ok(Launched {
@@ -121,6 +132,7 @@ struct FakeServer {
     docs: HashMap<String, (i64, String)>,
     received: Arc<Mutex<Vec<String>>>,
     responses: Arc<Mutex<Vec<Value>>>,
+    params: Arc<Mutex<Vec<(String, Value)>>>,
 }
 
 fn word_at(text: &str, line: u64, character: u64) -> String {
@@ -196,6 +208,16 @@ impl FakeServer {
                 continue;
             }
             self.received.lock().unwrap().push(method.clone());
+            if matches!(
+                method.as_str(),
+                "initialize"
+                    | "workspace/didChangeWatchedFiles"
+                    | "textDocument/codeAction"
+                    | "textDocument/formatting"
+            ) {
+                let params = message.get("params").cloned().unwrap_or(Value::Null);
+                self.params.lock().unwrap().push((method.clone(), params));
+            }
             if method == "textDocument/didChange" && self.options.exit_on_change {
                 return;
             }
@@ -215,6 +237,9 @@ impl FakeServer {
                 let _ = write_message(&mut writer, &json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
             }
             for notification in outgoing.1 {
+                if self.options.publish_delay_ms > 0 && method.starts_with("textDocument/did") {
+                    tokio::time::sleep(std::time::Duration::from_millis(self.options.publish_delay_ms)).await;
+                }
                 let _ = write_message(&mut writer, &notification).await;
             }
             if method == "exit" {
@@ -266,6 +291,9 @@ impl FakeServer {
             "textDocument/definition" => (self.definition(params), Vec::new()),
             "textDocument/references" => (Value::Array(self.occurrences(&self.word(params))), Vec::new()),
             "textDocument/rename" => (self.rename(params), Vec::new()),
+            "textDocument/codeAction" => (self.code_actions(params), Vec::new()),
+            "codeAction/resolve" => (self.resolve_action(params), Vec::new()),
+            "textDocument/formatting" => (self.formatting(&uri), Vec::new()),
             "workspace/symbol" => (
                 self.workspace_symbols(params["query"].as_str().unwrap_or("")),
                 Vec::new(),
@@ -287,6 +315,9 @@ impl FakeServer {
             let items = json!({ "items": [{ "section": "fake.opt" }] });
             messages.push(request(9002, "workspace/configuration", items));
         }
+        if self.options.no_status {
+            return messages;
+        }
         messages.push(if self.options.indexing {
             notification(
                 "$/progress",
@@ -305,7 +336,8 @@ impl FakeServer {
         let mut caps = json!({
             "textDocumentSync": 1, "hoverProvider": true, "definitionProvider": true,
             "referencesProvider": true, "documentSymbolProvider": true, "renameProvider": true,
-            "workspaceSymbolProvider": true,
+            "workspaceSymbolProvider": true, "codeActionProvider": { "resolveProvider": true },
+            "documentFormattingProvider": true,
         });
         if self.options.pull || self.options.pull_fails {
             caps["diagnosticProvider"] = json!({ "interFileDependencies": false, "workspaceDiagnostics": false });
@@ -394,6 +426,67 @@ impl FakeServer {
                 .push(edit);
         }
         json!({ "changes": changes })
+    }
+
+    fn code_actions(&self, params: &Value) -> Value {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+        let first = params["range"]["start"]["line"].as_u64().unwrap_or(0) as usize;
+        let last = params["range"]["end"]["line"].as_u64().unwrap_or(0) as usize;
+        let mut actions = Vec::new();
+        for (index, line) in self
+            .text(uri)
+            .lines()
+            .enumerate()
+            .filter(|(i, _)| (first..=last).contains(i))
+        {
+            let at = |marker: &str| {
+                line.find(marker)
+                    .map(|col| range(index, col, index, col + marker.len()))
+            };
+            let edit_to = |target: &str, range: Value, text: &str| json!({ "changes": { target: [{ "range": range, "newText": text }] } });
+            if let Some(found) = at("ERR") {
+                actions.push(json!({ "title": "Remove ERR", "kind": "quickfix", "isPreferred": true,
+                    "edit": edit_to(uri, found, "") }));
+            }
+            if let Some(found) = at("WARN") {
+                actions.push(json!({ "title": "Fix WARN lazily", "kind": "quickfix",
+                    "data": { "uri": uri, "range": found } }));
+            }
+            if at("CMD").is_some() {
+                actions.push(json!({ "title": "Run fake command", "kind": "refactor",
+                    "command": { "title": "Run fake command", "command": "fake.run" } }));
+            }
+            if let Some(found) = at("SECRET") {
+                let target = uri
+                    .rsplit_once('/')
+                    .map_or(String::new(), |(dir, _)| format!("{dir}/.env.rs"));
+                actions.push(json!({ "title": "Touch secrets", "kind": "quickfix",
+                    "edit": edit_to(&target, found, "x") }));
+            }
+        }
+        Value::Array(actions)
+    }
+
+    fn resolve_action(&self, action: &Value) -> Value {
+        let data = &action["data"];
+        let uri = data["uri"].as_str().unwrap_or("");
+        let mut resolved = action.clone();
+        resolved["edit"] = json!({ "changes": { uri: [{ "range": data["range"], "newText": "ok" }] } });
+        resolved
+    }
+
+    fn formatting(&self, uri: &str) -> Value {
+        let edits: Vec<Value> = self
+            .text(uri)
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.ends_with(' '))
+            .map(|(index, line)| {
+                let kept = line.trim_end().len();
+                json!({ "range": range(index, kept, index, line.len()), "newText": "" })
+            })
+            .collect();
+        Value::Array(edits)
     }
 
     fn workspace_symbols(&self, query: &str) -> Value {

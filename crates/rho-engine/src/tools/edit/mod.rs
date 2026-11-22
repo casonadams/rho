@@ -6,7 +6,7 @@ mod tests;
 
 use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
-use crate::tools::engine_tool::TypedTool;
+use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::{ToolResult, resolve_tool_path};
 pub use matching::locate_edit;
 pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
@@ -21,6 +21,8 @@ pub struct EditTool {
     pub base_dir: PathBuf,
     pub lsp: Option<Arc<LspManager>>,
     pub history: Option<crate::tools::undo::EditHistory>,
+    /// The agent's mailbox, where diagnostics that arrive late are delivered.
+    inbox: Option<crate::mailbox::Mailbox>,
 }
 
 async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::result::Result<String, ToolResult> {
@@ -117,6 +119,7 @@ impl EditTool {
             base_dir: base_dir.as_ref().to_path_buf(),
             lsp: None,
             history: None,
+            inbox: None,
         }
     }
 
@@ -169,7 +172,10 @@ impl EditTool {
         {
             history.record(&path, Some(content.into_bytes()), updated.as_bytes());
         }
-        Ok(crate::lsp::append_diagnostics(result, self.lsp.as_deref(), &path, &updated).await)
+        Ok(
+            crate::lsp::append_diagnostics(result, self.lsp.as_ref(), self.inbox.as_ref(), &path, &updated, false)
+                .await,
+        )
     }
 }
 
@@ -180,5 +186,15 @@ impl TypedTool for EditTool {
 
     async fn run(&self, args: EditArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
+    }
+
+    fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        self.lsp.as_ref()?;
+        Some(Arc::new(Self {
+            base_dir: self.base_dir.clone(),
+            lsp: self.lsp.clone(),
+            history: self.history.clone(),
+            inbox: Some(ctx.inbox.clone()?),
+        }))
     }
 }

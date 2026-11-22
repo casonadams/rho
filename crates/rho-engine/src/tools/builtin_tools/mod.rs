@@ -41,7 +41,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
             .with_lsp(lsp.clone())
             .with_history(Some(history.clone())),
     );
-    let undo = Arc::new(UndoTool::new(base_dir, history.clone()));
+    let undo = Arc::new(UndoTool::new(base_dir, history.clone()).with_lsp(lsp.clone()));
     let read = Arc::new(
         ReadTool::new(base_dir)
             .with_artifact_dir(Some(base_dir.join(".rho/artifacts")))

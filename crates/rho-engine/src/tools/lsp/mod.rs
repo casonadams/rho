@@ -16,6 +16,9 @@ pub const DIAGNOSTICS_WAIT: Duration = Duration::from_secs(10);
 /// How long a query waits for a server that is still loading the project.
 pub const READY_WAIT: Duration = Duration::from_secs(30);
 
+/// How long after a server started an empty answer may just mean it has not indexed yet.
+pub const INDEXING_WINDOW: Duration = Duration::from_secs(30);
+
 pub struct LspTool {
     base_dir: PathBuf,
     manager: Arc<LspManager>,
@@ -39,8 +42,16 @@ impl OpenFile {
                 "{result}\n[{} was still busy ({busy}); retry shortly]",
                 self.client.name
             ),
+            (None, true) if self.may_be_indexing() => format!(
+                "{result}\n[{} started moments ago and reports no progress, so it may still be indexing; retry in a few seconds]",
+                self.client.name
+            ),
             _ => result,
         }
+    }
+
+    fn may_be_indexing(&self) -> bool {
+        !self.client.state().reports_progress() && self.client.uptime() < INDEXING_WINDOW
     }
 
     fn text_document(&self) -> Value {
@@ -135,6 +146,8 @@ impl LspTool {
             LspAction::Hover => self.hover(&args).await,
             LspAction::Symbols => self.symbols(&args).await,
             LspAction::Rename => self.rename(&args).await,
+            LspAction::CodeActions => self.code_actions(&args).await,
+            LspAction::Format => self.format(&args).await,
             _ => Ok(self.status()),
         }
     }
@@ -305,6 +318,9 @@ impl TypedTool for LspTool {
     }
 }
 
+mod actions;
+#[cfg(test)]
+mod actions_tests;
 mod rename;
 #[cfg(test)]
 mod rename_tests;

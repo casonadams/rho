@@ -130,6 +130,7 @@ fn trim_to_budget(files: &mut HashMap<PathBuf, Vec<Revision>>) {
 pub struct UndoTool {
     base_dir: PathBuf,
     history: EditHistory,
+    lsp: Option<Arc<crate::lsp::LspManager>>,
 }
 
 impl UndoTool {
@@ -137,10 +138,28 @@ impl UndoTool {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
             history,
+            lsp: None,
         }
     }
 
+    /// Tells the language servers about files an undo restores or deletes.
+    pub fn with_lsp(mut self, lsp: Option<Arc<crate::lsp::LspManager>>) -> Self {
+        self.lsp = lsp;
+        self
+    }
+
     async fn undo(&self, clean_path: &str) -> Result<String, String> {
+        let message = self.restore(clean_path).await?;
+        if let (Some(lsp), Ok(path)) = (
+            &self.lsp,
+            resolve_tool_path(&Workspace::new(&self.base_dir), clean_path, "undo"),
+        ) {
+            lsp.files_changed(&[path]);
+        }
+        Ok(message)
+    }
+
+    async fn restore(&self, clean_path: &str) -> Result<String, String> {
         let path = resolve_tool_path(&Workspace::new(&self.base_dir), clean_path, "undo").map_err(|e| e.content)?;
         let current = tokio::fs::read(&path).await.ok();
         let (before, after) = self.history.peek_if_current(&path, current.as_deref())?;

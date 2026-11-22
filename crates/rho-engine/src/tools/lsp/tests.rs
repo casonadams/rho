@@ -24,6 +24,7 @@ fn args(action: LspAction) -> LspArgs {
         symbol: None,
         query: None,
         new_name: None,
+        apply: None,
     }
 }
 

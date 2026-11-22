@@ -39,6 +39,7 @@ fn diag(severity: u8, line: u32, message: &str) -> Diagnostic {
         message: message.to_string(),
         source: Some("rustc".into()),
         code: Some("E0308".into()),
+        raw: Value::Null,
     }
 }
 

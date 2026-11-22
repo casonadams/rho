@@ -2,6 +2,7 @@
 
 use super::rpc::{BoxedReader, BoxedWriter, Connection, ServerMessages};
 pub use super::state::{ClientState, Diagnostic};
+use super::watch::FileChange;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -119,7 +120,8 @@ fn client_capabilities() -> Value {
             "applyEdit": false,
             "workspaceEdit": { "documentChanges": true },
             "symbol": { "dynamicRegistration": false },
-            "diagnostics": { "refreshSupport": false }
+            "diagnostics": { "refreshSupport": false },
+            "didChangeWatchedFiles": { "dynamicRegistration": false }
         },
         "textDocument": {
             "synchronization": { "didSave": true, "dynamicRegistration": false },
@@ -131,7 +133,16 @@ fn client_capabilities() -> Value {
             "implementation": { "linkSupport": true },
             "references": {},
             "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
-            "rename": { "prepareSupport": false }
+            "rename": { "prepareSupport": false },
+            "codeAction": {
+                "dynamicRegistration": false,
+                "codeActionLiteralSupport": {
+                    "codeActionKind": { "valueSet": ["", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports"] }
+                },
+                "resolveSupport": { "properties": ["edit"] },
+                "isPreferredSupport": true
+            },
+            "formatting": { "dynamicRegistration": false }
         },
         "window": { "workDoneProgress": true },
         "experimental": { "serverStatusNotification": true }
@@ -183,6 +194,11 @@ impl LspClient {
 
     pub(super) fn touch(&self) {
         *self.last_used.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+    }
+
+    /// How long ago this server finished starting.
+    pub fn uptime(&self) -> Duration {
+        self.started.elapsed()
     }
 
     /// How long since anything last used this server.
@@ -256,18 +272,48 @@ impl LspClient {
     /// a document whose file is gone or unreadable is closed.
     pub async fn sync_open_documents_from_disk(&self) -> Result<(), String> {
         let uris: Vec<String> = self.documents.lock().await.open.keys().cloned().collect();
+        let mut changes = Vec::new();
         for uri in uris {
-            let path = uri_path(&uri);
-            let text = match &path {
-                Some(path) => tokio::fs::read_to_string(path).await.ok(),
-                None => None,
-            };
-            match (path, text) {
-                (Some(path), Some(text)) => drop(self.sync(&path, &text, "").await?),
-                _ => self.close_uri(&uri).await?,
+            if let Some(change) = self.sync_from_disk(uri.clone()).await? {
+                changes.push((uri, change));
             }
         }
-        Ok(())
+        self.did_change_watched_files(&changes)
+    }
+
+    /// Brings one open document up to date with disk; says how the file changed, if it did.
+    async fn sync_from_disk(&self, uri: String) -> Result<Option<FileChange>, String> {
+        let path = uri_path(&uri);
+        let text = match &path {
+            Some(path) => tokio::fs::read_to_string(path).await.ok(),
+            None => None,
+        };
+        let (Some(path), Some(text)) = (path, text) else {
+            self.close_uri(&uri).await?;
+            return Ok(Some(FileChange::Deleted));
+        };
+        let changed = self
+            .documents
+            .lock()
+            .await
+            .open
+            .get(&uri)
+            .is_some_and(|open| open.text != text);
+        self.sync(&path, &text, "").await?;
+        Ok(changed.then_some(FileChange::Changed))
+    }
+
+    /// Tells the server that files changed on disk (`workspace/didChangeWatchedFiles`).
+    pub fn did_change_watched_files(&self, changes: &[(String, FileChange)]) -> Result<(), String> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let changes: Vec<Value> = changes
+            .iter()
+            .map(|(uri, change)| json!({ "uri": uri, "type": change.code() }))
+            .collect();
+        self.connection
+            .notify("workspace/didChangeWatchedFiles", json!({ "changes": changes }))
     }
 
     /// Tells the server the document is closed; a document that is not open is left alone.

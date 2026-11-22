@@ -646,7 +646,33 @@ After `edit` or `write`, rho sends the new content to every server for the
 file and waits up to 3 seconds for its diagnostics. The result ends with the
 file's errors and warnings (20 at most, errors first), a count of errors other
 files report, or a note when a server has not answered yet. `lsp diagnostics`
-waits up to 10 seconds.
+waits up to 10 seconds. When the 3 seconds pass with the server still starting,
+busy, or silent, rho keeps waiting in the background for up to 12 more seconds
+and, if different diagnostics arrive and the file was not changed again,
+delivers them to the model as a notice before its next step (framed as
+untrusted tool output, like a background job's notice). Subagents without a
+mailbox are told to run `lsp diagnostics` instead.
+
+Servers also hear about files rho changes through
+`workspace/didChangeWatchedFiles` (created, changed, or deleted): after `edit`,
+`write`, `undo`, `lsp rename`, `lsp code_actions`, and `lsp format`, and when a
+query finds an open document changed on disk.
+
+`lsp code_actions path=... line=...` lists the server's quick fixes and
+refactors for the diagnostics on that line (`symbol` narrows it to one
+position). With `apply: true` and `query` (the listed number or part of the
+title), the chosen action's edit is applied through the same safe path as
+`rename`: every file must be inside the workspace and not a protected path,
+all files are written or none, each is recorded for `undo`, and the servers are
+told. The edit is fetched with `codeAction/resolve` when the list omitted it,
+and actions that only run a server command are refused. `lsp format path=...`
+asks the server to format the file with the `.editorconfig` indent (`tab`
+style and size for `[*]`, `[*.ext]`, `[*.{a,b}]`, or the exact file name; else 4
+spaces) and reports the changed regions. rho never formats on write.
+
+A query that comes back empty within 30 seconds of a server starting, from a
+server that never reported progress or status, ends with a note that the server
+may still be indexing; retry in a few seconds.
 
 ## System Instructions (`AGENTS.md`)
 

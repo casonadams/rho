@@ -104,11 +104,12 @@ pub struct LspManager {
     slots: Arc<Mutex<Slots>>,
     reaper: AtomicBool,
     reported_failures: Mutex<HashSet<Key>>,
+    pub(super) epochs: super::watch::Epochs,
 }
 
 static MANAGERS: LazyLock<Mutex<HashMap<PathBuf, Arc<LspManager>>>> = LazyLock::new(Default::default);
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -146,6 +147,7 @@ impl LspManager {
             slots: Arc::default(),
             reaper: AtomicBool::new(false),
             reported_failures: Mutex::new(HashSet::new()),
+            epochs: Default::default(),
         }
     }
 
@@ -434,7 +436,17 @@ impl LspManager {
     /// to start is reported once per attempt, then left out. In a project that is not trusted only
     /// servers that already run are used.
     pub async fn clients_within(&self, path: &Path, wait: Duration) -> Vec<Result<Arc<LspClient>, String>> {
-        let shown = self.relative(path);
+        let retry = format!("run lsp diagnostics path={} in a moment", self.relative(path));
+        self.clients_within_hinting(path, wait, &retry).await
+    }
+
+    /// [`LspManager::clients_within`], with `retry` as the advice for a server still starting.
+    pub async fn clients_within_hinting(
+        &self,
+        path: &Path,
+        wait: Duration,
+        retry: &str,
+    ) -> Vec<Result<Arc<LspClient>, String>> {
         let starts: Vec<(Key, StartFuture)> = self
             .candidates(path)
             .iter()
@@ -447,18 +459,11 @@ impl LspManager {
                 Some((c.key(), start?))
             })
             .collect();
-        let shown = &shown;
         let waits = starts.into_iter().map(|(key, start)| async move {
             match tokio::time::timeout(wait, start).await {
                 Ok(Err(error)) => (Some(key), Err(error)),
                 Ok(Ok(client)) => (None, Ok(client)),
-                Err(_) => (
-                    None,
-                    Err(format!(
-                        "{} is still starting; run lsp diagnostics path={shown} in a moment",
-                        key.0
-                    )),
-                ),
+                Err(_) => (None, Err(format!("{} is still starting; {retry}", key.0))),
             }
         });
         let results = futures::future::join_all(waits).await;
@@ -631,7 +636,7 @@ async fn reap_idle(slots: &Mutex<Slots>, idle: Duration) {
 
 /// `path` with symlinks resolved, so one file always maps to the same server root; a file that does
 /// not exist yet resolves through its parent directory.
-fn canonical(path: &Path) -> PathBuf {
+pub(super) fn canonical(path: &Path) -> PathBuf {
     path.canonicalize()
         .ok()
         .or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
