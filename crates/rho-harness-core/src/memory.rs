@@ -63,38 +63,78 @@ impl MemoryStore {
 
     /// The saved notes in file order; a missing file has none.
     pub fn notes(&self, scope: MemoryScope) -> Result<Vec<String>, MemoryError> {
+        Ok(parse_notes(&self.raw(scope)?))
+    }
+
+    fn raw(&self, scope: MemoryScope) -> Result<String, MemoryError> {
         let path = self.path(scope);
         match std::fs::read_to_string(&path) {
-            Ok(content) => Ok(parse_notes(&content)),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Ok(content) => Ok(content),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
             Err(source) => Err(MemoryError::Io { path, source }),
         }
     }
 
-    /// Saves `text` as the last note and returns its 1-based number.
-    pub fn add(&self, scope: MemoryScope, text: &str) -> Result<usize, MemoryError> {
-        let mut notes = self.notes(scope)?;
-        notes.push(checked_note(&notes, text)?);
-        let content = render_notes(&notes);
-        if notes.len() > MAX_NOTES || content.len() > MAX_FILE_BYTES {
-            return Err(MemoryError::Full);
-        }
-        self.save(scope, &content)?;
-        Ok(notes.len())
+    /// Holds an exclusive lock on the scope's file while `change` reads and rewrites it, so two
+    /// sessions never lose each other's notes.
+    fn locked<T>(&self, scope: MemoryScope, change: impl FnOnce() -> Result<T, MemoryError>) -> Result<T, MemoryError> {
+        let path = self.path(scope).with_extension("lock");
+        let io_error = |source| MemoryError::Io {
+            path: path.clone(),
+            source,
+        };
+        std::fs::create_dir_all(&self.dir).map_err(io_error)?;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .map_err(io_error)?;
+        lock.lock().map_err(io_error)?;
+        change()
     }
 
-    /// Deletes the note numbered `index` (1-based) and returns its text.
+    /// Saves `text` as the last note and returns its 1-based number. Lines in the file that are not
+    /// notes are kept.
+    pub fn add(&self, scope: MemoryScope, text: &str) -> Result<usize, MemoryError> {
+        self.locked(scope, || {
+            let mut content = self.raw(scope)?;
+            let notes = parse_notes(&content);
+            let note = checked_note(&notes, text)?;
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(&format!("- {note}\n"));
+            if notes.len() + 1 > MAX_NOTES || content.len() > MAX_FILE_BYTES {
+                return Err(MemoryError::Full);
+            }
+            self.save(scope, &content)?;
+            Ok(notes.len() + 1)
+        })
+    }
+
+    /// Deletes the note numbered `index` (1-based) and returns its text; other lines are kept.
     pub fn remove(&self, scope: MemoryScope, index: usize) -> Result<String, MemoryError> {
-        let mut notes = self.notes(scope)?;
-        if index == 0 || index > notes.len() {
-            return Err(MemoryError::NoSuchNote {
-                index,
-                count: notes.len(),
-            });
-        }
-        let removed = notes.remove(index - 1);
-        self.save(scope, &render_notes(&notes))?;
-        Ok(removed)
+        self.locked(scope, || {
+            let content = self.raw(scope)?;
+            let count = parse_notes(&content).len();
+            let mut seen = 0;
+            let mut removed = None;
+            let mut kept = String::with_capacity(content.len());
+            for line in content.split_inclusive('\n') {
+                if note_text(line).is_some() {
+                    seen += 1;
+                    if seen == index {
+                        removed = note_text(line).map(str::to_string);
+                        continue;
+                    }
+                }
+                kept.push_str(line);
+            }
+            let removed = removed.ok_or(MemoryError::NoSuchNote { index, count })?;
+            self.save(scope, &kept)?;
+            Ok(removed)
+        })
     }
 
     fn save(&self, scope: MemoryScope, content: &str) -> Result<(), MemoryError> {
@@ -137,19 +177,19 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
-/// Bullet lines (`- ` or `* `) are notes; any other line is ignored.
-#[must_use]
-pub fn parse_notes(content: &str) -> Vec<String> {
-    content
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            line.strip_prefix("- ").or_else(|| line.strip_prefix("* "))
-        })
+/// The note a bullet line holds (`- ` or `* `); `None` for any other line or an empty bullet.
+fn note_text(line: &str) -> Option<&str> {
+    let line = line.trim();
+    line.strip_prefix("- ")
+        .or_else(|| line.strip_prefix("* "))
         .map(str::trim)
         .filter(|note| !note.is_empty())
-        .map(str::to_string)
-        .collect()
+}
+
+/// Bullet lines (`- ` or `* `) are notes; any other line is not.
+#[must_use]
+pub fn parse_notes(content: &str) -> Vec<String> {
+    content.lines().filter_map(note_text).map(str::to_string).collect()
 }
 
 #[must_use]
