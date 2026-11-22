@@ -111,6 +111,7 @@ pub fn walker_builder(search_root: &Path, include_hidden: bool, types: Option<&T
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .parents(true);
     builder
 }
@@ -207,6 +208,17 @@ mod tests {
     fn list_workspace_files_skips_ignored_and_hidden_entries() {
         let dir = workspace();
         assert_eq!(list_workspace_files(dir.path(), 100), ["b.txt", "sub/a.rs"]);
+    }
+
+    #[test]
+    fn gitignore_applies_outside_a_git_repository_too() {
+        let dir = rho_test_support::TestDir::new();
+        fs::create_dir_all(dir.join("app/target/debug")).unwrap();
+        fs::write(dir.join("app/.gitignore"), "target/\n").unwrap();
+        fs::write(dir.join("app/main.rs"), "").unwrap();
+        fs::write(dir.join("app/target/debug/out.d"), "").unwrap();
+
+        assert_eq!(list_workspace_files(&dir, 100), ["app/main.rs"]);
     }
 
     #[test]
