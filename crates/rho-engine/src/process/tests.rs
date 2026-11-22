@@ -2,6 +2,33 @@ use super::*;
 
 #[tokio::test]
 #[cfg(unix)]
+async fn cancelling_a_turn_kills_tool_jobs_but_leaves_session_servers() {
+    let spawn = || {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("sleep 31 & wait");
+        isolate_group(&mut cmd);
+        cmd.spawn().expect("spawn test shell")
+    };
+    let (job, server) = (spawn(), spawn());
+    let (job_pid, server_pid) = (job.id().expect("pid"), server.id().expect("pid"));
+    let _job = ProcessTreeGuard::new(job);
+    let _server = ProcessTreeGuard::for_session(server);
+
+    kill_turn_processes();
+
+    wait_group_dead(job_pid).await;
+    assert!(!is_pid_tracked(job_pid));
+    assert!(is_pid_tracked(server_pid));
+    assert!(
+        unsafe { libc::kill(-(server_pid as libc::pid_t), 0) } == 0,
+        "server group must survive"
+    );
+    kill_all_tracked_processes();
+    wait_group_dead(server_pid).await;
+}
+
+#[tokio::test]
+#[cfg(unix)]
 async fn guard_drop_terminates_the_whole_group() {
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg("sleep 30 & wait");

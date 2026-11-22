@@ -8,11 +8,19 @@ mod tests;
 pub use guard::ProcessTreeGuard;
 pub use streaming::{StreamingCommand, configure_shell_command};
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use tokio::process::Command;
 
-static TRACKED_PIDS: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+static TRACKED_PIDS: LazyLock<Mutex<HashMap<u32, Scope>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// How long a tracked process lives: tool jobs end with the turn that started them, while servers
+/// (language servers, MCP) serve the whole session.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scope {
+    Turn,
+    Session,
+}
 
 /// Places the child in its own session and process group so one group kill
 /// reaches every descendant. `sh -c` wrappers routinely spawn grandchildren
@@ -85,32 +93,50 @@ pub(crate) fn kill_group_by_pid(pid: u32) {
 
 /// Registers a child PID to be terminated if the harness shuts down unexpectedly.
 pub fn track_pid(pid: u32) {
+    track(pid, Scope::Turn);
+}
+
+pub(crate) fn track(pid: u32, scope: Scope) {
     if pid > 1
-        && let Ok(mut set) = TRACKED_PIDS.lock()
+        && let Ok(mut map) = TRACKED_PIDS.lock()
     {
-        set.insert(pid);
+        map.insert(pid, scope);
     }
 }
 
 /// Unregisters a child PID once it has been reaped or cleaned up.
 pub fn untrack_pid(pid: u32) {
-    if let Ok(mut set) = TRACKED_PIDS.lock() {
-        set.remove(&pid);
+    if let Ok(mut map) = TRACKED_PIDS.lock() {
+        map.remove(&pid);
     }
 }
 
-/// Synchronously kills all currently tracked process groups.
+/// Synchronously kills all currently tracked process groups, including session-long servers.
 pub fn kill_all_tracked_processes() {
-    if let Ok(mut set) = TRACKED_PIDS.lock() {
-        for pid in set.drain() {
+    if let Ok(mut map) = TRACKED_PIDS.lock() {
+        for (pid, _) in map.drain() {
             kill_group_by_pid(pid);
         }
     }
 }
 
+/// Kills the tracked tool jobs of the current turn (for example when it is cancelled) and leaves
+/// session-long servers running.
+pub fn kill_turn_processes() {
+    if let Ok(mut map) = TRACKED_PIDS.lock() {
+        map.retain(|pid, scope| {
+            let turn = *scope == Scope::Turn;
+            if turn {
+                kill_group_by_pid(*pid);
+            }
+            !turn
+        });
+    }
+}
+
 #[cfg(test)]
 pub fn is_pid_tracked(pid: u32) -> bool {
-    TRACKED_PIDS.lock().map(|s| s.contains(&pid)).unwrap_or(false)
+    TRACKED_PIDS.lock().map(|m| m.contains_key(&pid)).unwrap_or(false)
 }
 
 #[cfg(all(test, unix))]

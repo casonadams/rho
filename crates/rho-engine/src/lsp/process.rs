@@ -97,7 +97,7 @@ impl Launcher for ProcessLauncher {
         Ok(Launched {
             reader: Box::new(stdout),
             writer: Box::new(stdin),
-            process: Some(Box::new(crate::process::ProcessTreeGuard::new(child))),
+            process: Some(Box::new(crate::process::ProcessTreeGuard::for_session(child))),
             stderr: tail,
         })
     }
