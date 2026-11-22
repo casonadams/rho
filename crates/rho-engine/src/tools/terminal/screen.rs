@@ -32,8 +32,9 @@ impl SessionHeader<'_> {
     }
 }
 
-/// The header followed by each screen row as `N|text`, without trailing spaces or trailing blank rows.
-pub fn format_screen(header: &SessionHeader<'_>, rows: &[String]) -> String {
+/// The header, any scrollback lines (oldest first), then each screen row as `N|text`, without
+/// trailing spaces or trailing blank rows.
+pub fn format_screen(header: &SessionHeader<'_>, scrollback: &[String], rows: &[String]) -> String {
     let trimmed: Vec<&str> = rows.iter().map(|row| row.trim_end()).collect();
     let shown = trimmed
         .iter()
@@ -41,6 +42,13 @@ pub fn format_screen(header: &SessionHeader<'_>, rows: &[String]) -> String {
         .map_or(0, |last| last + 1);
     let width = shown.to_string().len();
     let mut out = header.line();
+    if !scrollback.is_empty() {
+        out.push_str(&format!("\nscrollback (last {} lines):", scrollback.len()));
+        for line in scrollback {
+            out.push_str(&format!("\n-|{}", line.trim_end()));
+        }
+        out.push_str("\nscreen:");
+    }
     for (index, row) in trimmed[..shown].iter().enumerate() {
         out.push_str(&format!("\n{:>width$}|{row}", index + 1));
     }
@@ -85,7 +93,7 @@ mod tests {
             .chain(["   ", ""])
             .map(String::from)
             .collect();
-        let screen = format_screen(&header("vim"), &rows);
+        let screen = format_screen(&header("vim"), &[], &rows);
         let expected = "[terminal 3: vim 120x40, cursor 5:12, running]\n 1|a\n 2|\n 3|b\n 4|\n 5|\n 6|\n 7|\n 8|\n 9|\n10|\n11|\n12|c";
         assert_eq!(screen, expected);
     }
@@ -93,6 +101,18 @@ mod tests {
     #[test]
     fn blank_screen_is_only_the_header() {
         let rows = vec![String::new(); 5];
-        assert_eq!(format_screen(&header("cat"), &rows), header("cat").line());
+        assert_eq!(format_screen(&header("cat"), &[], &rows), header("cat").line());
+    }
+
+    #[test]
+    fn scrollback_is_labelled_above_the_screen() {
+        let rows = vec!["a".to_string(), String::new()];
+        let scrollback = vec!["x  ".to_string(), "y".to_string()];
+        let screen = format_screen(&header("seq"), &scrollback, &rows);
+        let expected = format!(
+            "{}\nscrollback (last 2 lines):\n-|x\n-|y\nscreen:\n1|a",
+            header("seq").line()
+        );
+        assert_eq!(screen, expected);
     }
 }

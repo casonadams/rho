@@ -68,11 +68,15 @@ resume the exact session of each pane with `rho --resume <id>`.
   its key failure lines.
 - **`terminal`**: Drive interactive programs (vim, nvim, REPLs, TUIs) in a
   pseudo-terminal: `start` a command (default 120x40, `TERM=xterm-256color`),
-  `send` text and named keys (`Enter`, `Esc`, arrows, `C-a`..`C-z`,
-  `F1`..`F12`, ...) and wait until output pauses or `wait_for` text appears,
+  `send` text and named keys (`Enter`, `Space`, `Esc`, `S-Tab`, arrows, `C-a`..`C-z`,
+  `F1`..`F12`, ...) and wait until output pauses or `wait_for` text appears
+  in new output (C-c/C-z/C-\ are written separately so echoed input is not
+  lost),
   then read the screen as a header (`[terminal 1: nvim 120x40, cursor 5:12,
-  running]`) and numbered rows; `screen`, `resize`, `list`, and `close` manage
-  up to 8 sessions. `start` follows the same permission rules as `bash`.
+  running]`) and numbered rows, with optional `scrollback` lines (max 200);
+  `screen`, `resize`, `list`, and `close` manage
+  up to 8 sessions; `close` kills the whole process group. `start` follows the
+  same permission rules as `bash`; text sent afterwards is not re-checked.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
   indented names; directories end with `/`) after a total count. A directory

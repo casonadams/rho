@@ -11,8 +11,11 @@ pub fn key_bytes(name: &str, application_cursor: bool) -> Option<Vec<u8>> {
     }
     let sequence = match lower.as_str() {
         "enter" => "\r",
+        "space" => " ",
         "esc" => "\x1b",
         "tab" => "\t",
+        "s-tab" => "\x1b[Z",
+        "insert" => "\x1b[2~",
         "backspace" => "\x7f",
         "pageup" => "\x1b[5~",
         "pagedown" => "\x1b[6~",
@@ -38,6 +41,7 @@ fn control_byte(name: &str) -> Option<u8> {
     let letter = name.strip_prefix("C-").or_else(|| name.strip_prefix("c-"))?;
     match letter.as_bytes() {
         [byte] if byte.is_ascii_alphabetic() => Some(byte.to_ascii_lowercase() & 0x1f),
+        [byte @ (b'[' | b'\\' | b']')] => Some(byte & 0x1f),
         _ => None,
     }
 }
@@ -54,18 +58,49 @@ fn cursor_code(lower: &str) -> Option<char> {
     }
 }
 
-/// The bytes for `text` followed by `keys`, or the first unknown key name.
-pub fn input_bytes(text: &str, keys: &[String], application_cursor: bool) -> Result<Vec<u8>, String> {
-    let mut bytes = text.as_bytes().to_vec();
+/// The input modes the program has enabled, which change how keys and text are encoded.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InputModes {
+    pub application_cursor: bool,
+    pub bracketed_paste: bool,
+}
+
+const ESC: u8 = 0x1b;
+
+/// Keys that make the tty discard queued input and echo (C-c, C-z, C-\) and so must not share a
+/// write with the bytes around them.
+fn flushes_tty(encoded: &[u8]) -> bool {
+    matches!(encoded, [0x03 | 0x1a | 0x1c])
+}
+
+/// The writes for `text` followed by `keys`, or the first unknown key name. The stream is split
+/// around keys that flush the tty queues, and after Esc so it is not read as an Alt prefix.
+pub fn input_segments(text: &str, keys: &[String], modes: InputModes) -> Result<Vec<Vec<u8>>, String> {
+    let mut segments = Vec::new();
+    let mut current = if modes.bracketed_paste && text.contains('\n') {
+        format!("\x1b[200~{text}\x1b[201~").into_bytes()
+    } else {
+        text.as_bytes().to_vec()
+    };
     for key in keys {
-        let encoded = key_bytes(key, application_cursor).ok_or_else(|| {
+        let encoded = key_bytes(key, modes.application_cursor).ok_or_else(|| {
             format!(
-                "unknown key '{key}'; use Enter, Esc, Tab, Backspace, Up, Down, Left, Right, Home, End, PageUp, PageDown, Delete, C-a..C-z, or F1..F12"
+                "unknown key '{key}'; use Enter, Space, Esc, Tab, S-Tab, Backspace, Up, Down, Left, Right, Home, End, PageUp, PageDown, Insert, Delete, C-a..C-z, C-[, C-\\, C-], or F1..F12"
             )
         })?;
-        bytes.extend(encoded);
+        let flushes = flushes_tty(&encoded);
+        if flushes && !current.is_empty() {
+            segments.push(std::mem::take(&mut current));
+        }
+        current.extend_from_slice(&encoded);
+        if flushes || encoded == [ESC] {
+            segments.push(std::mem::take(&mut current));
+        }
     }
-    Ok(bytes)
+    if !current.is_empty() {
+        segments.push(current);
+    }
+    Ok(segments)
 }
 
 #[cfg(test)]
@@ -86,6 +121,12 @@ mod tests {
             ("F4", b"\x1bOS"),
             ("F5", b"\x1b[15~"),
             ("F12", b"\x1b[24~"),
+            ("Space", b" "),
+            ("S-Tab", b"\x1b[Z"),
+            ("Insert", b"\x1b[2~"),
+            ("C-[", &[0x1b]),
+            ("C-\\", &[0x1c]),
+            ("C-]", &[0x1d]),
             ("C-a", &[0x01]),
             ("C-c", &[0x03]),
             ("c-Z", &[0x1a]),
@@ -106,16 +147,47 @@ mod tests {
 
     #[test]
     fn unknown_keys_are_rejected() {
-        for name in ["", "C-", "C-1", "C-ab", "F13", "Space"] {
+        for name in ["", "C-", "C-1", "C-ab", "F13", "C-^"] {
             assert_eq!(key_bytes(name, false), None, "{name}");
         }
-        let error = input_bytes("x", &["Enter".into(), "Hyper".into()], false).unwrap_err();
+        let error = input_segments("x", &["Enter".into(), "Hyper".into()], InputModes::default()).unwrap_err();
         assert!(error.starts_with("unknown key 'Hyper'"), "{error}");
+    }
+
+    fn segments(text: &str, keys: &[&str], modes: InputModes) -> Vec<Vec<u8>> {
+        let keys: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
+        input_segments(text, &keys, modes).unwrap()
     }
 
     #[test]
     fn input_sends_text_before_keys() {
-        let bytes = input_bytes(":wq", &["Enter".into()], false).unwrap();
-        assert_eq!(bytes, b":wq\r");
+        assert_eq!(segments(":wq", &["Enter"], InputModes::default()), [b":wq\r".to_vec()]);
+    }
+
+    #[test]
+    fn tty_flushing_keys_and_esc_end_a_write() {
+        let modes = InputModes::default();
+        type Case<'a> = (&'a str, &'a [&'a str], &'a [&'a [u8]]);
+        let cases: &[Case] = &[
+            ("hello", &["Enter", "C-c"], &[b"hello\r", b"\x03"]),
+            ("", &["C-c", "C-z"], &[b"\x03", b"\x1a"]),
+            ("a", &["Esc", "Up"], &[b"a\x1b", b"\x1b[A"]),
+            ("", &["Tab", "C-\\", "Enter"], &[b"\t", b"\x1c", b"\r"]),
+            ("", &["C-d"], &[b"\x04"]),
+        ];
+        for (text, keys, expected) in cases {
+            assert_eq!(segments(text, keys, modes), *expected, "{text} {keys:?}");
+        }
+    }
+
+    #[test]
+    fn multi_line_text_is_pasted_only_when_the_program_enabled_it() {
+        let pasting = InputModes {
+            bracketed_paste: true,
+            ..InputModes::default()
+        };
+        assert_eq!(segments("a\nb", &[], pasting), [b"\x1b[200~a\nb\x1b[201~".to_vec()]);
+        assert_eq!(segments("ab", &[], pasting), [b"ab".to_vec()]);
+        assert_eq!(segments("a\nb", &[], InputModes::default()), [b"a\nb".to_vec()]);
     }
 }

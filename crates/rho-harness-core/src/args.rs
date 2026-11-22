@@ -462,7 +462,7 @@ pub struct TerminalArgs {
     /// Literal text to type (send); sent before keys
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Named keys to press in order after text (send): Enter, Esc, Tab, Backspace, Up, Down, Left, Right, Home, End, PageUp, PageDown, Delete, C-a..C-z, F1..F12
+    /// Named keys to press in order after text (send): Enter, Space, Esc, Tab, S-Tab, Backspace, Up, Down, Left, Right, Home, End, PageUp, PageDown, Insert, Delete, C-a..C-z, C-[, C-\, C-], F1..F12
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keys: Option<Vec<String>>,
     /// Terminal width in columns (start default: 120; required for resize)
@@ -477,6 +477,9 @@ pub struct TerminalArgs {
     /// Text that ends the wait as soon as it appears on screen (start and send)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wait_for: Option<String>,
+    /// Lines of scrollback to show above the screen rows (start, send, screen, resize; max 200)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrollback: Option<u16>,
 }
 
 // Submodule aliases for backwards compatibility

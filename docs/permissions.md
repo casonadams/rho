@@ -193,7 +193,8 @@ Rules can be manually authored or inspected in `.rho/permission.toml`
 `"vim *" = "allow"` lets the agent open vim in a pseudo-terminal without a
 prompt. Its other actions (`send`, `screen`, `resize`, `close`, `list`) only
 drive sessions a `start` was allowed to open and never prompt, so text sent to
-an allowed shell or REPL is not checked again.
+an allowed shell, REPL, or editor is not checked against the bash rules again.
+Programs started this way run with `PAGER=cat` and `GIT_PAGER=cat`.
 
 #### Custom Deny Reasons
 

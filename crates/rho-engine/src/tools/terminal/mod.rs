@@ -8,7 +8,7 @@ mod tests;
 
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::ToolResult;
-use keys::input_bytes;
+use keys::input_segments;
 use rho_harness_core::args::{TerminalAction, TerminalArgs};
 use rho_harness_core::error::AppError;
 use session::{TermSize, TerminalSession, Wait};
@@ -22,11 +22,32 @@ const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 40;
 const DEFAULT_WAIT_MS: u64 = 2000;
 const MAX_WAIT_MS: u64 = 60_000;
+const MAX_SCROLLBACK: usize = 200;
+const START_PATIENCE: Duration = Duration::from_millis(600);
 
 #[derive(Default)]
 struct Sessions {
     last_id: u32,
     live: BTreeMap<u32, Arc<TerminalSession>>,
+}
+
+/// Removes a just-started session again unless the call that started it got to return its id.
+struct Registration<'a> {
+    sessions: &'a Mutex<Sessions>,
+    id: u32,
+    returned: bool,
+}
+
+impl Drop for Registration<'_> {
+    fn drop(&mut self) {
+        if !self.returned {
+            lock_sessions(self.sessions).live.remove(&self.id);
+        }
+    }
+}
+
+fn lock_sessions(sessions: &Mutex<Sessions>) -> std::sync::MutexGuard<'_, Sessions> {
+    sessions.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The `terminal` tool. Its sessions live as long as the tool and are killed when it is dropped.
@@ -47,8 +68,8 @@ impl TerminalTool {
         match args.action {
             TerminalAction::Start => self.start(args).await,
             TerminalAction::Send => self.send(args).await,
-            TerminalAction::Screen => Ok(self.session(args.id)?.render()),
-            TerminalAction::Resize => self.resize(&args),
+            TerminalAction::Screen => Ok(self.session(args.id)?.render(scrollback_lines(&args))),
+            TerminalAction::Resize => self.resize(&args).await,
             TerminalAction::Close => self.close(args.id).await,
             TerminalAction::List => Ok(self.list()),
         }
@@ -62,9 +83,9 @@ impl TerminalTool {
             .filter(|c| !c.is_empty())
             .ok_or("start needs a command")?;
         let size = TermSize::new(args.cols.unwrap_or(DEFAULT_COLS), args.rows.unwrap_or(DEFAULT_ROWS))?;
-        let wait = wait_for(&args);
+        let wait = wait_for(&args).patient(START_PATIENCE);
         let session = {
-            let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut sessions = lock_sessions(&self.sessions);
             if sessions.live.len() >= MAX_SESSIONS {
                 return Err(format!(
                     "{MAX_SESSIONS} terminal sessions are open; close one before starting another"
@@ -76,50 +97,49 @@ impl TerminalTool {
             sessions.live.insert(id, session.clone());
             session
         };
-        session.settle(session.subscribe(), &wait).await;
-        Ok(rendered_after_wait(&session, &wait))
+        let mut registration = Registration {
+            sessions: &self.sessions,
+            id: session.id,
+            returned: false,
+        };
+        session.settle(session.subscribe_from_start(), &wait).await;
+        let screen = rendered_after_wait(&session, &wait, &args);
+        registration.returned = true;
+        Ok(screen)
     }
 
     async fn send(&self, args: TerminalArgs) -> Result<String, String> {
         let session = self.session(args.id)?;
         if !session.is_running() {
-            return Err(format!(
+            return Ok(format!(
                 "{}\nThe program has exited; close the session.",
-                session.summary()
+                session.render(scrollback_lines(&args))
             ));
         }
         let keys = args.keys.as_deref().unwrap_or_default();
-        let bytes = input_bytes(
-            args.text.as_deref().unwrap_or_default(),
-            keys,
-            session.application_cursor(),
-        )?;
-        if bytes.is_empty() {
+        let segments = input_segments(args.text.as_deref().unwrap_or_default(), keys, session.input_modes())?;
+        if segments.is_empty() {
             return Err("send needs text or keys".to_string());
         }
         let wait = wait_for(&args);
         let output = session.subscribe();
-        session.write(bytes).await?;
+        session.write_segments(segments).await?;
         session.settle(output, &wait).await;
-        Ok(rendered_after_wait(&session, &wait))
+        Ok(rendered_after_wait(&session, &wait, &args))
     }
 
-    fn resize(&self, args: &TerminalArgs) -> Result<String, String> {
+    async fn resize(&self, args: &TerminalArgs) -> Result<String, String> {
         let session = self.session(args.id)?;
         let (Some(cols), Some(rows)) = (args.cols, args.rows) else {
             return Err("resize needs cols and rows".to_string());
         };
-        session.resize(TermSize::new(cols, rows)?)?;
-        Ok(session.render())
+        session.resize(TermSize::new(cols, rows)?).await?;
+        Ok(session.render(scrollback_lines(args)))
     }
 
     async fn close(&self, id: Option<u32>) -> Result<String, String> {
         let session = self.session(id)?;
-        self.sessions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .live
-            .remove(&session.id);
+        lock_sessions(&self.sessions).live.remove(&session.id);
         let summary = session.summary();
         let ended = tokio::task::spawn_blocking(move || session.terminate())
             .await
@@ -128,7 +148,7 @@ impl TerminalTool {
     }
 
     fn list(&self) -> String {
-        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let sessions = lock_sessions(&self.sessions);
         if sessions.live.is_empty() {
             return "No terminal sessions.".to_string();
         }
@@ -138,8 +158,7 @@ impl TerminalTool {
 
     fn session(&self, id: Option<u32>) -> Result<Arc<TerminalSession>, String> {
         let id = id.ok_or("this action needs the session id")?;
-        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
-        sessions
+        lock_sessions(&self.sessions)
             .live
             .get(&id)
             .cloned()
@@ -148,14 +167,19 @@ impl TerminalTool {
 }
 
 fn wait_for(args: &TerminalArgs) -> Wait {
-    Wait {
-        limit: Duration::from_millis(args.wait_ms.unwrap_or(DEFAULT_WAIT_MS).min(MAX_WAIT_MS)),
-        until: args.wait_for.clone().filter(|text| !text.is_empty()),
-    }
+    Wait::new(
+        Duration::from_millis(args.wait_ms.unwrap_or(DEFAULT_WAIT_MS).min(MAX_WAIT_MS)),
+        args.wait_for.clone().filter(|text| !text.is_empty()),
+    )
 }
 
-fn rendered_after_wait(session: &TerminalSession, wait: &Wait) -> String {
-    let screen = session.render();
+fn scrollback_lines(args: &TerminalArgs) -> usize {
+    args.scrollback
+        .map_or(0, |lines| usize::from(lines).min(MAX_SCROLLBACK))
+}
+
+fn rendered_after_wait(session: &TerminalSession, wait: &Wait, args: &TerminalArgs) -> String {
+    let screen = session.render(scrollback_lines(args));
     match &wait.until {
         Some(text) if !session.shows(text) => format!(
             "{screen}\n[\"{text}\" did not appear within {} ms]",
