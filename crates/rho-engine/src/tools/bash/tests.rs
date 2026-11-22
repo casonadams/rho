@@ -301,12 +301,12 @@ async fn test_bash_nonzero_exit() {
     assert!(res.content.contains("[exit 42]"));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_bash_timeout() {
     let tool = BashTool::new(std::env::current_dir().unwrap());
     let res = tool
         .execute(BashArgs {
-            command: "sleep 3".to_string(),
+            command: "sleep 30".to_string(),
             timeout: Some(1),
             background: None,
         })

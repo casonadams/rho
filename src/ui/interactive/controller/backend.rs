@@ -8,6 +8,25 @@ use crossterm::{
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
 use std::io::{self, BufWriter, Stdout, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static RAW_TERMINAL_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Puts the terminal back into cooked mode from a signal or panic path that cannot reach the
+/// controller. Does nothing unless a crossterm backend currently holds the terminal in raw mode.
+pub fn restore_terminal_after_abort() {
+    if RAW_TERMINAL_ACTIVE.swap(false, Ordering::SeqCst) {
+        let mut out = io::stdout();
+        let _ = execute!(
+            out,
+            PopKeyboardEnhancementFlags,
+            DisableFocusChange,
+            DisableBracketedPaste,
+            Show
+        );
+        let _ = disable_raw_mode();
+    }
+}
 
 pub trait TerminalBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()>;
@@ -77,6 +96,7 @@ impl TerminalBackend for CrosstermBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()> {
         if enabled {
             enable_raw_mode()?;
+            RAW_TERMINAL_ACTIVE.store(true, Ordering::SeqCst);
             execute!(
                 self.stdout,
                 EnableBracketedPaste,
@@ -90,6 +110,7 @@ impl TerminalBackend for CrosstermBackend {
                 DisableFocusChange,
                 DisableBracketedPaste,
             );
+            RAW_TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
             disable_raw_mode()?;
         }
         Ok(())
