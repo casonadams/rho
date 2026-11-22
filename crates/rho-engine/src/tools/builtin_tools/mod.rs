@@ -16,6 +16,7 @@ use crate::tools::lsp::LspTool;
 use crate::tools::read::ReadTool;
 use crate::tools::rg::RgTool;
 use crate::tools::subagent::{SubagentModelResolver, SubagentRuntime, SubagentTool};
+use crate::tools::terminal::TerminalTool;
 use crate::tools::todo::TodoTool;
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
@@ -38,6 +39,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
     let bash = Arc::new(BashTool::new(base_dir));
     let fd = Arc::new(FdTool::new(base_dir));
     let rg = Arc::new(RgTool::new(base_dir));
+    let terminal = Arc::new(TerminalTool::new(base_dir));
 
     let mut tools = vec![
         read as Arc<dyn EngineTool>,
@@ -46,6 +48,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
         bash as Arc<dyn EngineTool>,
         fd as Arc<dyn EngineTool>,
         rg as Arc<dyn EngineTool>,
+        terminal as Arc<dyn EngineTool>,
     ];
     if let Some(lsp) = lsp {
         tools.push(Arc::new(LspTool::new(base_dir, lsp)) as Arc<dyn EngineTool>);
@@ -162,8 +165,8 @@ pub fn build_builtin_toolset(
     Ok((tools, subagent))
 }
 
-/// `tools` with the workspace-native ones (read, write, edit, bash, fd, rg) rooted at `root` instead.
-/// Rerooted tools run without language servers.
+/// `tools` with the workspace-native ones (read, write, edit, bash, fd, rg, terminal) rooted at `root`
+/// instead. Rerooted tools run without language servers.
 pub(crate) fn rerooted(tools: &[Arc<dyn EngineTool>], root: &Path) -> Vec<Arc<dyn EngineTool>> {
     let native = build_workspace_native_tools(root, None);
     tools

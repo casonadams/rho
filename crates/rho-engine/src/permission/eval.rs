@@ -48,11 +48,19 @@ fn draft_for(component: Component) -> RuleDraft {
 }
 
 fn components(policy: &Policy, req: EvalRequest<'_>) -> Vec<Component> {
-    if req.tool == "bash" {
+    if runs_shell_command(req.tool, req.args) {
         bash_components(&policy.rules, req)
+    } else if req.tool == "terminal" {
+        Vec::new()
     } else {
         non_bash_components(&policy.rules, req)
     }
+}
+
+/// Whether the call runs a shell command, which bash rules govern: a bash call or a terminal `start`.
+/// Other terminal actions only drive sessions an earlier `start` was allowed to open.
+pub(crate) fn runs_shell_command(tool: &str, args: &serde_json::Value) -> bool {
+    tool == "bash" || (tool == "terminal" && args["action"] == "start")
 }
 
 fn decide_bash_cmd(rules: &[PolicyRule], cmd: &String) -> Decision {

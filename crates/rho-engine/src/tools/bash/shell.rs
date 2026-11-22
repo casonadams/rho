@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::Path;
 use tokio::process::Command;
 
@@ -13,7 +14,7 @@ fn default_unix_shell() -> &'static str {
 }
 
 #[cfg(windows)]
-fn build_windows_command(command: &str) -> Command {
+fn windows_shell_argv(command: &str) -> Vec<OsString> {
     let git_bash = std::env::var("ProgramFiles")
         .map(|p| format!(r"{p}\Git\bin\bash.exe"))
         .ok()
@@ -24,44 +25,42 @@ fn build_windows_command(command: &str) -> Command {
                 .ok()
                 .filter(|p| Path::new(p).exists())
         });
-    if let Some(bash) = git_bash {
-        let mut c = Command::new(bash);
-        c.arg("-c").arg(command);
-        c
-    } else {
-        let mut c = Command::new("cmd.exe");
-        c.arg("/C").arg(command);
-        c
+    match git_bash {
+        Some(bash) => vec![bash.into(), "-c".into(), command.into()],
+        None => vec!["cmd.exe".into(), "/C".into(), command.into()],
     }
+}
+
+/// The shell program and arguments that run `command`, starting with the program.
+pub fn shell_argv(command: &str) -> Vec<OsString> {
+    #[cfg(unix)]
+    let argv = vec![default_unix_shell().into(), "-c".into(), command.into()];
+
+    #[cfg(windows)]
+    let argv = windows_shell_argv(command);
+
+    #[cfg(not(any(unix, windows)))]
+    let argv = vec!["sh".into(), "-c".into(), command.into()];
+
+    argv
 }
 
 /// Resolves the shell executable and arguments for executing commands.
 pub fn resolve_shell_command(command: &str) -> Command {
-    #[cfg(unix)]
-    let mut cmd = {
-        let mut c = Command::new(default_unix_shell());
-        c.arg("-c").arg(command);
-        c
-    };
-
-    #[cfg(windows)]
-    let mut cmd = build_windows_command(command);
-
-    #[cfg(not(any(unix, windows)))]
-    let mut cmd = {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg(command);
-        c
-    };
-
-    sanitize_cargo_env(&mut cmd);
+    let argv = shell_argv(command);
+    let mut cmd = Command::new(&argv[0]);
+    cmd.args(&argv[1..]);
+    for key in std::env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| is_cargo_build_var(key))
+    {
+        cmd.env_remove(key);
+    }
     cmd
 }
 
-fn sanitize_cargo_env(cmd: &mut Command) {
-    for (key, _) in std::env::vars() {
-        if key.starts_with("CARGO_PKG_") || key.starts_with("CARGO_MANIFEST_") || key == "OUT_DIR" {
-            cmd.env_remove(&key);
-        }
-    }
+/// Variables cargo sets for the build of rho itself, which must not leak into commands the model runs.
+pub fn is_cargo_build_var(key: &std::ffi::OsStr) -> bool {
+    let key = key.to_string_lossy();
+    key.starts_with("CARGO_PKG_") || key.starts_with("CARGO_MANIFEST_") || key == "OUT_DIR"
 }

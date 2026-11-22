@@ -57,6 +57,7 @@ mod tests {
             "bash",
             "fd",
             "rg",
+            "terminal",
             "web_search",
             "web_fetch",
             "subagent",
