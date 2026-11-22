@@ -156,8 +156,6 @@ mod tests {
 
         let agentsonly_tmpl = discovered.iter().find(|t| t.metadata.name == "agentsonly").unwrap();
         assert_eq!(agentsonly_tmpl.origin, "project");
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[tokio::test]
@@ -175,8 +173,6 @@ mod tests {
         )
         .await;
         assert!(discovered.is_empty());
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[tokio::test]
@@ -193,7 +189,5 @@ mod tests {
             discover_prompt_templates_for_paths_async(Some(&temp_dir.join("home")), Some(&user_config), None).await;
         let names: Vec<&str> = discovered.iter().map(|t| t.metadata.name.as_str()).collect();
         assert_eq!(names, vec!["good"]);
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

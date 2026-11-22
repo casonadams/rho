@@ -88,7 +88,6 @@ mod tests {
         assert!(SessionManager::new_async(&dir, Some(&session_id)).await.is_err());
         drop(holder);
         assert!(SessionManager::new_async(&dir, Some(&session_id)).await.is_ok());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -102,7 +101,6 @@ mod tests {
             dropper.join().unwrap();
             assert!(reopened.is_ok());
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn external_handle(path: &std::path::Path) -> std::fs::File {
@@ -138,7 +136,6 @@ mod tests {
             drop(manager);
             drop(lock);
             assert!(external.try_lock().is_ok(), "{keeper:?}");
-            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 }

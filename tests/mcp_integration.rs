@@ -49,5 +49,4 @@ async fn test_mcp_server_discovery_and_tool_invocation_end_to_end() {
     let res = fs_read.execute(serde_json::json!({"path":"foo.txt"})).await.unwrap();
     assert!(!res.is_error);
     assert!(res.content.contains("content from mock fs MCP"));
-    let _ = std::fs::remove_dir_all(&workspace);
 }

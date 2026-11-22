@@ -109,6 +109,4 @@ async fn test_direct_tools_list_filters_and_search_keywords() {
         res.content
     );
     assert!(!engine.tool_names().contains(&"srv_deferred_tool".to_string()));
-
-    let _ = std::fs::remove_dir_all(&workspace);
 }

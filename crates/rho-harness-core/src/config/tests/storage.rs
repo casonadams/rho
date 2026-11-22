@@ -43,7 +43,6 @@ fn test_config_file_loads_model_provider_and_thinking_level() {
             Some("gemini/gemini-2.0-flash"),
         )
     );
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -68,7 +67,6 @@ fn test_config_file_aliases_load_correctly() {
             Some("anthropic/claude-3-7-sonnet-20250219"),
         )
     );
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 // Configs written before theming was removed may still carry a `theme` key;
@@ -96,8 +94,6 @@ fn test_set_file_value_persists_and_validates() {
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
     assert_eq!(file.thinking_level.as_deref(), Some("high"));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -120,7 +116,6 @@ fn test_cli_overrides_config_file() {
     unsafe {
         std::env::remove_var("RHO_HOME");
     }
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -153,7 +148,6 @@ async fn test_save_default_model_persists_both_fields() {
             content.contains(&format!("[models]\ndefault = \"{spec}\"")),
             "{content}"
         );
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }
 
@@ -177,8 +171,6 @@ async fn test_save_default_thinking_level_persists() {
         config.thinking_level
     };
     assert_eq!(thinking_level.as_deref(), Some("high"));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -198,7 +190,6 @@ fn test_config_file_model_infers_provider_when_unspecified() {
     unsafe {
         std::env::remove_var("RHO_HOME");
     }
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -221,8 +212,6 @@ async fn test_save_ui_settings_async_helpers_persist() {
     assert_eq!(ui.hide_thinking, Some(true));
     assert_eq!(ui.tools_expanded, Some(true));
     assert_eq!(ui.cursor.as_deref(), Some("hardware"));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -256,8 +245,6 @@ fn test_set_file_value_ui_keys_and_aliases() {
     assert_eq!(ui.agent_block_output, Some(false));
     assert_eq!(ui.hide_thinking, Some(false));
     assert_eq!(ui.tools_expanded, Some(true));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -311,8 +298,6 @@ async fn test_set_file_value_tools_and_permissions_keys() {
     // Test invalid search engine rejected
     let err = Config::set_file_value(&dir, "tools.web.search.default", "invalid_search_engine");
     assert!(err.is_err());
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -337,8 +322,6 @@ fn test_set_file_value_limits_keys() {
     assert_eq!(file.compaction_max_bytes, Some(65536));
     assert_eq!(file.reserve_tokens, Some(2000));
     assert_eq!(file.keep_recent_tokens, Some(1000));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -375,8 +358,6 @@ fn test_set_file_value_network_and_retention_keys() {
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
     assert_eq!(file.session_retention_days, Some(0));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -388,7 +369,6 @@ fn test_set_provider_without_a_default_model_is_an_error() {
         "{error}"
     );
     assert!(!dir.join("config.toml").exists());
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -422,8 +402,6 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
     assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -436,8 +414,6 @@ fn test_config_file_guard_model() {
     Config::set_file_value(&dir, "models.guard", "none").unwrap();
     let config2 = load_config_with_rho_home(&dir);
     assert_eq!(config2.guard_model(), None);
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -458,8 +434,6 @@ fn test_set_file_value_models() {
     assert_eq!(config.model, "claude-3-7-sonnet");
     assert_eq!(config.provider, "anthropic");
     assert_eq!(config.guard_model(), Some("local/qwen2.5-coder:7b"));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

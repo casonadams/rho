@@ -83,8 +83,6 @@ fn test_parse_agent_files_variants() {
     assert_eq!(meta_plain.name, "plain");
     assert_eq!(meta_plain.description, "Custom subagent");
     assert_eq!(meta_plain.system_prompt, "Just the instructions");
-
-    let _ = std::fs::remove_dir_all(tmp);
 }
 
 #[tokio::test]
@@ -105,8 +103,6 @@ async fn test_agent_resolution_precedence() {
     assert_eq!(map.get("s").map(String::as_str), Some("new"));
     assert_eq!(map.get("u").map(String::as_str), Some("u"));
     assert!(!map.contains_key("ignored"));
-
-    let _ = std::fs::remove_dir_all(p);
 }
 
 #[test]
@@ -142,5 +138,4 @@ fn personas_resolve_from_user_and_project_with_project_precedence() {
             ("terse", "", "Answer in one line."),
         ]
     );
-    let _ = std::fs::remove_dir_all(p);
 }

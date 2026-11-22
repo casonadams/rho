@@ -345,8 +345,6 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
     assert_eq!(body1["system"], body2["system"]);
     assert_eq!(body1["system"][1]["cache_control"]["type"], "ephemeral");
     assert_eq!(body2["system"][1]["cache_control"]["type"], "ephemeral");
-
-    let _ = tokio::fs::remove_dir_all(temp).await;
 }
 
 #[test]

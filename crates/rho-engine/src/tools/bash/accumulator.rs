@@ -12,6 +12,11 @@ const LOG_DIR_NAME: &str = "rho-bash";
 const LOG_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const LOG_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 
+/// Where full output logs go unless a tool is given its own directory.
+pub fn default_log_dir() -> PathBuf {
+    std::env::temp_dir().join(LOG_DIR_NAME)
+}
+
 /// Removes full output logs under `temp_root` older than a day or beyond the total size cap, and
 /// day-old `rho-bash-*.log` files that earlier versions left loose in `temp_root`. Returns the count.
 pub fn sweep_logs(temp_root: &Path) -> usize {
@@ -71,6 +76,7 @@ pub struct OutputAccumulator {
     /// Plain log text held until the output is long enough to need a log file.
     unwritten_log: String,
     pending_ansi: String,
+    log_dir: PathBuf,
 }
 
 impl Default for OutputAccumulator {
@@ -128,7 +134,14 @@ impl OutputAccumulator {
             temp_file_writer: None,
             unwritten_log: String::new(),
             pending_ansi: String::new(),
+            log_dir: default_log_dir(),
         }
+    }
+
+    #[must_use]
+    pub fn with_log_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.log_dir = dir.into();
+        self
     }
 
     #[cfg(test)]
@@ -246,9 +259,9 @@ impl OutputAccumulator {
         if self.temp_file_writer.is_some() {
             return;
         }
-        let dir = std::env::temp_dir().join(LOG_DIR_NAME);
+        let dir = &self.log_dir;
         let path = dir.join(format!("{}.log", &uuid::Uuid::new_v4().simple().to_string()[..12]));
-        let Ok(file) = std::fs::create_dir_all(&dir).and_then(|()| File::create(&path)) else {
+        let Ok(file) = std::fs::create_dir_all(dir).and_then(|()| File::create(&path)) else {
             return;
         };
         self.temp_file_path = Some(path);

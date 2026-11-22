@@ -83,6 +83,4 @@ async fn test_cached_servers_launch_with_zero_child_processes() {
     let res = ping_tool.execute(serde_json::json!({})).await.unwrap();
     assert_eq!(res.content, "pong");
     assert_eq!(count_processes(pattern), 1);
-
-    let _ = std::fs::remove_dir_all(&workspace);
 }

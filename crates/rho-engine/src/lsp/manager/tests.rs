@@ -329,6 +329,77 @@ async fn the_exit_hook_shuts_down_the_servers_of_registered_workspaces() {
     assert!(registered.running_clients().is_empty());
 }
 
+/// Real process group behind the fake server's stdio, wrapped as `ProcessLauncher` wraps its child.
+struct GroupLauncher {
+    fake: FakeLauncher,
+    group: Arc<Mutex<Option<u32>>>,
+}
+
+impl Launcher for GroupLauncher {
+    fn launch(&self, server: &ServerConfig, command: &Path, root: &Path) -> Result<Launched, String> {
+        let mut launched = self.fake.launch(server, command, root)?;
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg("sleep 31 & wait").kill_on_drop(true);
+        crate::process::isolate_group(&mut cmd);
+        let guard = crate::process::ProcessTreeGuard::for_session(cmd.spawn().map_err(|e| e.to_string())?);
+        *self.group.lock().unwrap() = guard.id();
+        launched.process = Some(Box::new(guard));
+        Ok(launched)
+    }
+}
+
+fn group_manager(dir: &Path) -> (Arc<LspManager>, Arc<Mutex<Option<u32>>>) {
+    let group = Arc::new(Mutex::new(None));
+    let launcher = GroupLauncher {
+        fake: FakeLauncher::default(),
+        group: Arc::clone(&group),
+    };
+    let manager = LspManager::new(dir, Ok(set(vec![fake_server("fake", false)])), None, Arc::new(launcher));
+    (Arc::new(manager.with_trust(true)), group)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn forgetting_a_workspace_kills_its_servers_process_group() {
+    let (dir, lib) = project();
+    let (manager, group) = group_manager(dir.path());
+    register_manager(&manager);
+    let client = manager.client_for(&lib).await.unwrap();
+    let pid = group.lock().unwrap().expect("the server process started");
+    assert!(crate::process::is_pid_tracked(pid));
+
+    drop(client);
+    drop(forget_workspace(dir.path()));
+    drop(manager);
+
+    crate::process::wait_group_dead(pid).await;
+    assert!(!crate::process::is_pid_tracked(pid));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn shutting_a_server_down_kills_its_process_group() {
+    let (dir, lib) = project();
+    let (manager, group) = group_manager(dir.path());
+    let client = manager.client_for(&lib).await.unwrap();
+    let pid = group.lock().unwrap().expect("the server process started");
+
+    manager.shutdown_all().await;
+
+    assert!(!client.is_alive());
+    crate::process::wait_group_dead(pid).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blocking_shutdown_from_a_runtime_task_returns_as_soon_as_the_work_does() {
+    let started = std::time::Instant::now();
+    tokio::spawn(async { block_on_runtime(async {}, Duration::from_secs(30)) })
+        .await
+        .unwrap();
+
+    assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+}
+
 #[test]
 fn one_workspace_has_one_manager_however_its_path_is_spelled() {
     let (dir, _) = project();

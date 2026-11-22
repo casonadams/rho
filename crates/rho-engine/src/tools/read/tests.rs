@@ -42,8 +42,6 @@ async fn test_read_tool_happy_path() {
     assert!(res.content.contains("line1"));
     assert!(res.content.contains("line2"));
     assert!(!res.content.contains("line3"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 fn numbered_lines(count: usize) -> String {

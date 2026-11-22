@@ -234,8 +234,6 @@ mod tests {
         let cloned = session.clone_session(&dir).await.unwrap();
         assert_ne!(cloned.session_id, session.session_id);
         assert_eq!(cloned.load_messages().await.unwrap().len(), 2);
-
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[tokio::test]
@@ -264,6 +262,5 @@ mod tests {
 
         let reloaded = SessionManager::new_async(&dir, Some(&forked_id)).await.unwrap();
         assert_eq!(as_json(&reloaded.load_messages().await.unwrap()), as_json(&expected));
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

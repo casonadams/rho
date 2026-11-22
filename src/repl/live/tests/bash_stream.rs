@@ -3,6 +3,7 @@ use crate::ui::interactive::{InteractiveState, TerminalController};
 
 #[tokio::test]
 async fn test_user_bash_runner_throttles_redraws_under_rapid_streaming() {
+    let logs = rho_test_support::TestDir::new();
     let redraw_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let backend = RedrawCountingTerminal {
         redraws: redraw_count.clone(),
@@ -18,9 +19,14 @@ async fn test_user_bash_runner_throttles_redraws_under_rapid_streaming() {
         input: &mut input_reader,
     };
 
-    let res = super::super::bash_runner::run_user_bash("seq 1 500", &renderer, &mut live_io)
-        .await
-        .unwrap();
+    let res = super::super::bash_runner::stream::run_user_bash_logging_to(
+        "seq 1 500",
+        &renderer,
+        &mut live_io,
+        &logs.join("rho-bash"),
+    )
+    .await
+    .unwrap();
 
     assert!(!res.is_cancelled);
     assert!(!res.is_error);

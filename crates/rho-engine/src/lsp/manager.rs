@@ -581,6 +581,13 @@ pub async fn shutdown_all_managers() {
 /// [`shutdown_all_managers`] for code that cannot await, such as a `Drop` or an exit path. Needs a
 /// multi-threaded runtime to run the shutdown; on any other runtime it does nothing.
 pub fn shutdown_all_blocking() {
+    block_on_runtime(shutdown_all_managers(), SHUTDOWN_BUDGET + Duration::from_secs(1));
+}
+
+/// Runs `work` on the current runtime from a separate thread and waits up to `budget` for it. Waiting
+/// on a task spawned from a runtime worker can stall: that worker is blocked, and a task in its
+/// scheduler slot cannot be stolen.
+fn block_on_runtime(work: impl Future<Output = ()> + Send + 'static, budget: Duration) {
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return;
     };
@@ -588,11 +595,11 @@ pub fn shutdown_all_blocking() {
         return;
     }
     let (done, finished) = std::sync::mpsc::channel();
-    handle.spawn(async move {
-        shutdown_all_managers().await;
+    std::thread::spawn(move || {
+        handle.block_on(work);
         let _ = done.send(());
     });
-    let _ = finished.recv_timeout(SHUTDOWN_BUDGET + Duration::from_secs(1));
+    let _ = finished.recv_timeout(budget);
 }
 
 /// Forgets servers that exited long enough ago that restarting one is no longer held back.

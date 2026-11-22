@@ -182,8 +182,6 @@ fn load_policy_discovers_project_and_global_hierarchies() {
         );
         assert_eq!(dec, expected);
     }
-    let _ = std::fs::remove_dir_all(global_dir);
-    let _ = std::fs::remove_dir_all(project_dir);
 }
 
 #[test]

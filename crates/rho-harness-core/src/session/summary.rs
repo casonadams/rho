@@ -239,8 +239,6 @@ mod tests {
             .map(|summary| summary.session_id)
             .collect();
         assert_eq!(remaining, vec![sid_c]);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -263,6 +261,5 @@ mod tests {
 
         assert_eq!(summary.created_at.to_rfc3339(), "2020-01-02T03:04:05+00:00");
         assert!(summary.last_modified > summary.created_at);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

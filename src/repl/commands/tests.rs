@@ -139,7 +139,6 @@ async fn compact_context_executes_and_prints_token_savings() {
     compact_context(&session, &engine, Some("preserve key decisions")).await;
     let output = collected_output(&mut events);
     assert!(output.contains("[Compacting conversation context...]") && output.contains("[Compacted context:"));
-    let _ = std::fs::remove_dir_all(temp);
 }
 
 #[tokio::test]
@@ -390,7 +389,6 @@ async fn export_command_writes_markdown_default_path() {
     let content = std::fs::read_to_string(&written).unwrap();
     assert!(content.contains("# rho session:") && content.contains("hello for export"));
     assert!(collected_output(&mut events).contains("[Exported session to"));
-    std::fs::remove_dir_all(workspace).unwrap();
 }
 
 #[tokio::test]
@@ -418,7 +416,6 @@ async fn export_command_writes_html_to_override_path() {
             .unwrap()
             .starts_with("<!doctype html>")
     );
-    std::fs::remove_dir_all(workspace).unwrap();
 }
 
 #[tokio::test]
@@ -449,7 +446,6 @@ async fn export_command_rejects_unknown_format_with_usage() {
         .unwrap();
     assert!(matches!(result, Some(CommandResult::Continue)));
     assert!(collected_output(&mut events).contains("Usage: /export [html|md] [path]"));
-    std::fs::remove_dir_all(workspace).unwrap();
 }
 
 #[tokio::test]
@@ -491,7 +487,6 @@ async fn session_command_prints_diagnostics_with_engine() {
     let (result, output) = run_command("/session", &mut config, &session_id, Some(&engine)).await;
     assert!(matches!(result, Some(CommandResult::Continue)));
     assert!(output.contains("Session Diagnostics") && output.contains("Thinking Level:"));
-    let _ = std::fs::remove_dir_all(temp);
 }
 
 fn write_test_skill(workspace: &std::path::Path, name: &str, body: &str) {
@@ -540,8 +535,6 @@ async fn skill_command_lists_resolved_overrides_with_origin() {
     assert!(matches!(viewing, Some(CommandResult::Continue)));
     let viewed = collected_output(&mut events);
     assert!(viewed.contains("[skill: team-notes (user)]") && viewed.contains("# Notes"));
-
-    let _ = std::fs::remove_dir_all(&workspace);
 }
 
 #[tokio::test]
@@ -579,7 +572,6 @@ async fn test_slash_skill_colon_invocation() {
         panic!("expected ExpandedPrompt");
     };
     assert!(text.contains("Run step A then step B") && text.contains("Skill input: create foo"));
-    let _ = std::fs::remove_dir_all(workspace);
 }
 
 fn usage_engine(

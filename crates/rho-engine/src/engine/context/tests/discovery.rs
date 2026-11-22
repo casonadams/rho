@@ -35,7 +35,6 @@ async fn test_project_context_discovery() {
     for f in fragments {
         assert!(prompt.contains(f));
     }
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 fn setup_user_skills(home: &std::path::Path, config: &std::path::Path, proj: &std::path::Path) {
@@ -79,7 +78,6 @@ async fn test_user_config_skills_discovery() {
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Custom user plan override"));
     assert!(prompt.contains(".agents/skills/plan/SKILL.md"));
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 fn setup_hierarchy_agents_files(home: &std::path::Path, cfg: &std::path::Path, proj: &std::path::Path) {
@@ -124,7 +122,6 @@ async fn test_global_agents_md_discovery_hierarchy() {
     let prompt = ctx.build_system_prompt();
     assert!(!prompt.contains("# 2. XDG Global Rules"));
     assert!(!prompt.contains("# 3. Rho Config Rules"));
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -157,8 +154,6 @@ async fn test_instruction_deduplication_via_symlink() {
 
     assert_eq!(ctx.instruction_files.len(), 1);
     assert_eq!(ctx.instruction_files[0].1, "# Canonical Rules");
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -183,8 +178,6 @@ async fn test_project_context_discovery_with_transclusion() {
     assert_eq!(ctx.instruction_files.len(), 1);
     assert!(ctx.instruction_files[0].1.contains("Inlined development standards."));
     assert!(ctx.instruction_files[0].1.contains("Always test."));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -204,7 +197,6 @@ async fn test_repository_ancestry_walk_up_ordering() {
     for i in 1..=3 {
         assert!(ctx.instruction_files[i - 1].1.contains(&format!("# {i}.")));
     }
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -233,8 +225,6 @@ async fn test_find_repo_root_and_ancestry_helpers() {
     assert_eq!(discovered.len(), 2);
     assert_eq!(discovered[0].1, "# Repo Root");
     assert_eq!(discovered[1].1, "# Sub Leaf");
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -263,7 +253,6 @@ async fn test_ancestry_walk_up_with_global_and_transclusion() {
     assert_eq!(ctx.instruction_files[0].1, "# Global Rules");
     assert!(ctx.instruction_files[1].1.contains("Inlined engineering standards."));
     assert_eq!(ctx.instruction_files[2].1, "# Leaf Engine Rules");
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]

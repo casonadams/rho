@@ -183,8 +183,6 @@ async fn test_resume_session_does_not_deadlock_idle_step() {
     // Verify input is still readable and next event is processed without hanging
     let event = input.recv().await;
     assert!(event.is_some());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]

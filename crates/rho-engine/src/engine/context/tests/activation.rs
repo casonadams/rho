@@ -32,8 +32,6 @@ async fn test_dynamic_path_activation_in_monorepo() {
     let root_idx = prompt.find("# Root Instructions").unwrap();
     let sub_idx = prompt.find("# Subcrate Instructions").unwrap();
     assert!(root_idx < sub_idx);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -78,8 +76,6 @@ async fn test_dynamic_path_activation_deduplication() {
 
     ctx.activate_path_instructions(Path::new("packages/pkg-a/a.rs"));
     assert_eq!(ctx.instruction_files.len(), 2);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -108,8 +104,6 @@ async fn test_dynamic_path_activation_bounds_file_limit() {
 
     assert_eq!(ctx.dynamic_instructions_count, MAX_DYNAMIC_INSTRUCTION_FILES);
     assert_eq!(ctx.instruction_files.len(), MAX_DYNAMIC_INSTRUCTION_FILES);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -133,8 +127,6 @@ async fn test_dynamic_path_activation_bounds_byte_limit() {
     assert_eq!(ctx.dynamic_instructions_bytes, MAX_DYNAMIC_INSTRUCTION_BYTES);
     assert_eq!(ctx.instruction_files.len(), 1);
     assert_eq!(ctx.instruction_files[0].1.len(), MAX_DYNAMIC_INSTRUCTION_BYTES);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -162,8 +154,6 @@ async fn test_dynamic_path_activation_respects_no_context_files() {
     assert!(ctx.instruction_files.is_empty());
     ctx.activate_path_instructions(Path::new("sub/main.rs"));
     assert!(ctx.instruction_files.is_empty());
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -191,8 +181,6 @@ async fn test_dynamic_path_activation_confinement() {
     ctx.activate_path_instructions(&external_dir.join("ext.rs"));
     assert_eq!(ctx.instruction_files.len(), 1);
     assert_eq!(ctx.instruction_files[0].1, "# Repo Rules");
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -220,8 +208,6 @@ async fn test_dynamic_path_activation_with_transclusion() {
     assert_eq!(ctx.instruction_files.len(), 1);
     assert!(ctx.instruction_files[0].1.contains("# Subtree Rules"));
     assert!(ctx.instruction_files[0].1.contains("Subtree coding standards."));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -245,6 +231,4 @@ async fn test_async_path_activation_loads_subcrate_and_honors_no_context() {
     .await;
     activate_path_instructions_async(&mut disabled, Path::new("crates/rho-subcrate/src/lib.rs")).await;
     assert!(disabled.instruction_files.is_empty());
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }

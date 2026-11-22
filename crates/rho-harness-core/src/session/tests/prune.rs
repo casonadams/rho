@@ -37,7 +37,6 @@ fn assert_sessions(dir: &Path, kept: &[&str], removed: &[&str]) {
     for id in removed {
         assert!(!dir.join(format!("{id}.jsonl")).exists(), "{id} should be pruned");
     }
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 type SeedList<'a> = &'a [(&'a str, u64, bool)];

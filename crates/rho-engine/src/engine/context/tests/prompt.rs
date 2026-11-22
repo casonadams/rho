@@ -147,7 +147,6 @@ async fn skills_instruction_uses_read_tool_when_available() {
         &["<name>visible-skill</name>", "Use the read tool to load a skill's file"],
     );
     assert_contains_none(&prompt, &["<name>hidden-skill</name>"]);
-    let _ = tokio::fs::remove_dir_all(temp).await;
 }
 
 #[tokio::test]
@@ -170,7 +169,6 @@ async fn skills_instruction_uses_bash_when_read_absent() {
         &["<name>visible-skill</name>", "Use bash to load a skill's file"],
     );
     assert_contains_none(&prompt, &["<name>hidden-skill</name>"]);
-    let _ = tokio::fs::remove_dir_all(temp).await;
 }
 
 #[tokio::test]
@@ -189,7 +187,6 @@ async fn skills_omitted_when_no_reader_tool_active() {
 
     let prompt = ctx.build_system_prompt();
     assert_contains_none(&prompt, &["<available_skills>", "visible-skill"]);
-    let _ = tokio::fs::remove_dir_all(temp).await;
 }
 
 #[tokio::test]
@@ -201,7 +198,6 @@ async fn system_prompt_omits_git_status_to_preserve_cache_prefix() {
 
     let prompt = ctx.build_system_prompt();
     assert_contains_none(&prompt, &["Git repository status:"]);
-    let _ = tokio::fs::remove_dir_all(temp).await;
 }
 
 #[test]
@@ -252,7 +248,6 @@ async fn system_prompt_renders_available_agents() {
     assert!(prompt.contains("<available_agents>"));
     assert!(prompt.contains("<name>code-reviewer</name>"));
     assert!(prompt.contains("<description>Reviews code changes</description>"));
-    let _ = tokio::fs::remove_dir_all(temp).await;
 }
 
 #[tokio::test]

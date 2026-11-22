@@ -124,5 +124,4 @@ async fn live_antigravity_multi_turn_session_recalls_planted_fact() {
         Arc::new(StructuredPresenter::recording(RecordingSink::default()));
     run_plant_antigravity_turn(&engine, presenter.clone()).await;
     run_recall_antigravity_turn(&engine, presenter).await;
-    let _ = std::fs::remove_dir_all(workspace);
 }

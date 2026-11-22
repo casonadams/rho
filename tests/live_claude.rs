@@ -78,5 +78,4 @@ async fn live_claude_multi_turn_session_recalls_planted_fact() {
         Arc::new(StructuredPresenter::recording(RecordingSink::default()));
     run_plant_fact_turn(&engine, presenter.clone()).await;
     run_recall_fact_turn(&engine, presenter).await;
-    let _ = std::fs::remove_dir_all(workspace);
 }

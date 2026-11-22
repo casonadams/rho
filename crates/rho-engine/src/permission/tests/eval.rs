@@ -270,7 +270,6 @@ fn saved_rules_round_trip_with_comments() {
             .iter()
             .any(|r| r.surface == "bash" && r.pattern == "cargo test *")
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -289,7 +288,6 @@ fn path_tool_always_allow_saves_to_path_surface_and_overrides_workspace_ask() {
         check_eval(&policy, "read", json!({"path": "/etc/hosts"})),
         Decision::Allow
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -299,7 +297,6 @@ fn saving_never_clobbers_a_malformed_file() {
     std::fs::write(&path, "[allow\n").unwrap();
     assert!(save_allow_rule(&path, "bash", "cargo test *").is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "[allow\n");
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 fn check_default_bash(cmd: &str) -> Decision {

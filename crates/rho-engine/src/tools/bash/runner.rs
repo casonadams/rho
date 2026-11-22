@@ -235,6 +235,7 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
 
 async fn run_with_timeout<F>(
     base_dir: &Path,
+    log_dir: &Path,
     owner: Option<&Mailbox>,
     args: &BashArgs,
     mut on_chunk: F,
@@ -247,7 +248,7 @@ where
         Ok(v) => v,
         Err(e) => return Ok(e),
     };
-    let mut acc = OutputAccumulator::new();
+    let mut acc = OutputAccumulator::new().with_log_dir(log_dir);
     let exec = execute_process_loop(&mut rx, &mut on_chunk, &mut acc, &mut cmd);
     match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
         Ok(Ok(status)) => Ok(tokio::task::spawn_blocking(move || format_exit_result(status, &acc))
@@ -274,6 +275,7 @@ where
 
 pub async fn run_command_streaming<F>(
     base_dir: &Path,
+    log_dir: &Path,
     owner: Option<&Mailbox>,
     args: &BashArgs,
     on_chunk: F,
@@ -288,14 +290,14 @@ where
         };
         let job = register_background_job(owner, &args.command);
         let job_id = job.id().to_string();
-        let acc = OutputAccumulator::new();
+        let acc = OutputAccumulator::new().with_log_dir(log_dir);
         dispatch_background_task(cmd, rx, acc, job, BACKGROUND_MAX_RUNTIME);
 
         return Ok(ToolResult::success(format!("[{}]", format_background_notice(&job_id))));
     }
 
     let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
-    run_with_timeout(base_dir, owner, args, on_chunk, timeout_sec).await
+    run_with_timeout(base_dir, log_dir, owner, args, on_chunk, timeout_sec).await
 }
 
 #[cfg(all(test, unix))]

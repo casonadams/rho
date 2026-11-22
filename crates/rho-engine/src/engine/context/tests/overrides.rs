@@ -25,8 +25,6 @@ async fn test_system_prompt_override_ignores_system_md() {
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Custom override persona"));
     assert!(!prompt.contains("File-based base prompt"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -50,8 +48,6 @@ async fn test_append_system_prompt() {
         ctx.base_system_prompt
             .ends_with("Situational rule: operate in read-only mode.")
     );
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -72,8 +68,6 @@ async fn test_system_prompt_override_and_append() {
     assert_eq!(ctx.base_system_prompt, "Base persona\n\nAppended rule");
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Base persona\n\nAppended rule"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 fn setup_suppression_files(temp_dir: &Path) {
@@ -111,7 +105,6 @@ async fn test_no_context_files_suppression() {
         assert!(!prompt.contains(excluded));
     }
     assert!(prompt.contains("<available_skills>"));
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -137,6 +130,4 @@ async fn test_discover_with_config() {
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Config persona\n\nConfig addition"));
     assert!(!prompt.contains("<project_instructions"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }

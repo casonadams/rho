@@ -95,16 +95,29 @@ pub(crate) async fn snapshot(root: &Path) -> Result<String, String> {
     snapshot_repo(&repo).await
 }
 
+/// Removes the scratch index however `snapshot_repo` ends: an error, or its future being dropped.
+struct ScratchIndex(PathBuf);
+
+impl Drop for ScratchIndex {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 pub(crate) async fn snapshot_repo(repo: &Repo) -> Result<String, String> {
+    let scratch = std::env::temp_dir().join(format!("rho-index-{}", uuid::Uuid::new_v4().simple()));
+    snapshot_through_index(repo, ScratchIndex(scratch)).await
+}
+
+async fn snapshot_through_index(repo: &Repo, scratch: ScratchIndex) -> Result<String, String> {
     let root = repo.top.as_path();
     let index = repo.git_dir.join("index");
-    let scratch = std::env::temp_dir().join(format!("rho-index-{}", uuid::Uuid::new_v4().simple()));
     if index.exists() {
-        tokio::fs::copy(&index, &scratch)
+        tokio::fs::copy(&index, &scratch.0)
             .await
             .map_err(|e| format!("could not copy the git index: {e}"))?;
     }
-    let scratch_text = scratch.to_string_lossy().into_owned();
+    let scratch_text = scratch.0.to_string_lossy().into_owned();
     let env = [("GIT_INDEX_FILE", scratch_text.as_str())];
     let tree = async {
         run(root, &["add", "--all", "--", "."], &env).await?;
@@ -112,7 +125,7 @@ pub(crate) async fn snapshot_repo(repo: &Repo) -> Result<String, String> {
         Ok::<String, String>(String::from_utf8_lossy(&out).trim().to_string())
     }
     .await;
-    let _ = tokio::fs::remove_file(&scratch).await;
+    drop(scratch);
     commit_tree(root, &tree?, repo.head.as_deref(), "rho snapshot").await
 }
 
@@ -209,5 +222,25 @@ mod tests {
             [('A', "new.rs".into()), ('D', "gone.rs".into()), ('M', "a.rs".into())]
         );
         assert_eq!(git(&root, &["status", "--porcelain"]), status_before);
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_cancelled_mid_flight_removes_its_scratch_index() {
+        let (_dir, root) = create(&[("a.rs", "v1")]);
+        let scratch_dir = rho_test_support::TestDir::new();
+        let scratch = scratch_dir.join("scratch-index");
+        let repo = repo(&root).await.unwrap();
+        let task = tokio::spawn({
+            let scratch = ScratchIndex(scratch.clone());
+            async move { snapshot_through_index(&repo, scratch).await }
+        });
+        while !scratch.exists() {
+            tokio::task::yield_now().await;
+        }
+
+        task.abort();
+        let _ = task.await;
+
+        assert!(!scratch.exists());
     }
 }

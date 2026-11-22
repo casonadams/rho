@@ -1,7 +1,9 @@
+use std::path::Path;
 use std::time::Instant;
 
 use crossterm::event::Event;
 use rho_engine::process::{StreamingCommand, configure_shell_command};
+use rho_engine::tools::bash::accumulator::default_log_dir;
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -299,7 +301,7 @@ async fn spawn_failure<B: TerminalBackend>(
 fn build_stream_state<'a, 'b, B: TerminalBackend>(
     run: &'a mut BashRun<'b, B>,
     running: StreamingCommand,
-    chunk_rx: ChunkRx,
+    stream: StreamBuffers,
     input: &'a mut crate::repl::input_reader::TerminalInputReader,
     started: Instant,
     args_val: serde_json::Value,
@@ -309,11 +311,7 @@ fn build_stream_state<'a, 'b, B: TerminalBackend>(
     BashStreamState {
         run,
         running,
-        stream: StreamBuffers {
-            chunk_rx,
-            accumulator: OutputAccumulator::new(),
-            progress: StreamProgress::new(),
-        },
+        stream,
         input,
         frame,
         started,
@@ -326,6 +324,15 @@ pub async fn run_user_bash<B: TerminalBackend>(
     cmd: &str,
     renderer: &TerminalRenderer,
     io: &mut LiveIo<'_, B>,
+) -> Result<UserBashResult> {
+    run_user_bash_logging_to(cmd, renderer, io, &default_log_dir()).await
+}
+
+pub async fn run_user_bash_logging_to<B: TerminalBackend>(
+    cmd: &str,
+    renderer: &TerminalRenderer,
+    io: &mut LiveIo<'_, B>,
+    log_dir: &Path,
 ) -> Result<UserBashResult> {
     let started = Instant::now();
     let args_val = serde_json::json!({ "command": cmd });
@@ -346,7 +353,12 @@ pub async fn run_user_bash<B: TerminalBackend>(
 
     run.drain_and_flush(true)?;
 
-    let mut state = build_stream_state(&mut run, running, chunk_rx, io.input, started, args_val);
+    let stream = StreamBuffers {
+        chunk_rx,
+        accumulator: OutputAccumulator::new().with_log_dir(log_dir),
+        progress: StreamProgress::new(),
+    };
+    let mut state = build_stream_state(&mut run, running, stream, io.input, started, args_val);
     let exit_code = state.stream_until_exit().await?;
     state.finish(exit_code).await
 }

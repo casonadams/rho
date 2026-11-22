@@ -193,8 +193,6 @@ fn claude_provider_builds_model_handle() {
     )
     .unwrap();
     assert_eq!(api_key.provider_name(), "anthropic");
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

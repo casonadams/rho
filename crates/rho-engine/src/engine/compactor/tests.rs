@@ -858,7 +858,6 @@ mod orchestrator {
 
         let stats = engine.compact_session(None).await.unwrap();
         assert!(stats.summary.len() <= 120);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

@@ -212,7 +212,6 @@ mod tests {
 
             let reloaded = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
             assert_eq!(reloaded.load_events().await.unwrap().len(), 2, "{name}");
-            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 }

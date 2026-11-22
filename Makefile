@@ -54,10 +54,10 @@ test: ## Run the workspace tests (uses nextest when available)
 	fi
 
 .PHONY: leak-check
-leak-check: ## Run the tests with a private TMPDIR and fail if they leave files behind (rho-bash is the bash tool's age-swept log cache)
+leak-check: ## Run the tests with a private TMPDIR and fail if they leave files behind
 	@dir=$$(mktemp -d) || exit 1; \
 	TMPDIR=$$dir $(MAKE) --no-print-directory test; status=$$?; \
-	leaked=$$(find "$$dir" -mindepth 1 -maxdepth 1 ! -name rho-bash); \
+	leaked=$$(find "$$dir" -mindepth 1 -maxdepth 1); \
 	if [ -n "$$leaked" ]; then echo "Tests leaked into the temp dir ($$dir):"; echo "$$leaked"; exit 1; fi; \
 	rm -rf "$$dir"; exit $$status
 
