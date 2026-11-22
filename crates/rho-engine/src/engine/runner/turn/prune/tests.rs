@@ -280,30 +280,33 @@ fn pruning_recognises_the_footer_the_bash_tool_writes() {
         log_path: Some("/tmp/rho-bash/ab12cd34ef56.log".to_string()),
     };
     let output = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
-    let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &format!("{output}\n\n{}", footer.render()));
-    let history = vec![
-        ChatMessage::user("Please test"),
-        call_msg,
-        res_msg,
-        ChatMessage::assistant("Done"),
-        ChatMessage::user("Next"),
-    ];
+    let summary = "[1 failing test; details from log]\n- math::subtracts\n    assertion failed";
+    for body in [output.clone(), format!("{output}\n\n{summary}")] {
+        let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &format!("{body}\n\n{}", footer.render()));
+        let history = vec![
+            ChatMessage::user("Please test"),
+            call_msg,
+            res_msg,
+            ChatMessage::assistant("Done"),
+            ChatMessage::user("Next"),
+        ];
 
-    let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
 
-    let ChatMessage::User { content } = &pruned[2] else {
-        panic!()
-    };
-    let UserContent::ToolResult(res) = &content[0] else {
-        panic!()
-    };
-    let ToolResultContent::Text(text) = &res.content[0] else {
-        panic!()
-    };
-    assert_eq!(
-        text.text,
-        "[bash 'cargo test': exit 0, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"
-    );
+        let ChatMessage::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let ToolResultContent::Text(text) = &res.content[0] else {
+            panic!()
+        };
+        assert_eq!(
+            text.text,
+            "[bash 'cargo test': exit 0, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"
+        );
+    }
 }
 
 #[test]
@@ -373,6 +376,8 @@ fn test_historical_failed_bash_output_with_log_path_pruned() {
     let spellings = [
         "[lines 1-500 of 1200 (50.0KB limit); log: /tmp/rho-bash-123.log]\n\n[exit 1]",
         "[Showing lines 1-500 of 1200 (50.0KB limit). Full output: /tmp/rho-bash-123.log]\n\nCommand exited with code 1",
+        "[lines 1-500 of 1200 (50.0KB limit); log: /tmp/rho-bash-123.log]\n\n\
+         [1 failing test; details from log]\n- math::subtracts\n    assertion failed\n\n[exit 1]",
     ];
     for footer in spellings {
         assert_failed_bash_stub(&format!("{err_body}\n\n{footer}"));

@@ -59,7 +59,10 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization. Commands run with color enabled so you
   see it in the terminal; the model receives the same output without escape
-  codes.
+  codes. Long output is clipped to its first and last lines with a path to the
+  full log; when the clipped output has failing tests (cargo test, nextest,
+  pytest, go test, Jest, Vitest), a short section lists each failing test with
+  its key failure lines.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
   indented names; directories end with `/`) after a total count. A directory

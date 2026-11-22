@@ -55,6 +55,41 @@ async fn output_without_colors_needs_no_separate_display_text() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let run = "printf 'test math::subtracts ... FAILED\\n'; seq 1 2100; \
+               printf -- '---- math::subtracts stdout ----\\n'; \
+               printf \"thread 'math::subtracts' panicked at src/math.rs:12:9:\\nassertion failed\\n\\n\"; seq 1 30";
+    let summary = "[1 failing test; details from log]\n- math::subtracts\n    \
+                   thread 'math::subtracts' panicked at src/math.rs:12:9:\n    assertion failed";
+    for exit in [0, 101] {
+        let res = tool.execute(bash_args(&format!("{run}; exit {exit}"))).await.unwrap();
+
+        let (body, footer) = res.content.rsplit_once("\n\n").unwrap();
+        assert!(body.ends_with(summary), "exit {exit}: {}", res.content);
+        if exit == 0 {
+            let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
+            assert_eq!(parsed.lines, 2135);
+            assert!(footer.starts_with("[exit 0; 2135 lines"), "{footer}");
+        } else {
+            assert_eq!(footer, "[exit 101]");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unclipped_output_has_no_failure_summary() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(bash_args("printf 'test a ... FAILED\\n'; exit 101"))
+        .await
+        .unwrap();
+    assert_eq!(res.content, "test a ... FAILED\n\n[exit 101]");
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is_abandoned() {
     let dir = tempfile::tempdir().unwrap();
     let owner = "bash-owner-7c2".to_string();

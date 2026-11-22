@@ -1,4 +1,4 @@
-use super::accumulator::OutputAccumulator;
+use super::accumulator::{OutputAccumulator, OutputSnapshot};
 use crate::mailbox::Mailbox;
 use crate::process::{StreamingCommand, configure_shell_command};
 use crate::tools::jobs::{JobCompletion, JobManager, JobStatus, job_notice};
@@ -100,45 +100,69 @@ fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccu
     let snapshot = accumulator.snapshot();
     let raw_text = snapshot.formatted_text.trim();
     if status.success() {
-        if raw_text.is_empty() {
-            return ToolResult::success("[exit 0; no output]");
-        }
-        let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
-        let body = if snapshot.truncation.total_lines > super::normalize::BASH_CLEAN_WINDOW_LINE_THRESHOLD {
-            super::normalize::window_clean_output(
-                &collapsed,
-                super::normalize::BASH_CLEAN_HEAD_LINES,
-                super::normalize::BASH_CLEAN_TAIL_LINES,
-            )
-        } else {
-            collapsed
-        };
-
-        let res = if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
-            let footer = super::footer::BashFooter {
-                lines: snapshot.truncation.total_lines,
-                size: crate::tools::truncate::format_size(snapshot.truncation.total_bytes),
-                log_path: snapshot
-                    .full_output_path
-                    .as_ref()
-                    .map(|p| p.to_string_lossy().to_string()),
-            };
-            format!("{body}\n\n{}", footer.render())
-        } else {
-            body
-        };
-        ToolResult::success(res)
+        format_success(&snapshot, raw_text)
     } else {
-        let exit_code = status.code().unwrap_or(-1);
-        let msg = format!("[exit {exit_code}]");
-        let res = if raw_text.is_empty() {
-            msg
-        } else {
-            let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
-            format!("{collapsed}\n\n{msg}")
-        };
-        ToolResult::error(res)
+        format_failure(status, &snapshot, raw_text)
     }
+}
+
+fn format_success(snapshot: &OutputSnapshot, raw_text: &str) -> ToolResult {
+    if raw_text.is_empty() {
+        return ToolResult::success("[exit 0; no output]");
+    }
+    let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
+    let body = if snapshot.truncation.total_lines > super::normalize::BASH_CLEAN_WINDOW_LINE_THRESHOLD {
+        super::normalize::window_clean_output(
+            &collapsed,
+            super::normalize::BASH_CLEAN_HEAD_LINES,
+            super::normalize::BASH_CLEAN_TAIL_LINES,
+        )
+    } else {
+        collapsed.clone()
+    };
+    let clipped = snapshot.truncation.truncated || body != collapsed;
+    let mut sections = vec![body];
+    if clipped {
+        sections.extend(failure_summary(snapshot, raw_text));
+    }
+    if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
+        let footer = super::footer::BashFooter {
+            lines: snapshot.truncation.total_lines,
+            size: crate::tools::truncate::format_size(snapshot.truncation.total_bytes),
+            log_path: snapshot
+                .full_output_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
+        };
+        sections.push(footer.render());
+    }
+    ToolResult::success(sections.join("\n\n"))
+}
+
+fn format_failure(status: std::process::ExitStatus, snapshot: &OutputSnapshot, raw_text: &str) -> ToolResult {
+    let msg = format!("[exit {}]", status.code().unwrap_or(-1));
+    if raw_text.is_empty() {
+        return ToolResult::error(msg);
+    }
+    let mut sections = vec![super::normalize::collapse_consecutive_lines(raw_text)];
+    if snapshot.truncation.truncated {
+        sections.extend(failure_summary(snapshot, raw_text));
+    }
+    sections.push(msg);
+    ToolResult::error(sections.join("\n\n"))
+}
+
+fn failure_summary(snapshot: &OutputSnapshot, raw_text: &str) -> Option<String> {
+    let log = snapshot
+        .full_output_path
+        .as_ref()
+        .filter(|_| snapshot.truncation.truncated)
+        .and_then(|path| std::fs::read(path).ok());
+    let text = match &log {
+        Some(bytes) => String::from_utf8_lossy(bytes),
+        None => super::sanitize::strip_ansi(raw_text),
+    };
+    super::failures::summarize_test_failures(&text)
 }
 
 async fn consume_stream_chunks<F: FnMut(&str)>(
