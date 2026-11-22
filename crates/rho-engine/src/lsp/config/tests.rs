@@ -110,6 +110,44 @@ fn language_ids_and_extension_matching() {
 }
 
 #[test]
+fn the_documented_dart_entry_adds_a_server_for_dart_packages() {
+    let documented = json!({
+        "dart": {
+            "command": "dart",
+            "args": ["language-server"],
+            "extensions": ["dart"],
+            "rootMarkers": ["pubspec.yaml"]
+        }
+    });
+    let servers = resolve_servers(vec![layer(documented)]).unwrap();
+    let dart = servers
+        .iter()
+        .find(|s| s.name == "dart")
+        .expect("the entry adds a server");
+    assert_eq!(
+        (dart.command.as_str(), dart.args.as_slice()),
+        ("dart", ["language-server".to_string()].as_slice())
+    );
+    assert!(
+        servers.iter().any(|s| s.name == "rust-analyzer"),
+        "built-in servers stay"
+    );
+
+    let dir = TestDir::new();
+    let package = dir.as_ref().join("packages/app");
+    std::fs::create_dir_all(package.join("lib")).unwrap();
+    std::fs::write(package.join("pubspec.yaml"), "").unwrap();
+    let file = package.join("lib/main.dart");
+    assert!(dart.handles(&file));
+    assert_eq!(
+        dart.language_id(&file),
+        "dart",
+        "the extension is the language id when none is known"
+    );
+    assert_eq!(dart.root_for(&file, dir.as_ref()), Some(package));
+}
+
+#[test]
 fn roots_prefer_the_workspace_then_the_nearest_marked_ancestor() {
     let dir = TestDir::new();
     let ws = dir.as_ref();
