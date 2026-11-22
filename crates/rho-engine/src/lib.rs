@@ -37,6 +37,7 @@ pub mod process;
 pub mod provider;
 pub(crate) mod quota;
 pub mod repeat;
+pub mod review;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod tools;

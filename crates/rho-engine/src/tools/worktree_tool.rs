@@ -1,6 +1,6 @@
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::types::{ToolResult, generated_schema};
-use crate::worktree::{Worktree, WorktreeStore};
+use crate::worktree::{REVIEW_FINDINGS_SHOWN, Worktree, WorktreeStore};
 use rho_harness_core::args::{WorktreeAction, WorktreeArgs};
 use rho_harness_core::error::AppError;
 use std::fmt::Write as _;
@@ -58,11 +58,14 @@ impl WorktreeTool {
             WorktreeAction::Diff => self.find(id).await?.diff().await,
             WorktreeAction::Merge => {
                 let worktree = self.find(id).await?;
-                let outcome = worktree.merge_into(&self.root).await?;
+                let head = worktree.commit().await?;
+                let review = worktree.review_head(&head).await?;
+                let outcome = worktree.merge_head_into(&head, &self.root).await?;
                 Ok(format!(
-                    "{} Worktree `{}` was removed. Review the merged files and re-run your checks.",
+                    "{} Worktree `{}` was removed. Review the merged files and re-run your checks.\n\n{}",
                     outcome.summary(),
-                    worktree.id
+                    worktree.id,
+                    review.render(REVIEW_FINDINGS_SHOWN)
                 ))
             }
             WorktreeAction::Discard => {

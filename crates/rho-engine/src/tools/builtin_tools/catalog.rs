@@ -47,6 +47,7 @@ Usage:
 - Every subagent and workflow works in its own worktree, a separate checkout outside your working tree. Their changes reach your working tree only when you merge them.
 - `list` shows every agent worktree in this repository, oldest first, including ones from other sessions; act only on ids your own subagents or workflows reported. `diff` shows one worktree's stat summary and patch (long patches are clipped; read the files in the worktree path for the rest).
 - Review before merging: read the diff, and run checks in the worktree directory if needed.
+- `diff` and `merge` include a static review of the added code (smells, clean-code and duplication findings with file:line); it never blocks a merge and does not run tests or linters, so run those.
 - `merge` applies the changes to your working tree with a three-way merge against your current files (uncommitted edits included), then removes the worktree. Files changed on both sides get <<<<<<< conflict markers: resolve them with edit, then re-run checks.
 - `discard` deletes a worktree you do not want.
 - You own the worktrees your subagents and workflows create: merge or discard each before you finish, or tell the user why one is kept. Unmerged worktrees are deleted 24 hours after they were created.

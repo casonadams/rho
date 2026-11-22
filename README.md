@@ -89,7 +89,9 @@ resume the exact session of each pane with `rho --resume <id>`.
   Each subagent works in its own git worktree, with language-server queries (`lsp`)
   against that worktree; only `general` can rename.
 - **`worktree`**: Review, merge (three-way, leaving conflict markers to fix), or discard the
-  worktrees where subagents and workflows did their work.
+  worktrees where subagents and workflows did their work. `diff` opens with, and `merge` ends with, a
+  static review of the added code (smells, clean-code and duplication findings with
+  `file:line`); it never blocks a merge and does not run tests or linters.
 - **`memory`**: Keep short notes across sessions (`view`, `add`, `remove`), for
   durable, non-obvious facts such as "fidelity tests are slow; run X first".
   Notes are plain markdown bullets in `~/.agents/memory/<project key>.md`

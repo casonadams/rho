@@ -225,6 +225,11 @@ a branch `rho/wt/<id>`:
    merges it with the `worktree` tool. A run that changed nothing leaves no
    worktree.
 
+The `worktree` tool's `diff` result begins, and its `merge` result ends, with a
+static review of the added code (smells, clean-code violations, duplication; see
+[configuration](configuration.md)). Findings never block a merge, and the review
+does not run tests or linters.
+
 Top-level ignored entries of your project (`target/`, `node_modules/`, `.env`)
 are symlinked into every worktree, so builds reuse caches and dependencies
 instead of starting cold; rho adds matching `/<name>` lines to the

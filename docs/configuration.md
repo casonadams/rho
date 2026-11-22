@@ -270,10 +270,29 @@ happen.
   the main agent merges it: the result names the worktree and its changed
   files, and the `worktree` tool lists, diffs, merges (a three-way merge
   against your current files that leaves `<<<<<<<` conflict markers to fix),
-  or discards it. Review feedback with the task's `task_id` continues in the
+  or discards it. `diff` opens with a
+  static code review of the lines the worktree added and `merge` ends its result with one (see below). Review feedback with the task's `task_id` continues in the
   same worktree until it is merged or discarded; after that, a continued
   subagent gets a fresh worktree and is told so. A round that changes nothing
   leaves no worktree.
+- **Worktree code review**: `worktree diff` starts with, and `worktree merge` ends with,
+  `Review: N errors, M warnings in K files`, then `path:line [rule] message`
+  findings (errors first, at most 30 shown) for the added lines only. Errors:
+  git conflict markers, credential-looking strings, debug leftovers (`dbg!`,
+  `debugger`, `breakpoint()`, `pdb.set_trace`), placeholders (`todo!()`,
+  `unimplemented!()`, `NotImplementedError`). Warnings: lint suppressions
+  (`#[allow]`, `eslint-disable`, `@ts-ignore`, `# noqa`, `//nolint`, ...),
+  TODO/FIXME/XXX/HACK, `unwrap`/`expect` and `console.log` outside tests,
+  commented-out code, lines over 140 characters, nesting deeper than 5 levels,
+  functions adding over 60 lines or taking over 6 parameters or 2+ bool flags,
+  new files over 400 lines, a string literal of 12+ characters repeated 3+
+  times, and duplication (`path:START-END duplicates other:LINE (N lines)`:
+  5+ significant added lines that also occur in another added file or in the
+  checkout's other files, or a function whose body equals another's). Test
+  code is exempt from the `unwrap`, `console.log`, placeholder, secret, length
+  and nesting rules. The review is static: it does not run tests, linters, or
+  cognitive-complexity checks, so run those. Findings never block a merge: send
+  them to the subagent by continuing it, or fix them after merging.
 - **Worktree cleanup**: the checkout is disposable; each round's work is
   committed to the worktree's branch, and its details are kept in
   `.git/rho/worktrees/<id>.json`, so a checkout removed by the OS's temp
