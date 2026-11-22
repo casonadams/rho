@@ -245,6 +245,8 @@ fn query(dir: &tempfile::TempDir) -> super::super::RgQuery {
         types: None,
         include_hidden: false,
         mode: RgOutputMode::Content,
+        context: 0,
+        multiline: false,
         timeout: None,
         cancellation: None,
     }

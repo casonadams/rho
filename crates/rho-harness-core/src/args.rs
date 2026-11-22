@@ -113,6 +113,10 @@ pub struct RgArgs {
     pub hidden: Option<bool>,
     /// 'content' (matching lines grouped by file, default), 'files' (matching file paths only), or 'count' (match count per file)
     pub output_mode: Option<RgOutputMode>,
+    /// Lines of context to show before and after each match in 'content' mode (0-10, default: 0); context lines use `LINE-text`, and `--` separates non-adjacent blocks
+    pub context: Option<usize>,
+    /// Let the pattern match across lines (use `\n` in the pattern); each multi-line match is shown as consecutive `LINE:text` rows
+    pub multiline: Option<bool>,
     /// Number of results to skip, for paging (default: 0); truncated output names the next offset
     pub offset: Option<usize>,
     /// Maximum number of results per page (default: as many as fit in 20KB)

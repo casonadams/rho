@@ -1,4 +1,5 @@
 use super::{fixture, search};
+use crate::tools::rg::RgOutputMode;
 
 #[tokio::test]
 async fn matches_report_path_line_and_text() {
@@ -44,6 +45,59 @@ async fn pattern_is_smart_case() {
 
     let mixed = search(&dir, "Todo", |_| {}).await;
     assert_eq!(mixed.content, "No matches found");
+}
+
+#[tokio::test]
+async fn context_shows_surrounding_lines_and_separates_detached_blocks() {
+    let dir = fixture();
+    let body = "a\nneedle one\nb\nc\nd\ne\nf\nneedle two\ng\nneedle three\nh\n";
+    std::fs::write(dir.path().join("ctx.txt"), body).unwrap();
+    let result = search(&dir, "needle", |args| args.context = Some(1)).await;
+    assert_eq!(
+        result.content.lines().collect::<Vec<_>>(),
+        [
+            "3 matches in 1 file",
+            "",
+            "ctx.txt",
+            "1-a",
+            "2:needle one",
+            "3-b",
+            "--",
+            "7-f",
+            "8:needle two",
+            "9-g",
+            "10:needle three",
+            "11-h",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn context_is_capped_and_ignored_outside_content_mode() {
+    let dir = fixture();
+    let body = format!("{}needle\n", "x\n".repeat(30));
+    std::fs::write(dir.path().join("deep.txt"), body).unwrap();
+    let capped = search(&dir, "needle", |args| args.context = Some(50)).await;
+    assert!(capped.content.contains("\n21-x\n"), "{}", capped.content);
+    assert!(!capped.content.contains("\n20-x\n"), "{}", capped.content);
+
+    let count = search(&dir, "needle", |args| {
+        args.context = Some(3);
+        args.output_mode = Some(RgOutputMode::Count);
+    })
+    .await;
+    assert_eq!(count.content, "1 match in 1 file\n\n./\n  deep.txt:1");
+}
+
+#[tokio::test]
+async fn multiline_matches_span_lines_only_when_enabled() {
+    let dir = fixture();
+    std::fs::write(dir.path().join("span.txt"), "fn open(\n    a: u8,\n) {}\n").unwrap();
+    let single = search(&dir, r"open\(\n\s+a", |_| {}).await;
+    assert_eq!(single.content, "No matches found");
+
+    let multi = search(&dir, r"open\(\n\s+a", |args| args.multiline = Some(true)).await;
+    assert_eq!(multi.content, "1 match in 1 file\n\nspan.txt\n1:fn open(\n2:    a: u8,");
 }
 
 #[tokio::test]

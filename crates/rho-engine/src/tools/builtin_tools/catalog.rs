@@ -71,10 +71,11 @@ Search file contents with a regex and return line-oriented matches.
 Usage:
 - pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against each line; escape regex metacharacters (e.g. `\\(`, `\\.`) when searching for literal text, and use `a|b` to search several terms at once.
 - Output starts with the total (`N matches in M files`). In the default output_mode 'content', matches are grouped by file: the path on its own line, then one `LINE:text` row per match, sorted by line, with a blank line between files; pass the path and LINE to read as path and offset. Match lines are truncated at 500 characters.
+- Set context (0-10) to see lines around each match without a follow-up read: context lines print as `LINE-text` and `--` separates non-adjacent blocks. Paging still counts matches.
 - output_mode 'files' lists only the matching file paths and 'count' adds `:N` matches per file, both grouped under their parent directory; use them to survey a broad pattern before reading lines.
 - Output fills a 20KB page; when more remain, the last line names the exact next offset. Pass offset to page through every result, or narrow with path or type. limit caps results per page.
 - Hidden entries and ignore rules (.gitignore, .ignore, global git excludes) are respected; hidden: true adds hidden dotfiles, but ignored paths stay excluded.
-- Regex syntax is Rust regex: no lookaround or backreferences, and matches never span lines.
+- Regex syntax is Rust regex: no lookaround or backreferences. Matches stay within one line unless multiline: true, which lets `\n` in the pattern span lines.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.
 - path may be a single file. Use fd instead to find files by name.";
 

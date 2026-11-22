@@ -23,6 +23,8 @@ pub(crate) async fn search(dir: &TempDir, pattern: &str, mutate: impl FnOnce(&mu
         file_type: None,
         hidden: None,
         output_mode: None,
+        context: None,
+        multiline: None,
         offset: None,
         limit: None,
     };

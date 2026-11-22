@@ -62,7 +62,8 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files. Matches are grouped by file (path line, then `line:text` rows) after an
   `N matches in M files` total; `output_mode` `files` or `count` lists only
-  matching files or per-file counts. Both tools fill a 20KB page and name the
+  matching files or per-file counts. `context` (0-10) adds `line-text` rows
+  around each match, and `multiline` lets a pattern span lines. Both tools fill a 20KB page and name the
   exact `offset` for the next page, so every result stays reachable.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents),

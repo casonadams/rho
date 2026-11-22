@@ -1,14 +1,13 @@
 use super::entry::{
     FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, file_order, format_files, format_lines, line_order,
 };
+use super::sink::BlockSink;
 use crate::tools::listing::{PageRequest, SortedCollector};
 use crate::tools::traversal::{run_parallel_walk, walker_builder};
-use crate::tools::truncate::truncate_line;
 use crate::tools::types::ToolResult;
 use grep_regex::RegexMatcher;
 use grep_searcher::BinaryDetection;
 use grep_searcher::SearcherBuilder;
-use grep_searcher::sinks::UTF8;
 use ignore::WalkState;
 use ignore::types::Types;
 use rho_harness_core::args::RgOutputMode;
@@ -28,6 +27,8 @@ pub struct RgQuery {
     pub types: Option<Types>,
     pub include_hidden: bool,
     pub mode: RgOutputMode,
+    pub context: usize,
+    pub multiline: bool,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
 }
@@ -58,19 +59,9 @@ fn should_search_entry(entry: &ignore::DirEntry) -> bool {
 }
 
 fn search_file(searcher: &mut grep_searcher::Searcher, matcher: &RegexMatcher, path: &Path, ctx: &RgWalkContext<'_>) {
-    let keep_lines = ctx.mode == RgOutputMode::Content;
-    let stop_at_first = ctx.mode == RgOutputMode::Files;
-    let mut lines = Vec::new();
-    let mut count = 0usize;
-    let sink = UTF8(|line_number, line| {
-        count += 1;
-        if keep_lines {
-            let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-            lines.push((line_number, truncated.text.into_owned(), truncated.was_truncated));
-        }
-        Ok(!stop_at_first)
-    });
-    let _ = searcher.search_path(matcher, path, sink);
+    let mut sink = BlockSink::new(ctx.mode == RgOutputMode::Content, ctx.mode == RgOutputMode::Files);
+    let _ = searcher.search_path(matcher, path, &mut sink);
+    let count = sink.count;
     if count == 0 {
         return;
     }
@@ -78,11 +69,9 @@ fn search_file(searcher: &mut grep_searcher::Searcher, matcher: &RegexMatcher, p
     ctx.files.fetch_add(1, AtomicOrdering::Relaxed);
     let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
     match ctx.collector {
-        Collector::Lines(collector) => collector.extend(lines.into_iter().map(|(line, text, truncated)| LineMatch {
+        Collector::Lines(collector) => collector.extend(sink.blocks.into_iter().map(|block| LineMatch {
             path: relative.clone(),
-            line,
-            text,
-            truncated,
+            block,
         })),
         Collector::Files(collector) => collector.extend([FileHit {
             path: relative,
@@ -112,9 +101,17 @@ impl RgQuery {
             files: &files,
         };
         let matcher = &self.matcher;
+        let context = if self.mode == RgOutputMode::Content {
+            self.context
+        } else {
+            0
+        };
         let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
             let mut searcher = SearcherBuilder::new()
                 .line_number(true)
+                .before_context(context)
+                .after_context(context)
+                .multi_line(self.multiline)
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
             let ctx = &ctx;
