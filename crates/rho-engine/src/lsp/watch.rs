@@ -37,25 +37,27 @@ impl LspManager {
     /// Tells every server whose root holds a path that rho wrote it (or, for a path that no longer
     /// exists, deleted it).
     pub fn files_changed(&self, paths: &[PathBuf]) {
-        self.announce(paths, |path| match path.exists() {
-            true => FileChange::Changed,
-            false => FileChange::Deleted,
-        });
+        self.announce(paths, file_change);
     }
 
     /// Announces files rho just rewrote and gives each server that has one open its new contents and
     /// a save, so its diagnostics follow the file instead of the text it held before.
     pub async fn refresh_after_write(&self, paths: &[PathBuf]) {
-        self.files_changed(paths);
+        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+        self.bump_epochs(&paths);
         for client in self.running_clients() {
+            let inside: Vec<&PathBuf> = paths.iter().filter(|path| path.starts_with(&client.root)).collect();
+            let mut unopened = Vec::new();
+            for path in &inside {
+                if !client.is_open(path).await {
+                    unopened.push((file_uri(path), file_change(path)));
+                }
+            }
             let _ = client.sync_open_documents_from_disk().await;
-            for path in paths
-                .iter()
-                .map(|path| canonical(path))
-                .filter(|path| path.starts_with(&client.root))
-            {
-                if let Ok(text) = tokio::fs::read_to_string(&path).await {
-                    let _ = client.did_save(&path, &text).await;
+            let _ = client.did_change_watched_files(&unopened);
+            for path in inside {
+                if let Ok(text) = tokio::fs::read_to_string(path).await {
+                    let _ = client.did_save(path, &text).await;
                 }
             }
         }
@@ -72,14 +74,16 @@ impl LspManager {
         lock(&self.epochs.files).get(&canonical(path)).copied().unwrap_or(0)
     }
 
+    fn bump_epochs(&self, paths: &[PathBuf]) {
+        let mut epochs = lock(&self.epochs.files);
+        for path in paths {
+            *epochs.entry(path.clone()).or_default() += 1;
+        }
+    }
+
     fn announce(&self, paths: &[PathBuf], kind: impl Fn(&Path) -> FileChange) {
         let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
-        {
-            let mut epochs = lock(&self.epochs.files);
-            for path in &paths {
-                *epochs.entry(path.clone()).or_default() += 1;
-            }
-        }
+        self.bump_epochs(&paths);
         for client in self.running_clients() {
             let changes: Vec<(String, FileChange)> = paths
                 .iter()
@@ -88,5 +92,13 @@ impl LspManager {
                 .collect();
             let _ = client.did_change_watched_files(&changes);
         }
+    }
+}
+
+/// `Changed` for a file that still exists, `Deleted` for one that is gone.
+fn file_change(path: &Path) -> FileChange {
+    match path.exists() {
+        true => FileChange::Changed,
+        false => FileChange::Deleted,
     }
 }

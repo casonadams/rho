@@ -268,6 +268,10 @@ impl LspClient {
         }
     }
 
+    pub async fn is_open(&self, path: &Path) -> bool {
+        self.documents.lock().await.open.contains_key(&file_uri(path))
+    }
+
     /// Brings every open document up to date with disk, before a request whose answer spans files;
     /// a document whose file is gone or unreadable is closed.
     pub async fn sync_open_documents_from_disk(&self) -> Result<(), String> {
