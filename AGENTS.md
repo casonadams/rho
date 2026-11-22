@@ -31,7 +31,9 @@
 
 ## Testing and performance
 
-- Use `make test` to run the workspace tests.
+- Use `make test` to run the workspace tests. Make output is quiet by default (failures,
+  slow tests and warnings print; passing tests and compile progress do not, so a green
+  `make all` is about five lines). Add `V=1` (`make test V=1`) to see every test.
 - Use `make leak-check` to run them with a private `TMPDIR` and fail if any test
   leaves files behind. Tests must create scratch paths with
   `rho_test_support::TestDir` (removed on drop, even on panic), never with

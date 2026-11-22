@@ -197,6 +197,8 @@ Comprehensive guides are organized in [`docs/`](docs/):
 Run the test suite, linter, and format checks:
 
 ```sh
+make all          # fmt check, clippy, complexity, tests; quiet unless something fails
+make test V=1     # every test and compile line, for when you want the full output
 cargo test --workspace
 make clippy
 cargo fmt --all -- --check
