@@ -49,8 +49,12 @@ struct Report {
 }
 
 /// The diagnostics every server for `path` reports once it holds `text`, waiting at most `wait`
-/// in total. `None` when no server handles the file.
+/// in total. `None` when no server handles the file, or it lies outside the workspace (a server
+/// would have no project for it and report it clean).
 pub async fn diagnostics_for(manager: &LspManager, path: &Path, text: &str, wait: Duration) -> Option<String> {
+    if !manager.in_workspace(path) {
+        return None;
+    }
     let deadline = Instant::now() + wait;
     let clients = manager.clients_within(path, wait).await;
     if clients.is_empty() {

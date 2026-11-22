@@ -89,6 +89,10 @@ impl LspManager {
         &self.workspace
     }
 
+    pub fn in_workspace(&self, path: &Path) -> bool {
+        canonical(path).starts_with(&self.workspace)
+    }
+
     pub fn servers(&self) -> &[ServerConfig] {
         &self.servers
     }

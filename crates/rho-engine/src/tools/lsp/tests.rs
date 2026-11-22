@@ -390,6 +390,19 @@ async fn rename_uses_disk_contents_even_when_files_changed_after_opening() {
 }
 
 #[tokio::test]
+async fn files_outside_the_workspace_get_no_diagnostics_report() {
+    let dir = project();
+    let outside = tempfile::tempdir().unwrap();
+    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    let path = outside.path().join("x.rs");
+    assert_eq!(
+        crate::lsp::diagnostics_for(&manager, &path, "ERR", Duration::from_secs(1)).await,
+        None
+    );
+    assert_eq!(launcher.launches.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn status_lists_started_and_installed_servers() {
     let dir = project();
     let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
