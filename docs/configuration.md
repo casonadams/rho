@@ -334,6 +334,12 @@ happen.
   subagent last saw (up to 20), for example your edits after its worktree was
   merged, which covers what it saw through `rg` or other directory-wide
   commands. The result says what the subagent was told.
+- **Finishing**: a subagent finishes by calling `complete_task` with its report,
+  which becomes the task's result; text it writes outside that call is not
+  passed on. The call is refused while a message from the main agent is
+  waiting or the subagent's own background work is still running, so the
+  subagent reads or waits for it first. A subagent that ends with a plain
+  reply instead has that reply used as its result.
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
   without a decision. The call ends its turn; its task becomes `input-required`
   and its result is `Question for you: ...`. The main agent answers with the

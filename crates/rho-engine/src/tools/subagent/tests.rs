@@ -475,6 +475,75 @@ async fn a_message_arriving_with_the_answer_on_the_last_turn_leaves_the_answer_a
     assert_eq!(inbox.take()[0].body, "too late", "left for the undelivered report");
 }
 
+fn turn_with(narration: &str, name: &str, args: serde_json::Value) -> Vec<ModelStreamEvent> {
+    vec![
+        ModelStreamEvent::Text(narration.to_string()),
+        ModelStreamEvent::ToolCall(ToolCall::new(format!("call-{name}"), ToolFunction::new(name, args))),
+    ]
+}
+
+#[tokio::test]
+async fn the_complete_task_report_is_the_result_and_text_outside_it_is_not() {
+    let adapter = MockAdapter::from_turns([
+        turn_with("Quoting the guidelines first.", "read", json!({ "path": "src/a.rs" })),
+        turn_with(
+            "Wrapping up.",
+            "complete_task",
+            json!({ "result": " REPORT: a.rs:3 allocates " }),
+        ),
+        text_turn("never reached"),
+    ]);
+    let read = counting_tool("read", Arc::new(AtomicUsize::new(0)), "fn a() {}".into());
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[read], 5);
+
+    let result = runner.run("review", None).await;
+
+    assert!(!result.is_error, "{}", result.content);
+    assert!(
+        result.content.starts_with("REPORT: a.rs:3 allocates\n"),
+        "{}",
+        result.content
+    );
+    assert!(!result.content.contains("Wrapping up"), "{}", result.content);
+    assert!(!result.content.contains("Quoting"), "{}", result.content);
+    let requests = adapter.requests();
+    assert_eq!(requests.len(), 2, "the report ends the round");
+    assert!(requests[0].tools.iter().any(|t| t.name == "complete_task"));
+    let preamble = requests[0].preamble.as_deref().unwrap();
+    assert!(preamble.contains("call complete_task"), "{preamble}");
+}
+
+#[tokio::test]
+async fn a_message_waiting_when_the_task_is_completed_is_read_before_the_report_is_accepted() {
+    let adapter = MockAdapter::from_turns([
+        turn_with("", "complete_task", json!({ "result": "first report" })),
+        turn_with(
+            "",
+            "complete_task",
+            json!({ "result": "report covering the error path" }),
+        ),
+    ]);
+    let (boxes, _boss, inbox) = round_mailbox();
+    send(
+        &boxes,
+        crate::mailbox::Party::Agent("boss".into()),
+        "also cover the error path",
+    );
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_inbox(inbox.clone());
+
+    let result = runner.run("review", None).await;
+
+    assert!(
+        result.content.starts_with("report covering the error path"),
+        "{}",
+        result.content
+    );
+    let sent = serde_json::to_string(&adapter.requests()[1].messages).unwrap();
+    assert!(sent.contains("Not completed: a new message arrived"), "{sent}");
+    assert!(sent.contains("also cover the error path"), "{sent}");
+    assert!(inbox.take().is_empty());
+}
+
 #[tokio::test]
 async fn a_message_from_the_user_reaches_the_round_labelled_as_from_the_user() {
     let adapter = MockAdapter::from_turns([text_turn("first answer"), text_turn("revised answer")]);
@@ -778,7 +847,7 @@ async fn a_persona_adds_its_instructions_to_the_role_and_keeps_the_role_tools() 
         "{preamble}"
     );
     let tools: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(tools, ["read"]);
+    assert_eq!(tools, ["read", "complete_task"]);
 }
 
 #[tokio::test]
