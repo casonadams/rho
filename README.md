@@ -79,6 +79,12 @@ resume the exact session of each pane with `rho --resume <id>`.
   Each subagent works in its own git worktree.
 - **`worktree`**: Review, merge (three-way, leaving conflict markers to fix), or discard the
   worktrees where subagents and workflows did their work.
+- **`memory`**: Keep short notes across sessions (`view`, `add`, `remove`), for
+  durable, non-obvious facts such as "fidelity tests are slow; run X first".
+  Notes are plain markdown bullets in `~/.agents/memory/<project key>.md`
+  (scope `project`, the default) and `~/.agents/memory/global.md` (scope
+  `global`), loaded into context at the start of each session; changes take
+  effect in the next session. See [Memory](docs/configuration.md#memory-notes).
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.

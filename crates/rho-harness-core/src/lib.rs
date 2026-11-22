@@ -15,6 +15,7 @@
 //!   types, URL safety, prompt templates, provider identity, message
 //!   queueing, RPC transport, and skill discovery.
 //! - `workflow`: declarative agent workflow parsing, validation, and discovery.
+//! - `memory`: the note files behind the memory tool.
 //!
 //! See `ARCHITECTURE.md` at the repository root for the full map.
 
@@ -25,6 +26,7 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod fs;
+pub mod memory;
 pub mod model;
 pub mod net;
 pub mod presentation;

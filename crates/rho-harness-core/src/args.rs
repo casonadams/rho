@@ -345,6 +345,52 @@ pub struct WorktreeArgs {
     pub id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryAction {
+    /// List the saved notes, numbered
+    View,
+    /// Save `text` as a new note
+    Add,
+    /// Delete the note numbered `index`
+    Remove,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryScope {
+    /// Notes for this project only
+    #[default]
+    Project,
+    /// Notes for every project
+    Global,
+}
+
+impl MemoryScope {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Global => "global",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryArgs {
+    /// What to do
+    pub action: MemoryAction,
+    /// Which notes: 'project' (default for add and remove) or 'global'; view without a scope shows both
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<MemoryScope>,
+    /// The note to add: one short line
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Number of the note to remove, as shown by view (1-based)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+}
+
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};

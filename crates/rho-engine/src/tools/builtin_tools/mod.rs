@@ -152,6 +152,10 @@ pub fn build_builtin_toolset(
         subagent = subagent.with_worktrees(store.clone());
         tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
     }
+    if let Some(home) = rho_harness_core::config::home_dir() {
+        let store = rho_harness_core::memory::MemoryStore::in_home(&home, base_dir);
+        tools.push(Arc::new(crate::tools::MemoryTool::new(store)) as Arc<dyn EngineTool>);
+    }
     tools.push(Arc::new(subagent.clone()) as Arc<dyn EngineTool>);
     Ok((tools, subagent))
 }

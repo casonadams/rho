@@ -56,6 +56,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                         | "subagent"
                         | "worktree"
                         | "lsp"
+                        | "memory"
                 ))
         });
         if has_specialized {

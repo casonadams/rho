@@ -60,6 +60,7 @@ mod tests {
             "web_search",
             "web_fetch",
             "subagent",
+            "memory",
         ] {
             assert_registered_tool(name);
         }

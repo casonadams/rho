@@ -8,7 +8,18 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::{SubagentArgs, WorktreeArgs};
+use rho_harness_core::args::{MemoryArgs, SubagentArgs, WorktreeArgs};
+
+pub static PROMPT_MEMORY: &str = "\
+Keep short notes that persist across sessions; saved notes are loaded into your context at the start of every later session.
+
+Usage:
+- Save only durable, non-obvious facts that would help a future session and that the code or docs do not already say: e.g. 'fidelity tests are slow; run X first', 'file Y is high risk'. Do not save task progress, obvious conventions, or anything temporary.
+- Never save secrets, credentials, tokens, or personal data.
+- scope 'project' (default) is for this workspace only; 'global' applies to every project, so use it only for facts that hold everywhere.
+- Keep each note to one short line. Each scope holds at most 50 notes (8KB); when it is full, remove stale notes first.
+- `view` lists the notes numbered per scope; `remove` takes that number as `index`. Remove a note as soon as it becomes wrong or obsolete.
+- Notes you add or remove take effect in the next session; this session's context does not change.";
 
 pub static PROMPT_WORKTREE: &str = "\
 Review and land work that subagents and workflows did in their own git worktrees.
@@ -155,6 +166,7 @@ pub enum BuiltinToolKind {
     Network,
     Shell,
     Composite,
+    Memory,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -249,6 +261,13 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_WORKTREE,
         prompt_snippet: "Review, merge, or discard the git worktrees where subagents and workflows did their work",
         schema: generated_schema::<WorktreeArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "memory",
+        capability: BuiltinToolKind::Memory,
+        prompt: PROMPT_MEMORY,
+        prompt_snippet: "Keep short notes across sessions (durable, non-obvious project facts; never secrets)",
+        schema: generated_schema::<MemoryArgs>,
     },
 ];
 

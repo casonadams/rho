@@ -291,6 +291,7 @@ fn project(dir: &std::path::Path) -> Arc<crate::engine::context::ProjectContext>
             "AGENTS.md".to_string(),
             "Never add comments that restate code.".to_string(),
         )],
+        memory: String::new(),
         skills: Vec::new(),
         agents: Vec::new(),
         active_tools: Vec::new(),

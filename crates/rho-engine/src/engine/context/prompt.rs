@@ -1,5 +1,7 @@
 use super::ProjectContext;
 use super::guidelines::build_guidelines;
+use rho_harness_core::args::MemoryScope;
+use rho_harness_core::memory::{MemoryStore, render_notes};
 
 fn format_tool_line(tool_name: &str) -> String {
     match crate::tools::ToolRegistry::prompt_snippet(tool_name) {
@@ -48,6 +50,22 @@ fn append_instruction_files(prompt: &mut String, files: &[(String, String)]) {
         ));
     }
     prompt.push_str("</project_context>\n\n");
+}
+
+/// The saved memory notes as a `<memory>` block, or empty when there are none.
+pub(super) fn memory_section(store: &MemoryStore) -> String {
+    let mut body = String::new();
+    for (scope, label) in [(MemoryScope::Project, "Project"), (MemoryScope::Global, "Global")] {
+        match store.notes(scope) {
+            Ok(notes) if notes.is_empty() => {}
+            Ok(notes) => body.push_str(&format!("{label} notes:\n{}", render_notes(&notes))),
+            Err(error) => body.push_str(&format!("{label} notes could not be read: {error}\n")),
+        }
+    }
+    if body.is_empty() {
+        return body;
+    }
+    format!("<memory>\nNotes saved with the memory tool in earlier sessions:\n\n{body}</memory>\n\n")
 }
 
 fn skill_reader_tool(active_tools: &[String]) -> Option<&'static str> {
@@ -127,6 +145,7 @@ pub fn format_turn_prompt(prompt: &str, git_status: Option<&str>) -> String {
 pub fn build_system_prompt(ctx: &ProjectContext) -> String {
     let mut prompt = format!("{}\n\n", ctx.base_system_prompt.trim());
     append_instruction_files(&mut prompt, &ctx.instruction_files);
+    prompt.push_str(&ctx.memory);
     append_skills(&mut prompt, &ctx.skills, &ctx.active_tools);
     append_agents(&mut prompt, &ctx.agents, &ctx.active_tools);
     append_environment_info(&mut prompt, ctx);
@@ -145,6 +164,7 @@ pub fn build_agent_grounding(ctx: &ProjectContext, agent_tools: &[String]) -> St
     }
     prompt.push('\n');
     append_instruction_files(&mut prompt, &ctx.instruction_files);
+    prompt.push_str(&ctx.memory);
     append_environment_info(&mut prompt, ctx);
     if let Some(git) = ctx.git_status.as_deref().filter(|s| !s.trim().is_empty()) {
         prompt.push_str(&format!("\nGit repository status: {git}"));

@@ -12,6 +12,7 @@ Available tools:
 - web_fetch: Fetch and extract clean text or markdown from URLs
 - subagent: Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')
 - worktree: Review, merge, or discard the git worktrees where subagents and workflows did their work
+- memory: Keep short notes across sessions (durable, non-obvious project facts; never secrets)
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

@@ -98,7 +98,7 @@ pub struct Cli {
     #[arg(long = "append-system-prompt")]
     pub append_system_prompt: Option<String>,
 
-    /// Disable discovery of AGENTS.md, CLAUDE.md, and .cursorrules
+    /// Disable discovery of AGENTS.md, CLAUDE.md, .cursorrules, and saved memory notes
     #[arg(long = "no-context-files", visible_alias = "nc", default_value_t = false)]
     pub no_context_files: bool,
 

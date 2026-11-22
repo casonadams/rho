@@ -313,6 +313,21 @@ fn check_default_bash(cmd: &str) -> Decision {
 }
 
 #[test]
+fn memory_notes_need_no_approval_unless_a_rule_says_otherwise() {
+    let note = json!({"action": "add", "text": "run the fidelity tests first"});
+    assert_eq!(
+        check_eval(&build_policy(None, None), "memory", note.clone()),
+        Decision::Allow
+    );
+
+    let scope = parse_scope_from_str("[deny]\nmemory = [\"*\"]\n").unwrap();
+    assert!(matches!(
+        check_eval(&build_policy(Some(scope), None), "memory", note),
+        Decision::Deny(_)
+    ));
+}
+
+#[test]
 fn default_policy_asks_for_unconfigured_bash() {
     for cmd in [
         "git status",

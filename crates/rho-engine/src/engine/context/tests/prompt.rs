@@ -254,3 +254,54 @@ async fn system_prompt_renders_available_agents() {
     assert!(prompt.contains("<description>Reviews code changes</description>"));
     let _ = tokio::fs::remove_dir_all(temp).await;
 }
+
+#[tokio::test]
+async fn saved_memory_is_read_once_at_discovery_into_the_prompt_and_agent_grounding() {
+    use rho_harness_core::args::MemoryScope;
+    use rho_harness_core::memory::MemoryStore;
+
+    let temp = tempfile::tempdir().unwrap();
+    let (home, workspace) = (temp.path().join("home"), temp.path().join("workspace"));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let store = MemoryStore::in_home(&home, &workspace);
+    store
+        .add(MemoryScope::Project, "fidelity tests are slow; run X first")
+        .unwrap();
+    store.add(MemoryScope::Global, "prefer small diffs").unwrap();
+    let dirs = ContextDirs {
+        home_dir: Some(&home),
+        ..Default::default()
+    };
+
+    let ctx = ProjectContext::discover_with_dirs(&workspace, dirs).await;
+    let prompt = ctx.build_system_prompt();
+    store.add(MemoryScope::Project, "added mid-session").unwrap();
+
+    assert!(
+        prompt.contains(
+            "<memory>\nNotes saved with the memory tool in earlier sessions:\n\nProject notes:\n- fidelity tests are slow; run X first\nGlobal notes:\n- prefer small diffs\n</memory>"
+        ),
+        "{prompt}"
+    );
+    assert_eq!(ctx.build_system_prompt(), prompt);
+    assert!(build_agent_grounding(&ctx, &[]).contains("- prefer small diffs"));
+
+    let disabled = ProjectContext::discover_with_dirs(
+        &workspace,
+        ContextDirs {
+            no_context_files: true,
+            ..dirs
+        },
+    )
+    .await;
+    let empty_home = ProjectContext::discover_with_dirs(
+        &workspace,
+        ContextDirs {
+            home_dir: Some(&temp.path().join("other")),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert!(!disabled.build_system_prompt().contains("<memory>"));
+    assert!(!empty_home.build_system_prompt().contains("<memory>"));
+}

@@ -632,7 +632,33 @@ system context:
 3. **Workspace Context**: `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
 
 To disable context file discovery for a session, pass `--no-context-files` (or
-`--nc`).
+`--nc`). This also skips loading memory notes.
+
+## Memory Notes
+
+The built-in `memory` tool lets the model keep short notes across sessions,
+such as "fidelity tests are slow; run X first" or "file Y is high risk". Notes
+are plain markdown files you can read and edit, one `- ` bullet per note (other
+lines are ignored and dropped when the tool next saves the file):
+
+- **Project**: `~/.agents/memory/<project key>.md`, where the key is the
+  workspace's canonical path with every character other than letters, digits,
+  `.` and `_` replaced by `-` (last 80 characters) plus a short hash of the
+  full path, e.g. `Users-me-src-app-1a2b3c4d.md`.
+- **Global**: `~/.agents/memory/global.md`, for every project.
+
+The tool's actions are `view` (numbered notes per scope), `add` (`text`: one
+line of at most 300 characters; duplicates are rejected) and `remove` (`index`
+from `view`); `scope` is `project` (default) or `global`. Each scope holds at
+most 50 notes or 8 KB; when it is full, the model must remove stale notes
+first. Notes are never written into the repository, and memory calls need no
+permission prompt (a `memory` rule in `permission.toml` still applies).
+Subagents see the notes but do not get the tool.
+
+Both files are read once when a session starts and added to the system prompt
+in a `<memory>` block, so the prompt stays the same for the whole session (and
+its prompt cache stays valid). Notes added or removed mid-session take effect
+in the next session.
 
 ---
 
