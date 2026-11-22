@@ -275,6 +275,7 @@ async fn test_set_file_value_tools_and_permissions_keys() {
     Config::set_file_value(&dir, "tools.web.search.default", "duckduckgo").unwrap();
     Config::set_file_value(&dir, "tools.web.search.enabled", "false").unwrap();
     Config::set_file_value(&dir, "tools.web.fetch.enabled", "false").unwrap();
+    Config::set_file_value(&dir, "tools.lsp.enabled", "false").unwrap();
     Config::set_file_value(&dir, "mcp.enabled", "false").unwrap();
     Config::set_file_value(&dir, "permission.enabled", "false").unwrap();
 
@@ -289,6 +290,7 @@ async fn test_set_file_value_tools_and_permissions_keys() {
 
     let fetch = web.fetch.expect("fetch section present");
     assert_eq!(fetch.enabled, Some(false));
+    assert_eq!(tools.lsp.and_then(|l| l.enabled), Some(false));
 
     let mcp = file.mcp.expect("mcp section present");
     assert_eq!(mcp.enabled, Some(false));

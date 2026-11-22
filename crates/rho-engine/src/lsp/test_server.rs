@@ -277,9 +277,7 @@ impl FakeServer {
     fn startup_notifications(&self) -> Vec<Value> {
         let notification =
             |method: &str, params: Value| json!({ "jsonrpc": "2.0", "method": method, "params": params });
-        let request = |id: i64, method: &str, params: Value| {
-            json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
-        };
+        let request = |id: i64, method: &str, params: Value| json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         let mut messages = Vec::new();
         if self.options.dynamic_pull {
             let registration = json!({ "registrations": [{ "id": "1", "method": "textDocument/diagnostic" }] });
@@ -295,7 +293,10 @@ impl FakeServer {
                 json!({ "token": "index", "value": { "kind": "begin", "title": "Indexing" } }),
             )
         } else {
-            notification("experimental/serverStatus", json!({ "quiescent": true, "health": "ok" }))
+            notification(
+                "experimental/serverStatus",
+                json!({ "quiescent": true, "health": "ok" }),
+            )
         });
         messages
     }
@@ -323,7 +324,11 @@ impl FakeServer {
         }
         let mut params = json!({ "uri": uri, "diagnostics": marked_diagnostics(text) });
         if !self.options.unversioned {
-            let shown = if self.options.stale_version { version - 1 } else { version };
+            let shown = if self.options.stale_version {
+                version - 1
+            } else {
+                version
+            };
             params["version"] = json!(shown);
         }
         let publish = json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": params });

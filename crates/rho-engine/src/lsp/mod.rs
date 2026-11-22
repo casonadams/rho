@@ -143,7 +143,12 @@ async fn collect(client: &Arc<LspClient>, manager: &LspManager, path: &Path, tex
 /// Errors the server holds for files other than `uri` that still exist on disk.
 fn errors_in_other_files(client: &LspClient, uri: &str) -> usize {
     let mut count = 0;
-    for (other, items) in client.state().all_published().into_iter().filter(|(other, _)| other != uri) {
+    for (other, items) in client
+        .state()
+        .all_published()
+        .into_iter()
+        .filter(|(other, _)| other != uri)
+    {
         let errors = items.iter().filter(|d| d.severity == 1).count();
         let exists = match client::uri_path(&other) {
             Some(path) if errors > 0 => path.exists(),

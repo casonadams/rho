@@ -273,9 +273,8 @@ impl LspTool {
             format!("Started:\n{}", running.join("\n"))
         };
         let servers = self.manager.servers();
-        let (installed, missing): (Vec<_>, Vec<_>) = servers
-            .iter()
-            .partition(|server| self.manager.is_installed(server));
+        let (installed, missing): (Vec<_>, Vec<_>) =
+            servers.iter().partition(|server| self.manager.is_installed(server));
         let installed: Vec<String> = installed
             .iter()
             .map(|server| format!("{} (.{})", server.name, server.extensions.join(", .")))

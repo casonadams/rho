@@ -2,7 +2,9 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
-use super::types::{ConfigKey, FileConfig, McpServerConfig, UiConfig, WebFetchConfigFile, WebSearchConfigFile};
+use super::types::{
+    ConfigKey, FileConfig, LspConfigFile, McpServerConfig, UiConfig, WebFetchConfigFile, WebSearchConfigFile,
+};
 
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
@@ -125,6 +127,11 @@ fn web_fetch_section(file_config: &mut FileConfig) -> &mut WebFetchConfigFile {
     web.fetch.get_or_insert_with(Default::default)
 }
 
+fn lsp_section(file_config: &mut FileConfig) -> &mut LspConfigFile {
+    let tools = file_config.tools.get_or_insert_with(Default::default);
+    tools.lsp.get_or_insert_with(Default::default)
+}
+
 /// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
     let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
@@ -160,6 +167,7 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         }
         ConfigKey::WebSearchEnabled => web_search_section(file_config).enabled = Some(parse_bool(name, value)?),
         ConfigKey::WebFetchEnabled => web_fetch_section(file_config).enabled = Some(parse_bool(name, value)?),
+        ConfigKey::LspEnabled => lsp_section(file_config).enabled = Some(parse_bool(name, value)?),
         ConfigKey::McpEnabled => {
             file_config.mcp.get_or_insert_with(Default::default).enabled = Some(parse_bool(name, value)?);
         }

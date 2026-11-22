@@ -35,7 +35,13 @@ async fn launched(launcher: &FakeLauncher, count: usize) {
 }
 
 fn count(launcher: &FakeLauncher, method: &str) -> usize {
-    launcher.received.lock().unwrap().iter().filter(|m| *m == method).count()
+    launcher
+        .received
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|m| *m == method)
+        .count()
 }
 
 async fn until_received(launcher: &FakeLauncher, method: &str, times: usize) {
@@ -47,11 +53,19 @@ async fn until_received(launcher: &FakeLauncher, method: &str, times: usize) {
 #[tokio::test(start_paused = true)]
 async fn an_untrusted_workspace_starts_servers_only_on_explicit_request() {
     let (dir, lib) = project();
-    let (manager, launcher) = manager_with(dir.path(), FakeOptions::default(), set(vec![fake_server("fake", false)]));
+    let (manager, launcher) = manager_with(
+        dir.path(),
+        FakeOptions::default(),
+        set(vec![fake_server("fake", false)]),
+    );
 
     manager.warm(&lib);
     assert!(manager.clients_within(&lib, Duration::from_secs(1)).await.is_empty());
-    assert!(crate::lsp::diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(1)).await.is_none());
+    assert!(
+        crate::lsp::diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(1))
+            .await
+            .is_none()
+    );
     tokio::task::yield_now().await;
     assert_eq!(launcher.launches.load(Ordering::SeqCst), 0);
 
@@ -64,7 +78,11 @@ async fn an_untrusted_workspace_starts_servers_only_on_explicit_request() {
 #[tokio::test(start_paused = true)]
 async fn a_trusted_workspace_warms_servers() {
     let (dir, lib) = project();
-    let (manager, launcher) = manager_with(dir.path(), FakeOptions::default(), set(vec![fake_server("fake", false)]));
+    let (manager, launcher) = manager_with(
+        dir.path(),
+        FakeOptions::default(),
+        set(vec![fake_server("fake", false)]),
+    );
     let manager = manager.with_trust(true);
     manager.warm(&lib);
     launched(&launcher, 1).await;
@@ -76,7 +94,10 @@ async fn concurrent_warms_and_lookups_share_one_start() {
     let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
     manager.warm(&lib);
     manager.warm(&lib);
-    let (first, second) = tokio::join!(manager.client_for(&lib), manager.clients_within(&lib, Duration::from_secs(1)));
+    let (first, second) = tokio::join!(
+        manager.client_for(&lib),
+        manager.clients_within(&lib, Duration::from_secs(1))
+    );
     let first = first.unwrap();
     assert!(matches!(second.as_slice(), [Ok(found)] if Arc::ptr_eq(found, &first)));
     assert_eq!(launcher.launches.load(Ordering::SeqCst), 1);
@@ -98,7 +119,12 @@ fn the_main_server_comes_before_linters_however_they_are_listed() {
 fn unavailable_reasons_say_what_is_wrong() {
     let (dir, lib) = project();
     let launcher: Arc<dyn Launcher> = Arc::new(FakeLauncher::default());
-    let broken = LspManager::new(dir.path(), Err("expected value at line 1".into()), None, Arc::clone(&launcher));
+    let broken = LspManager::new(
+        dir.path(),
+        Err("expected value at line 1".into()),
+        None,
+        Arc::clone(&launcher),
+    );
     assert_eq!(
         broken.unavailable_reason(&lib),
         "lsp.json is invalid: expected value at line 1"
@@ -240,7 +266,10 @@ async fn starting_more_servers_than_the_cap_stops_the_least_recently_used() {
     assert_eq!(manager.running_clients().len(), MAX_RUNNING_SERVERS);
     let status = manager.status_lines().join("\n");
     assert!(!status.contains(roots[0].to_str().unwrap()), "{status}");
-    assert!(status.contains(roots[MAX_RUNNING_SERVERS].to_str().unwrap()), "{status}");
+    assert!(
+        status.contains(roots[MAX_RUNNING_SERVERS].to_str().unwrap()),
+        "{status}"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -301,7 +330,10 @@ fn files_reached_through_a_symlink_out_of_the_workspace_are_outside_it() {
     let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
 
     assert!(manager.in_workspace(&lib));
-    assert!(manager.in_workspace(&dir.path().join("src/new.rs")), "new files resolve through their directory");
+    assert!(
+        manager.in_workspace(&dir.path().join("src/new.rs")),
+        "new files resolve through their directory"
+    );
     assert!(!manager.in_workspace(&dir.path().join("vendor/dep.rs")));
     assert!(!manager.in_workspace(&dir.path().join("vendor/new.rs")));
     assert!(!manager.in_workspace(&dir.path().join("src/../../outside.rs")));
@@ -364,9 +396,16 @@ async fn idle_timeout_ms_in_lsp_json_applies_after_a_reload() {
     let home = tempfile::tempdir().unwrap();
     let epoch = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
     let manager = reloading_manager(home.path(), dir.path());
-    assert_eq!(manager.idle_ms.load(Ordering::SeqCst), DEFAULT_IDLE_TIMEOUT.as_millis() as u64);
+    assert_eq!(
+        manager.idle_ms.load(Ordering::SeqCst),
+        DEFAULT_IDLE_TIMEOUT.as_millis() as u64
+    );
 
-    write_lsp_json(&home.path().join(".agents/lsp.json"), "{\"idleTimeoutMs\": 1234}", epoch);
+    write_lsp_json(
+        &home.path().join(".agents/lsp.json"),
+        "{\"idleTimeoutMs\": 1234}",
+        epoch,
+    );
     tokio::time::advance(CONFIG_CHECK_INTERVAL).await;
     manager.candidates(&lib);
     assert_eq!(manager.idle_ms.load(Ordering::SeqCst), 1234);

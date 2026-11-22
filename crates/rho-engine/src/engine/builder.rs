@@ -26,6 +26,7 @@ pub struct AgentEngineBuilder {
     turn_notes: super::TurnNotes,
     model_catalog: crate::provider::ModelCatalog,
     quota_endpoints: super::quota_refresh::QuotaEndpoints,
+    lsp: Option<Option<Arc<crate::lsp::LspManager>>>,
 }
 
 struct EngineAssembly {
@@ -51,7 +52,15 @@ impl AgentEngineBuilder {
             turn_notes: super::TurnNotes::default(),
             model_catalog: crate::provider::ModelCatalog::default(),
             quota_endpoints: super::quota_refresh::QuotaEndpoints::default(),
+            lsp: None,
         }
+    }
+
+    /// Language servers for the built-in tools: `None` runs without any, and without this call the
+    /// workspace's shared manager is used when `tools.lsp.enabled` is on.
+    pub fn lsp(mut self, lsp: Option<Arc<crate::lsp::LspManager>>) -> Self {
+        self.lsp = Some(lsp);
+        self
     }
 
     pub fn model(mut self, model: ModelHandle) -> Self {
@@ -141,14 +150,25 @@ struct SubagentModels<'a> {
     runtime: &'a crate::tools::subagent::SubagentRuntime,
 }
 
+/// Where the engine's tools come from besides the built-in set's own defaults.
+struct ToolSources {
+    tools: Option<Vec<Arc<dyn EngineTool>>>,
+    extra: Vec<Arc<dyn EngineTool>>,
+    lsp: Option<Arc<crate::lsp::LspManager>>,
+}
+
 async fn build_engine_tools(
     base_dir: &Path,
     config: &Config,
     models: SubagentModels<'_>,
-    tools_opt: Option<Vec<Arc<dyn EngineTool>>>,
-    extra_tools: Vec<Arc<dyn EngineTool>>,
+    sources: ToolSources,
     history_tools: &std::collections::HashSet<String>,
 ) -> Result<EngineTools> {
+    let ToolSources {
+        tools: tools_opt,
+        extra: extra_tools,
+        lsp,
+    } = sources;
     let mut mcp = crate::mcp::load_mcp(config, base_dir, history_tools).await;
     let mcp_tools = std::mem::take(&mut mcp.tools);
 
@@ -162,7 +182,7 @@ async fn build_engine_tools(
                 Some(models.resolver),
                 crate::tools::builtin_tools::ToolsetServices {
                     worktrees: Some(crate::worktree::WorktreeStore::default_location()),
-                    lsp: Some(crate::lsp::LspManager::for_workspace(base_dir)),
+                    lsp,
                 },
                 models.runtime,
             )?;
@@ -273,6 +293,13 @@ impl AgentEngineBuilder {
         let history_messages = session_manager.active_messages().await.unwrap_or_default();
         let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
 
+        let lsp = match self.lsp.take() {
+            Some(choice) => choice,
+            None if self.tools.is_none() && self.config.tools.lsp.enabled => {
+                Some(crate::lsp::LspManager::for_workspace(&base_dir))
+            }
+            None => None,
+        };
         let EngineTools { tools, subagents, mcp } = build_engine_tools(
             &base_dir,
             &self.config,
@@ -281,8 +308,11 @@ impl AgentEngineBuilder {
                 resolver: subagent_model_resolver(&router, &self.config),
                 runtime: &self.subagent_runtime,
             },
-            self.tools.take(),
-            std::mem::take(&mut self.extra_tools),
+            ToolSources {
+                tools: self.tools.take(),
+                extra: std::mem::take(&mut self.extra_tools),
+                lsp,
+            },
             &history_tools,
         )
         .await?;
@@ -328,6 +358,7 @@ mod tests {
         assert!(config.model.is_empty() && config.provider.is_empty());
         let engine = AgentEngineBuilder::new(config, store)
             .base_dir(dir.path().to_path_buf())
+            .lsp(None)
             .build()
             .await
             .unwrap();
@@ -342,6 +373,36 @@ mod tests {
             .to_string();
         assert!(error.contains("No model selected"), "{error}");
         assert!(engine.session_manager.active_messages().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_lsp_tool_is_registered_only_with_a_manager_and_the_config_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let (manager, _) = crate::lsp::test_server::fake_manager(dir.path(), Default::default());
+        let cases = [
+            (true, Some(Some(manager)), true),
+            (true, Some(None), false),
+            (false, None, false),
+        ];
+        for (enabled, lsp, registered) in cases {
+            let (_auth_dir, store) = temp_auth_store();
+            let mut config = Config {
+                config_dir: dir.path().to_path_buf(),
+                sessions_dir: dir.path().join("sessions"),
+                ..Config::default()
+            };
+            config.tools.lsp.enabled = enabled;
+            let mut builder = AgentEngineBuilder::new(config, store).base_dir(dir.path().to_path_buf());
+            if let Some(lsp) = lsp {
+                builder = builder.lsp(lsp);
+            }
+            let engine = builder.build().await.unwrap();
+            assert_eq!(
+                engine.tool_names().iter().any(|n| n == "lsp"),
+                registered,
+                "enabled={enabled}"
+            );
+        }
     }
 
     #[test]

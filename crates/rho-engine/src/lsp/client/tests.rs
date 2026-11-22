@@ -150,14 +150,26 @@ async fn workspace_configuration_requests_are_answered_from_the_server_settings(
 #[tokio::test(start_paused = true)]
 async fn syncing_unchanged_text_sends_nothing() {
     let fixture = Fixture::new(FakeOptions::default()).await;
-    let first = fixture.client.sync(&fixture.lib(), "fn a() {}\n", "rust").await.unwrap();
-    let again = fixture.client.sync(&fixture.lib(), "fn a() {}\n", "rust").await.unwrap();
+    let first = fixture
+        .client
+        .sync(&fixture.lib(), "fn a() {}\n", "rust")
+        .await
+        .unwrap();
+    let again = fixture
+        .client
+        .sync(&fixture.lib(), "fn a() {}\n", "rust")
+        .await
+        .unwrap();
     assert_eq!(first.version, again.version);
     fixture.settle().await;
     assert_eq!(fixture.count("textDocument/didOpen"), 1);
     assert_eq!(fixture.count("textDocument/didChange"), 0);
 
-    let changed = fixture.client.sync(&fixture.lib(), "fn b() {}\n", "rust").await.unwrap();
+    let changed = fixture
+        .client
+        .sync(&fixture.lib(), "fn b() {}\n", "rust")
+        .await
+        .unwrap();
     assert_eq!(changed.version, first.version + 1);
 }
 
@@ -184,7 +196,11 @@ async fn documents_whose_file_is_gone_are_closed_when_syncing_from_disk() {
     let gone = fixture.dir.path().join("src/gone.rs");
     std::fs::write(&gone, "fn gone() {}\n").unwrap();
     fixture.client.sync(&gone, "fn gone() {}\n", "rust").await.unwrap();
-    fixture.client.sync(&fixture.lib(), "fn ok() {}\n", "rust").await.unwrap();
+    fixture
+        .client
+        .sync(&fixture.lib(), "fn ok() {}\n", "rust")
+        .await
+        .unwrap();
     std::fs::remove_file(&gone).unwrap();
 
     fixture.client.sync_open_documents_from_disk().await.unwrap();
@@ -193,22 +209,42 @@ async fn documents_whose_file_is_gone_are_closed_when_syncing_from_disk() {
 
     fixture.client.sync_open_documents_from_disk().await.unwrap();
     fixture.settle().await;
-    assert_eq!(fixture.count("textDocument/didClose"), 1, "a closed document stays closed");
-    assert_eq!(fixture.count("textDocument/didChange"), 0, "unchanged files send nothing");
+    assert_eq!(
+        fixture.count("textDocument/didClose"),
+        1,
+        "a closed document stays closed"
+    );
+    assert_eq!(
+        fixture.count("textDocument/didChange"),
+        0,
+        "unchanged files send nothing"
+    );
 }
 
 #[tokio::test(start_paused = true)]
 async fn close_document_closes_an_open_document_once() {
     let fixture = Fixture::new(FakeOptions::default()).await;
-    fixture.client.sync(&fixture.lib(), "fn a() {}\n", "rust").await.unwrap();
+    fixture
+        .client
+        .sync(&fixture.lib(), "fn a() {}\n", "rust")
+        .await
+        .unwrap();
     fixture.client.close_document(&fixture.lib()).await.unwrap();
     fixture.client.close_document(&fixture.lib()).await.unwrap();
     fixture.settle().await;
     assert_eq!(fixture.count("textDocument/didClose"), 1);
 
-    fixture.client.sync(&fixture.lib(), "fn a() {}\n", "rust").await.unwrap();
+    fixture
+        .client
+        .sync(&fixture.lib(), "fn a() {}\n", "rust")
+        .await
+        .unwrap();
     fixture.settle().await;
-    assert_eq!(fixture.count("textDocument/didOpen"), 2, "a closed document opens again");
+    assert_eq!(
+        fixture.count("textDocument/didOpen"),
+        2,
+        "a closed document opens again"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -229,7 +265,11 @@ async fn opening_more_than_the_cap_closes_the_least_recently_used_document() {
 
     fixture.client.sync(&path(0), "fn a() {}\n", "rust").await.unwrap();
     fixture.settle().await;
-    assert_eq!(fixture.count("textDocument/didOpen"), MAX_OPEN_DOCUMENTS + 1, "f0 was kept open");
+    assert_eq!(
+        fixture.count("textDocument/didOpen"),
+        MAX_OPEN_DOCUMENTS + 1,
+        "f0 was kept open"
+    );
     fixture.client.sync(&path(1), "fn a() {}\n", "rust").await.unwrap();
     fixture.settle().await;
     assert_eq!(
@@ -259,5 +299,8 @@ async fn shutdown_gives_up_on_a_server_that_never_answers() {
     let started = Instant::now();
     fixture.client.shutdown().await;
     let waited = started.elapsed();
-    assert!(waited >= SHUTDOWN_REQUEST_TIMEOUT && waited < Duration::from_secs(4), "{waited:?}");
+    assert!(
+        waited >= SHUTDOWN_REQUEST_TIMEOUT && waited < Duration::from_secs(4),
+        "{waited:?}"
+    );
 }

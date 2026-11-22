@@ -25,6 +25,7 @@ use std::io::Read;
 struct ProcessCleanupGuard;
 impl Drop for ProcessCleanupGuard {
     fn drop(&mut self) {
+        rho_engine::lsp::shutdown_all_blocking();
         rho_engine::process::kill_all_tracked_processes();
     }
 }

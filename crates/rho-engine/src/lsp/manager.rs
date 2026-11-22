@@ -117,9 +117,7 @@ fn loaded_from(result: Result<ServerSet, String>) -> (Loaded, u64) {
         Ok(set) => (set, None),
         Err(error) => (ServerSet::default(), Some(error)),
     };
-    let idle_ms = set
-        .idle_timeout_ms
-        .unwrap_or(DEFAULT_IDLE_TIMEOUT.as_millis() as u64);
+    let idle_ms = set.idle_timeout_ms.unwrap_or(DEFAULT_IDLE_TIMEOUT.as_millis() as u64);
     let loaded = Loaded {
         servers: set.servers,
         config_error,
@@ -199,7 +197,10 @@ impl LspManager {
     /// `path` relative to the workspace, as the `lsp` tool takes it.
     pub fn relative(&self, path: &Path) -> String {
         let path = canonical(path);
-        path.strip_prefix(&self.workspace).unwrap_or(&path).display().to_string()
+        path.strip_prefix(&self.workspace)
+            .unwrap_or(&path)
+            .display()
+            .to_string()
     }
 
     fn current(&self) -> Arc<Loaded> {
@@ -471,7 +472,10 @@ impl LspManager {
 
     /// Clients that finished starting and are still running.
     pub fn running_clients(&self) -> Vec<Arc<LspClient>> {
-        lock(&self.slots).values().filter_map(|slot| slot.running().cloned()).collect()
+        lock(&self.slots)
+            .values()
+            .filter_map(|slot| slot.running().cloned())
+            .collect()
     }
 
     /// The running clients, or when none run, the servers whose root marker is in the workspace root.
@@ -562,7 +566,9 @@ pub fn shutdown_all_blocking() {
 
 /// Forgets servers that exited long enough ago that restarting one is no longer held back.
 fn prune_exited(slots: &mut Slots) {
-    slots.retain(|_, slot| slot.running().is_some() || slot.client().is_none() || slot.started.elapsed() < RETRY_FAILED_AFTER);
+    slots.retain(|_, slot| {
+        slot.running().is_some() || slot.client().is_none() || slot.started.elapsed() < RETRY_FAILED_AFTER
+    });
 }
 
 /// Stops the server that has been idle longest when the cap on running servers is reached.
@@ -576,7 +582,9 @@ fn stop_least_recently_used(slots: &mut Slots) {
         .filter_map(|(key, slot)| Some((key, slot.running()?.idle_for())))
         .max_by_key(|(_, idle)| *idle)
         .map(|(key, _)| key.clone());
-    let stopped = idlest.and_then(|key| slots.remove(&key)).and_then(|slot| slot.running().cloned());
+    let stopped = idlest
+        .and_then(|key| slots.remove(&key))
+        .and_then(|slot| slot.running().cloned());
     if let Some(client) = stopped {
         tokio::spawn(async move { client.shutdown().await });
     }

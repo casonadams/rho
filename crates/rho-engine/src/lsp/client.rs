@@ -187,10 +187,7 @@ impl LspClient {
 
     /// How long since anything last used this server.
     pub fn idle_for(&self) -> Duration {
-        self.last_used
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .elapsed()
+        self.last_used.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
     }
 
     /// Asks the server to shut down and exit, then kills whatever is left of its process.

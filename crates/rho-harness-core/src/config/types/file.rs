@@ -72,6 +72,14 @@ pub(crate) struct FileConfig {
 pub struct ToolsConfigFile {
     #[serde(default)]
     pub web: Option<WebToolsConfigFile>,
+    #[serde(default)]
+    pub lsp: Option<LspConfigFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LspConfigFile {
+    #[serde(default)]
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

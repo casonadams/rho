@@ -234,6 +234,7 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(workspace.clone())
+        .lsp(None)
         .build()
         .await
         .unwrap();
@@ -267,6 +268,7 @@ async fn builder_attaches_dynamic_tools() {
 
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(base_dir)
+        .lsp(None)
         .add_tool(custom_tool)
         .build()
         .await
@@ -286,6 +288,7 @@ async fn refresh_quota_non_antigravity_is_noop() {
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(std::env::temp_dir())
+        .lsp(None)
         .build()
         .await
         .unwrap();
@@ -323,6 +326,7 @@ async fn build_engine_offline_with_expired_oauth_token_succeeds_without_blocking
     let start = std::time::Instant::now();
     let engine = builder::AgentEngineBuilder::new(config, auth_store)
         .base_dir(dir.clone())
+        .lsp(None)
         .quota_endpoints(crate::engine::quota_refresh::QuotaEndpoints::all_at(
             "http://127.0.0.1:9",
         ))
@@ -495,6 +499,7 @@ async fn context_limit_uses_the_providers_listed_window() {
     auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store)
         .base_dir(dir.clone())
+        .lsp(None)
         .model_catalog(catalog)
         .build()
         .await
@@ -522,6 +527,7 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
 
     let result = builder::AgentEngineBuilder::new(config, auth_store)
         .base_dir(dir.clone())
+        .lsp(None)
         .build()
         .await;
 

@@ -133,6 +133,9 @@ fn merge_web_fetch_settings(config: &mut Config, fetch: &WebFetchConfigFile) {
 }
 
 fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(enabled) = file.tools.as_ref().and_then(|t| t.lsp.as_ref()).and_then(|l| l.enabled) {
+        config.tools.lsp.enabled = enabled;
+    }
     let Some(web) = file.tools.as_ref().and_then(|t| t.web.as_ref()) else {
         return;
     };

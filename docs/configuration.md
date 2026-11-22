@@ -580,14 +580,26 @@ The `lsp` tool, `read` with `symbol`, and the diagnostics at the end of `edit`
 and `write` results use the language server for the file's extension. A server
 runs only when its command is on `PATH` and a root marker is found: the
 workspace root when it holds a marker (one server for the whole repository),
-else the nearest ancestor of the file that does. Servers start on first use
-(reading a file starts its server in the background), stay up for the rest of
-the session, and are stopped when rho exits. A server that fails to start is
-retried after a minute; one that exits is restarted on next use. Files outside
+else the nearest ancestor of the file that does. In a trusted project
+(`RHO_TRUST_PROJECT=1`), servers start on first use (reading a file starts its
+server in the background, and `edit`/`write` start the servers they report
+from). In a project that is not trusted, only an explicit `lsp` call or `read`
+with `symbol` starts a server: reading or editing a file never does, because a
+server analyzes the project, which for some languages runs its code. Servers
+start without provider API keys, tokens, and secrets from rho's environment.
+Servers stay up until unused for 10 minutes (`idleTimeoutMs` in `lsp.json`;
+`0` never stops them), at most 8 run at once (the least recently used stops
+first), and all are asked to shut down when rho exits. A server that fails to
+start is retried after a minute; one that exits is restarted on next use, but
+one that exits again within a minute of a restart waits out the minute. Each
+server keeps at most 64 documents open. Edits to `lsp.json` apply within a few
+seconds without restarting rho. Files outside
 the workspace (such as a dependency a definition points into) are answered by
 an already running server, never a new one. Subagents working in their own git
 worktrees run without language servers. Like an editor, a language server
-analyzes the project, which for some languages runs its build scripts.
+analyzes the project, which for some languages runs its build scripts. Set
+`tools.lsp.enabled = false` (or `rho config tools.lsp.enabled false`) to remove
+the `lsp` tool and run `read`, `edit`, and `write` without language servers.
 
 Built in: rust-analyzer, gopls, typescript-language-server, pyright,
 basedpyright, clangd, zls, lua-language-server, jdtls, kotlin-language-server,
@@ -601,7 +613,8 @@ Add or change servers in `~/.agents/lsp.json`, `.lsp.json`, or
 `.agents/lsp.json` (later files win, field by field per server name). The
 project files choose which commands run, so they apply only when the project is
 trusted (`RHO_TRUST_PROJECT=1`); otherwise `lsp status` says they were ignored.
-A top-level `"enabled": false` turns every server off. The format matches
+A top-level `"enabled": false` turns every server off; a top-level
+`"idleTimeoutMs"` sets how long an unused server stays up. The format matches
 Claude Code's `.lsp.json`:
 
 ```json

@@ -51,7 +51,8 @@ async fn every_server_reports_within_one_shared_deadline() {
     assert!(started.elapsed() <= Duration::from_secs(3), "{:?}", started.elapsed());
     assert!(report.starts_with("LSP so far (1 error, 0 warnings)"), "{report}");
     for name in ["fake", "lint"] {
-        let note = format!("{name} is still busy (Indexing); run lsp diagnostics path=src/lib.rs in a moment for the rest");
+        let note =
+            format!("{name} is still busy (Indexing); run lsp diagnostics path=src/lib.rs in a moment for the rest");
         assert!(report.contains(&note), "{report}");
     }
 }

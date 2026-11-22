@@ -123,7 +123,16 @@ mod tests {
         ] {
             assert!(is_secret_var(secret), "{secret}");
         }
-        for ordinary in ["PATH", "HOME", "RUSTUP_HOME", "LANG", "TERM", "GOPATH", "AWS_REGION", "KEYBOARD"] {
+        for ordinary in [
+            "PATH",
+            "HOME",
+            "RUSTUP_HOME",
+            "LANG",
+            "TERM",
+            "GOPATH",
+            "AWS_REGION",
+            "KEYBOARD",
+        ] {
             assert!(!is_secret_var(ordinary), "{ordinary}");
         }
     }
