@@ -58,16 +58,21 @@ async fn an_untrusted_workspace_starts_servers_only_on_explicit_request() {
         FakeOptions::default(),
         set(vec![fake_server("fake", false)]),
     );
+    let manager = Arc::new(manager);
 
     manager.warm(&lib);
     assert!(manager.clients_within(&lib, Duration::from_secs(1)).await.is_empty());
-    assert!(
-        crate::lsp::diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(1))
-            .await
-            .is_none()
-    );
+    let edited = crate::tools::types::ToolResult::success("edited");
+    let after_edit = crate::lsp::append_diagnostics(edited, Some(&manager), None, &lib, "ERR\n", false).await;
+    assert_eq!(after_edit.content, "edited", "an edit alone must not start a server");
     tokio::task::yield_now().await;
     assert_eq!(launcher.launches.load(Ordering::SeqCst), 0);
+
+    let asked = crate::lsp::diagnostics_for(&manager, &lib, "ERR\n", Duration::from_secs(1))
+        .await
+        .expect("an explicit diagnostics request starts the server");
+    assert!(asked.contains("1 error"), "{asked}");
+    assert_eq!(launcher.launches.load(Ordering::SeqCst), 1);
 
     let client = manager.client_for(&lib).await.unwrap();
     let within = manager.clients_within(&lib, Duration::from_secs(1)).await;

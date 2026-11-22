@@ -437,21 +437,23 @@ impl LspManager {
     /// servers that already run are used.
     pub async fn clients_within(&self, path: &Path, wait: Duration) -> Vec<Result<Arc<LspClient>, String>> {
         let retry = format!("run lsp diagnostics path={} in a moment", self.relative(path));
-        self.clients_within_hinting(path, wait, &retry).await
+        self.clients_within_hinting(path, wait, &retry, false).await
     }
 
-    /// [`LspManager::clients_within`], with `retry` as the advice for a server still starting.
+    /// [`LspManager::clients_within`], with `retry` as the advice for a server still starting. An
+    /// `explicit` request (the model asked) may start servers even in a project that is not trusted.
     pub async fn clients_within_hinting(
         &self,
         path: &Path,
         wait: Duration,
         retry: &str,
+        explicit: bool,
     ) -> Vec<Result<Arc<LspClient>, String>> {
         let starts: Vec<(Key, StartFuture)> = self
             .candidates(path)
             .iter()
             .filter_map(|c| {
-                let start = if self.trusted {
+                let start = if self.trusted || explicit {
                     Some(self.slot(c))
                 } else {
                     self.existing(&c.key())

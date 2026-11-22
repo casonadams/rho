@@ -73,7 +73,16 @@ struct Wait {
 
 impl Wait {
     async fn run(self) {
-        let Some(report) = check(&self.manager, &self.path, &self.text, FOLLOW_UP_WAIT, Pass::FollowUp).await else {
+        let Some(report) = check(
+            &self.manager,
+            &self.path,
+            &self.text,
+            FOLLOW_UP_WAIT,
+            Pass::FollowUp,
+            false,
+        )
+        .await
+        else {
             return;
         };
         let stale = self.manager.change_count(&self.path) != self.stamp;
