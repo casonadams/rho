@@ -440,13 +440,6 @@ mod compactor {
 }
 
 mod common {
-    use std::sync::Mutex;
-
-    use async_trait::async_trait;
-    use rho_harness_core::presentation::activity::ActivityToken;
-    use rho_harness_core::presentation::presenter::Presenter;
-    use rho_harness_core::presentation::stream::ToolStreamPort;
-    use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 
     pub async fn append_test_messages(
         sm: &rho_harness_core::session::SessionManager,
