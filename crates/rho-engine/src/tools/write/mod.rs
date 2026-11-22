@@ -1,3 +1,4 @@
+use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::{ToolResult, resolve_tool_path};
@@ -5,12 +6,14 @@ pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
 
 pub struct WriteTool {
     pub base_dir: PathBuf,
+    pub lsp: Option<Arc<LspManager>>,
 }
 
 async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
@@ -48,7 +51,13 @@ impl WriteTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
+            lsp: None,
         }
+    }
+
+    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+        self.lsp = lsp;
+        self
     }
 
     pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
@@ -65,7 +74,8 @@ impl WriteTool {
             return Ok(e);
         }
 
-        perform_atomic_write(&path, clean_path, &args.content).await
+        let result = perform_atomic_write(&path, clean_path, &args.content).await?;
+        Ok(crate::lsp::append_diagnostics(result, self.lsp.as_deref(), &path, &args.content).await)
     }
 }
 

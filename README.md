@@ -44,13 +44,18 @@ resume the exact session of each pane with `rho --resume <id>`.
 
 ## Built-in Tools
 
-`rho` includes 10 fast, native tools designed for coding agents:
+`rho` includes 11 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
-  safeguards. Supports image sniffing and downscaling.
+  safeguards. Supports image sniffing and downscaling. `symbol` reads just one
+  function, type, or method, located by the file's language server.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
-- **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`.
+- **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`. The result lists each changed region, numbered like `read`.
+- **`lsp`**: Ask the file's [language server](docs/configuration.md#language-servers)
+  for diagnostics, definitions, references, hover, implementations, symbols, or
+  a workspace-wide rename. `edit` and `write` results end with the server's
+  errors and warnings for the new content.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization. Commands run with color enabled so you
   see it in the terminal; the model receives the same output without escape

@@ -160,7 +160,10 @@ async fn build_engine_tools(
                 config,
                 models.default.cloned(),
                 Some(models.resolver),
-                Some(crate::worktree::WorktreeStore::default_location()),
+                crate::tools::builtin_tools::ToolsetServices {
+                    worktrees: Some(crate::worktree::WorktreeStore::default_location()),
+                    lsp: Some(crate::lsp::LspManager::for_workspace(base_dir)),
+                },
                 models.runtime,
             )?;
             t.extend(mcp_tools);

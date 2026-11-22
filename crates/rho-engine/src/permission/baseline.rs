@@ -4,6 +4,7 @@ pub const BASELINE_TOOLS: &[&str] = &[
     "edit",
     "fd",
     "rg",
+    "lsp",
     "web_search",
     "web_fetch",
     "worktree",

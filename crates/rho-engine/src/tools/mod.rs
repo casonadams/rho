@@ -11,6 +11,7 @@ pub mod engine_tool;
 pub mod fd;
 pub mod jobs;
 pub mod listing;
+pub mod lsp;
 pub mod read;
 pub mod registry;
 pub mod rg;

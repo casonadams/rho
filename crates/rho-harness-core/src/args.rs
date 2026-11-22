@@ -98,6 +98,9 @@ pub struct ReadArgs {
     pub offset: Option<usize>,
     /// Maximum number of lines to read (default: 2000)
     pub limit: Option<usize>,
+    /// Read only this symbol's lines, found by the file's language server (e.g. 'parse', 'Config.load', 'Config::load'); offset and limit are ignored
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -121,6 +124,50 @@ pub struct RgArgs {
     pub offset: Option<usize>,
     /// Maximum number of results per page (default: as many as fit in 20KB)
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LspAction {
+    /// Errors and warnings for `path` (synced from disk), or every file servers have reported without `path`
+    Diagnostics,
+    /// Where the symbol at `path`/`line`/`symbol` is defined
+    Definition,
+    /// Every use of the symbol at `path`/`line`/`symbol`
+    References,
+    /// Type and documentation of the symbol at `path`/`line`/`symbol`
+    Hover,
+    /// Implementations of the trait, interface, or method at `path`/`line`/`symbol`
+    Implementation,
+    /// Where the type of the symbol at `path`/`line`/`symbol` is defined
+    TypeDefinition,
+    /// Outline of `path` with line ranges, or with `query` and no `path`, a workspace-wide symbol search
+    Symbols,
+    /// Rename the symbol at `path`/`line`/`symbol` to `new_name` across the workspace and write the files
+    Rename,
+    /// Configured servers and which are running
+    Status,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LspArgs {
+    /// What to do
+    pub action: LspAction,
+    /// File to query (relative or absolute)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// 1-based line of the symbol, as shown by read or rg
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    /// Text of the symbol on that line (e.g. 'parse_args'); its first whole-word occurrence is used. Default: the first non-blank character
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    /// Symbol name to search for across the workspace (symbols action)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// New name for rename
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -310,6 +357,9 @@ pub mod fd {
 }
 pub mod read {
     pub use super::{DEFAULT_READ_LIMIT, ReadArgs};
+}
+pub mod lsp {
+    pub use super::{LspAction, LspArgs};
 }
 pub mod rg {
     pub use super::{RgArgs, RgOutputMode};

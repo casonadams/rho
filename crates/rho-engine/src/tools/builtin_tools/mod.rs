@@ -7,10 +7,12 @@ pub use catalog::{
     PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
+use crate::lsp::LspManager;
 use crate::tools::bash::BashTool;
 use crate::tools::edit::EditTool;
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::fd::FdTool;
+use crate::tools::lsp::LspTool;
 use crate::tools::read::ReadTool;
 use crate::tools::rg::RgTool;
 use crate::tools::subagent::{SubagentModelResolver, SubagentRuntime, SubagentTool};
@@ -24,22 +26,30 @@ use rho_harness_core::error::Result;
 use std::path::Path;
 use std::sync::Arc;
 
-fn build_workspace_native_tools(base_dir: &Path) -> Vec<Arc<dyn EngineTool>> {
-    let write = Arc::new(WriteTool::new(base_dir));
-    let edit = Arc::new(EditTool::new(base_dir));
-    let read = Arc::new(ReadTool::new(base_dir).with_artifact_dir(Some(base_dir.join(".rho/artifacts"))));
+fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -> Vec<Arc<dyn EngineTool>> {
+    let write = Arc::new(WriteTool::new(base_dir).with_lsp(lsp.clone()));
+    let edit = Arc::new(EditTool::new(base_dir).with_lsp(lsp.clone()));
+    let read = Arc::new(
+        ReadTool::new(base_dir)
+            .with_artifact_dir(Some(base_dir.join(".rho/artifacts")))
+            .with_lsp(lsp.clone()),
+    );
     let bash = Arc::new(BashTool::new(base_dir));
     let fd = Arc::new(FdTool::new(base_dir));
     let rg = Arc::new(RgTool::new(base_dir));
 
-    vec![
+    let mut tools = vec![
         read as Arc<dyn EngineTool>,
         write as Arc<dyn EngineTool>,
         edit as Arc<dyn EngineTool>,
         bash as Arc<dyn EngineTool>,
         fd as Arc<dyn EngineTool>,
         rg as Arc<dyn EngineTool>,
-    ]
+    ];
+    if let Some(lsp) = lsp {
+        tools.push(Arc::new(LspTool::new(base_dir, lsp)) as Arc<dyn EngineTool>);
+    }
+    tools
 }
 
 pub fn build_builtin_tools(
@@ -61,23 +71,31 @@ pub fn build_builtin_tools_with_resolver(
         config,
         model,
         model_resolver,
-        None,
+        ToolsetServices::default(),
         &SubagentRuntime::default(),
     )
     .map(|(tools, _)| tools)
 }
 
-/// The built-in tools and the subagent tool. With a worktree `store`, every subagent works in its own
-/// worktree and the `worktree` tool lets the caller review and merge them.
+/// Long-lived services the engine shares with its tools.
+#[derive(Default)]
+pub struct ToolsetServices {
+    /// With a store, every subagent works in its own worktree and the `worktree` tool reviews and merges them.
+    pub worktrees: Option<crate::worktree::WorktreeStore>,
+    /// Language servers behind the `lsp` tool, `read` symbols, and edit diagnostics.
+    pub lsp: Option<Arc<LspManager>>,
+}
+
+/// The built-in tools and the subagent tool.
 pub fn build_builtin_toolset(
     base_dir: &Path,
     config: &Config,
     model: Option<crate::engine::compactor::llm::ModelHandle>,
     model_resolver: Option<SubagentModelResolver>,
-    worktrees: Option<crate::worktree::WorktreeStore>,
+    services: ToolsetServices,
     runtime: &SubagentRuntime,
 ) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
-    let mut tools = build_workspace_native_tools(base_dir);
+    let mut tools = build_workspace_native_tools(base_dir, services.lsp);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
         if config.tools.web.search.enabled {
@@ -130,7 +148,7 @@ pub fn build_builtin_toolset(
             config.slot_model(ModelSlot::Slow).map(str::to_string),
         );
     }
-    if let Some(store) = worktrees {
+    if let Some(store) = services.worktrees {
         subagent = subagent.with_worktrees(store.clone());
         tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
     }
@@ -139,10 +157,12 @@ pub fn build_builtin_toolset(
 }
 
 /// `tools` with the workspace-native ones (read, write, edit, bash, fd, rg) rooted at `root` instead.
+/// Rerooted tools run without language servers.
 pub(crate) fn rerooted(tools: &[Arc<dyn EngineTool>], root: &Path) -> Vec<Arc<dyn EngineTool>> {
-    let native = build_workspace_native_tools(root);
+    let native = build_workspace_native_tools(root, None);
     tools
         .iter()
+        .filter(|tool| tool.name() != "lsp")
         .map(|tool| {
             native
                 .iter()

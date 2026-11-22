@@ -573,6 +573,55 @@ fallback = []
 
 When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from LLM dynamic registration and model tool catalogs. Tool toggles and default search engine selection can be changed interactively without leaving the session via `/settings` -> **Tools & Permissions**.
 
+## Language Servers
+
+The `lsp` tool, `read` with `symbol`, and the diagnostics at the end of `edit`
+and `write` results use the language server for the file's extension. A server
+runs only when its command is on `PATH` and a root marker is found: the
+workspace root when it holds a marker (one server for the whole repository),
+else the nearest ancestor of the file that does. Servers start on first use
+(reading a file starts its server in the background), stay up for the rest of
+the session, and are stopped when rho exits. Subagents working in their own
+git worktrees run without language servers.
+
+Built in: rust-analyzer, gopls, typescript-language-server, pyright,
+basedpyright, clangd, zls, lua-language-server, jdtls, kotlin-language-server,
+ruby-lsp, sourcekit-lsp, haskell-language-server, ocamllsp, csharp-ls,
+elixir-ls, intelephense, bash-language-server, terraform-ls, nil, and taplo.
+When several servers handle an extension, the first installed one answers;
+servers marked `linter` add their diagnostics alongside it.
+
+Add or change servers in `~/.agents/lsp.json`, `.lsp.json`, or
+`.agents/lsp.json` (later files win, field by field per server name). The
+format matches Claude Code's `.lsp.json`:
+
+```json
+{
+  "rust-analyzer": {
+    "settings": { "rust-analyzer": { "check": { "command": "clippy" } } }
+  },
+  "gopls": { "disabled": true },
+  "ruff": {
+    "command": "ruff",
+    "args": ["server"],
+    "extensions": ["py"],
+    "rootMarkers": ["pyproject.toml"],
+    "linter": true
+  }
+}
+```
+
+Fields: `command`, `args`, `extensions` (or `extensionToLanguage`, mapping
+`.ext` to a language id), `rootMarkers` (file names, or `*.ext`),
+`initializationOptions`, `settings` (answered to `workspace/configuration` and
+sent with `didChangeConfiguration`), `env`, `disabled`, and `linter`.
+
+After `edit` or `write`, rho sends the new content to every server for the
+file and waits up to 3 seconds for its diagnostics. The result ends with the
+file's errors and warnings (20 at most, errors first), a count of errors other
+files report, or a note when a server has not answered yet. `lsp diagnostics`
+waits up to 10 seconds.
+
 ## System Instructions (`AGENTS.md`)
 
 `rho` discovers instructions hierarchically and prepends them into the agent

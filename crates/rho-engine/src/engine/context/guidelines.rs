@@ -55,6 +55,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                         | "web_fetch"
                         | "subagent"
                         | "worktree"
+                        | "lsp"
                 ))
         });
         if has_specialized {
@@ -63,6 +64,9 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
     }
     if has_tool(active_tools, "read") {
         out.push("Use read to examine files instead of cat or sed");
+    }
+    if has_tool(active_tools, "lsp") {
+        out.push("Use lsp for definitions, references, hover, and diagnostics in files a language server handles; use rg for plain text search");
     }
     append_mutation_guidelines(active_tools, out);
     if has_tool(active_tools, "bash") {

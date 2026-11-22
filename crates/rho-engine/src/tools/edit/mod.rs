@@ -4,6 +4,7 @@ pub mod preview;
 #[cfg(test)]
 mod tests;
 
+use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::{ToolResult, resolve_tool_path};
@@ -14,9 +15,11 @@ pub use rho_harness_core::args::EditReplacement;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct EditTool {
     pub base_dir: PathBuf,
+    pub lsp: Option<Arc<LspManager>>,
 }
 
 async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::result::Result<String, ToolResult> {
@@ -111,7 +114,13 @@ impl EditTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
+            lsp: None,
         }
+    }
+
+    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+        self.lsp = lsp;
+        self
     }
 
     fn validate_edit_target(&self, clean_path: &str) -> std::result::Result<(Workspace, PathBuf), ToolResult> {
@@ -137,17 +146,18 @@ impl EditTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        write_edit_result(
+        let result = write_edit_result(
             &path,
             EditOutcome {
                 clean_path,
                 before: &content,
-                after: updated,
+                after: updated.clone(),
                 line_numbers: lines,
                 count: args.edits.len(),
             },
         )
-        .await
+        .await?;
+        Ok(crate::lsp::append_diagnostics(result, self.lsp.as_deref(), &path, &updated).await)
     }
 }
 

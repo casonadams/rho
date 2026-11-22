@@ -14,6 +14,7 @@ async fn read_text(
             path: file_path.to_string_lossy().into_owned(),
             offset,
             limit,
+            symbol: None,
         })
         .await
         .unwrap();
@@ -34,6 +35,7 @@ async fn test_read_tool_happy_path() {
             path: file_path.to_str().unwrap().to_string(),
             offset: Some(1),
             limit: Some(2),
+            symbol: None,
         })
         .await
         .unwrap();
@@ -202,6 +204,7 @@ async fn test_read_missing_file_suggests_close_paths() {
             path: "src/repl/input_reader.rs".to_string(),
             offset: None,
             limit: None,
+            symbol: None,
         })
         .await
         .unwrap();
@@ -231,6 +234,7 @@ async fn write_and_read(dir: std::path::PathBuf, name: &str, bytes: &[u8]) -> To
             path: file_path.to_string_lossy().into_owned(),
             offset: None,
             limit: None,
+            symbol: None,
         })
         .await
         .unwrap();
@@ -350,6 +354,7 @@ async fn test_read_oversized_file_spills_artifact() {
             path: "large.txt".to_string(),
             offset: None,
             limit: None,
+            symbol: None,
         })
         .await
         .unwrap();
@@ -382,6 +387,7 @@ async fn test_read_skill_full_content_on_first_read() {
             path: file_path.to_str().unwrap().to_string(),
             offset: None,
             limit: Some(10),
+            symbol: None,
         })
         .await
         .unwrap();
@@ -397,6 +403,7 @@ async fn test_read_skill_full_content_on_first_read() {
             path: file_path.to_str().unwrap().to_string(),
             offset: Some(1),
             limit: Some(100),
+            symbol: None,
         })
         .await
         .unwrap();
@@ -410,6 +417,7 @@ async fn test_read_skill_full_content_on_first_read() {
             path: file_path.to_str().unwrap().to_string(),
             offset: Some(11),
             limit: Some(10),
+            symbol: None,
         })
         .await
         .unwrap();

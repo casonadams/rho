@@ -7,6 +7,7 @@ Available tools:
 - bash: Run git, builds, tests, and linters in the current working directory
 - fd: Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)
 - rg: Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)
+- lsp: Language-server diagnostics, definitions, references, hover, symbols, and renames for any configured language
 - web_search: Search the web and return structured summaries and URLs
 - web_fetch: Fetch and extract clean text or markdown from URLs
 - subagent: Spawn an isolated subagent with a specialized role ('scout', 'critic', 'planner', 'general')
@@ -20,6 +21,7 @@ Guidelines:
 - Commands run directly in the working directory; do not prefix commands with cd
 - Never use bash for file inspection (ls, find, grep, cat); use fd, rg, and read instead
 - Use read to examine files instead of cat or sed
+- Use lsp for definitions, references, hover, and diagnostics in files a language server handles; use rg for plain text search
 - Use edit for every change to an existing file: oldText for small unique changes, replaceAll for renames within a file, and startText/endText to delete or rewrite a whole block
 - Put all changes to one file in one edit call; for changes across files, issue one edit call per file in the same response
 - Keep edits[].oldText as small as possible while still being unique in the file

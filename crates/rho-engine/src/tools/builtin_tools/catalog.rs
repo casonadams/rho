@@ -1,6 +1,7 @@
 use crate::tools::bash::BashArgs;
 use crate::tools::edit::EditArgs;
 use crate::tools::fd::FdArgs;
+use crate::tools::lsp::LspArgs;
 use crate::tools::read::ReadArgs;
 use crate::tools::rg::RgArgs;
 use crate::tools::types::generated_schema;
@@ -21,6 +22,19 @@ Usage:
 - You own the worktrees your subagents and workflows create: merge or discard each before you finish, or tell the user why one is kept. Unmerged worktrees are deleted 24 hours after they were created.
 - To have a subagent fix its work before merging, continue its task with the subagent tool's `task_id`; it keeps working in the same worktree.";
 
+pub static PROMPT_LSP: &str = "\
+Query the language server for a file's language: compiler diagnostics, definitions, references, hover, implementations, symbols, and renames.
+
+Usage:
+- Name a position with path, line (1-based, as shown by read or rg), and symbol (the identifier's text on that line; its first whole-word occurrence is used). Prefer this over rg when you need the real definition or every use of a symbol, not text matches.
+- definition, type_definition, implementation, and references return locations grouped by file as `LINE:text` rows.
+- hover returns the symbol's type and documentation.
+- symbols with path returns the file's outline as `START-END kind name` rows (pass query to filter by name); with query and no path it searches symbols across the workspace.
+- diagnostics with path returns the file's current errors and warnings; without path it lists everything the running servers have reported.
+- rename changes the symbol at the position to new_name in every file and writes them; review the listed files afterwards.
+- status lists started servers and which configured servers are installed.
+- Servers start on first use (reading a file also starts its server in the background), so the first query can take a few seconds. If no server handles a file the error says why (not installed, no project root marker); fall back to rg and read.";
+
 pub static PROMPT_READ: &str = "\
 Read a text file with line numbers, or attach an image.
 
@@ -28,7 +42,7 @@ Usage:
 - Use read to examine files instead of cat or sed; path may be relative to the working directory or absolute.
 - Each line is prefixed with its line number and a tab; the prefix is not part of the file, so never include it in edit oldText.
 - Output is capped at 2000 lines or 50KB, whichever comes first. A trailing note ending in `Use offset=N to continue.` gives the next offset; pass it, optionally with limit, to page through large files. A single line longer than 50KB is shown cut to its first 50KB, and an empty file returns `[File is empty]`.
-- For a known region, read it with offset and limit instead of the whole file.
+- For a known region, read it with offset and limit instead of the whole file. To read one function, type, or method, pass symbol (e.g. 'parse', 'Config.load') instead: the file's language server finds its lines.
 - Read a file before editing it so oldText matches exactly. Reads run in parallel when every call in a response is read-only, so read independent files together.
 - Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text. Binary files return a short placeholder, and other non-UTF-8 files return an error. Use fd, not read, to list a directory.";
 
@@ -38,7 +52,8 @@ Create a file or completely overwrite an existing one. Parent directories are cr
 Usage:
 - Use write only for new files or complete rewrites; content replaces the whole file, so include everything that should remain.
 - For small or targeted changes to existing files, use edit instead.
-- Use write instead of shell redirects, heredocs, or scripts to create files.";
+- Use write instead of shell redirects, heredocs, or scripts to create files.
+- When a language server handles the file, the result ends with its errors and warnings for the new content (`LSP (...)` rows of `LINE:COL severity message`).";
 
 pub static PROMPT_EDIT: &str = "\
 Edit an existing file with exact text replacements, applied in order.
@@ -52,6 +67,7 @@ Usage:
 - Put all changes to one file in one call; for changes across files, make one edit call per file in the same response.
 - If two changes touch the same lines, merge them into one entry instead of emitting overlapping edits.
 - Line endings are matched and preserved automatically; to create a new file use write.
+- The result lists each changed region of the new file numbered like read, so you can check the change without re-reading. When a language server handles the file, the result ends with its errors and warnings for the new content; fix errors you introduced, but expect transient ones while a multi-step change is half done.
 - Use edit for every change to an existing file; never sed -i, perl -pi, python or awk scripts, or shell redirects.";
 
 pub static PROMPT_FD: &str = "\
@@ -198,6 +214,13 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_RG,
         prompt_snippet: "Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)",
         schema: generated_schema::<RgArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "lsp",
+        capability: BuiltinToolKind::WorkspaceMutation,
+        prompt: PROMPT_LSP,
+        prompt_snippet: "Language-server diagnostics, definitions, references, hover, symbols, and renames for any configured language",
+        schema: generated_schema::<LspArgs>,
     },
     BuiltinToolDeclaration {
         name: "web_search",

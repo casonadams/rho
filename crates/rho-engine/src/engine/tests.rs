@@ -111,8 +111,9 @@ fn assert_rebuilt_meta(rebuilt: &AgentEngine, sid: &str, tool_count: usize) {
         (7, sid)
     );
     let names = rebuilt.tool_names();
-    assert_eq!(names.len(), tool_count + 1, "{names:?}");
+    assert_eq!(names.len(), tool_count + 2, "{names:?}");
     assert!(names.iter().any(|n| n == "worktree"), "{names:?}");
+    assert!(names.iter().any(|n| n == "lsp"), "{names:?}");
 }
 
 async fn assert_rebuilt_storage(

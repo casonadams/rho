@@ -95,7 +95,7 @@ When a guard model is configured, benign developer operations (compiling code, e
 Every tool invocation flows through a multi-tiered security pipeline before execution:
 
 1. **Explicit Policy Rules (`permission.toml`)**: Custom `allow`, `deny`, or `ask` patterns defined in `.rho/permission.toml` (project) or `~/.config/rho/permission.toml` (global) take highest precedence. If a command matches an explicit rule, that action is taken immediately without consulting the guard model.
-2. **Baseline Safe Classification**: Built-in non-mutating inspection tools (`read`, `fd`, `rg`, `web_search`, `web_fetch`) and non-mutating shell commands (`pwd`, `git status`, `git diff`, `git log`) run immediately within the workspace.
+2. **Baseline Safe Classification**: Built-in non-mutating inspection tools (`read`, `fd`, `rg`, `web_search`, `web_fetch`), the `lsp` tool, and non-mutating shell commands (`pwd`, `git status`, `git diff`, `git log`) run immediately within the workspace.
 3. **Guard Model Security Evaluation**: For unclassified bash commands, `rho` encapsulates the full command string inside `<command_to_evaluate>` and invokes the configured guard model with a specialized security classification system prompt.
 4. **Frictionless Safe Execution**: If the guard model classifies the command as safe (`{"safe": true, "reason": "..."}`), execution proceeds immediately without interrupting your flow.
 5. **Targeted Interception**: If classified as unsafe (`{"safe": false, "reason": "..."}`), execution pauses and surfaces the interactive approval modal displaying the guard's specific security rationale.
