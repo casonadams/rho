@@ -153,6 +153,67 @@ pub enum LspAction {
     Format,
 }
 
+/// Whether an `lsp` action changes files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LspWrites {
+    Never,
+    Always,
+    /// Lists by default; changes files only with `apply` set.
+    WhenApplied,
+}
+
+impl LspAction {
+    pub const ALL: [Self; 11] = [
+        Self::Diagnostics,
+        Self::Definition,
+        Self::References,
+        Self::Hover,
+        Self::Implementation,
+        Self::TypeDefinition,
+        Self::Symbols,
+        Self::Rename,
+        Self::Status,
+        Self::CodeActions,
+        Self::Format,
+    ];
+
+    /// The action's name as the model writes it.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Diagnostics => "diagnostics",
+            Self::Definition => "definition",
+            Self::References => "references",
+            Self::Hover => "hover",
+            Self::Implementation => "implementation",
+            Self::TypeDefinition => "type_definition",
+            Self::Symbols => "symbols",
+            Self::Rename => "rename",
+            Self::Status => "status",
+            Self::CodeActions => "code_actions",
+            Self::Format => "format",
+        }
+    }
+
+    /// How the action can change files; every action is classified, so a new one cannot be added
+    /// without deciding this.
+    #[must_use]
+    pub fn writes(self) -> LspWrites {
+        match self {
+            Self::Rename | Self::Format => LspWrites::Always,
+            Self::CodeActions => LspWrites::WhenApplied,
+            Self::Diagnostics
+            | Self::Definition
+            | Self::References
+            | Self::Hover
+            | Self::Implementation
+            | Self::TypeDefinition
+            | Self::Symbols
+            | Self::Status => LspWrites::Never,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct LspArgs {
     /// What to do
@@ -175,6 +236,18 @@ pub struct LspArgs {
     /// Apply the code action picked by `query` instead of only listing the actions (code_actions)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apply: Option<bool>,
+}
+
+impl LspArgs {
+    /// Whether running these arguments changes files.
+    #[must_use]
+    pub fn writes_files(&self) -> bool {
+        match self.action.writes() {
+            LspWrites::Never => false,
+            LspWrites::Always => true,
+            LspWrites::WhenApplied => self.apply == Some(true),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -536,5 +609,43 @@ mod tests {
 
         let serialized = serde_json::to_string(&parsed).expect("can serialize");
         assert!(serialized.contains(r#""role":"scout""#));
+    }
+
+    #[test]
+    fn every_lsp_action_is_listed_named_and_classified() {
+        let schema = serde_json::to_string(&schemars::schema_for!(LspAction)).unwrap();
+        let in_schema = schema.matches("\"const\"").count();
+        assert_eq!(LspAction::ALL.len(), in_schema, "ALL must list every variant: {schema}");
+        for action in LspAction::ALL {
+            let serialized = serde_json::to_value(action).unwrap();
+            assert_eq!(serialized, action.as_str());
+            assert!(schema.contains(&format!("\"const\":\"{}\"", action.as_str())));
+        }
+    }
+
+    #[test]
+    fn lsp_arguments_write_files_only_for_writing_actions() {
+        let call = |action, apply| LspArgs {
+            action,
+            path: None,
+            line: None,
+            symbol: None,
+            query: None,
+            new_name: None,
+            apply,
+        };
+        for action in LspAction::ALL {
+            let expected = match action {
+                LspAction::Rename | LspAction::Format => [true, true, true],
+                LspAction::CodeActions => [false, false, true],
+                _ => [false, false, false],
+            };
+            let got = [
+                call(action, None).writes_files(),
+                call(action, Some(false)).writes_files(),
+                call(action, Some(true)).writes_files(),
+            ];
+            assert_eq!(got, expected, "{}", action.as_str());
+        }
     }
 }

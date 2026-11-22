@@ -28,15 +28,23 @@ async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Resu
     Ok(())
 }
 
-async fn ensure_parent_dir(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
-    if let Some(parent) = path.parent()
-        && let Err(e) = tokio::fs::create_dir_all(parent).await
-    {
+async fn ensure_parent_dir(path: &Path, clean_path: &str) -> std::result::Result<Vec<PathBuf>, ToolResult> {
+    let Some(parent) = path.parent() else {
+        return Ok(Vec::new());
+    };
+    let mut missing = Vec::new();
+    for dir in parent.ancestors() {
+        if tokio::fs::try_exists(dir).await.unwrap_or(true) {
+            break;
+        }
+        missing.push(dir.to_path_buf());
+    }
+    if let Err(e) = tokio::fs::create_dir_all(parent).await {
         return Err(ToolResult::error(format!(
             "Failed to create directories for {clean_path}: {e}"
         )));
     }
-    Ok(())
+    Ok(missing)
 }
 
 async fn perform_atomic_write(path: &Path, clean_path: &str, content: &str) -> Result<ToolResult, AppError> {
@@ -80,9 +88,10 @@ impl WriteTool {
         if let Err(e) = check_not_directory(&path, clean_path).await {
             return Ok(e);
         }
-        if let Err(e) = ensure_parent_dir(&path, clean_path).await {
-            return Ok(e);
-        }
+        let created_dirs = match ensure_parent_dir(&path, clean_path).await {
+            Ok(dirs) => dirs,
+            Err(e) => return Ok(e),
+        };
 
         let before = crate::tools::undo::read_before(&path).await;
         let created = matches!(before, Some(None));
@@ -90,7 +99,7 @@ impl WriteTool {
         if !result.is_error
             && let (Some(history), Some(before)) = (&self.history, before)
         {
-            history.record(&path, before, args.content.as_bytes());
+            history.record_with_dirs(&path, before, args.content.as_bytes(), created_dirs);
         }
         Ok(crate::lsp::append_diagnostics(
             result,

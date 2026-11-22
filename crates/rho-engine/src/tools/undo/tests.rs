@@ -98,7 +98,7 @@ fn history_keeps_only_the_newest_revisions_per_file() {
         history.record(path, Some(vec![i as u8]), &[i as u8 + 1]);
     }
     let last = [(MAX_REVISIONS_PER_FILE + 5) as u8];
-    let (before, _) = history.peek_if_current(path, Some(&last)).unwrap();
+    let Undoing { before, .. } = history.peek_if_current(path, Some(&last)).unwrap();
     assert_eq!(before, Some(vec![(MAX_REVISIONS_PER_FILE + 4) as u8]));
     assert_eq!(history.pop(path), MAX_REVISIONS_PER_FILE - 1);
 }
@@ -225,4 +225,25 @@ async fn undo_rejects_a_path_outside_the_workspace() {
     assert!(result.is_error);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "keep");
     assert!(t.undo("../x.txt").await.is_error);
+}
+
+#[tokio::test]
+async fn undoing_a_created_file_removes_the_empty_directories_write_created_but_no_others() {
+    let t = tools();
+    std::fs::create_dir(t.dir.path().join("old")).unwrap();
+    t.write("old/new/deep/a.rs", "x").await;
+    t.write("old/new/b.rs", "y").await;
+
+    let first = t.undo("old/new/deep/a.rs").await;
+    assert!(!first.is_error, "{}", first.content);
+    assert!(first.content.contains("1 empty directory"), "{}", first.content);
+    assert!(!t.dir.path().join("old/new/deep").exists());
+    assert!(t.dir.path().join("old/new/b.rs").exists());
+
+    t.write("old/c.rs", "z").await;
+    assert!(!t.undo("old/c.rs").await.is_error);
+    assert!(
+        t.dir.path().join("old").is_dir(),
+        "a directory that already existed stays"
+    );
 }

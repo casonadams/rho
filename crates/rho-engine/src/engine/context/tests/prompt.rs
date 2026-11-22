@@ -301,3 +301,22 @@ async fn saved_memory_is_read_once_at_discovery_into_the_prompt_and_agent_ground
     assert!(!disabled.build_system_prompt().contains("<memory>"));
     assert!(!empty_home.build_system_prompt().contains("<memory>"));
 }
+
+#[test]
+fn a_hand_edited_memory_file_is_capped_when_loaded() {
+    use rho_harness_core::args::MemoryScope;
+    use rho_harness_core::memory::{MAX_NOTES, MemoryStore, render_notes};
+
+    let temp = rho_test_support::TestDir::new();
+    let store = MemoryStore::in_home(&temp.join("home"), &temp.join("workspace"));
+    let path = store.path(MemoryScope::Global);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let notes: Vec<String> = (0..MAX_NOTES + 7).map(|i| format!("note {i}")).collect();
+    std::fs::write(&path, render_notes(&notes)).unwrap();
+
+    let section = prompt::memory_section(&store);
+
+    assert!(section.contains(&format!("- note {}\n", MAX_NOTES - 1)), "{section}");
+    assert!(!section.contains(&format!("- note {MAX_NOTES}\n")), "{section}");
+    assert!(section.contains("[7 more Global notes omitted"), "{section}");
+}

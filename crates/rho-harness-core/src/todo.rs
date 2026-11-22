@@ -7,6 +7,8 @@ use crate::model::{ChatMessage, UserContent};
 use std::fmt::Write as _;
 
 pub const TODO_TOOL: &str = "todo";
+pub const MAX_TODOS: usize = 50;
+pub const MAX_TODO_CHARS: usize = 200;
 const BLOCK_OPEN: &str = "<todos>";
 const BLOCK_CLOSE: &str = "</todos>";
 
@@ -27,7 +29,19 @@ impl TodoStatus {
 }
 
 pub fn validate_todos(todos: &[TodoItem]) -> Result<(), String> {
+    if todos.len() > MAX_TODOS {
+        return Err(format!(
+            "{} todos is too many; keep at most {MAX_TODOS} and merge or drop finished ones",
+            todos.len()
+        ));
+    }
     for (idx, todo) in todos.iter().enumerate() {
+        let chars = todo.content.trim().chars().count();
+        if chars > MAX_TODO_CHARS {
+            return Err(format!(
+                "todos[{idx}].content is {chars} characters; keep it under {MAX_TODO_CHARS}"
+            ));
+        }
         if todo.content.trim().is_empty() {
             return Err(format!("todos[{idx}].content is empty"));
         }
@@ -75,10 +89,7 @@ pub fn parse_todos(text: &str) -> Option<Vec<TodoItem>> {
     let mut lines = text.trim().lines();
     let (done, total) = lines.next()?.strip_suffix(" done")?.split_once('/')?;
     let (done, total): (usize, usize) = (done.parse().ok()?, total.parse().ok()?);
-    let todos = lines
-        .take_while(|line| !line.trim().is_empty())
-        .map(parse_item)
-        .collect::<Option<Vec<_>>>()?;
+    let todos: Vec<TodoItem> = lines.map_while(parse_item).collect();
     let completed = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
     (todos.len() == total && completed == done).then_some(todos)
 }
@@ -162,6 +173,8 @@ mod tests {
             Some(plan()),
             "a notice after the list is not part of it"
         );
+        let with_footer = format!("{rendered}\n[hook: 3 files changed]");
+        assert_eq!(parse_todos(&with_footer), Some(plan()), "a footer line ends the list");
     }
 
     #[test]
@@ -185,6 +198,24 @@ mod tests {
             validate_todos(&[item("Return Vec<T> from parse", TodoStatus::Pending)]),
             Ok(())
         );
+    }
+
+    #[test]
+    fn the_list_is_capped_in_items_and_item_length() {
+        let many: Vec<TodoItem> = (0..=MAX_TODOS)
+            .map(|i| item(&format!("task {i}"), TodoStatus::Pending))
+            .collect();
+        let long = item(&"x".repeat(MAX_TODO_CHARS + 1), TodoStatus::Pending);
+        let edge = item(&"x".repeat(MAX_TODO_CHARS), TodoStatus::Pending);
+
+        assert_eq!(validate_todos(&many[..MAX_TODOS]), Ok(()));
+        assert!(validate_todos(&many).unwrap_err().contains("too many"));
+        assert!(
+            validate_todos(&[long])
+                .unwrap_err()
+                .contains("todos[0].content is 201 characters")
+        );
+        assert_eq!(validate_todos(&[edge]), Ok(()));
     }
 
     #[test]

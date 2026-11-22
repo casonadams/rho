@@ -5,11 +5,14 @@ use crate::args::MemoryScope;
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 pub const MAX_NOTE_CHARS: usize = 300;
 pub const MAX_NOTES: usize = 50;
 pub const MAX_FILE_BYTES: usize = 8 * 1024;
 const KEY_PATH_CHARS: usize = 80;
+const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+const LOCK_RETRY: Duration = Duration::from_millis(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
@@ -29,6 +32,8 @@ pub enum MemoryError {
     Full,
     #[error("no note {index}; there are {count} (view lists them)")]
     NoSuchNote { index: usize, count: usize },
+    #[error("{}: another process is changing the notes; try again", path.display())]
+    Locked { path: PathBuf },
     #[error("{}: {source}", path.display())]
     Io { path: PathBuf, source: io::Error },
 }
@@ -38,6 +43,14 @@ pub enum MemoryError {
 pub struct MemoryStore {
     dir: PathBuf,
     project_key: String,
+    lock_timeout: Duration,
+}
+
+/// Notes read for the prompt, within the limits `add` enforces, and how many were left out.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LoadedNotes {
+    pub notes: Vec<String>,
+    pub omitted: usize,
 }
 
 impl MemoryStore {
@@ -46,7 +59,15 @@ impl MemoryStore {
         Self {
             dir: dir.into(),
             project_key: project_key(workspace_root),
+            lock_timeout: LOCK_TIMEOUT,
         }
+    }
+
+    /// How long a change waits for another process's lock on the notes before giving up.
+    #[must_use]
+    pub fn with_lock_timeout(mut self, timeout: Duration) -> Self {
+        self.lock_timeout = timeout;
+        self
     }
 
     /// The store in `<home>/.agents/memory`.
@@ -66,6 +87,26 @@ impl MemoryStore {
     /// The saved notes in file order; a missing file has none.
     pub fn notes(&self, scope: MemoryScope) -> Result<Vec<String>, MemoryError> {
         Ok(parse_notes(&self.raw(scope)?))
+    }
+
+    /// The notes a hand-edited file may hold more of than `add` allows: the first [`MAX_NOTES`]
+    /// notes within [`MAX_FILE_BYTES`], each cut to [`MAX_NOTE_CHARS`] characters.
+    pub fn loaded_notes(&self, scope: MemoryScope) -> Result<LoadedNotes, MemoryError> {
+        let all = self.notes(scope)?;
+        let mut notes = Vec::new();
+        let mut bytes = 0;
+        for note in &all {
+            let note: String = note.chars().take(MAX_NOTE_CHARS).collect();
+            bytes += note.len() + 3;
+            if notes.len() == MAX_NOTES || bytes > MAX_FILE_BYTES {
+                break;
+            }
+            notes.push(note);
+        }
+        Ok(LoadedNotes {
+            omitted: all.len() - notes.len(),
+            notes,
+        })
     }
 
     fn raw(&self, scope: MemoryScope) -> Result<String, MemoryError> {
@@ -92,7 +133,14 @@ impl MemoryStore {
             .write(true)
             .open(&path)
             .map_err(io_error)?;
-        lock.lock().map_err(io_error)?;
+        let deadline = Instant::now() + self.lock_timeout;
+        while let Err(error) = lock.try_lock() {
+            match error {
+                std::fs::TryLockError::WouldBlock if Instant::now() < deadline => std::thread::sleep(LOCK_RETRY),
+                std::fs::TryLockError::WouldBlock => return Err(MemoryError::Locked { path }),
+                std::fs::TryLockError::Error(source) => return Err(io_error(source)),
+            }
+        }
         change()
     }
 
@@ -209,20 +257,78 @@ pub fn numbered(notes: &[String]) -> String {
     out
 }
 
-/// Credential shapes: provider key prefixes, `password=`, PEM private key headers, bearer tokens,
-/// and long hex or mixed-case base64 words.
+const SECRET_KEYS: [&str; 9] = [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "api-key",
+    "apikey",
+    "access_key",
+    "private_key",
+];
+
+/// Credential shapes: provider key prefixes, `key=value` and `key: value` assignments, PEM private
+/// key headers, bearer tokens, JWTs, URLs with a password, and long hex or base64 words.
 fn looks_like_secret(note: &str) -> bool {
     let lower = note.to_ascii_lowercase();
     let alnum = |c: char| c.is_ascii_alphanumeric();
-    lower.contains("password=")
+    let dashed = |c: char| alnum(c) || matches!(c, '-' | '_');
+    assigns_secret(&lower)
         || (lower.contains("-----begin") && lower.contains("private key-----"))
-        || has_token_after(note, "sk-", 20, |c| alnum(c) || matches!(c, '-' | '_'))
+        || has_token_after(note, "sk-", 20, dashed)
         || has_token_after(note, "ghp_", 20, alnum)
+        || has_token_after(note, "github_pat_", 20, dashed)
+        || has_token_after(note, "glpat-", 20, dashed)
         || has_token_after(note, "AKIA", 16, |c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        || has_token_after(note, "ASIA", 16, |c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        || has_token_after(note, "AIza", 35, dashed)
+        || ["xoxb-", "xoxa-", "xoxp-", "xoxr-", "xoxs-"]
+            .iter()
+            .any(|prefix| has_token_after(note, prefix, 10, dashed))
         || has_token_after(&lower, "bearer ", 16, |c| {
             alnum(c) || matches!(c, '-' | '.' | '_' | '~' | '+' | '/' | '=')
         })
-        || note.split_whitespace().any(is_long_encoded_word)
+        || has_url_password(note)
+        || note
+            .split_whitespace()
+            .any(|word| is_jwt(word) || is_long_encoded_word(word))
+}
+
+/// `password=`, `secret = x`, `token: x`: a credential name assigned a value. A bare `key:` with
+/// nothing after it is prose, not an assignment.
+fn assigns_secret(lower: &str) -> bool {
+    SECRET_KEYS.iter().any(|key| {
+        lower.match_indices(key).any(|(at, _)| {
+            let rest = lower[at + key.len()..].trim_start_matches([' ', '\t']);
+            rest.starts_with('=') || rest.strip_prefix(':').is_some_and(|value| !value.trim().is_empty())
+        })
+    })
+}
+
+/// `scheme://user:password@host`.
+fn has_url_password(note: &str) -> bool {
+    note.match_indices("://").any(|(at, _)| {
+        let authority = note[at + 3..].split(['/', ' ', '\t']).next().unwrap_or("");
+        authority
+            .split_once('@')
+            .and_then(|(userinfo, _)| userinfo.split_once(':'))
+            .is_some_and(|(_, password)| !password.is_empty())
+    })
+}
+
+fn is_jwt(word: &str) -> bool {
+    let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+    let parts: Vec<&str> = word.split('.').collect();
+    word.starts_with("eyJ")
+        && parts.len() == 3
+        && parts.iter().all(|part| {
+            part.len() >= 8
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        })
 }
 
 /// Whether `prefix` starts a word in `text` and is followed by at least `min` characters `accept`s.
@@ -236,20 +342,25 @@ fn has_token_after(text: &str, prefix: &str, min: usize, accept: impl Fn(char) -
     })
 }
 
+/// A SHA-1 is 40 hex digits and notes mention commits; any other long hex word is a key.
+const GIT_SHA_LEN: usize = 40;
+
+/// Long hex words, and long base64 words that look random: upper case makes up a quarter of the
+/// word and it has digits, which CamelCase identifiers do not.
 fn is_long_encoded_word(word: &str) -> bool {
     let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
     if word.len() <= 32 {
         return false;
     }
     if word.chars().all(|c| c.is_ascii_hexdigit()) {
-        return true;
+        return word.len() != GIT_SHA_LEN;
     }
-    let has = |test: fn(&char) -> bool| word.chars().any(|c| test(&c));
+    let count = |test: fn(&char) -> bool| word.chars().filter(&test).count();
     word.chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
-        && has(char::is_ascii_uppercase)
-        && has(char::is_ascii_lowercase)
-        && has(char::is_ascii_digit)
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_'))
+        && count(char::is_ascii_uppercase) * 4 >= word.len()
+        && count(char::is_ascii_lowercase) > 0
+        && count(char::is_ascii_digit) > 0
 }
 
 fn checked_note(notes: &[String], text: &str) -> Result<String, MemoryError> {
@@ -455,17 +566,32 @@ mod tests {
     #[test]
     fn notes_that_look_like_credentials_are_rejected() {
         let (_dir, store) = store();
-        let hex = "a1b2c3d4".repeat(5);
+        let hex = "a1b2c3d4".repeat(8);
         let b64 = "QWxhZGRpbjpvcGVuIHNlc2FtZVF3ZXJ0eTEyMzQ1Njc4";
+        let b64url = "QWxhZGRpbjpvcGVuLXNlc2FtZV9Rd2VydHkxMjM0NTY3OA-_";
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r";
         let rejected = [
             "token is sk-abcdefghijklmnopqrstuvwx".to_string(),
             "use ghp_abcdefghijklmnopqrstuvwxyz0123456789".to_string(),
             "key AKIAIOSFODNN7EXAMPLE".to_string(),
+            "temp key ASIAIOSFODNN7EXAMPLE".to_string(),
             "db PASSWORD=hunter2".to_string(),
+            "password: hunter2".to_string(),
+            "password = hunter2".to_string(),
+            "the secret=".to_string(),
+            "auth token=abc123".to_string(),
+            "api_key: abc123".to_string(),
             "-----BEGIN RSA PRIVATE KEY-----".to_string(),
             "send Authorization: Bearer abcdef0123456789abcdef".to_string(),
             format!("hash {hex}"),
             format!("blob {b64}"),
+            format!("blob {b64url}"),
+            format!("jwt {jwt}"),
+            "slack xoxb-123456789012-abcdefghijkl".to_string(),
+            "pat github_pat_11ABCDEFG0abcdefghijklmnop_qrstuvwxyz".to_string(),
+            "gitlab glpat-abcdefghij0123456789".to_string(),
+            "maps AIzaSyA-abcdefghijklmnopqrstuvwxyz012345".to_string(),
+            "clone https://deploy:s3cr3t@git.example.com/repo.git".to_string(),
         ];
         for note in rejected {
             let error = store.add(MemoryScope::Project, &note).unwrap_err();
@@ -477,14 +603,58 @@ mod tests {
     #[test]
     fn ordinary_notes_are_not_mistaken_for_credentials() {
         let (_dir, store) = store();
+        let sha = "3b18e512dba79e4c8300dd08aeb37f8e728b8dad";
         for note in [
             "the task-force-orchestration-module is slow",
             "edit crates/rho-engine/src/tools/undo/tests for coverage",
             "reset the password in the settings page",
             "Bearer of bad news: CI is red",
             "set sk-1 to 2",
+            "the regression came in with commit 3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
+            "see https://example.com/a:b@c and user@example.com",
+            "HttpClientConfigurationFactoryBuilder2Impl owns the pool",
+            "max_tokens=4096 is the default",
+            "token: ",
         ] {
             store.add(MemoryScope::Project, note).unwrap();
         }
+        assert_eq!(sha.len(), GIT_SHA_LEN);
+    }
+
+    #[test]
+    fn hand_edited_files_load_within_the_limits_add_enforces() {
+        let (_dir, store) = store();
+        let path = store.path(MemoryScope::Project);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let many: Vec<String> = (0..80).map(|i| format!("note {i}")).collect();
+        std::fs::write(&path, render_notes(&many)).unwrap();
+        let loaded = store.loaded_notes(MemoryScope::Project).unwrap();
+        assert_eq!((loaded.notes.len(), loaded.omitted), (MAX_NOTES, 30));
+
+        let wide = vec!["w".repeat(MAX_NOTE_CHARS * 3); 40];
+        std::fs::write(&path, render_notes(&wide)).unwrap();
+        let loaded = store.loaded_notes(MemoryScope::Project).unwrap();
+        let bytes: usize = loaded.notes.iter().map(|note| note.len() + 3).sum();
+        assert!(
+            bytes <= MAX_FILE_BYTES && loaded.omitted > 0,
+            "{bytes} {}",
+            loaded.omitted
+        );
+        assert!(loaded.notes.iter().all(|note| note.chars().count() == MAX_NOTE_CHARS));
+    }
+
+    #[test]
+    fn a_note_file_locked_by_another_process_is_an_error_after_the_timeout() {
+        let (_dir, store) = store();
+        let store = store.with_lock_timeout(Duration::from_millis(30));
+        store.add(MemoryScope::Project, "first").unwrap();
+        let held = std::fs::File::open(store.path(MemoryScope::Project).with_extension("lock")).unwrap();
+        held.lock().unwrap();
+
+        let error = store.add(MemoryScope::Project, "second").unwrap_err();
+
+        assert!(matches!(error, MemoryError::Locked { .. }), "{error}");
+        held.unlock().unwrap();
+        store.add(MemoryScope::Project, "second").unwrap();
     }
 }

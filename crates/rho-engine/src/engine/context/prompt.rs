@@ -56,9 +56,17 @@ fn append_instruction_files(prompt: &mut String, files: &[(String, String)]) {
 pub(super) fn memory_section(store: &MemoryStore) -> String {
     let mut body = String::new();
     for (scope, label) in [(MemoryScope::Project, "Project"), (MemoryScope::Global, "Global")] {
-        match store.notes(scope) {
-            Ok(notes) if notes.is_empty() => {}
-            Ok(notes) => body.push_str(&format!("{label} notes:\n{}", escape_xml(&render_notes(&notes)))),
+        match store.loaded_notes(scope) {
+            Ok(loaded) if loaded.notes.is_empty() => {}
+            Ok(loaded) => {
+                body.push_str(&format!("{label} notes:\n{}", escape_xml(&render_notes(&loaded.notes))));
+                if loaded.omitted > 0 {
+                    body.push_str(&format!(
+                        "[{} more {label} notes omitted: the file is over the memory limit]\n",
+                        loaded.omitted
+                    ));
+                }
+            }
             Err(error) => body.push_str(&format!("{label} notes could not be read: {error}\n")),
         }
     }

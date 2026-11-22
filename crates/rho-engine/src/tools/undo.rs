@@ -1,6 +1,6 @@
-//! Undo for the changes `edit` and `write` make: each tool records a file's contents before and
-//! after its change, and `undo` restores the earlier contents while the file still holds what the
-//! tool wrote.
+//! Undo for the changes `edit`, `write`, and the `lsp` rename, code action and format actions make:
+//! each tool records a file's contents before and after its change, and `undo` restores the earlier
+//! contents while the file still holds what the tool wrote.
 
 use crate::tools::atomic::atomic_write;
 use crate::tools::edit::preview::changed_regions;
@@ -21,6 +21,8 @@ struct Revision {
     /// `None` when the change created the file.
     before: Option<Vec<u8>>,
     after: Vec<u8>,
+    /// Directories the change created for a new file, innermost first.
+    created_dirs: Vec<PathBuf>,
     /// Insertion order across all files, so the globally oldest revision can be evicted.
     seq: u64,
 }
@@ -29,6 +31,13 @@ impl Revision {
     fn bytes(&self) -> usize {
         self.before.as_ref().map_or(0, Vec::len) + self.after.len()
     }
+}
+
+/// What the newest revision of a file undoes.
+struct Undoing {
+    before: Option<Vec<u8>>,
+    after: Vec<u8>,
+    created_dirs: Vec<PathBuf>,
 }
 
 /// The file's contents before a change: `Some(None)` when it does not exist yet, `None` when it
@@ -57,6 +66,12 @@ impl EditHistory {
     }
 
     pub fn record(&self, path: &Path, before: Option<Vec<u8>>, after: &[u8]) {
+        self.record_with_dirs(path, before, after, Vec::new());
+    }
+
+    /// Like [`Self::record`], for a change that created `created_dirs` (innermost first) to hold a
+    /// new file; undoing the creation removes the ones that are left empty.
+    pub fn record_with_dirs(&self, path: &Path, before: Option<Vec<u8>>, after: &[u8], created_dirs: Vec<PathBuf>) {
         let mut state = self.state();
         let seq = state.next_seq;
         state.next_seq += 1;
@@ -64,6 +79,7 @@ impl EditHistory {
         revisions.push(Revision {
             before,
             after: after.to_vec(),
+            created_dirs,
             seq,
         });
         if revisions.len() > MAX_REVISIONS_PER_FILE {
@@ -73,7 +89,7 @@ impl EditHistory {
     }
 
     /// The newest revision's contents when the file still holds what the tool wrote.
-    fn peek_if_current(&self, path: &Path, current: Option<&[u8]>) -> Result<(Option<Vec<u8>>, Vec<u8>), String> {
+    fn peek_if_current(&self, path: &Path, current: Option<&[u8]>) -> Result<Undoing, String> {
         let state = self.state();
         let last = state
             .files
@@ -81,7 +97,11 @@ impl EditHistory {
             .and_then(|revisions| revisions.last())
             .ok_or("no edit or write by this session's tools to undo for this file")?;
         match current {
-            Some(bytes) if bytes == last.after.as_slice() => Ok((last.before.clone(), last.after.clone())),
+            Some(bytes) if bytes == last.after.as_slice() => Ok(Undoing {
+                before: last.before.clone(),
+                after: last.after.clone(),
+                created_dirs: last.created_dirs.clone(),
+            }),
             None => Err("the file no longer exists (it was removed or renamed after the last edit or write); nothing was changed"
                 .into()),
             Some(_) => Err("the file changed after the last edit or write (by the user, bash, or a formatter); undo would discard that change, so read the file and edit it instead"
@@ -127,6 +147,19 @@ fn trim_to_budget(files: &mut HashMap<PathBuf, Vec<Revision>>) {
     }
 }
 
+/// Removes the directories `write` created, innermost first, stopping at the first one that is
+/// not empty or cannot be removed; returns how many went.
+async fn remove_empty_dirs(dirs: &[PathBuf]) -> usize {
+    let mut removed = 0;
+    for dir in dirs {
+        if tokio::fs::remove_dir(dir).await.is_err() {
+            break;
+        }
+        removed += 1;
+    }
+    removed
+}
+
 pub struct UndoTool {
     base_dir: PathBuf,
     history: EditHistory,
@@ -162,13 +195,22 @@ impl UndoTool {
     async fn restore(&self, clean_path: &str) -> Result<String, String> {
         let path = resolve_tool_path(&Workspace::new(&self.base_dir), clean_path, "undo").map_err(|e| e.content)?;
         let current = tokio::fs::read(&path).await.ok();
-        let (before, after) = self.history.peek_if_current(&path, current.as_deref())?;
+        let Undoing {
+            before,
+            after,
+            created_dirs,
+        } = self.history.peek_if_current(&path, current.as_deref())?;
         let Some(before) = before else {
             tokio::fs::remove_file(&path)
                 .await
                 .map_err(|error| format!("removing {clean_path}: {error}; nothing was changed"))?;
+            let removed = remove_empty_dirs(&created_dirs).await;
             return Ok(format!(
-                "Deleted {clean_path}, which write had created{}",
+                "Deleted {clean_path}, which write had created{}{}",
+                match removed {
+                    0 => String::new(),
+                    n => format!(" (and {})", crate::tools::listing::count_noun(n, "empty directory")),
+                },
                 self.more(&path)
             ));
         };

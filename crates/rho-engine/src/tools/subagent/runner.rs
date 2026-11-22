@@ -183,7 +183,7 @@ impl SubagentRunner {
     }
 
     #[cfg(test)]
-    pub(super) fn tool(&self, name: &str) -> Option<&Arc<dyn EngineTool>> {
+    pub(crate) fn tool(&self, name: &str) -> Option<&Arc<dyn EngineTool>> {
         self.tools.iter().find(|t| t.name() == name)
     }
 

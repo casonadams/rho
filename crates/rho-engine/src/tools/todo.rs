@@ -151,4 +151,38 @@ mod tests {
         );
         assert_eq!(call(&tool, json!({})).await.content, "0/0 done");
     }
+
+    #[tokio::test]
+    async fn each_agent_turn_binds_its_own_list_from_its_own_conversation() {
+        use rho_harness_core::model::{ChatMessage, ToolResult as Recorded, UserContent};
+        let shared = TodoTool::default();
+        let parent_history = vec![ChatMessage::User {
+            content: vec![UserContent::ToolResult(Recorded::new(
+                "call",
+                "todo",
+                "0/1 done\n[ ] parent task",
+            ))],
+        }];
+        let bind = |history: Vec<ChatMessage>| {
+            let ctx = TurnToolContext {
+                parent_history: history.into(),
+                ..TurnToolContext::default()
+            };
+            EngineTool::bind_turn(&shared, &ctx).unwrap()
+        };
+        let parent = bind(parent_history);
+        let subagent = bind(Vec::new());
+
+        let before = call(subagent.as_ref(), json!({})).await;
+        call(
+            subagent.as_ref(),
+            json!({ "todos": [{ "content": "sub task", "status": "pending" }] }),
+        )
+        .await;
+        let parent_after = call(parent.as_ref(), json!({})).await;
+
+        assert_eq!(before.content, "0/0 done");
+        assert_eq!(parent_after.content, "0/1 done\n[ ] parent task");
+        assert_eq!(call(&shared, json!({})).await.content, "0/0 done");
+    }
 }

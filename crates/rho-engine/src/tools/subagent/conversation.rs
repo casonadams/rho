@@ -276,6 +276,7 @@ impl Exchange {
             None => runner.clone(),
         }
         .with_task_id(&self.task.id);
+        let lsp_guard = runner.worktree_lsp_guard();
         let root = runner.workspace_root();
         let stale = stale_paths(&root, &self.versions).await;
         let others = self.other_changes(&root, &stale).await;
@@ -291,7 +292,6 @@ impl Exchange {
             RoundInput::Prompt(&noted)
         };
         let transcript = std::mem::take(&mut self.transcript);
-        let lsp_guard = runner.worktree_lsp_guard();
         let round = runner.run_round(transcript, round_input).await;
         lsp_guard.close().await;
         let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();

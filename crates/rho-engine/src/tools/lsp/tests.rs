@@ -1,18 +1,18 @@
 use super::*;
 use crate::lsp::test_server::{FakeOptions, fake_manager};
+use crate::test_support::TestDir;
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::write::{WriteArgs, WriteTool};
-use tempfile::TempDir;
 
 const LIB: &str = "struct Config {\n    fn load() {\n    }\n}\nfn helper() {\n    load();\n}\n";
 
-fn project() -> TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.path().join("src")).unwrap();
-    std::fs::write(dir.path().join("src/lib.rs"), LIB).unwrap();
-    std::fs::write(dir.path().join("src/other.rs"), "fn caller() {\n    helper();\n}\n").unwrap();
+fn project() -> TestDir {
+    let dir = TestDir::new();
+    std::fs::write(dir.join("Cargo.toml"), "").unwrap();
+    std::fs::create_dir(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/lib.rs"), LIB).unwrap();
+    std::fs::write(dir.join("src/other.rs"), "fn caller() {\n    helper();\n}\n").unwrap();
     dir
 }
 
@@ -44,8 +44,8 @@ async fn run(tool: &LspTool, args: LspArgs) -> ToolResult {
 #[tokio::test]
 async fn navigation_answers_at_a_line_and_symbol() {
     let dir = project();
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let (manager, launcher) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
 
     let definition = run(&tool, at(LspAction::Definition, "src/lib.rs", 6, "load")).await;
     assert_eq!(definition.content, "1 definition\n\nsrc/lib.rs\n2:fn load() {");
@@ -69,8 +69,8 @@ async fn navigation_answers_at_a_line_and_symbol() {
 #[tokio::test]
 async fn positions_outside_the_file_or_line_are_errors() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
 
     let past_end = run(&tool, at(LspAction::Definition, "src/lib.rs", 99, "load")).await;
     assert!(past_end.is_error);
@@ -90,9 +90,9 @@ async fn positions_outside_the_file_or_line_are_errors() {
 #[tokio::test]
 async fn files_without_a_server_explain_why() {
     let dir = project();
-    std::fs::write(dir.path().join("notes.md"), "# notes\n").unwrap();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    std::fs::write(dir.join("notes.md"), "# notes\n").unwrap();
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
     let result = run(&tool, at(LspAction::Definition, "notes.md", 1, "notes")).await;
     assert!(result.is_error);
     assert!(
@@ -105,8 +105,8 @@ async fn files_without_a_server_explain_why() {
 #[tokio::test]
 async fn symbols_outline_a_file_or_search_the_workspace() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
 
     let outline = run(&tool, args(LspAction::Symbols)).await;
     assert_eq!(
@@ -126,8 +126,8 @@ async fn symbols_outline_a_file_or_search_the_workspace() {
 #[tokio::test]
 async fn rename_rewrites_every_file_the_server_names() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
     run(&tool, at(LspAction::Hover, "src/other.rs", 2, "helper")).await;
 
     let rename = LspArgs {
@@ -140,7 +140,7 @@ async fn rename_rewrites_every_file_the_server_names() {
         result.content,
         "Renamed to assist in 2 files:\nsrc/lib.rs (1)\nsrc/other.rs (1)"
     );
-    let other = std::fs::read_to_string(dir.path().join("src/other.rs")).unwrap();
+    let other = std::fs::read_to_string(dir.join("src/other.rs")).unwrap();
     assert_eq!(other, "fn caller() {\n    assist();\n}\n");
     let definition = run(&tool, at(LspAction::Definition, "src/other.rs", 2, "assist")).await;
     assert!(definition.content.contains("5:fn assist() {"), "{}", definition.content);
@@ -160,9 +160,9 @@ async fn diagnostics_cover_push_unversioned_and_pull_servers() {
         },
     ] {
         let dir = project();
-        std::fs::write(dir.path().join("src/bad.rs"), "fn a() {}\nlet x = ERR;\n// WARN\n").unwrap();
-        let (manager, _) = fake_manager(dir.path(), options);
-        let tool = LspTool::new(dir.path(), manager);
+        std::fs::write(dir.join("src/bad.rs"), "fn a() {}\nlet x = ERR;\n// WARN\n").unwrap();
+        let (manager, _) = fake_manager(&dir, options);
+        let tool = LspTool::new(&dir, manager);
 
         let file = run(
             &tool,
@@ -182,9 +182,9 @@ async fn diagnostics_cover_push_unversioned_and_pull_servers() {
 #[tokio::test]
 async fn workspace_diagnostics_list_what_running_servers_reported() {
     let dir = project();
-    std::fs::write(dir.path().join("src/bad.rs"), "ERR\n").unwrap();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    std::fs::write(dir.join("src/bad.rs"), "ERR\n").unwrap();
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
     let none = run(
         &tool,
         LspArgs {
@@ -224,8 +224,8 @@ async fn silent_servers_report_that_diagnostics_are_not_ready() {
         silent: true,
         ..FakeOptions::default()
     };
-    let (manager, _) = fake_manager(dir.path(), options);
-    let report = crate::lsp::diagnostics_for(&manager, &dir.path().join("src/lib.rs"), LIB, Duration::from_millis(50))
+    let (manager, _) = fake_manager(&dir, options);
+    let report = crate::lsp::diagnostics_for(&manager, &dir.join("src/lib.rs"), LIB, Duration::from_millis(50))
         .await
         .unwrap();
     assert_eq!(
@@ -241,8 +241,8 @@ async fn busy_servers_say_so_instead_of_reporting_clean_or_empty_results() {
         indexing: true,
         ..FakeOptions::default()
     };
-    let (manager, _) = fake_manager(dir.path(), options);
-    let tool = LspTool::new(dir.path(), Arc::clone(&manager));
+    let (manager, _) = fake_manager(&dir, options);
+    let tool = LspTool::new(&dir, Arc::clone(&manager));
 
     let missing = run(&tool, at(LspAction::Definition, "src/lib.rs", 1, "struct")).await;
     assert_eq!(
@@ -252,7 +252,7 @@ async fn busy_servers_say_so_instead_of_reporting_clean_or_empty_results() {
     let found = run(&tool, at(LspAction::Definition, "src/lib.rs", 6, "load")).await;
     assert!(!found.content.contains("busy"), "{}", found.content);
 
-    let report = crate::lsp::diagnostics_for(&manager, &dir.path().join("src/lib.rs"), LIB, Duration::from_secs(3))
+    let report = crate::lsp::diagnostics_for(&manager, &dir.join("src/lib.rs"), LIB, Duration::from_secs(3))
         .await
         .unwrap();
     assert_eq!(
@@ -268,8 +268,8 @@ async fn a_server_that_fails_to_start_is_reported_once_and_not_relaunched() {
         fail: true,
         ..FakeOptions::default()
     };
-    let (manager, launcher) = fake_manager(dir.path(), options);
-    let path = dir.path().join("src/lib.rs");
+    let (manager, launcher) = fake_manager(&dir, options);
+    let path = dir.join("src/lib.rs");
     let first = crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(1)).await;
     assert_eq!(
         first.as_deref(),
@@ -279,7 +279,7 @@ async fn a_server_that_fails_to_start_is_reported_once_and_not_relaunched() {
     assert_eq!(second, None);
     assert_eq!(launcher.launches.load(std::sync::atomic::Ordering::SeqCst), 1);
 
-    let tool = LspTool::new(dir.path(), manager);
+    let tool = LspTool::new(&dir, manager);
     let status = run(&tool, args(LspAction::Status)).await;
     assert!(
         status.content.contains("): failed: fake: command not found"),
@@ -297,8 +297,8 @@ async fn a_server_that_exits_is_reported_and_restarted_on_next_use() {
         exit_on_change: true,
         ..FakeOptions::default()
     };
-    let (manager, launcher) = fake_manager(dir.path(), options);
-    let path = dir.path().join("src/lib.rs");
+    let (manager, launcher) = fake_manager(&dir, options);
+    let path = dir.join("src/lib.rs");
     let first = crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(3)).await;
     assert_eq!(first.as_deref(), Some("LSP: no errors or warnings"));
 
@@ -318,8 +318,8 @@ async fn a_failed_start_is_retried_after_a_minute() {
         fail: true,
         ..FakeOptions::default()
     };
-    let (manager, launcher) = fake_manager(dir.path(), options);
-    let path = dir.path().join("src/lib.rs");
+    let (manager, launcher) = fake_manager(&dir, options);
+    let path = dir.join("src/lib.rs");
     assert!(
         crate::lsp::diagnostics_for(&manager, &path, LIB, Duration::from_secs(1))
             .await
@@ -337,11 +337,11 @@ async fn a_failed_start_is_retried_after_a_minute() {
 #[tokio::test]
 async fn files_outside_the_workspace_use_the_running_server_and_rename_stays_inside() {
     let dir = project();
-    let outside = tempfile::tempdir().unwrap();
-    std::fs::write(outside.path().join("dep.rs"), "fn helper() {}\n").unwrap();
-    let dep = outside.path().join("dep.rs");
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let outside = TestDir::new();
+    std::fs::write(outside.join("dep.rs"), "fn helper() {}\n").unwrap();
+    let dep = outside.join("dep.rs");
+    let (manager, launcher) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
 
     let cold = run(&tool, at(LspAction::Hover, dep.to_str().unwrap(), 1, "helper")).await;
     assert!(
@@ -366,36 +366,32 @@ async fn files_outside_the_workspace_use_the_running_server_and_rename_stays_ins
         "{}",
         refused.content
     );
-    assert_eq!(std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap(), LIB);
+    assert_eq!(std::fs::read_to_string(dir.join("src/lib.rs")).unwrap(), LIB);
 }
 
 #[tokio::test]
 async fn rename_uses_disk_contents_even_when_files_changed_after_opening() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
     run(&tool, at(LspAction::Hover, "src/other.rs", 2, "helper")).await;
-    std::fs::write(
-        dir.path().join("src/other.rs"),
-        "// moved\nfn caller() {\n    helper();\n}\n",
-    )
-    .unwrap();
+    std::fs::write(dir.join("src/other.rs"), "// moved\nfn caller() {\n    helper();\n}\n").unwrap();
 
     let rename = LspArgs {
         new_name: Some("assist".into()),
         ..at(LspAction::Rename, "src/lib.rs", 5, "helper")
     };
     run(&tool, rename).await;
-    let other = std::fs::read_to_string(dir.path().join("src/other.rs")).unwrap();
+    let other = std::fs::read_to_string(dir.join("src/other.rs")).unwrap();
     assert_eq!(other, "// moved\nfn caller() {\n    assist();\n}\n");
 }
 
 #[tokio::test]
 async fn files_outside_the_workspace_get_no_diagnostics_report() {
     let dir = project();
-    let outside = tempfile::tempdir().unwrap();
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
-    let path = outside.path().join("x.rs");
+    let outside = TestDir::new();
+    let (manager, launcher) = fake_manager(&dir, FakeOptions::default());
+    let path = outside.join("x.rs");
     assert_eq!(
         crate::lsp::diagnostics_for(&manager, &path, "ERR", Duration::from_secs(1)).await,
         None
@@ -406,8 +402,8 @@ async fn files_outside_the_workspace_get_no_diagnostics_report() {
 #[tokio::test]
 async fn status_lists_started_and_installed_servers() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let tool = LspTool::new(dir.path(), manager);
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, manager);
     let before = run(&tool, args(LspAction::Status)).await;
     assert!(before.content.starts_with("No language server started yet"));
     assert!(before.content.contains("Installed: fake (.rs)"));
@@ -421,13 +417,13 @@ async fn status_lists_started_and_installed_servers() {
 #[tokio::test]
 async fn edits_and_writes_report_the_new_contents_diagnostics() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
     let edit: EditArgs = serde_json::from_value(serde_json::json!({
         "path": "src/lib.rs",
         "edits": [{ "oldText": "    load();", "newText": "    load(ERR);" }]
     }))
     .unwrap();
-    let edited = EditTool::new(dir.path())
+    let edited = EditTool::new(&dir)
         .with_lsp(Some(Arc::clone(&manager)))
         .execute(edit)
         .await
@@ -440,7 +436,7 @@ async fn edits_and_writes_report_the_new_contents_diagnostics() {
         edited.content
     );
 
-    let written = WriteTool::new(dir.path())
+    let written = WriteTool::new(&dir)
         .with_lsp(Some(Arc::clone(&manager)))
         .execute(WriteArgs {
             path: "src/lib.rs".into(),
@@ -454,7 +450,7 @@ async fn edits_and_writes_report_the_new_contents_diagnostics() {
         written.content
     );
 
-    let plain = WriteTool::new(dir.path())
+    let plain = WriteTool::new(&dir)
         .with_lsp(Some(manager))
         .execute(WriteArgs {
             path: "notes.md".into(),
@@ -477,8 +473,8 @@ fn read_symbol(symbol: &str) -> ReadArgs {
 #[tokio::test]
 async fn read_returns_just_the_named_symbol() {
     let dir = project();
-    let (manager, _) = fake_manager(dir.path(), FakeOptions::default());
-    let read = ReadTool::new(dir.path()).with_lsp(Some(manager));
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let read = ReadTool::new(&dir).with_lsp(Some(manager));
 
     let method = read.execute(read_symbol("Config.load")).await.unwrap();
     assert!(
@@ -496,6 +492,6 @@ async fn read_returns_just_the_named_symbol() {
     assert!(missing.is_error);
     assert!(missing.content.starts_with("No symbol 'absent' in"));
 
-    let without = ReadTool::new(dir.path()).execute(read_symbol("load")).await.unwrap();
+    let without = ReadTool::new(&dir).execute(read_symbol("load")).await.unwrap();
     assert!(without.content.contains("needs a language server"));
 }

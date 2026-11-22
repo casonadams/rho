@@ -48,6 +48,27 @@ fn describe(index: usize, action: &Value) -> String {
     row
 }
 
+/// The numbered rows of at most [`MAX_LISTED`] actions, and a note on how to apply one.
+fn list(actions: &[Value]) -> String {
+    let rows: Vec<String> = actions
+        .iter()
+        .take(MAX_LISTED)
+        .enumerate()
+        .map(|(index, action)| describe(index + 1, action))
+        .collect();
+    let hidden = actions.len().saturating_sub(MAX_LISTED);
+    let more = if hidden > 0 {
+        format!("\n[{hidden} more not shown]")
+    } else {
+        String::new()
+    };
+    format!(
+        "{}:\n{}{more}\n[apply one with apply=true and query set to its number or part of its title]",
+        crate::tools::listing::count_noun(actions.len(), "code action"),
+        rows.join("\n")
+    )
+}
+
 /// The action `query` names: a 1-based number, or a part of exactly one title.
 fn pick<'a>(actions: &'a [Value], query: &str) -> Result<&'a Value, String> {
     if let Ok(number) = query.trim().parse::<usize>() {
@@ -119,17 +140,7 @@ impl LspTool {
             return Ok(file.answer("No code actions available there".into(), true));
         }
         if args.apply != Some(true) {
-            let rows: Vec<String> = actions
-                .iter()
-                .take(MAX_LISTED)
-                .enumerate()
-                .map(|(index, action)| describe(index + 1, action))
-                .collect();
-            return Ok(format!(
-                "{}:\n{}\n[apply one with apply=true and query set to its number or part of its title]",
-                crate::tools::listing::count_noun(actions.len(), "code action"),
-                rows.join("\n")
-            ));
+            return Ok(list(&actions));
         }
         let query = args
             .query
@@ -155,16 +166,14 @@ impl LspTool {
                 None => format!("'{}' carries no edit; nothing was changed", title(&action)),
             });
         };
-        let applied = self.apply_workspace_edit(edit, &file.client, "code action").await?;
+        let applied = self.apply_workspace_edit(edit, file, "code action").await?;
         let mut out = format!(
-            "Applied '{}' in {}:\n{}",
+            "Applied '{}' in {}:\n{}{}",
             title(&action),
             crate::tools::listing::count_noun(applied.files.len(), "file"),
-            applied.files.join("\n")
+            applied.files.join("\n"),
+            applied.notes_text()
         );
-        for note in applied.notes {
-            out.push_str(&format!("\n[{note}]"));
-        }
         if command_of(&action).is_some() {
             out.push_str("\n[the action also asked the server to run a command, which rho does not execute]");
         }
@@ -176,7 +185,7 @@ impl LspTool {
         if !file.client.supports("documentFormattingProvider") {
             return Err(format!("{} does not support formatting", file.client.name));
         }
-        let real = std::fs::canonicalize(&file.path).unwrap_or_else(|_| file.path.clone());
+        let real = rho_harness_core::workspace::canonicalize_path(&file.path);
         let indent = indent_for(self.manager.workspace(), &real);
         let options = json!({ "tabSize": indent.tab_size, "insertSpaces": indent.insert_spaces });
         let params = json!({ "textDocument": file.text_document(), "options": options });
@@ -187,15 +196,12 @@ impl LspTool {
         }
         let uri = crate::lsp::client::file_uri(&file.path);
         let edit = json!({ "changes": { uri: response } });
-        let applied = self.apply_workspace_edit(&edit, &file.client, "format").await?;
+        let applied = self.apply_workspace_edit(&edit, &file, "format").await?;
         let regions = applied.regions.concat();
         if regions.is_empty() {
             return Ok(format!("{shown} is already formatted"));
         }
-        let mut out = format!("Formatted {shown}\n{regions}");
-        for note in applied.notes {
-            out.push_str(&format!("\n[{note}]"));
-        }
+        let out = format!("Formatted {shown}\n{regions}{}", applied.notes_text());
         Ok(out)
     }
 }

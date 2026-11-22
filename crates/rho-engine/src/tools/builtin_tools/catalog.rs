@@ -11,12 +11,12 @@ use crate::tools::write::WriteArgs;
 use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, UndoArgs, WorktreeArgs};
 
 pub static PROMPT_UNDO: &str = "\
-Revert the last edit or write this session's tools made to a file.
+Revert the last edit, write, or lsp change (rename, code action, format) this session's tools made to a file.
 
 Usage:
-- Each call restores the file to its contents before the most recent edit or write; call again to step further back (up to 20 changes per file). A file that write created is deleted.
-- It refuses when the file changed after that edit or write (by the user, bash, or a formatter), so it never discards changes it did not make; then read the file and edit it instead.
-- The result lists the restored regions numbered like read. Use it to back out a wrong change instead of re-editing by hand; it does not undo bash commands or lsp renames.";
+- Each call restores the file to its contents before the most recent change; call again to step further back (up to 20 changes per file). A file that write created is deleted, with any empty directories write created for it.
+- It refuses when the file changed after that change (by the user, bash, or a formatter), so it never discards changes it did not make; then read the file and edit it instead.
+- The result lists the restored regions numbered like read. Use it to back out a wrong change instead of re-editing by hand; it also undoes lsp rename, code_actions and format, file by file, but it does not undo bash commands.";
 
 pub static PROMPT_MEMORY: &str = "\
 Keep short notes that persist across sessions; saved notes are loaded into your context at the start of every later session.
@@ -232,7 +232,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         name: "undo",
         capability: BuiltinToolKind::WorkspaceMutation,
         prompt: PROMPT_UNDO,
-        prompt_snippet: "Revert the last edit or write to a file, while the file still holds what that tool wrote",
+        prompt_snippet: "Revert the last edit, write, or lsp change to a file, while the file still holds what that tool wrote",
         schema: generated_schema::<UndoArgs>,
     },
     BuiltinToolDeclaration {

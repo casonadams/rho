@@ -1,4 +1,57 @@
 use super::*;
+use crate::provider::adapter::MockAdapter;
+use crate::test_support::TestDir;
+use crate::tools::subagent::RunnerSpec;
+use serde_json::json;
+
+async fn run(tool: &Arc<dyn EngineTool>, args: serde_json::Value) -> crate::tools::ToolResult {
+    tool.execute(args).await.unwrap()
+}
+
+fn named<'a>(tools: &'a [Arc<dyn EngineTool>], name: &str) -> &'a Arc<dyn EngineTool> {
+    tools.iter().find(|tool| tool.name() == name).unwrap()
+}
+
+#[tokio::test]
+async fn a_subagent_cannot_undo_the_parents_edits_and_the_parent_cannot_undo_the_subagents() {
+    let dir = TestDir::new();
+    let model: crate::engine::compactor::llm::ModelHandle = Arc::new(MockAdapter::text("x"));
+    let (tools, subagent) = build_builtin_toolset(
+        &dir,
+        &Config::default(),
+        Some(model),
+        None,
+        ToolsetServices::default(),
+        &SubagentRuntime::default(),
+    )
+    .unwrap();
+    let spec = RunnerSpec {
+        agent: Some("general"),
+        local_agents: &[],
+        turns: None,
+        model: None,
+        position: None,
+        task_name: None,
+        persona: None,
+    };
+    let runner = subagent.runner_for(spec).await.unwrap();
+    let child = |name: &str| runner.tool(name).unwrap().clone();
+    run(named(&tools, "write"), json!({ "path": "parent.txt", "content": "p" })).await;
+    run(&child("write"), json!({ "path": "child.txt", "content": "c" })).await;
+
+    let parent_undoes_child = run(named(&tools, "undo"), json!({ "path": "child.txt" })).await;
+    let child_undoes_parent = run(&child("undo"), json!({ "path": "parent.txt" })).await;
+    assert!(parent_undoes_child.is_error, "{}", parent_undoes_child.content);
+    assert!(child_undoes_parent.is_error, "{}", child_undoes_parent.content);
+    assert!(dir.join("child.txt").exists() && dir.join("parent.txt").exists());
+
+    assert!(!run(&child("undo"), json!({ "path": "child.txt" })).await.is_error);
+    assert!(
+        !run(named(&tools, "undo"), json!({ "path": "parent.txt" }))
+            .await
+            .is_error
+    );
+}
 
 fn names_without_memory(tools: &[Arc<dyn EngineTool>]) -> Vec<&str> {
     tools

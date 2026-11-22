@@ -52,7 +52,7 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
 - **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`. The result lists each changed region, numbered like `read`.
-- **`undo`**: Revert the last `edit`, `write`, or `lsp` rename to a file (up to 20 steps per
+- **`undo`**: Revert the last `edit`, `write`, or `lsp` rename, code action, or format to a file (up to 20 steps per
   file; a file `write` created is deleted). It refuses when the file changed
   after that tool wrote it, so it never discards changes it did not make.
 - **`lsp`**: Ask the file's [language server](docs/configuration.md#language-servers)

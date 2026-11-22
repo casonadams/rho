@@ -110,6 +110,7 @@ pub fn build_builtin_toolset(
     runtime: &SubagentRuntime,
 ) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
     let has_lsp = services.lsp.is_some();
+    let shared_lsp = services.lsp.clone();
     let mut tools = build_workspace_native_tools(base_dir, services.lsp);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
@@ -167,6 +168,10 @@ pub fn build_builtin_toolset(
     if has_lsp {
         subagent = subagent.with_worktree_lsp(Arc::new(LspManager::for_workspace));
     }
+    let (root, session_lsp) = (base_dir.to_path_buf(), shared_lsp);
+    subagent = subagent.with_fresh_session_state(Arc::new(move |tools| {
+        fresh_session_state(tools, &root, session_lsp.clone())
+    }));
     if let Some(store) = services.worktrees {
         subagent = subagent.with_worktrees(store.clone());
         tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
@@ -193,8 +198,19 @@ pub(crate) fn rerooted(
     root: &Path,
     lsp: Option<&WorktreeLsp>,
 ) -> Vec<Arc<dyn EngineTool>> {
-    let native = build_workspace_native_tools(root, lsp.map(|open| open(root)));
-    let rooted = tools
+    fresh_session_state(tools, root, lsp.map(|open| open(root)))
+}
+
+/// `tools` with the ones that share an edit history (write, edit, undo and lsp) replaced by new
+/// ones, so a subagent cannot undo its parent's edits. The workspace-native tools are rooted at
+/// `root`; the `lsp` tool uses `lsp`, and is dropped without it.
+pub(crate) fn fresh_session_state(
+    tools: &[Arc<dyn EngineTool>],
+    root: &Path,
+    lsp: Option<Arc<LspManager>>,
+) -> Vec<Arc<dyn EngineTool>> {
+    let native = build_workspace_native_tools(root, lsp);
+    let fresh = tools
         .iter()
         .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {
             Some(native) => Some(native.clone()),
@@ -202,5 +218,5 @@ pub(crate) fn rerooted(
             None => Some(tool.clone()),
         })
         .collect();
-    crate::tools::subagent::lsp::restrict_lsp(rooted)
+    crate::tools::subagent::lsp::restrict_lsp(fresh)
 }

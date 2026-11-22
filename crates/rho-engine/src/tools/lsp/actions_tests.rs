@@ -1,14 +1,14 @@
 use super::*;
 use crate::lsp::test_server::{FakeLauncher, FakeOptions, fake_manager};
+use crate::test_support::TestDir;
 use crate::tools::undo::UndoTool;
 use rho_harness_core::args::UndoArgs;
-use tempfile::TempDir;
 
-fn project(source: &str) -> TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.path().join("src")).unwrap();
-    std::fs::write(dir.path().join("src/lib.rs"), source).unwrap();
+fn project(source: &str) -> TestDir {
+    let dir = TestDir::new();
+    std::fs::write(dir.join("Cargo.toml"), "").unwrap();
+    std::fs::create_dir(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/lib.rs"), source).unwrap();
     dir
 }
 
@@ -28,8 +28,8 @@ fn apply(line: usize, query: &str) -> LspArgs {
     request(LspAction::CodeActions, Some(line), Some(query), true)
 }
 
-fn lib(dir: &TempDir) -> String {
-    std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap()
+fn lib(dir: &TestDir) -> String {
+    std::fs::read_to_string(dir.join("src/lib.rs")).unwrap()
 }
 
 fn sent(launcher: &FakeLauncher, method: &str) -> Vec<Value> {
@@ -41,10 +41,10 @@ fn sent(launcher: &FakeLauncher, method: &str) -> Vec<Value> {
         .collect()
 }
 
-async fn tool_with_history(dir: &TempDir, options: FakeOptions) -> (LspTool, EditHistory, Arc<FakeLauncher>) {
-    let (manager, launcher) = fake_manager(dir.path(), options);
+async fn tool_with_history(dir: &TestDir, options: FakeOptions) -> (LspTool, EditHistory, Arc<FakeLauncher>) {
+    let (manager, launcher) = fake_manager(dir, options);
     let history = EditHistory::default();
-    let tool = LspTool::new(dir.path(), manager).with_history(Some(history.clone()));
+    let tool = LspTool::new(dir, manager).with_history(Some(history.clone()));
     (tool, history, launcher)
 }
 
@@ -108,7 +108,7 @@ async fn applying_by_number_or_title_edits_the_file_records_history_and_undo_rev
             .any(|m| m == "textDocument/didSave")
     );
 
-    let undo = UndoTool::new(dir.path(), history);
+    let undo = UndoTool::new(&dir, history);
     for expected in ["let a = ;\nlet b = WARN;\n", source] {
         let undone = undo
             .run(UndoArgs {
@@ -143,7 +143,7 @@ async fn actions_that_cannot_be_applied_say_why_and_change_nothing() {
         "{}",
         protected.content
     );
-    assert!(!dir.path().join("src/.env.rs").exists());
+    assert!(!dir.join("src/.env.rs").exists());
 
     let unnamed = tool
         .run(request(LspAction::CodeActions, Some(1), None, true))
@@ -171,7 +171,7 @@ async fn actions_that_cannot_be_applied_say_why_and_change_nothing() {
 async fn format_applies_the_servers_edits_with_the_editorconfig_indent_and_reports_the_regions() {
     let dir = project("fn a() {}  \nfn b() {}\nfn c() {} \n");
     std::fs::write(
-        dir.path().join(".editorconfig"),
+        dir.join(".editorconfig"),
         "root = true\n[*.rs]\nindent_style = tab\nindent_size = 2\n",
     )
     .unwrap();
@@ -193,7 +193,7 @@ async fn format_applies_the_servers_edits_with_the_editorconfig_indent_and_repor
     let again = tool.run(request(LspAction::Format, None, None, false)).await.unwrap();
     assert_eq!(again.content, "src/lib.rs is already formatted");
 
-    let undone = UndoTool::new(dir.path(), history)
+    let undone = UndoTool::new(&dir, history)
         .run(UndoArgs {
             path: "src/lib.rs".into(),
         })
@@ -253,6 +253,42 @@ async fn servers_that_report_status_never_get_the_indexing_hint() {
     assert!(!answer.content.contains("indexing"), "{}", answer.content);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_listing_beyond_the_cap_says_how_many_actions_are_not_shown() {
+    let dir = project(&"let a = ERR;\n".repeat(45));
+    let (tool, _, _) = tool_with_history(&dir, FakeOptions::default()).await;
+
+    let listed = tool
+        .run(request(LspAction::CodeActions, None, None, false))
+        .await
+        .unwrap();
+
+    assert!(listed.content.starts_with("45 code actions:\n"), "{}", listed.content);
+    assert!(
+        listed.content.contains("\n40. [quickfix] Remove ERR"),
+        "{}",
+        listed.content
+    );
+    assert!(!listed.content.contains("\n41. "), "{}", listed.content);
+    assert!(listed.content.contains("\n[5 more not shown]\n"), "{}", listed.content);
+}
+
+#[tokio::test(start_paused = true)]
+async fn code_actions_and_format_announce_the_files_they_change() {
+    let dir = project("let a = ERR; \n");
+    let (manager, _) = fake_manager(&dir, FakeOptions::default());
+    let tool = LspTool::new(&dir, Arc::clone(&manager)).with_history(Some(EditHistory::default()));
+    let lib_path = dir.join("src/lib.rs");
+
+    let applied = tool.run(apply(1, "Remove ERR")).await.unwrap();
+    assert!(!applied.is_error, "{}", applied.content);
+    assert_eq!(manager.change_count(&lib_path), 1, "code action");
+
+    let formatted = tool.run(request(LspAction::Format, None, None, false)).await.unwrap();
+    assert!(formatted.content.starts_with("Formatted"), "{}", formatted.content);
+    assert_eq!(manager.change_count(&lib_path), 2, "format");
+}
+
 fn change_types(launcher: &FakeLauncher) -> Vec<u64> {
     sent(launcher, "workspace/didChangeWatchedFiles")
         .iter()
@@ -266,12 +302,12 @@ async fn edit_write_undo_and_rename_each_announce_the_files_they_change() {
     use crate::tools::edit::{EditArgs, EditReplacement, EditTool};
     use crate::tools::write::{WriteArgs, WriteTool};
     let dir = project("fn helper() {}\n");
-    let (manager, launcher) = fake_manager(dir.path(), FakeOptions::default());
+    let (manager, launcher) = fake_manager(&dir, FakeOptions::default());
     let history = EditHistory::default();
-    manager.client_for(&dir.path().join("src/lib.rs")).await.unwrap();
+    manager.client_for(&dir.join("src/lib.rs")).await.unwrap();
     let lsp = Some(Arc::clone(&manager));
 
-    let edit = EditTool::new(dir.path())
+    let edit = EditTool::new(&dir)
         .with_lsp(lsp.clone())
         .with_history(Some(history.clone()));
     let replacement = EditReplacement {
@@ -285,7 +321,7 @@ async fn edit_write_undo_and_rename_each_announce_the_files_they_change() {
     })
     .await
     .unwrap();
-    let write = WriteTool::new(dir.path())
+    let write = WriteTool::new(&dir)
         .with_lsp(lsp.clone())
         .with_history(Some(history.clone()));
     let created = WriteArgs {
@@ -293,21 +329,21 @@ async fn edit_write_undo_and_rename_each_announce_the_files_they_change() {
         content: "fn n() {}\n".into(),
     };
     write.execute(created).await.unwrap();
-    let rename = LspTool::new(dir.path(), Arc::clone(&manager)).with_history(Some(history.clone()));
+    let rename = LspTool::new(&dir, Arc::clone(&manager)).with_history(Some(history.clone()));
     let renamed = LspArgs {
         symbol: Some("assist".into()),
         new_name: Some("help".into()),
         ..request(LspAction::Rename, Some(1), None, false)
     };
     assert!(!rename.run(renamed).await.unwrap().is_error);
-    let undo = UndoTool::new(dir.path(), history).with_lsp(lsp);
+    let undo = UndoTool::new(&dir, history).with_lsp(lsp);
     undo.run(UndoArgs {
         path: "src/new.rs".into(),
     })
     .await
     .unwrap();
     manager
-        .client_for(&dir.path().join("src/lib.rs"))
+        .client_for(&dir.join("src/lib.rs"))
         .await
         .unwrap()
         .request("workspace/symbol", json!({ "query": "" }))
@@ -330,13 +366,13 @@ async fn a_tool_bound_to_a_turn_delivers_late_diagnostics_to_the_turns_mailbox()
         publish_delay_ms: 5000,
         ..FakeOptions::default()
     };
-    let (manager, _) = fake_manager(dir.path(), options);
+    let (manager, _) = fake_manager(&dir, options);
     let inbox = crate::mailbox::Mailboxes::default().open("turn-agent", None);
     let context = TurnToolContext {
         inbox: Some(inbox.clone()),
         ..TurnToolContext::default()
     };
-    let unbound = EditTool::new(dir.path()).with_lsp(Some(manager));
+    let unbound = EditTool::new(&dir).with_lsp(Some(manager));
     let bound = unbound
         .bind_turn(&context)
         .expect("a tool with a language server binds to the turn's mailbox");

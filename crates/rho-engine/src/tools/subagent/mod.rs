@@ -9,6 +9,8 @@ mod observed;
 mod presenter;
 mod recovery;
 pub mod round;
+#[cfg(test)]
+mod round_tests;
 pub mod runner;
 mod snapshot;
 mod tasks;
@@ -45,6 +47,7 @@ pub struct SubagentTool {
     busy: conversation::BusyContexts,
     worktrees: Option<crate::worktree::WorktreeStore>,
     worktree_lsp: Option<lsp::WorktreeLsp>,
+    fresh_session_state: Option<FreshSessionState>,
     background: background::Backgrounding,
     /// Recent conversation a subagent keeps word for word when it compacts.
     keep_recent_tokens: usize,
@@ -77,9 +80,19 @@ pub(crate) struct RunnerSpec<'a> {
     pub persona: Option<&'a str>,
 }
 
+/// Replaces the tools that share an edit history with new ones for one subagent.
+pub type FreshSessionState = Arc<dyn Fn(&[Arc<dyn EngineTool>]) -> Vec<Arc<dyn EngineTool>> + Send + Sync>;
+
 enum Target<'a> {
     Agent(&'a AgentMetadata),
     Role(SubagentRole),
+}
+
+fn target_tools(tools: &[Arc<dyn EngineTool>], target: &Target<'_>) -> Vec<Arc<dyn EngineTool>> {
+    match target {
+        Target::Agent(agent) => filter_tools_for_agent(tools, agent),
+        Target::Role(role) => runner::filter_tools_for_role(tools, *role),
+    }
 }
 
 impl SubagentTool {
@@ -96,6 +109,7 @@ impl SubagentTool {
             busy: conversation::BusyContexts::default(),
             worktrees: None,
             worktree_lsp: None,
+            fresh_session_state: None,
             background: background::Backgrounding::default(),
             keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
             description: String::new(),
@@ -175,6 +189,14 @@ impl SubagentTool {
     #[must_use]
     pub fn with_worktree_lsp(mut self, open: lsp::WorktreeLsp) -> Self {
         self.worktree_lsp = Some(open);
+        self
+    }
+
+    /// Gives every subagent its own copy of the tools that share an edit history, made by `fresh`,
+    /// instead of the parent's.
+    #[must_use]
+    pub fn with_fresh_session_state(mut self, fresh: FreshSessionState) -> Self {
+        self.fresh_session_state = Some(fresh);
         self
     }
 
@@ -301,13 +323,6 @@ impl SubagentTool {
             .map_err(|_| self.unknown_target(name))
     }
 
-    fn tools_for(&self, target: &Target<'_>) -> Vec<Arc<dyn EngineTool>> {
-        match target {
-            Target::Agent(agent) => filter_tools_for_agent(&self.tools, agent),
-            Target::Role(role) => runner::filter_tools_for_role(&self.tools, *role),
-        }
-    }
-
     /// Resolves a model role: an explicit role must be configured; no role means `smol`, else the session model.
     async fn model_for(
         &self,
@@ -359,12 +374,16 @@ impl SubagentTool {
                 _ => e,
             })?;
         let turns = resolve_turns(spec.turns);
+        let tools = match &self.fresh_session_state {
+            Some(fresh) => fresh(&self.tools),
+            None => self.tools.clone(),
+        };
         let runner = match &target {
             Target::Agent(agent) => {
-                SubagentRunner::new_custom(model, agent.system_prompt.clone(), self.tools_for(&target), turns)
+                SubagentRunner::new_custom(model, agent.system_prompt.clone(), target_tools(&tools, &target), turns)
                     .with_label(&agent.name)
             }
-            Target::Role(role) => SubagentRunner::new(model, *role, &self.tools, turns),
+            Target::Role(role) => SubagentRunner::new(model, *role, &tools, turns),
         };
         let runner = runner
             .with_context(self.ctx.clone())
@@ -500,7 +519,7 @@ impl EngineTool for SubagentTool {
         let Ok(target) = self.resolve_target(parsed.agent.as_deref().or(parsed.role.as_deref()), &[]) else {
             return false;
         };
-        let tools = self.tools_for(&target);
+        let tools = target_tools(&self.tools, &target);
         !tools.is_empty() && tools.iter().all(|t| runner::READ_ONLY_TOOLS.contains(&t.name()))
     }
 }

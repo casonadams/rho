@@ -71,6 +71,13 @@ impl OpenFile {
     }
 }
 
+/// The file's text, or the error to show the model.
+pub(super) async fn read_text(path: &Path) -> Result<String, String> {
+    tokio::fs::read_to_string(path)
+        .await
+        .map_err(|error| format!("reading {}: {error}", path.display()))
+}
+
 fn location_method(action: LspAction) -> Option<(&'static str, &'static str, &'static str)> {
     match action {
         LspAction::Definition => Some(("textDocument/definition", "definitionProvider", "definition")),
@@ -110,9 +117,7 @@ impl LspTool {
 
     async fn open(&self, path: Option<&str>) -> Result<OpenFile, String> {
         let path = self.resolve(path)?;
-        let text = tokio::fs::read_to_string(&path)
-            .await
-            .map_err(|error| format!("reading {}: {error}", path.display()))?;
+        let text = read_text(&path).await?;
         let client = self.manager.client_for(&path).await?;
         client.sync_open_documents_from_disk().await?;
         let language = self.language_id(&client, &path);
@@ -187,24 +192,32 @@ impl LspTool {
 
     async fn symbols(&self, args: &LspArgs) -> Result<String, String> {
         if args.path.is_some() {
-            let file = self.open(args.path.as_deref()).await?;
-            let response = file
-                .client
-                .request(
-                    "textDocument/documentSymbol",
-                    json!({ "textDocument": file.text_document() }),
-                )
-                .await?;
-            let entries = render::document_symbols(&response);
-            let text = match args.query.as_deref() {
-                Some(query) => {
-                    let matched: Vec<_> = render::matching_symbols(&entries, query).into_iter().cloned().collect();
-                    render::format_outline(&matched)
-                }
-                None => render::format_outline(&entries),
-            };
-            return Ok(file.answer(text, entries.is_empty()));
+            return self.file_symbols(args).await;
         }
+        self.workspace_symbols(args).await
+    }
+
+    async fn file_symbols(&self, args: &LspArgs) -> Result<String, String> {
+        let file = self.open(args.path.as_deref()).await?;
+        let response = file
+            .client
+            .request(
+                "textDocument/documentSymbol",
+                json!({ "textDocument": file.text_document() }),
+            )
+            .await?;
+        let entries = render::document_symbols(&response);
+        let text = match args.query.as_deref() {
+            Some(query) => {
+                let matched: Vec<_> = render::matching_symbols(&entries, query).into_iter().cloned().collect();
+                render::format_outline(&matched)
+            }
+            None => render::format_outline(&entries),
+        };
+        Ok(file.answer(text, entries.is_empty()))
+    }
+
+    async fn workspace_symbols(&self, args: &LspArgs) -> Result<String, String> {
         let query = args
             .query
             .as_deref()
@@ -237,9 +250,7 @@ impl LspTool {
     async fn diagnostics(&self, path: Option<&str>) -> Result<String, String> {
         if path.is_some() {
             let path = self.resolve(path)?;
-            let text = tokio::fs::read_to_string(&path)
-                .await
-                .map_err(|error| format!("reading {}: {error}", path.display()))?;
+            let text = read_text(&path).await?;
             return crate::lsp::diagnostics_for(&self.manager, &path, &text, DIAGNOSTICS_WAIT)
                 .await
                 .ok_or_else(|| self.manager.unavailable_reason(&path));
