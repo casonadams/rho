@@ -197,3 +197,20 @@ fn gemini_4_argon_thinking_config_and_envelope() {
     assert!(gen_cfg["thinkingConfig"].get("thinkingBudget").is_none());
     assert!(gen_cfg.get("temperature").is_none());
 }
+
+#[test]
+fn gemini_3_omits_temperature() {
+    let mut request = sample_user_request();
+    request.temperature = Some(0.0);
+    let body = build_request_body(
+        RequestTarget {
+            project: "p",
+            runtime_model: "gemini-3.8-flash-medium",
+            effort: Effort::Medium,
+        },
+        &request,
+        &envelope(),
+    )
+    .unwrap();
+    assert!(body["request"]["generationConfig"].get("temperature").is_none());
+}
