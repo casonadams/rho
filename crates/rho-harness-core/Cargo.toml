@@ -26,6 +26,9 @@ tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"]
 uuid = { workspace = true, features = ["v4"] }
 tiktoken-rs.workspace = true
 
+[features]
+skip-fsync = []
+
 [dev-dependencies]
 serde_json.workspace = true
 tempfile = "3.17"

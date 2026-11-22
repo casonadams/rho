@@ -4,6 +4,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+/// Tests skip fsync: it costs hundreds of milliseconds per call on macOS and proves nothing in-process.
+pub const FSYNC_ENABLED: bool = !cfg!(any(test, feature = "skip-fsync"));
+
 /// Replaces `path` with `contents` via a same-directory temp file, fsync, and rename.
 ///
 /// The temp file is created with `mode` (unix permission bits) and chmod'ed explicitly,
@@ -35,7 +38,9 @@ pub async fn write_atomic_async(path: &Path, contents: Vec<u8>, mode: u32) -> io
 fn write_temp_then_rename(temp: &Path, target: &Path, dir: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
     let mut file = create_temp(temp, mode)?;
     file.write_all(contents)?;
-    file.sync_all()?;
+    if FSYNC_ENABLED {
+        file.sync_all()?;
+    }
     drop(file);
     std::fs::rename(temp, target)?;
     sync_dir(dir)
@@ -61,7 +66,7 @@ fn create_temp(temp: &Path, mode: u32) -> io::Result<File> {
 
 fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
-    {
+    if FSYNC_ENABLED {
         File::open(dir)?.sync_all()?;
     }
     #[cfg(not(unix))]

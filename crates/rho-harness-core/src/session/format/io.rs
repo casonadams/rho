@@ -26,7 +26,9 @@ pub fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
     let mut file = options.open(path)?;
     serde_json::to_writer(&mut file, &header).map_err(|_| session_error("session header serialization failed"))?;
     file.write_all(b"\n")?;
-    file.sync_data()?;
+    if crate::fs::FSYNC_ENABLED {
+        file.sync_data()?;
+    }
     Ok(())
 }
 
@@ -62,7 +64,7 @@ fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> Result<()> {
     let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
     drop_torn_tail(&mut file)?;
     file.write_all(line)?;
-    if durable {
+    if durable && crate::fs::FSYNC_ENABLED {
         file.sync_data()?;
     }
     Ok(())

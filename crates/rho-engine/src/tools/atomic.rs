@@ -14,6 +14,9 @@ async fn write_and_sync_temp(temp_path: &Path, content: &[u8]) -> std::io::Resul
     let mut file = tokio::fs::File::create(temp_path).await?;
     file.write_all(content).await?;
     file.flush().await?;
+    if !rho_harness_core::fs::FSYNC_ENABLED {
+        return Ok(());
+    }
     file.sync_all().await
 }
 

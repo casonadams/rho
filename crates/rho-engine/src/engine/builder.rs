@@ -221,7 +221,7 @@ impl AgentEngineBuilder {
         }
         static BASH_LOG_SWEEP: std::sync::Once = std::sync::Once::new();
         BASH_LOG_SWEEP.call_once(|| {
-            tokio::task::spawn_blocking(|| crate::tools::bash::accumulator::sweep_logs(&std::env::temp_dir()));
+            std::thread::spawn(|| crate::tools::bash::accumulator::sweep_logs(&std::env::temp_dir()));
         });
         Ok(session_manager)
     }

@@ -51,5 +51,6 @@ toml_edit.workspace = true
 libc = "0.2"
 
 [dev-dependencies]
+rho-harness-core = { workspace = true, features = ["skip-fsync"] }
 tempfile = "3.17"
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }

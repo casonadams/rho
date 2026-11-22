@@ -131,6 +131,7 @@ libc = "0.2"
 winres = "0.1"
 
 [dev-dependencies]
+rho-harness-core = { workspace = true, features = ["skip-fsync"] }
 tempfile = "3.17"
 
 [profile.dev]
