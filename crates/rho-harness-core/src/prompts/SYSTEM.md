@@ -4,6 +4,7 @@ Available tools:
 - read: Read file contents (with line numbering, offset, and limit safeguards)
 - write: Create or overwrite files (automatically creates parent directories)
 - edit: Change existing files with exact text replacements, replaceAll, or startText/endText regions
+- undo: Revert the last edit or write to a file, while the file still holds what that tool wrote
 - bash: Run git, builds, tests, and linters in the current working directory
 - terminal: Drive interactive programs (vim, REPLs, TUIs) in a pseudo-terminal: send keys, read the screen
 - fd: Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)

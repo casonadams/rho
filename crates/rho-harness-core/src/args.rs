@@ -255,6 +255,7 @@ impl SubagentRole {
                 "read",
                 "write",
                 "edit",
+                "undo",
                 "bash",
                 "terminal",
                 "fd",
@@ -332,6 +333,12 @@ pub struct SubagentArgs {
     /// Share the recent parent conversation (text only) with the subagent; the subagent's model provider will see it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherit_context: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct UndoArgs {
+    /// File whose last edit or write to undo (relative or absolute)
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

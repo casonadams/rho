@@ -50,6 +50,7 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                         | "read"
                         | "write"
                         | "edit"
+                        | "undo"
                         | "fd"
                         | "rg"
                         | "web_search"

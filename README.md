@@ -44,7 +44,7 @@ resume the exact session of each pane with `rho --resume <id>`.
 
 ## Built-in Tools
 
-`rho` includes 14 fast, native tools designed for coding agents:
+`rho` includes 15 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
   safeguards. Supports image sniffing and downscaling. `symbol` reads just one
@@ -52,6 +52,9 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
 - **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`. The result lists each changed region, numbered like `read`.
+- **`undo`**: Revert the last `edit` or `write` to a file (up to 20 steps per
+  file; a file `write` created is deleted). It refuses when the file changed
+  after that tool wrote it, so it never discards changes it did not make.
 - **`lsp`**: Ask the file's [language server](docs/configuration.md#language-servers)
   for diagnostics, definitions, references, hover, implementations, symbols, or
   a workspace-wide rename. `edit` and `write` results end with the server's

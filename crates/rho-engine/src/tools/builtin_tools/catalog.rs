@@ -8,7 +8,15 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
-use rho_harness_core::args::{MemoryArgs, SubagentArgs, TerminalArgs, TodoArgs, WorktreeArgs};
+use rho_harness_core::args::{MemoryArgs, SubagentArgs, TerminalArgs, TodoArgs, UndoArgs, WorktreeArgs};
+
+pub static PROMPT_UNDO: &str = "\
+Revert the last edit or write this session's tools made to a file.
+
+Usage:
+- Each call restores the file to its contents before the most recent edit or write; call again to step further back (up to 20 changes per file). A file that write created is deleted.
+- It refuses when the file changed after that edit or write (by the user, bash, or a formatter), so it never discards changes it did not make; then read the file and edit it instead.
+- The result lists the restored regions numbered like read. Use it to back out a wrong change instead of re-editing by hand; it does not undo bash commands or lsp renames.";
 
 pub static PROMPT_MEMORY: &str = "\
 Keep short notes that persist across sessions; saved notes are loaded into your context at the start of every later session.
@@ -169,7 +177,7 @@ Usage:
 - Use role 'critic' for adversarial code review, bug hunting, and invariant verification.
 - Use role 'planner' to draft execution steps or trade-off analyses without mutating files.
 - Use role 'general' for self-contained multi-step tasks.
-- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, bash, terminal, and todo. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
+- Default role is 'scout'. Tools by role (limited to tools enabled in this session): scout has read, fd, rg, web_fetch, web_search; critic and planner have read, fd, rg; general has all of those plus write, edit, undo, bash, terminal, and todo. Only 'general' can change files, so give it a precise, self-contained prompt (goal, relevant paths, constraints, expected output).
 - In a git repository each subagent works in its own worktree, a snapshot of your working tree including uncommitted edits. Its changes do not appear in your files until you review and merge them with the worktree tool.
 - Subagents start with no memory of your conversation, so put everything they need in `prompt` or `context_slice`. `inherit_context` shares only the last 20 text messages, each clipped to 1,500 characters.
 - Subagent calls in the same response run in parallel: all of them in a git repository, where each has its own worktree, otherwise only new read-only ones (scout, critic, planner). Parallel subagents still share the machine (ports, installed dependencies, build caches), so give them non-conflicting commands, and give two subagents disjoint files to avoid merge conflicts.
@@ -228,6 +236,13 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_EDIT,
         prompt_snippet: "Change existing files with exact text replacements, replaceAll, or startText/endText regions",
         schema: generated_schema::<EditArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "undo",
+        capability: BuiltinToolKind::WorkspaceMutation,
+        prompt: PROMPT_UNDO,
+        prompt_snippet: "Revert the last edit or write to a file, while the file still holds what that tool wrote",
+        schema: generated_schema::<UndoArgs>,
     },
     BuiltinToolDeclaration {
         name: "bash",

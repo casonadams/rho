@@ -18,6 +18,7 @@ use crate::tools::rg::RgTool;
 use crate::tools::subagent::{SubagentModelResolver, SubagentRuntime, SubagentTool};
 use crate::tools::terminal::TerminalTool;
 use crate::tools::todo::TodoTool;
+use crate::tools::undo::{EditHistory, UndoTool};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
@@ -29,8 +30,18 @@ use std::path::Path;
 use std::sync::Arc;
 
 fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -> Vec<Arc<dyn EngineTool>> {
-    let write = Arc::new(WriteTool::new(base_dir).with_lsp(lsp.clone()));
-    let edit = Arc::new(EditTool::new(base_dir).with_lsp(lsp.clone()));
+    let history = EditHistory::default();
+    let write = Arc::new(
+        WriteTool::new(base_dir)
+            .with_lsp(lsp.clone())
+            .with_history(Some(history.clone())),
+    );
+    let edit = Arc::new(
+        EditTool::new(base_dir)
+            .with_lsp(lsp.clone())
+            .with_history(Some(history.clone())),
+    );
+    let undo = Arc::new(UndoTool::new(base_dir, history));
     let read = Arc::new(
         ReadTool::new(base_dir)
             .with_artifact_dir(Some(base_dir.join(".rho/artifacts")))
@@ -45,6 +56,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
         read as Arc<dyn EngineTool>,
         write as Arc<dyn EngineTool>,
         edit as Arc<dyn EngineTool>,
+        undo as Arc<dyn EngineTool>,
         bash as Arc<dyn EngineTool>,
         fd as Arc<dyn EngineTool>,
         rg as Arc<dyn EngineTool>,
@@ -165,8 +177,8 @@ pub fn build_builtin_toolset(
     Ok((tools, subagent))
 }
 
-/// `tools` with the workspace-native ones (read, write, edit, bash, fd, rg, terminal) rooted at `root`
-/// instead. Rerooted tools run without language servers.
+/// `tools` with the workspace-native ones (read, write, edit, undo, bash, fd, rg, terminal) rooted at
+/// `root` instead. Rerooted tools run without language servers.
 pub(crate) fn rerooted(tools: &[Arc<dyn EngineTool>], root: &Path) -> Vec<Arc<dyn EngineTool>> {
     let native = build_workspace_native_tools(root, None);
     tools

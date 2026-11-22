@@ -64,6 +64,7 @@ mod tests {
                     "read",
                     "write",
                     "edit",
+                    "undo",
                     "bash",
                     "fd",
                     "rg",
@@ -82,6 +83,7 @@ mod tests {
                     "read",
                     "write",
                     "edit",
+                    "undo",
                     "bash",
                     "fd",
                     "rg",
@@ -99,6 +101,7 @@ mod tests {
                     "read",
                     "write",
                     "edit",
+                    "undo",
                     "bash",
                     "fd",
                     "rg",
@@ -113,7 +116,7 @@ mod tests {
                 false,
                 false,
                 vec![
-                    "read", "write", "edit", "bash", "fd", "rg", "terminal", "todo", "memory", "subagent",
+                    "read", "write", "edit", "undo", "bash", "fd", "rg", "terminal", "todo", "memory", "subagent",
                 ],
             ),
         ];

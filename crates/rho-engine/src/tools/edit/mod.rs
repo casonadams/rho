@@ -20,6 +20,7 @@ use std::sync::Arc;
 pub struct EditTool {
     pub base_dir: PathBuf,
     pub lsp: Option<Arc<LspManager>>,
+    pub history: Option<crate::tools::undo::EditHistory>,
 }
 
 async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::result::Result<String, ToolResult> {
@@ -115,11 +116,17 @@ impl EditTool {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
             lsp: None,
+            history: None,
         }
     }
 
     pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
         self.lsp = lsp;
+        self
+    }
+
+    pub fn with_history(mut self, history: Option<crate::tools::undo::EditHistory>) -> Self {
+        self.history = history;
         self
     }
 
@@ -157,6 +164,11 @@ impl EditTool {
             },
         )
         .await?;
+        if !result.is_error
+            && let Some(history) = &self.history
+        {
+            history.record(&path, Some(content.into_bytes()), updated.as_bytes());
+        }
         Ok(crate::lsp::append_diagnostics(result, self.lsp.as_deref(), &path, &updated).await)
     }
 }

@@ -14,6 +14,7 @@ mod tests;
 pub struct WriteTool {
     pub base_dir: PathBuf,
     pub lsp: Option<Arc<LspManager>>,
+    pub history: Option<crate::tools::undo::EditHistory>,
 }
 
 async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
@@ -52,11 +53,17 @@ impl WriteTool {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
             lsp: None,
+            history: None,
         }
     }
 
     pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
         self.lsp = lsp;
+        self
+    }
+
+    pub fn with_history(mut self, history: Option<crate::tools::undo::EditHistory>) -> Self {
+        self.history = history;
         self
     }
 
@@ -74,7 +81,13 @@ impl WriteTool {
             return Ok(e);
         }
 
+        let before = tokio::fs::read(&path).await.ok();
         let result = perform_atomic_write(&path, clean_path, &args.content).await?;
+        if !result.is_error
+            && let Some(history) = &self.history
+        {
+            history.record(&path, before, args.content.as_bytes());
+        }
         Ok(crate::lsp::append_diagnostics(result, self.lsp.as_deref(), &path, &args.content).await)
     }
 }
