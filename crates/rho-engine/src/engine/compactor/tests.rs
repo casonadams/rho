@@ -439,7 +439,7 @@ mod compactor {
     }
 }
 
-pub(crate) mod common {
+mod common {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
@@ -454,41 +454,6 @@ pub(crate) mod common {
         msgs: Vec<rho_harness_core::model::ChatMessage>,
     ) {
         sm.append_messages(sid, msgs).await.unwrap();
-    }
-
-    #[derive(Default)]
-    pub struct CapturingPresenter {
-        pub notices: Mutex<Vec<String>>,
-        pub spinner_messages: Mutex<Vec<String>>,
-    }
-
-    #[async_trait]
-    impl Presenter for CapturingPresenter {
-        fn write_output(&self, _text: &str) {}
-        fn print_welcome(&self, _display: &WelcomeDisplay) {}
-        fn print_session_status(&self, _display: &SessionStatus) {}
-        fn print_notice(&self, text: &str) {
-            self.notices.lock().unwrap().push(text.to_string());
-        }
-        fn print_user_block(&self, _input: &str) {}
-        fn print_token(&self, _token: &str) {}
-        fn print_thinking_token(&self, _token: &str) {}
-        fn finish_tool_line(&self, _line: ToolLine) {}
-        fn flush(&self) {}
-        fn has_interactive_ui(&self) -> bool {
-            false
-        }
-        fn start_spinner(&self, message: &str) -> ActivityToken {
-            self.spinner_messages.lock().unwrap().push(message.to_string());
-            ActivityToken::default()
-        }
-        fn start_tool_spinner(&self, _name: &str, _arguments: &serde_json::Value) -> ActivityToken {
-            ActivityToken::default()
-        }
-        fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
-        fn stream_port(&self) -> ToolStreamPort {
-            ToolStreamPort::default()
-        }
     }
 }
 
@@ -856,10 +821,10 @@ mod recovery {
     use rho_harness_core::config::Config;
     use rho_harness_core::error::AppError;
 
-    use super::common::CapturingPresenter;
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::runner::TurnRequest;
     use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
+    use crate::test_support::CapturingPresenter;
 
     async fn populate_recovery_history(sm: &rho_harness_core::session::SessionManager, sid: &str) {
         for i in 1..=2 {
@@ -1165,10 +1130,10 @@ mod auto_compact {
     use rho_harness_core::model::{ToolCall, ToolFunction};
     use rho_harness_core::session::tree::TreeNodeKind;
 
-    use super::common::CapturingPresenter;
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::runner::TurnRequest;
     use crate::provider::adapter::MockAdapter;
+    use crate::test_support::CapturingPresenter;
 
     async fn populate_proactive_history(sm: &rho_harness_core::session::SessionManager, sid: &str) {
         for i in 1..=2 {

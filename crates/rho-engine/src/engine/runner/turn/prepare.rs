@@ -527,7 +527,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unbuildable_guard_is_reported_and_the_turn_runs_without_it() {
-        use crate::engine::compactor::tests::common::CapturingPresenter;
+        use crate::test_support::CapturingPresenter;
         use rho_harness_core::presentation::presenter::Presenter;
 
         let dir = tempfile::tempdir().unwrap();

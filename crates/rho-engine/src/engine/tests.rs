@@ -558,43 +558,6 @@ async fn switch_model_updates_model_and_preserves_tools() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[derive(Default)]
-struct RetryTestPresenter {
-    notices: std::sync::Mutex<Vec<String>>,
-}
-
-#[async_trait::async_trait]
-impl rho_harness_core::presentation::presenter::Presenter for RetryTestPresenter {
-    fn write_output(&self, _text: &str) {}
-    fn print_welcome(&self, _display: &rho_harness_core::presentation::WelcomeDisplay) {}
-    fn print_session_status(&self, _display: &rho_harness_core::presentation::SessionStatus) {}
-    fn print_notice(&self, text: &str) {
-        self.notices.lock().unwrap().push(text.to_string());
-    }
-    fn print_user_block(&self, _input: &str) {}
-    fn print_token(&self, _token: &str) {}
-    fn print_thinking_token(&self, _token: &str) {}
-    fn finish_tool_line(&self, _line: rho_harness_core::presentation::ToolLine) {}
-    fn flush(&self) {}
-    fn has_interactive_ui(&self) -> bool {
-        false
-    }
-    fn start_spinner(&self, _message: &str) -> rho_harness_core::presentation::activity::ActivityToken {
-        rho_harness_core::presentation::activity::ActivityToken::default()
-    }
-    fn start_tool_spinner(
-        &self,
-        _name: &str,
-        _arguments: &serde_json::Value,
-    ) -> rho_harness_core::presentation::activity::ActivityToken {
-        rho_harness_core::presentation::activity::ActivityToken::default()
-    }
-    fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
-    fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
-        rho_harness_core::presentation::ToolStreamPort::default()
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn rate_limited_model_request_retries_and_succeeds() {
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
@@ -627,7 +590,7 @@ async fn rate_limited_model_request_retries_and_succeeds() {
         },
     );
 
-    let presenter = Arc::new(RetryTestPresenter::default());
+    let presenter = Arc::new(crate::test_support::CapturingPresenter::default());
     let output = engine
         .run_turn(
             crate::engine::runner::TurnRequest::new("Hello after rate limit"),
