@@ -43,7 +43,10 @@ async fn mutating_tools_execute_sequentially() {
     let marker = dir.join("sequential_marker");
     let model = sequential_mutation_model(&marker);
     let config = Config {
-        permission: crate::config::PermissionConfig { enabled: false },
+        permission: crate::config::PermissionConfig {
+            enabled: false,
+            ..Default::default()
+        },
         ..Config::default()
     };
     let engine = test_engine(model, config);

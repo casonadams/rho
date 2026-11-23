@@ -36,6 +36,7 @@ pub struct GuardEvaluator {
     backend: GuardBackend,
     config_override: Option<GuardConfig>,
     telemetry_path_override: Option<PathBuf>,
+    audit_log_enabled: bool,
 }
 
 /// Complete outcome of one guard check, carrying everything needed to write the audit log
@@ -50,12 +51,13 @@ pub struct GuardEvaluation {
     pub latency_ms: u64,
     pub config: GuardConfig,
     pub telemetry_path: Option<PathBuf>,
+    pub audit_log_enabled: bool,
 }
 
 impl GuardEvaluation {
     /// Records this evaluation (and any human override) to the JSONL decision audit log.
     pub fn record_audit(&self, target_key: DecisionTargetKey, source: DecisionSource, feedback: Option<String>) {
-        if !is_telemetry_enabled(&self.config) {
+        if !is_telemetry_enabled(&self.config, self.audit_log_enabled) {
             return;
         }
         let Some(path) = self
@@ -248,6 +250,7 @@ impl GuardEvaluator {
             backend: GuardBackend::Chat(model),
             config_override: None,
             telemetry_path_override: None,
+            audit_log_enabled: false,
         }
     }
 
@@ -256,6 +259,7 @@ impl GuardEvaluator {
             backend: GuardBackend::Decision(decision),
             config_override: None,
             telemetry_path_override: None,
+            audit_log_enabled: false,
         }
     }
 
@@ -268,6 +272,12 @@ impl GuardEvaluator {
     #[must_use]
     pub fn with_telemetry_path(mut self, path: PathBuf) -> Self {
         self.telemetry_path_override = Some(path);
+        self
+    }
+
+    #[must_use]
+    pub fn with_audit_log(mut self, enabled: bool) -> Self {
+        self.audit_log_enabled = enabled;
         self
     }
 
@@ -411,6 +421,7 @@ impl GuardEvaluator {
             latency_ms: ctx.started.elapsed().as_millis() as u64,
             config: ctx.config,
             telemetry_path: self.telemetry_path_override.clone(),
+            audit_log_enabled: self.audit_log_enabled,
         }
     }
 

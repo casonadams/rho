@@ -82,8 +82,10 @@ fn highlight_fenced_modal_body(body: &str, theme: &Theme) -> String {
 }
 
 /// Enhances `Permission Required` (including `[Guard]`) modals and any interactive modal containing
-/// fenced code blocks with semantic label colors and `syntect` ANSI-16 syntax highlighting.
 pub(super) fn style_permission_body(title: &str, body: String, theme: &Theme) -> String {
+    if !theme.syntax_highlight_tools {
+        return body;
+    }
     if !title.starts_with("Permission Required") {
         return if body.contains("```") {
             highlight_fenced_modal_body(&body, theme)
@@ -116,8 +118,12 @@ mod tests {
 
     #[test]
     fn highlights_bash_guard_modal_body_and_preserves_text() {
+        let theme = Theme {
+            syntax_highlight_tools: true,
+            ..Theme::default()
+        };
         let raw = "Tool: bash\nNotice: Remote git push\nRisk: High risk\n\n\x1b[2mgit push origin main\x1b[0m\n";
-        let styled = style_permission_body("Permission Required [Guard]", raw.to_string(), &Theme::default());
+        let styled = style_permission_body("Permission Required [Guard]", raw.to_string(), &theme);
         assert!(styled.contains("\x1b["), "expected ANSI highlighting: {styled}");
         let plain = strip_ansi_escapes::strip_str(&styled);
         assert!(plain.contains("Tool: bash"));
@@ -128,8 +134,12 @@ mod tests {
 
     #[test]
     fn highlights_fenced_code_in_question_modals() {
+        let theme = Theme {
+            syntax_highlight_tools: true,
+            ..Theme::default()
+        };
         let raw = "Run this query?\n```sql\nSELECT * FROM users;\n```".to_string();
-        let styled = style_permission_body("Confirm", raw, &Theme::default());
+        let styled = style_permission_body("Confirm", raw, &theme);
         assert!(styled.contains("\x1b["));
         assert!(strip_ansi_escapes::strip_str(&styled).contains("SELECT * FROM users;"));
     }

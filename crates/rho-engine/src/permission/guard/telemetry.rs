@@ -114,7 +114,7 @@ pub fn default_options() -> Vec<JevDecisionOption> {
     ]
 }
 
-pub fn is_telemetry_enabled(config: &GuardConfig) -> bool {
+pub fn is_telemetry_enabled(config: &GuardConfig, config_opt_in: bool) -> bool {
     for var in ["RHO_GUARD_TELEMETRY_DISABLED", "GUARD_TELEMETRY_DISABLED"] {
         if let Ok(v) = std::env::var(var)
             && matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true")
@@ -122,7 +122,18 @@ pub fn is_telemetry_enabled(config: &GuardConfig) -> bool {
             return false;
         }
     }
-    config.telemetry.enabled != Some(false)
+    if let Some(explicit) = config.telemetry.enabled {
+        return explicit;
+    }
+    if config_opt_in || config.telemetry.path.is_some() {
+        return true;
+    }
+    for var in ["RHO_GUARD_TELEMETRY_PATH", "GUARD_TELEMETRY_PATH"] {
+        if std::env::var(var).is_ok_and(|p| !p.trim().is_empty()) {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn resolve_telemetry_path(config: &GuardConfig, config_dir: Option<&Path>) -> Option<PathBuf> {

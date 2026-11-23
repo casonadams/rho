@@ -163,7 +163,7 @@ pub struct ToolsConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BashConfig {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub direnv: bool,
     #[serde(default = "default_direnv_timeout_ms")]
     pub direnv_timeout_ms: u64,
@@ -176,7 +176,7 @@ fn default_direnv_timeout_ms() -> u64 {
 impl Default for BashConfig {
     fn default() -> Self {
         Self {
-            direnv: true,
+            direnv: false,
             direnv_timeout_ms: default_direnv_timeout_ms(),
         }
     }

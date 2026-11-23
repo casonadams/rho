@@ -162,6 +162,12 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::HideThinking => ui_section(file_config).hide_thinking = Some(parse_bool(name, value)?),
         ConfigKey::ToolsExpanded => ui_section(file_config).tools_expanded = Some(parse_bool(name, value)?),
         ConfigKey::Cursor => ui_section(file_config).cursor = Some(value.to_string()),
+        ConfigKey::SyntaxHighlightTools => {
+            ui_section(file_config).syntax_highlight_tools = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::FullBashCommand => {
+            ui_section(file_config).full_bash_command = Some(parse_bool(name, value)?);
+        }
         ConfigKey::SearchEngine => {
             if !crate::config::validate::is_valid_search_engine_name(value) {
                 return Err(AppError::Config(format!(
@@ -180,6 +186,18 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         }
         ConfigKey::PermissionEnabled => {
             file_config.permission.get_or_insert_with(Default::default).enabled = parse_bool(name, value)?;
+        }
+        ConfigKey::GuardAllTools => {
+            file_config
+                .permission
+                .get_or_insert_with(Default::default)
+                .guard_all_tools = parse_bool(name, value)?;
+        }
+        ConfigKey::GuardAuditLog => {
+            file_config
+                .permission
+                .get_or_insert_with(Default::default)
+                .guard_audit_log = parse_bool(name, value)?;
         }
         ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(name, value)?),
         ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(name, value)?),

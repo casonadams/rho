@@ -550,6 +550,11 @@ tools_expanded = false
 # Cursor rendering: "hardware" (default, native terminal cursor) or "software" (reverse-video block)
 cursor = "hardware"
 
+# Syntax-highlight Guard/permission/question modals, bash/JSON tool headers, and tool outputs (default: false)
+syntax_highlight_tools = false
+
+# Display full bash commands in tool cards without 60-character truncation (default: false)
+full_bash_command = false
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent blocks
@@ -592,8 +597,8 @@ fallback = ["duckduckgo", "yahoo"]
 enabled = true
 
 [tools.bash]
-# Automatically load allowed `.envrc` files via `direnv export json` (default: true)
-direnv = true
+# Automatically load allowed `.envrc` files via `direnv export json` (default: false)
+direnv = false
 # Maximum time in ms to wait for `direnv export json` (default: 30000)
 direnv_timeout_ms = 30000
 
@@ -606,6 +611,10 @@ startup_timeout_ms = 3000
 [permission]
 # Enable or disable runtime permission guardrails (default: true)
 enabled = true
+# Route all non-baseline Ask tool calls (MCP, out-of-workspace writes, etc.) through the guard model (default: false)
+guard_all_tools = false
+# Append JSONL guard decision audit records to ~/.config/rho/guard/decisions.jsonl (default: false)
+guard_audit_log = false
 ```
 
 Supported search engine identifiers:

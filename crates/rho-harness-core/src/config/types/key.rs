@@ -29,6 +29,8 @@ pub(crate) enum ConfigKey {
     HideThinking,
     ToolsExpanded,
     Cursor,
+    SyntaxHighlightTools,
+    FullBashCommand,
     ShowLabel,
     SearchEngine,
     WebSearchEnabled,
@@ -37,6 +39,8 @@ pub(crate) enum ConfigKey {
     BashDirenv,
     McpEnabled,
     PermissionEnabled,
+    GuardAllTools,
+    GuardAuditLog,
     GuardModel,
     SmolModel,
     SlowModel,
@@ -100,6 +104,16 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
             "ui.cursor_mode",
         ],
     ),
+    (
+        ConfigKey::SyntaxHighlightTools,
+        "ui.syntax_highlight_tools",
+        &["syntax_highlight_tools", "highlight_tools"],
+    ),
+    (
+        ConfigKey::FullBashCommand,
+        "ui.full_bash_command",
+        &["full_bash_command", "full_bash_commands"],
+    ),
     (ConfigKey::ShowLabel, "show_label", &[]),
     (
         ConfigKey::SearchEngine,
@@ -112,6 +126,16 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
     (ConfigKey::BashDirenv, "tools.bash.direnv", &["direnv"]),
     (ConfigKey::McpEnabled, "mcp.enabled", &["mcp"]),
     (ConfigKey::PermissionEnabled, "permission.enabled", &["permission"]),
+    (
+        ConfigKey::GuardAllTools,
+        "permission.guard_all_tools",
+        &["guard_all_tools"],
+    ),
+    (
+        ConfigKey::GuardAuditLog,
+        "permission.guard_audit_log",
+        &["guard_audit_log"],
+    ),
     (ConfigKey::GuardModel, "models.guard", &["guard_model", "guard"]),
     (ConfigKey::SmolModel, "models.smol", &["smol_model", "smol"]),
     (ConfigKey::SlowModel, "models.slow", &["slow_model", "slow"]),
@@ -139,7 +163,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 38] = [
+    const ALL_KEYS: [ConfigKey; 42] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -167,6 +191,8 @@ mod tests {
         ConfigKey::HideThinking,
         ConfigKey::ToolsExpanded,
         ConfigKey::Cursor,
+        ConfigKey::SyntaxHighlightTools,
+        ConfigKey::FullBashCommand,
         ConfigKey::ShowLabel,
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,
@@ -175,6 +201,8 @@ mod tests {
         ConfigKey::BashDirenv,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
+        ConfigKey::GuardAllTools,
+        ConfigKey::GuardAuditLog,
         ConfigKey::GuardModel,
         ConfigKey::SmolModel,
         ConfigKey::SlowModel,

@@ -242,7 +242,11 @@ impl TerminalRenderer {
         {
             pending.insert(path, change);
         }
-        let summary = format_tool_args_summary(name, args);
+        let summary = if name == "bash" && self.theme.full_bash_command {
+            rho_harness_core::presentation::summary::format_bash_full_summary(args)
+        } else {
+            format_tool_args_summary(name, args)
+        };
         if let Some(ui) = &self.ui {
             if crate::ui::interactive::RunningTool::has_live_card(name) {
                 let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {

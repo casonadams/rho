@@ -89,7 +89,7 @@ async fn run_headless_turn(
         std::fs::write(perm_dir.join("rules.toml"), rules).unwrap();
     }
     let config = Config {
-        permission: PermissionConfig { enabled: true },
+        permission: PermissionConfig::default(),
         ..Config::default()
     };
     let fix = make_perm_engine(&ws, make_perm_model(cmd, final_text), config);

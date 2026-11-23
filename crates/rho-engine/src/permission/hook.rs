@@ -28,6 +28,7 @@ pub struct PermissionHook {
     presenter: Arc<dyn Presenter>,
     policy: Arc<RwLock<Policy>>,
     guard_evaluator: Option<GuardEvaluator>,
+    guard_all_tools: bool,
     mcp_servers: Vec<String>,
     prompt_lock: Arc<tokio::sync::Mutex<()>>,
     /// The subagent whose tool calls this copy of the hook checks; its prompts mark it as waiting.
@@ -51,6 +52,7 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
+            guard_all_tools: false,
             mcp_servers: Vec::new(),
             prompt_lock: Arc::default(),
             asker: None,
@@ -65,6 +67,7 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
+            guard_all_tools: false,
             mcp_servers: Vec::new(),
             prompt_lock: Arc::default(),
             asker: None,
@@ -76,6 +79,10 @@ impl PermissionHook {
         self
     }
 
+    pub fn with_guard_all_tools(mut self, enabled: bool) -> Self {
+        self.guard_all_tools = enabled;
+        self
+    }
     pub fn with_mcp_servers(mut self, servers: Vec<String>) -> Self {
         self.mcp_servers = servers;
         self
@@ -91,6 +98,7 @@ impl PermissionHook {
             presenter: self.presenter.clone(),
             policy: self.policy.clone(),
             guard_evaluator: self.guard_evaluator.clone(),
+            guard_all_tools: self.guard_all_tools,
             mcp_servers: self.mcp_servers.clone(),
             prompt_lock: self.prompt_lock.clone(),
             asker: self.asker.clone(),
@@ -107,6 +115,7 @@ impl PermissionHook {
             presenter: self.presenter.clone(),
             policy: self.policy.clone(),
             guard_evaluator: self.guard_evaluator.clone(),
+            guard_all_tools: self.guard_all_tools,
             mcp_servers: self.mcp_servers.clone(),
             prompt_lock: self.prompt_lock.clone(),
             asker: Some(asker),
@@ -187,6 +196,9 @@ impl PermissionHook {
         let Some(guard) = &self.guard_evaluator else {
             return self.handle_ask(req, drafts, None, None).await;
         };
+        if req.tool != "bash" && !self.guard_all_tools {
+            return self.handle_ask(req, drafts, None, None).await;
+        }
         let (lang, input) = self.format_guard_input(req);
         let eval = guard.evaluate_tool(&lang, &input, req.working_dir).await;
         if eval.verdict.safe {

@@ -135,11 +135,7 @@ fn format_file_mutation_summary(name: &str, args: &serde_json::Value) -> String 
     }
 }
 
-fn format_bash_summary(args: &serde_json::Value) -> String {
-    let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
-    let clean = clean_command_paths(raw_cmd);
-    let (preview, was_truncated) = truncate_preview(&clean, 60);
-    let cmd_str = if was_truncated { format!("{preview}...") } else { clean };
+fn append_bash_timeout(cmd_str: String, args: &serde_json::Value) -> String {
     if let Some(timeout) = args
         .get("timeout")
         .and_then(|t| t.as_u64().or_else(|| t.as_f64().map(|f| f as u64)))
@@ -148,6 +144,22 @@ fn format_bash_summary(args: &serde_json::Value) -> String {
     } else {
         cmd_str
     }
+}
+
+fn format_bash_summary(args: &serde_json::Value) -> String {
+    let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
+    let clean = clean_command_paths(raw_cmd);
+    let (preview, was_truncated) = truncate_preview(&clean, 60);
+    let cmd_str = if was_truncated { format!("{preview}...") } else { clean };
+    append_bash_timeout(cmd_str, args)
+}
+
+/// Formats a `bash` command without the 60-character summary cap so tool cards can wrap and display
+/// the full command when `ui.full_bash_command` is enabled or a card is expanded.
+pub fn format_bash_full_summary(args: &serde_json::Value) -> String {
+    let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
+    let clean = clean_command_paths(raw_cmd).replace('\r', "");
+    append_bash_timeout(clean, args)
 }
 
 fn format_read_summary(args: &serde_json::Value) -> String {
