@@ -198,7 +198,9 @@ with `rho config cache_retention short` or `long`.
 A spec without a `<provider>/` prefix uses the `--provider` flag when given,
 then the provider implied by the model name (`claude-*` is `anthropic`,
 `gpt-*` is `openai`, `gemini-*` is `gemini`, ...), then the current
-provider (`local` at startup). Everything after the first `/` is the
+provider (`local` at startup). During a session, a bare id the current
+provider's live list carries stays on that provider instead, for `/model`,
+`set_model`, and subagent model specs alike. Everything after the first `/` is the
 provider's model id, so OpenRouter ids keep their vendor segment:
 `openrouter/anthropic/claude-3.7-sonnet`. The prefix may name an account,
 `claude:me@work.com/<model>` (see [Multiple Accounts](#multiple-accounts)).

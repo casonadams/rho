@@ -357,7 +357,7 @@ enabled = true                  # Enable or disable MCP subsystem
 enabled = true                  # Enable or disable mutation guardrails</code></pre>
       </div>
 
-      <p>A model spec without a <code>&lt;provider&gt;/</code> prefix uses the <code>--provider</code> flag when given, then the provider implied by the model name (<code>claude-*</code> is <code>anthropic</code>, <code>gpt-*</code> is <code>openai</code>), then the current provider (<code>local</code> at startup). Everything after the first <code>/</code> is the provider's model id, so OpenRouter ids keep their vendor segment: <code>openrouter/anthropic/claude-3.7-sonnet</code>.</p>
+      <p>A model spec without a <code>&lt;provider&gt;/</code> prefix uses the <code>--provider</code> flag when given, then the provider implied by the model name (<code>claude-*</code> is <code>anthropic</code>, <code>gpt-*</code> is <code>openai</code>), then the current provider (<code>local</code> at startup). During a session, a bare id the current provider's live list carries stays on that provider instead, for <code>/model</code>, <code>set_model</code>, and subagent model specs alike. Everything after the first <code>/</code> is the provider's model id, so OpenRouter ids keep their vendor segment: <code>openrouter/anthropic/claude-3.7-sonnet</code>.</p>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
       <p>
