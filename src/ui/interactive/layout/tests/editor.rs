@@ -176,6 +176,47 @@ fn soft_wrap_tracks_lines_and_cursor_across_wrapped_lines() {
 }
 
 #[test]
+fn soft_wrap_breaks_on_word_boundaries_and_tracks_cursor() {
+    let cases: [(&str, usize, usize, &[&str], CursorPosition); 4] = [
+        // Word "world" wraps whole to the next line instead of splitting mid-word.
+        (
+            "hello world",
+            3,
+            10,
+            &[" hello ", " world"],
+            CursorPosition { row: 1, column: 3 },
+        ),
+        // Cursor at the start of a wrapped word sits at column 0 of the new line (+1 indent).
+        (
+            "hello world",
+            5,
+            10,
+            &[" hello ", " world"],
+            CursorPosition { row: 1, column: 1 },
+        ),
+        // Overlong word after a shorter word starts on the next line and hard-breaks only if wider than width.
+        (
+            "hi abcdefg",
+            1,
+            6,
+            &[" hi ", " abcde", " fg"],
+            CursorPosition { row: 2, column: 2 },
+        ),
+        // Trailing space filling the line wraps the end-of-text cursor onto a fresh line.
+        ("hello ", 0, 7, &[" hello ", " "], CursorPosition { row: 1, column: 1 }),
+    ];
+    for (text, left_moves, width, lines, cursor) in cases {
+        let mut editor = editor_with_text(text);
+        for _ in 0..left_moves {
+            editor.move_left();
+        }
+        let layout = editor_layout(&editor, width, 24);
+        assert_eq!(layout.editor_lines, lines, "text {text:?}");
+        assert_eq!(layout.cursor, cursor, "text {text:?}");
+    }
+}
+
+#[test]
 fn software_cursor_rendering_cases() {
     use crate::ui::interactive::layout::editor::apply_software_cursor;
 

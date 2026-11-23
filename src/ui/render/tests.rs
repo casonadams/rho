@@ -689,7 +689,7 @@ fn print_welcome_emits_transcript_welcome_item() {
             _ => None,
         })
         .expect("welcome item");
-    assert_eq!(item.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(item.version, rho_harness_core::build_info::welcome_version());
     assert_eq!(item.model, "claude-sonnet");
     assert_eq!(item.provider, "anthropic");
     assert!(item.resumed);

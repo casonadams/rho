@@ -233,7 +233,9 @@ async fn login_discovers_registers_and_authorizes_then_requests_carry_the_token(
 
     let seen = state.lock().unwrap().seen.clone();
     let register = seen.iter().find(|r| r.path == "/auth/register").unwrap();
-    assert!(register.body.contains(&auth["redirect_uri"]), "{}", register.body);
+    let register_json: serde_json::Value = serde_json::from_str(&register.body).unwrap();
+    assert_eq!(register_json["redirect_uris"][0], auth["redirect_uri"]);
+    assert_eq!(register_json["scope"], "tools:read");
     let exchange = seen.iter().find(|r| r.path == "/auth/token").unwrap();
     assert_eq!(form_value(&exchange.body, "code").as_deref(), Some("the-code"));
     assert_eq!(form_value(&exchange.body, "resource").as_deref(), Some(url.as_str()));

@@ -34,12 +34,22 @@ fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset
     match input.modal {
         Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
         None => {
-            let label = if input.footer.show_label {
-                concat!("rho ", env!("CARGO_PKG_VERSION"))
-            } else {
-                ""
-            };
             let activity = active_activity_status(input.footer, input.spinner_frame);
+            let label = if !input.footer.show_label {
+                ""
+            } else {
+                let full = rho_harness_core::build_info::divider_label();
+                let min_width = if activity.is_some() {
+                    full.chars().count() + 19
+                } else {
+                    full.chars().count() + 6
+                };
+                if width >= min_width {
+                    full
+                } else {
+                    concat!("rho ", env!("CARGO_PKG_VERSION"))
+                }
+            };
             top_divider(width, label, activity, style, reset)
         }
     }

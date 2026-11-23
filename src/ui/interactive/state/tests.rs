@@ -201,6 +201,18 @@ fn vertical_movement_uses_visual_wrapped_lines() {
 }
 
 #[test]
+fn vertical_movement_follows_word_wrapped_lines() {
+    let mut state = InteractiveState::default();
+    // At width 9, wraps into "hello " (0..6) and "world" (6..11).
+    state.editor_mut().set_text("hello world");
+    // Cursor at end -> row 1, col 5. Moving up lands on row 0, col 5 (the space at byte 5).
+    assert_eq!(step_up(&mut state, 9), (true, 5));
+    assert_eq!(step_up(&mut state, 9), (false, 5));
+    // Moving back down returns to row 1, col 5 (byte 11).
+    assert_eq!(step_down(&mut state, 9), (true, 11));
+}
+
+#[test]
 fn vertical_movement_preserves_display_column_across_wide_and_short_lines() {
     let mut state = InteractiveState::default();
     state.editor_mut().set_text("a界bc\nx\na界bc");
