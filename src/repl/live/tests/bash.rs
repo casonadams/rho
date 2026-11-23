@@ -108,7 +108,12 @@ async fn test_user_bash_runner_large_output_spools_to_disk() {
     .await
     .unwrap();
     assert!(!res.is_cancelled && !res.is_error);
-    for fragment in ["[lines ", "of 2500", "; log: ", "rho-bash/"] {
+    for fragment in [
+        "[... 2475 lines omitted]",
+        "[exit 0; 2500 lines, ",
+        "; log: ",
+        "rho-bash/",
+    ] {
         assert!(res.output.contains(fragment), "{fragment}: {}", res.output);
     }
     assert_spool_file(&res.output);

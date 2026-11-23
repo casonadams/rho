@@ -108,9 +108,19 @@ fn report_background_result(
 fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccumulator) -> ToolResult {
     let snapshot = accumulator.snapshot();
     let exit_code = status.code().unwrap_or(-1);
-    let shaped = shape_output(&snapshot, exit_code != 0);
+    let text = exit_text(&snapshot, exit_code);
+    if status.success() {
+        ToolResult::success(text)
+    } else {
+        ToolResult::error(text)
+    }
+}
+
+/// What the model and the `!` command see for a finished command: windowed output ending in one status line.
+pub fn exit_text(snapshot: &OutputSnapshot, exit_code: i32) -> String {
+    let shaped = shape_output(snapshot, exit_code != 0);
     let status_line = if shaped.needs_footer {
-        Some(log_footer(&snapshot, exit_code).render())
+        Some(log_footer(snapshot, exit_code).render())
     } else if exit_code != 0 {
         Some(format!("[exit {exit_code}]"))
     } else if shaped.text.is_empty() {
@@ -118,12 +128,11 @@ fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccu
     } else {
         None
     };
-    let text = append_status(shaped.text, status_line);
-    if status.success() {
-        ToolResult::success(text)
-    } else {
-        ToolResult::error(text)
-    }
+    append_status(shaped.text, status_line)
+}
+
+pub fn cancelled_text(snapshot: &OutputSnapshot) -> String {
+    append_status(shape_output(snapshot, true).text, Some("(cancelled)".to_string()))
 }
 
 /// Its notice heading already names the exit code, so only long output gets a footer.

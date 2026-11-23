@@ -119,6 +119,5 @@ mod tests {
 
         let snapshot = acc.snapshot();
         assert!(snapshot.truncation.truncated && snapshot.full_output_path.is_none());
-        assert!(!snapshot.formatted_text.contains("log:"), "{}", snapshot.formatted_text);
     }
 }

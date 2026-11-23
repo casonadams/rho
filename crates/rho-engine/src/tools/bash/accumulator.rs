@@ -1,7 +1,5 @@
-use super::normalize::{BASH_CLEAN_HEAD_LINES, join_head_tail};
-use crate::tools::truncate::{
-    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, Truncation, format_size, truncate_tail,
-};
+use super::normalize::BASH_CLEAN_HEAD_LINES;
+use crate::tools::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, Truncation, truncate_tail};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -62,7 +60,6 @@ fn remove_loose_logs(temp_root: &Path) -> usize {
 #[derive(Debug, Clone)]
 pub struct OutputSnapshot {
     pub content: String,
-    pub formatted_text: String,
     /// The output's first whole lines when the output was clipped to its tail.
     pub head: Option<String>,
     pub truncation: Truncation,
@@ -81,7 +78,6 @@ pub struct OutputAccumulator {
     head_complete: bool,
     total_raw_bytes: usize,
     total_lines: usize,
-    current_line_bytes: usize,
     has_open_line: bool,
     finished: bool,
     temp_file_path: Option<PathBuf>,
@@ -95,34 +91,6 @@ pub struct OutputAccumulator {
 impl Default for OutputAccumulator {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn format_truncation_notice(
-    truncation: &Truncation,
-    log_path: Option<&str>,
-    current_line_bytes: usize,
-    max_bytes: usize,
-) -> String {
-    let end_line = truncation.total_lines;
-    let start_line = truncation
-        .total_lines
-        .saturating_sub(truncation.output_lines)
-        .saturating_add(1);
-    let log = log_path.map_or_else(String::new, |path| format!("; log: {path}"));
-
-    if truncation.last_line_partial {
-        let size = format_size(truncation.output_bytes);
-        let line_size = format_size(current_line_bytes);
-        format!("\n\n[last {size} of line {end_line} (line is {line_size}){log}]")
-    } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-        format!("\n\n[lines {start_line}-{end_line} of {}{log}]", truncation.total_lines)
-    } else {
-        let limit = format_size(max_bytes);
-        format!(
-            "\n\n[lines {start_line}-{end_line} of {} ({limit} limit){log}]",
-            truncation.total_lines
-        )
     }
 }
 
@@ -140,7 +108,6 @@ impl OutputAccumulator {
             head_complete: false,
             total_raw_bytes: 0,
             total_lines: 0,
-            current_line_bytes: 0,
             has_open_line: false,
             finished: false,
             temp_file_path: None,
@@ -213,10 +180,8 @@ impl OutputAccumulator {
         truncation.truncated = truncated;
 
         let head = self.clipped_head(&truncation);
-        let formatted_text = self.format_snapshot_text(&truncation, head.as_deref());
         OutputSnapshot {
             content: truncation.content.clone(),
-            formatted_text,
             head,
             truncation,
             full_output_path: self.temp_file_path.clone(),
@@ -254,15 +219,7 @@ impl OutputAccumulator {
             self.trim_tail();
         }
         let newlines = text.bytes().filter(|&b| b == b'\n').count();
-        if newlines == 0 {
-            self.current_line_bytes = self.current_line_bytes.saturating_add(text.len());
-            self.has_open_line = true;
-        } else {
-            let last_newline_pos = text.rfind('\n').unwrap_or(0);
-            let tail = &text[last_newline_pos + 1..];
-            self.current_line_bytes = tail.len();
-            self.has_open_line = !tail.is_empty();
-        }
+        self.has_open_line = !text.ends_with('\n');
         self.total_lines = self.total_lines.saturating_add(newlines);
     }
 
@@ -327,20 +284,5 @@ impl OutputAccumulator {
         let _ = writer.write_all(format!("\n[log truncated at {} bytes]\n", self.max_log_bytes).as_bytes());
         self.log_bytes = self.max_log_bytes;
         self.log_truncated = true;
-    }
-
-    fn format_snapshot_text(&self, truncation: &Truncation, head: Option<&str>) -> String {
-        let lines_before_tail = truncation.total_lines.saturating_sub(truncation.output_lines);
-        let omitted = head.map_or(0, |head| lines_before_tail.saturating_sub(head.lines().count()));
-        let mut text = match head {
-            Some(head) if omitted > 0 => join_head_tail(head, omitted, &truncation.content),
-            _ => truncation.content.clone(),
-        };
-        if truncation.truncated {
-            let log = self.temp_file_path.as_ref().map(|p| p.to_string_lossy());
-            let notice = format_truncation_notice(truncation, log.as_deref(), self.current_line_bytes, self.max_bytes);
-            text.push_str(&notice);
-        }
-        text
     }
 }

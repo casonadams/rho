@@ -228,7 +228,7 @@ fn the_full_output_log_has_no_terminal_colors_even_when_escapes_span_chunks() {
     assert!(log.starts_with("line 1\nline 2\n"), "{log:?}");
     assert!(log.ends_with("line 20\ntail green\n"), "{log:?}");
     assert!(
-        acc.snapshot().formatted_text.contains("\x1b[32mgreen"),
+        acc.snapshot().content.contains("\x1b[32mgreen"),
         "the live text keeps its colors"
     );
 }
@@ -268,18 +268,11 @@ fn a_clipped_snapshot_keeps_the_first_lines_even_when_they_arrive_in_pieces() {
     }
     acc.finish();
 
-    let text = acc.snapshot().formatted_text;
+    let snapshot = acc.snapshot();
     let head: String = (1..=10).map(|n| format!("line {n}\n")).collect();
-    assert!(
-        text.starts_with(&format!("{head}\n[... 2990 lines omitted]\n\nline 3001\n")),
-        "{}",
-        &text[..200]
-    );
-    assert!(
-        text.contains("line 5000\n\n[lines 3001-5000 of 5000; log: "),
-        "{}",
-        &text[text.len() - 200..]
-    );
+    assert_eq!(snapshot.head.as_deref(), Some(head.trim_end()));
+    assert!(snapshot.content.starts_with("line 3001\n"), "{}", snapshot.content);
+    assert!(snapshot.content.ends_with("line 5000"), "{}", snapshot.content);
 }
 
 #[test]
@@ -306,7 +299,7 @@ fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     acc.finish();
 
     let snap = acc.snapshot();
-    assert_eq!(snap.formatted_text, "starting \x1b[40mblack background\x1b[0m ending");
+    assert_eq!(snap.content, "starting \x1b[40mblack background\x1b[0m ending");
 }
 
 #[tokio::test]
