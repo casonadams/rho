@@ -116,6 +116,7 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
         active_turn: &mut active_turn,
         event_tx: test_event_tx,
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
+        live_models: false,
     };
 
     handle_tool_response_cmd(approval_id, "allow".to_string(), None, &mut ctx)
@@ -157,6 +158,7 @@ async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
         active_turn,
         event_tx: test_event_tx,
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
+        live_models: false,
     }
 }
 
@@ -842,4 +844,62 @@ async fn test_handle_set_api_key_cmd_outcomes() {
             ),
         }
     }
+}
+
+#[tokio::test]
+async fn set_api_key_fetches_that_providers_model_list() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 4096];
+        let read = socket.read(&mut buf).await.unwrap();
+        let body = r#"{"data":[{"id":"acme-1","context_length":65536}]}"#;
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket.write_all(reply.as_bytes()).await.unwrap();
+        String::from_utf8_lossy(&buf[..read]).to_lowercase()
+    });
+
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_set_api_key_refresh");
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    ctx.live_models = true;
+    ctx.config.write().await.providers.insert(
+        "acme".to_string(),
+        rho_harness_core::config::ProviderConfig {
+            base_url: base,
+            key_env: None,
+            default_model: None,
+        },
+    );
+    let catalog = ctx.engine.read().await.model_catalog().clone();
+    let mut changes = catalog.subscribe();
+
+    handle_set_api_key_cmd("acme".to_string(), "acme-key".to_string(), None, &mut ctx)
+        .await
+        .unwrap();
+    assert!(read_response(&mut client_reader).await.success);
+
+    let ready = async {
+        loop {
+            if let Some(rho_engine::provider::ProviderModels::Ready(models)) = catalog.get("acme") {
+                break models;
+            }
+            changes.changed().await.unwrap();
+        }
+    };
+    let models = tokio::time::timeout(std::time::Duration::from_secs(2), ready)
+        .await
+        .expect("acme's model list was not fetched after set_api_key");
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].id, "acme-1");
+    assert_eq!(catalog.context_tokens("acme", "acme-1"), Some(65_536));
+    let request = server.await.unwrap();
+    assert!(request.starts_with("get /models "), "{request}");
+    assert!(request.contains("authorization: bearer acme-key\r\n"), "{request}");
 }

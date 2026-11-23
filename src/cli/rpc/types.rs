@@ -32,4 +32,6 @@ pub(crate) struct RpcDaemonContext<'a, W> {
     pub(crate) active_turn: &'a mut Option<tokio::task::JoinHandle<Result<TurnOutput>>>,
     pub(crate) event_tx: mpsc::UnboundedSender<RpcEvent>,
     pub(crate) auth_bridge: rho_harness_core::rpc::RpcAuthBridge,
+    /// Refresh a provider's model list after a login; off in tests so they never reach a provider.
+    pub(crate) live_models: bool,
 }

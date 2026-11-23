@@ -66,6 +66,7 @@ where
         active_turn: &mut active_turn,
         event_tx: event_tx.clone(),
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
+        live_models: true,
     };
 
     let engine_for_quota = Arc::clone(&ctx.engine);
