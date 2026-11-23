@@ -1,5 +1,79 @@
 # Changelog
 
+## [0.17.0](https://github.com/casonadams/rho/compare/v0.16.0...v0.17.0) (2026-11-23)
+
+
+### Features
+
+* **bash:** summarize failing tests when output is clipped ([d059458](https://github.com/casonadams/rho/commit/d059458a1d1ce196fc35cde6dfbb137720b97970))
+* **edit:** show changed regions in the edit result ([1f7299f](https://github.com/casonadams/rho/commit/1f7299f72adc4c286419fce1976e9fce148c4f36))
+* **engine:** tell the model when context usage crosses 50, 75 and 90 percent ([b156822](https://github.com/casonadams/rho/commit/b156822906b64358519530e8d985fccf89d4e551))
+* **lsp:** add language server integration for any configured language ([b815424](https://github.com/casonadams/rho/commit/b815424321d7bf4a2998f813bafac805b2eb2b64))
+* **lsp:** add tools.lsp.enabled, injectable builder manager, exit shutdown hook and docs ([ec0647e](https://github.com/casonadams/rho/commit/ec0647e9343197dad8fdbdef81fd4dad6ae5f777))
+* **lsp:** deferred diagnostics, watched-file notices, code_actions, format, indexing hint ([47bc0a3](https://github.com/casonadams/rho/commit/47bc0a3d25326ff663ba4dc79f67e39301666b15))
+* **process:** clean up children on SIGTERM, SIGHUP and panic ([767e2b4](https://github.com/casonadams/rho/commit/767e2b498e6d00091bf93b941e7df6f641a4f254))
+* **prompts:** let user and project instructions override default guidelines ([4a1c35a](https://github.com/casonadams/rho/commit/4a1c35aa341a2d4ae91587c90c28ba350d4310e2))
+* **rg:** add context lines and multiline matching ([796df83](https://github.com/casonadams/rho/commit/796df838cb2d5a1171e6f41e6872bc1cc92e405f))
+* **subagent:** finish tasks with a complete_task report ([59ebb35](https://github.com/casonadams/rho/commit/59ebb3554c0c319c51c5d6aeb16f3b8f74a9fc53))
+* **subagent:** give subagents the lsp tool in their worktrees ([39db881](https://github.com/casonadams/rho/commit/39db88127c74f26e5c47075a29003b625d823e73))
+* **tools:** add memory tool for notes that persist across sessions ([f0b64a5](https://github.com/casonadams/rho/commit/f0b64a55a5a901f3dc33d8fbdcdb49ce61d73714))
+* **tools:** add terminal tool for interactive programs ([6364b57](https://github.com/casonadams/rho/commit/6364b574dccba773108424b3616f866fa292e1da))
+* **tools:** add todo tool that survives compaction ([8bf0cad](https://github.com/casonadams/rho/commit/8bf0cad32904f1b8871a53d50e1a5fcc5b152008))
+* **tools:** add undo for the session's own edits and writes ([53410be](https://github.com/casonadams/rho/commit/53410be34e1afff40f164729a23f5bb3eb05a157))
+* **tools:** add wait tool, start subagents in the background, nudge off sleep polling ([fe5fad0](https://github.com/casonadams/rho/commit/fe5fad061b1626c0060534ca06ce7c37364ea2ca))
+* **tools:** window long bash output and tighten tool prompts ([ff1f2d2](https://github.com/casonadams/rho/commit/ff1f2d2ffd85f637429ab988cd203626689bdc7e))
+* **worktree:** review added code for smells and duplication on diff and merge ([7a32912](https://github.com/casonadams/rho/commit/7a32912954474087f7cd92a3561e9d76c8ed2da2))
+
+
+### Bug Fixes
+
+* **auth:** offer the /login provider list in rho login ([42de8f9](https://github.com/casonadams/rho/commit/42de8f91709e47a5d869e38189e811001ac795ee))
+* **bash:** summarize failing tests off the async runtime with bounded tracking ([aea6f48](https://github.com/casonadams/rho/commit/aea6f48f072acbd09f75d70046a50be00da330fb))
+* **engine:** keep todo lists readable under context notices and escape memory notes ([7050c3a](https://github.com/casonadams/rho/commit/7050c3a12bb9a16db087fd1795b4bab1a0ccda47))
+* **engine:** prove and fix audited process, bash, compaction, pruning and rg defects ([50723e4](https://github.com/casonadams/rho/commit/50723e405bcd1f2fc8d02f07effdc610a0ed14a2))
+* **lsp:** announce an undone file once ([88d073b](https://github.com/casonadams/rho/commit/88d073bedef0d2bd1cb1359d5c0b1e8c1effafbd))
+* **lsp:** explicit diagnostics requests start servers in untrusted projects ([7f4c3ec](https://github.com/casonadams/rho/commit/7f4c3ecc95b6c5fc3b366e508a8f243408881603))
+* **lsp:** gate auto-start on trust, add shutdown, idle reaping, config reload and document limits ([0b53907](https://github.com/casonadams/rho/commit/0b5390755be99070bf6dd81bc619d780f165ddc3))
+* **lsp:** harden server I/O, renames, and project trust ([cf80d83](https://github.com/casonadams/rho/commit/cf80d83f53087f3a2b8f01d412a377a3e470473e))
+* **lsp:** make rename safe, undoable and atomic; tighten read, pruning, memory and notices ([7d2746f](https://github.com/casonadams/rho/commit/7d2746f0d412ea38de9a32dbf7428cd8be8aeff0))
+* **lsp:** omit empty action kind and stop worktree servers when a round is dropped ([4716dd9](https://github.com/casonadams/rho/commit/4716dd91335961f10c0d05661194556401e456ca))
+* **lsp:** prove and fix audited protocol, framing, path, env and edit defects ([e21d6d5](https://github.com/casonadams/rho/commit/e21d6d531fc0577e1a7ae7b5dceef9ec74c4dad9))
+* **lsp:** skip diagnostics reports for files outside the workspace ([41d03a3](https://github.com/casonadams/rho/commit/41d03a35f5dc692668c4f03169134fe15efe3650))
+* **lsp:** wait for a server to stay idle before reporting diagnostics clean ([54c751d](https://github.com/casonadams/rho/commit/54c751dc29ed66b83c012da2eb8664903ea29a63))
+* **memory:** lock note files and keep lines that are not notes ([4027a11](https://github.com/casonadams/rho/commit/4027a11fdb9c6ec7f0cd85ef6df30795c4244248))
+* **models:** read ollama-cloud context windows from /api/show ([512afcc](https://github.com/casonadams/rho/commit/512afcc1fd859d71740a4d3f8e00d253a84aa66f))
+* **process:** exit promptly on signals; make test and cleanup paths leak-free ([8598493](https://github.com/casonadams/rho/commit/8598493520b25fdc3d81d9f4b2598893f9812640))
+* **process:** keep language and MCP servers alive when a turn is cancelled ([16b10ac](https://github.com/casonadams/rho/commit/16b10ac9b0eca498381618797eac0d8ca01b01d5))
+* **release:** make the test-support crate path-only so rho-harness-core can publish ([2809ff4](https://github.com/casonadams/rho/commit/2809ff4cd588450f771efe2e6aeacd7e1e311970))
+* **repl:** keep the provider that listed a model ([da63b13](https://github.com/casonadams/rho/commit/da63b137092d6e5986b191cd3d07e5d00fdee5cd))
+* **repl:** keep the provider that listed a model ([#66](https://github.com/casonadams/rho/issues/66)) ([d576a33](https://github.com/casonadams/rho/commit/d576a33f752138e1bfa7bfed6009a1a45a947817))
+* **repl:** record only typed prompts in prompt history ([f2d16d5](https://github.com/casonadams/rho/commit/f2d16d5f52e1e55f4b478a6ae41a1c3c84196ec8))
+* **rpc:** fetch a provider's model list after logging in to it ([8cf6675](https://github.com/casonadams/rho/commit/8cf66757cd17ef7fe4be913150acd1d3f888e75c))
+* **rpc:** load live model lists and keep the model when set_model fails ([4238591](https://github.com/casonadams/rho/commit/4238591b720469e15f03f377248202effffc47a2))
+* **subagent:** default custom agents to read-only tools and never give them lsp ([748716a](https://github.com/casonadams/rho/commit/748716a8ea347860d89fc3bf4c21d84b5345d08a))
+* **subagent:** keep the session provider that lists a subagent's model ([a52ab45](https://github.com/casonadams/rho/commit/a52ab459a6c6f810d858bc756e1fb0e101430126))
+* **subagent:** read-only lsp also hides format and applying code actions ([31f2846](https://github.com/casonadams/rho/commit/31f2846e912576b45cb0b474b4237ebe9ed9930c))
+* **terminal:** harden pty sessions, keys, waits, scrollback and process cleanup ([3ee3fb3](https://github.com/casonadams/rho/commit/3ee3fb358aeb0560ca0a30718d58dee062378d00))
+* **test:** reap killed children before checking their process group is gone ([75dbce8](https://github.com/casonadams/rho/commit/75dbce8edb35cb259cf907cd9168e389b35606ac))
+* **test:** stop tests killing each other's children and release session locks held by forked children ([db2b480](https://github.com/casonadams/rho/commit/db2b48082bf4adf9d5c1087e9d1cfe0239d4aafd))
+* **tools:** global undo budget, preview truncation, secret-safe memory, todo validation ([849ea6f](https://github.com/casonadams/rho/commit/849ea6ff9068b11d12ceecefbfbeefb1ec4115f1))
+* **tools:** honor .gitignore outside a git repository in fd, rg and the workspace snapshot ([a9bf139](https://github.com/casonadams/rho/commit/a9bf13931adf433502df89c96fa56cccea835a48))
+* **tools:** pluralize "empty directory" in undo output ([1fbf9bc](https://github.com/casonadams/rho/commit/1fbf9bc7136843be72c082a9afa4a547212a0763))
+* **tools:** prove and fix audited rename, undo, memory, todo and subagent defects ([c320cae](https://github.com/casonadams/rho/commit/c320cae3c15f11e7d0c672f05ef4e2f27e57951c))
+* **undo:** never delete unreadable files, keep history on failed restores, bound memory ([63e2cf1](https://github.com/casonadams/rho/commit/63e2cf121a4793de0e99dc0ee0c50ddb5839be71))
+* **undo:** resync open documents after an undo so stale diagnostics clear ([2a64aa5](https://github.com/casonadams/rho/commit/2a64aa5c69d86cb2f47d79b6a4f172e3b927e00a))
+
+
+### Performance Improvements
+
+* **test:** advance a paused clock in mcp pool idle-reap tests ([100d79b](https://github.com/casonadams/rho/commit/100d79bac5388015082fdbbb13eb962332e65563))
+* **test:** sweep bash logs on a detached thread and skip fsync in tests ([ab357f0](https://github.com/casonadams/rho/commit/ab357f0b9985c012d3adf4c236485012e961b9e4))
+
+
+### Miscellaneous Chores
+
+* release 0.17.0 ([41a8874](https://github.com/casonadams/rho/commit/41a88745cc4cbf9ededbaaa0a68688c40202ed33))
+
 ## [0.16.0](https://github.com/casonadams/rho/compare/v0.15.0...v0.16.0) (2026-11-22)
 
 

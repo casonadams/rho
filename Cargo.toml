@@ -12,7 +12,7 @@ members = [
 linker_messages = "allow"
 
 [workspace.package]
-version = "0.16.0"
+version = "0.17.0"
 edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
@@ -32,8 +32,8 @@ tiktoken-rs = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 fuzzy-matcher = "0.3.7"
-rho-harness-core = { version = "0.16.0", path = "crates/rho-harness-core" }
-rho-engine = { version = "0.16.0", path = "crates/rho-engine" }
+rho-harness-core = { version = "0.17.0", path = "crates/rho-harness-core" }
+rho-engine = { version = "0.17.0", path = "crates/rho-engine" }
 rho-test-support = { path = "crates/rho-test-support" }
 similar = "3.2"
 strip-ansi-escapes = "0.2"
