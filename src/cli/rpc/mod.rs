@@ -95,7 +95,9 @@ where
 }
 
 pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()> {
-    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), Default::default(), None).await?;
+    let catalog = rho_engine::provider::ModelCatalog::default();
+    catalog.spawn_refresh_all(&config, &auth_store);
+    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), catalog, None).await?;
     crate::cli::mcp::eprint_mcp_diagnostics(&engine);
     engine.spawn_refresh_quota();
     let engine_lock = Arc::new(RwLock::new(engine));

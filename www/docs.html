@@ -664,7 +664,7 @@ rho config models.guard none</code></pre>
             <tr>
               <td><code>set_model</code></td>
               <td><code>{ "model": "&lt;provider&gt;/&lt;model&gt;" }</code></td>
-              <td>Hot-swap the active inference model at runtime.</td>
+              <td>Hot-swap the active inference model at runtime. A bare model id stays on the current provider when its live list carries it; a failed switch leaves the current model in place.</td>
             </tr>
             <tr>
               <td><code>set_thinking</code></td>
