@@ -24,6 +24,7 @@ pub mod antigravity;
 pub mod auth;
 pub mod chatgpt;
 pub mod claude;
+pub mod decision;
 pub mod engine;
 pub mod gemini;
 pub mod hook;

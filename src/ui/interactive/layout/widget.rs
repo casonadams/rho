@@ -1,6 +1,6 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::interactive::state::RunningTool;
-use crate::ui::render::{format_bash_args_header, normalize_tool_name, tool_title_style};
+use crate::ui::render::{highlight_bash_args_header, normalize_tool_name, tool_title_style};
 use crate::ui::theme::Theme;
 
 #[derive(Debug, Clone, Copy)]
@@ -61,7 +61,9 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
     let display_name = normalize_tool_name(&input.tool.name);
 
     let args_header = if input.tool.name == "bash" {
-        format_bash_args_header(&input.tool.args_summary, accent, dim)
+        highlight_bash_args_header(&input.tool.args_summary, input.theme)
+    } else if input.tool.args_summary.starts_with('{') || input.tool.args_summary.starts_with('[') {
+        crate::ui::markdown::highlight_code_line(&input.tool.args_summary, Some("json"), input.theme)
     } else {
         format!("{accent}{}{accent:#}", input.tool.args_summary)
     };
@@ -72,7 +74,9 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
         content.push_str(preview);
     }
     let raw_output = input.tool.output.trim_end().replace('\t', "   ");
-    append_tool_output(&mut content, &raw_output, input.tools_expanded, width, dim);
+    let highlighted =
+        crate::ui::render::output_highlight::highlight_tool_output(&input.tool.name, &raw_output, input.theme);
+    append_tool_output(&mut content, &highlighted, input.tools_expanded, width, dim);
     content.push_str(&format!(
         "\n\n{dim}Elapsed {}{dim:#}",
         format_elapsed(input.tool.elapsed())

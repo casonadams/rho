@@ -67,14 +67,25 @@ pub(crate) fn parse_codex_models(body: &Value) -> Vec<DiscoveredModel> {
 }
 
 pub(crate) fn parse_gemini_models(body: &Value) -> Vec<DiscoveredModel> {
-    let generates = |entry: &&Value| {
-        entries(entry, "supportedGenerationMethods").any(|method| method.as_str() == Some("generateContent"))
-    };
     entries(body, "models")
-        .filter(generates)
         .filter_map(|entry| {
+            let has_generate =
+                entries(entry, "supportedGenerationMethods").any(|method| method.as_str() == Some("generateContent"));
+            let has_decision =
+                entries(entry, "supportedGenerationMethods").any(|method| method.as_str() == Some("createDecision"));
+            if !has_generate && !has_decision {
+                return None;
+            }
             let name = str_field(entry, &["name"])?;
-            Some(listed_model(entry, name.strip_prefix("models/").unwrap_or(name)))
+            let mut model = listed_model(entry, name.strip_prefix("models/").unwrap_or(name));
+            if has_decision && !has_generate {
+                model.description = if model.description.is_empty() {
+                    "decision".to_string()
+                } else {
+                    format!("{} · decision", model.description)
+                };
+            }
+            Some(model)
         })
         .collect()
 }
@@ -128,8 +139,30 @@ pub(crate) async fn fetch_codex(url: &str, token: &str, account_id: Option<&str>
 }
 
 pub(crate) async fn fetch_gemini(url: &str, key: &str) -> Result<Vec<DiscoveredModel>> {
-    let request = list_request(url).header("x-goog-api-key", key);
-    Ok(parse_gemini_models(&get_json(request, &label("gemini")).await?))
+    const MAX_PAGES: usize = 5;
+    let mut models = Vec::new();
+    let mut page_token: Option<String> = None;
+    for _ in 0..MAX_PAGES {
+        let page_url = match &page_token {
+            Some(token) => {
+                let sep = if url.contains('?') { '&' } else { '?' };
+                format!("{url}{sep}pageToken={token}")
+            }
+            None => url.to_string(),
+        };
+        let request = list_request(&page_url).header("x-goog-api-key", key);
+        let body = get_json(request, &label("gemini")).await?;
+        models.extend(parse_gemini_models(&body));
+        page_token = body
+            .get("nextPageToken")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string);
+        if page_token.is_none() {
+            break;
+        }
+    }
+    Ok(models)
 }
 
 /// Ollama's model list, with each model's window from `/api/show`, which ollama.com also serves.

@@ -71,18 +71,37 @@ pub fn detect_language_from_path(path: &str) -> Option<&str> {
     std::path::Path::new(path).extension()?.to_str()
 }
 
-pub fn format_bash_args_header(summary: &str, accent: anstyle::Style, dim: anstyle::Style) -> String {
+fn split_bash_timeout(summary: &str) -> (&str, Option<&str>) {
     if let Some(idx) = summary.rfind(" (timeout ")
         && summary.ends_with(')')
     {
         let timeout_part = &summary[idx + 1..];
         let inner = &timeout_part["(timeout ".len()..timeout_part.len() - 1];
         if inner.ends_with('s') && inner[..inner.len() - 1].chars().all(|c| c.is_ascii_digit()) {
-            let cmd = &summary[..idx];
-            return format!("{accent}{cmd}{accent:#} {dim}{timeout_part}{dim:#}");
+            return (&summary[..idx], Some(timeout_part));
         }
     }
-    format!("{accent}{summary}{accent:#}")
+    (summary, None)
+}
+
+pub fn format_bash_args_header(summary: &str, accent: anstyle::Style, dim: anstyle::Style) -> String {
+    match split_bash_timeout(summary) {
+        (cmd, Some(timeout_part)) => format!("{accent}{cmd}{accent:#} {dim}{timeout_part}{dim:#}"),
+        (cmd, None) => format!("{accent}{cmd}{accent:#}"),
+    }
+}
+
+/// Syntax-highlights a `bash` tool header using `syntect` ANSI-16 colors while keeping any trailing
+/// `(timeout Ns)` suffix dim.
+pub fn highlight_bash_args_header(summary: &str, theme: &Theme) -> String {
+    let dim = theme.dimmed;
+    match split_bash_timeout(summary) {
+        (cmd, Some(timeout_part)) => {
+            let highlighted = crate::ui::markdown::highlight_code_line(cmd, Some("sh"), theme);
+            format!("{highlighted} {dim}{timeout_part}{dim:#}")
+        }
+        (cmd, None) => crate::ui::markdown::highlight_code_line(cmd, Some("sh"), theme),
+    }
 }
 
 pub fn format_read_header(tool: &ToolLine, theme: &Theme) -> String {
@@ -145,7 +164,9 @@ fn format_tool_header_base(tool: &ToolLine, theme: &Theme) -> String {
         format!("{title}{display_name}{title:#}")
     } else {
         let header_args = if tool.name == "bash" {
-            format_bash_args_header(&summary, accent, theme.dimmed)
+            highlight_bash_args_header(&summary, theme)
+        } else if summary.starts_with('{') || summary.starts_with('[') {
+            crate::ui::markdown::highlight_code_line(&summary, Some("json"), theme)
         } else {
             format!("{accent}{summary}{accent:#}")
         };
@@ -184,10 +205,11 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
     }
 }
 
-fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, dim: anstyle::Style) {
+fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) {
     let clean = replace_tabs(raw_output(tool).trim_end());
     if !clean.is_empty() {
-        append_output_lines(content, &clean, width, expanded, dim);
+        let highlighted = super::output_highlight::highlight_tool_output(&tool.name, &clean, theme);
+        append_output_lines(content, &highlighted, width, expanded, theme.dimmed);
     }
 }
 
@@ -248,7 +270,7 @@ pub fn append_tool_details(
     } else if !append_edit_or_write(content, tool, expanded, theme)
         && (tool.name == "bash" || tool.is_error || expanded)
     {
-        append_generic_output(content, tool, width, expanded, theme.dimmed);
+        append_generic_output(content, tool, width, expanded, theme);
     }
     if tool.is_error && tool.name == "edit" {
         append_failed_edit_attempt(content, tool, expanded, theme);

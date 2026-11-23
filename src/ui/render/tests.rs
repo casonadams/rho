@@ -480,8 +480,9 @@ fn finished_bash_block_includes_elapsed_duration() {
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
-    assert!(output.contains("cargo test --all-targets"));
-    assert!(output.contains("Took 5s"));
+    let plain = strip_ansi_escapes::strip_str(&output);
+    assert!(plain.contains("cargo test --all-targets"));
+    assert!(plain.contains("Took 5s"));
 }
 
 #[test]

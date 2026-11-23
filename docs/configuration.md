@@ -590,6 +590,13 @@ fallback = ["duckduckgo", "yahoo"]
 [tools.web.fetch]
 # Enable or disable the built-in web_fetch tool (default: true)
 enabled = true
+
+[tools.bash]
+# Automatically load allowed `.envrc` files via `direnv export json` (default: true)
+direnv = true
+# Maximum time in ms to wait for `direnv export json` (default: 30000)
+direnv_timeout_ms = 30000
+
 [mcp]
 # Enable or disable MCP subsystem (default: true)
 enabled = true

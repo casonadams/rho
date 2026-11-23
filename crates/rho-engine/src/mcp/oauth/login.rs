@@ -83,6 +83,7 @@ async fn resolve_client(
     config: Option<&McpOAuthConfig>,
     metadata: &AuthServerMetadata,
     redirect: &str,
+    scope: Option<&str>,
 ) -> Result<Client> {
     if let Some(id) = config.and_then(|c| c.client_id.clone()) {
         return Ok(Client {
@@ -97,13 +98,16 @@ async fn resolve_client(
                 .to_string(),
         )
     })?;
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "client_name": CLIENT_NAME,
         "redirect_uris": [redirect],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     });
+    if let Some(scope) = scope.map(str::trim).filter(|s| !s.is_empty()) {
+        body["scope"] = serde_json::json!(scope);
+    }
     let request = CLIENT.post(endpoint).timeout(REQUEST_TIMEOUT).json(&body);
     let registration: Registration = send_for_json(request, "MCP client registration").await?;
     Ok(Client {
@@ -196,7 +200,7 @@ pub async fn login(
     let scope = choose_scope(config, &challenge, &resource_meta.scopes_supported);
 
     let (loopback, redirect) = bind_redirect(config).await?;
-    let client = resolve_client(config, &auth_meta, &redirect).await?;
+    let client = resolve_client(config, &auth_meta, &redirect, scope.as_deref()).await?;
     let pkce = PkceChallenge::generate();
     let state = generate_state();
     let auth_url = authorize_url(&AuthorizeUrl {

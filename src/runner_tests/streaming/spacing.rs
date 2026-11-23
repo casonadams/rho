@@ -171,8 +171,9 @@ fn bash_with_output_transcript_card_has_empty_block_break() {
         rendered.starts_with('\n'),
         "rendered tool card should begin with an empty block break newline"
     );
-    assert!(rendered.contains("cargo test"));
-    assert!(rendered.contains("test result: ok"));
+    let plain = strip_ansi_escapes::strip_str(&rendered);
+    assert!(plain.contains("cargo test"));
+    assert!(plain.contains("test result: ok"));
 }
 
 #[test]

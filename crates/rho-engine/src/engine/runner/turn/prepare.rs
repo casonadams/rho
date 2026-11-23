@@ -356,8 +356,8 @@ impl AgentEngine {
         };
         let mut hook =
             crate::permission::PermissionHook::new(Some(cwd), presenter.clone()).with_mcp_servers(mcp_servers);
-        match self.router.build_guard(&self.config).await {
-            Ok(Some(guard)) => hook = hook.with_guard(crate::permission::guard::GuardEvaluator::new(guard)),
+        match self.router.build_guard_decision(&self.config).await {
+            Ok(Some(guard)) => hook = hook.with_guard(crate::permission::guard::GuardEvaluator::from_decision(guard)),
             Ok(None) => {}
             Err(err) => presenter.print_notice(&format!(
                 "[Guard model '{}' unavailable, running without it: {err}]",

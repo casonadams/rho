@@ -31,8 +31,8 @@ rho --resume <SESSION_ID>
 rho --resume-picker
 ```
 
-When a session that has content ends, rho prints `Resume this session: rho --resume <SESSION_ID>`
-to stderr. In `/resume` and `--resume-picker`, each row is titled by the session name (see `/name`) or its first message,
+When a session that has content ends, rho prints `Resume this session:` followed by
+`rho --resume <SESSION_ID>` on its own line to stderr. In `/resume` and `--resume-picker`, each row is titled by the session name (see `/name`) or its first message,
 with the age, turn count and session ID beside it.
 
 In an interactive terminal, rho also writes the current session ID to
@@ -72,7 +72,9 @@ resume the exact session of each pane with `rho --resume <id>`.
 
   Interactive programs (vim, REPLs) can be driven from `bash` through mpx:
   start one with `mpx run --pty`, type with `send-keys`, read the screen with
-  `capture-pane -p -S -N`, and stop it with `kill`.
+  `capture-pane -p -S -N`, and stop it with `kill`. When an allowed `.envrc` is
+  present above the workspace, `bash` automatically loads its environment via
+  `direnv export json` (disable with `tools.bash.direnv = false`).
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
   indented names; directories end with `/`) after a total count. A directory

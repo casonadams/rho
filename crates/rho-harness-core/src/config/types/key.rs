@@ -34,6 +34,7 @@ pub(crate) enum ConfigKey {
     WebSearchEnabled,
     WebFetchEnabled,
     LspEnabled,
+    BashDirenv,
     McpEnabled,
     PermissionEnabled,
     GuardModel,
@@ -108,6 +109,7 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
     (ConfigKey::WebSearchEnabled, "tools.web.search.enabled", &["web_search"]),
     (ConfigKey::WebFetchEnabled, "tools.web.fetch.enabled", &["web_fetch"]),
     (ConfigKey::LspEnabled, "tools.lsp.enabled", &["lsp"]),
+    (ConfigKey::BashDirenv, "tools.bash.direnv", &["direnv"]),
     (ConfigKey::McpEnabled, "mcp.enabled", &["mcp"]),
     (ConfigKey::PermissionEnabled, "permission.enabled", &["permission"]),
     (ConfigKey::GuardModel, "models.guard", &["guard_model", "guard"]),
@@ -137,7 +139,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 37] = [
+    const ALL_KEYS: [ConfigKey; 38] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -170,6 +172,7 @@ mod tests {
         ConfigKey::WebSearchEnabled,
         ConfigKey::WebFetchEnabled,
         ConfigKey::LspEnabled,
+        ConfigKey::BashDirenv,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
         ConfigKey::GuardModel,
