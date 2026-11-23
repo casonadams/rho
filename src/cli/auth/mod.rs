@@ -9,8 +9,7 @@ mod tests;
 
 pub use callbacks::TerminalOAuthCallbacks;
 pub use provider::{
-    AuthMethod, prompt_auth_method, prompt_select_api_key_provider, prompt_select_auth_method,
-    prompt_select_oauth_provider, resolve_provider_name,
+    AuthMethod, login_choices, prompt_auth_method, prompt_select_login_provider, resolve_provider_name,
 };
 pub use terminal::{open_url_in_browser_async, prompt_password, read_key_from_reader, read_key_from_stdin};
 
@@ -36,17 +35,10 @@ async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mu
     Ok(())
 }
 
-fn resolve_login_target(provider: Option<&str>, config: &Config) -> Result<(String, Option<AuthMethod>)> {
+fn resolve_login_target(provider: Option<&str>, config: &Config, auth_store: &AuthStore) -> Result<String> {
     match provider {
-        Some(name) => Ok((resolve_provider_name(Some(name), &config.provider), None)),
-        None => {
-            let method = prompt_select_auth_method()?;
-            let target = match method {
-                AuthMethod::OAuth => prompt_select_oauth_provider()?,
-                AuthMethod::ApiKey => prompt_select_api_key_provider(config)?,
-            };
-            Ok((target, Some(method)))
-        }
+        Some(name) => Ok(resolve_provider_name(Some(name), &config.provider)),
+        None => prompt_select_login_provider(config, auth_store),
     }
 }
 
@@ -67,18 +59,8 @@ fn should_default_oauth(id: ProviderId) -> Result<bool> {
     }
 }
 
-async fn try_oauth_login(
-    id: ProviderId,
-    method: Option<AuthMethod>,
-    config: &Config,
-    auth_store: &mut AuthStore,
-) -> Result<bool> {
-    let should_oauth = match method {
-        Some(AuthMethod::OAuth) => true,
-        Some(AuthMethod::ApiKey) => false,
-        None => should_default_oauth(id)?,
-    };
-    if should_oauth {
+async fn try_oauth_login(id: ProviderId, config: &Config, auth_store: &mut AuthStore) -> Result<bool> {
+    if should_default_oauth(id)? {
         perform_oauth_and_save(id, config, auth_store).await?;
         Ok(true)
     } else {
@@ -125,14 +107,14 @@ pub async fn login_provider(
         ));
     }
 
-    let (target, method) = resolve_login_target(provider, config)?;
+    let target = resolve_login_target(provider, config, auth_store)?;
     if target == "local" {
         println!("Local models run offline and do not require credentials.");
         return Ok(());
     }
     if !key_stdin
         && let Some(id) = Connection::parse(&target).provider_id()
-        && try_oauth_login(id, method, config, auth_store).await?
+        && try_oauth_login(id, config, auth_store).await?
     {
         return Ok(());
     }

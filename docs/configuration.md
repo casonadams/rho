@@ -27,6 +27,10 @@ inference:
 | `ollama-cloud` | API Key            | `OLLAMA_API_KEY` or `rho login ollama-cloud`      |
 | `local`        | Local Daemon       | `OLLAMA_HOST` (default: `http://127.0.0.1:11434`) |
 
+`rho login` without a provider lists the same providers as `/login`, custom
+providers included, with each one's login mode, signed-in accounts, and a `✓`
+when it already has credentials.
+
 `OLLAMA_HOST` follows Ollama's own rules: a bare `host` or `host:port` uses
 plain HTTP and port 11434, and `0.0.0.0` connects through loopback.
 

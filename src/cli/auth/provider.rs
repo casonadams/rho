@@ -1,7 +1,9 @@
+use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::Result;
-use rho_harness_core::provider::Connection;
+use rho_harness_core::provider::{Connection, ProviderId};
 use std::io::IsTerminal;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMethod {
@@ -9,37 +11,53 @@ pub enum AuthMethod {
     OAuth,
 }
 
-pub fn oauth_provider_options() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("antigravity", "Google Cloud Code Assist"),
-        ("chatgpt", "ChatGPT Plus/Pro subscription"),
-        ("claude", "Claude Pro/Max subscription"),
-        ("openrouter", "OpenRouter account (OAuth PKCE)"),
-    ]
+/// A provider offered by both `rho login` and `/login`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginChoice {
+    pub name: String,
+    pub description: String,
+    pub signed_in: bool,
 }
 
-pub fn api_key_provider_options(config: &Config) -> Vec<(String, String)> {
-    let mut options = vec![
-        ("anthropic".to_string(), "Claude models".to_string()),
-        ("cohere".to_string(), "Command models".to_string()),
-        ("deepseek".to_string(), "DeepSeek models".to_string()),
-        ("gemini".to_string(), "Gemini models".to_string()),
-        ("groq".to_string(), "Fast open-weight inference".to_string()),
-        ("mistral".to_string(), "Mistral and Codestral models".to_string()),
-        ("ollama-cloud".to_string(), "Hosted open models".to_string()),
-        ("openai".to_string(), "GPT and reasoning models".to_string()),
-        ("openrouter".to_string(), "Universal model gateway".to_string()),
-        ("xai".to_string(), "Grok models".to_string()),
-    ];
-
-    for custom_name in config.providers.keys() {
-        if !options.iter().any(|(id, _)| id == custom_name) {
-            options.push((custom_name.clone(), "Configured provider".to_string()));
-        }
+/// The provider's description and login mode, plus each signed-in account's email.
+fn builtin_description(auth_store: &AuthStore, provider: ProviderId) -> String {
+    let desc = format!("{} ({})", provider.info().description, provider.auth_mode_label());
+    let logins = auth_store.logins(provider);
+    let emails: Vec<&str> = logins.iter().filter_map(|login| login.email.as_deref()).collect();
+    if emails.is_empty() {
+        desc
+    } else {
+        format!("{desc} · {}", emails.join(", "))
     }
+}
 
-    options.sort_by(|a, b| a.0.cmp(&b.0));
-    options
+/// Every builtin provider that takes a login, then each custom provider from the config.
+pub fn login_choices(config: &Config, auth_store: &AuthStore) -> Vec<LoginChoice> {
+    let configured = auth_store.list_configured_providers();
+    let signed_in = |name: &str| configured.iter().any(|p| Connection::parse(p).provider == name);
+    let builtin = ProviderId::ALL
+        .into_iter()
+        .filter(|&id| id != ProviderId::Local)
+        .map(|id| LoginChoice {
+            name: id.as_str().to_string(),
+            description: builtin_description(auth_store, id),
+            signed_in: signed_in(id.as_str()),
+        });
+    let custom = config
+        .providers
+        .keys()
+        .filter(|name| ProviderId::from_str(name).is_err())
+        .map(|name| LoginChoice {
+            name: name.clone(),
+            description: "Configured provider (API key)".to_string(),
+            signed_in: signed_in(name),
+        });
+    builtin.chain(custom).collect()
+}
+
+fn login_choice_item(choice: &LoginChoice) -> String {
+    let mark = if choice.signed_in { "  ✓" } else { "" };
+    format!("{:<14} {}{mark}", choice.name, choice.description)
 }
 
 pub(crate) fn parse_selection_choice(input: &str, count: usize) -> Result<usize> {
@@ -84,30 +102,17 @@ fn prompt_select_from_list(prompt: &str, items: &[String]) -> Result<usize> {
     prompt_select_from(&mut stdin, &mut stdout, prompt, items)
 }
 
-pub fn prompt_select_auth_method() -> Result<AuthMethod> {
-    prompt_auth_choice(
-        prompt_select_from_list,
-        "Select authentication method:",
-        [
-            "API key (Anthropic, OpenAI, Gemini, etc.)",
-            "OAuth / Subscription (ChatGPT, Claude, Antigravity, OpenRouter)",
-        ],
-        [AuthMethod::ApiKey, AuthMethod::OAuth],
-    )
+pub(crate) fn select_login_provider(
+    choices: &[LoginChoice],
+    select: impl FnOnce(&str, &[String]) -> Result<usize>,
+) -> Result<String> {
+    let items: Vec<String> = choices.iter().map(login_choice_item).collect();
+    let idx = select("Select provider to log in:", &items)?;
+    Ok(choices[idx].name.clone())
 }
 
-pub fn prompt_select_oauth_provider() -> Result<String> {
-    let options = oauth_provider_options();
-    let items: Vec<String> = options.iter().map(|(id, desc)| format!("{id:<14} [{desc}]")).collect();
-    let idx = prompt_select_from_list("Select provider to log in:", &items)?;
-    Ok(options[idx].0.to_string())
-}
-
-pub fn prompt_select_api_key_provider(config: &Config) -> Result<String> {
-    let options = api_key_provider_options(config);
-    let items: Vec<String> = options.iter().map(|(id, desc)| format!("{id:<14} [{desc}]")).collect();
-    let idx = prompt_select_from_list("Select provider to configure:", &items)?;
-    Ok(options[idx].0.to_string())
+pub fn prompt_select_login_provider(config: &Config, auth_store: &AuthStore) -> Result<String> {
+    select_login_provider(&login_choices(config, auth_store), prompt_select_from_list)
 }
 
 pub(crate) fn prompt_auth_choice(

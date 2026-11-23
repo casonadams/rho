@@ -4,58 +4,15 @@ use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use rho_harness_core::provider::{Connection, ProviderId};
-use std::str::FromStr;
-
-fn format_provider_option(id: &str, desc: &str, configured: &[String]) -> ModalOption {
-    let logged_in = configured.iter().any(|p| Connection::parse(p).provider == id);
-    super::marked_option(id, desc, logged_in)
-}
-
-fn append_custom_providers(options: &mut Vec<ModalOption>, session: &ReplSession, configured: &[String]) {
-    for custom_name in session.config.providers.keys() {
-        if ProviderId::from_str(custom_name).is_err() {
-            options.push(format_provider_option(
-                custom_name,
-                "Configured provider (API key)",
-                configured,
-            ));
-        }
-    }
-}
-
-/// The provider's description and login mode, plus each signed-in account's email.
-fn login_description(session: &ReplSession, provider: ProviderId) -> String {
-    let info = provider.info();
-    let desc = format!("{} ({})", info.description, provider.auth_mode_label());
-    let logins = session.auth_store.logins(provider);
-    let emails: Vec<&str> = logins.iter().filter_map(|login| login.email.as_deref()).collect();
-    if emails.is_empty() {
-        desc
-    } else {
-        format!("{desc} · {}", emails.join(", "))
-    }
-}
 
 fn build_login_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
-    let configured = session.auth_store.list_configured_providers();
     let active_provider = session.config.route().connection.provider;
-    let mut options = Vec::new();
-    let mut initial_selection = 0;
-
-    let providers = ProviderId::ALL.into_iter().filter(|&id| id != ProviderId::Local);
-    for (i, provider) in providers.enumerate() {
-        if provider.as_str() == active_provider {
-            initial_selection = i;
-        }
-        options.push(format_provider_option(
-            provider.as_str(),
-            &login_description(session, provider),
-            &configured,
-        ));
-    }
-
-    append_custom_providers(&mut options, session, &configured);
+    let choices = crate::cli::auth::login_choices(&session.config, &session.auth_store);
+    let initial_selection = choices.iter().position(|c| c.name == active_provider).unwrap_or(0);
+    let options = choices
+        .iter()
+        .map(|c| super::marked_option(&c.name, &c.description, c.signed_in))
+        .collect();
     (options, initial_selection)
 }
 

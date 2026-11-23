@@ -1,4 +1,4 @@
-use super::provider::{AuthMethod, api_key_provider_options, oauth_provider_options, resolve_provider_name};
+use super::provider::{AuthMethod, login_choices, resolve_provider_name, select_login_provider};
 use crate::config::Config;
 
 #[test]
@@ -15,26 +15,10 @@ fn built_in_names_canonicalize_and_custom_names_are_kept() {
     }
 }
 
-fn assert_descriptions_valid(options: &[(&str, &str)]) {
-    for (id, desc) in options {
-        assert!(desc.len() <= 40, "{id} desc too long: {desc}");
-        assert!(
-            !desc.contains("3.5") && !desc.contains("4o") && !desc.contains("2.0"),
-            "{id} contains version: {desc}"
-        );
-    }
-}
-
 #[test]
-fn oauth_provider_options_are_filtered_and_concise() {
-    let options = oauth_provider_options();
-    let ids: Vec<&str> = options.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, vec!["antigravity", "chatgpt", "claude", "openrouter"]);
-    assert_descriptions_valid(&options);
-}
+fn login_choices_offer_every_builtin_login_then_custom_providers() {
+    use rho_harness_core::provider::ProviderId;
 
-#[test]
-fn api_key_provider_options_are_filtered_and_concise() {
     let mut config = Config::default();
     config.providers.insert(
         "custom-llm".to_string(),
@@ -44,17 +28,56 @@ fn api_key_provider_options_are_filtered_and_concise() {
             default_model: None,
         },
     );
+    let temp_auth = rho_test_support::TestFile::new();
+    let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
+    auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
 
-    let options = api_key_provider_options(&config);
-    for excluded in ["local", "chatgpt", "antigravity", "claude"] {
-        assert!(!options.iter().any(|(id, _)| id == excluded));
-    }
-    assert!(options.iter().any(|(id, _)| id == "openrouter") && options.iter().any(|(id, _)| id == "custom-llm"));
+    let choices = login_choices(&config, &auth_store);
+    let names: Vec<&str> = choices.iter().map(|c| c.name.as_str()).collect();
+    let mut expected: Vec<&str> = ProviderId::ALL
+        .into_iter()
+        .filter(|&id| id != ProviderId::Local)
+        .map(ProviderId::as_str)
+        .collect();
+    expected.push("custom-llm");
+    assert_eq!(names, expected);
 
-    let ids: Vec<&str> = options.iter().map(|(id, _)| id.as_str()).collect();
-    let mut sorted = ids.clone();
-    sorted.sort();
-    assert_eq!(ids, sorted);
+    let choice = |name: &str| choices.iter().find(|c| c.name == name).unwrap();
+    assert!(choice("ollama-cloud").signed_in);
+    assert!(choice("ollama-cloud").description.ends_with("(API key)"));
+    assert!(choice("openrouter").description.ends_with("(OAuth or API key)"));
+    assert!(!choice("custom-llm").signed_in);
+}
+
+#[test]
+fn select_login_provider_lists_each_choice_and_returns_the_pick() {
+    use super::provider::LoginChoice;
+
+    let choices = [
+        LoginChoice {
+            name: "claude".to_string(),
+            description: "Claude subscription".to_string(),
+            signed_in: true,
+        },
+        LoginChoice {
+            name: "ollama-cloud".to_string(),
+            description: "Hosted open models".to_string(),
+            signed_in: false,
+        },
+    ];
+    let picked = select_login_provider(&choices, |prompt, items| {
+        assert_eq!(prompt, "Select provider to log in:");
+        assert_eq!(
+            items,
+            [
+                "claude         Claude subscription  ✓",
+                "ollama-cloud   Hosted open models"
+            ]
+        );
+        Ok(1)
+    })
+    .unwrap();
+    assert_eq!(picked, "ollama-cloud");
 }
 
 #[test]
@@ -183,20 +206,10 @@ async fn test_try_oauth_login_skips_when_api_key_or_unsupported() {
     let temp_auth = rho_test_support::TestFile::new();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
 
-    let res1 = super::try_oauth_login(
-        ProviderId::OpenAi,
-        Some(super::AuthMethod::ApiKey),
-        &config,
-        &mut auth_store,
-    )
-    .await
-    .unwrap();
-    assert!(!res1);
-
-    let res2 = super::try_oauth_login(ProviderId::OpenAi, None, &config, &mut auth_store)
+    let res = super::try_oauth_login(ProviderId::OpenAi, &config, &mut auth_store)
         .await
         .unwrap();
-    assert!(!res2);
+    assert!(!res);
 }
 
 #[test]
@@ -257,11 +270,13 @@ fn test_prompt_auth_choice_maps_selection_to_method() {
 
 #[test]
 fn test_prompt_auth_fns_unavailable_without_terminal() {
-    use super::provider::{prompt_auth_method, prompt_select_auth_method};
+    use super::provider::{prompt_auth_method, prompt_select_login_provider};
     use crate::error::AppError;
 
-    let results = [prompt_select_auth_method(), prompt_auth_method("Anthropic")];
-    for result in results {
-        assert!(matches!(result, Err(AppError::Cancelled(msg)) if msg == "Interactive selection unavailable"));
-    }
+    let temp_auth = rho_test_support::TestFile::new();
+    let auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
+    let provider = prompt_select_login_provider(&Config::default(), &auth_store);
+    assert!(matches!(provider, Err(AppError::Cancelled(msg)) if msg == "Interactive selection unavailable"));
+    let method = prompt_auth_method("Anthropic");
+    assert!(matches!(method, Err(AppError::Cancelled(msg)) if msg == "Interactive selection unavailable"));
 }
