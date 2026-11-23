@@ -1,9 +1,12 @@
 //! A subagent round: the subagent's instructions, tools, and budget run on the main agent's turn
 //! loop, with its conversation in memory and its output shown in its monitor record. The round
 //! adds what a delegated task needs around that loop: evidence of what its tools did, a summary
-//! when it stops early, and a pause when it asks the delegating agent a question.
+//! when it stops early, a pause when it asks the delegating agent a question, and the report it
+//! finishes with through `complete_task`.
 
+use super::complete::{CompleteTaskTool, take_report};
 use super::evidence::evidence;
+use super::lsp::{WorktreeLsp, WorktreeLspGuard};
 use super::observed::{AskParentTool, RecordedTool, Recorder, take_question};
 use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
@@ -31,7 +34,7 @@ use std::sync::Arc;
 
 pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
 const DEFAULT_MONITOR_GROUP: &str = "subagents";
-pub(crate) const READ_ONLY_TOOLS: [&str; 5] = ["read", "fd", "rg", "web_fetch", "web_search"];
+pub(crate) const READ_ONLY_TOOLS: [&str; 6] = ["read", "fd", "rg", "lsp", "web_fetch", "web_search"];
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
 const REPLY_HEADING: &str = "Reply from the delegating agent";
 /// Times one round may compact its conversation after overflowing the model's context.
@@ -43,10 +46,11 @@ pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) 
 }
 
 /// The tools whose names `keep` accepts, sorted by name so the tool list is stable across requests.
+/// `lsp` is limited to queries unless the tools can change files.
 pub(super) fn tools_named(tools: &[Arc<dyn EngineTool>], keep: impl Fn(&str) -> bool) -> Vec<Arc<dyn EngineTool>> {
     let mut kept: Vec<Arc<dyn EngineTool>> = tools.iter().filter(|t| keep(t.name())).cloned().collect();
     kept.sort_by(|a, b| a.name().cmp(b.name()));
-    kept
+    super::lsp::restrict_lsp(kept)
 }
 
 #[derive(Clone)]
@@ -68,6 +72,9 @@ pub struct SubagentRunner {
     task_id: Option<String>,
     /// Recent conversation a compaction keeps word for word.
     keep_recent_tokens: usize,
+    worktree_lsp: Option<WorktreeLsp>,
+    /// The worktree whose language servers the round started.
+    lsp_root: Option<std::path::PathBuf>,
 }
 
 /// How the turn loop finished: with the model's final text, stopped by the round's stop signal, or
@@ -93,6 +100,7 @@ struct RoundState {
     owner: String,
     presenter: Arc<dyn Presenter>,
     question_tool: Option<Arc<dyn EngineTool>>,
+    report_tool: Arc<dyn EngineTool>,
     compacted: bool,
 }
 
@@ -112,6 +120,7 @@ struct AgentSetup<'a> {
     turns_used: usize,
     recorder: &'a Arc<Recorder>,
     question_tool: Option<Arc<dyn EngineTool>>,
+    report_tool: Arc<dyn EngineTool>,
     stop: &'a CancellationSignal,
     /// The agent's monitor record, which its permission prompts mark as waiting for approval.
     tracker: Option<&'a AgentHandle>,
@@ -166,7 +175,26 @@ impl SubagentRunner {
             inbox: None,
             task_id: None,
             keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
+            worktree_lsp: None,
+            lsp_root: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_worktree_lsp(mut self, open: Option<WorktreeLsp>) -> Self {
+        self.worktree_lsp = open;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tool(&self, name: &str) -> Option<&Arc<dyn EngineTool>> {
+        self.tools.iter().find(|t| t.name() == name)
+    }
+
+    /// Stops the language servers the round starts in its worktree, on every exit path including
+    /// the round being dropped.
+    pub(crate) fn worktree_lsp_guard(&self) -> WorktreeLspGuard {
+        WorktreeLspGuard(self.lsp_root.clone())
     }
 
     /// How much recent conversation a compaction keeps word for word.
@@ -188,7 +216,8 @@ impl SubagentRunner {
     #[must_use]
     pub fn in_worktree(mut self, root: &std::path::Path) -> Self {
         self.isolated = true;
-        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root);
+        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root, self.worktree_lsp.as_ref());
+        self.lsp_root = self.worktree_lsp.as_ref().map(|_| root.to_path_buf());
         if let Some(project) = &self.ctx.project {
             let mut moved = (**project).clone();
             moved.current_dir = root.to_path_buf();
@@ -285,7 +314,7 @@ impl SubagentRunner {
             preamble.push_str(ASK_PARENT_GUIDANCE);
         }
         preamble.push_str(&format!(
-            "You have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to synthesize your final answer.\n\nUnless your task asks for a specific format, end with a final answer containing: a one-paragraph summary, findings with file:line references, files changed (if any), and open questions.",
+            "You have a budget of {} turns. Use early turns for targeted tool calls, and reserve remaining turns to write your report.\n\nWhen the task is done, call complete_task with your full report; only that report reaches the delegating agent. Unless your task asks for a specific format, the report contains: a one-paragraph summary, findings with file:line references, files changed (if any), and open questions.",
             self.max_turns
         ));
         preamble
@@ -440,6 +469,7 @@ impl SubagentRunner {
         }
         let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned(), self.ctx.progress.clone()));
         let (question_tool, questions) = AskParentTool::with_question_slot();
+        let (report_tool, report) = CompleteTaskTool::with_report_slot();
         let mut round = RoundState {
             run: Run {
                 transcript,
@@ -449,6 +479,7 @@ impl SubagentRunner {
             owner: self.owner(),
             presenter,
             question_tool: self.parent_channel.then_some(question_tool),
+            report_tool,
             compacted: false,
         };
         let mut compactions = 0;
@@ -472,14 +503,11 @@ impl SubagentRunner {
         }
         let end = match finish {
             Finish::Stopped => RoundEnd::Cancelled,
-            Finish::Done(text) => match take_question(&questions) {
-                Some(question) => RoundEnd::Asked(question),
-                None if text.trim().is_empty() => {
-                    self.salvage("ended without writing a final answer", &mut transcript, &stop)
-                        .await
-                }
-                None => RoundEnd::Answered(text),
-            },
+            Finish::Done(reply) => {
+                let question = take_question(&questions);
+                self.answered(reply, question, take_report(&report), &mut transcript, &stop)
+                    .await
+            }
             Finish::Failed(error) => self.ended_by(error, &mut transcript, &stop).await,
         };
         Drive {
@@ -487,6 +515,29 @@ impl SubagentRunner {
             transcript,
             tally: round.run.tally,
             compacted: round.compacted,
+        }
+    }
+
+    /// How a round whose turns finished ends: a question waits for its reply, a `complete_task`
+    /// report is the answer, and otherwise the last reply is, unless it is empty.
+    async fn answered(
+        &self,
+        reply: String,
+        question: Option<String>,
+        report: Option<String>,
+        transcript: &mut Vec<ChatMessage>,
+        stop: &CancellationSignal,
+    ) -> RoundEnd {
+        if let Some(question) = question {
+            return RoundEnd::Asked(question);
+        }
+        match report {
+            Some(report) => RoundEnd::Answered(report),
+            None if reply.trim().is_empty() => {
+                self.salvage("ended without writing a final answer", transcript, stop)
+                    .await
+            }
+            None => RoundEnd::Answered(reply),
         }
     }
 
@@ -516,6 +567,7 @@ impl SubagentRunner {
             turns_used: round.run.tally.turns,
             recorder,
             question_tool: round.question_tool.clone(),
+            report_tool: round.report_tool.clone(),
             stop,
             tracker,
         });
@@ -553,6 +605,7 @@ impl SubagentRunner {
             .map(|tool| RecordedTool::wrap(tool.clone(), setup.recorder))
             .collect();
         tools.extend(setup.question_tool);
+        tools.push(setup.report_tool);
         let observer: Arc<dyn ToolObserver> = setup.recorder.clone();
         AgentRunner::with_store(
             self.model.clone(),

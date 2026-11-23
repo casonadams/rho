@@ -5,8 +5,8 @@ fn write(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
-fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("rho_workflow_{label}_{}", uuid::Uuid::new_v4()))
+fn temp_root(label: &str) -> rho_test_support::TestDir {
+    rho_test_support::TestDir::with_prefix(&format!("rho_workflow_{label}_"))
 }
 
 #[test]
@@ -54,7 +54,6 @@ fn loads_bundles_and_single_files_with_project_overriding_user() {
     let (owner, round) = catalog.resolve_call(refine, "round").unwrap();
     assert_eq!(owner.name, "refine");
     assert_eq!(round.inputs[0].name, "profile");
-    std::fs::remove_dir_all(root).ok();
 }
 
 #[test]
@@ -92,7 +91,6 @@ fn invalid_workflows_are_reported_not_loaded() {
     ] {
         assert!(errors.contains(expected), "missing '{expected}' in:\n{errors}");
     }
-    std::fs::remove_dir_all(root).ok();
 }
 
 #[test]

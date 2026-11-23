@@ -3,6 +3,7 @@
 
 pub mod auth;
 mod commands;
+mod exit;
 pub mod mcp;
 pub mod rpc;
 mod runner;
@@ -25,7 +26,7 @@ use std::io::Read;
 struct ProcessCleanupGuard;
 impl Drop for ProcessCleanupGuard {
     fn drop(&mut self) {
-        rho_engine::process::kill_all_tracked_processes();
+        rho_engine::process::shutdown_children();
     }
 }
 
@@ -90,6 +91,7 @@ async fn dispatch_cli_run(
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     rho_engine::install_crypto_provider();
     let _process_cleanup = ProcessCleanupGuard;
+    exit::install_exit_handlers()?;
 
     let cli = <Cli as clap::Parser>::parse();
     let config = Config::load(Some(&cli))?;

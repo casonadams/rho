@@ -15,11 +15,11 @@ fn test_save_image_to_temp_png() {
         bytes: vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255],
     };
     let path = save_image_to_temp_png(&dummy).unwrap();
+    let _cleanup = rho_test_support::RemoveOnDrop(path.clone());
     assert!(path.exists());
     let reader = image::ImageReader::open(&path).unwrap().decode().unwrap();
     assert_eq!(reader.width(), 2);
     assert_eq!(reader.height(), 2);
-    let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]
@@ -30,11 +30,11 @@ async fn test_save_image_to_temp_png_async() {
         bytes: vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255],
     };
     let path = save_image_to_temp_png_async(&dummy).await.unwrap();
+    let _cleanup = rho_test_support::RemoveOnDrop(path.clone());
     assert!(path.exists());
     let reader = image::ImageReader::open(&path).unwrap().decode().unwrap();
     assert_eq!(reader.width(), 2);
     assert_eq!(reader.height(), 2);
-    let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]

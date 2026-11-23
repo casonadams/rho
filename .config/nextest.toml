@@ -1,4 +1,6 @@
 [profile.default]
+# Show failures, retries, slow and leaky tests but not the PASS line of each of ~2700 tests; `make test V=1` shows them.
+status-level = "leak"
 # AGENTS.md caps a test at 2.5 s; a test still running at 10 s is hung, so fail it by name instead of stalling `make all`.
 slow-timeout = { period = "5s", terminate-after = 2 }
 

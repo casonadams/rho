@@ -47,11 +47,7 @@ async fn handle_switch_branch_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let eng = ctx.engine.read().await;
-    let result = eng
-        .session_manager
-        .switch_branch(Some(node_id.to_string()))
-        .await
-        .map(|_| None);
+    let result = eng.switch_branch(Some(node_id.to_string())).await.map(|_| None);
     write_command_result(ctx.writer, req_id, "switch_branch", result).await
 }
 

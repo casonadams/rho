@@ -164,6 +164,7 @@ fn plural(unit: &str) -> String {
     match unit {
         "match" => "matches".into(),
         "entry" => "entries".into(),
+        "empty directory" => "empty directories".into(),
         _ => format!("{unit}s"),
     }
 }
@@ -357,6 +358,21 @@ mod tests {
         assert!(result.content.ends_with(
             "[showing files 1-1 of 1; only the first 1 files in sort order can be paged; narrow with path, type, or pattern to reach the rest]"
         ));
+    }
+
+    #[test]
+    fn count_noun_pluralizes_each_unit_correctly() {
+        let cases = [
+            (1, "empty directory", "1 empty directory"),
+            (2, "empty directory", "2 empty directories"),
+            (2, "entry", "2 entries"),
+            (0, "match", "0 matches"),
+            (3, "file", "3 files"),
+            (2, "code action", "2 code actions"),
+        ];
+        for (count, unit, expected) in cases {
+            assert_eq!(count_noun(count, unit), expected);
+        }
     }
 
     #[test]

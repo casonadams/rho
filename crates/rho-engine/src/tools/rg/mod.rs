@@ -1,11 +1,15 @@
 mod entry;
 mod query;
+mod sink;
 #[cfg(test)]
 mod tests;
 
 pub use entry::{FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, format_files, format_lines};
 pub use query::{MAX_RG_FILE_BYTES, RgQuery};
 pub use rho_harness_core::args::{RgArgs, RgOutputMode};
+pub use sink::{HitLine, MatchBlock};
+
+pub const MAX_RG_CONTEXT: usize = 10;
 
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::listing::PageRequest;
@@ -28,7 +32,8 @@ async fn validate_rg_params(
     if pattern.is_empty() {
         return Err(ToolResult::error("Empty pattern provided for rg tool"));
     }
-    let matcher = compile_matcher(pattern).map_err(ToolResult::error)?;
+    let multiline = args.multiline.unwrap_or(false);
+    let matcher = compile_matcher(pattern, multiline).map_err(ToolResult::error)?;
     let types = build_type_matcher(args.file_type.as_deref()).map_err(ToolResult::error)?;
     let workspace = Workspace::new(base_dir);
     let search_root = search_root(&workspace, args.path.as_deref())
@@ -58,6 +63,8 @@ impl RgTool {
             types,
             include_hidden: args.hidden.unwrap_or(false),
             mode: args.output_mode.unwrap_or_default(),
+            context: args.context.unwrap_or(0).min(MAX_RG_CONTEXT),
+            multiline: args.multiline.unwrap_or(false),
             timeout: None,
             cancellation: None,
         };
@@ -70,9 +77,10 @@ impl RgTool {
     }
 }
 
-fn compile_matcher(pattern: &str) -> Result<RegexMatcher, String> {
+fn compile_matcher(pattern: &str, multiline: bool) -> Result<RegexMatcher, String> {
     RegexMatcherBuilder::new()
         .case_insensitive(is_smart_case_insensitive(pattern))
+        .multi_line(multiline)
         .build(pattern)
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
 }

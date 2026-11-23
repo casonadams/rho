@@ -33,6 +33,7 @@ pub(crate) enum ConfigKey {
     SearchEngine,
     WebSearchEnabled,
     WebFetchEnabled,
+    LspEnabled,
     McpEnabled,
     PermissionEnabled,
     GuardModel,
@@ -106,6 +107,7 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
     ),
     (ConfigKey::WebSearchEnabled, "tools.web.search.enabled", &["web_search"]),
     (ConfigKey::WebFetchEnabled, "tools.web.fetch.enabled", &["web_fetch"]),
+    (ConfigKey::LspEnabled, "tools.lsp.enabled", &["lsp"]),
     (ConfigKey::McpEnabled, "mcp.enabled", &["mcp"]),
     (ConfigKey::PermissionEnabled, "permission.enabled", &["permission"]),
     (ConfigKey::GuardModel, "models.guard", &["guard_model", "guard"]),
@@ -135,7 +137,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 36] = [
+    const ALL_KEYS: [ConfigKey; 37] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -167,6 +169,7 @@ mod tests {
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,
         ConfigKey::WebFetchEnabled,
+        ConfigKey::LspEnabled,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
         ConfigKey::GuardModel,
@@ -208,6 +211,7 @@ mod tests {
             ("search_provider", ConfigKey::SearchEngine),
             ("web_search", ConfigKey::WebSearchEnabled),
             ("web_fetch", ConfigKey::WebFetchEnabled),
+            ("lsp", ConfigKey::LspEnabled),
             ("mcp", ConfigKey::McpEnabled),
             ("permission", ConfigKey::PermissionEnabled),
             ("guard", ConfigKey::GuardModel),

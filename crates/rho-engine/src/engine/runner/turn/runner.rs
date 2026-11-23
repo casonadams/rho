@@ -143,6 +143,7 @@ pub struct AgentRunner {
     monitor: Option<rho_harness_core::agents::AgentMonitor>,
     project: Option<Arc<crate::engine::context::ProjectContext>>,
     worktrees: Option<crate::worktree::WorktreeStore>,
+    context_budget: Option<crate::engine::tracking::ContextBudget>,
 }
 
 impl AgentRunner {
@@ -208,6 +209,7 @@ impl AgentRunner {
             monitor: None,
             project: None,
             worktrees: None,
+            context_budget: None,
         }
     }
 
@@ -303,36 +305,38 @@ impl AgentRunner {
         self
     }
 
+    /// Tells the model how full its context window is, once per notice percentage it crosses.
+    pub fn context_budget(mut self, budget: Option<crate::engine::tracking::ContextBudget>) -> Self {
+        self.context_budget = budget;
+        self
+    }
+
     pub fn working_dir(mut self, working_dir: impl Into<std::path::PathBuf>) -> Self {
         self.working_dir = working_dir.into();
         self
     }
 
-    fn parent_history_snapshot(&self) -> Arc<[ChatMessage]> {
-        let mut snapshot: Vec<ChatMessage> = self.history.clone();
-        if !self.prompt.trim().is_empty() {
-            snapshot.push(ChatMessage::user(self.prompt.clone()));
-        }
-        snapshot.into()
-    }
-
-    pub fn stream(mut self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
+    fn bind_tools(&mut self, history: &[ChatMessage]) {
         let turn_ctx = TurnToolContext {
             permission: self.permission.clone(),
             lifecycle: self.lifecycle.clone(),
             cancellation: self.cancellation.clone(),
             progress: self.stream_port.clone().unwrap_or_default(),
-            parent_history: self.parent_history_snapshot(),
+            parent_history: history.into(),
             monitor: self.monitor.clone(),
             project: self.project.clone(),
             session: self.session_manager.clone(),
             inbox: self.inbox.clone(),
+            steering: self.steering.clone(),
         };
         self.tools = self
             .tools
             .iter()
             .map(|tool| tool.bind_turn(&turn_ctx).unwrap_or_else(|| tool.clone()))
             .collect();
+    }
+
+    pub fn stream(self) -> Pin<Box<dyn Stream<Item = Result<MultiTurnStreamItem, AppError>> + Send>> {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let emitter = TurnEmitter {
             tx,
@@ -370,13 +374,32 @@ fn tool_result_contents(message: ChatMessage) -> Vec<rho_harness_core::model::Us
     }
 }
 
+/// Appends `notice` to the last tool result in `results`, the newest content of the next request;
+/// false when there is none.
+fn append_to_last_tool_result(results: &mut [rho_harness_core::model::UserContent], notice: &str) -> bool {
+    use rho_harness_core::model::{ToolResultContent, UserContent};
+    let Some(UserContent::ToolResult(result)) = results
+        .iter_mut()
+        .rev()
+        .find(|item| matches!(item, UserContent::ToolResult(_)))
+    else {
+        return false;
+    };
+    match result.content.last_mut() {
+        Some(ToolResultContent::Text(text)) => text.text.push_str(&format!("\n\n{notice}")),
+        _ => result.content.push(ToolResultContent::text(notice)),
+    }
+    true
+}
+
 /// Runs the batch and adds its results to the turn; returns whether a tool ended the turn.
 async fn dispatch_tool_calls(
-    outcome_calls: &[ToolCall],
+    outcome: &TurnStreamOutcome,
     runner: &AgentRunner,
     ctx: &mut RunnerStepContext<'_>,
     emitter: &TurnEmitter,
 ) -> Result<bool, AppError> {
+    let outcome_calls = &outcome.tool_calls;
     let mut exec_ctx = ToolExecutionContext {
         tools: &runner.tools,
         sink: &runner.sink,
@@ -413,6 +436,10 @@ async fn dispatch_tool_calls(
             CallControl::EndTurn => ends_turn = true,
             CallControl::Continue => {}
         }
+    }
+    let used = crate::engine::display::consumed_context_tokens(&outcome.usage);
+    if let Some(budget) = &runner.context_budget {
+        budget.notice(used, |notice| append_to_last_tool_result(&mut results, notice));
     }
     let batch = ChatMessage::User { content: results };
     ctx.current_messages.push(batch.clone());
@@ -498,7 +525,7 @@ async fn execute_agent_step(
         return Ok(StepExecutionResult::Complete(prompt_response(outcome.text, ctx)));
     }
 
-    if dispatch_tool_calls(&outcome.tool_calls, runner, ctx, emitter).await? {
+    if dispatch_tool_calls(&outcome, runner, ctx, emitter).await? {
         return Ok(StepExecutionResult::Complete(prompt_response(outcome.text, ctx)));
     }
     delivery::deliver_messages(runner, ctx, emitter).await?;
@@ -554,12 +581,13 @@ async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>
     Ok((current_messages, new_turn_messages))
 }
 
-async fn run_agent_loop(runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
+async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
     let mut saved = TurnCheckpoint {
         exists: runner.store.has_checkpoint().await?,
         len: 0,
     };
     let (mut current_messages, mut new_turn_messages) = initial_turn_messages(&runner).await?;
+    runner.bind_tools(&current_messages);
 
     let mut turn = 0;
     let mut total_usage = StructuralUsage::default();

@@ -62,7 +62,7 @@ fn assert_redacted(completed: &[rho_engine::engine::runner::CompletedTool], disp
 
 #[test]
 fn terminal_sink_redacts_secret_tool_arguments_and_results() {
-    let dir = std::env::temp_dir().join(format!("sink_secret_{}", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
     let session = SessionManager::new_with_secrets(&dir, None, vec!["credential-sentinel".to_string()]).unwrap();
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);

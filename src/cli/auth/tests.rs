@@ -89,7 +89,7 @@ fn read_key_from_reader_empty_or_whitespace_fails() {
 #[tokio::test]
 async fn login_provider_key_stdin_without_provider_fails() {
     let config = Config::default();
-    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let temp_auth = rho_test_support::TestFile::new();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
     let err = super::login_provider(None, true, &config, &mut auth_store)
         .await
@@ -123,7 +123,7 @@ fn default_oauth_provider_checks() {
 
 #[test]
 fn test_store_api_key_valid_and_empty() {
-    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let temp_auth = rho_test_support::TestFile::new();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
 
     let err = super::store_api_key("gemini", "  ", &mut auth_store).unwrap_err();
@@ -164,7 +164,7 @@ fn test_prompt_logout_selection() {
 #[test]
 fn test_logout_provider_named_and_empty_list() {
     let config = Config::default();
-    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let temp_auth = rho_test_support::TestFile::new();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
 
     assert!(super::logout_provider(None, &config, &mut auth_store).is_ok());
@@ -180,7 +180,7 @@ async fn test_try_oauth_login_skips_when_api_key_or_unsupported() {
     use rho_harness_core::provider::ProviderId;
 
     let config = Config::default();
-    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let temp_auth = rho_test_support::TestFile::new();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
 
     let res1 = super::try_oauth_login(

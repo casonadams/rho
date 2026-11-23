@@ -296,7 +296,9 @@ mod tests {
         in_flight.fetch_sub(1, Ordering::SeqCst);
         pool.touch_activity("echo").await;
 
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_millis(1100)).await;
+        tokio::time::resume();
         let reaped = pool.reap_idle_servers().await;
         assert_eq!(reaped, vec!["echo".to_string()]);
         assert_eq!(pool.active_instances_count().await, 0);
@@ -317,7 +319,9 @@ mod tests {
         let (_client, in_flight) = pool.get_or_connect("keep").await.unwrap();
         in_flight.fetch_sub(1, Ordering::SeqCst);
 
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_millis(1100)).await;
+        tokio::time::resume();
         let reaped = pool.reap_idle_servers().await;
         assert!(reaped.is_empty());
         assert_eq!(pool.active_instances_count().await, 1);

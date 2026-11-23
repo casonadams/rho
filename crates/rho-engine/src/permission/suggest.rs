@@ -32,7 +32,8 @@ pub fn suggested_rule(tool: &str, input: &str) -> String {
             Some((scheme, rest)) => format!("{scheme}://{}/*", rest.split('/').next().unwrap_or_default()),
             _ => "*".to_string(),
         },
-        "read" | "write" | "edit" => format!("{input}/*"),
+        "read" | "write" | "edit" | "undo" => format!("{input}/*"),
+        "lsp" if !input.starts_with('{') => format!("{input}/*"),
         _ => "*".to_string(),
     }
 }

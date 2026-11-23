@@ -1,6 +1,9 @@
 pub mod accumulator;
+pub mod failures;
 pub mod footer;
+mod log;
 pub mod normalize;
+mod poll;
 pub mod runner;
 pub mod sanitize;
 pub mod shell;
@@ -21,6 +24,7 @@ mod tests;
 
 pub struct BashTool {
     pub base_dir: PathBuf,
+    log_dir: PathBuf,
     /// The agent whose mailbox hears about commands this tool moves to the background.
     owner: Option<crate::mailbox::Mailbox>,
 }
@@ -29,15 +33,23 @@ impl BashTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
+            log_dir: accumulator::default_log_dir(),
             owner: None,
         }
+    }
+
+    /// Writes full output logs under `dir` instead of the shared temp-dir cache.
+    #[must_use]
+    pub fn with_log_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.log_dir = dir.into();
+        self
     }
 
     pub async fn execute_streaming<F>(&self, args: BashArgs, on_chunk: F) -> Result<ToolResult, AppError>
     where
         F: FnMut(&str) + Send + 'static,
     {
-        run_command_streaming(&self.base_dir, self.owner.as_ref(), &args, on_chunk)
+        run_command_streaming(&self.base_dir, &self.log_dir, self.owner.as_ref(), &args, on_chunk)
             .await
             .map(plain_text_for_model)
     }
@@ -66,6 +78,9 @@ impl TypedTool for BashTool {
     const NAME: &'static str = "bash";
 
     async fn run(&self, args: BashArgs) -> Result<ToolResult, AppError> {
+        if let Some(refusal) = poll::refusal(self.owner.as_ref(), &args) {
+            return Ok(refusal);
+        }
         self.execute(args).await
     }
 
@@ -73,6 +88,7 @@ impl TypedTool for BashTool {
         let owner = ctx.inbox.clone()?;
         Some(Arc::new(Self {
             base_dir: self.base_dir.clone(),
+            log_dir: self.log_dir.clone(),
             owner: Some(owner),
         }))
     }

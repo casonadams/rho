@@ -53,8 +53,8 @@ Everything needed to run model turns and tools:
   parsed once into a `ModelRoute` (`rho-harness-core::provider`).
 - `claude/`, `antigravity/`, `chatgpt/`, `ollama/` — provider-specific wire
   formats, SSE streaming, quota parsing, and OAuth flows (`auth/`).
-- `tools/` — built-in tools (bash, read, edit, write, fd, rg, web_fetch,
-  web_search, subagent) plus shared plumbing: output truncation, atomic writes,
+- `tools/` — built-in tools (bash, read, edit, write, undo, fd, rg, lsp, web_fetch,
+  web_search, subagent, worktree, memory, todo, wait) plus shared plumbing: output truncation, atomic writes,
   HTTP client singleton, rate limiting. `tools/workflow/` is the workflow
   executor behind `/workflow`; it is not a model tool. It runs steps itself,
   reuses `SubagentRunner` for agent steps, and runs commands directly without

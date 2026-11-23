@@ -274,36 +274,46 @@ fn test_prior_turn_successful_verbose_bash_output_is_pruned() {
 
 #[test]
 fn pruning_recognises_the_footer_the_bash_tool_writes() {
-    let footer = crate::tools::bash::footer::BashFooter {
-        lines: 30,
-        size: "300B".to_string(),
-        log_path: Some("/tmp/rho-bash/ab12cd34ef56.log".to_string()),
-    };
+    for (exit_code, status) in [(0, "exit 0"), (101, "exit 101")] {
+        let footer = crate::tools::bash::footer::BashFooter {
+            exit_code,
+            lines: 30,
+            size: "300B".to_string(),
+            log_path: Some("/tmp/rho-bash/ab12cd34ef56.log".to_string()),
+        };
+        assert_footer_prunes_to(
+            &footer,
+            &format!("[bash 'cargo test': {status}, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"),
+        );
+    }
+}
+
+fn assert_footer_prunes_to(footer: &crate::tools::bash::footer::BashFooter, stub: &str) {
     let output = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
-    let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &format!("{output}\n\n{}", footer.render()));
-    let history = vec![
-        ChatMessage::user("Please test"),
-        call_msg,
-        res_msg,
-        ChatMessage::assistant("Done"),
-        ChatMessage::user("Next"),
-    ];
+    let summary = "[1 failing test; details from log]\n- math::subtracts\n    assertion failed";
+    for body in [output.clone(), format!("{output}\n\n{summary}")] {
+        let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &format!("{body}\n\n{}", footer.render()));
+        let history = vec![
+            ChatMessage::user("Please test"),
+            call_msg,
+            res_msg,
+            ChatMessage::assistant("Done"),
+            ChatMessage::user("Next"),
+        ];
 
-    let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
 
-    let ChatMessage::User { content } = &pruned[2] else {
-        panic!()
-    };
-    let UserContent::ToolResult(res) = &content[0] else {
-        panic!()
-    };
-    let ToolResultContent::Text(text) = &res.content[0] else {
-        panic!()
-    };
-    assert_eq!(
-        text.text,
-        "[bash 'cargo test': exit 0, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"
-    );
+        let ChatMessage::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let ToolResultContent::Text(text) = &res.content[0] else {
+            panic!()
+        };
+        assert_eq!(text.text, stub);
+    }
 }
 
 #[test]
@@ -373,6 +383,8 @@ fn test_historical_failed_bash_output_with_log_path_pruned() {
     let spellings = [
         "[lines 1-500 of 1200 (50.0KB limit); log: /tmp/rho-bash-123.log]\n\n[exit 1]",
         "[Showing lines 1-500 of 1200 (50.0KB limit). Full output: /tmp/rho-bash-123.log]\n\nCommand exited with code 1",
+        "[lines 1-500 of 1200 (50.0KB limit); log: /tmp/rho-bash-123.log]\n\n\
+         [1 failing test; details from log]\n- math::subtracts\n    assertion failed\n\n[exit 1]",
     ];
     for footer in spellings {
         assert_failed_bash_stub(&format!("{err_body}\n\n{footer}"));
@@ -1335,6 +1347,90 @@ fn test_full_read_supersedes_earlier_partial_read() {
         collect_superseded_tool_call_ids(&messages),
         HashSet::from(["c1".to_string()])
     );
+}
+
+#[test]
+fn test_symbol_read_is_partial_and_never_supersedes_a_full_read() {
+    let messages = vec![
+        call_message("c1", "read", serde_json::json!({ "path": "src/lib.rs" })),
+        call_message(
+            "c2",
+            "read",
+            serde_json::json!({ "path": "src/lib.rs", "symbol": "Config.load" }),
+        ),
+    ];
+    assert!(collect_superseded_tool_call_ids(&messages).is_empty());
+}
+
+#[test]
+fn test_symbol_read_failures_are_not_pruned() {
+    let ambiguous = format!(
+        "'load' matches 2 symbols; qualify it (e.g. Type.method) or read by offset:\n{}",
+        "1-4 function load\n".repeat(80)
+    );
+    for output in [
+        ambiguous.as_str(),
+        "No symbol 'x' in src/lib.rs; lsp symbols with path lists them",
+        "symbol needs a language server, and none is enabled here",
+        "symbol cannot be combined with offset or limit; pass one or the other",
+    ] {
+        let (call_msg, res_msg) = make_read_turn("c1", "src/lib.rs", output);
+        let history = vec![
+            ChatMessage::user("Read"),
+            call_msg,
+            res_msg,
+            ChatMessage::assistant("ok"),
+            ChatMessage::user("Next"),
+        ];
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let ChatMessage::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let ToolResultContent::Text(text) = &res.content[0] else {
+            panic!()
+        };
+        assert_eq!(text.text, output);
+    }
+}
+
+fn make_turn(cid: &str, tool: &str, output: &str) -> (ChatMessage, ChatMessage) {
+    let (mut call, mut result) = make_read_turn(cid, "src/lib.rs", output);
+    if let ChatMessage::Assistant { content, .. } = &mut call
+        && let AssistantContent::ToolCall(tool_call) = &mut content[0]
+    {
+        tool_call.function.name = tool.to_string();
+    }
+    if let ChatMessage::User { content } = &mut result
+        && let UserContent::ToolResult(tool_result) = &mut content[0]
+    {
+        tool_result.name = tool.to_string();
+    }
+    (call, result)
+}
+
+#[test]
+fn a_later_call_supersedes_an_earlier_read_only_when_its_result_took_effect() {
+    let clipped = "line 1\n[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]";
+    let cases = [
+        ("edit", "Successfully applied 1 replacement(s) to src/lib.rs", true),
+        ("edit", "Edit #1: could not find the text to replace", false),
+        ("write", "Successfully wrote 4 bytes (1 lines) to src/lib.rs", true),
+        ("write", "Failed to write file src/lib.rs: denied", false),
+        ("read", "fn main() {}", true),
+        ("read", clipped, false),
+        ("read", "File not found: src/lib.rs", false),
+    ];
+    for (later, output, superseded) in cases {
+        let (earlier_call, earlier_result) = make_read_turn("c1", "src/lib.rs", "old content");
+        let (later_call, later_result) = make_turn("c2", later, output);
+
+        let ids = collect_superseded_tool_call_ids(&[earlier_call, earlier_result, later_call, later_result]);
+
+        assert_eq!(ids.contains("c1"), superseded, "{later}: {output}");
+    }
 }
 
 #[test]

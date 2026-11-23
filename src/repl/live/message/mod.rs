@@ -22,16 +22,11 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::CommandResult;
-use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{Activity, TerminalBackend};
 
-fn build_session_io<'a, 'b, B: TerminalBackend>(
-    io: &'a mut LiveIo<'b, B>,
-    history: &'a mut InteractiveHistory,
-) -> SessionCommandIo<'a, B> {
+fn build_session_io<'a, 'b, B: TerminalBackend>(io: &'a mut LiveIo<'b, B>) -> SessionCommandIo<'a, B> {
     SessionCommandIo {
         controller: io.controller,
-        history,
         input: io.input,
     }
 }
@@ -51,7 +46,7 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
         message: _,
     } = live;
 
-    let session_io = build_session_io(&mut io, editor.history);
+    let session_io = build_session_io(&mut io);
     if handle_session_command(&mut ctx, session_io, result.clone()).await? {
         flush_after_command(&mut io)?;
         return Ok(false);

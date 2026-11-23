@@ -28,6 +28,7 @@ pub mod engine;
 pub mod gemini;
 pub mod hook;
 pub(crate) mod http;
+pub mod lsp;
 pub mod mailbox;
 pub mod mcp;
 pub mod ollama;
@@ -36,6 +37,7 @@ pub mod process;
 pub mod provider;
 pub(crate) mod quota;
 pub mod repeat;
+pub mod review;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod tools;

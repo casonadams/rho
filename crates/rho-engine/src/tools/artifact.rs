@@ -57,13 +57,13 @@ fn prune_expired_files(files: &mut Vec<ArtifactFile>, cutoff: SystemTime) -> usi
     removed
 }
 
-fn prune_overflow_files(files: &mut [ArtifactFile], max_bytes: u64) -> usize {
+fn prune_overflow_files(files: &mut [ArtifactFile], max_bytes: u64, spare_after: SystemTime) -> usize {
     files.sort_by_key(|f| f.modified);
     let mut total_bytes: u64 = files.iter().map(|f| f.size).sum();
     let mut removed = 0;
 
     let mut idx = 0;
-    while total_bytes > max_bytes && idx < files.len() {
+    while total_bytes > max_bytes && idx < files.len() && files[idx].modified < spare_after {
         if std::fs::remove_file(&files[idx].path).is_ok() {
             total_bytes = total_bytes.saturating_sub(files[idx].size);
             removed += 1;
@@ -73,11 +73,21 @@ fn prune_overflow_files(files: &mut [ArtifactFile], max_bytes: u64) -> usize {
     removed
 }
 
-pub fn cleanup_artifacts(dir: &Path, max_age: Duration, max_total_bytes: u64) -> std::io::Result<usize> {
+/// Removes files older than `max_age`, then the oldest files while the total exceeds
+/// `max_total_bytes`, except files newer than `spare_newer_than`: another live process may still
+/// be pointing the model at them.
+pub fn cleanup_artifacts(
+    dir: &Path,
+    max_age: Duration,
+    max_total_bytes: u64,
+    spare_newer_than: Duration,
+) -> std::io::Result<usize> {
     let mut files = collect_artifact_files(dir)?;
-    let cutoff = SystemTime::now().checked_sub(max_age).unwrap_or(SystemTime::UNIX_EPOCH);
+    let now = SystemTime::now();
+    let cutoff = now.checked_sub(max_age).unwrap_or(SystemTime::UNIX_EPOCH);
+    let spare_after = now.checked_sub(spare_newer_than).unwrap_or(SystemTime::UNIX_EPOCH);
     let mut total_removed = prune_expired_files(&mut files, cutoff);
-    total_removed += prune_overflow_files(&mut files, max_total_bytes);
+    total_removed += prune_overflow_files(&mut files, max_total_bytes, spare_after);
     Ok(total_removed)
 }
 
@@ -116,12 +126,26 @@ mod tests {
         std::fs::write(&path2, vec![b'b'; 1000]).unwrap();
         std::fs::write(&path3, vec![b'c'; 1000]).unwrap();
 
-        let removed = cleanup_artifacts(dir.path(), Duration::from_secs(3600), 1500).unwrap();
+        let removed = cleanup_artifacts(dir.path(), Duration::from_secs(3600), 1500, Duration::ZERO).unwrap();
         assert!(removed >= 1);
 
         let files = collect_artifact_files(dir.path()).unwrap();
         let total_remaining: u64 = files.iter().map(|f| f.size).sum();
         assert!(total_remaining <= 2000);
+    }
+
+    #[test]
+    fn recent_files_are_spared_even_when_over_the_size_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a.log", "b.log", "c.log"] {
+            std::fs::write(dir.path().join(name), vec![b'x'; 1000]).unwrap();
+        }
+
+        let removed =
+            cleanup_artifacts(dir.path(), Duration::from_secs(3600), 1500, Duration::from_secs(3600)).unwrap();
+
+        assert_eq!(removed, 0);
+        assert_eq!(collect_artifact_files(dir.path()).unwrap().len(), 3);
     }
 
     #[test]

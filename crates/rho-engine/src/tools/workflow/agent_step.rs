@@ -250,7 +250,9 @@ impl Executor<'_> {
             Some(lease) => runner.clone().in_worktree(&lease.worktree().path),
             None => runner.clone(),
         };
+        let lsp_guard = runner.worktree_lsp_guard();
         let round = runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await;
+        lsp_guard.close().await;
         let worktree = match lease {
             Some(lease) => {
                 let record = settle(lease.worktree()).await?;

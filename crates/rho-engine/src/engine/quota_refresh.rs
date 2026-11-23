@@ -376,7 +376,8 @@ mod tests {
 
     #[tokio::test]
     async fn antigravity_project_prefers_a_real_stored_project_then_discovery() {
-        let store = tokio::sync::Mutex::new(temp_auth_store().1);
+        let (_dir, auth_store) = temp_auth_store();
+        let store = tokio::sync::Mutex::new(auth_store);
         assert_eq!(resolve_antigravity_credentials(&store, "antigravity").await, None);
 
         let login = oauth_login("tok-123", None, None);

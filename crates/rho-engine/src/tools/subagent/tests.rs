@@ -14,14 +14,14 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug)]
-struct TestModel {
+pub(super) struct TestModel {
     answer: String,
     usage: crate::engine::metrics::StructuralUsage,
     short_lived_answer: Option<String>,
 }
 
 impl TestModel {
-    fn answering(answer: &str) -> Self {
+    pub(super) fn answering(answer: &str) -> Self {
         Self {
             answer: answer.into(),
             usage: Default::default(),
@@ -182,6 +182,7 @@ fn test_role_tool_filtering() {
         dummy_tool("bash"),
         dummy_tool("fd"),
         dummy_tool("rg"),
+        dummy_tool("lsp"),
         dummy_tool("web_fetch"),
         dummy_tool("web_search"),
     ];
@@ -194,19 +195,29 @@ fn test_role_tool_filtering() {
     };
 
     let scout = names(SubagentRole::Scout);
-    assert_eq!(scout, vec!["fd", "read", "rg", "web_fetch", "web_search"]);
+    assert_eq!(scout, vec!["fd", "lsp", "read", "rg", "web_fetch", "web_search"]);
     assert!(!scout.iter().any(|n| n == "write" || n == "bash"));
 
-    assert_eq!(names(SubagentRole::Critic), vec!["fd", "read", "rg"]);
-    assert_eq!(names(SubagentRole::Planner), vec!["fd", "read", "rg"]);
+    assert_eq!(names(SubagentRole::Critic), vec!["fd", "lsp", "read", "rg"]);
+    assert_eq!(names(SubagentRole::Planner), vec!["fd", "lsp", "read", "rg"]);
     assert_eq!(
         names(SubagentRole::General),
-        vec!["bash", "edit", "fd", "read", "rg", "web_fetch", "web_search", "write"]
+        vec![
+            "bash",
+            "edit",
+            "fd",
+            "lsp",
+            "read",
+            "rg",
+            "web_fetch",
+            "web_search",
+            "write"
+        ]
     );
 }
 
 #[test]
-fn custom_agent_tools_follow_allow_and_deny_lists_and_never_include_subagent() {
+fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
     use rho_harness_core::agents::AgentMetadata;
     fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
         Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
@@ -217,14 +228,24 @@ fn custom_agent_tools_follow_allow_and_deny_lists_and_never_include_subagent() {
         dummy_tool("rg"),
         dummy_tool("read"),
         dummy_tool("bash"),
+        dummy_tool("edit"),
+        dummy_tool("lsp"),
         dummy_tool("subagent"),
+        dummy_tool("memory"),
+        dummy_tool("worktree"),
     ];
     let list = |names: &[&str]| Some(names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
     let cases = [
-        (None, None, vec!["bash", "read", "rg"]),
+        (None, None, vec!["lsp", "read", "rg"]),
         (list(&["READ", "subagent"]), None, vec!["read"]),
-        (None, list(&["Bash"]), vec!["read", "rg"]),
+        (None, list(&["rg"]), vec!["lsp", "read"]),
         (list(&["read", "bash"]), list(&["bash"]), vec!["read"]),
+        (
+            list(&["edit", "lsp", "bash", "subagent"]),
+            None,
+            vec!["bash", "edit", "lsp"],
+        ),
+        (list(&["read", "memory", "worktree"]), None, vec!["read"]),
     ];
     for (tools, disallowed_tools, expected) in cases {
         let agent = AgentMetadata {
@@ -331,7 +352,7 @@ fn test_prepare_history_for_recovery() {
     assert_eq!(sanitized[0], valid_msg);
 }
 
-fn tool_call_turn(calls: &[(&str, &str)]) -> Vec<ModelStreamEvent> {
+pub(super) fn tool_call_turn(calls: &[(&str, &str)]) -> Vec<ModelStreamEvent> {
     calls
         .iter()
         .enumerate()
@@ -344,11 +365,11 @@ fn tool_call_turn(calls: &[(&str, &str)]) -> Vec<ModelStreamEvent> {
         .collect()
 }
 
-fn text_turn(text: &str) -> Vec<ModelStreamEvent> {
+pub(super) fn text_turn(text: &str) -> Vec<ModelStreamEvent> {
     vec![ModelStreamEvent::Text(text.to_string())]
 }
 
-fn counting_tool(name: &'static str, calls: Arc<AtomicUsize>, output: String) -> Arc<dyn EngineTool> {
+pub(super) fn counting_tool(name: &'static str, calls: Arc<AtomicUsize>, output: String) -> Arc<dyn EngineTool> {
     Arc::new(GenericTool::new(name, "counts calls", json!({}), move |_| {
         calls.fetch_add(1, Ordering::SeqCst);
         let output = output.clone();
@@ -452,6 +473,75 @@ async fn a_message_arriving_with_the_answer_on_the_last_turn_leaves_the_answer_a
     assert!(result.content.starts_with("final answer"), "{}", result.content);
     assert_eq!(adapter.requests().len(), 1);
     assert_eq!(inbox.take()[0].body, "too late", "left for the undelivered report");
+}
+
+fn turn_with(narration: &str, name: &str, args: serde_json::Value) -> Vec<ModelStreamEvent> {
+    vec![
+        ModelStreamEvent::Text(narration.to_string()),
+        ModelStreamEvent::ToolCall(ToolCall::new(format!("call-{name}"), ToolFunction::new(name, args))),
+    ]
+}
+
+#[tokio::test]
+async fn the_complete_task_report_is_the_result_and_text_outside_it_is_not() {
+    let adapter = MockAdapter::from_turns([
+        turn_with("Quoting the guidelines first.", "read", json!({ "path": "src/a.rs" })),
+        turn_with(
+            "Wrapping up.",
+            "complete_task",
+            json!({ "result": " REPORT: a.rs:3 allocates " }),
+        ),
+        text_turn("never reached"),
+    ]);
+    let read = counting_tool("read", Arc::new(AtomicUsize::new(0)), "fn a() {}".into());
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[read], 5);
+
+    let result = runner.run("review", None).await;
+
+    assert!(!result.is_error, "{}", result.content);
+    assert!(
+        result.content.starts_with("REPORT: a.rs:3 allocates\n"),
+        "{}",
+        result.content
+    );
+    assert!(!result.content.contains("Wrapping up"), "{}", result.content);
+    assert!(!result.content.contains("Quoting"), "{}", result.content);
+    let requests = adapter.requests();
+    assert_eq!(requests.len(), 2, "the report ends the round");
+    assert!(requests[0].tools.iter().any(|t| t.name == "complete_task"));
+    let preamble = requests[0].preamble.as_deref().unwrap();
+    assert!(preamble.contains("call complete_task"), "{preamble}");
+}
+
+#[tokio::test]
+async fn a_message_waiting_when_the_task_is_completed_is_read_before_the_report_is_accepted() {
+    let adapter = MockAdapter::from_turns([
+        turn_with("", "complete_task", json!({ "result": "first report" })),
+        turn_with(
+            "",
+            "complete_task",
+            json!({ "result": "report covering the error path" }),
+        ),
+    ]);
+    let (boxes, _boss, inbox) = round_mailbox();
+    send(
+        &boxes,
+        crate::mailbox::Party::Agent("boss".into()),
+        "also cover the error path",
+    );
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_inbox(inbox.clone());
+
+    let result = runner.run("review", None).await;
+
+    assert!(
+        result.content.starts_with("report covering the error path"),
+        "{}",
+        result.content
+    );
+    let sent = serde_json::to_string(&adapter.requests()[1].messages).unwrap();
+    assert!(sent.contains("Not completed: a new message arrived"), "{sent}");
+    assert!(sent.contains("also cover the error path"), "{sent}");
+    assert!(inbox.take().is_empty());
 }
 
 #[tokio::test]
@@ -631,7 +721,7 @@ async fn unknown_tool_call_is_reported_back_to_the_model() {
 }
 
 #[derive(Default)]
-struct CollectedProgress(Mutex<Vec<String>>);
+pub(super) struct CollectedProgress(pub(super) Mutex<Vec<String>>);
 
 impl ToolStreamSink for CollectedProgress {
     fn tool_chunk(&self, chunk: String) {
@@ -692,7 +782,7 @@ fn agent(name: &str, tools: Option<&[&str]>) -> rho_harness_core::agents::AgentM
     }
 }
 
-fn named_tool(name: &'static str) -> Arc<dyn EngineTool> {
+pub(super) fn named_tool(name: &'static str) -> Arc<dyn EngineTool> {
     counting_tool(name, Arc::new(AtomicUsize::new(0)), "ok".into())
 }
 
@@ -757,7 +847,7 @@ async fn a_persona_adds_its_instructions_to_the_role_and_keeps_the_role_tools() 
         "{preamble}"
     );
     let tools: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(tools, ["read"]);
+    assert_eq!(tools, ["read", "complete_task"]);
 }
 
 #[tokio::test]
@@ -948,7 +1038,7 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
     let tool = SubagentTool::new(None, tools).with_agents(vec![
         agent("reader", Some(&["read", "rg"])),
         agent("writer", Some(&["read", "write"])),
-        agent("everything", None),
+        agent("unlisted", None),
         agent("toolless", Some(&[])),
     ]);
     let cases = [
@@ -957,7 +1047,7 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
         (json!({ "role": "general", "prompt": "p" }), false),
         (json!({ "agent": "reader", "prompt": "p" }), true),
         (json!({ "agent": "writer", "prompt": "p" }), false),
-        (json!({ "agent": "everything", "prompt": "p" }), false),
+        (json!({ "agent": "unlisted", "prompt": "p" }), true),
         (json!({ "agent": "toolless", "prompt": "p" }), false),
         (json!({ "agent": "missing", "prompt": "p" }), false),
         (json!({ "prompt": 7 }), false),
@@ -1118,303 +1208,4 @@ fn long_parent_message_keeps_both_its_opening_and_its_closing_text() {
     assert!(rendered.contains("OPENING"));
     assert!(rendered.contains("kumquat CLOSING"));
     assert!(rendered.contains("characters omitted"));
-}
-
-#[tokio::test]
-async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round() {
-    let adapter = MockAdapter::from_result_turns([
-        tool_call_turn(&[("read", "big")]).into_iter().map(Ok).collect(),
-        tool_call_turn(&[("read", "bigger")]).into_iter().map(Ok).collect(),
-        vec![Err(AppError::ContextOverflow("prompt is too long".into()))],
-        vec![Ok(ModelStreamEvent::Text(
-            "Read big and bigger; both were fine.".into(),
-        ))],
-        vec![Ok(ModelStreamEvent::Text("Done after compacting.".into()))],
-    ]);
-    let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
-    let runner =
-        SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5).with_keep_recent_tokens(1);
-
-    let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
-
-    assert_eq!(round.end, round::RoundEnd::Answered("Done after compacting.".into()));
-    assert_eq!(round.turns, 3, "turns before and after the compaction add up");
-    assert!(
-        matches!(&round.transcript[0], ChatMessage::System { content } if content.contains("Read big and bigger")),
-        "{:?}",
-        round.transcript[0]
-    );
-    let last = adapter.requests().pop().unwrap();
-    assert!(matches!(&last.messages[0], ChatMessage::System { .. }));
-    assert!(
-        last.messages.len() < 6,
-        "older turns were folded: {}",
-        last.messages.len()
-    );
-}
-
-#[tokio::test]
-async fn a_failure_before_the_first_reply_keeps_the_instruction_in_the_transcript() {
-    let adapter = MockAdapter::from_result_turns([vec![Err(AppError::Other(anyhow::anyhow!("boom")))]]);
-    let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5);
-
-    let round = runner
-        .run_round(
-            vec![ChatMessage::user("earlier")],
-            round::RoundInput::Prompt("check the lexer"),
-        )
-        .await;
-
-    assert!(matches!(round.end, round::RoundEnd::Failed(_)), "{:?}", round.end);
-    assert_eq!(round.transcript.last(), Some(&ChatMessage::user("check the lexer")));
-    assert_eq!(round.transcript.len(), 2);
-}
-
-#[tokio::test]
-async fn an_overflow_on_the_first_call_compacts_and_still_gives_the_model_the_instruction() {
-    let adapter = MockAdapter::from_result_turns([
-        vec![Err(AppError::ContextOverflow("prompt is too long".into()))],
-        vec![Ok(ModelStreamEvent::Text("Earlier: the parser was reviewed.".into()))],
-        vec![Ok(ModelStreamEvent::Text("Lexer checked.".into()))],
-    ]);
-    let mut history: Vec<ChatMessage> = (0..6)
-        .flat_map(|i| {
-            [
-                ChatMessage::user(format!("step {i}")),
-                ChatMessage::assistant("x".repeat(2_000)),
-            ]
-        })
-        .collect();
-    history.push(ChatMessage::user("the plan is settled"));
-    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_keep_recent_tokens(1);
-
-    let round = runner
-        .run_round(history, round::RoundInput::Prompt("check the lexer"))
-        .await;
-
-    assert_eq!(round.end, round::RoundEnd::Answered("Lexer checked.".into()));
-    assert!(round.compacted);
-    let last = adapter.requests().pop().unwrap();
-    assert_eq!(last.asked(), "check the lexer");
-    assert!(matches!(&last.messages[0], ChatMessage::System { .. }));
-    assert_eq!(
-        round
-            .transcript
-            .iter()
-            .filter(|m| **m == ChatMessage::user("check the lexer"))
-            .count(),
-        1,
-        "the instruction is in the conversation once"
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
-    let adapter = MockAdapter::from_turns([text_turn("done")]);
-    let boxes = crate::mailbox::Mailboxes::default();
-    let inbox = boxes.open("round-jobs-7a1", None);
-    let job = crate::tools::jobs::JobManager::global().register(
-        "round-jobs-7a1",
-        "round-jobs-7a1-job".into(),
-        "sleep".into(),
-    );
-    let stop = CancellationSignal::default();
-    let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5)
-        .with_inbox(inbox)
-        .with_cancellation(stop.clone());
-
-    let round = tokio::spawn(async move { runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await });
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    assert!(!round.is_finished(), "the round waits for its own background job");
-    stop.cancel();
-    let round = tokio::time::timeout(std::time::Duration::from_secs(5), round)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(round.end, round::RoundEnd::Cancelled);
-    assert!(job.is_cancelled(), "the round's own job is stopped with it");
-    crate::tools::jobs::JobManager::global().update_status(
-        "round-jobs-7a1-job",
-        crate::tools::jobs::JobStatus::Failed {
-            error: "test over".into(),
-        },
-    );
-}
-
-#[derive(Debug)]
-struct CrashingModel;
-
-#[async_trait::async_trait]
-impl ModelAdapter for CrashingModel {
-    fn model_name(&self) -> &str {
-        "crash"
-    }
-    fn provider_name(&self) -> &str {
-        "test"
-    }
-    async fn stream(
-        &self,
-        _request: ModelCompletionRequest,
-    ) -> Result<crate::provider::adapter::ModelEventStream, AppError> {
-        panic!("the provider client crashed");
-    }
-}
-
-#[tokio::test]
-async fn a_turn_that_dies_is_reported_as_a_failure_not_an_interruption() {
-    let runner = SubagentRunner::new(Arc::new(CrashingModel), SubagentRole::Scout, &[], 5);
-
-    let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("go")).await;
-
-    assert!(
-        matches!(&round.end, round::RoundEnd::Failed(text) if text.contains("ended unexpectedly")),
-        "{:?}",
-        round.end
-    );
-}
-
-#[tokio::test]
-async fn the_agent_view_gets_the_reply_and_reasoning_from_the_model_stream() {
-    let adapter = MockAdapter::from_turns([vec![
-        ModelStreamEvent::Reasoning("check the file first. ".into()),
-        ModelStreamEvent::Reasoning("then answer".into()),
-        ModelStreamEvent::Text("The file ".into()),
-        ModelStreamEvent::Text("is fine.".into()),
-        ModelStreamEvent::Finish(crate::provider::adapter::FinishReason::Stop),
-    ]]);
-    let monitor = rho_harness_core::agents::AgentMonitor::default();
-    let ctx = TurnToolContext {
-        monitor: Some(monitor.clone()),
-        ..Default::default()
-    };
-    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![named_tool("read")])
-        .bind_turn(&ctx)
-        .unwrap();
-
-    let result = tool
-        .execute(json!({ "role": "scout", "prompt": "look" }))
-        .await
-        .unwrap();
-
-    assert!(result.content.starts_with("The file is fine."), "{}", result.content);
-    let record = monitor.record(monitor.summaries()[0].id).unwrap();
-    assert_eq!(
-        record.events,
-        [
-            rho_harness_core::agents::AgentEvent::Task("look".into()),
-            rho_harness_core::agents::AgentEvent::Thinking("check the file first. then answer".into()),
-            rho_harness_core::agents::AgentEvent::Text("The file is fine.".into()),
-        ]
-    );
-}
-
-#[tokio::test]
-async fn named_subagents_label_progress_the_monitor_and_the_result() {
-    let adapter = MockAdapter::from_turns([tool_call_turn(&[("read", "x")]), text_turn("done")]);
-    let progress = Arc::new(CollectedProgress::default());
-    let monitor = rho_harness_core::agents::AgentMonitor::default();
-    let ctx = TurnToolContext {
-        progress: ToolStreamPort::new(Some(progress.clone())),
-        monitor: Some(monitor.clone()),
-        ..Default::default()
-    };
-    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![named_tool("read")])
-        .bind_turn(&ctx)
-        .unwrap();
-
-    let result = tool
-        .execute(json!({ "name": "performance audit", "role": "scout", "prompt": "go" }))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        *progress.0.lock().unwrap(),
-        vec!["subagent performanceAudit turn 1/100: read\n"]
-    );
-    let summaries = monitor.summaries();
-    assert_eq!(summaries[0].label, "performanceAudit · scout");
-    assert_eq!(summaries[0].status, rho_harness_core::agents::AgentStatus::Done);
-    assert!(
-        result
-            .content
-            .ends_with("[subagent performanceAudit: 2 turns, 1 tool calls, 0 tokens, mock-provider/mock-model]"),
-        "{}",
-        result.content
-    );
-}
-
-fn edit_tool(fails_for: &'static str) -> Arc<dyn EngineTool> {
-    Arc::new(GenericTool::new("edit", "edits", json!({}), move |args| async move {
-        if args["path"] == fails_for {
-            return Ok(ToolResult::error("oldText not found"));
-        }
-        Ok(ToolResult::success("edited"))
-    }))
-}
-
-fn edit_turn(paths: &[&str]) -> Vec<ModelStreamEvent> {
-    paths
-        .iter()
-        .enumerate()
-        .map(|(i, path)| {
-            ModelStreamEvent::ToolCall(ToolCall::new(
-                format!("call-{i}"),
-                ToolFunction::new("edit", json!({ "path": path })),
-            ))
-        })
-        .collect()
-}
-
-#[tokio::test]
-async fn results_list_changed_files_and_failed_tool_calls() {
-    let adapter = MockAdapter::from_turns([
-        edit_turn(&["src/a.rs", "./src/../src/missing.rs"]),
-        text_turn("fixed it"),
-    ]);
-    let runner = SubagentRunner::new(
-        Arc::new(adapter),
-        SubagentRole::General,
-        &[edit_tool("./src/../src/missing.rs")],
-        5,
-    );
-
-    let result = runner.run("fix", None).await;
-
-    assert_eq!(
-        result.content,
-        "fixed it\n\nFiles changed: src/a.rs\nTool outcomes: 1 ok, 1 error (edit src/missing.rs: oldText not found)\n\n[subagent: 1 failed tool call, 2 turns, 2 tool calls, 0 tokens, mock-provider/mock-model]"
-    );
-}
-
-#[tokio::test]
-async fn an_empty_final_answer_is_salvaged_instead_of_discarding_the_work() {
-    let adapter = MockAdapter::from_turns([
-        edit_turn(&["src/a.rs"]),
-        text_turn(""),
-        text_turn("Summary: edited src/a.rs to fix the parser."),
-    ]);
-    let monitor = rho_harness_core::agents::AgentMonitor::default();
-    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::General, &[edit_tool("")], 5)
-        .with_context(TurnToolContext {
-            monitor: Some(monitor.clone()),
-            ..Default::default()
-        });
-
-    let result = runner.run("fix the parser", None).await;
-
-    assert!(!result.is_error, "{}", result.content);
-    assert!(
-        result
-            .content
-            .starts_with("Incomplete: subagent ended without writing a final answer before finishing")
-    );
-    assert!(result.content.contains("Summary: edited src/a.rs to fix the parser."));
-    assert!(result.content.contains("Files changed: src/a.rs"));
-    assert!(result.content.contains("incomplete, 2 turns, 1 tool calls"));
-    assert_eq!(adapter.requests().len(), 3, "one extra call to summarize");
-    assert_eq!(
-        monitor.summaries()[0].status,
-        rho_harness_core::agents::AgentStatus::InputRequired
-    );
 }

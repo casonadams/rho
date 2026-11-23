@@ -1,5 +1,6 @@
 pub mod artifact_spill;
 pub mod branch;
+mod fit;
 pub mod llm;
 pub mod orchestrator;
 

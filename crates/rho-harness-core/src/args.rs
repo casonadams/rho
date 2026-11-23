@@ -98,6 +98,9 @@ pub struct ReadArgs {
     pub offset: Option<usize>,
     /// Maximum number of lines to read (default: 2000)
     pub limit: Option<usize>,
+    /// Read only this symbol's lines, found by the file's language server (e.g. 'parse', 'Config.load', 'Config::load'); offset and limit are ignored
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -113,10 +116,138 @@ pub struct RgArgs {
     pub hidden: Option<bool>,
     /// 'content' (matching lines grouped by file, default), 'files' (matching file paths only), or 'count' (match count per file)
     pub output_mode: Option<RgOutputMode>,
+    /// Lines of context to show before and after each match in 'content' mode (0-10, default: 0); context lines use `LINE-text`, and `--` separates non-adjacent blocks
+    pub context: Option<usize>,
+    /// Let the pattern match across lines (use `\n` in the pattern); each multi-line match is shown as consecutive `LINE:text` rows
+    pub multiline: Option<bool>,
     /// Number of results to skip, for paging (default: 0); truncated output names the next offset
     pub offset: Option<usize>,
     /// Maximum number of results per page (default: as many as fit in 20KB)
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LspAction {
+    /// Errors and warnings for `path` (synced from disk), or every file servers have reported without `path`
+    Diagnostics,
+    /// Where the symbol at `path`/`line`/`symbol` is defined
+    Definition,
+    /// Every use of the symbol at `path`/`line`/`symbol`
+    References,
+    /// Type and documentation of the symbol at `path`/`line`/`symbol`
+    Hover,
+    /// Implementations of the trait, interface, or method at `path`/`line`/`symbol`
+    Implementation,
+    /// Where the type of the symbol at `path`/`line`/`symbol` is defined
+    TypeDefinition,
+    /// Outline of `path` with line ranges, or with `query` and no `path`, a workspace-wide symbol search
+    Symbols,
+    /// Rename the symbol at `path`/`line`/`symbol` to `new_name` across the workspace and write the files
+    Rename,
+    /// Configured servers and which are running
+    Status,
+    /// Quick fixes and refactors for the diagnostics on `path`/`line` (or the symbol there); with `apply` true, applies the one picked by `query` (title substring or 1-based number)
+    CodeActions,
+    /// Format `path` with its language server and write the file
+    Format,
+}
+
+/// Whether an `lsp` action changes files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LspWrites {
+    Never,
+    Always,
+    /// Lists by default; changes files only with `apply` set.
+    WhenApplied,
+}
+
+impl LspAction {
+    pub const ALL: [Self; 11] = [
+        Self::Diagnostics,
+        Self::Definition,
+        Self::References,
+        Self::Hover,
+        Self::Implementation,
+        Self::TypeDefinition,
+        Self::Symbols,
+        Self::Rename,
+        Self::Status,
+        Self::CodeActions,
+        Self::Format,
+    ];
+
+    /// The action's name as the model writes it.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Diagnostics => "diagnostics",
+            Self::Definition => "definition",
+            Self::References => "references",
+            Self::Hover => "hover",
+            Self::Implementation => "implementation",
+            Self::TypeDefinition => "type_definition",
+            Self::Symbols => "symbols",
+            Self::Rename => "rename",
+            Self::Status => "status",
+            Self::CodeActions => "code_actions",
+            Self::Format => "format",
+        }
+    }
+
+    /// How the action can change files; every action is classified, so a new one cannot be added
+    /// without deciding this.
+    #[must_use]
+    pub fn writes(self) -> LspWrites {
+        match self {
+            Self::Rename | Self::Format => LspWrites::Always,
+            Self::CodeActions => LspWrites::WhenApplied,
+            Self::Diagnostics
+            | Self::Definition
+            | Self::References
+            | Self::Hover
+            | Self::Implementation
+            | Self::TypeDefinition
+            | Self::Symbols
+            | Self::Status => LspWrites::Never,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct LspArgs {
+    /// What to do
+    pub action: LspAction,
+    /// File to query (relative or absolute)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// 1-based line of the symbol, as shown by read or rg
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    /// Text of the symbol on that line (e.g. 'parse_args'); its first whole-word occurrence is used. Default: the first non-blank character
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    /// Symbol name to search for across the workspace (symbols action)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// New name for rename
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    /// Apply the code action picked by `query` instead of only listing the actions (code_actions)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apply: Option<bool>,
+}
+
+impl LspArgs {
+    /// Whether running these arguments changes files.
+    #[must_use]
+    pub fn writes_files(&self) -> bool {
+        match self.action.writes() {
+            LspWrites::Never => false,
+            LspWrites::Always => true,
+            LspWrites::WhenApplied => self.apply == Some(true),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
@@ -197,10 +328,23 @@ impl SubagentRole {
     #[must_use]
     pub fn allowed_tools(&self) -> &'static [&'static str] {
         match self {
-            Self::Scout => &["read", "fd", "rg", "web_fetch", "web_search"],
-            Self::Critic => &["read", "fd", "rg"],
-            Self::Planner => &["read", "fd", "rg"],
-            Self::General => &["read", "write", "edit", "bash", "fd", "rg", "web_fetch", "web_search"],
+            Self::Scout => &["read", "fd", "rg", "lsp", "web_fetch", "web_search"],
+            Self::Critic => &["read", "fd", "rg", "lsp"],
+            Self::Planner => &["read", "fd", "rg", "lsp"],
+            Self::General => &[
+                "read",
+                "write",
+                "edit",
+                "undo",
+                "bash",
+                "fd",
+                "rg",
+                "lsp",
+                "web_fetch",
+                "web_search",
+                "todo",
+                "wait",
+            ],
         }
     }
 
@@ -217,7 +361,7 @@ impl SubagentRole {
                 "You are a software architect and planner. Your role is to decompose tasks into clean, sequential, testable vertical slices and identify risks, invariants, and reuse opportunities. Do not write full code solutions."
             }
             Self::General => {
-                "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome."
+                "You are a focused problem solver assisting the primary agent. Execute the assigned task efficiently and provide a clear, concise summary of the outcome. When you wait for a background command, call wait or end your turn; never poll with sleep."
             }
         }
     }
@@ -272,6 +416,16 @@ pub struct SubagentArgs {
     pub inherit_context: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct UndoArgs {
+    /// File whose last edit or write to undo (relative or absolute)
+    pub path: String,
+}
+
+/// The `wait` tool takes no arguments.
+#[derive(Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct WaitArgs {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum WorktreeAction {
@@ -294,6 +448,75 @@ pub struct WorktreeArgs {
     pub id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryAction {
+    /// List the saved notes, numbered
+    View,
+    /// Save `text` as a new note
+    Add,
+    /// Delete the note numbered `index`
+    Remove,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryScope {
+    /// Notes for this project only
+    #[default]
+    Project,
+    /// Notes for every project
+    Global,
+}
+
+impl MemoryScope {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Global => "global",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryArgs {
+    /// What to do
+    pub action: MemoryAction,
+    /// Which notes: 'project' (default for add and remove) or 'global'; view without a scope shows both
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<MemoryScope>,
+    /// The note to add: one short line
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Number of the note to remove, as shown by view (1-based)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct TodoItem {
+    /// The task, one line in imperative form (e.g. 'Add tests for the parser')
+    pub content: String,
+    /// 'pending', 'in_progress' (at most one item), or 'completed'
+    pub status: TodoStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct TodoArgs {
+    /// The complete, ordered list; it replaces the previous one. Omit to show the current list
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todos: Option<Vec<TodoItem>>,
+}
+
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};
@@ -306,6 +529,9 @@ pub mod fd {
 }
 pub mod read {
     pub use super::{DEFAULT_READ_LIMIT, ReadArgs};
+}
+pub mod lsp {
+    pub use super::{LspAction, LspArgs};
 }
 pub mod rg {
     pub use super::{RgArgs, RgOutputMode};
@@ -337,10 +563,45 @@ mod tests {
 
         assert_eq!(
             SubagentRole::Scout.allowed_tools(),
-            &["read", "fd", "rg", "web_fetch", "web_search"]
+            &["read", "fd", "rg", "lsp", "web_fetch", "web_search"]
         );
-        assert_eq!(SubagentRole::Critic.allowed_tools(), &["read", "fd", "rg"]);
-        assert_eq!(SubagentRole::Planner.allowed_tools(), &["read", "fd", "rg"]);
+        assert_eq!(SubagentRole::Critic.allowed_tools(), &["read", "fd", "rg", "lsp"]);
+        assert_eq!(SubagentRole::Planner.allowed_tools(), &["read", "fd", "rg", "lsp"]);
+        assert_eq!(
+            SubagentRole::General.allowed_tools(),
+            &[
+                "read",
+                "write",
+                "edit",
+                "undo",
+                "bash",
+                "fd",
+                "rg",
+                "lsp",
+                "web_fetch",
+                "web_search",
+                "todo",
+                "wait"
+            ]
+        );
+    }
+
+    #[test]
+    fn read_only_roles_never_get_tools_that_change_state_or_spawn_work() {
+        let mutating = [
+            "write", "edit", "undo", "bash", "todo", "wait", "memory", "subagent", "worktree",
+        ];
+        for role in [SubagentRole::Scout, SubagentRole::Critic, SubagentRole::Planner] {
+            for tool in role.allowed_tools() {
+                assert!(!mutating.contains(tool), "{} must not get {tool}", role.as_str());
+            }
+        }
+        for tool in SubagentRole::General.allowed_tools() {
+            assert!(
+                !["memory", "subagent", "worktree"].contains(tool),
+                "general must not get {tool}"
+            );
+        }
     }
 
     #[test]
@@ -354,5 +615,43 @@ mod tests {
 
         let serialized = serde_json::to_string(&parsed).expect("can serialize");
         assert!(serialized.contains(r#""role":"scout""#));
+    }
+
+    #[test]
+    fn every_lsp_action_is_listed_named_and_classified() {
+        let schema = serde_json::to_string(&schemars::schema_for!(LspAction)).unwrap();
+        let in_schema = schema.matches("\"const\"").count();
+        assert_eq!(LspAction::ALL.len(), in_schema, "ALL must list every variant: {schema}");
+        for action in LspAction::ALL {
+            let serialized = serde_json::to_value(action).unwrap();
+            assert_eq!(serialized, action.as_str());
+            assert!(schema.contains(&format!("\"const\":\"{}\"", action.as_str())));
+        }
+    }
+
+    #[test]
+    fn lsp_arguments_write_files_only_for_writing_actions() {
+        let call = |action, apply| LspArgs {
+            action,
+            path: None,
+            line: None,
+            symbol: None,
+            query: None,
+            new_name: None,
+            apply,
+        };
+        for action in LspAction::ALL {
+            let expected = match action {
+                LspAction::Rename | LspAction::Format => [true, true, true],
+                LspAction::CodeActions => [false, false, true],
+                _ => [false, false, false],
+            };
+            let got = [
+                call(action, None).writes_files(),
+                call(action, Some(false)).writes_files(),
+                call(action, Some(true)).writes_files(),
+            ];
+            assert_eq!(got, expected, "{}", action.as_str());
+        }
     }
 }

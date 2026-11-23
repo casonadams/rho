@@ -1,3 +1,4 @@
+use rho_engine::tools::bash::runner::{cancelled_text, exit_text};
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
 use tokio::sync::mpsc::Receiver;
@@ -31,7 +32,7 @@ pub fn finalize_run(
 
 pub fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, code: i32) -> (ToolLine, UserBashResult) {
     let is_error = code != 0;
-    let output = format_bash_output(snapshot, code);
+    let output = exit_text(snapshot, code);
     let summary = if is_error {
         format!("exit {code}")
     } else {
@@ -56,7 +57,7 @@ pub fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, co
 }
 
 pub fn cancelled_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
-    let output = format_cancel_output(snapshot);
+    let output = cancelled_text(snapshot);
     (
         ToolLine {
             name: "bash".to_string(),
@@ -79,30 +80,5 @@ pub fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (T
     match outcome.exit_code {
         Some(code) => completed_bash_result(snapshot, outcome, code),
         None => cancelled_bash_result(snapshot, outcome),
-    }
-}
-
-pub fn format_bash_output(snapshot: &OutputSnapshot, exit_code: i32) -> String {
-    let output_trimmed = snapshot.formatted_text.trim();
-    if exit_code != 0 {
-        let status_msg = format!("[exit {exit_code}]");
-        if output_trimmed.is_empty() {
-            status_msg
-        } else {
-            format!("{output_trimmed}\n\n{status_msg}")
-        }
-    } else if output_trimmed.is_empty() {
-        "[exit 0; no output]".to_string()
-    } else {
-        snapshot.formatted_text.clone()
-    }
-}
-
-pub fn format_cancel_output(snapshot: &OutputSnapshot) -> String {
-    let output_trimmed = snapshot.formatted_text.trim();
-    if output_trimmed.is_empty() {
-        "(cancelled)".to_string()
-    } else {
-        format!("{output_trimmed}\n(cancelled)")
     }
 }

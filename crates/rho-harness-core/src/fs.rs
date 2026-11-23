@@ -4,6 +4,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+/// Tests skip fsync: it costs hundreds of milliseconds per call on macOS and proves nothing in-process.
+pub const FSYNC_ENABLED: bool = !cfg!(any(test, feature = "skip-fsync"));
+
 /// Replaces `path` with `contents` via a same-directory temp file, fsync, and rename.
 ///
 /// The temp file is created with `mode` (unix permission bits) and chmod'ed explicitly,
@@ -35,7 +38,9 @@ pub async fn write_atomic_async(path: &Path, contents: Vec<u8>, mode: u32) -> io
 fn write_temp_then_rename(temp: &Path, target: &Path, dir: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
     let mut file = create_temp(temp, mode)?;
     file.write_all(contents)?;
-    file.sync_all()?;
+    if FSYNC_ENABLED {
+        file.sync_all()?;
+    }
     drop(file);
     std::fs::rename(temp, target)?;
     sync_dir(dir)
@@ -61,7 +66,7 @@ fn create_temp(temp: &Path, mode: u32) -> io::Result<File> {
 
 fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
-    {
+    if FSYNC_ENABLED {
         File::open(dir)?.sync_all()?;
     }
     #[cfg(not(unix))]
@@ -74,10 +79,7 @@ fn sync_dir(dir: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temp_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("rho_fs_test_{}", uuid::Uuid::new_v4()))
-    }
+    use crate::test_support::temp_dir;
 
     #[cfg(unix)]
     #[test]
@@ -85,7 +87,6 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = temp_dir();
-        std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("state.json");
         std::fs::write(&path, b"old").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
@@ -99,7 +100,6 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec!["state.json".to_string()]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -117,6 +117,5 @@ mod tests {
         std::fs::write(&blocker, b"file").unwrap();
         let blocked = write_atomic_async(&blocker.join("child.json"), b"{}".to_vec(), 0o600).await;
         assert!(blocked.is_err());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

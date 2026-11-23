@@ -55,7 +55,7 @@ fn test_parse_tool_list() {
 
 #[test]
 fn test_parse_agent_files_variants() {
-    let tmp = std::env::temp_dir().join(format!("agent_var_{}", uuid::Uuid::new_v4()));
+    let tmp = crate::test_support::temp_dir();
     std::fs::create_dir_all(&tmp).unwrap();
 
     let full_path = tmp.join("full.md");
@@ -83,13 +83,11 @@ fn test_parse_agent_files_variants() {
     assert_eq!(meta_plain.name, "plain");
     assert_eq!(meta_plain.description, "Custom subagent");
     assert_eq!(meta_plain.system_prompt, "Just the instructions");
-
-    let _ = std::fs::remove_dir_all(tmp);
 }
 
 #[tokio::test]
 async fn test_agent_resolution_precedence() {
-    let p = std::env::temp_dir().join(format!("agent_res_{}", uuid::Uuid::new_v4()));
+    let p = crate::test_support::temp_dir();
 
     write_agent(&p.join("home/.claude/agents"), "ignored", "---\ndescription: x\n---\n");
     write_agent(&p.join("home/.agents/agents"), "u", "---\ndescription: u\n---\n");
@@ -105,13 +103,11 @@ async fn test_agent_resolution_precedence() {
     assert_eq!(map.get("s").map(String::as_str), Some("new"));
     assert_eq!(map.get("u").map(String::as_str), Some("u"));
     assert!(!map.contains_key("ignored"));
-
-    let _ = std::fs::remove_dir_all(p);
 }
 
 #[test]
 fn personas_resolve_from_user_and_project_with_project_precedence() {
-    let p = std::env::temp_dir().join(format!("persona_res_{}", uuid::Uuid::new_v4()));
+    let p = crate::test_support::temp_dir();
     let (home, project) = (p.join("home"), p.join("prj"));
     write_agent(&home.join(".agents/personas"), "terse", "Answer in one line.\n");
     write_agent(
@@ -142,5 +138,4 @@ fn personas_resolve_from_user_and_project_with_project_precedence() {
             ("terse", "", "Answer in one line."),
         ]
     );
-    let _ = std::fs::remove_dir_all(p);
 }

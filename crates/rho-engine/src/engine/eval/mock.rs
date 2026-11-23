@@ -7,7 +7,7 @@ use crate::provider::adapter::ModelAdapter;
 use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct MockEngineConfig<'a> {
@@ -63,8 +63,4 @@ fn resolve_mock_session_manager(config: &MockEngineConfig<'_>) -> SessionManager
         Some(mgr) => mgr,
         None => SessionManager::new(&config.base_dir.join("sessions"), None).unwrap(),
     }
-}
-
-pub fn temp_dir(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("agent_eval_{label}_{}", uuid::Uuid::new_v4()))
 }

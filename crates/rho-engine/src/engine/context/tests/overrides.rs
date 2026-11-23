@@ -3,7 +3,7 @@ use rho_harness_core::config::Config;
 
 #[tokio::test]
 async fn test_system_prompt_override_ignores_system_md() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_sys_override_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     tokio::fs::write(
         temp_dir.join("SYSTEM.md"),
@@ -25,13 +25,11 @@ async fn test_system_prompt_override_ignores_system_md() {
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Custom override persona"));
     assert!(!prompt.contains("File-based base prompt"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_append_system_prompt() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_append_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
 
     let ctx = ProjectContext::discover_with_dirs(
@@ -50,13 +48,11 @@ async fn test_append_system_prompt() {
         ctx.base_system_prompt
             .ends_with("Situational rule: operate in read-only mode.")
     );
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_system_prompt_override_and_append() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_sys_and_append_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
 
     let ctx = ProjectContext::discover_with_dirs(
@@ -72,8 +68,6 @@ async fn test_system_prompt_override_and_append() {
     assert_eq!(ctx.base_system_prompt, "Base persona\n\nAppended rule");
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Base persona\n\nAppended rule"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 fn setup_suppression_files(temp_dir: &Path) {
@@ -92,7 +86,7 @@ fn setup_suppression_files(temp_dir: &Path) {
 
 #[tokio::test]
 async fn test_no_context_files_suppression() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_no_ctx_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     setup_suppression_files(&temp_dir);
 
     let ctx = ProjectContext::discover_with_dirs(
@@ -111,12 +105,11 @@ async fn test_no_context_files_suppression() {
         assert!(!prompt.contains(excluded));
     }
     assert!(prompt.contains("<available_skills>"));
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_discover_with_config() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_cfg_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     tokio::fs::write(temp_dir.join("AGENTS.md"), "# Suppressed Rules\n")
         .await
@@ -137,6 +130,4 @@ async fn test_discover_with_config() {
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Config persona\n\nConfig addition"));
     assert!(!prompt.contains("<project_instructions"));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }

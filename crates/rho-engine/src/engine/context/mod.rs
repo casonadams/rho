@@ -24,6 +24,8 @@ pub struct ProjectContext {
     pub current_dir: PathBuf,
     pub base_system_prompt: String,
     pub instruction_files: Vec<(String, String)>,
+    /// The `<memory>` block of saved notes, read once at discovery so the prompt stays stable.
+    pub memory: String,
     pub skills: Vec<SkillMetadata>,
     pub agents: Vec<AgentMetadata>,
     pub active_tools: Vec<String>,
@@ -53,6 +55,7 @@ impl ProjectContext {
             current_dir: dir.to_path_buf(),
             base_system_prompt: String::new(),
             instruction_files: Vec::new(),
+            memory: String::new(),
             skills: Vec::new(),
             agents: Vec::new(),
             active_tools: Vec::new(),
@@ -113,6 +116,10 @@ impl ProjectContext {
             .collect();
         let active_tools = dirs.active_tools.map_or_else(default_tool_names, <[String]>::to_vec);
         let base_system_prompt = resolve_full_system_prompt(base, dirs).await;
+        let memory = match dirs.home_dir.filter(|_| !dirs.no_context_files) {
+            Some(home) => prompt::memory_section(&rho_harness_core::memory::MemoryStore::in_home(home, base)),
+            None => String::new(),
+        };
         let git_status = get_git_summary(base).await;
         let (os_info, date_str) = runtime_env_info();
 
@@ -120,6 +127,7 @@ impl ProjectContext {
             current_dir: base.to_path_buf(),
             base_system_prompt,
             instruction_files,
+            memory,
             skills,
             agents,
             active_tools,

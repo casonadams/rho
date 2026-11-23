@@ -6,22 +6,28 @@ mod tests;
 pub use format::{format_content, is_binary, number_lines};
 pub use rho_harness_core::args::ReadArgs;
 
+use crate::lsp::{LspManager, render};
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::{ToolResult, resolve_tool_path};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct ReadTool {
     pub base_dir: PathBuf,
     pub artifact_dir: Option<PathBuf>,
+    pub lsp: Option<Arc<LspManager>>,
 }
 
-async fn resolve_and_read_bytes(base_dir: &Path, clean_path: &str) -> std::result::Result<Vec<u8>, ToolResult> {
+async fn resolve_and_read_bytes(
+    base_dir: &Path,
+    clean_path: &str,
+) -> std::result::Result<(PathBuf, Vec<u8>), ToolResult> {
     let workspace = Workspace::new(base_dir);
     let path = resolve_tool_path(&workspace, clean_path, "read")?;
     match tokio::fs::read(&path).await {
-        Ok(bytes) => Ok(bytes),
+        Ok(bytes) => Ok((path, bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let hint = crate::tools::suggest::missing_path_hint(
                 workspace.root(),
@@ -75,7 +81,13 @@ impl ReadTool {
         Self {
             base_dir: base,
             artifact_dir: Some(artifact_dir),
+            lsp: None,
         }
+    }
+
+    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+        self.lsp = lsp;
+        self
     }
 
     pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
@@ -89,12 +101,18 @@ impl ReadTool {
             return Ok(ToolResult::error("Empty file path provided for read tool"));
         }
 
+        if args.symbol.is_some() && (args.offset.is_some() || args.limit.is_some()) {
+            return Ok(ToolResult::error(
+                "symbol cannot be combined with offset or limit; pass one or the other",
+            ));
+        }
+
         if is_skill_first_read(clean_path, &self.base_dir, args.offset) {
             args.limit = None;
         }
 
-        let raw_bytes = match resolve_and_read_bytes(&self.base_dir, clean_path).await {
-            Ok(b) => b,
+        let (path, raw_bytes) = match resolve_and_read_bytes(&self.base_dir, clean_path).await {
+            Ok(read) => read,
             Err(e) => return Ok(e),
         };
 
@@ -106,7 +124,60 @@ impl ReadTool {
             return Ok(ToolResult::error(format!("File contains invalid UTF-8: {clean_path}")));
         };
 
+        if let Some(symbol) = args.symbol.clone() {
+            match self.symbol_lines(&path, &content, &symbol).await {
+                Ok((start, end)) => {
+                    args.offset = Some(start);
+                    args.limit = Some(end + 1 - start);
+                }
+                Err(message) => return Ok(ToolResult::error(message)),
+            }
+        } else if let Some(lsp) = &self.lsp {
+            lsp.warm(&path);
+        }
+
         Ok(format_content(&content, &args, self.artifact_dir.as_deref()))
+    }
+
+    /// The 1-based line range of `symbol` in `path`, from the file's language server.
+    async fn symbol_lines(&self, path: &Path, content: &str, symbol: &str) -> Result<(usize, usize), String> {
+        let lsp = self
+            .lsp
+            .as_ref()
+            .ok_or("symbol needs a language server, and none is enabled here")?;
+        let client = lsp.client_for(path).await?;
+        let language = lsp
+            .servers()
+            .iter()
+            .find(|server| server.name == client.name)
+            .map_or_else(String::new, |server| server.language_id(path));
+        client.sync(path, content, &language).await?;
+        let _ = client
+            .wait_until_idle(tokio::time::Instant::now() + crate::tools::lsp::READY_WAIT)
+            .await;
+        let uri = crate::lsp::client::file_uri(path);
+        let response = client
+            .request(
+                "textDocument/documentSymbol",
+                serde_json::json!({ "textDocument": { "uri": uri } }),
+            )
+            .await?;
+        let entries = render::document_symbols(&response);
+        match render::matching_symbols(&entries, symbol).as_slice() {
+            [only] => Ok((only.start as usize, only.end as usize)),
+            [] => Err(format!(
+                "No symbol '{symbol}' in {}; lsp symbols with path lists them",
+                path.display()
+            )),
+            several => {
+                let owned: Vec<_> = several.iter().map(|entry| (*entry).clone()).collect();
+                Err(format!(
+                    "'{symbol}' matches {} symbols; qualify it (e.g. Type.method) or read by offset:\n{}",
+                    several.len(),
+                    render::format_outline(&owned)
+                ))
+            }
+        }
     }
 }
 

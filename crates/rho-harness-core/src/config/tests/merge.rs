@@ -530,13 +530,12 @@ fn layered_merges_compose_per_case() {
 
 #[test]
 fn malformed_project_config_is_reported_as_warning() {
-    let dir = std::env::temp_dir().join(format!("rho_malformed_project_{}", uuid::Uuid::new_v4()));
+    let dir = crate::test_support::temp_dir();
     std::fs::create_dir_all(dir.join(".rho")).unwrap();
     std::fs::write(dir.join(".rho").join("config.toml"), "max_turns = [").unwrap();
     let mut cfg = Config::default();
     let model_before = cfg.model.clone();
     super::super::merge_project_config(&mut cfg, &dir);
-    let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(cfg.config_warnings.len(), 1);
     assert!(cfg.config_warnings[0].contains("Ignoring project config"));
     assert_eq!(cfg.model, model_before);
@@ -558,7 +557,6 @@ fn project_mcp_servers_are_recorded_with_their_workspace() {
     }
 
     super::super::merge_project_mcp(&mut cfg, &dir);
-    let _ = std::fs::remove_dir_all(&dir);
 
     let project = cfg.mcp.project.expect("project servers recorded");
     assert_eq!(project.workspace, dir);
@@ -572,7 +570,6 @@ fn workspaces_without_project_mcp_record_no_project_servers() {
     let dir = crate::test_support::created_temp_dir();
     let mut cfg = Config::default();
     super::super::merge_project_mcp(&mut cfg, &dir);
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(cfg.mcp.project.is_none());
 }
 

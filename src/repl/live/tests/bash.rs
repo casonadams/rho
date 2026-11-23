@@ -83,11 +83,11 @@ fn assert_spool_file(output: &str) {
     assert!(path.exists());
     let spooled = std::fs::read_to_string(path).expect("spool log");
     assert!(spooled.starts_with("1\n") && spooled.ends_with("2500\n"));
-    let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]
 async fn test_user_bash_runner_large_output_spools_to_disk() {
+    let logs = rho_test_support::TestDir::new();
     let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
     let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
@@ -99,11 +99,21 @@ async fn test_user_bash_runner_large_output_spools_to_disk() {
         input: &mut input_reader,
     };
 
-    let res = super::super::bash_runner::run_user_bash("seq 1 2500", &renderer, &mut live_io)
-        .await
-        .unwrap();
+    let res = super::super::bash_runner::stream::run_user_bash_logging_to(
+        "seq 1 2500",
+        &renderer,
+        &mut live_io,
+        &logs.join("rho-bash"),
+    )
+    .await
+    .unwrap();
     assert!(!res.is_cancelled && !res.is_error);
-    for fragment in ["[lines ", "of 2500", "; log: ", "rho-bash/"] {
+    for fragment in [
+        "[... 2475 lines omitted]",
+        "[exit 0; 2500 lines, ",
+        "; log: ",
+        "rho-bash/",
+    ] {
         assert!(res.output.contains(fragment), "{fragment}: {}", res.output);
     }
     assert_spool_file(&res.output);

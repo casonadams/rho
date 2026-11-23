@@ -1,0 +1,15 @@
+[package]
+name = "rho-test-support"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared test fixtures for the rho workspace"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tempfile = "3.17"

@@ -291,6 +291,7 @@ fn project(dir: &std::path::Path) -> Arc<crate::engine::context::ProjectContext>
             "AGENTS.md".to_string(),
             "Never add comments that restate code.".to_string(),
         )],
+        memory: String::new(),
         skills: Vec::new(),
         agents: Vec::new(),
         active_tools: Vec::new(),
@@ -493,7 +494,8 @@ async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent()
     fx.session = Some(session.clone());
     let adapter =
         crate::provider::adapter::MockAdapter::from_turns([read_call(), text_turn("So far: a.rs looks fine.")]);
-    let subagents = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()]);
+    let subagents = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+        .with_foreground_budget(std::time::Duration::from_secs(60));
 
     let run = fx.runner_with(subagents, None).run("gate", BTreeMap::new()).await;
 
@@ -520,8 +522,9 @@ async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent()
     );
 
     adapter.add_turn(vec![Ok(ModelStreamEvent::Text("{\"approved\": true}".into()))]);
-    let main_agent_tool =
-        SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()]).with_turn_context(&TurnToolContext {
+    let main_agent_tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+        .with_foreground_budget(std::time::Duration::from_secs(60))
+        .with_turn_context(&TurnToolContext {
             session: Some(session),
             ..Default::default()
         });

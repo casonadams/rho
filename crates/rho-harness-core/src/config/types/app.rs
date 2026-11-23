@@ -155,6 +155,20 @@ impl Default for Config {
 pub struct ToolsConfig {
     #[serde(default)]
     pub web: WebToolsConfig,
+    #[serde(default)]
+    pub lsp: LspConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for LspConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

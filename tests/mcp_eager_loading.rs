@@ -43,12 +43,10 @@ async fn test_mcp_eager_loading_attaches_tools_before_first_turn() {
         &["read", "fast_fast_read"],
     )
     .await;
-    let _ = std::fs::remove_dir_all(&workspace);
 }
 
 #[tokio::test]
 async fn test_mcp_eager_loading_resilient_to_server_failure() {
     let workspace = temp_dir("mcp_lazy_test");
     assert_eager_tools(&workspace, "broken", "/nonexistent/binary", &["read", "bash"]).await;
-    let _ = std::fs::remove_dir_all(&workspace);
 }

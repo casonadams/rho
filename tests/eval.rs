@@ -1,9 +1,10 @@
 //! Behavioural evaluation suite for the agent runtime.
 
 use rho::engine::eval::harness::{EvalHarness, normalize_requests};
-use rho::engine::eval::mock::{MockEngineConfig, mock_engine, temp_dir};
+use rho::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho::engine::eval::types::{EvalFailure, EvalScenario};
 use rho::engine::runner::TurnRequest;
+use rho_test_support::TestDir;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,6 +14,10 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
 use rho_harness_core::session::{SessionEventKind, SessionManager};
 use serde_json::json;
+
+fn temp_dir(label: &str) -> TestDir {
+    TestDir::with_prefix(&format!("agent_eval_{label}_"))
+}
 
 fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<Arc<dyn EngineTool>>> {
     let config = rho::config::Config {

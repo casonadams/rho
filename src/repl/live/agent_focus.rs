@@ -28,7 +28,10 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
             AgentEvent::Task(text) => frame.items.push(TranscriptItem::UserMessage(text.trim().to_string())),
             AgentEvent::Text(text) => frame.items.push(TranscriptItem::AssistantText(text.clone())),
             AgentEvent::Thinking(text) => frame.items.push(TranscriptItem::Thinking(text.clone())),
-            AgentEvent::Tool(line) => frame.items.push(TranscriptItem::Tool(line.clone())),
+            AgentEvent::Tool(line) if RunningTool::has_transcript_card(&line.name) => {
+                frame.items.push(TranscriptItem::Tool(line.clone()));
+            }
+            AgentEvent::Tool(_) => {}
             AgentEvent::ToolCall { name, args } if running => frame.running_tool = live_card(name, args),
             AgentEvent::ToolCall { name, .. } => {
                 frame

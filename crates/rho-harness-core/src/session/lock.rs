@@ -6,8 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 struct Entry {
-    _file: File,
+    file: File,
     holders: usize,
+}
+
+impl Drop for Entry {
+    /// A child forked by another thread inherits this descriptor until it execs, and the lock
+    /// lives on the shared open file description, so closing alone would leave it held.
+    fn drop(&mut self) {
+        drop(self.file.unlock());
+    }
 }
 
 /// Open handles keyed by session path. Managers in this process share one handle so
@@ -49,13 +57,7 @@ pub(crate) fn acquire(path: &Path) -> Result<Arc<SessionLock>> {
             }
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
-        held.insert(
-            path.to_path_buf(),
-            Entry {
-                _file: file,
-                holders: 1,
-            },
-        );
+        held.insert(path.to_path_buf(), Entry { file, holders: 1 });
     }
     Ok(Arc::new(SessionLock {
         path: path.to_path_buf(),
@@ -69,7 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_lock_is_exclusive_across_openers_and_shared_in_process() {
-        let dir = std::env::temp_dir().join(format!("rho_session_lock_{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::temp_dir();
         let owner = SessionManager::new_async(&dir, None).await.unwrap();
         let session_id = owner.session_id.clone();
         let path = owner.file_path.clone();
@@ -88,12 +90,11 @@ mod tests {
         assert!(SessionManager::new_async(&dir, Some(&session_id)).await.is_err());
         drop(holder);
         assert!(SessionManager::new_async(&dir, Some(&session_id)).await.is_ok());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn reopening_while_the_last_holder_drops_never_reports_a_conflict() {
-        let dir = std::env::temp_dir().join(format!("rho_session_lock_race_{}", uuid::Uuid::new_v4()));
+        let dir = crate::test_support::temp_dir();
         let session_id = SessionManager::new(&dir, None).unwrap().session_id.clone();
         for _ in 0..16 {
             let holder = SessionManager::new(&dir, Some(&session_id)).unwrap();
@@ -102,7 +103,6 @@ mod tests {
             dropper.join().unwrap();
             assert!(reopened.is_ok());
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn external_handle(path: &std::path::Path) -> std::fs::File {
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn session_lock_stays_held_while_a_keeper_lives() {
         for keeper in KEEPERS {
-            let dir = std::env::temp_dir().join(format!("rho_session_lock_keeper_{}", uuid::Uuid::new_v4()));
+            let dir = crate::test_support::temp_dir();
             let owner = SessionManager::new(&dir, None).unwrap();
             let session_id = owner.session_id.clone();
             let path = owner.file_path.clone();
@@ -138,7 +138,6 @@ mod tests {
             drop(manager);
             drop(lock);
             assert!(external.try_lock().is_ok(), "{keeper:?}");
-            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 }

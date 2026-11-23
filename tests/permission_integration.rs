@@ -8,7 +8,6 @@ use rho::presentation::StructuredPresenter;
 use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::json;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 struct PermFixture {
@@ -47,7 +46,7 @@ fn make_perm_model(cmd: &str, final_text: &'static str) -> Arc<MockAdapter> {
 struct EnvGuard {
     _lock: std::sync::MutexGuard<'static, ()>,
     prev: Option<std::ffi::OsString>,
-    dir: PathBuf,
+    _dir: rho_test_support::TestDir,
 }
 
 impl Drop for EnvGuard {
@@ -59,19 +58,21 @@ impl Drop for EnvGuard {
                 std::env::remove_var("RHO_HOME");
             }
         }
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
 fn isolate_perm_env() -> EnvGuard {
     let lock = crate::ENV_LOCK.lock().unwrap();
     let prev = std::env::var_os("RHO_HOME");
-    let dir = std::env::temp_dir().join(format!("perm_global_{}", uuid::Uuid::new_v4()));
-    let _ = std::fs::create_dir_all(&dir);
+    let dir = rho_test_support::TestDir::with_prefix("perm_global_");
     unsafe {
-        std::env::set_var("RHO_HOME", &dir);
+        std::env::set_var("RHO_HOME", &*dir);
     }
-    EnvGuard { _lock: lock, prev, dir }
+    EnvGuard {
+        _lock: lock,
+        prev,
+        _dir: dir,
+    }
 }
 
 async fn run_headless_turn(
@@ -92,9 +93,7 @@ async fn run_headless_turn(
         ..Config::default()
     };
     let fix = make_perm_engine(&ws, make_perm_model(cmd, final_text), config);
-    let result = fix.engine.run_turn(TurnRequest::new(prompt), fix.presenter).await;
-    let _ = std::fs::remove_dir_all(&ws);
-    result
+    fix.engine.run_turn(TurnRequest::new(prompt), fix.presenter).await
 }
 
 #[tokio::test]

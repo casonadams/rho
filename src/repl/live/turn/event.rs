@@ -83,6 +83,7 @@ async fn dispatch_key_event<B: TerminalBackend>(
 ) -> Result<bool> {
     let monitor = lp.engine.agent_monitor();
     if let Some(text) = agent_focus::take_submission(lp.controller, &key) {
+        crate::repl::live::navigation::record_submission(res.history, &text)?;
         if let agent_focus::Routed::ContinueThroughMain(prompt) = agent_focus::route(lp.controller, lp.engine, &text) {
             lp.steering.enqueue(prompt);
         }

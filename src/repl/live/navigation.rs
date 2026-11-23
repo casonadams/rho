@@ -140,6 +140,13 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     ));
 }
 
+pub fn record_submission(history: &mut InteractiveHistory, text: &str) -> crate::error::Result<()> {
+    history
+        .record(text)
+        .map_err(|e| anyhow::anyhow!("History could not be updated: {e}"))?;
+    Ok(())
+}
+
 pub fn navigate_history_previous<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     history: &mut InteractiveHistory,
@@ -244,20 +251,20 @@ fn apply_tool_result(
 fn push_user_content(
     items: &mut Vec<TranscriptItem>,
     pending: &mut HashMap<String, ToolItem>,
-    history: &mut InteractiveHistory,
     content: &[rho_harness_core::model::UserContent],
 ) {
     for item in content {
         match item {
             rho_harness_core::model::UserContent::Text(t) => {
                 if !t.text.trim().is_empty() {
-                    let _ = history.record(&t.text);
                     items.push(TranscriptItem::UserMessage(t.text.clone()));
                 }
             }
             rho_harness_core::model::UserContent::ToolResult(result) => {
                 let tool = apply_tool_result(pending, result);
-                items.push(TranscriptItem::Tool(tool));
+                if crate::ui::interactive::RunningTool::has_transcript_card(&tool.name) {
+                    items.push(TranscriptItem::Tool(tool));
+                }
             }
             _ => {}
         }
@@ -296,7 +303,6 @@ fn push_assistant_content(
 pub fn hydrate_session_transcript<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     tree: &rho_harness_core::session::tree::SessionTree,
-    history: &mut InteractiveHistory,
 ) -> std::io::Result<()> {
     let mut items = Vec::new();
     let mut pending_tools: HashMap<String, ToolItem> = HashMap::new();
@@ -304,7 +310,7 @@ pub fn hydrate_session_transcript<B: TerminalBackend>(
     for message in tree.active_messages() {
         match message {
             rho_harness_core::model::ChatMessage::User { content } => {
-                push_user_content(&mut items, &mut pending_tools, history, content.as_slice());
+                push_user_content(&mut items, &mut pending_tools, content.as_slice());
             }
             rho_harness_core::model::ChatMessage::Assistant { content, .. } => {
                 push_assistant_content(&mut items, &mut pending_tools, content.as_slice());

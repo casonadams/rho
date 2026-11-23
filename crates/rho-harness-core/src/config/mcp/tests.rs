@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::TestDir;
 
 #[test]
 fn test_parse_mcp_servers_wrapper() {
@@ -140,7 +141,7 @@ fn test_env_expansion() {
 
 #[test]
 fn test_write_and_remove_mcp_server_json() {
-    let mcp_path = temp_mcp_file(None);
+    let (_dir, mcp_path) = temp_mcp_file(None);
 
     let server = McpServerConfig::stdio("echo", vec!["hello".to_string()]);
     write_mcp_server_json(&mcp_path, "echo_srv", &server).unwrap();
@@ -154,12 +155,13 @@ fn test_write_and_remove_mcp_server_json() {
     assert!(!after_removal.servers.contains_key("echo_srv"));
 }
 
-fn temp_mcp_file(content: Option<&str>) -> PathBuf {
-    let path = crate::test_support::created_temp_dir().join("mcp.json");
+fn temp_mcp_file(content: Option<&str>) -> (TestDir, PathBuf) {
+    let dir = crate::test_support::created_temp_dir();
+    let path = dir.join("mcp.json");
     if let Some(content) = content {
         std::fs::write(&path, content).unwrap();
     }
-    path
+    (dir, path)
 }
 
 fn read_root(path: &Path) -> Value {
@@ -201,7 +203,7 @@ const SERVER_EDIT_CASES: &[(&str, &str, ServerEdit, &[&str])] = &[
 #[test]
 fn write_and_remove_mcp_server_preserve_other_keys() {
     for (name, initial, edit, expected) in SERVER_EDIT_CASES {
-        let path = temp_mcp_file(Some(*initial));
+        let (_dir, path) = temp_mcp_file(Some(*initial));
         match edit {
             ServerEdit::Write(server) => {
                 write_mcp_server_json(&path, server, &McpServerConfig::stdio("echo", vec![])).unwrap();
@@ -228,7 +230,7 @@ fn write_and_remove_mcp_server_preserve_other_keys() {
 #[test]
 fn test_write_mcp_server_replaces_permissive_file_with_private_mode() {
     use std::os::unix::fs::PermissionsExt;
-    let path = temp_mcp_file(Some("{}"));
+    let (_dir, path) = temp_mcp_file(Some("{}"));
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 
     write_mcp_server_json(&path, "new", &McpServerConfig::stdio("echo", vec![])).unwrap();
@@ -236,7 +238,7 @@ fn test_write_mcp_server_replaces_permissive_file_with_private_mode() {
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
 }
 
-fn project_with_mcp_files(files: &[(&str, &str)]) -> std::path::PathBuf {
+fn project_with_mcp_files(files: &[(&str, &str)]) -> TestDir {
     let dir = crate::test_support::created_temp_dir();
     for (relative, server) in files {
         let path = dir.join(relative);
@@ -256,7 +258,6 @@ fn test_project_mcp_precedence_agents_over_root() {
     let config = load_project_mcp_config(&dir).unwrap().unwrap();
     assert!(config.servers.contains_key("agents_srv"));
     assert!(!config.servers.contains_key("root_srv"));
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -268,16 +269,12 @@ fn test_project_mcp_fallback_to_root() {
     let claude = project_with_mcp_files(&[(".claude/mcp.json", "claude_srv"), (".mcp.json", "root_srv")]);
     let config_claude = load_project_mcp_config(&claude).unwrap().unwrap();
     assert!(config_claude.servers.contains_key("claude_srv"));
-
-    let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&claude);
 }
 
 #[test]
 fn test_project_mcp_ignores_legacy_rho() {
     let dir = project_with_mcp_files(&[(".rho/mcp.json", "rho_srv")]);
     assert!(load_project_mcp_config(&dir).unwrap().is_none());
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -368,7 +365,7 @@ const SERVER_EDIT_FAILURES: &[(&str, Option<&str>, ServerEdit, &str)] = &[
 #[test]
 fn server_edits_reject_invalid_files() {
     for (name, initial, edit, expected) in SERVER_EDIT_FAILURES {
-        let path = temp_mcp_file(*initial);
+        let (_dir, path) = temp_mcp_file(*initial);
         let error = match edit {
             ServerEdit::Write(server) => {
                 write_mcp_server_json(&path, server, &McpServerConfig::stdio("echo", vec![])).unwrap_err()

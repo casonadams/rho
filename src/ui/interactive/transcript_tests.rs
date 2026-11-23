@@ -608,3 +608,27 @@ fn render_transcript_welcome_with_mcp_servers() {
     assert!(!rendered.contains("tool (1 tool)"), "{rendered}");
     assert!(!rendered.contains("mcpScript"));
 }
+
+#[test]
+fn render_transcript_welcome_lists_every_builtin_tool_and_no_custom_section() {
+    let theme = Theme::default();
+    let names = ["read", "undo", "lsp", "todo", "memory", "subagent", "worktree"];
+    let item = TranscriptItem::Welcome(WelcomeItem {
+        version: "0.7.1".into(),
+        model: "gpt-4".into(),
+        provider: "openai".into(),
+        resumed: false,
+        location: ".".into(),
+        agents: Vec::new(),
+        tools: names.iter().map(ToString::to_string).collect(),
+        skills: Vec::new(),
+        mcp: Vec::new(),
+    });
+
+    let rendered = render_tool_item(&item, &theme, false);
+    assert_welcome_content(
+        &rendered,
+        &["[tools]", "read, undo, lsp, todo, memory, subagent, worktree"],
+    );
+    assert!(!rendered.contains("[custom]"), "{rendered}");
+}

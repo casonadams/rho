@@ -4,6 +4,7 @@
 pub(crate) mod git;
 mod lease;
 mod merge;
+mod review;
 mod share;
 mod sweep;
 
@@ -18,6 +19,8 @@ use std::path::{Path, PathBuf};
 use tokio::sync::Mutex;
 
 const MAX_DIFF_CHARS: usize = 30_000;
+/// How many review findings `diff` and `merge` results list.
+pub const REVIEW_FINDINGS_SHOWN: usize = 30;
 
 /// Serializes `git worktree add/remove`, which update shared repository state.
 static WORKTREE_LOCK: Mutex<()> = Mutex::const_new(());
@@ -370,13 +373,15 @@ impl Worktree {
         Ok((head, changes))
     }
 
-    /// A stat summary and patch of everything the worktree changed, clipped for display.
+    /// The code review of the change, then a stat summary and patch of everything the worktree
+    /// changed, clipped for display.
     pub async fn diff(&self) -> Result<String, String> {
         let head = self.commit().await?;
+        let review = self.review_head(&head).await?;
         let stat = git::text(&self.path, &["diff", "--stat", &self.base, &head]).await?;
         let patch = git::run(&self.path, &["diff", &self.base, &head], &[]).await?;
         let patch = String::from_utf8_lossy(&patch);
-        let mut out = format!("{stat}\n\n");
+        let mut out = format!("{}\n\n{stat}\n\n", review.render(REVIEW_FINDINGS_SHOWN));
         let total = patch.chars().count();
         out.extend(patch.chars().take(MAX_DIFF_CHARS));
         if total > MAX_DIFF_CHARS {

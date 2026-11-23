@@ -121,31 +121,69 @@ fn extract_file_path_arg(args: &serde_json::Value) -> Option<&str> {
 }
 
 fn is_full_read(args: &serde_json::Value) -> bool {
+    let symbol_unset = args.get("symbol").is_none_or(serde_json::Value::is_null);
     let offset_unset = args
         .get("offset")
         .and_then(serde_json::Value::as_u64)
         .is_none_or(|offset| offset <= 1);
-    offset_unset && args.get("limit").is_none_or(serde_json::Value::is_null)
+    symbol_unset && offset_unset && args.get("limit").is_none_or(serde_json::Value::is_null)
 }
 
-fn process_tool_call_path<'a>(call: &'a ToolCall, seen_paths: &mut HashSet<&'a str>, superseded: &mut HashSet<String>) {
+fn process_tool_call_path<'a>(
+    call: &'a ToolCall,
+    results: &HashMap<&str, String>,
+    seen_paths: &mut HashSet<&'a str>,
+    superseded: &mut HashSet<String>,
+) {
     let Some(path) = extract_file_path_arg(&call.function.arguments) else {
         return;
     };
     let name = call.function.name.to_ascii_lowercase();
+    let took_effect = results
+        .get(call.id.as_str())
+        .is_none_or(|text| call_took_effect(&name, text));
     if is_read_tool(&name) {
         if seen_paths.contains(path) {
             superseded.insert(call.id.to_string());
         }
-        if is_full_read(&call.function.arguments) {
+        if took_effect && is_full_read(&call.function.arguments) {
             seen_paths.insert(path);
         }
-    } else if is_write_or_edit_tool(&name) {
+    } else if is_write_or_edit_tool(&name) && took_effect {
         seen_paths.insert(path);
     }
 }
 
+/// Whether a call's recorded result shows it did what its arguments ask: the message carries no
+/// error flag, so a failed edit or an error or clipped read is recognized by its text. A result
+/// that cannot be found counts as effective.
+fn call_took_effect(name: &str, text: &str) -> bool {
+    if is_read_tool(name) {
+        !stubs::is_read_error(text)
+            && !(text.contains("[Showing lines ") && text.contains("Use offset="))
+            && !text.contains("[Output truncated")
+    } else {
+        text.starts_with("Successfully")
+    }
+}
+
+fn result_texts(messages: &[ChatMessage]) -> HashMap<&str, String> {
+    messages
+        .iter()
+        .filter_map(|msg| match msg {
+            ChatMessage::User { content } => Some(content),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|part| match part {
+            UserContent::ToolResult(result) => Some((result.call.as_str(), extract_tool_result_text(&result.content))),
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn collect_superseded_tool_call_ids(messages: &[ChatMessage]) -> HashSet<String> {
+    let results = result_texts(messages);
     let mut seen_paths: HashSet<&str> = HashSet::new();
     let mut superseded = HashSet::new();
     for msg in messages.iter().rev() {
@@ -154,7 +192,7 @@ pub fn collect_superseded_tool_call_ids(messages: &[ChatMessage]) -> HashSet<Str
         };
         for item in content.iter().rev() {
             if let AssistantContent::ToolCall(call) = item {
-                process_tool_call_path(call, &mut seen_paths, &mut superseded);
+                process_tool_call_path(call, &results, &mut seen_paths, &mut superseded);
             }
         }
     }

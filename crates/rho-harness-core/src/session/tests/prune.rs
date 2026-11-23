@@ -22,9 +22,8 @@ fn create_test_session_file(dir: &Path, session_id: &str, age_days: u64, is_name
     file.set_times(times).unwrap();
 }
 
-fn seeded_dir(sessions: &[(&str, u64, bool)]) -> std::path::PathBuf {
+fn seeded_dir(sessions: &[(&str, u64, bool)]) -> crate::test_support::TestDir {
     let dir = temp_dir();
-    std::fs::create_dir_all(&dir).unwrap();
     for (id, age_days, is_named) in sessions {
         create_test_session_file(&dir, id, *age_days, *is_named);
     }
@@ -38,7 +37,6 @@ fn assert_sessions(dir: &Path, kept: &[&str], removed: &[&str]) {
     for id in removed {
         assert!(!dir.join(format!("{id}.jsonl")).exists(), "{id} should be pruned");
     }
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 type SeedList<'a> = &'a [(&'a str, u64, bool)];

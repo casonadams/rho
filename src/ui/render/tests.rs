@@ -485,6 +485,38 @@ fn finished_bash_block_includes_elapsed_duration() {
 }
 
 #[test]
+fn a_subagent_started_in_the_background_shows_the_watch_hint_to_the_user_only() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let finish = |renderer: &TerminalRenderer, is_error: bool, output: &str| {
+        renderer.finish_tool_line(ToolLine {
+            name: "subagent".to_string(),
+            arguments: serde_json::json!({"prompt": "audit the parser"}),
+            is_error,
+            output: output.to_string(),
+            output_summary: output.to_string(),
+            duration_ms: None,
+            file_change: None,
+        });
+    };
+    let hint = "running in the background - press \u{2190} on an empty prompt to watch";
+
+    finish(
+        &renderer,
+        false,
+        "Started subagent task 'audit-1' (scout). Its result arrives as a follow-up message when it finishes.",
+    );
+    let (_, started) = drain_interactive_output(&mut events, &renderer.theme);
+    finish(&renderer, false, "The parser is fine.");
+    let (_, finished) = drain_interactive_output(&mut events, &renderer.theme);
+    finish(&renderer, true, "Started subagent task 'x' failed");
+    let (_, failed) = drain_interactive_output(&mut events, &renderer.theme);
+
+    assert!(started.contains(hint), "{started}");
+    assert!(!finished.contains(hint) && !failed.contains(hint));
+}
+
+#[test]
 fn finished_read_block_includes_elapsed_duration() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
@@ -1015,6 +1047,22 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
         write_header.ends_with("\u{b7} 2 lines \u{b7} 3 B \u{b7} new file"),
         "{write_header}"
     );
+}
+
+#[test]
+fn a_finished_wait_ends_the_running_tool_without_a_card() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.start_tool_run("wait", &serde_json::json!({}));
+    renderer.finish_tool_line(tool_line("wait", serde_json::json!({}), false, None));
+
+    let events: Vec<UiEvent> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(
+        !events.iter().any(|event| matches!(event, UiEvent::Transcript(_))),
+        "wait leaves no transcript card"
+    );
+    assert!(matches!(events.last(), Some(UiEvent::ToolEnd)));
 }
 
 #[test]

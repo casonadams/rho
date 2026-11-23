@@ -18,7 +18,6 @@ async fn setup_live_session_and_engine(
 }
 
 struct LiveFixture {
-    _temp: tempfile::TempDir,
     controller: TerminalController<NullBackend>,
     _ui: crate::ui::interactive::InteractiveUi,
     events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
@@ -27,6 +26,7 @@ struct LiveFixture {
     completions: CompletionSet,
     session: crate::repl::ReplSession,
     engine: crate::engine::AgentEngine,
+    _temp: tempfile::TempDir,
 }
 
 impl LiveFixture {
@@ -138,11 +138,10 @@ async fn test_run_live_loop_exit_paths_return_ok() {
         (
             Some(exit_message),
             crate::repl::input_reader::TerminalInputReader::spawn_dummy(),
-            vec!["/exit".to_string()],
         ),
-        (None, ctrl_d_input(), Vec::new()),
+        (None, ctrl_d_input()),
     ];
-    for (queued, input, expected_history) in cases {
-        assert_eq!(run_live_loop_with(queued, input).await, expected_history);
+    for (queued, input) in cases {
+        assert!(run_live_loop_with(queued, input).await.is_empty());
     }
 }

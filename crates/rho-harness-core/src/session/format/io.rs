@@ -26,7 +26,9 @@ pub fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
     let mut file = options.open(path)?;
     serde_json::to_writer(&mut file, &header).map_err(|_| session_error("session header serialization failed"))?;
     file.write_all(b"\n")?;
-    file.sync_data()?;
+    if crate::fs::FSYNC_ENABLED {
+        file.sync_data()?;
+    }
     Ok(())
 }
 
@@ -62,7 +64,7 @@ fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> Result<()> {
     let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
     drop_torn_tail(&mut file)?;
     file.write_all(line)?;
-    if durable {
+    if durable && crate::fs::FSYNC_ENABLED {
         file.sync_data()?;
     }
     Ok(())
@@ -178,6 +180,45 @@ mod tests {
     use std::io::Write;
 
     #[tokio::test]
+    async fn two_managers_appending_concurrently_to_one_session_tear_or_drop_no_lines() {
+        let dir = crate::test_support::temp_dir();
+        let first = SessionManager::new_async(&dir, None).await.unwrap();
+        let second = SessionManager::new_async(&dir, Some(&first.session_id)).await.unwrap();
+        let path = first.file_path.clone();
+        let payload = "x".repeat(100_000);
+
+        let writers: Vec<_> = [first, second]
+            .into_iter()
+            .enumerate()
+            .map(|(who, manager)| {
+                let payload = payload.clone();
+                tokio::spawn(async move {
+                    for n in 0..20 {
+                        let event = serde_json::json!({"who": who, "n": n, "pad": payload});
+                        manager
+                            .append_event(SessionEventKind::UserMessage, event)
+                            .await
+                            .unwrap();
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.await.unwrap();
+        }
+
+        let log = std::fs::read_to_string(&path).unwrap();
+        assert!(log.ends_with('\n'));
+        let lines: Vec<&str> = log.lines().collect();
+        assert!(
+            lines
+                .iter()
+                .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
+        );
+        assert_eq!(lines.iter().filter(|line| line.contains("\"who\"")).count(), 40);
+    }
+
+    #[tokio::test]
     async fn append_after_torn_tail_keeps_session_loadable() {
         let tails = [
             (
@@ -187,7 +228,7 @@ mod tests {
             ("tail_spanning_chunks", vec![b'x'; 5000]),
         ];
         for (name, tail) in tails {
-            let dir = std::env::temp_dir().join(format!("rho_torn_tail_{}", uuid::Uuid::new_v4()));
+            let dir = crate::test_support::temp_dir();
             let first = SessionManager::new_async(&dir, None).await.unwrap();
             let session_id = first.session_id.clone();
             first
@@ -210,7 +251,6 @@ mod tests {
 
             let reloaded = SessionManager::new_async(&dir, Some(&session_id)).await.unwrap();
             assert_eq!(reloaded.load_events().await.unwrap().len(), 2, "{name}");
-            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 }

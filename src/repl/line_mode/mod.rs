@@ -87,7 +87,7 @@ pub async fn build_line_editor_async(session: &ReplSession) -> Result<Reedline> 
 }
 
 async fn handle_turn_cancellation(engine: &AgentEngine, renderer: &TerminalRenderer) -> Result<()> {
-    rho_engine::process::kill_all_tracked_processes();
+    rho_engine::process::kill_turn_processes();
     renderer.flush();
     engine.record_cancellation("operator interrupt").await?;
     renderer.write_output("\nCanceled.\n");

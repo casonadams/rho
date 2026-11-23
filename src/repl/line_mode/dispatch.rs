@@ -60,7 +60,7 @@ async fn apply_branch_switch(
     old_leaf: &str,
     engine: &mut AgentEngine,
 ) -> Result<()> {
-    let _ = engine.session_manager.switch_branch(Some(leaf_id.to_string())).await?;
+    let _ = engine.switch_branch(Some(leaf_id.to_string())).await?;
     if let Some(s) = summary {
         let _ = engine.session_manager.append_branch_summary(s, old_leaf).await;
     }
@@ -166,7 +166,7 @@ pub(crate) async fn name_session(name: &str, session: &ReplSession, engine: &Age
 }
 
 pub(crate) async fn rewind_session(turn: usize, session: &ReplSession, engine: &AgentEngine) {
-    match engine.session_manager.rewind_to_turn(turn).await {
+    match engine.rewind_to_turn(turn).await {
         Ok(count) => session
             .renderer
             .print_status(&format!("Rewound to turn {turn} ({count} messages in context)")),

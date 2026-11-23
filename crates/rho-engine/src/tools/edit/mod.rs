@@ -1,10 +1,12 @@
 pub mod matching;
 pub mod normalize;
+pub mod preview;
 #[cfg(test)]
 mod tests;
 
+use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
-use crate::tools::engine_tool::TypedTool;
+use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::{ToolResult, resolve_tool_path};
 pub use matching::locate_edit;
 pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
@@ -13,9 +15,14 @@ pub use rho_harness_core::args::EditReplacement;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct EditTool {
     pub base_dir: PathBuf,
+    pub lsp: Option<Arc<LspManager>>,
+    pub history: Option<crate::tools::undo::EditHistory>,
+    /// The agent's mailbox, where diagnostics that arrive late are delivered.
+    inbox: Option<crate::mailbox::Mailbox>,
 }
 
 async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::result::Result<String, ToolResult> {
@@ -74,18 +81,32 @@ fn apply_all_edits(content: &str, edits: &[EditReplacement]) -> std::result::Res
     Ok((current, line_numbers))
 }
 
-async fn write_edit_result(
-    path: &Path,
-    clean_path: &str,
-    content: String,
+struct EditOutcome<'a> {
+    clean_path: &'a str,
+    before: &'a str,
+    after: String,
     line_numbers: Vec<usize>,
     count: usize,
-) -> Result<ToolResult, AppError> {
-    match atomic_write(path, content.as_bytes()).await {
-        Ok(_) => Ok(
-            ToolResult::success(format!("Successfully applied {count} replacement(s) to {clean_path}"))
-                .with_metadata(serde_json::json!({ "line_numbers": line_numbers })),
-        ),
+}
+
+async fn write_edit_result(path: &Path, outcome: EditOutcome<'_>) -> Result<ToolResult, AppError> {
+    let EditOutcome {
+        clean_path,
+        before,
+        after,
+        line_numbers,
+        count,
+    } = outcome;
+    match atomic_write(path, after.as_bytes()).await {
+        Ok(_) => {
+            let regions = preview::changed_regions(before, &after);
+            let mut message = format!("Successfully applied {count} replacement(s) to {clean_path}");
+            if !regions.is_empty() {
+                message.push('\n');
+                message.push_str(&regions);
+            }
+            Ok(ToolResult::success(message).with_metadata(serde_json::json!({ "line_numbers": line_numbers })))
+        }
         Err(e) => Ok(ToolResult::error(format!(
             "Failed to write updated file {clean_path}: {e}"
         ))),
@@ -96,7 +117,20 @@ impl EditTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
+            lsp: None,
+            history: None,
+            inbox: None,
         }
+    }
+
+    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+        self.lsp = lsp;
+        self
+    }
+
+    pub fn with_history(mut self, history: Option<crate::tools::undo::EditHistory>) -> Self {
+        self.history = history;
+        self
     }
 
     fn validate_edit_target(&self, clean_path: &str) -> std::result::Result<(Workspace, PathBuf), ToolResult> {
@@ -122,7 +156,26 @@ impl EditTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        write_edit_result(&path, clean_path, updated, lines, args.edits.len()).await
+        let result = write_edit_result(
+            &path,
+            EditOutcome {
+                clean_path,
+                before: &content,
+                after: updated.clone(),
+                line_numbers: lines,
+                count: args.edits.len(),
+            },
+        )
+        .await?;
+        if !result.is_error
+            && let Some(history) = &self.history
+        {
+            history.record(&path, Some(content.into_bytes()), updated.as_bytes());
+        }
+        Ok(
+            crate::lsp::append_diagnostics(result, self.lsp.as_ref(), self.inbox.as_ref(), &path, &updated, false)
+                .await,
+        )
     }
 }
 
@@ -133,5 +186,15 @@ impl TypedTool for EditTool {
 
     async fn run(&self, args: EditArgs) -> Result<ToolResult, AppError> {
         self.execute(args).await
+    }
+
+    fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        self.lsp.as_ref()?;
+        Some(Arc::new(Self {
+            base_dir: self.base_dir.clone(),
+            lsp: self.lsp.clone(),
+            history: self.history.clone(),
+            inbox: Some(ctx.inbox.clone()?),
+        }))
     }
 }

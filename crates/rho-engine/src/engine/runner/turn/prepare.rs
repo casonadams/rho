@@ -95,11 +95,7 @@ impl AgentEngine {
         let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         let sizes = self.context.estimate_each_message_tokens(&raw, &self.config.model);
         let cache = self.prompt_cache();
-        let (pruned, decision) = self
-            .prune_memory
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .prune(&raw, &sizes, &policy, cache);
+        let (pruned, decision) = crate::engine::locking::lock(&self.prune_memory).prune(&raw, &sizes, &policy, cache);
         Ok(match pruned {
             Some(pruned) => LoadedHistory {
                 messages: pruned,
@@ -311,6 +307,11 @@ impl AgentEngine {
             .monitor(Some(self.agent_monitor.clone()))
             .project_context(self.project_context().await.ok().map(Arc::new))
             .worktrees(self.worktrees.clone())
+            .context_budget(Some(self.context.budget(
+                self.context_limit(),
+                self.context_limit_source(),
+                self.context_limit().saturating_sub(self.config.reserve_tokens),
+            )))
             .working_dir(self.base_dir.clone());
 
         if let Some(pending) = params.checkpoint {
@@ -565,8 +566,7 @@ mod tests {
 
     #[test]
     fn test_pruned_history_estimate_replaces_stale_usage_anchor() {
-        let dir = std::env::temp_dir().join(format!("turn_metrics_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_support::TestDir::new();
         let app_config = Config {
             auth_file: dir.join("auth.json"),
             ..Config::default()

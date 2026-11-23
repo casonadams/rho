@@ -75,6 +75,11 @@ pub trait SteeringQueueProvider: Send + Sync {
     async fn poll_steering(&self) -> Vec<String> {
         Vec::new()
     }
+
+    /// Whether steering is waiting, without taking it.
+    fn has_steering(&self) -> bool {
+        false
+    }
 }
 
 /// Serializes tests that touch the process-wide background jobs and notifications.

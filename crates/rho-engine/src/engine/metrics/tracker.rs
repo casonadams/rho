@@ -2,6 +2,7 @@ use super::types::{
     CompletionCall, CompletionOutcome, ModelCallMetrics, ObservationMetricsInput, PruneDecision, RunMetrics,
     StructuralUsage, TerminalStatus, metrics_from_observation,
 };
+use crate::engine::locking::lock;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -165,10 +166,6 @@ impl RunTracker {
     fn take(&self) -> Option<RunObservation> {
         self.state().take()
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn call_metrics(calls: &[CompletionCall], observation: Option<&RunObservation>) -> Vec<ModelCallMetrics> {

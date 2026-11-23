@@ -121,7 +121,8 @@ autocomplete):
 | `/workflow <name> [inputs]` | Run a workflow, e.g. `/workflow refine security`. Arguments fill inputs in order; `name=value` sets one by name. |
 | `/exit`                     | Exit rho (alias: `/quit`).                                                                                |
 
-Background work (subagents that outlast their foreground budget, and `bash`
+Background work (subagents, which start in the background unless
+`subagents.foreground_seconds` is set, and `bash`
 commands that move to the background) belongs to the session that started it.
 A turn waits for, and is told about, only its own session's background jobs.
 Switching to another session with `/resume` or `/clear` stops the old session's
@@ -149,10 +150,22 @@ background work running.
   stubs it sent last time and prunes further only when the saving is at least
   a quarter of the history it would have to re-cache.
 - **Auto-compaction.** When the history approaches the context limit minus the
-  reserve (default 16,384 tokens), earlier turns are summarized. After pruning
+  reserve (default 16,384 tokens), earlier turns are summarized. A `todo` list
+  with unfinished items is copied into the summary as a `<todos>` block, so the
+  agent keeps its plan. After pruning
   changes the history, the size check estimates the pruned history instead of
   reusing the previous request's reported usage. Use `/compact` to run it
   manually.
+- **Context budget notices.** The first time a request's prompt passes 50%,
+  75%, or 90% of the context window, the next tool results sent to the model
+  end with one line such as
+  `[context: 142k of 200k tokens used (71%); compaction starts near 184k at the next turn]`, so it
+  can delegate to subagents or read less. Each percentage is reported once
+  until the next compaction, branch switch, or rewind, and no notice is sent
+  while the window size is only an estimate. The line goes only on the newest tool results (a
+  turn that ends without tool calls reports it on a later one), so the cached
+  prompt prefix never changes, and it is saved with that tool result.
+  Subagents do not receive it.
 - **Context window source.** `context_limit` (or `AI_CONTEXT_LIMIT`) always
   wins. Otherwise rho uses the window the provider lists for the model in its
   live model list (fetched each session, never cached on disk). For local
@@ -180,7 +193,11 @@ always matches your terminal emulator, in dark or light mode.
 - Every finished tool card ends with a dim `Took 6.054s` line on its own line.
   While a tool runs, its live card shows `Elapsed ...` in the same place.
   `web_fetch` shows the content kind inline and dim, such as
-  `web_fetch https://example.com (text)`.
+  `web_fetch https://example.com (text)`. `todo` shows the list's progress and
+  the item in progress, such as `todo 1/3 done · Add tests`; `Ctrl+O` shows the
+  whole list. `undo` shows the file path, `lsp` the action with `path:line`
+  and symbol, `memory` the action and scope, and `read` with a `symbol` shows
+  `path symbol=name`.
 - Edit cards show `N edits · +added -removed` in the header and label every
   edit in a multi-edit call (`@@ edit #1/3 · line 12 @@`). Write cards show
   line count, size, and whether the file was new or overwritten. Line numbers

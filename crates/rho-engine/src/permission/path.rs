@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 pub const READ_ONLY_PATH_TOOLS: &[&str] = &["read", "grep", "find", "ls", "fd", "rg"];
-pub const PATH_BEARING_TOOLS: &[&str] = &["read", "grep", "find", "ls", "fd", "rg", "write", "edit"];
+pub const PATH_BEARING_TOOLS: &[&str] = &["read", "grep", "find", "ls", "fd", "rg", "write", "edit", "undo", "lsp"];
 pub const SAFE_SYSTEM_PATHS: &[&str] = &["/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"];
 
 const CREDENTIAL_FILE: &str = "auth.json";

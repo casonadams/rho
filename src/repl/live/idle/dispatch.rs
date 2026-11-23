@@ -8,7 +8,9 @@ use crate::repl::live::agent_focus;
 use crate::repl::live::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::modal::{agents, handle_modal_key, handle_modal_paste};
-use crate::repl::live::navigation::{apply_completion, navigate_history_next, navigate_history_previous};
+use crate::repl::live::navigation::{
+    apply_completion, navigate_history_next, navigate_history_previous, record_submission,
+};
 use crate::ui::interactive::{
     InputAction, QueuedMessage, TerminalBackend, TerminalController, UiAction, UiEffect, map_key,
 };
@@ -67,7 +69,7 @@ fn handle_edit_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     batch: &mut LiveBatch,
     action: UiAction,
-    resources: &EditorResources<'_>,
+    resources: &mut EditorResources<'_>,
 ) -> Result<Option<QueuedMessage>> {
     let handled_ghost = if action == UiAction::MoveRight {
         let ed = controller.state().editor();
@@ -93,6 +95,7 @@ fn handle_edit_action<B: TerminalBackend>(
     controller.state_mut().editor_mut().set_ghost_text(pred);
 
     if let UiEffect::Queued(message) = effect {
+        record_submission(resources.history, &message.text)?;
         controller.state_mut().pop_queued();
         batch.flush(controller, true)?;
         return Ok(Some(message));
@@ -288,7 +291,6 @@ async fn try_modal_key<B: TerminalBackend>(
     let modal_res = handle_modal_key(controller, key, &mut batch.modal)?;
     let modal = ModalActionContext {
         controller,
-        history: resources.history,
         session: ctx.session,
         engine: ctx.engine,
         input,
@@ -317,6 +319,7 @@ async fn process_key_event<B: TerminalBackend>(
 ) -> Result<IdleInputResult> {
     let monitor = ctx.engine.agent_monitor();
     if let Some(text) = agent_focus::take_submission(controller, &key) {
+        record_submission(resources.history, &text)?;
         let routed = agent_focus::route(controller, ctx.engine, &text);
         batch.flush(controller, true)?;
         return Ok(match routed {

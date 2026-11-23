@@ -281,7 +281,7 @@ pub fn build_request_body(
         }));
     }
     if let Some(system) = system_prompt(request) {
-        let sanitized = sanitize_system_prompt(&system);
+        let sanitized = sanitize_system_prompt(&system) + &renamed_tools_note(request);
         system_blocks.push(json!({
             "type": "text",
             "text": sanitized,
@@ -405,6 +405,27 @@ pub fn mark_cache_breakpoints(body: &mut Value, retention: CacheRetention) {
 
 fn system_prompt(request: &ModelCompletionRequest) -> Option<String> {
     request.preamble.clone()
+}
+
+fn renamed_tools_note(request: &ModelCompletionRequest) -> String {
+    let mut names: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
+    names.sort_unstable();
+    let renamed: Vec<String> = names
+        .into_iter()
+        .filter_map(|name| {
+            let sent = to_claude_tool_name(name);
+            (sent != name).then(|| format!("`{name}` as `{sent}`"))
+        })
+        .collect();
+    let Some((last, rest)) = renamed.split_last() else {
+        return String::new();
+    };
+    let listed = if rest.is_empty() {
+        last.clone()
+    } else {
+        format!("{} and {last}", rest.join(", "))
+    };
+    format!("\n\nThese instructions name tools by their short names; call {listed}.")
 }
 
 fn convert_tools(request: &ModelCompletionRequest) -> Vec<Value> {

@@ -280,3 +280,65 @@ fn format_tool_args_summary_sanitization_and_truncation() {
     let long_formatted = format_tool_args_summary("custom", &long_arg);
     assert!(long_formatted.contains("..."));
 }
+
+#[test]
+fn format_tool_args_summary_todo_shows_progress_and_the_active_item() {
+    let todos = |statuses: &[&str]| {
+        let items: Vec<_> = statuses
+            .iter()
+            .enumerate()
+            .map(|(idx, status)| serde_json::json!({ "content": format!("Step {idx}"), "status": status }))
+            .collect();
+        serde_json::json!({ "todos": items })
+    };
+
+    assert_eq!(
+        format_tool_args_summary("todo", &todos(&["completed", "in_progress", "pending"])),
+        "1/3 done \u{b7} Step 1"
+    );
+    assert_eq!(
+        format_tool_args_summary("todo", &todos(&["completed", "completed"])),
+        "2/2 done"
+    );
+    assert_eq!(format_tool_args_summary("todo", &serde_json::json!({})), "");
+}
+
+#[test]
+fn format_tool_args_summary_names_undo_lsp_memory_and_symbol_reads() {
+    let summary = |name, args: serde_json::Value| format_tool_args_summary(name, &args);
+    assert_eq!(summary("undo", serde_json::json!({ "path": "src/a.rs" })), "src/a.rs");
+    assert_eq!(
+        summary(
+            "lsp",
+            serde_json::json!({ "action": "references", "path": "src/a.rs", "line": 12, "symbol": "parse" })
+        ),
+        "references src/a.rs:12 parse"
+    );
+    assert_eq!(
+        summary(
+            "lsp",
+            serde_json::json!({ "action": "diagnostics", "path": "src/a.rs" })
+        ),
+        "diagnostics src/a.rs"
+    );
+    assert_eq!(
+        summary("lsp", serde_json::json!({ "action": "symbols", "query": "Config" })),
+        "symbols Config"
+    );
+    assert_eq!(summary("lsp", serde_json::json!({ "action": "status" })), "status");
+    assert_eq!(
+        summary("memory", serde_json::json!({ "action": "add", "text": "x" })),
+        "add project"
+    );
+    assert_eq!(
+        summary("memory", serde_json::json!({ "action": "view", "scope": "global" })),
+        "view global"
+    );
+    assert_eq!(
+        summary(
+            "read",
+            serde_json::json!({ "path": "src/a.rs", "symbol": "Config::load", "offset": 5 })
+        ),
+        "src/a.rs symbol=Config::load"
+    );
+}

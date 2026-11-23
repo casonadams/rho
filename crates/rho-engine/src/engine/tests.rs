@@ -4,11 +4,10 @@ use crate::mcp::load_mcp_tools;
 use crate::test_support::temp_dir;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-fn test_config(label: &str) -> (Config, PathBuf) {
+fn test_config(label: &str) -> (Config, crate::test_support::TestDir) {
     let dir = temp_dir(label);
-    std::fs::create_dir_all(&dir).unwrap();
     let config = Config {
         sessions_dir: dir.join("sessions"),
         auth_file: dir.join("auth.json"),
@@ -111,8 +110,9 @@ fn assert_rebuilt_meta(rebuilt: &AgentEngine, sid: &str, tool_count: usize) {
         (7, sid)
     );
     let names = rebuilt.tool_names();
-    assert_eq!(names.len(), tool_count + 1, "{names:?}");
+    assert_eq!(names.len(), tool_count + 2, "{names:?}");
     assert!(names.iter().any(|n| n == "worktree"), "{names:?}");
+    assert!(names.iter().any(|n| n == "lsp"), "{names:?}");
 }
 
 async fn assert_rebuilt_storage(
@@ -133,7 +133,7 @@ struct BuiltinEngine {
     config: Config,
     auth_store: AuthStore,
     tool_count: usize,
-    dir: PathBuf,
+    dir: crate::test_support::TestDir,
 }
 
 async fn builtin_engine(label: &str) -> BuiltinEngine {
@@ -166,7 +166,7 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
         config,
         auth_store,
         tool_count,
-        dir,
+        dir: _dir,
     } = builtin_engine("continuity").await;
     let session_id = engine.session_manager.session_id.clone();
     let (history_before, jsonl_before) = seed_test_engine_history(&engine).await;
@@ -181,7 +181,6 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
         rebuilt.subagent_runtime.shares_state_with(&engine.subagent_runtime),
         "running subagents stay counted and reachable after a rebuild"
     );
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 async fn setup_mcp_engine(config: Config, workspace: &std::path::Path, auth_store: AuthStore) -> AgentEngine {
@@ -215,8 +214,6 @@ async fn rebuild_respawns_mcp_tools_and_reaps_previous_children() {
     assert!(rebuilt.tool_names().iter().any(|name| name == "mock_ping"));
     drop(engine);
     wait_for_server_count(&script_pattern, 1).await;
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// Repeated reloads stay at one live MCP child per configured server.
@@ -233,6 +230,7 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(workspace.clone())
+        .lsp(None)
         .build()
         .await
         .unwrap();
@@ -242,14 +240,12 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
         current = current.rebuild(config.clone(), auth_store.clone()).await.unwrap();
         wait_for_server_count(&script_pattern, 1).await;
     }
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
 async fn builder_attaches_dynamic_tools() {
     with_dummy_provider_key();
-    let (config, dir) = test_config("custom_tools");
+    let (config, _dir) = test_config("custom_tools");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
 
@@ -266,6 +262,7 @@ async fn builder_attaches_dynamic_tools() {
 
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(base_dir)
+        .lsp(None)
         .add_tool(custom_tool)
         .build()
         .await
@@ -274,17 +271,16 @@ async fn builder_attaches_dynamic_tools() {
     assert!(engine.tool_names().contains(&"generate_image".to_string()));
     assert!(engine.tool_names().contains(&"read".to_string()));
     assert!(engine.tool_names().contains(&"bash".to_string()));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
 async fn refresh_quota_non_antigravity_is_noop() {
     with_dummy_provider_key();
-    let (config, dir) = test_config("quota_noop");
+    let (config, _dir) = test_config("quota_noop");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(std::env::temp_dir())
+        .lsp(None)
         .build()
         .await
         .unwrap();
@@ -292,8 +288,6 @@ async fn refresh_quota_non_antigravity_is_noop() {
     assert_eq!(engine.quota_display(), None);
     engine.refresh_quota().await;
     assert_eq!(engine.quota_display(), None);
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -321,7 +315,8 @@ async fn build_engine_offline_with_expired_oauth_token_succeeds_without_blocking
 
     let start = std::time::Instant::now();
     let engine = builder::AgentEngineBuilder::new(config, auth_store)
-        .base_dir(dir.clone())
+        .base_dir(dir.to_path_buf())
+        .lsp(None)
         .quota_endpoints(crate::engine::quota_refresh::QuotaEndpoints::all_at(
             "http://127.0.0.1:9",
         ))
@@ -336,8 +331,6 @@ async fn build_engine_offline_with_expired_oauth_token_succeeds_without_blocking
 
     engine.spawn_refresh_quota();
     assert!(!engine.tool_names().is_empty());
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// The offline mock engine proves the no-key path never touches the network.
@@ -360,8 +353,6 @@ async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
 
     engine.refresh_quota().await;
     assert_eq!(engine.quota_display(), None);
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -385,8 +376,6 @@ async fn refresh_quota_gemini_populates_billing_window_cost() {
     assert_eq!(engine.quota_display(), None);
     engine.refresh_quota().await;
     assert_eq!(engine.quota_display(), Some("$0.000 • $0.000".to_string()));
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 fn mock_quota_engine(dir: &std::path::Path, provider: &str, model: &str) -> crate::engine::AgentEngine {
@@ -415,7 +404,6 @@ async fn quota_display_omitted_for_unsupported_provider() {
 
     engine.config.provider = "local".to_string();
     assert_eq!(engine.quota_display(), None);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -473,7 +461,6 @@ async fn quota_display_isolated_across_providers_and_models() {
     assert_eq!(engine.quota_display(), Some("$0.025 • $0.150".to_string()));
     engine.config.provider = "google".to_string();
     assert_eq!(engine.quota_display(), Some("$0.025 • $0.150".to_string()));
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -493,7 +480,8 @@ async fn context_limit_uses_the_providers_listed_window() {
     let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store)
-        .base_dir(dir.clone())
+        .base_dir(dir.to_path_buf())
+        .lsp(None)
         .model_catalog(catalog)
         .build()
         .await
@@ -503,7 +491,6 @@ async fn context_limit_uses_the_providers_listed_window() {
         engine.context_limit_source(),
         crate::engine::tracking::ContextLimitSource::Provider
     );
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -520,7 +507,8 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
     };
 
     let result = builder::AgentEngineBuilder::new(config, auth_store)
-        .base_dir(dir.clone())
+        .base_dir(dir.to_path_buf())
+        .lsp(None)
         .build()
         .await;
 
@@ -528,8 +516,6 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
         result.is_err(),
         "Must not fall back to deepseek when explicit model is set"
     );
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
@@ -538,7 +524,7 @@ async fn switch_model_updates_model_and_preserves_tools() {
         mut engine,
         config,
         tool_count,
-        dir,
+        dir: _dir,
         ..
     } = builtin_engine("switch_model").await;
 
@@ -554,8 +540,6 @@ async fn switch_model_updates_model_and_preserves_tools() {
     assert_eq!(engine.config.provider, "anthropic");
     assert_eq!(engine.tool_names().len(), tool_count);
     assert_eq!(engine.context_limit(), 200_000);
-
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test(start_paused = true)]
@@ -564,7 +548,7 @@ async fn rate_limited_model_request_retries_and_succeeds() {
     use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
     use rho_harness_core::error::AppError;
 
-    let dir = std::env::temp_dir().join(format!("retry_429_{}", uuid::Uuid::new_v4()));
+    let dir = crate::test_support::TestDir::new();
 
     let model = Arc::new(MockAdapter::default());
     model.add_turn(vec![Err(AppError::RateLimited {
@@ -607,8 +591,6 @@ async fn rate_limited_model_request_retries_and_succeeds() {
             .any(|n| n.contains("rate limited") && n.contains("retrying in 2s (1/2)")),
         "expected rate limit notice, got: {notices:?}"
     );
-
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[tokio::test]

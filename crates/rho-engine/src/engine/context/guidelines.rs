@@ -14,18 +14,9 @@ fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>
     let has_fd = has_tool(active_tools, "fd");
     let has_rg = has_tool(active_tools, "rg");
     match (has_fd, has_rg) {
-        (true, true) => {
-            out.push(
-                "Use fd for file discovery and directory structure instead of find, glob, or ls; use depth for bounded overviews",
-            );
-            out.push("Use rg for content search instead of grep or bash pipelines; narrow with path or type");
-        }
-        (true, false) => {
-            out.push("Use fd for file discovery and directory structure instead of find, glob, or ls; use depth for bounded overviews");
-        }
-        (false, true) => {
-            out.push("Use rg for content search instead of grep or bash pipelines; narrow with path or type")
-        }
+        (true, true) => out.push("Use fd to find files and rg to search file contents instead of find, ls, or grep"),
+        (true, false) => out.push("Use fd to find files instead of find or ls"),
+        (false, true) => out.push("Use rg to search file contents instead of grep"),
         (false, false) if has_tool(active_tools, "bash") => {
             out.push("Use bash for file operations like ls, rg, find");
         }
@@ -35,11 +26,6 @@ fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>
 
 fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
     if has_tool(active_tools, "bash") {
-        out.push("Commands run directly in the working directory; do not prefix commands with cd");
-        let has_inspectors = active_tools.iter().any(|t| matches!(t.as_str(), "fd" | "rg" | "read"));
-        if has_inspectors {
-            out.push("Never use bash for file inspection (ls, find, grep, cat); use fd, rg, and read instead");
-        }
         let has_specialized = active_tools.iter().any(|t| {
             t == "tool_search"
                 || t.starts_with("mcp__")
@@ -49,12 +35,17 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
                         | "read"
                         | "write"
                         | "edit"
+                        | "undo"
                         | "fd"
                         | "rg"
                         | "web_search"
                         | "web_fetch"
                         | "subagent"
                         | "worktree"
+                        | "lsp"
+                        | "memory"
+                        | "todo"
+                        | "wait"
                 ))
         });
         if has_specialized {
@@ -64,37 +55,30 @@ fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) 
     if has_tool(active_tools, "read") {
         out.push("Use read to examine files instead of cat or sed");
     }
-    append_mutation_guidelines(active_tools, out);
-    if has_tool(active_tools, "bash") {
-        out.push(
-            "Background jobs: Results auto-deliver upon completion. Never poll or call sleep while waiting; continue other productive work or end your turn to wait for the completion signal",
-        );
+    if has_tool(active_tools, "lsp") {
+        out.push("Use lsp for definitions, references, and diagnostics; use rg for plain text search");
     }
+    append_mutation_guidelines(active_tools, out);
 }
 
 fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
     let has_edit = has_tool(active_tools, "edit");
     let has_write = has_tool(active_tools, "write");
     if has_edit {
-        out.push("Use edit for every change to an existing file: oldText for small unique changes, replaceAll for renames within a file, and startText/endText to delete or rewrite a whole block");
-        out.push("Put all changes to one file in one edit call; for changes across files, issue one edit call per file in the same response");
-        out.push("Keep edits[].oldText as small as possible while still being unique in the file");
+        out.push("Use edit for every change to an existing file");
     }
     if has_write {
         out.push("Use write only for new files or complete rewrites");
     }
     if (has_edit || has_write) && has_tool(active_tools, "bash") {
-        out.push("Never create or modify files through bash (sed -i, perl -pi, python or awk scripts, echo/cat redirects, heredocs, tee, mv over a file); use edit and write. Project formatters and generators such as cargo fmt are fine");
+        out.push("Never create or modify files through bash (sed -i, perl -pi, python or awk scripts, echo or cat redirects, heredocs, tee, mv over a file); project formatters and generators such as cargo fmt are fine");
     }
 }
 
 fn append_universal_guidelines(out: &mut Vec<&'static str>) {
-    out.push("Drive tasks autonomously to completion: continue using tools step-by-step to read, edit, execute, and verify until the user request is completely resolved");
-    out.push("Do not stop prematurely or ask for user input when you can discover the information or make progress using available tools");
-    out.push(
-        "Always verify your changes before finishing (run tests, check build diagnostics, or inspect command outputs); never claim success when checks fail",
-    );
-    out.push("Batch independent read-only calls (read, fd, rg, web_search, web_fetch) in one response so they run in parallel");
-    out.push("Be concise in your responses");
-    out.push("Show file paths clearly when working with files");
+    out.push("Work autonomously until the request is fully resolved; do not stop to ask for input you can discover or act on with your tools");
+    out.push("Verify changes before finishing (tests, builds, linters, or command output); never claim success when checks fail");
+    out.push("Batch independent read-only calls in one response so they run in parallel");
+    out.push("Be concise in your responses and show file paths clearly");
+    out.push("When the user or project instructions conflict with these guidelines, follow the user and project instructions");
 }

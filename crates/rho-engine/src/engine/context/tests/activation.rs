@@ -14,7 +14,7 @@ fn setup_monorepo_dirs(repo_root: &Path) {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_in_monorepo() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_monorepo_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     setup_monorepo_dirs(&repo_root);
 
@@ -32,8 +32,6 @@ async fn test_dynamic_path_activation_in_monorepo() {
     let root_idx = prompt.find("# Root Instructions").unwrap();
     let sub_idx = prompt.find("# Subcrate Instructions").unwrap();
     assert!(root_idx < sub_idx);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
@@ -55,7 +53,7 @@ async fn dynamic_instructions_are_cut_to_the_byte_budget_on_a_character_boundary
 
 #[tokio::test]
 async fn test_dynamic_path_activation_deduplication() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_dedup_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("packages").join("pkg-a");
 
@@ -78,13 +76,11 @@ async fn test_dynamic_path_activation_deduplication() {
 
     ctx.activate_path_instructions(Path::new("packages/pkg-a/a.rs"));
     assert_eq!(ctx.instruction_files.len(), 2);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_dynamic_path_activation_bounds_file_limit() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_files_bound_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
 
@@ -108,13 +104,11 @@ async fn test_dynamic_path_activation_bounds_file_limit() {
 
     assert_eq!(ctx.dynamic_instructions_count, MAX_DYNAMIC_INSTRUCTION_FILES);
     assert_eq!(ctx.instruction_files.len(), MAX_DYNAMIC_INSTRUCTION_FILES);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_dynamic_path_activation_bounds_byte_limit() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_bytes_bound_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("sub");
 
@@ -133,13 +127,11 @@ async fn test_dynamic_path_activation_bounds_byte_limit() {
     assert_eq!(ctx.dynamic_instructions_bytes, MAX_DYNAMIC_INSTRUCTION_BYTES);
     assert_eq!(ctx.instruction_files.len(), 1);
     assert_eq!(ctx.instruction_files[0].1.len(), MAX_DYNAMIC_INSTRUCTION_BYTES);
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_dynamic_path_activation_respects_no_context_files() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_no_ctx_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("sub");
 
@@ -162,13 +154,11 @@ async fn test_dynamic_path_activation_respects_no_context_files() {
     assert!(ctx.instruction_files.is_empty());
     ctx.activate_path_instructions(Path::new("sub/main.rs"));
     assert!(ctx.instruction_files.is_empty());
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_dynamic_path_activation_confinement() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_confine_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let external_dir = temp_dir.join("external");
 
@@ -191,13 +181,11 @@ async fn test_dynamic_path_activation_confinement() {
     ctx.activate_path_instructions(&external_dir.join("ext.rs"));
     assert_eq!(ctx.instruction_files.len(), 1);
     assert_eq!(ctx.instruction_files[0].1, "# Repo Rules");
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_dynamic_path_activation_with_transclusion() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_trans_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     let sub = repo_root.join("crates").join("sub");
     let docs = sub.join("docs");
@@ -220,13 +208,11 @@ async fn test_dynamic_path_activation_with_transclusion() {
     assert_eq!(ctx.instruction_files.len(), 1);
     assert!(ctx.instruction_files[0].1.contains("# Subtree Rules"));
     assert!(ctx.instruction_files[0].1.contains("Subtree coding standards."));
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
 #[tokio::test]
 async fn test_async_path_activation_loads_subcrate_and_honors_no_context() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_async_{}", uuid::Uuid::new_v4()));
+    let temp_dir = crate::test_support::TestDir::new();
     let repo_root = temp_dir.join("repo");
     setup_monorepo_dirs(&repo_root);
 
@@ -245,6 +231,4 @@ async fn test_async_path_activation_loads_subcrate_and_honors_no_context() {
     .await;
     activate_path_instructions_async(&mut disabled, Path::new("crates/rho-subcrate/src/lib.rs")).await;
     assert!(disabled.instruction_files.is_empty());
-
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }

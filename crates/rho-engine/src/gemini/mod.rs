@@ -203,7 +203,6 @@ mod tests {
             Utc::now(),
         );
         assert_eq!(cost.format_status(), "$0.000 • $0.000");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -295,7 +294,5 @@ mod tests {
             cost.month_cost
         );
         assert_eq!(cost.format_status(), "$0.021 • $0.049");
-
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

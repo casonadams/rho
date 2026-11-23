@@ -1,4 +1,8 @@
-use super::accumulator::OutputAccumulator;
+use super::accumulator::{OutputAccumulator, OutputSnapshot};
+use super::normalize::{
+    BASH_CLEAN_HEAD_LINES, BASH_CLEAN_TAIL_LINES, BASH_CLEAN_WINDOW_LINE_THRESHOLD, BASH_FAILURE_TAIL_LINES,
+    collapse_consecutive_lines, window_clean_output, window_head_and_tail,
+};
 use crate::mailbox::Mailbox;
 use crate::process::{StreamingCommand, configure_shell_command};
 use crate::tools::jobs::{JobCompletion, JobManager, JobStatus, job_notice};
@@ -73,16 +77,21 @@ fn dispatch_background_task(
         if let Some(path) = snapshot.full_output_path.clone() {
             JobManager::global().attach_log(job.id(), path);
         }
-        report_background_result(job, status, &snapshot.formatted_text);
+        report_background_result(job, status, &snapshot);
     })
 }
 
 /// The model sees the output without terminal colors.
-fn report_background_result(job: JobCompletion, status: std::io::Result<std::process::ExitStatus>, output: &str) {
+fn report_background_result(
+    job: JobCompletion,
+    status: std::io::Result<std::process::ExitStatus>,
+    snapshot: &OutputSnapshot,
+) {
     let (status, notice) = match status {
         Ok(exit_status) => {
-            let output = super::sanitize::strip_ansi(output.trim()).into_owned();
             let exit_code = exit_status.code().unwrap_or(-1);
+            let output = background_text(snapshot, exit_code);
+            let output = super::sanitize::strip_ansi(&output).into_owned();
             let heading = format!("Job {} exit {exit_code}", job.id());
             let notice = job_notice(&heading, Some(&output));
             let output = neutralize_notice_tags(&output);
@@ -98,46 +107,117 @@ fn report_background_result(job: JobCompletion, status: std::io::Result<std::pro
 
 fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccumulator) -> ToolResult {
     let snapshot = accumulator.snapshot();
-    let raw_text = snapshot.formatted_text.trim();
+    let exit_code = status.code().unwrap_or(-1);
+    let text = exit_text(&snapshot, exit_code);
     if status.success() {
-        if raw_text.is_empty() {
-            return ToolResult::success("[exit 0; no output]");
-        }
-        let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
-        let body = if snapshot.truncation.total_lines > super::normalize::BASH_CLEAN_WINDOW_LINE_THRESHOLD {
-            super::normalize::window_clean_output(
-                &collapsed,
-                super::normalize::BASH_CLEAN_HEAD_LINES,
-                super::normalize::BASH_CLEAN_TAIL_LINES,
-            )
-        } else {
-            collapsed
-        };
-
-        let res = if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
-            let footer = super::footer::BashFooter {
-                lines: snapshot.truncation.total_lines,
-                size: crate::tools::truncate::format_size(snapshot.truncation.total_bytes),
-                log_path: snapshot
-                    .full_output_path
-                    .as_ref()
-                    .map(|p| p.to_string_lossy().to_string()),
-            };
-            format!("{body}\n\n{}", footer.render())
-        } else {
-            body
-        };
-        ToolResult::success(res)
+        ToolResult::success(text)
     } else {
-        let exit_code = status.code().unwrap_or(-1);
-        let msg = format!("[exit {exit_code}]");
-        let res = if raw_text.is_empty() {
-            msg
-        } else {
-            let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
-            format!("{collapsed}\n\n{msg}")
+        ToolResult::error(text)
+    }
+}
+
+/// What the model and the `!` command see for a finished command: windowed output ending in one status line.
+pub fn exit_text(snapshot: &OutputSnapshot, exit_code: i32) -> String {
+    let shaped = shape_output(snapshot, exit_code != 0);
+    let status_line = if shaped.needs_footer {
+        Some(log_footer(snapshot, exit_code).render())
+    } else if exit_code != 0 {
+        Some(format!("[exit {exit_code}]"))
+    } else if shaped.text.is_empty() {
+        Some("[exit 0; no output]".to_string())
+    } else {
+        None
+    };
+    append_status(shaped.text, status_line)
+}
+
+pub fn cancelled_text(snapshot: &OutputSnapshot) -> String {
+    append_status(shape_output(snapshot, true).text, Some("(cancelled)".to_string()))
+}
+
+/// Its notice heading already names the exit code, so only long output gets a footer.
+fn background_text(snapshot: &OutputSnapshot, exit_code: i32) -> String {
+    let shaped = shape_output(snapshot, exit_code != 0);
+    let footer = shaped.needs_footer.then(|| log_footer(snapshot, exit_code).render());
+    append_status(shaped.text, footer)
+}
+
+fn timeout_text(snapshot: &OutputSnapshot, timeout_sec: u64) -> String {
+    let shaped = shape_output(snapshot, true);
+    let status_line = if shaped.needs_footer {
+        format!("[timeout {timeout_sec}s; {}]", log_footer(snapshot, -1).counts())
+    } else {
+        format!("[timeout {timeout_sec}s]")
+    };
+    append_status(shaped.text, Some(status_line))
+}
+
+fn append_status(text: String, status_line: Option<String>) -> String {
+    match status_line {
+        Some(line) if text.is_empty() => line,
+        Some(line) => format!("{text}\n\n{line}"),
+        None => text,
+    }
+}
+
+/// Output ready for the model: windowed, with a failing-test summary when lines were left out.
+struct ShapedOutput {
+    text: String,
+    needs_footer: bool,
+}
+
+fn shape_output(snapshot: &OutputSnapshot, failed: bool) -> ShapedOutput {
+    let output = collapse_consecutive_lines(snapshot.content.trim());
+    let total_lines = snapshot.truncation.total_lines;
+    if output.is_empty() {
+        return ShapedOutput {
+            text: output,
+            needs_footer: false,
         };
-        ToolResult::error(res)
+    }
+    let (tail_lines, summarize): (_, fn(&str) -> Option<String>) = if failed {
+        (BASH_FAILURE_TAIL_LINES, super::failures::summarize_test_failures)
+    } else {
+        (BASH_CLEAN_TAIL_LINES, super::failures::summarize_reported_failures)
+    };
+    let body = match &snapshot.head {
+        Some(head) => window_head_and_tail(head, &output, total_lines, tail_lines),
+        None if total_lines > BASH_CLEAN_WINDOW_LINE_THRESHOLD => {
+            window_clean_output(&output, BASH_CLEAN_HEAD_LINES, tail_lines)
+        }
+        None => output.clone(),
+    };
+    let clipped = snapshot.truncation.truncated || body != output;
+    let mut sections = vec![body];
+    if clipped {
+        sections.extend(summarize(&full_output(snapshot)));
+    }
+    ShapedOutput {
+        text: sections.join("\n\n"),
+        needs_footer: clipped || total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD,
+    }
+}
+
+fn log_footer(snapshot: &OutputSnapshot, exit_code: i32) -> super::footer::BashFooter {
+    super::footer::BashFooter {
+        exit_code,
+        lines: snapshot.truncation.total_lines,
+        size: crate::tools::truncate::format_size(snapshot.truncation.total_bytes),
+        log_path: snapshot
+            .full_output_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+    }
+}
+
+fn full_output(snapshot: &OutputSnapshot) -> String {
+    match snapshot
+        .full_output_path
+        .as_ref()
+        .and_then(|path| std::fs::read(path).ok())
+    {
+        Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        None => super::sanitize::strip_ansi(&snapshot.content).into_owned(),
     }
 }
 
@@ -187,15 +267,7 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
             ctx.acc.append(chunk.as_bytes());
         }
         ctx.acc.finish();
-        let snapshot = ctx.acc.snapshot();
-        let output = snapshot.formatted_text.trim();
-        let msg = format!("[timeout {}s]", ctx.timeout_sec);
-        let res = if output.is_empty() {
-            msg
-        } else {
-            format!("{output}\n\n{msg}")
-        };
-        return ToolResult::error(res);
+        return ToolResult::error(timeout_text(&ctx.acc.snapshot(), ctx.timeout_sec));
     }
 
     let job = register_background_job(ctx.owner, &ctx.args.command);
@@ -211,6 +283,7 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
 
 async fn run_with_timeout<F>(
     base_dir: &Path,
+    log_dir: &Path,
     owner: Option<&Mailbox>,
     args: &BashArgs,
     mut on_chunk: F,
@@ -223,10 +296,12 @@ where
         Ok(v) => v,
         Err(e) => return Ok(e),
     };
-    let mut acc = OutputAccumulator::new();
+    let mut acc = OutputAccumulator::new().with_log_dir(log_dir);
     let exec = execute_process_loop(&mut rx, &mut on_chunk, &mut acc, &mut cmd);
     match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
-        Ok(Ok(status)) => Ok(format_exit_result(status, &acc)),
+        Ok(Ok(status)) => Ok(tokio::task::spawn_blocking(move || format_exit_result(status, &acc))
+            .await
+            .map_err(|e| AppError::Tool(format!("formatting bash output failed: {e}")))?),
         Ok(Err(e)) => Ok(ToolResult::error(format!(
             "Failed waiting for command '{}': {e}",
             args.command
@@ -248,6 +323,7 @@ where
 
 pub async fn run_command_streaming<F>(
     base_dir: &Path,
+    log_dir: &Path,
     owner: Option<&Mailbox>,
     args: &BashArgs,
     on_chunk: F,
@@ -262,14 +338,14 @@ where
         };
         let job = register_background_job(owner, &args.command);
         let job_id = job.id().to_string();
-        let acc = OutputAccumulator::new();
+        let acc = OutputAccumulator::new().with_log_dir(log_dir);
         dispatch_background_task(cmd, rx, acc, job, BACKGROUND_MAX_RUNTIME);
 
         return Ok(ToolResult::success(format!("[{}]", format_background_notice(&job_id))));
     }
 
     let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
-    run_with_timeout(base_dir, owner, args, on_chunk, timeout_sec).await
+    run_with_timeout(base_dir, log_dir, owner, args, on_chunk, timeout_sec).await
 }
 
 #[cfg(all(test, unix))]
@@ -375,5 +451,34 @@ mod tests {
             "{notices:?}"
         );
         assert!(!notices[0].contains('\u{1b}'), "{notices:?}");
+    }
+
+    #[tokio::test]
+    async fn a_background_job_with_long_output_reports_it_windowed_with_its_log() {
+        let logs = rho_test_support::TestDir::new();
+        let command = "seq 1 5000";
+        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command) else {
+            panic!("failed to spawn test command");
+        };
+        let boxes = crate::mailbox::Mailboxes::default();
+        let inbox = boxes.open("long-output-owner", None);
+        let job = register_background_job(Some(&inbox), command);
+        let job_id = job.id().to_string();
+        let acc = OutputAccumulator::new().with_log_dir(logs.join("rho-bash"));
+        dispatch_background_task(cmd, rx, acc, job, Duration::from_secs(10))
+            .await
+            .unwrap();
+
+        let JobStatus::Completed { exit_code, output } = JobManager::global().get(&job_id).unwrap().status else {
+            panic!("the job completes");
+        };
+        assert_eq!(exit_code, 0);
+        assert!(
+            output.starts_with("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n\n[... 4975 lines omitted]\n\n4986\n"),
+            "{output}"
+        );
+        assert!(output.contains("\n5000\n\n[exit 0; 5000 lines, "), "{output}");
+        assert_eq!(output.matches("log: ").count(), 1, "{output}");
+        assert_eq!(inbox.take().len(), 1);
     }
 }

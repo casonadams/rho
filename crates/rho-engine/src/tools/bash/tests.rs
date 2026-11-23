@@ -1,5 +1,32 @@
 use super::*;
 use crate::tools::truncate::DEFAULT_MAX_BYTES as MAX_BASH_BYTES;
+use rho_test_support::TestDir;
+
+/// A tool whose full-output logs live in a directory removed on drop.
+struct LoggedTool {
+    tool: BashTool,
+    logs: TestDir,
+}
+
+impl LoggedTool {
+    fn new() -> Self {
+        let logs = TestDir::new();
+        let tool = BashTool::new(std::env::current_dir().unwrap()).with_log_dir(logs.join("rho-bash"));
+        Self { tool, logs }
+    }
+}
+
+impl std::ops::Deref for LoggedTool {
+    type Target = BashTool;
+
+    fn deref(&self) -> &BashTool {
+        &self.tool
+    }
+}
+
+fn logging_accumulator(logs: &TestDir) -> OutputAccumulator {
+    OutputAccumulator::new().with_log_dir(logs.join("rho-bash"))
+}
 
 fn bash_args(command: &str) -> BashArgs {
     BashArgs {
@@ -12,7 +39,7 @@ fn bash_args(command: &str) -> BashArgs {
 #[cfg(unix)]
 #[tokio::test]
 async fn the_model_gets_plain_text_while_the_colored_output_stays_for_the_display() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let streamed = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let cases = [
         (
@@ -48,9 +75,60 @@ async fn the_model_gets_plain_text_while_the_colored_output_stays_for_the_displa
 #[cfg(unix)]
 #[tokio::test]
 async fn output_without_colors_needs_no_separate_display_text() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool.execute(bash_args("echo plain")).await.unwrap();
     assert_eq!((res.content.as_str(), res.display), ("plain", None));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
+    let tool = LoggedTool::new();
+    let run = "printf 'test math::subtracts ... FAILED\\n'; seq 1 2100; \
+               printf -- '---- math::subtracts stdout ----\\n'; \
+               printf \"thread 'math::subtracts' panicked at src/math.rs:12:9:\\nassertion failed\\n\\n\"; seq 1 30; \
+               printf 'test result: FAILED. 0 passed; 1 failed\\n'";
+    let summary = "[1 failing test; details from log]\n- math::subtracts\n    \
+                   thread 'math::subtracts' panicked at src/math.rs:12:9:\n    assertion failed";
+    for exit in [0, 101] {
+        let res = tool.execute(bash_args(&format!("{run}; exit {exit}"))).await.unwrap();
+
+        let (body, footer) = res.content.rsplit_once("\n\n").unwrap();
+        assert!(body.ends_with(summary), "exit {exit}: {}", res.content);
+        let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
+        assert_eq!((parsed.exit_code, parsed.lines), (exit, 2136));
+        assert!(footer.starts_with(&format!("[exit {exit}; 2136 lines")), "{footer}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_successful_command_quoting_failure_markers_gets_no_failure_summary() {
+    let tool = LoggedTool::new();
+    let quoted = "printf 'FAILED tests/test_a.py::test_x - boom\\n\\342\\234\\225 adds (3 ms)\\n\\303\\227 subtracts\\n\
+                  ___ test_y ___\\nE assert 1 == 2\\n'; seq 1 2100";
+
+    let plain = tool.execute(bash_args(quoted)).await.unwrap();
+    assert!(!plain.content.contains("failing test"), "{}", plain.content);
+
+    let with_totals = format!("{quoted}; printf '1 failed, 1 passed in 0.1s\\n'");
+    let reported = tool.execute(bash_args(&with_totals)).await.unwrap();
+    assert!(
+        reported.content.contains(" failing tests; details from log]"),
+        "{}",
+        reported.content
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unclipped_output_has_no_failure_summary() {
+    let tool = LoggedTool::new();
+    let res = tool
+        .execute(bash_args("printf 'test a ... FAILED\\n'; exit 101"))
+        .await
+        .unwrap();
+    assert_eq!(res.content, "test a ... FAILED\n\n[exit 101]");
 }
 
 #[cfg(unix)]
@@ -100,7 +178,8 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
 
 #[test]
 fn test_output_accumulator_creates_temp_file_when_truncated() {
-    let mut acc = OutputAccumulator::new();
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
     let chunk = vec![b'x'; MAX_BASH_BYTES + 500];
     acc.append(&chunk);
     acc.finish();
@@ -110,12 +189,12 @@ fn test_output_accumulator_creates_temp_file_when_truncated() {
     assert!(snap.full_output_path.is_some());
     let path = snap.full_output_path.unwrap();
     assert!(path.exists());
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
 fn test_output_accumulator_creates_temp_file_when_lines_exceed_threshold() {
-    let mut acc = OutputAccumulator::new();
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
     for i in 1..=20 {
         acc.append(format!("line {i}\n").as_bytes());
     }
@@ -129,12 +208,12 @@ fn test_output_accumulator_creates_temp_file_when_lines_exceed_threshold() {
     let content = std::fs::read_to_string(&path).unwrap();
     assert!(content.contains("line 1\n"));
     assert!(content.contains("line 20\n"));
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
 fn the_full_output_log_has_no_terminal_colors_even_when_escapes_span_chunks() {
-    let mut acc = OutputAccumulator::new();
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
     acc.append(b"\x1b[31mline 1\x1b[0m\n");
     for i in 2..=20 {
         acc.append(format!("\x1b[1;3{}mline {i}\x1b[0m\n", i % 8).as_bytes());
@@ -145,12 +224,11 @@ fn the_full_output_log_has_no_terminal_colors_even_when_escapes_span_chunks() {
 
     let path = acc.snapshot().full_output_path.expect("over the line threshold");
     let log = std::fs::read_to_string(&path).unwrap();
-    let _ = std::fs::remove_file(&path);
     assert!(!log.contains('\u{1b}'), "{log:?}");
     assert!(log.starts_with("line 1\nline 2\n"), "{log:?}");
     assert!(log.ends_with("line 20\ntail green\n"), "{log:?}");
     assert!(
-        acc.snapshot().formatted_text.contains("\x1b[32mgreen"),
+        acc.snapshot().content.contains("\x1b[32mgreen"),
         "the live text keeps its colors"
     );
 }
@@ -181,6 +259,39 @@ fn the_log_sweep_removes_only_old_rho_logs() {
 }
 
 #[test]
+fn a_clipped_snapshot_keeps_the_first_lines_even_when_they_arrive_in_pieces() {
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
+    for n in 1..=5000 {
+        acc.append(format!("line {n}").as_bytes());
+        acc.append(b"\n");
+    }
+    acc.finish();
+
+    let snapshot = acc.snapshot();
+    let head: String = (1..=10).map(|n| format!("line {n}\n")).collect();
+    assert_eq!(snapshot.head.as_deref(), Some(head.trim_end()));
+    assert!(snapshot.content.starts_with("line 3001\n"), "{}", snapshot.content);
+    assert!(snapshot.content.ends_with("line 5000"), "{}", snapshot.content);
+}
+
+#[test]
+fn a_head_too_long_for_its_byte_cap_keeps_only_whole_lines() {
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
+    acc.append(b"short\n");
+    acc.append("x".repeat(3000).as_bytes());
+    acc.append("y".repeat(3000).as_bytes());
+    acc.append(b"\n");
+    for n in 1..=3000 {
+        acc.append(format!("line {n}\n").as_bytes());
+    }
+    acc.finish();
+
+    assert_eq!(acc.snapshot().head.as_deref(), Some("short"));
+}
+
+#[test]
 fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     let mut acc = OutputAccumulator::new();
     acc.append(b"starting \x1b[4");
@@ -188,29 +299,58 @@ fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     acc.finish();
 
     let snap = acc.snapshot();
-    assert_eq!(snap.formatted_text, "starting \x1b[40mblack background\x1b[0m ending");
+    assert_eq!(snap.content, "starting \x1b[40mblack background\x1b[0m ending");
 }
 
 #[tokio::test]
-async fn test_bash_preserves_error_message_at_end_of_large_output() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+async fn clipped_successful_output_keeps_its_first_and_last_lines_and_names_the_log_once() {
+    let tool = LoggedTool::new();
     let res = tool
-        .execute(BashArgs {
-            command: "seq 1 5000; echo 'CRITICAL_FAILURE_AT_END'".to_string(),
-            timeout: Some(10),
-            background: None,
-        })
+        .execute(bash_args("echo FIRST_LINE; seq 1 5000; echo LAST_LINE"))
         .await
         .unwrap();
 
     assert!(!res.is_error);
-    assert!(res.content.contains("CRITICAL_FAILURE_AT_END"));
-    assert!(res.content.contains("[lines "));
+    assert!(
+        res.content
+            .starts_with("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n[... 4977 lines omitted]\n\n4987\n"),
+        "{}",
+        res.content
+    );
+    assert!(
+        res.content.contains("5000\nLAST_LINE\n\n[exit 0; 5002 lines, "),
+        "{}",
+        res.content
+    );
+    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
+}
+
+#[tokio::test]
+async fn clipped_failing_output_keeps_its_first_lines_and_a_longer_tail() {
+    let tool = LoggedTool::new();
+    let res = tool
+        .execute(bash_args("echo FIRST_LINE; seq 1 5000; exit 1"))
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(
+        res.content
+            .starts_with("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n[... 4891 lines omitted]\n\n4901\n"),
+        "{}",
+        &res.content[..200]
+    );
+    assert!(
+        res.content.contains("\n5000\n\n[exit 1; 5001 lines, "),
+        "{}",
+        res.content
+    );
+    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
 }
 
 #[tokio::test]
 async fn test_bash_streaming_receives_chunks() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let r_clone = received.clone();
 
@@ -236,7 +376,7 @@ async fn test_bash_streaming_receives_chunks() {
 
 #[tokio::test]
 async fn test_bash_echo() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "echo 'hello from bash'".to_string(),
@@ -252,7 +392,7 @@ async fn test_bash_echo() {
 
 #[tokio::test]
 async fn test_bash_nonzero_exit() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "exit 42".to_string(),
@@ -266,12 +406,12 @@ async fn test_bash_nonzero_exit() {
     assert!(res.content.contains("[exit 42]"));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_bash_timeout() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
-            command: "sleep 3".to_string(),
+            command: "sleep 30".to_string(),
             timeout: Some(1),
             background: None,
         })
@@ -291,7 +431,7 @@ async fn test_bash_timeout() {
 async fn test_bash_timeout_kills_process_group() {
     let dir = tempfile::tempdir().unwrap();
     let pid_file = dir.path().join("pid.txt");
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
 
     let res = tool
         .execute(BashArgs {
@@ -319,7 +459,7 @@ async fn test_bash_timeout_kills_process_group() {
 async fn test_bash_cancellation_kills_process_group() {
     let dir = tempfile::tempdir().unwrap();
     let pid_file = dir.path().join("pid.txt");
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
 
     let mut future = Box::pin(tool.execute(BashArgs {
         command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
@@ -360,7 +500,7 @@ async fn test_bash_cancellation_kills_process_group() {
 
 #[tokio::test]
 async fn test_bash_timeout_preserves_accumulated_output() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "echo 'early output'; sleep 3".to_string(),
@@ -376,8 +516,35 @@ async fn test_bash_timeout_preserves_accumulated_output() {
 }
 
 #[tokio::test]
+async fn a_timed_out_command_with_long_output_is_windowed_and_names_its_log() {
+    let tool = LoggedTool::new();
+    let res = tool
+        .execute(BashArgs {
+            command: "seq 1 5000; sleep 3".to_string(),
+            timeout: Some(1),
+            background: Some(false),
+        })
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(
+        res.content
+            .starts_with("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n\n[... 4890 lines omitted]\n\n4901\n"),
+        "{}",
+        &res.content[..200]
+    );
+    assert!(
+        res.content.contains("\n5000\n\n[timeout 1s; 5000 lines, "),
+        "{}",
+        res.content
+    );
+    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
+}
+
+#[tokio::test]
 async fn test_bash_nonzero_exit_preserves_output_before_status() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "echo 'first output line'; exit 42".to_string(),
@@ -403,7 +570,7 @@ fn test_accumulator_sanitizes_binary_output() {
 
 #[tokio::test]
 async fn test_bash_sets_noninteractive_env_safeguards() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command:
@@ -424,7 +591,7 @@ async fn test_bash_sets_noninteractive_env_safeguards() {
 
 #[tokio::test]
 async fn test_bash_sanitizes_cargo_environment_variables() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "echo \"PKG=$CARGO_PKG_NAME;DIR=$CARGO_MANIFEST_DIR;OUT=$OUT_DIR\"".to_string(),
@@ -440,7 +607,7 @@ async fn test_bash_sanitizes_cargo_environment_variables() {
 
 #[tokio::test]
 async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "seq 1 25".to_string(),
@@ -454,7 +621,10 @@ async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
     let footer = super::footer::BashFooter::parse(&res.content).expect("footer");
     assert_eq!(footer.lines, 25);
     let log = footer.log_path.expect("log path");
-    assert!(log.contains("rho-bash"), "{log}");
+    assert!(
+        std::path::Path::new(&log).starts_with(tool.logs.join("rho-bash")),
+        "{log}"
+    );
     assert!(
         std::path::Path::new(&log)
             .file_stem()
@@ -465,7 +635,7 @@ async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
 
 #[tokio::test]
 async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "seq 1 5".to_string(),
@@ -481,7 +651,7 @@ async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
 
 #[tokio::test]
 async fn test_bash_exit_zero_over_window_threshold_windows_output() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "seq 1 100".to_string(),
@@ -503,7 +673,7 @@ async fn test_bash_exit_zero_over_window_threshold_windows_output() {
 
 #[tokio::test]
 async fn test_bash_collapses_consecutive_identical_lines() {
-    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let tool = LoggedTool::new();
     let res = tool
         .execute(BashArgs {
             command: "printf 'repeat\\n%.0s' {1..10}".to_string(),
@@ -519,7 +689,8 @@ async fn test_bash_collapses_consecutive_identical_lines() {
 
 #[test]
 fn test_output_accumulator_caps_full_log_size() {
-    let mut acc = OutputAccumulator::new().with_log_limit(64);
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs).with_log_limit(64);
     for _ in 0..20 {
         acc.append(b"0123456789abcdef\n");
     }
@@ -527,7 +698,6 @@ fn test_output_accumulator_caps_full_log_size() {
 
     let path = acc.snapshot().full_output_path.unwrap();
     let content = std::fs::read_to_string(&path).unwrap();
-    let _ = std::fs::remove_file(&path);
     assert!(
         content.len() <= 64 + "\n[log truncated at 64 bytes]\n".len(),
         "{}",

@@ -1,4 +1,4 @@
-use super::{kill_group_by_pid, track_pid, untrack_pid};
+use super::{Scope, kill_group_detached, track, untrack_pid};
 use tokio::process::Child;
 
 /// RAII guard wrapping a child process to guarantee whole-tree termination on drop.
@@ -9,9 +9,18 @@ pub struct ProcessTreeGuard {
 
 impl ProcessTreeGuard {
     pub fn new(child: Child) -> Self {
+        Self::tracked(child, Scope::Turn)
+    }
+
+    /// For a server that serves the whole session: cancelling a turn leaves it running, exit kills it.
+    pub fn for_session(child: Child) -> Self {
+        Self::tracked(child, Scope::Session)
+    }
+
+    fn tracked(child: Child, scope: Scope) -> Self {
         let pid = child.id();
         if let Some(pid) = pid {
-            track_pid(pid);
+            track(pid, scope);
         }
         Self {
             child: Some(child),
@@ -46,7 +55,7 @@ impl ProcessTreeGuard {
         if let Some(mut child) = self.child.take() {
             if let Some(pid) = self.pid.take() {
                 untrack_pid(pid);
-                kill_group_by_pid(pid);
+                kill_group_detached(pid);
             }
             let _ = child.kill().await;
             child.wait().await
@@ -64,7 +73,7 @@ impl Drop for ProcessTreeGuard {
         if let Some(mut child) = self.child.take() {
             if let Some(pid) = self.pid.take() {
                 untrack_pid(pid);
-                kill_group_by_pid(pid);
+                kill_group_detached(pid);
             }
             let _ = child.start_kill();
         }

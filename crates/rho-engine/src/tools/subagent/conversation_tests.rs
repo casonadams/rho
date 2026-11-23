@@ -23,12 +23,20 @@ fn read_tool() -> Arc<dyn EngineTool> {
     }))
 }
 
+/// A tool whose rounds finish within the foreground budget, so calls return their results.
+fn inline_tool(
+    model: Option<crate::engine::compactor::llm::ModelHandle>,
+    tools: Vec<Arc<dyn EngineTool>>,
+) -> SubagentTool {
+    SubagentTool::new(model, tools).with_foreground_budget(std::time::Duration::from_secs(60))
+}
+
 fn bound_tool(adapter: &MockAdapter, session: Option<SessionManager>) -> Arc<dyn EngineTool> {
     let ctx = TurnToolContext {
         session,
         ..Default::default()
     };
-    SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+    inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()])
         .bind_turn(&ctx)
         .unwrap()
 }
@@ -139,14 +147,14 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
         session: Some(session),
         ..Default::default()
     };
-    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![slow_read])
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![slow_read])
         .with_backgrounding(background)
         .bind_turn(&ctx)
         .unwrap();
 
     let moved = ask(&tool, json!({ "name": "audit", "prompt": "Audit hot.rs" })).await;
     let id = moved.split('\'').nth(1).unwrap().to_string();
-    assert!(moved.contains("moved to the background"), "{moved}");
+    assert!(moved.contains("Started subagent task"), "{moved}");
     assert!(id.starts_with("audit-"), "{id}");
     let refused = [
         (json!({ "role": "general" }), "runs as 'scout', not 'general'"),
@@ -191,7 +199,7 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
     assert!(!jobs.has_running(&owner));
 
     let mut again = ask(&tool, json!({ "task_id": id, "prompt": "again" })).await;
-    if again.contains("moved to the background") {
+    if again.contains("Started subagent task") {
         again = next_notice().await.1;
     }
     assert!(again.contains("Second pass found nothing new."), "{again}");
@@ -212,7 +220,7 @@ async fn a_continued_task_keeps_its_persona_and_refuses_a_different_one() {
         location: String::new(),
         instructions: "Demand evidence.".into(),
     };
-    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()])
         .with_personas(vec![skeptic])
         .bind_turn(&ctx)
         .unwrap();
@@ -240,7 +248,7 @@ async fn a_model_chosen_when_continuing_a_task_is_kept_for_later_continuations()
         session: Some(session),
         ..Default::default()
     };
-    let tool = SubagentTool::new(
+    let tool = inline_tool(
         Some(Arc::new(MockAdapter::text("answered by session"))),
         vec![read_tool()],
     )
@@ -398,7 +406,7 @@ async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
         permission: Some(Arc::new(hook)),
         ..Default::default()
     };
-    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()])
         .bind_turn(&ctx)
         .unwrap();
 
@@ -422,6 +430,10 @@ async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
     ] {
         assert!(inspected.contains(&expected), "missing {expected:?} in:\n{inspected}");
     }
+    assert!(
+        !inspected.contains("[agent] hot() allocates"),
+        "a last message that is the final answer is shown once:\n{inspected}"
+    );
     let summary = format!(
         "`{id}` \u{b7} completed, 1 failed tool call \u{b7} agent scout, name audit \u{b7} 1 task(s) \u{b7} \"Audit hot.rs\""
     );
@@ -523,7 +535,7 @@ async fn bash_changes_are_attributed_and_later_changes_reach_a_continued_subagen
         project: Some(Arc::new(crate::engine::context::ProjectContext::for_tests(&root))),
         ..Default::default()
     };
-    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![Arc::new(bash), Arc::new(outside)])
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![Arc::new(bash), Arc::new(outside)])
         .bind_turn(&ctx)
         .unwrap();
 
@@ -568,7 +580,7 @@ fn worktree_setup(turns: Vec<Vec<ModelStreamEvent>>) -> WorktreeSetup {
         project: Some(Arc::new(crate::engine::context::ProjectContext::for_tests(&root))),
         ..Default::default()
     };
-    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![placeholder])
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![placeholder])
         .with_worktrees(store.clone())
         .bind_turn(&ctx)
         .unwrap();
@@ -579,6 +591,24 @@ fn worktree_setup(turns: Vec<Vec<ModelStreamEvent>>) -> WorktreeSetup {
         adapter,
         tool,
     }
+}
+
+#[tokio::test]
+async fn inspecting_an_unmerged_worktree_task_checks_files_in_its_worktree() {
+    let s = worktree_setup(vec![write_turn("a.rs", "agent\n"), text("wrote a.rs")]);
+    let first = ask(
+        &s.tool,
+        json!({ "name": "fixer", "role": "general", "prompt": "fix a.rs" }),
+    )
+    .await;
+
+    let inspected = ask(&s.tool, json!({ "task_id": task_id(&first), "inspect": true })).await;
+
+    assert!(inspected.contains("Files read or edited so far: a.rs"), "{inspected}");
+    assert!(
+        !inspected.contains("Changed since the agent last saw them"),
+        "{inspected}"
+    );
 }
 
 #[tokio::test]
@@ -679,7 +709,7 @@ fn only_subagents_limited_to_read_only_tools_run_in_parallel() {
     let write: Arc<dyn EngineTool> = Arc::new(GenericTool::new("write", "writes", json!({}), |_| async {
         Ok(ToolResult::success("written"))
     }));
-    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![read_tool(), write]);
+    let tool = inline_tool(Some(Arc::new(adapter)), vec![read_tool(), write]);
     let cases = [
         (json!({ "role": "scout", "prompt": "x" }), true),
         (json!({ "role": "general", "prompt": "x" }), false),
@@ -720,7 +750,7 @@ async fn a_compacted_round_replaces_the_saved_conversation_and_the_next_round_co
         session: Some(session.clone()),
         ..Default::default()
     };
-    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()])
         .with_keep_recent_tokens(1)
         .bind_turn(&ctx)
         .unwrap();

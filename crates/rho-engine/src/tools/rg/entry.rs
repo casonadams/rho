@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt::Write;
 
+use super::sink::MatchBlock;
 use crate::tools::listing::{
     Collected, Layout, Listing, PageRequest, Row, count_noun, directory_order, render_page, split_parent,
 };
@@ -19,9 +20,7 @@ const BY_FILE: Layout = Layout {
 #[derive(Debug, Clone)]
 pub struct LineMatch {
     pub path: String,
-    pub line: u64,
-    pub text: String,
-    pub truncated: bool,
+    pub block: MatchBlock,
 }
 
 impl Row for LineMatch {
@@ -30,16 +29,24 @@ impl Row for LineMatch {
     }
 
     fn render(&self, out: &mut String) {
-        let _ = write!(out, "{}:{}", self.line, self.text);
+        if self.block.detached {
+            out.push_str("--\n");
+        }
+        for (i, line) in self.block.lines.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            let _ = write!(out, "{}{}{}", line.number, line.marker, line.text);
+        }
     }
 
     fn cut(&self) -> bool {
-        self.truncated
+        self.block.truncated
     }
 }
 
 pub fn line_order(a: &LineMatch, b: &LineMatch) -> Ordering {
-    (&a.path, a.line).cmp(&(&b.path, b.line))
+    (&a.path, a.block.first_line()).cmp(&(&b.path, b.block.first_line()))
 }
 
 #[derive(Debug, Clone)]

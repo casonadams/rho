@@ -17,7 +17,7 @@ fn handle_turn_result(
         Ok(_) => Ok(()),
         Err(e) => {
             eprintln!("Error: {e}");
-            rho_engine::process::kill_all_tracked_processes();
+            rho_engine::process::shutdown_children();
             std::process::exit(1);
         }
     }

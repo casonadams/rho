@@ -87,7 +87,7 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
     // 3. Resolve approval via handle_tool_response_cmd
     let (_client_io, server_io) = duplex(1024);
     let mut writer = JsonLinesWriter::new(server_io);
-    let temp_dir = std::env::temp_dir().join(format!("rpc_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = rho_test_support::TestDir::new();
     let config = Config {
         sessions_dir: temp_dir.join("sessions"),
         auth_file: temp_dir.join("auth.json"),
@@ -124,8 +124,6 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
 
     let response = handle.await.unwrap();
     assert_eq!(response, Some(InteractionResponse::Selected(0)));
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
@@ -169,10 +167,10 @@ fn rpc_fixture(
 ) -> (
     ClientReader,
     JsonLinesWriter<tokio::io::DuplexStream>,
-    std::path::PathBuf,
+    rho_test_support::TestDir,
 ) {
     let (client_io, server_io) = duplex(4096);
-    let temp_dir = std::env::temp_dir().join(format!("{prefix}_{}", uuid::Uuid::new_v4()));
+    let temp_dir = rho_test_support::TestDir::with_prefix(&format!("{prefix}_"));
     (
         JsonLinesReader::new(tokio::io::BufReader::new(client_io)),
         JsonLinesWriter::new(server_io),
@@ -224,8 +222,6 @@ async fn test_rpc_state_command_and_get_tree() {
     let create_data = resp4.data.unwrap();
     assert!(create_data.get("active_workspace").is_some());
     assert!(create_data.get("total_input_tokens").is_some());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -309,8 +305,6 @@ async fn test_rpc_config_update_handlers() {
 
     let resp_compact = read_response(&mut client_reader).await;
     assert_eq!(resp_compact.id, Some("req-compact".to_string()));
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -344,7 +338,6 @@ async fn engine_changes_are_rejected_while_a_turn_is_running() {
         assert!(!resp.success);
         assert!(resp.error.unwrap().contains("turn is in progress"));
     }
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -438,7 +431,7 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     let (server_read, server_write) = tokio::io::split(server_io);
     let (client_read, client_write) = tokio::io::split(client_io);
 
-    let temp_dir = std::env::temp_dir().join(format!("rpc_stream_test_{}", uuid::Uuid::new_v4()));
+    let temp_dir = rho_test_support::TestDir::new();
     let handle = setup_rpc_test_server(server_read, server_write, &temp_dir).await;
 
     let mut writer = JsonLinesWriter::new(client_write);
@@ -517,7 +510,6 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     drop(writer);
     drop(reader);
     let _ = handle.await;
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 enum RpcHandler {
@@ -713,8 +705,6 @@ async fn test_handle_node_session_auth_and_resume_cmds() {
     }
 
     assert!(ctx.auth_store.read().await.get_credential("anthropic").is_some());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -758,8 +748,6 @@ async fn test_handle_session_lifecycle_cmd_variants() {
 
     let res = handle_session_lifecycle_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
     assert!(!res.unwrap());
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -784,8 +772,6 @@ async fn test_handle_create_session_workspace_target() {
     assert_eq!(resp.data.unwrap()["active_workspace"].as_str(), workspace.to_str());
     assert_eq!(ctx.engine.read().await.base_dir, workspace);
     assert_eq!(ctx.config.read().await.sessions_dir, workspace.join(".rho/sessions"));
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[tokio::test]
@@ -825,7 +811,5 @@ async fn test_handle_set_api_key_cmd_outcomes() {
                 "{name}"
             ),
         }
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

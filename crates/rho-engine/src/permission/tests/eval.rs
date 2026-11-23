@@ -178,6 +178,9 @@ fn suggested_rules_semantics() {
         ("bash", "ls", "ls *"),
         ("read", "src/main.rs", "src/main.rs/*"),
         ("write", "/tmp/notes.txt", "/tmp/notes.txt/*"),
+        ("undo", "src/main.rs", "src/main.rs/*"),
+        ("lsp", "src/main.rs", "src/main.rs/*"),
+        ("lsp", "{\"action\":\"status\"}", "*"),
         ("fetch", "https://github.com/x/y?z=1", "https://github.com/*"),
         ("fetch", "not a url", "*"),
         ("search", "rust async", "*"),
@@ -267,7 +270,6 @@ fn saved_rules_round_trip_with_comments() {
             .iter()
             .any(|r| r.surface == "bash" && r.pattern == "cargo test *")
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -286,7 +288,6 @@ fn path_tool_always_allow_saves_to_path_surface_and_overrides_workspace_ask() {
         check_eval(&policy, "read", json!({"path": "/etc/hosts"})),
         Decision::Allow
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -296,7 +297,6 @@ fn saving_never_clobbers_a_malformed_file() {
     std::fs::write(&path, "[allow\n").unwrap();
     assert!(save_allow_rule(&path, "bash", "cargo test *").is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "[allow\n");
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 fn check_default_bash(cmd: &str) -> Decision {
@@ -310,6 +310,21 @@ fn check_default_bash(cmd: &str) -> Decision {
             working_dir: ws(),
         },
     )
+}
+
+#[test]
+fn memory_notes_need_no_approval_unless_a_rule_says_otherwise() {
+    let note = json!({"action": "add", "text": "run the fidelity tests first"});
+    assert_eq!(
+        check_eval(&build_policy(None, None), "memory", note.clone()),
+        Decision::Allow
+    );
+
+    let scope = parse_scope_from_str("[deny]\nmemory = [\"*\"]\n").unwrap();
+    assert!(matches!(
+        check_eval(&build_policy(Some(scope), None), "memory", note),
+        Decision::Deny(_)
+    ));
 }
 
 #[test]

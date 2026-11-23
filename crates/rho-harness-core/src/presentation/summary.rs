@@ -1,6 +1,7 @@
 //! Path-cleaning and tool-arg summarization helpers.
 
 use crate::args::read::DEFAULT_READ_LIMIT;
+use crate::args::{TodoArgs, TodoStatus};
 use std::path::Path;
 
 pub fn to_relative_path(raw_path: &str) -> String {
@@ -152,10 +153,37 @@ fn format_bash_summary(args: &serde_json::Value) -> String {
 fn format_read_summary(args: &serde_json::Value) -> String {
     if let Some(ReadClassification::Skill { name }) = classify_read_path(args) {
         format!("[skill] {name}")
+    } else if let Some(symbol) = str_arg(args, "symbol") {
+        format!("{} symbol={symbol}", read_summary_parts(args).0)
     } else {
         let (path, range) = read_summary_parts(args);
         format!("{path}{}", range.unwrap_or_default())
     }
+}
+
+fn str_arg<'a>(args: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    args.get(key).and_then(|v| v.as_str()).filter(|v| !v.is_empty())
+}
+
+fn format_lsp_summary(args: &serde_json::Value) -> String {
+    let mut parts = vec![str_arg(args, "action").unwrap_or("").to_string()];
+    if let Some(path) = str_arg(args, "path") {
+        let location = match args.get("line").and_then(serde_json::Value::as_u64) {
+            Some(line) => format!("{}:{line}", to_relative_path(path)),
+            None => to_relative_path(path),
+        };
+        parts.push(location);
+    }
+    if let Some(target) = str_arg(args, "symbol").or_else(|| str_arg(args, "query")) {
+        parts.push(target.to_string());
+    }
+    parts.retain(|part| !part.is_empty());
+    parts.join(" ")
+}
+
+fn format_memory_summary(args: &serde_json::Value) -> String {
+    let action = str_arg(args, "action").unwrap_or("");
+    format!("{action} {}", str_arg(args, "scope").unwrap_or("project"))
 }
 
 fn format_rg_summary(args: &serde_json::Value) -> String {
@@ -389,6 +417,22 @@ fn format_generic_args_summary(args: &serde_json::Value) -> String {
     }
 }
 
+fn format_todo_summary(args: &serde_json::Value) -> String {
+    let Ok(TodoArgs { todos: Some(todos) }) = serde_json::from_value(args.clone()) else {
+        return String::new();
+    };
+    let done = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
+    let progress = format!("{done}/{} done", todos.len());
+    match todos.iter().find(|todo| todo.status == TodoStatus::InProgress) {
+        Some(active) => {
+            let (preview, truncated) = truncate_preview(active.content.trim(), 60);
+            let ellipsis = if truncated { "..." } else { "" };
+            format!("{progress} \u{b7} {preview}{ellipsis}")
+        }
+        None => progress,
+    }
+}
+
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => format_read_summary(args),
@@ -400,6 +444,10 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
         "mcp" => format_mcp_summary(args),
         "mcpScript" => format_mcp_script_summary(args),
+        "todo" => format_todo_summary(args),
+        "undo" => to_relative_path(str_arg(args, "path").unwrap_or("")),
+        "lsp" => format_lsp_summary(args),
+        "memory" => format_memory_summary(args),
         _ => format_generic_args_summary(args),
     }
 }

@@ -44,17 +44,35 @@ resume the exact session of each pane with `rho --resume <id>`.
 
 ## Built-in Tools
 
-`rho` includes 10 fast, native tools designed for coding agents:
+`rho` includes 15 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
-  safeguards. Supports image sniffing and downscaling.
+  safeguards. Supports image sniffing and downscaling. `symbol` reads just one
+  function, type, or method, located by the file's language server.
 - **`write`**: Create or overwrite files, automatically creating missing parent
   directories.
-- **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`.
+- **`edit`**: Apply exact text replacements to files: a unique `oldText`, every match with `replaceAll`, or a whole block from `startText` through `endText`. The result lists each changed region, numbered like `read`.
+- **`undo`**: Revert the last `edit`, `write`, or `lsp` rename, code action, or format to a file (up to 20 steps per
+  file; a file `write` created is deleted). It refuses when the file changed
+  after that tool wrote it, so it never discards changes it did not make.
+- **`lsp`**: Ask the file's [language server](docs/configuration.md#language-servers)
+  for diagnostics, definitions, references, hover, implementations, symbols,
+  quick fixes (`code_actions`), formatting, or a workspace-wide rename. Changes
+  from rename, code actions and formatting go through the same protected-path
+  checks as `edit` and are all-or-nothing and undoable. `edit` and `write`
+  results end with the server's errors and warnings for the new content, and
+  diagnostics that arrive later are delivered as a notice.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization. Commands run with color enabled so you
   see it in the terminal; the model receives the same output without escape
-  codes.
+  codes. Long output is clipped to its first and last lines (more of the end
+  when the command fails) with a path to the full log; when the clipped output
+  has failing tests (cargo test, nextest, pytest, go test, Jest, Vitest), a
+  short section lists each failing test with its key failure lines.
+
+  Interactive programs (vim, REPLs) can be driven from `bash` through mpx:
+  start one with `mpx run --pty`, type with `send-keys`, read the screen with
+  `capture-pane -p -S -N`, and stop it with `kill`.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
   indented names; directories end with `/`) after a total count. A directory
@@ -62,17 +80,42 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files. Matches are grouped by file (path line, then `line:text` rows) after an
   `N matches in M files` total; `output_mode` `files` or `count` lists only
-  matching files or per-file counts. Both tools fill a 20KB page and name the
+  matching files or per-file counts. `context` (0-10) adds `line-text` rows
+  around each match, and `multiline` lets a pattern span lines. Both tools fill a 20KB page and name the
   exact `offset` for the next page, so every result stays reachable.
 - **`subagent`**: Delegate focused work to an isolated agent: a built-in role (`scout`,
   `critic`, `planner`, `general`) or your own [custom agent](docs/configuration.md#subagents--custom-agents),
   optionally with a [persona](docs/configuration.md#personas) that changes how it behaves.
-  Each subagent works in its own git worktree.
+  Each subagent works in its own git worktree, with language-server queries (`lsp`)
+  against that worktree; only `general` can rename.
 - **`worktree`**: Review, merge (three-way, leaving conflict markers to fix), or discard the
-  worktrees where subagents and workflows did their work.
+  worktrees where subagents and workflows did their work. `diff` opens with, and `merge` ends with, a
+  static review of the added code (smells, clean-code and duplication findings with
+  `file:line`); it never blocks a merge and does not run tests or linters.
+- **`memory`**: Keep short notes across sessions (`view`, `add`, `remove`), for
+  durable, non-obvious facts such as "fidelity tests are slow; run X first".
+  Notes are plain markdown bullets in `~/.agents/memory/<project key>.md`
+  (scope `project`, the default) and `~/.agents/memory/global.md` (scope
+  `global`), loaded into context at the start of each session; changes take
+  effect in the next session. See [Memory](docs/configuration.md#memory-notes).
 - **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.
+- **`todo`**: Keep an ordered task list (`pending`, `in_progress`, `completed`)
+  for multi-step work. Each call replaces the whole list and allows at most one
+  item in progress; a call without `todos` shows the current list. The list is
+  read back from the conversation, so it survives `--resume`, and compaction
+  copies an unfinished list into its summary. Each subagent keeps its own list.
+- **`wait`**: Block until background work reports back, instead of polling with
+  `sleep`. It returns as soon as a background `bash` job or subagent task
+  finishes, with every result that has arrived (which is then not delivered
+  again as a follow-up message), when a new message arrives, or after 10 minutes
+  with a `Still running:` list. With nothing running it returns at once. Calling
+  it again waits for the work still running. The footer shows it while it
+  waits, and it leaves no card in the transcript. `Esc` ends the wait without
+  stopping the jobs. `bash` refuses a bare `sleep`, `pgrep`, `ps`, or `tail -f`
+  poll run in the foreground while a job or subagent task is running and points
+  to `wait`.
 
 When `read`, `edit`, `fd`, or `rg` gets a path that does not exist, the error
 ends with up to three close workspace paths (`Did you mean: ...?`), matching
@@ -81,10 +124,11 @@ moved files, typos, and `foo.rs` versus `foo/mod.rs`.
 When every tool call in one model response is read-only (`read`, `fd`, `rg`,
 `web_search`, `web_fetch`, or read-only subagents), the calls run in parallel.
 In a git repository, every subagent has its own worktree, so a response's
-subagent calls all run in parallel. A subagent still running after 60 seconds
-(configurable) moves to the background: the main agent keeps working, can send
-it more instructions with its `task_id`, and gets its result as a follow-up
-message.
+subagent calls all run in parallel. A subagent starts in the background: the
+call returns its task id at once, the main agent keeps working (or calls
+`wait`), can send it more instructions with its `task_id`, and gets its result
+as a follow-up message. The card tells you to press the left arrow on an empty prompt to
+watch it.
 
 `rho stats [--last N]` reports per-tool call and error counts, the most common
 errors, and file edits made through bash (`sed -i`, scripts, redirects) instead
@@ -156,9 +200,12 @@ Comprehensive guides are organized in [`docs/`](docs/):
 Run the test suite, linter, and format checks:
 
 ```sh
+make all          # fmt check, clippy, complexity, tests; quiet unless something fails
+make test V=1     # every test and compile line, for when you want the full output
 cargo test --workspace
 make clippy
 cargo fmt --all -- --check
+make leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
 ```
 
 ---

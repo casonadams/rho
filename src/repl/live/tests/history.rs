@@ -1,5 +1,3 @@
-use std::fs;
-
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{InteractiveState, TerminalController};
@@ -25,22 +23,20 @@ fn step_next(controller: &mut TerminalController<NullBackend>, history: &mut Int
 
 #[test]
 fn active_history_navigation_previous_steps() {
-    let path = std::env::temp_dir().join(format!("rho-live-history-{}.txt", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
+    let path = dir.join("history.txt");
     let (mut history, mut controller) = setup_history_and_controller(&path);
 
     assert_eq!(step_previous(&mut controller, &mut history), "draft\nline");
     assert_eq!(step_previous(&mut controller, &mut history), "newer\nsecond");
     assert_eq!(step_previous(&mut controller, &mut history), "newer\nsecond");
     assert_eq!(step_previous(&mut controller, &mut history), "older");
-
-    drop(controller);
-    drop(history);
-    let _ = fs::remove_file(path);
 }
 
 #[test]
 fn active_history_navigation_next_restores_draft() {
-    let path = std::env::temp_dir().join(format!("rho-live-history-{}.txt", uuid::Uuid::new_v4()));
+    let dir = rho_test_support::TestDir::new();
+    let path = dir.join("history.txt");
     let (mut history, mut controller) = setup_history_and_controller(&path);
 
     step_previous(&mut controller, &mut history);
@@ -50,10 +46,6 @@ fn active_history_navigation_next_restores_draft() {
 
     assert_eq!(step_next(&mut controller, &mut history), "newer\nsecond");
     assert_eq!(step_next(&mut controller, &mut history), "draft\nline");
-
-    drop(controller);
-    drop(history);
-    let _ = fs::remove_file(path);
 }
 
 #[test]
@@ -105,14 +97,57 @@ fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
 }
 
 #[test]
-fn test_hydrate_session_transcript_populates_items_and_history() {
+fn test_hydrate_session_transcript_populates_items() {
     let tree = sample_qa_tree();
     let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
-    let path = std::env::temp_dir().join(format!("test_hist_{}.txt", uuid::Uuid::new_v4()));
-    let mut history = InteractiveHistory::with_file(100, path.clone()).unwrap();
 
-    super::super::navigation::hydrate_session_transcript(&mut controller, &tree, &mut history).unwrap();
+    super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
     assert_eq!(controller.transcript().len(), 2);
-    assert_eq!(history.previous(""), Some("What is life?".to_string()));
-    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_resumed_session_shows_no_card_for_wait_calls() {
+    use rho_harness_core::model::*;
+    use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
+    let turn = |id: &str, tool: &str| {
+        let call = ToolCall::new(id, ToolFunction::new(tool.to_string(), serde_json::json!({})));
+        let result = ToolResult {
+            call: id.to_string(),
+            provider: None,
+            name: tool.to_string(),
+            content: vec![ToolResultContent::Text(TextContent::new("done"))],
+        };
+        [
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            ChatMessage::User {
+                content: vec![UserContent::ToolResult(result)],
+            },
+        ]
+    };
+    let mut tree = SessionTree::new();
+    tree.add_node(TreeNodeData {
+        id: "turn-1".into(),
+        parent_id: None,
+        timestamp: chrono::Utc::now(),
+        kind: TreeNodeKind::UserTurn,
+        messages: [turn("c1", "wait"), turn("c2", "read")].concat(),
+        label: None,
+        metadata: None,
+    });
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+
+    super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
+
+    let names: Vec<&str> = controller
+        .transcript()
+        .iter()
+        .filter_map(|item| match item {
+            crate::ui::interactive::TranscriptItem::Tool(tool) => Some(tool.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["read"]);
 }

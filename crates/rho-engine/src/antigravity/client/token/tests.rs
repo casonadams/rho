@@ -1,8 +1,8 @@
 use super::*;
 use crate::auth::AuthStore;
 use rho_harness_core::auth::StoredCredential;
+use rho_test_support::TestFile;
 use std::sync::Arc;
-use tempfile::NamedTempFile;
 use tokio::sync::Mutex;
 
 #[tokio::test]
@@ -14,7 +14,7 @@ async fn static_provider_returns_configured_token() {
 
 #[tokio::test]
 async fn auth_store_provider_resolves_valid_token() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let mut store = AuthStore::load(file.path()).unwrap();
     store
         .set_credential(
@@ -29,7 +29,7 @@ async fn auth_store_provider_resolves_valid_token() {
 
 #[tokio::test]
 async fn auth_store_provider_fails_for_unknown_provider() {
-    let file = NamedTempFile::new().unwrap();
+    let file = TestFile::new();
     let store = AuthStore::load(file.path()).unwrap();
     let provider = AuthStoreTokenProvider::new(Arc::new(Mutex::new(store)), "nonexistent");
     assert!(provider.token().await.is_err());

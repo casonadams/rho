@@ -198,9 +198,9 @@ async fn a_long_round_moves_to_the_background_and_delivers_its_result_when_done(
         .await;
 
     assert!(
-        moved
-            .content
-            .starts_with("Still running after 60s, so subagent task 't-2' moved"),
+        moved.content.starts_with(
+            "Started subagent task 't-2' (scout). Its result arrives as a follow-up message when it finishes; call wait"
+        ),
         "{}",
         moved.content
     );
@@ -284,7 +284,7 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
             ToolResult::success("done")
         })
         .await;
-    assert!(moved.content.contains("moved to the background"), "{}", moved.content);
+    assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
     let queued = background.steer("t-5", "focus on src/hot.rs").unwrap();
     assert_eq!(
         background.running_settings("t-5").unwrap().persona.as_deref(),
@@ -335,7 +335,7 @@ async fn one_round_can_be_stopped_by_task_id_in_the_foreground_or_background() {
             ToolResult::error("stopped in the background")
         })
         .await;
-    assert!(moved.content.contains("moved to the background"), "{}", moved.content);
+    assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
     assert!(runtime.stop("bg"));
     while background.rounds.active() > 0 {
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -354,7 +354,7 @@ async fn ending_a_session_asks_its_background_round_to_stop_and_lets_it_wrap_up(
             ToolResult::error("Interrupted; transcript saved")
         })
         .await;
-    assert!(moved.content.contains("moved to the background"), "{}", moved.content);
+    assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
 
     jobs.cancel_owner("owner-a");
     while jobs.has_running("owner-a") {
@@ -385,7 +385,7 @@ async fn a_background_round_that_ignores_the_stop_is_aborted_after_a_grace_perio
             ToolResult::success("never")
         })
         .await;
-    assert!(moved.content.contains("moved to the background"), "{}", moved.content);
+    assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
     assert_eq!(background.rounds.active(), 1);
 
     jobs.cancel_owner("owner-b");
@@ -417,4 +417,67 @@ async fn an_aborted_round_closes_its_inbox() {
     assert!(tokio::time::timeout(Duration::from_secs(1), call).await.is_err());
     tokio::task::yield_now().await;
     assert!(background.steer("t-6", "anyone?").is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_zero_budget_starts_the_round_in_the_background_at_once() {
+    let jobs = JobManager::new();
+    let background = Backgrounding::new(jobs.clone(), Duration::ZERO);
+    let started = background
+        .start(task("t-9", None), &ToolStreamPort::default(), |_| async {
+            ToolResult::success("instant")
+        })
+        .await;
+
+    assert!(!started.is_error);
+    assert!(
+        started.content.starts_with(SUBAGENT_STARTED_MARKER),
+        "{}",
+        started.content
+    );
+    assert!(!started.content.contains("Still running after"), "{}", started.content);
+    let (_, notice) = next_notice(&background).await;
+    assert!(notice.contains("instant"), "{notice}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn wait_returns_a_background_subagents_result_once() {
+    use crate::tools::engine_tool::{EngineTool, TurnToolContext};
+    let background = Backgrounding::new(JobManager::global().clone(), Duration::ZERO);
+    let inbox = background.inbox("wait-owner");
+    let wait = crate::tools::wait::WaitTool::default()
+        .bind_turn(&TurnToolContext {
+            inbox: Some(inbox.clone()),
+            ..TurnToolContext::default()
+        })
+        .unwrap();
+    let slot = background.reserve().unwrap();
+    let started = background
+        .run(
+            slot,
+            BackgroundTask {
+                id: "wait-task",
+                owner: "wait-owner",
+                label: "subagent audit".into(),
+                cancellation: None,
+                settings: ConversationSettings::default(),
+            },
+            &ToolStreamPort::default(),
+            |_| async {
+                tokio::time::sleep(Duration::from_secs(90)).await;
+                ToolResult::success("found 3 issues")
+            },
+        )
+        .await;
+    assert!(started.content.starts_with(SUBAGENT_STARTED_MARKER));
+
+    let waited = wait.execute(serde_json::json!({})).await.unwrap();
+
+    assert!(
+        waited.content.contains("Background subagent task 'wait-task' finished"),
+        "{}",
+        waited.content
+    );
+    assert!(waited.content.contains("found 3 issues"));
+    assert_eq!(inbox.pending(), 0, "the result is not delivered again");
 }

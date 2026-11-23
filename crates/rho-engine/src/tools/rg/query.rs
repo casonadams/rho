@@ -1,21 +1,20 @@
 use super::entry::{
     FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, file_order, format_files, format_lines, line_order,
 };
+use super::sink::BlockSink;
 use crate::tools::listing::{PageRequest, SortedCollector};
 use crate::tools::traversal::{run_parallel_walk, walker_builder};
-use crate::tools::truncate::truncate_line;
 use crate::tools::types::ToolResult;
 use grep_regex::RegexMatcher;
 use grep_searcher::BinaryDetection;
 use grep_searcher::SearcherBuilder;
-use grep_searcher::sinks::UTF8;
 use ignore::WalkState;
 use ignore::types::Types;
 use rho_harness_core::args::RgOutputMode;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
@@ -28,6 +27,8 @@ pub struct RgQuery {
     pub types: Option<Types>,
     pub include_hidden: bool,
     pub mode: RgOutputMode,
+    pub context: usize,
+    pub multiline: bool,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
 }
@@ -45,6 +46,29 @@ struct RgWalkContext<'a> {
     collector: &'a Collector,
     matches: &'a AtomicUsize,
     files: &'a AtomicUsize,
+    failures: &'a Mutex<SearchFailures>,
+}
+
+#[derive(Default)]
+struct SearchFailures {
+    count: usize,
+    first: Option<String>,
+}
+
+impl SearchFailures {
+    fn record(&mut self, path: &str, error: &std::io::Error) {
+        self.count += 1;
+        self.first.get_or_insert_with(|| format!("{path}: {error}"));
+    }
+
+    fn note(&self) -> Option<String> {
+        let first = self.first.as_ref()?;
+        let plural = if self.count == 1 { "" } else { "s" };
+        Some(format!(
+            "[{} file{plural} could not be searched; first: {first}]",
+            self.count
+        ))
+    }
 }
 
 fn should_search_entry(entry: &ignore::DirEntry) -> bool {
@@ -58,31 +82,23 @@ fn should_search_entry(entry: &ignore::DirEntry) -> bool {
 }
 
 fn search_file(searcher: &mut grep_searcher::Searcher, matcher: &RegexMatcher, path: &Path, ctx: &RgWalkContext<'_>) {
-    let keep_lines = ctx.mode == RgOutputMode::Content;
-    let stop_at_first = ctx.mode == RgOutputMode::Files;
-    let mut lines = Vec::new();
-    let mut count = 0usize;
-    let sink = UTF8(|line_number, line| {
-        count += 1;
-        if keep_lines {
-            let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-            lines.push((line_number, truncated.text.into_owned(), truncated.was_truncated));
-        }
-        Ok(!stop_at_first)
-    });
-    let _ = searcher.search_path(matcher, path, sink);
+    let mut sink = BlockSink::new(ctx.mode == RgOutputMode::Content, ctx.mode == RgOutputMode::Files);
+    let result = searcher.search_path(matcher, path, &mut sink);
+    let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
+    if let Err(error) = result {
+        let mut failures = ctx.failures.lock().unwrap_or_else(PoisonError::into_inner);
+        failures.record(&relative, &error);
+    }
+    let count = sink.count;
     if count == 0 {
         return;
     }
     ctx.matches.fetch_add(count, AtomicOrdering::Relaxed);
     ctx.files.fetch_add(1, AtomicOrdering::Relaxed);
-    let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
     match ctx.collector {
-        Collector::Lines(collector) => collector.extend(lines.into_iter().map(|(line, text, truncated)| LineMatch {
+        Collector::Lines(collector) => collector.extend(sink.blocks.into_iter().map(|block| LineMatch {
             path: relative.clone(),
-            line,
-            text,
-            truncated,
+            block,
         })),
         Collector::Files(collector) => collector.extend([FileHit {
             path: relative,
@@ -100,6 +116,7 @@ impl RgQuery {
             _ => Collector::Files(SortedCollector::new(RG_COLLECTION_CEILING, file_order)),
         };
         let (matches, files) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let failures = Mutex::new(SearchFailures::default());
         let ctx = RgWalkContext {
             roots: (
                 self.workspace_root.as_path(),
@@ -110,11 +127,20 @@ impl RgQuery {
             collector: &collector,
             matches: &matches,
             files: &files,
+            failures: &failures,
         };
         let matcher = &self.matcher;
+        let context = if self.mode == RgOutputMode::Content {
+            self.context
+        } else {
+            0
+        };
         let walked = run_parallel_walk(&builder, self.timeout, self.cancellation.as_deref(), || {
             let mut searcher = SearcherBuilder::new()
                 .line_number(true)
+                .before_context(context)
+                .after_context(context)
+                .multi_line(self.multiline)
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
             let ctx = &ctx;
@@ -134,9 +160,15 @@ impl RgQuery {
             matches: matches.into_inner(),
             files: files.into_inner(),
         };
-        match collector {
+        let mut result = match collector {
             Collector::Lines(collector) => format_lines(&collector.finish(totals.matches), &totals, request),
             Collector::Files(collector) => format_files(&collector.finish(totals.files), &totals, self.mode, request),
+        };
+        let failures = failures.into_inner().unwrap_or_else(PoisonError::into_inner);
+        if let Some(note) = failures.note() {
+            result.content.push_str("\n\n");
+            result.content.push_str(&note);
         }
+        result
     }
 }

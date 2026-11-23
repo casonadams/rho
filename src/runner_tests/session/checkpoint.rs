@@ -4,7 +4,7 @@ use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use rho_engine::provider::adapter::{MockAdapter, ModelCompletionRequest, ModelStreamEvent};
 use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
-use std::path::PathBuf;
+use rho_test_support::TestDir;
 use std::sync::Arc;
 
 fn budget_exhausted_model() -> Arc<MockAdapter> {
@@ -20,7 +20,7 @@ fn budget_exhausted_model() -> Arc<MockAdapter> {
     model
 }
 
-async fn setup_budget_exhausted_checkpoint() -> (String, PathBuf) {
+async fn setup_budget_exhausted_checkpoint() -> (String, TestDir) {
     let first = test_engine(
         budget_exhausted_model(),
         Config {
@@ -36,8 +36,7 @@ async fn setup_budget_exhausted_checkpoint() -> (String, PathBuf) {
         )
         .await;
     let id = first.session_manager.session_id.clone();
-    let dir = first.session_manager.file_path.parent().unwrap().to_path_buf();
-    (id, dir)
+    (id, first.into_dir())
 }
 
 fn assert_resumed_history_promoted(history: &[ChatMessage]) {
@@ -64,7 +63,8 @@ async fn assert_checkpoint_promoted_in_stores(engine: &crate::engine::AgentEngin
 
 #[tokio::test]
 async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once() {
-    let (id, dir) = setup_budget_exhausted_checkpoint().await;
+    let (id, root) = setup_budget_exhausted_checkpoint().await;
+    let dir = root.join("sessions");
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
     let resumed_model = Arc::new(MockAdapter::text("repository summary"));
     let resumed = test_engine_with_session(
@@ -85,7 +85,7 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
     assert_checkpoint_promoted_in_stores(&resumed, &dir, &id).await;
 }
 
-async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String, PathBuf) {
+async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String, TestDir) {
     let model = Arc::new(MockAdapter::default());
     model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
         "call-1",
@@ -105,8 +105,7 @@ async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String,
         .unwrap_err();
     let cp = first.session_manager.load_checkpoint().await.unwrap().unwrap();
     let id = first.session_manager.session_id.clone();
-    let dir = first.session_manager.file_path.parent().unwrap().to_path_buf();
-    (cp, id, dir)
+    (cp, id, first.into_dir())
 }
 
 fn assert_requests_contain_probe(requests: &[ModelCompletionRequest], probe: &str) {
@@ -131,7 +130,8 @@ async fn assert_retry_session_state(engine: &crate::engine::AgentEngine, dir: &s
 
 #[tokio::test]
 async fn failed_checkpoint_continuation_remains_available_until_success() {
-    let (checkpoint, id, dir) = setup_single_turn_checkpoint("checkpoint-probe-missing-3f9b").await;
+    let (checkpoint, id, root) = setup_single_turn_checkpoint("checkpoint-probe-missing-3f9b").await;
+    let dir = root.join("sessions");
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
     let resumed_model = Arc::new(MockAdapter::default());
     resumed_model.add_turn(vec![Err(rho_harness_core::error::AppError::Provider(
@@ -167,7 +167,8 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
 
 #[tokio::test]
 async fn second_budget_exhaustion_keeps_the_first_checkpoint() {
-    let (id, dir) = setup_budget_exhausted_checkpoint().await;
+    let (id, root) = setup_budget_exhausted_checkpoint().await;
+    let dir = root.join("sessions");
     let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
     let resumed_model = Arc::new(MockAdapter::default());
     resumed_model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(

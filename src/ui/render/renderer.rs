@@ -253,7 +253,7 @@ impl TerminalRenderer {
             } else {
                 let _ = ui.set_running_tool(Some(name.to_string()));
             }
-        } else {
+        } else if crate::ui::interactive::RunningTool::has_transcript_card(name) {
             self.print_tool_start(name, args);
         }
     }
@@ -265,6 +265,12 @@ impl TerminalRenderer {
     }
 
     pub fn finish_tool_line(&self, mut line: ToolLine) {
+        if !crate::ui::interactive::RunningTool::has_transcript_card(&line.name) {
+            if let Some(ui) = &self.ui {
+                let _ = ui.tool_end();
+            }
+            return;
+        }
         if line.file_change.is_none()
             && let Some(path) = file_change::target_path(&line.arguments)
             && let Ok(mut pending) = self.pending_file_changes.lock()

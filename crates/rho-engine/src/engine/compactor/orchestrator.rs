@@ -1,12 +1,15 @@
 use super::artifact_spill::DemotionHook;
+use super::fit::fit_summary;
 use crate::engine::compactor::llm::ModelHandle;
 use rho_harness_core::error::Result;
 use rho_harness_core::model::ChatMessage;
+use rho_harness_core::session::DEFAULT_COMPACTION_MAX_BYTES;
 use rho_harness_core::session::compaction::{
     CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message, compose_compaction_summary,
     extract_file_ops, render_file_lists_xml,
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
+use rho_harness_core::todo::carried_todos;
 use rho_harness_core::tokens::{find_token_cut_point, is_tool_result_message};
 use std::sync::Arc;
 
@@ -85,7 +88,11 @@ pub async fn compact_messages(
         return None;
     }
     let files = extract_file_ops(folded, None);
-    let summary = compose_compaction_summary(&summary, &render_file_lists_xml(&files));
+    let summary = fit_summary(
+        &compose_compaction_summary(&summary, &render_file_lists_xml(&files)),
+        &carried_todos(None, folded, kept),
+        DEFAULT_COMPACTION_MAX_BYTES,
+    );
     let mut compacted = vec![compaction_summary_message(&summary)];
     compacted.extend_from_slice(kept);
     Some(compacted)
@@ -178,7 +185,7 @@ fn filter_conversation_messages(
 }
 
 /// Compaction orchestration over the durable session tree. Shared by the
-/// engine's compaction entry points and the mid-run auto-compaction hook.
+/// engine's compaction entry points.
 #[derive(Clone)]
 pub struct SessionCompactor {
     session_manager: SessionManager,
@@ -293,6 +300,7 @@ impl SessionCompactor {
             ..Default::default()
         });
         self.run_tracker.forget_last_request();
+        self.context.reset_notices();
         Ok(())
     }
 
@@ -312,12 +320,12 @@ impl SessionCompactor {
             .await;
         let file_details = extract_file_ops(to_sum, plan.prior_details);
         let summary = compose_compaction_summary(&md_summary, &render_file_lists_xml(&file_details));
-        let redacted_summary = self.session_manager.redact_credentials(&summary);
-        let final_summary = if self.max_bytes > 0 {
-            redacted_summary[..redacted_summary.floor_char_boundary(self.max_bytes)].to_string()
-        } else {
-            redacted_summary
-        };
+        let todos = carried_todos(plan.prior_summary, to_sum, kept);
+        let final_summary = fit_summary(
+            &self.session_manager.redact_credentials(&summary),
+            &self.session_manager.redact_credentials(&todos),
+            self.max_bytes,
+        );
 
         let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name, &self.context);
         let saved_tokens = plan.tokens_before.saturating_sub(tokens_after);
@@ -365,6 +373,20 @@ impl AgentEngine {
     pub async fn compact_session(&self, instructions: Option<&str>) -> Result<CompactionStats> {
         self.promote_unfinished_turn().await?;
         self.session_compactor().compact(instructions).await
+    }
+
+    /// Switches the session to another branch; the new context starts its budget notices over.
+    pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<ChatMessage>> {
+        let messages = self.session_manager.switch_branch(leaf_id).await?;
+        self.context.reset_notices();
+        Ok(messages)
+    }
+
+    /// Rewinds the session to `target_turn`; the shorter context starts its budget notices over.
+    pub async fn rewind_to_turn(&self, target_turn: usize) -> Result<usize> {
+        let retained = self.session_manager.rewind_to_turn(target_turn).await?;
+        self.context.reset_notices();
+        Ok(retained)
     }
 
     /// Compaction summarizes canonical history only, so an unfinished turn's saved steps join it first.

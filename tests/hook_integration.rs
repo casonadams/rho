@@ -56,9 +56,7 @@ async fn run_hooked_read(
         std::fs::write(workspace.join(name), contents).unwrap();
     }
     write_hook_script(&workspace.join(hooks_dir), "on_tool_call", body);
-    let result = run_read_turn(&workspace, read_path, final_text).await;
-    let _ = std::fs::remove_dir_all(&workspace);
-    result
+    run_read_turn(&workspace, read_path, final_text).await
 }
 
 #[tokio::test]

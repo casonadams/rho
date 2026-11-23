@@ -52,12 +52,6 @@ async fn dispatch_live_message<B: TerminalBackend>(
     engine: &mut AgentEngine,
     message: QueuedMessage,
 ) -> Result<bool> {
-    if message.kind != crate::ui::interactive::QueueKind::FollowUp {
-        editor
-            .history
-            .record(&message.text)
-            .map_err(|e| anyhow::anyhow!("History could not be updated: {e}"))?;
-    }
     let io = LiveIo {
         controller: io.controller,
         events: io.events,
@@ -130,11 +124,11 @@ async fn build_live_environment(
     let (mut controller, mut ui_events) = init_live_ui(session, engine)?;
     let skills = crate::repl::print_welcome(session, engine).await;
     drain_ui_events(&mut controller, &mut ui_events, &mut None)?;
-    let mut history = InteractiveHistory::with_file_async(1000, session.config.config_dir.join("history.txt"))
+    let history = InteractiveHistory::with_file_async(1000, session.config.config_dir.join("history.txt"))
         .await
         .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
     let completions = build_completions(session, skills).await;
-    maybe_hydrate_transcript(session.resume_id.is_some(), engine, &mut controller, &mut history).await;
+    maybe_hydrate_transcript(session.resume_id.is_some(), engine, &mut controller).await;
     Ok((controller, ui_events, history, completions))
 }
 

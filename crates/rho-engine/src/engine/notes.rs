@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex, PoisonError};
+use crate::engine::locking::lock;
+use std::sync::{Arc, Mutex};
 
 /// Text for the main agent that arrived between turns, such as a workflow report; it precedes the next prompt.
 #[derive(Clone, Default)]
@@ -6,21 +7,17 @@ pub struct TurnNotes(Arc<Mutex<Vec<String>>>);
 
 impl TurnNotes {
     pub fn push(&self, note: impl Into<String>) {
-        self.lock().push(note.into());
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<String>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0).push(note.into());
     }
 
     /// The queued notes, which stay queued until `consume` confirms a turn used them.
     pub(crate) fn pending(&self) -> Vec<String> {
-        self.lock().clone()
+        lock(&self.0).clone()
     }
 
     /// Drops the first `count` notes, keeping any queued after they were read.
     pub(crate) fn consume(&self, count: usize) {
-        let mut notes = self.lock();
+        let mut notes = lock(&self.0);
         let count = count.min(notes.len());
         notes.drain(..count);
     }

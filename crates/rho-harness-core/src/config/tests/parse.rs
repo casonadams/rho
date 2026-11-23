@@ -226,6 +226,20 @@ enabled = false
 }
 
 #[test]
+fn lsp_tool_is_enabled_unless_the_file_turns_it_off() {
+    for (toml_str, expected) in [
+        ("model = \"claude\"\n", true),
+        ("[tools.lsp]\nenabled = false\n", false),
+        ("[tools.lsp]\nenabled = true\n", true),
+    ] {
+        let file: FileConfig = toml::from_str(toml_str).unwrap();
+        let mut config = Config::default();
+        super::super::merge::merge_file(&mut config, file);
+        assert_eq!(config.tools.lsp.enabled, expected, "{toml_str}");
+    }
+}
+
+#[test]
 fn parses_mcp_config_enabled_in_file() {
     let toml_str = r#"
 [mcp]

@@ -60,7 +60,6 @@ async fn headless_presentation_records_deterministic_event_sequence() {
     assert_eq!(output.final_text, "The file contains: headless content");
 
     assert_headless_tool_events(&recording.events(), path_str);
-    let _ = std::fs::remove_dir_all(&workspace);
 }
 
 #[test]
@@ -122,5 +121,4 @@ async fn headless_run_turn_stops_on_proactive_compaction() {
 
     assert_eq!(output.status, rho_engine::engine::runner::RunStatus::Compacted);
     assert_eq!(output.final_text, "");
-    let _ = std::fs::remove_dir_all(&workspace);
 }

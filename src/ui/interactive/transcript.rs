@@ -222,7 +222,8 @@ fn classify_tools(tools: &[String]) -> ToolCategories {
 
     for tool in tools {
         match tool.as_str() {
-            "fd" | "read" | "rg" | "write" | "edit" | "bash" | "tool_search" => push_unique(&mut builtins, tool),
+            "fd" | "read" | "rg" | "write" | "edit" | "undo" | "bash" | "lsp" | "todo" | "memory" | "subagent"
+            | "worktree" | "tool_search" => push_unique(&mut builtins, tool),
             "search" | "web_search" => push_unique(&mut builtins, "web_search"),
             "fetch" | "web_fetch" => push_unique(&mut builtins, "web_fetch"),
             "mcp" | "mcpScript" => {}

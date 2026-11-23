@@ -93,7 +93,7 @@ impl McpProcess {
             stdout,
             McpChildHandle {
                 stderr_buffer,
-                _guard: crate::process::ProcessTreeGuard::new(child),
+                _guard: crate::process::ProcessTreeGuard::for_session(child),
             },
         ))
     }

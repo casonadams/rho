@@ -3,15 +3,17 @@ use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveUi, UiEvent};
 
-fn sample_test_sink(renderer: &TerminalRenderer) -> std::sync::Arc<TerminalApprovalSink> {
-    TerminalApprovalSink::new(
+fn sample_test_sink(renderer: &TerminalRenderer) -> (std::sync::Arc<TerminalApprovalSink>, rho_test_support::TestDir) {
+    let (session, dir) = terminal_session();
+    let sink = TerminalApprovalSink::new(
         &presenter(renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
-    )
+        session,
+    );
+    (sink, dir)
 }
 
 fn collect_activities(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Vec<Activity> {
@@ -26,7 +28,7 @@ fn collect_activities(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>
 #[test]
 fn visible_stream_clears_spinner_and_hidden_output_resumes_it() {
     let renderer = TerminalRenderer::default();
-    let sink = sample_test_sink(&renderer);
+    let (sink, _dir) = sample_test_sink(&renderer);
     sink.emit_reasoning("think ");
     sink.emit_reasoning("harder");
     assert_eq!(sink.state.lock().unwrap().reasoning.join(""), "think harder");
@@ -43,7 +45,7 @@ fn visible_stream_clears_spinner_and_hidden_output_resumes_it() {
 fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
-    let sink = sample_test_sink(&renderer);
+    let (sink, _dir) = sample_test_sink(&renderer);
 
     assert!(sink.state.lock().unwrap().spinner.is_some());
     sink.tool_start("read", &serde_json::json!({"path": "src/lib.rs"}));
@@ -65,7 +67,7 @@ fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
 fn interactive_stream_preserves_spinner_until_finished() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
-    let sink = sample_test_sink(&renderer);
+    let (sink, _dir) = sample_test_sink(&renderer);
 
     sink.emit_reasoning("thinking about solution");
     sink.emit_text("Here is the answer");
@@ -80,13 +82,14 @@ fn interactive_stream_preserves_spinner_until_finished() {
 #[test]
 fn reasoning_flushes_before_tool_classification() {
     let renderer = TerminalRenderer::default();
+    let (session, _dir) = terminal_session();
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
-        terminal_session(),
+        session,
     );
     sink.emit_reasoning("pondering next step");
     assert_eq!(sink.state.lock().unwrap().reasoning.join(""), "pondering next step");
@@ -100,7 +103,7 @@ fn reasoning_flushes_before_tool_classification() {
 fn reasoning_flush_emits_transcript_thinking_item() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
-    let sink = sample_test_sink(&renderer);
+    let (sink, _dir) = sample_test_sink(&renderer);
 
     sink.emit_reasoning("analyzing the architecture");
     sink.emit_text("Here is the answer");

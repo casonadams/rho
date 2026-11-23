@@ -2,7 +2,7 @@ use super::ReplSession;
 use super::navigation::{hydrate_session_transcript, update_footer};
 use crate::engine::AgentEngine;
 use crate::error::Result;
-use crate::repl::interactive::{CompletionSet, InteractiveHistory};
+use crate::repl::interactive::CompletionSet;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{CrosstermBackend, InteractiveState, TerminalBackend, TerminalController, UiEvent};
 
@@ -66,9 +66,8 @@ pub(super) async fn maybe_hydrate_transcript<B: TerminalBackend>(
     resumed: bool,
     engine: &AgentEngine,
     controller: &mut TerminalController<B>,
-    history: &mut InteractiveHistory,
 ) {
     if resumed && let Ok(tree) = engine.session_manager.load_tree().await {
-        let _ = hydrate_session_transcript(controller, &tree, history);
+        let _ = hydrate_session_transcript(controller, &tree);
     }
 }

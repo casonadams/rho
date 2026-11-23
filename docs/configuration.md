@@ -276,10 +276,29 @@ happen.
   the main agent merges it: the result names the worktree and its changed
   files, and the `worktree` tool lists, diffs, merges (a three-way merge
   against your current files that leaves `<<<<<<<` conflict markers to fix),
-  or discards it. Review feedback with the task's `task_id` continues in the
+  or discards it. `diff` opens with a
+  static code review of the lines the worktree added and `merge` ends its result with one (see below). Review feedback with the task's `task_id` continues in the
   same worktree until it is merged or discarded; after that, a continued
   subagent gets a fresh worktree and is told so. A round that changes nothing
   leaves no worktree.
+- **Worktree code review**: `worktree diff` starts with, and `worktree merge` ends with,
+  `Review: N errors, M warnings in K files`, then `path:line [rule] message`
+  findings (errors first, at most 30 shown) for the added lines only. Errors:
+  git conflict markers, credential-looking strings, debug leftovers (`dbg!`,
+  `debugger`, `breakpoint()`, `pdb.set_trace`), placeholders (`todo!()`,
+  `unimplemented!()`, `NotImplementedError`). Warnings: lint suppressions
+  (`#[allow]`, `eslint-disable`, `@ts-ignore`, `# noqa`, `//nolint`, ...),
+  TODO/FIXME/XXX/HACK, `unwrap`/`expect` and `console.log` outside tests,
+  commented-out code, lines over 140 characters, nesting deeper than 5 levels,
+  functions adding over 60 lines or taking over 6 parameters or 2+ bool flags,
+  new files over 400 lines, a string literal of 12+ characters repeated 3+
+  times, and duplication (`path:START-END duplicates other:LINE (N lines)`:
+  5+ significant added lines that also occur in another added file or in the
+  checkout's other files, or a function whose body equals another's). Test
+  code is exempt from the `unwrap`, `console.log`, placeholder, secret, length
+  and nesting rules. The review is static: it does not run tests, linters, or
+  cognitive-complexity checks, so run those. Findings never block a merge: send
+  them to the subagent by continuing it, or fix them after merging.
 - **Worktree cleanup**: the checkout is disposable; each round's work is
   committed to the worktree's branch, and its details are kept in
   `.git/rho/worktrees/<id>.json`, so a checkout removed by the OS's temp
@@ -321,6 +340,12 @@ happen.
   subagent last saw (up to 20), for example your edits after its worktree was
   merged, which covers what it saw through `rg` or other directory-wide
   commands. The result says what the subagent was told.
+- **Finishing**: a subagent finishes by calling `complete_task` with its report,
+  which becomes the task's result; text it writes outside that call is not
+  passed on. The call is refused while a message from the main agent is
+  waiting or the subagent's own background work is still running, so the
+  subagent reads or waits for it first. A subagent that ends with a plain
+  reply instead has that reply used as its result.
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
   without a decision. The call ends its turn; its task becomes `input-required`
   and its result is `Question for you: ...`. The main agent answers with the
@@ -348,9 +373,12 @@ happen.
   persona, role, or agent in `[subagents.models]`, else `models.smol` (see
   below).
 
-- **Built-in roles**: `scout` (read, fd, rg, web_fetch, web_search), `critic`
-  and `planner` (read, fd, rg), and `general` (read, write, edit, bash, fd, rg,
-  web_fetch, web_search).
+- **Built-in roles**: `scout` (read, fd, rg, lsp, web_fetch, web_search),
+  `critic` and `planner` (read, fd, rg, lsp), and `general` (read, write, edit,
+  undo, bash, fd, rg, lsp, web_fetch, web_search, todo, wait). Each subagent keeps its
+  own `todo` list. An agent without `write` or `edit` gets `lsp` without the
+  `rename` and `format` actions and without applying code actions, so read-only
+  roles never change files through it.
 - **Safety**: subagent tool calls go through the same permission rules and
   lifecycle hooks as the main agent, and `Esc` cancels them. (Agents inside a
   [workflow](workflows.md#trust) are trusted and skip both.)
@@ -362,10 +390,14 @@ happen.
   elsewhere only subagents whose tools are all read-only. Parallel subagents
   still share ignored build and dependency directories, ports, and the machine.
   Permission prompts still appear one at a time.
-- **Background**: a subagent still running after `subagents.foreground_seconds`
-  (default 60) moves to the background. The call returns its task id at once so
-  the main agent can keep working; the result arrives as a follow-up message
-  when the subagent finishes, and the turn waits for it before ending. Until
+- **Background**: a subagent starts in the background by default. The call
+  returns its task id at once (set `subagents.foreground_seconds` to a nonzero
+  number to run it inline for that long first, and only then move it to the
+  background); the main agent can keep working, call `wait` to block until a
+  result arrives, or end its turn. The result arrives as a follow-up message
+  when the subagent finishes, and the turn waits for it before ending. The tool
+  card tells the user that it runs in the background and that `Left` on an empty
+  prompt watches it (the model is not told this). Until
   then, inspecting that task says it is still running, and continuing it
   queues the prompt (with any `context_slice`) as a message the subagent reads
   before its next model call (also when it answers: it keeps working with the
@@ -411,7 +443,7 @@ You are a strict reviewer. Report concrete bugs with file:line evidence.
 |---|---|
 | `name` | Name used to call the agent; defaults to the file name |
 | `description` | Shown to the main agent when it picks a subagent |
-| `tools` | Allowlist of tools; omit it to allow every tool |
+| `tools` | Allowlist of tools; omit it to get the read-only set (`read`, `fd`, `rg`, `lsp` without `rename`, `format`, or code-action edits, `web_fetch`, `web_search`), so an agent that edits files or runs commands must list `write`, `edit`, or `bash` |
 | `disallowed_tools` | Tools removed from the allowed set |
 
 `model` and `max_turns` in agent files are ignored; pass them from the caller
@@ -420,8 +452,8 @@ instead.
 Agents load from `~/.agents/agents/`, then `.claude/agents/` and
 `.agents/agents/` in the project (subdirectories included). A later file with
 the same `name` replaces an earlier one. Asking for an agent name or role that
-doesn't exist is an error. Agents never get the `subagent` tool themselves,
-even without a `tools` list.
+doesn't exist is an error. Agents never get the `subagent` or `lsp` tool,
+even when their `tools` list names them.
 
 ### Personas
 
@@ -478,7 +510,7 @@ subagent tasks:
 
 ```toml
 [subagents]
-foreground_seconds = 60
+foreground_seconds = 0      # 0 (default): subagents start in the background
 approval_focus = "switch"   # or "indicate"
 
 [subagents.models]
@@ -579,6 +611,156 @@ fallback = []
 
 When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from LLM dynamic registration and model tool catalogs. Tool toggles and default search engine selection can be changed interactively without leaving the session via `/settings` -> **Tools & Permissions**.
 
+## Language Servers
+
+The `lsp` tool, `read` with `symbol`, and the diagnostics at the end of `edit`
+and `write` results use the language server for the file's extension. A server
+runs only when its command is on `PATH` and a root marker is found: the
+workspace root when it holds a marker (one server for the whole repository),
+else the nearest ancestor of the file that does. In a trusted project
+(`RHO_TRUST_PROJECT=1`), servers start on first use (reading a file starts its
+server in the background, and `edit`/`write` start the servers they report
+from). In a project that is not trusted, only an explicit `lsp` call or `read`
+with `symbol` starts a server: reading or editing a file never does, because a
+server analyzes the project, which for some languages runs its code. Servers
+start without provider API keys, tokens, and secrets from rho's environment.
+Servers stay up until unused for 10 minutes (`idleTimeoutMs` in `lsp.json`;
+`0` never stops them), at most 8 run at once (the least recently used stops
+first), and all are asked to shut down when rho exits. A server that fails to
+start is retried after a minute; one that exits is restarted on next use, but
+one that exits again within a minute of a restart waits out the minute. Each
+server keeps at most 64 documents open. Edits to `lsp.json` apply within a few
+seconds without restarting rho. Files outside
+the workspace (such as a dependency a definition points into) are answered by
+an already running server, never a new one. Subagents working in their own git
+worktrees start their own servers for the worktree on first use (never
+automatically in a project that is not trusted) and shut them down when the
+subagent's round ends. A subagent without `write` or `edit` cannot `rename`,
+`format`, or apply code actions. Like an editor, a language server
+analyzes the project, which for some languages runs its build scripts. Set
+`tools.lsp.enabled = false` (or `rho config tools.lsp.enabled false`) to remove
+the `lsp` tool and run `read`, `edit`, and `write` without language servers.
+
+Built in: rust-analyzer, gopls, typescript-language-server, pyright,
+basedpyright, clangd, zls, lua-language-server, jdtls, kotlin-language-server,
+ruby-lsp, sourcekit-lsp, haskell-language-server, ocamllsp, csharp-ls,
+elixir-ls, intelephense, bash-language-server, terraform-ls, nil, and taplo
+(the last three run in git repositories). When several servers handle an
+extension, the first installed one answers; servers marked `linter` add their
+diagnostics alongside it.
+
+Add or change servers in `~/.agents/lsp.json`, `.lsp.json`, or
+`.agents/lsp.json` (later files win, field by field per server name). The
+project files choose which commands run, so they apply only when the project is
+trusted (`RHO_TRUST_PROJECT=1`); otherwise `lsp status` says they were ignored.
+A top-level `"enabled": false` turns every server off; a top-level
+`"idleTimeoutMs"` sets how long an unused server stays up. The format matches
+Claude Code's `.lsp.json`:
+
+```json
+{
+  "rust-analyzer": {
+    "settings": { "rust-analyzer": { "check": { "command": "clippy" } } }
+  },
+  "gopls": { "disabled": true },
+  "ruff": {
+    "command": "ruff",
+    "args": ["server"],
+    "extensions": ["py"],
+    "rootMarkers": ["pyproject.toml"],
+    "linter": true
+  }
+}
+```
+
+Fields: `command`, `args`, `extensions` (or `extensionToLanguage`, mapping
+`.ext` to a language id), `rootMarkers` (file names, or `*.ext`),
+`initializationOptions`, `settings` (answered to `workspace/configuration` and
+sent with `didChangeConfiguration`), `env`, `disabled`, and `linter`.
+
+### Adding a language server
+
+To add a language rho does not know (Dart, for example):
+
+1. Install the server so its command runs from your shell. Dart and Flutter
+   ship it as `dart language-server`.
+2. Add an entry to `~/.agents/lsp.json`, which applies to every project
+   without needing trust:
+
+   ```json
+   {
+     "dart": {
+       "command": "dart",
+       "args": ["language-server"],
+       "extensions": ["dart"],
+       "rootMarkers": ["pubspec.yaml"]
+     }
+   }
+   ```
+
+3. Run `lsp status` (or ask the agent to). `Installed:` lists the servers whose
+   command resolves, with their extensions; a server that is not there shows
+   under `Not on PATH:`. Then try `lsp symbols path=lib/main.dart`. If the file
+   has no server, the error says whether the command is missing or no root
+   marker was found above the file, and a server that fails to start shows the
+   last lines it wrote to stderr (a `mise` or `asdf` shim with no version set
+   shows up this way).
+
+What each field does for a new server:
+
+- `command` is required, and is looked up on `PATH` (or use an absolute path).
+- `extensions` (with or without the dot) decides which files it handles. Without
+  `extensions` or `extensionToLanguage` it never matches a file.
+- `rootMarkers` pick the project root: the workspace root when it holds a
+  marker, else the nearest ancestor of the file that does, so a monorepo whose
+  root has no `pubspec.yaml` gets one server per package. With no markers the
+  server runs at the workspace root.
+- The language id sent to the server comes from `extensionToLanguage`
+  (`{ ".dart": "dart" }`), then rho's built-in table, then the extension itself,
+  which is already right for Dart. Set it only when the server expects another
+  id.
+- `settings` holds the server's own configuration, for example Dart's `dart.*`
+  options from its documentation; rho answers the server's
+  `workspace/configuration` requests from it.
+
+Use `.agents/lsp.json` or `.lsp.json` in a project only for servers that should
+run there for everyone; they apply only to trusted projects. To change a
+built-in server, repeat just its name and the fields to change; `"disabled": true`
+turns one off. A server whose rename needs file operations (create, rename,
+delete) is refused for that action: rho applies text edits only.
+
+After `edit` or `write`, rho sends the new content to every server for the
+file and waits up to 3 seconds for its diagnostics. The result ends with the
+file's errors and warnings (20 at most, errors first), a count of errors other
+files report, or a note when a server has not answered yet. `lsp diagnostics`
+waits up to 10 seconds. When the 3 seconds pass with the server still starting,
+busy, or silent, rho keeps waiting in the background for up to 12 more seconds
+and, if different diagnostics arrive and the file was not changed again,
+delivers them to the model as a notice before its next step (framed as
+untrusted tool output, like a background job's notice). Subagents without a
+mailbox are told to run `lsp diagnostics` instead.
+
+Servers also hear about files rho changes through
+`workspace/didChangeWatchedFiles` (created, changed, or deleted): after `edit`,
+`write`, `undo`, `lsp rename`, `lsp code_actions`, and `lsp format`, and when a
+query finds an open document changed on disk.
+
+`lsp code_actions path=... line=...` lists the server's quick fixes and
+refactors for the diagnostics on that line (`symbol` narrows it to one
+position). With `apply: true` and `query` (the listed number or part of the
+title), the chosen action's edit is applied through the same safe path as
+`rename`: every file must be inside the workspace and not a protected path,
+all files are written or none, each is recorded for `undo`, and the servers are
+told. The edit is fetched with `codeAction/resolve` when the list omitted it,
+and actions that only run a server command are refused. `lsp format path=...`
+asks the server to format the file with the `.editorconfig` indent (`tab`
+style and size for `[*]`, `[*.ext]`, `[*.{a,b}]`, or the exact file name; else 4
+spaces) and reports the changed regions. rho never formats on write.
+
+A query that comes back empty within 30 seconds of a server starting, from a
+server that never reported progress or status, ends with a note that the server
+may still be indexing; retry in a few seconds.
+
 ## System Instructions (`AGENTS.md`)
 
 `rho` discovers instructions hierarchically and prepends them into the agent
@@ -589,7 +771,33 @@ system context:
 3. **Workspace Context**: `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
 
 To disable context file discovery for a session, pass `--no-context-files` (or
-`--nc`).
+`--nc`). This also skips loading memory notes.
+
+## Memory Notes
+
+The built-in `memory` tool lets the model keep short notes across sessions,
+such as "fidelity tests are slow; run X first" or "file Y is high risk". Notes
+are plain markdown files you can read and edit, one `- ` bullet per note (other
+lines are ignored and dropped when the tool next saves the file):
+
+- **Project**: `~/.agents/memory/<project key>.md`, where the key is the
+  workspace's canonical path with every character other than letters, digits,
+  `.` and `_` replaced by `-` (last 80 characters) plus a short hash of the
+  full path, e.g. `Users-me-src-app-1a2b3c4d.md`.
+- **Global**: `~/.agents/memory/global.md`, for every project.
+
+The tool's actions are `view` (numbered notes per scope), `add` (`text`: one
+line of at most 300 characters; duplicates are rejected) and `remove` (`index`
+from `view`); `scope` is `project` (default) or `global`. Each scope holds at
+most 50 notes or 8 KB; when it is full, the model must remove stale notes
+first. Notes are never written into the repository, and memory calls need no
+permission prompt (a `memory` rule in `permission.toml` still applies).
+Subagents see the notes but do not get the tool.
+
+Both files are read once when a session starts and added to the system prompt
+in a `<memory>` block, so the prompt stays the same for the whole session (and
+its prompt cache stays valid). Notes added or removed mid-session take effect
+in the next session.
 
 ---
 

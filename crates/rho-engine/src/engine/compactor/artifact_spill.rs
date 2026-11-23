@@ -28,6 +28,7 @@ impl ArtifactDemotionHook {
             &dir,
             Duration::from_secs(DEFAULT_RETENTION_SECS),
             DEFAULT_MAX_TOTAL_BYTES,
+            Duration::ZERO,
         );
         Self { dir }
     }

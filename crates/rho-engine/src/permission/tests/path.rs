@@ -64,6 +64,7 @@ fn path_module_tool_extraction() {
 
     let tool_args = json!({"path": "src/main.rs", "old_text": "foo"});
     assert_eq!(extract_tool_path("read", &tool_args), Some("src/main.rs".to_string()));
+    assert_eq!(extract_tool_path("lsp", &tool_args), Some("src/main.rs".to_string()));
     assert_eq!(extract_tool_path("bash", &tool_args), None);
 }
 
@@ -91,12 +92,10 @@ fn quoted_paths_resolve_like_unquoted_paths() {
 
 #[test]
 fn new_file_under_symlinked_parent_is_outside_when_target_is() {
-    let root = std::env::temp_dir().join(format!("perm-path-{}", uuid::Uuid::new_v4()));
-    let outside = std::env::temp_dir().join(format!("perm-outside-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    std::fs::create_dir_all(&outside).unwrap();
-    let root = root.canonicalize().unwrap();
-    let outside = outside.canonicalize().unwrap();
+    let root_dir = crate::test_support::TestDir::new();
+    let outside_dir = crate::test_support::TestDir::new();
+    let root = root_dir.canonicalize().unwrap();
+    let outside = outside_dir.canonicalize().unwrap();
     std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
 
     assert!(is_path_outside_working_dir("linked/new.txt", Some(&root)));
@@ -104,9 +103,6 @@ fn new_file_under_symlinked_parent_is_outside_when_target_is() {
         path_policy_values("linked/new.txt", Some(&root)),
         vec![outside.join("new.txt").display().to_string()]
     );
-
-    std::fs::remove_dir_all(root).unwrap();
-    std::fs::remove_dir_all(outside).unwrap();
 }
 
 #[test]

@@ -273,6 +273,82 @@ async fn test_process_raw_input_typing_and_submit() {
     }
 }
 
+async fn press(
+    controller: &mut TerminalController<NullBackend>,
+    resources: &mut EditorResources<'_>,
+    ctx: &mut LiveIdleContext<'_, '_>,
+    key: KeyEvent,
+) -> IdleInputResult {
+    let mut batch = LiveBatch::new();
+    let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+    process_raw_input(controller, Event::Key(key), &mut batch, resources, &mut input, ctx)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn prompts_submitted_from_the_editor_are_recorded_in_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, completions, _, mut session, mut engine, _, mut last_escape_time) =
+        setup_idle_dispatch_harness(temp.path()).await;
+    let mut resources = EditorResources {
+        history: &mut history,
+        completions: &completions,
+    };
+    let mut ctx = LiveIdleContext {
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+
+    for (text, modifiers) in [("run now", KeyModifiers::NONE), ("run later", KeyModifiers::ALT)] {
+        controller.state_mut().editor_mut().set_text(text);
+        let submitted = press(
+            &mut controller,
+            &mut resources,
+            &mut ctx,
+            KeyEvent::new(KeyCode::Enter, modifiers),
+        )
+        .await;
+        assert!(matches!(submitted, IdleInputResult::Message(ref m) if m.text == text));
+    }
+
+    assert_eq!(resources.history.entries(), ["run now", "run later"]);
+}
+
+#[tokio::test]
+async fn a_prompt_typed_to_a_shown_agent_is_recorded_as_typed() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, completions, _, mut session, mut engine, _, mut last_escape_time) =
+        setup_idle_dispatch_harness(temp.path()).await;
+    let agent = engine.agent_monitor().start("subagents", "audit", "acme/smol", 10);
+    agent.set_task("audit-1234");
+    agent.finish(rho_harness_core::agents::AgentStatus::Done);
+    crate::repl::live::agent_focus::show_agent(&mut controller, Some(engine.agent_monitor()), Some(agent.id()))
+        .unwrap();
+    let mut resources = EditorResources {
+        history: &mut history,
+        completions: &completions,
+    };
+    let mut ctx = LiveIdleContext {
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+
+    controller.state_mut().editor_mut().set_text("also check tests");
+    let submitted = press(
+        &mut controller,
+        &mut resources,
+        &mut ctx,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    )
+    .await;
+
+    assert!(matches!(submitted, IdleInputResult::Message(ref m) if m.text.starts_with("Continue subagent task")));
+    assert_eq!(resources.history.entries(), ["also check tests"]);
+}
+
 #[tokio::test]
 async fn test_process_raw_input_shift_enter_inserts_newline() {
     let temp = tempfile::tempdir().unwrap();

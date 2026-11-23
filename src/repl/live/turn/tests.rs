@@ -15,13 +15,13 @@ fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
 }
 
 struct TurnTestFixture {
-    _temp: tempfile::TempDir,
     controller: TerminalController<NullBackend>,
     history: InteractiveHistory,
     completions: CompletionSet,
     batch: super::LiveBatch,
     steering: SharedSteeringQueue,
     session: crate::repl::ReplSession,
+    _temp: tempfile::TempDir,
 }
 
 impl TurnTestFixture {
@@ -62,13 +62,13 @@ impl TurnTestFixture {
 }
 
 struct LoopFixture {
-    _temp: tempfile::TempDir,
     engine: crate::engine::AgentEngine,
     base: TurnTestFixture,
     tx: tokio::sync::mpsc::UnboundedSender<crate::ui::interactive::UiEvent>,
     ui_events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
     cancellation: crate::engine::runner::CancellationSignal,
     input_reader: crate::repl::input_reader::TerminalInputReader,
+    _temp: tempfile::TempDir,
 }
 
 impl LoopFixture {
@@ -155,6 +155,22 @@ async fn test_turn_input_alt_enter_queues_follow_up_without_steering() {
         (queue.len(), queue[0].text.as_str(), queue[0].kind),
         (1, "run after turn", QueueKind::FollowUp)
     );
+}
+
+#[tokio::test]
+async fn prompts_submitted_during_a_turn_are_recorded_in_history() {
+    let mut f = TurnTestFixture::new("steer now");
+    let mut ctx = f.context();
+    handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::empty()), &mut ctx)
+        .await
+        .unwrap();
+    f.controller.state_mut().editor_mut().set_text("after the turn");
+    let mut ctx = f.context();
+    handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::ALT), &mut ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(f.history.entries(), ["steer now", "after the turn"]);
 }
 
 #[tokio::test]
@@ -315,7 +331,6 @@ async fn test_turn_input_display_toggles() {
 }
 
 struct ActiveTurnHarness {
-    _temp: tempfile::TempDir,
     session: crate::repl::ReplSession,
     engine: crate::engine::AgentEngine,
     controller: TerminalController<NullBackend>,
@@ -323,6 +338,8 @@ struct ActiveTurnHarness {
     input_reader: crate::repl::input_reader::TerminalInputReader,
     history: InteractiveHistory,
     completions: CompletionSet,
+    // Declared last so it is dropped after the fields that may still write into it.
+    _temp: tempfile::TempDir,
 }
 
 async fn create_harness_engine(

@@ -3,10 +3,10 @@ use super::file_change;
 use super::formatters::{EditDiffRequest, format_edit_diff, format_read_expanded, format_write_preview};
 use crate::ui::interactive::truncate_to_visual_lines;
 use crate::ui::theme::{BlockStyle, Theme};
-use rho_harness_core::presentation::ToolLine;
 use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, format_tool_args_summary, read_summary_parts,
 };
+use rho_harness_core::presentation::{SUBAGENT_STARTED_MARKER, ToolLine};
 
 pub fn normalize_tool_name(name: &str) -> &str {
     match name {
@@ -153,13 +153,16 @@ fn format_tool_header_base(tool: &ToolLine, theme: &Theme) -> String {
     }
 }
 
-fn append_read_expanded(content: &mut String, tool: &ToolLine, theme: &Theme) {
-    let raw = if !tool.output.is_empty() {
-        &tool.output
-    } else {
+fn raw_output(tool: &ToolLine) -> &str {
+    if tool.output.is_empty() {
         &tool.output_summary
-    };
-    if let Some(formatted) = format_read_expanded(raw, &tool.arguments, theme) {
+    } else {
+        &tool.output
+    }
+}
+
+fn append_read_expanded(content: &mut String, tool: &ToolLine, theme: &Theme) {
+    if let Some(formatted) = format_read_expanded(raw_output(tool), &tool.arguments, theme) {
         content.push_str("\n\n");
         content.push_str(&formatted);
     }
@@ -182,12 +185,7 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
 }
 
 fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, dim: anstyle::Style) {
-    let raw = if !tool.output.is_empty() {
-        &tool.output
-    } else {
-        &tool.output_summary
-    };
-    let clean = replace_tabs(raw.trim_end());
+    let clean = replace_tabs(raw_output(tool).trim_end());
     if !clean.is_empty() {
         append_output_lines(content, &clean, width, expanded, dim);
     }
@@ -227,6 +225,14 @@ fn append_edit_or_write(content: &mut String, tool: &ToolLine, expanded: bool, t
     false
 }
 
+fn append_background_hint(content: &mut String, tool: &ToolLine, dim: anstyle::Style) {
+    if tool.name == "subagent" && !tool.is_error && raw_output(tool).starts_with(SUBAGENT_STARTED_MARKER) {
+        content.push_str(&format!(
+            "\n\n{dim}running in the background - press \u{2190} on an empty prompt to watch{dim:#}"
+        ));
+    }
+}
+
 pub fn append_tool_details(
     content: &mut String,
     tool: &ToolLine,
@@ -247,6 +253,7 @@ pub fn append_tool_details(
     if tool.is_error && tool.name == "edit" {
         append_failed_edit_attempt(content, tool, expanded, theme);
     }
+    append_background_hint(content, tool, theme.dimmed);
     if let Some(duration_ms) = tool.duration_ms {
         let dim = theme.dimmed;
         content.push_str(&format!(
