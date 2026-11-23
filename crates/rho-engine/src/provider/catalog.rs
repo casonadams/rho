@@ -3,7 +3,7 @@
 use super::discovery::{DiscoveredModel, discover_models};
 use crate::auth::AuthStore;
 use rho_harness_core::config::Config;
-use rho_harness_core::provider::Connection;
+use rho_harness_core::provider::{Connection, ModelRoute};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -98,6 +98,17 @@ impl ModelCatalog {
         }
     }
 
+    /// Whether `provider`'s live list contains `model` exactly. A provider only appears here once
+    /// its list was fetched, so a hit also means the provider is reachable with the stored credentials.
+    pub fn lists_model(&self, provider: &str, model: &str) -> bool {
+        let model = model.trim();
+        !model.is_empty()
+            && matches!(
+                self.inner.providers.read().unwrap().get(&catalog_key(provider)),
+                Some(ProviderModels::Ready(models)) if models.iter().any(|m| m.id == model)
+            )
+    }
+
     pub async fn refresh(&self, provider: &str, config: &Config, auth: AuthStore) {
         self.set(provider, ProviderModels::Loading);
         let models = match discover_models(provider, config, auth).await {
@@ -153,10 +164,26 @@ pub fn reachable_providers(config: &Config, auth: &AuthStore) -> Vec<String> {
     providers
 }
 
+/// Resolves a user-entered model spec. A bare id keeps the selected provider when that provider's
+/// live list actually carries it, so `deepseek-v4.1-flash` stays on `ollama-cloud` instead of being
+/// routed to DeepSeek by name inference. Prefixes, explicit providers, and unreachable lists all
+/// defer to `ModelRoute::parse`.
+pub fn resolve_model_route(spec: &str, explicit: Option<&str>, selected: &str, catalog: &ModelCatalog) -> ModelRoute {
+    let bare = spec.trim();
+    if bare.is_empty() || explicit.is_some_and(|provider| !provider.trim().is_empty()) || bare.contains('/') {
+        return ModelRoute::parse(bare, explicit, selected);
+    }
+    if catalog.lists_model(selected, bare) {
+        return ModelRoute::new(selected, bare);
+    }
+    ModelRoute::parse(bare, None, selected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rho_harness_core::config::ProviderConfig;
+    use test_case::test_case;
 
     fn model(id: &str, tokens: Option<usize>) -> DiscoveredModel {
         DiscoveredModel {
@@ -254,5 +281,56 @@ mod tests {
         catalog.set("claude:me@work.com", ProviderModels::Loading);
         assert_eq!(catalog.get("claude"), Some(ProviderModels::Loading));
         assert_eq!(catalog.snapshot().keys().collect::<Vec<_>>(), ["claude", "local"]);
+    }
+
+    fn listing(provider: &str, ids: &[&str]) -> ModelCatalog {
+        let catalog = ModelCatalog::default();
+        catalog.set(
+            provider,
+            ProviderModels::Ready(ids.iter().map(|id| DiscoveredModel::new(id, id, "")).collect()),
+        );
+        catalog
+    }
+
+    #[test_case("ollama-cloud", "deepseek-v4.1-flash"; "ollama cloud deepseek")]
+    #[test_case("local", "gpt-oss:20b"; "local gpt-oss")]
+    #[test_case("local", "deepseek-r1:7b"; "local deepseek")]
+    #[test_case("openrouter", "claude-sonnet-4-6"; "openrouter claude")]
+    fn bare_model_stays_on_the_provider_that_lists_it(provider: &str, model_id: &str) {
+        let catalog = listing(provider, &[model_id]);
+        let route = resolve_model_route(model_id, None, provider, &catalog);
+        assert_eq!(route.to_string(), format!("{provider}/{model_id}"));
+    }
+
+    #[test]
+    fn a_provider_that_does_not_list_the_model_still_defers_to_name_inference() {
+        let cases = [
+            (listing("ollama-cloud", &["glm-5.3-flash"]), "deepseek/deepseek-chat"),
+            (ModelCatalog::default(), "deepseek/deepseek-chat"),
+        ];
+        for (catalog, expected) in cases {
+            let route = resolve_model_route("deepseek-chat", None, "ollama-cloud", &catalog);
+            assert_eq!(route.to_string(), expected);
+        }
+    }
+
+    #[test_case("deepseek/deepseek-v4.1-flash", None, "deepseek/deepseek-v4.1-flash"; "explicit prefix")]
+    #[test_case("deepseek-v4.1-flash", Some("deepseek"), "deepseek/deepseek-v4.1-flash"; "provider argument")]
+    #[test_case("ollama-cloud/deepseek-v4.1-flash", None, "ollama-cloud/deepseek-v4.1-flash"; "listing prefix")]
+    fn prefixes_and_explicit_providers_win_over_the_selected_provider(
+        spec: &str,
+        explicit: Option<&str>,
+        expected: &str,
+    ) {
+        let catalog = listing("ollama-cloud", &["deepseek-v4.1-flash"]);
+        let route = resolve_model_route(spec, explicit, "ollama-cloud", &catalog);
+        assert_eq!(route.to_string(), expected);
+    }
+
+    #[test]
+    fn a_listing_under_another_provider_does_not_override_the_selected_one() {
+        let catalog = listing("local", &["glm-5.3-flash"]);
+        let route = resolve_model_route("glm-5.3-flash", None, "ollama-cloud", &catalog);
+        assert_eq!(route.provider(), "ollama-cloud");
     }
 }

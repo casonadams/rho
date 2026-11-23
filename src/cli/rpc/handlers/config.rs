@@ -105,16 +105,23 @@ pub(crate) async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
+    let catalog = ctx.engine.read().await.model_catalog().clone();
     let mut cfg = ctx.config.write().await;
     let current = cfg.route().connection.to_string();
-    let route = rho_harness_core::provider::ModelRoute::parse(&model, provider.as_deref(), &current);
-    cfg.set_route(route);
+    let mut next = cfg.clone();
+    next.set_route(rho_engine::provider::resolve_model_route(
+        &model,
+        provider.as_deref(),
+        &current,
+        &catalog,
+    ));
     let auth = ctx.auth_store.read().await.clone();
     let mut eng = ctx.engine.write().await;
-    let resp = match eng.rebuild(cfg.clone(), auth).await {
+    let resp = match eng.rebuild(next.clone(), auth).await {
         Ok(rebuilt) => {
             crate::cli::mcp::eprint_mcp_diagnostics(&rebuilt);
             *eng = rebuilt;
+            *cfg = next;
             RpcResponse::success(req_id, "set_model", None)
         }
         Err(e) => RpcResponse::failure(req_id, "set_model", &e.to_string()),

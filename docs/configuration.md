@@ -60,6 +60,12 @@ up without updating rho. Nothing is written to disk.
 - The model selector (`/model`, `Ctrl+L`) and `/model` completions fill in as
   each list arrives. Providers still loading or that failed to list are named
   at the top of the selector.
+- Both insert the listing's full `<provider>/<model>` spec, so a model keeps the
+  provider that listed it. Typing a bare id keeps the provider you are already
+  using when its live list carries that model, which matters whenever a model
+  id is not unique across providers: Ollama Cloud's `deepseek-v4.1-flash` and
+  local Ollama's `gpt-oss:20b` stay on the provider serving them, instead of
+  being routed to `deepseek` or `openai` by the model's name.
 - `rho models` fetches the active provider's list and exits with an error if
   the provider cannot be reached.
 - Context windows come from the same lists where the provider publishes them
@@ -196,7 +202,9 @@ with `rho config cache_retention short` or `long`.
 A spec without a `<provider>/` prefix uses the `--provider` flag when given,
 then the provider implied by the model name (`claude-*` is `anthropic`,
 `gpt-*` is `openai`, `gemini-*` is `gemini`, ...), then the current
-provider (`local` at startup). Everything after the first `/` is the
+provider (`local` at startup). During a session, a bare id the current
+provider's live list carries stays on that provider instead, for `/model`,
+`set_model`, and subagent model specs alike. Everything after the first `/` is the
 provider's model id, so OpenRouter ids keep their vendor segment:
 `openrouter/anthropic/claude-3.7-sonnet`. The prefix may name an account,
 `claude:me@work.com/<model>` (see [Multiple Accounts](#multiple-accounts)).

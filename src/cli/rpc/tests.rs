@@ -302,9 +302,39 @@ async fn test_rpc_config_update_handlers() {
     let resp_model_err = read_response(&mut client_reader).await;
     assert_eq!(resp_model_err.id, Some("req-model-failure".to_string()));
     assert!(!resp_model_err.success);
+    assert_eq!(ctx.config.read().await.canonical_model_spec(), "local/llama3.2");
 
     let resp_compact = read_response(&mut client_reader).await;
     assert_eq!(resp_compact.id, Some("req-compact".to_string()));
+}
+
+#[tokio::test]
+async fn set_model_keeps_a_bare_id_on_the_provider_that_lists_it() {
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_set_model_listed");
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    let listed = rho_engine::provider::DiscoveredModel::new("gpt-oss:20b", "gpt-oss:20b", "");
+    ctx.engine
+        .read()
+        .await
+        .model_catalog()
+        .set("local", rho_engine::provider::ProviderModels::Ready(vec![listed]));
+
+    handle_config_update_cmd(
+        RpcCommand::SetModel {
+            model: "gpt-oss:20b".to_string(),
+            provider: None,
+        },
+        Some("req-listed".to_string()),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    let resp = read_response(&mut client_reader).await;
+    assert!(resp.success, "{:?}", resp.error);
+    assert_eq!(ctx.config.read().await.canonical_model_spec(), "local/gpt-oss:20b");
+    assert_eq!(ctx.engine.read().await.config.provider, "local");
 }
 
 #[tokio::test]

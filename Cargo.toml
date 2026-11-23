@@ -136,6 +136,7 @@ winres = "0.1"
 rho-harness-core = { workspace = true, features = ["skip-fsync"] }
 rho-test-support.workspace = true
 tempfile = "3.17"
+test-case = "3.4"
 
 [profile.dev]
 opt-level = 0

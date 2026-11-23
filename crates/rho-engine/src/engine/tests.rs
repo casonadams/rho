@@ -494,6 +494,27 @@ async fn context_limit_uses_the_providers_listed_window() {
 }
 
 #[tokio::test]
+async fn subagent_bare_model_stays_on_the_session_provider_that_lists_it() {
+    let (config, _dir) = test_config("subagent_ollama_cloud");
+    let config = Config {
+        provider: "ollama-cloud".to_string(),
+        model: "glm-5.3-flash".to_string(),
+        ..config
+    };
+    let catalog = crate::provider::ModelCatalog::default();
+    let listed = crate::provider::discovery::DiscoveredModel::new("deepseek-v4.1-flash", "DeepSeek", "");
+    catalog.set("ollama-cloud", crate::provider::ProviderModels::Ready(vec![listed]));
+    let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
+    let router = crate::provider::ModelRouter::new(Arc::new(tokio::sync::Mutex::new(auth_store)), catalog);
+    let resolve = builder::subagent_model_resolver(&router, &config);
+    let built = tokio::task::spawn_blocking(move || resolve("deepseek-v4.1-flash").map(|_| ()))
+        .await
+        .unwrap();
+    assert_eq!(built, Ok(()));
+}
+
+#[tokio::test]
 async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
     let (config, dir) = test_config("no_fallback_explicit");
     let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();

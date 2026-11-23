@@ -54,4 +54,5 @@ libc = "0.2"
 rho-harness-core = { workspace = true, features = ["skip-fsync"] }
 rho-test-support.workspace = true
 tempfile = "3.17"
+test-case = "3.4"
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }

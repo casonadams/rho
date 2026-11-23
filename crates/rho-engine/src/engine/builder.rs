@@ -2,11 +2,10 @@ use super::AgentEngine;
 use super::tracking::{QuotaTracker, UsageTracker};
 use crate::auth::AuthStore;
 use crate::engine::compactor::llm::ModelHandle;
-use crate::provider::ModelRouter;
+use crate::provider::{ModelRouter, resolve_model_route};
 use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
-use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -133,7 +132,7 @@ pub(super) fn subagent_model_resolver(
     let router = router.clone();
     let config = short_lived_config(config);
     Arc::new(move |spec: &str| {
-        let route = ModelRoute::parse(spec, None, &config.route().connection.to_string());
+        let route = resolve_model_route(spec, None, &config.route().connection.to_string(), router.catalog());
         router.build_blocking(&config, &route).map_err(|e| e.to_string())
     })
 }
