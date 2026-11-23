@@ -132,13 +132,14 @@ pub(crate) async fn fetch_gemini(url: &str, key: &str) -> Result<Vec<DiscoveredM
     Ok(parse_gemini_models(&get_json(request, &label("gemini")).await?))
 }
 
-pub(crate) async fn fetch_ollama(host: &str) -> Result<Vec<DiscoveredModel>> {
-    let request = list_request(&format!("{host}/v1/models"));
-    let mut models = parse_model_list(&get_json(request, "Ollama /v1/models").await?);
+/// Ollama's model list, with each model's window from `/api/show`, which ollama.com also serves.
+pub(crate) async fn fetch_ollama(host: &str, key: Option<&str>, provider: &str) -> Result<Vec<DiscoveredModel>> {
+    let key = key.map(str::trim).filter(|key| !key.is_empty());
+    let mut models = fetch_openai_compatible(&format!("{host}/v1/models"), key, provider).await?;
     let windows = futures::future::join_all(
         models
             .iter()
-            .map(|m| crate::ollama::local::show_context_length(host, &m.id)),
+            .map(|m| crate::ollama::local::show_context_length(host, &m.id, key)),
     )
     .await;
     for (model, window) in models.iter_mut().zip(windows) {
@@ -308,7 +309,7 @@ mod tests {
 
     #[tokio::test]
     async fn ollama_list_includes_each_models_context_window() {
-        let host = serve_http(vec![
+        let (host, requests) = serve_http_recording(vec![
             ("200 OK", json!({ "data": [{ "id": "qwen2.5-coder:7b" }] }).to_string()),
             (
                 "200 OK",
@@ -316,11 +317,17 @@ mod tests {
             ),
         ])
         .await;
-        let models = fetch_ollama(&host).await.unwrap();
+        let models = fetch_ollama(&host, Some("cloud-key"), "ollama-cloud").await.unwrap();
         assert_eq!(
             summary(&models),
             vec![("qwen2.5-coder:7b", "qwen2.5-coder:7b", Some(32_768))]
         );
         assert_eq!(models[0].description, "32k ctx");
+        let requests = requests.lock().unwrap();
+        assert!(requests[0].starts_with("get /v1/models "), "{}", requests[0]);
+        assert!(requests[1].starts_with("post /api/show "), "{}", requests[1]);
+        for request in requests.iter() {
+            assert!(request.contains("authorization: bearer cloud-key\r\n"), "{request}");
+        }
     }
 }

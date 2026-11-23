@@ -44,11 +44,14 @@ fn normalize_host(raw: Option<&str>) -> String {
 }
 
 /// Context window a model is configured for: `num_ctx` from its Modelfile, else its trained maximum.
-pub(crate) async fn show_context_length(host: &str, model: &str) -> Option<usize> {
-    let request = CLIENT
+pub(crate) async fn show_context_length(host: &str, model: &str, key: Option<&str>) -> Option<usize> {
+    let mut request = CLIENT
         .post(format!("{host}/api/show"))
         .timeout(QUERY_TIMEOUT)
         .json(&serde_json::json!({ "model": model }));
+    if let Some(key) = key {
+        request = request.bearer_auth(key);
+    }
     parse_show_context(&get_json(request, "Ollama /api/show").await.ok()?)
 }
 
@@ -177,7 +180,7 @@ mod tests {
     async fn context_queries_read_server_and_reject_failures() {
         let show = json!({ "model_info": { "llama.context_length": 8192 } }).to_string();
         let host = serve_http(vec![("200 OK", show)]).await;
-        assert_eq!(show_context_length(&host, "llama3.2").await, Some(8192));
+        assert_eq!(show_context_length(&host, "llama3.2", None).await, Some(8192));
 
         let ps = json!({ "models": [{ "name": "llama3.2:latest", "context_length": 4096 }] }).to_string();
         let host = serve_http(vec![("200 OK", ps), ("200 OK", r#"{"models":[]}"#.to_string())]).await;
@@ -190,7 +193,7 @@ mod tests {
             ("200 OK", "not json".to_string()),
         ])
         .await;
-        assert_eq!(show_context_length(&host, "missing").await, None);
+        assert_eq!(show_context_length(&host, "missing", None).await, None);
         let server_error = loaded_context_length(&host, "missing").await.unwrap_err();
         assert!(
             server_error.to_string().contains("/api/ps returned HTTP 500"),

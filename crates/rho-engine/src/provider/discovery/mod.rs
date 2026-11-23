@@ -17,6 +17,8 @@ use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use std::str::FromStr;
 
+const OLLAMA_CLOUD_HOST: &str = "https://ollama.com";
+
 /// One model in a provider's list; the provider is the catalog entry it is listed under.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredModel {
@@ -63,7 +65,11 @@ async fn discover_antigravity(auth: &mut AuthStore) -> Result<Vec<DiscoveredMode
 
 async fn discover_builtin(provider: ProviderId, mut auth: AuthStore) -> Result<Vec<DiscoveredModel>> {
     match provider {
-        ProviderId::Local => fetch::fetch_ollama(&crate::ollama::local::local_host()).await,
+        ProviderId::Local => fetch::fetch_ollama(&crate::ollama::local::local_host(), None, "local").await,
+        ProviderId::OllamaCloud => {
+            let key = require_key(&mut auth, provider).await?;
+            fetch::fetch_ollama(OLLAMA_CLOUD_HOST, Some(&key), provider.as_str()).await
+        }
         ProviderId::Antigravity => discover_antigravity(&mut auth).await,
         ProviderId::ClaudeCode | ProviderId::Anthropic => {
             let token = require_key(&mut auth, provider).await?;

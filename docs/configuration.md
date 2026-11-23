@@ -66,7 +66,7 @@ up without updating rho. Nothing is written to disk.
   (Anthropic and Claude login: `max_input_tokens`; ChatGPT login:
   `context_window`; Gemini: `inputTokenLimit`; OpenRouter, Groq, DeepSeek,
   Mistral, xAI, Cohere: their documented fields; local Ollama: `/api/show` and
-  `/api/ps`).
+  `/api/ps`; Ollama Cloud: `/api/show` on ollama.com with your key).
 - Google Antigravity has no public model-list API, so rho merges its live
   runtime catalog with a small fallback list.
 - Offline, you can still switch with `/model <provider>/<model>`.
