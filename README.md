@@ -65,10 +65,10 @@ resume the exact session of each pane with `rho --resume <id>`.
 - **`bash`**: Execute shell commands with process group cleanup, timeout
   protection, and binary sanitization. Commands run with color enabled so you
   see it in the terminal; the model receives the same output without escape
-  codes. Long output is clipped to its first and last lines with a path to the
-  full log; when the clipped output has failing tests (cargo test, nextest,
-  pytest, go test, Jest, Vitest), a short section lists each failing test with
-  its key failure lines.
+  codes. Long output is clipped to its first and last lines (more of the end
+  when the command fails) with a path to the full log; when the clipped output
+  has failing tests (cargo test, nextest, pytest, go test, Jest, Vitest), a
+  short section lists each failing test with its key failure lines.
 
   Interactive programs (vim, REPLs) can be driven from `bash` through mpx:
   start one with `mpx run --pty`, type with `send-keys`, read the screen with
@@ -107,12 +107,15 @@ resume the exact session of each pane with `rho --resume <id>`.
   read back from the conversation, so it survives `--resume`, and compaction
   copies an unfinished list into its summary. Each subagent keeps its own list.
 - **`wait`**: Block until background work reports back, instead of polling with
-  `sleep`. It returns on the first finished background `bash` job or subagent
-  task (with the result the follow-up message would have carried, which is then
-  not delivered again), when a new message arrives, or after 10 minutes with a
-  `Still running:` list. With nothing running it returns at once. `Esc` ends the
-  wait without stopping the jobs. `bash` refuses a bare `sleep`, `pgrep`, `ps`,
-  or `tail -f` poll while a job or subagent task is running and points to `wait`.
+  `sleep`. It returns as soon as a background `bash` job or subagent task
+  finishes, with every result that has arrived (which is then not delivered
+  again as a follow-up message), when a new message arrives, or after 10 minutes
+  with a `Still running:` list. With nothing running it returns at once. Calling
+  it again waits for the work still running. The footer shows it while it
+  waits, and it leaves no card in the transcript. `Esc` ends the wait without
+  stopping the jobs. `bash` refuses a bare `sleep`, `pgrep`, `ps`, or `tail -f`
+  poll run in the foreground while a job or subagent task is running and points
+  to `wait`.
 
 When `read`, `edit`, `fd`, or `rg` gets a path that does not exist, the error
 ends with up to three close workspace paths (`Did you mean: ...?`), matching

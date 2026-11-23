@@ -1050,6 +1050,22 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
 }
 
 #[test]
+fn a_finished_wait_ends_the_running_tool_without_a_card() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.start_tool_run("wait", &serde_json::json!({}));
+    renderer.finish_tool_line(tool_line("wait", serde_json::json!({}), false, None));
+
+    let events: Vec<UiEvent> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    assert!(
+        !events.iter().any(|event| matches!(event, UiEvent::Transcript(_))),
+        "wait leaves no transcript card"
+    );
+    assert!(matches!(events.last(), Some(UiEvent::ToolEnd)));
+}
+
+#[test]
 fn renderer_attaches_the_snapshot_taken_when_the_tool_started() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("f.txt");

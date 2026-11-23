@@ -1,6 +1,6 @@
 use super::conversation::{
     FILE_VERSIONS_ARTIFACT, FILES_CHANGED_ARTIFACT, RESULT_ARTIFACT, TOOL_CALLS_ARTIFACT, WORKSPACE_CHANGES_ARTIFACT,
-    artifact_data, artifact_text,
+    artifact_data, artifact_text, worktree_record,
 };
 use super::evidence::{ToolOutcome, outcome_line};
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths};
@@ -9,7 +9,7 @@ use rho_harness_core::session::SubagentContext;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const MAX_MESSAGE_CHARS: usize = 4_000;
 const MAX_RESULT_CHARS: usize = 12_000;
@@ -62,9 +62,16 @@ fn title(task: &Task) -> String {
     }
 }
 
-fn push_messages(out: &mut String, task: &Task) {
+fn push_messages(out: &mut String, task: &Task, result: Option<&str>) {
     out.push_str("\nMessages:\n");
-    for message in &task.history {
+    let mut history = task.history.as_slice();
+    if let Some((last, earlier)) = history.split_last()
+        && last.role == Role::Agent
+        && result.is_some_and(|result| result.trim() == last.text_content().trim())
+    {
+        history = earlier;
+    }
+    for message in history {
         let speaker = match message.role {
             Role::User => "parent",
             Role::Agent => "agent",
@@ -126,11 +133,16 @@ pub(crate) async fn render_task(context: &SubagentContext, task_id: &str, root: 
     if !others.is_empty() {
         let _ = writeln!(out, "Other tasks in this conversation: {}", others.join(", "));
     }
-    push_messages(&mut out, task);
-    if let Some(result) = artifact_text(task, RESULT_ARTIFACT) {
+    let result = artifact_text(task, RESULT_ARTIFACT);
+    push_messages(&mut out, task, result);
+    if let Some(result) = result {
         let _ = writeln!(out, "\nFinal answer:\n{}", clip(result, MAX_RESULT_CHARS));
     }
-    push_evidence(&mut out, task, root).await;
+    let worktree = worktree_record(task)
+        .filter(|record| !record.removed)
+        .map(|record| PathBuf::from(record.path))
+        .filter(|path| path.is_dir());
+    push_evidence(&mut out, task, worktree.as_deref().unwrap_or(root)).await;
     Some(out)
 }
 

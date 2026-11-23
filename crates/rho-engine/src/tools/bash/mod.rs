@@ -78,7 +78,7 @@ impl TypedTool for BashTool {
     const NAME: &'static str = "bash";
 
     async fn run(&self, args: BashArgs) -> Result<ToolResult, AppError> {
-        if let Some(refusal) = poll::refusal(self.owner.as_ref(), &args.command) {
+        if let Some(refusal) = poll::refusal(self.owner.as_ref(), &args) {
             return Ok(refusal);
         }
         self.execute(args).await

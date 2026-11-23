@@ -430,6 +430,10 @@ async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
     ] {
         assert!(inspected.contains(&expected), "missing {expected:?} in:\n{inspected}");
     }
+    assert!(
+        !inspected.contains("[agent] hot() allocates"),
+        "a last message that is the final answer is shown once:\n{inspected}"
+    );
     let summary = format!(
         "`{id}` \u{b7} completed, 1 failed tool call \u{b7} agent scout, name audit \u{b7} 1 task(s) \u{b7} \"Audit hot.rs\""
     );
@@ -587,6 +591,24 @@ fn worktree_setup(turns: Vec<Vec<ModelStreamEvent>>) -> WorktreeSetup {
         adapter,
         tool,
     }
+}
+
+#[tokio::test]
+async fn inspecting_an_unmerged_worktree_task_checks_files_in_its_worktree() {
+    let s = worktree_setup(vec![write_turn("a.rs", "agent\n"), text("wrote a.rs")]);
+    let first = ask(
+        &s.tool,
+        json!({ "name": "fixer", "role": "general", "prompt": "fix a.rs" }),
+    )
+    .await;
+
+    let inspected = ask(&s.tool, json!({ "task_id": task_id(&first), "inspect": true })).await;
+
+    assert!(inspected.contains("Files read or edited so far: a.rs"), "{inspected}");
+    assert!(
+        !inspected.contains("Changed since the agent last saw them"),
+        "{inspected}"
+    );
 }
 
 #[tokio::test]

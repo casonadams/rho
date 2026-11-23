@@ -35,6 +35,10 @@ impl RunningTool {
         matches!(name, "bash" | "subagent" | "workflow")
     }
 
+    pub fn has_transcript_card(name: &str) -> bool {
+        name != "wait"
+    }
+
     pub fn new(name: impl Into<String>, args_summary: impl Into<String>, preview: Option<String>) -> Self {
         Self {
             name: name.into(),

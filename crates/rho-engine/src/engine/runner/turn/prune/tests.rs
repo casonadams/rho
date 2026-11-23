@@ -274,11 +274,21 @@ fn test_prior_turn_successful_verbose_bash_output_is_pruned() {
 
 #[test]
 fn pruning_recognises_the_footer_the_bash_tool_writes() {
-    let footer = crate::tools::bash::footer::BashFooter {
-        lines: 30,
-        size: "300B".to_string(),
-        log_path: Some("/tmp/rho-bash/ab12cd34ef56.log".to_string()),
-    };
+    for (exit_code, status) in [(0, "exit 0"), (101, "exit 101")] {
+        let footer = crate::tools::bash::footer::BashFooter {
+            exit_code,
+            lines: 30,
+            size: "300B".to_string(),
+            log_path: Some("/tmp/rho-bash/ab12cd34ef56.log".to_string()),
+        };
+        assert_footer_prunes_to(
+            &footer,
+            &format!("[bash 'cargo test': {status}, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"),
+        );
+    }
+}
+
+fn assert_footer_prunes_to(footer: &crate::tools::bash::footer::BashFooter, stub: &str) {
     let output = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
     let summary = "[1 failing test; details from log]\n- math::subtracts\n    assertion failed";
     for body in [output.clone(), format!("{output}\n\n{summary}")] {
@@ -302,10 +312,7 @@ fn pruning_recognises_the_footer_the_bash_tool_writes() {
         let ToolResultContent::Text(text) = &res.content[0] else {
             panic!()
         };
-        assert_eq!(
-            text.text,
-            "[bash 'cargo test': exit 0, pruned 30 lines, 300B; log: /tmp/rho-bash/ab12cd34ef56.log]"
-        );
+        assert_eq!(text.text, stub);
     }
 }
 

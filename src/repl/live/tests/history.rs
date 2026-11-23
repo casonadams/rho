@@ -104,3 +104,50 @@ fn test_hydrate_session_transcript_populates_items() {
     super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
     assert_eq!(controller.transcript().len(), 2);
 }
+
+#[test]
+fn a_resumed_session_shows_no_card_for_wait_calls() {
+    use rho_harness_core::model::*;
+    use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
+    let turn = |id: &str, tool: &str| {
+        let call = ToolCall::new(id, ToolFunction::new(tool.to_string(), serde_json::json!({})));
+        let result = ToolResult {
+            call: id.to_string(),
+            provider: None,
+            name: tool.to_string(),
+            content: vec![ToolResultContent::Text(TextContent::new("done"))],
+        };
+        [
+            ChatMessage::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            ChatMessage::User {
+                content: vec![UserContent::ToolResult(result)],
+            },
+        ]
+    };
+    let mut tree = SessionTree::new();
+    tree.add_node(TreeNodeData {
+        id: "turn-1".into(),
+        parent_id: None,
+        timestamp: chrono::Utc::now(),
+        kind: TreeNodeKind::UserTurn,
+        messages: [turn("c1", "wait"), turn("c2", "read")].concat(),
+        label: None,
+        metadata: None,
+    });
+    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+
+    super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
+
+    let names: Vec<&str> = controller
+        .transcript()
+        .iter()
+        .filter_map(|item| match item {
+            crate::ui::interactive::TranscriptItem::Tool(tool) => Some(tool.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["read"]);
+}

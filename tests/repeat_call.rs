@@ -35,6 +35,26 @@ mod tests {
                 ],
                 vec![true, true, true, true],
             ),
+            (
+                "repeat_undo_steps_back",
+                vec![
+                    ("undo", json!({"path": "out.txt"})),
+                    ("undo", json!({"path": "out.txt"})),
+                    ("undo", json!({"path": "out.txt"})),
+                    ("undo", json!({"path": "out.txt"})),
+                ],
+                vec![true, true, true, true],
+            ),
+            (
+                "repeat_wait_for_each_job",
+                vec![
+                    ("wait", json!({})),
+                    ("wait", json!({})),
+                    ("wait", json!({})),
+                    ("wait", json!({})),
+                ],
+                vec![true, true, true, true],
+            ),
         ]
     }
 

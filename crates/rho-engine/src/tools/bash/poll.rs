@@ -1,6 +1,7 @@
 use crate::mailbox::Mailbox;
 use crate::tools::jobs::JobManager;
 use crate::tools::types::ToolResult;
+use rho_harness_core::args::BashArgs;
 
 const REFUSAL: &str = "A background job is still running and its result arrives automatically. Call wait to block until it finishes, or end your turn. Do not poll with sleep.";
 
@@ -29,16 +30,25 @@ pub(super) fn is_poll_command(command: &str) -> bool {
     polls && segments.all(|s| s.split_whitespace().next().is_some_and(|w| HARMLESS.contains(&w)))
 }
 
-/// The refusal for a poll command while `owner` has a running background job or subagent task.
-pub(super) fn refusal(owner: Option<&Mailbox>, command: &str) -> Option<ToolResult> {
+/// The refusal for a foreground poll command while `owner` has a running background job or subagent task.
+pub(super) fn refusal(owner: Option<&Mailbox>, args: &BashArgs) -> Option<ToolResult> {
     let owner = owner?;
-    (is_poll_command(command) && JobManager::global().has_running(owner.id())).then(|| ToolResult::error(REFUSAL))
+    let foreground_poll = args.background != Some(true) && is_poll_command(&args.command);
+    (foreground_poll && JobManager::global().has_running(owner.id())).then(|| ToolResult::error(REFUSAL))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mailbox::Mailboxes;
+
+    fn foreground(command: &str) -> BashArgs {
+        BashArgs {
+            command: command.to_string(),
+            timeout: None,
+            background: None,
+        }
+    }
 
     #[test]
     fn only_bare_polls_are_classified_as_polling() {
@@ -68,16 +78,24 @@ mod tests {
         let jobs = JobManager::global();
 
         assert!(
-            refusal(Some(&inbox), "sleep 5").is_none(),
+            refusal(Some(&inbox), &foreground("sleep 5")).is_none(),
             "nothing runs: sleeping is allowed"
         );
         jobs.register("poll-owner", "poll-job".into(), "cargo test".into());
 
-        let refused = refusal(Some(&inbox), "sleep 5").unwrap();
+        let refused = refusal(Some(&inbox), &foreground("sleep 5")).unwrap();
         assert!(refused.is_error);
         assert!(refused.content.contains("Call wait"), "{}", refused.content);
-        assert!(refusal(Some(&inbox), "sleep 1 && make").is_none());
-        assert!(refusal(None, "sleep 5").is_none());
+        assert!(refusal(Some(&inbox), &foreground("sleep 1 && make")).is_none());
+        assert!(refusal(None, &foreground("sleep 5")).is_none());
+        let background = BashArgs {
+            background: Some(true),
+            ..foreground("sleep 1; echo done")
+        };
+        assert!(
+            refusal(Some(&inbox), &background).is_none(),
+            "a background job is not a poll"
+        );
 
         jobs.update_status(
             "poll-job",
@@ -86,6 +104,6 @@ mod tests {
                 output: String::new(),
             },
         );
-        assert!(refusal(Some(&inbox), "sleep 5").is_none());
+        assert!(refusal(Some(&inbox), &foreground("sleep 5")).is_none());
     }
 }

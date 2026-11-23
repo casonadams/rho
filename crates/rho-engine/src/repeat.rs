@@ -1,7 +1,10 @@
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-pub const REPEATED_CALL_MESSAGE: &str = "This identical tool call was blocked after three consecutive attempts. No operation was executed. Try a semantically different approach.";
+pub const REPEATED_CALL_MESSAGE: &str = "This tool call was blocked because it repeats your previous two calls exactly. No operation was executed. Try a semantically different approach.";
+
+/// Tools whose identical calls each take a further step (`undo` steps back, `wait` takes the next result).
+const STEPPING_TOOLS: &[&str] = &["undo", "wait"];
 
 #[derive(Clone, Default)]
 pub struct RepeatedCallTracker {
@@ -22,6 +25,10 @@ impl RepeatedCallTracker {
     }
 
     pub fn check(&mut self, tool_name: &str, arguments: &Value) -> Result<(), &'static str> {
+        if STEPPING_TOOLS.contains(&tool_name) {
+            self.reset();
+            return Ok(());
+        }
         let key = normalized_call_key(tool_name, arguments, &self.working_dir);
         if self.key.as_ref() == Some(&key) {
             self.consecutive += 1;

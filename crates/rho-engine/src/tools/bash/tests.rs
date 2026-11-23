@@ -95,13 +95,9 @@ async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
 
         let (body, footer) = res.content.rsplit_once("\n\n").unwrap();
         assert!(body.ends_with(summary), "exit {exit}: {}", res.content);
-        if exit == 0 {
-            let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
-            assert_eq!(parsed.lines, 2136);
-            assert!(footer.starts_with("[exit 0; 2136 lines"), "{footer}");
-        } else {
-            assert_eq!(footer, "[exit 101]");
-        }
+        let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
+        assert_eq!((parsed.exit_code, parsed.lines), (exit, 2136));
+        assert!(footer.starts_with(&format!("[exit {exit}; 2136 lines")), "{footer}");
     }
 }
 
@@ -263,6 +259,46 @@ fn the_log_sweep_removes_only_old_rho_logs() {
 }
 
 #[test]
+fn a_clipped_snapshot_keeps_the_first_lines_even_when_they_arrive_in_pieces() {
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
+    for n in 1..=5000 {
+        acc.append(format!("line {n}").as_bytes());
+        acc.append(b"\n");
+    }
+    acc.finish();
+
+    let text = acc.snapshot().formatted_text;
+    let head: String = (1..=10).map(|n| format!("line {n}\n")).collect();
+    assert!(
+        text.starts_with(&format!("{head}\n[... 2990 lines omitted]\n\nline 3001\n")),
+        "{}",
+        &text[..200]
+    );
+    assert!(
+        text.contains("line 5000\n\n[lines 3001-5000 of 5000; log: "),
+        "{}",
+        &text[text.len() - 200..]
+    );
+}
+
+#[test]
+fn a_head_too_long_for_its_byte_cap_keeps_only_whole_lines() {
+    let logs = TestDir::new();
+    let mut acc = logging_accumulator(&logs);
+    acc.append(b"short\n");
+    acc.append("x".repeat(3000).as_bytes());
+    acc.append("y".repeat(3000).as_bytes());
+    acc.append(b"\n");
+    for n in 1..=3000 {
+        acc.append(format!("line {n}\n").as_bytes());
+    }
+    acc.finish();
+
+    assert_eq!(acc.snapshot().head.as_deref(), Some("short"));
+}
+
+#[test]
 fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     let mut acc = OutputAccumulator::new();
     acc.append(b"starting \x1b[4");
@@ -274,20 +310,49 @@ fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
 }
 
 #[tokio::test]
-async fn test_bash_preserves_error_message_at_end_of_large_output() {
+async fn clipped_successful_output_keeps_its_first_and_last_lines_and_names_the_log_once() {
     let tool = LoggedTool::new();
     let res = tool
-        .execute(BashArgs {
-            command: "seq 1 5000; echo 'CRITICAL_FAILURE_AT_END'".to_string(),
-            timeout: Some(10),
-            background: None,
-        })
+        .execute(bash_args("echo FIRST_LINE; seq 1 5000; echo LAST_LINE"))
         .await
         .unwrap();
 
     assert!(!res.is_error);
-    assert!(res.content.contains("CRITICAL_FAILURE_AT_END"));
-    assert!(res.content.contains("[lines "));
+    assert!(
+        res.content
+            .starts_with("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n[... 4977 lines omitted]\n\n4987\n"),
+        "{}",
+        res.content
+    );
+    assert!(
+        res.content.contains("5000\nLAST_LINE\n\n[exit 0; 5002 lines, "),
+        "{}",
+        res.content
+    );
+    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
+}
+
+#[tokio::test]
+async fn clipped_failing_output_keeps_its_first_lines_and_a_longer_tail() {
+    let tool = LoggedTool::new();
+    let res = tool
+        .execute(bash_args("echo FIRST_LINE; seq 1 5000; exit 1"))
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(
+        res.content
+            .starts_with("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n[... 4891 lines omitted]\n\n4901\n"),
+        "{}",
+        &res.content[..200]
+    );
+    assert!(
+        res.content.contains("\n5000\n\n[exit 1; 5001 lines, "),
+        "{}",
+        res.content
+    );
+    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
 }
 
 #[tokio::test]
@@ -455,6 +520,33 @@ async fn test_bash_timeout_preserves_accumulated_output() {
     assert!(res.is_error);
     assert!(res.content.contains("early output"));
     assert!(res.content.ends_with("[timeout 1s]"));
+}
+
+#[tokio::test]
+async fn a_timed_out_command_with_long_output_is_windowed_and_names_its_log() {
+    let tool = LoggedTool::new();
+    let res = tool
+        .execute(BashArgs {
+            command: "seq 1 5000; sleep 3".to_string(),
+            timeout: Some(1),
+            background: Some(false),
+        })
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(
+        res.content
+            .starts_with("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n\n[... 4890 lines omitted]\n\n4901\n"),
+        "{}",
+        &res.content[..200]
+    );
+    assert!(
+        res.content.contains("\n5000\n\n[timeout 1s; 5000 lines, "),
+        "{}",
+        res.content
+    );
+    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
 }
 
 #[tokio::test]

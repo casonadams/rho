@@ -262,7 +262,9 @@ fn push_user_content(
             }
             rho_harness_core::model::UserContent::ToolResult(result) => {
                 let tool = apply_tool_result(pending, result);
-                items.push(TranscriptItem::Tool(tool));
+                if crate::ui::interactive::RunningTool::has_transcript_card(&tool.name) {
+                    items.push(TranscriptItem::Tool(tool));
+                }
             }
             _ => {}
         }

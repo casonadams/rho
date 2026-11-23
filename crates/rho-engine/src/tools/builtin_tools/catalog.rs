@@ -15,14 +15,14 @@ Block until one of your background bash jobs or subagent tasks finishes, or a us
 
 Usage:
 - Use it only when you cannot continue without the result; otherwise keep working or end your turn, and results arrive on their own.
-- It returns one finished job's result notice, which is then not delivered again; call it again for the others.
-- It returns at once when nothing is running, and after 10 minutes returns `Still running:` with what is left.";
+- It returns every result that has arrived, each only once; call it again to wait for work still running.
+- It returns at once when nothing is running or a message is waiting, and after 10 minutes returns `Still running:` with what is left.";
 
 pub static PROMPT_UNDO: &str = "\
 Revert the most recent edit, write, or lsp change (rename, code action, format) this session made to a file.
 
 Usage:
-- Call again to step further back, up to 20 changes per file. A file that write created is deleted. Bash commands are not undone.
+- Call again to step further back, up to 20 changes per file (fewer after very large edits). A file that write created is deleted. Bash commands are not undone.
 - It refuses when the file changed since (by the user, bash, or a formatter); then read and edit it instead.
 - The result shows the restored regions numbered like read.";
 
@@ -114,7 +114,7 @@ Usage:
 - Use it for git, builds, tests, and linters, not for reading or editing files.
 - A command that exceeds timeout (default 30s) is not killed: it moves to the background and its output arrives later as a message. background: true does that immediately; false kills it on timeout. Background jobs are killed after 1 hour.
 - Never poll with sleep, ps, or pgrep: keep working, call wait, or end your turn.
-- Failures end with `[exit N]`. Long output is clipped to its head and tail and ends with `log: PATH` (search it with rg or page it with read), plus a summary of failing tests when it finds any. Pipe noisy commands through rg, head, or tail.";
+- Failures end with `[exit N]`. Long output keeps its first and last lines (more of the last on failure) and names the full log as `log: PATH` (search it with rg or page it with read), plus a summary of failing tests when it finds any. Pipe noisy commands through rg, head, or tail.";
 
 pub static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return titles, URLs, and snippets.

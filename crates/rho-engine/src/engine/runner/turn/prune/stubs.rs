@@ -57,11 +57,15 @@ fn extract_bash_exit_code(text: &str) -> Option<String> {
 
 fn parse_bash_footer_details(text: &str) -> Option<BashPruneDetails> {
     let footer = BashFooter::parse(text)?;
+    let exit_status = match footer.exit_code {
+        0 => BashExitStatus::Success,
+        code => BashExitStatus::Failed(code.to_string()),
+    };
     Some(BashPruneDetails {
         lines: footer.lines,
         size_str: footer.size,
         log_path: footer.log_path,
-        exit_status: BashExitStatus::Success,
+        exit_status,
     })
 }
 

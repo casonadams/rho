@@ -117,6 +117,23 @@ fn login_requests_lead_with_claude_code_identity() {
 }
 
 #[test]
+fn the_system_prompt_names_each_renamed_tool() {
+    let req = sample_request_with_tools(vec![
+        dummy_tool("read"),
+        dummy_tool("fd"),
+        dummy_tool("mcp__github__get_me"),
+    ]);
+    let body = login_body("claude-sonnet-4-6", None, &req);
+    assert_eq!(
+        body["system"][1]["text"],
+        "system preamble\n\nThese instructions name tools by their short names; call `fd` as `mcp__rho__fd` and `read` as `Read`."
+    );
+
+    let without_tools = login_body("claude-sonnet-4-6", None, &sample_request_with_tools(Vec::new()));
+    assert_eq!(without_tools["system"][1]["text"], "system preamble");
+}
+
+#[test]
 fn api_key_requests_omit_claude_code_identity() {
     let req = sample_request_with_tools(vec![dummy_tool("bash")]);
     let body = build_request_body(

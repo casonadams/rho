@@ -1,3 +1,4 @@
+use super::normalize::{BASH_CLEAN_HEAD_LINES, join_head_tail};
 use crate::tools::truncate::{
     DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, Truncation, format_size, truncate_tail,
 };
@@ -8,6 +9,7 @@ use std::time::{Duration, SystemTime};
 
 pub const BASH_PRUNE_LINE_THRESHOLD: usize = 15;
 pub const BASH_MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
+const HEAD_MAX_BYTES: usize = 4 * 1024;
 const LOG_DIR_NAME: &str = "rho-bash";
 const LOG_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const LOG_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
@@ -61,6 +63,8 @@ fn remove_loose_logs(temp_root: &Path) -> usize {
 pub struct OutputSnapshot {
     pub content: String,
     pub formatted_text: String,
+    /// The output's first whole lines when the output was clipped to its tail.
+    pub head: Option<String>,
     pub truncation: Truncation,
     pub full_output_path: Option<PathBuf>,
 }
@@ -73,6 +77,8 @@ pub struct OutputAccumulator {
     log_bytes: usize,
     log_truncated: bool,
     tail_text: String,
+    head_text: String,
+    head_complete: bool,
     total_raw_bytes: usize,
     total_lines: usize,
     current_line_bytes: usize,
@@ -130,6 +136,8 @@ impl OutputAccumulator {
             log_bytes: 0,
             log_truncated: false,
             tail_text: String::new(),
+            head_text: String::new(),
+            head_complete: false,
             total_raw_bytes: 0,
             total_lines: 0,
             current_line_bytes: 0,
@@ -204,16 +212,43 @@ impl OutputAccumulator {
         let truncated = self.total_lines > self.max_lines || self.total_raw_bytes > self.max_bytes;
         truncation.truncated = truncated;
 
-        let formatted_text = self.format_snapshot_text(&truncation);
+        let head = self.clipped_head(&truncation);
+        let formatted_text = self.format_snapshot_text(&truncation, head.as_deref());
         OutputSnapshot {
             content: truncation.content.clone(),
             formatted_text,
+            head,
             truncation,
             full_output_path: self.temp_file_path.clone(),
         }
     }
 
+    fn clipped_head(&self, truncation: &Truncation) -> Option<String> {
+        let head = self.head_text.trim_end_matches('\n');
+        (truncation.truncated && !truncation.last_line_partial && !head.is_empty()).then(|| head.to_string())
+    }
+
+    fn capture_head(&mut self, text: &str) {
+        if self.head_complete {
+            return;
+        }
+        let wanted = BASH_CLEAN_HEAD_LINES - self.head_text.matches('\n').count();
+        let (end, complete) = match text.match_indices('\n').nth(wanted - 1) {
+            Some((index, _)) => (index + 1, true),
+            None => (text.len(), false),
+        };
+        if self.head_text.len() + end > HEAD_MAX_BYTES {
+            self.head_complete = true;
+            let whole_lines = self.head_text.rfind('\n').map_or(0, |index| index + 1);
+            self.head_text.truncate(whole_lines);
+            return;
+        }
+        self.head_complete = complete;
+        self.head_text.push_str(&text[..end]);
+    }
+
     fn append_decoded_text(&mut self, text: &str) {
+        self.capture_head(text);
         self.tail_text.push_str(text);
         if self.tail_text.len() > self.max_rolling_bytes * 2 {
             self.trim_tail();
@@ -294,8 +329,13 @@ impl OutputAccumulator {
         self.log_truncated = true;
     }
 
-    fn format_snapshot_text(&self, truncation: &Truncation) -> String {
-        let mut text = truncation.content.clone();
+    fn format_snapshot_text(&self, truncation: &Truncation, head: Option<&str>) -> String {
+        let lines_before_tail = truncation.total_lines.saturating_sub(truncation.output_lines);
+        let omitted = head.map_or(0, |head| lines_before_tail.saturating_sub(head.lines().count()));
+        let mut text = match head {
+            Some(head) if omitted > 0 => join_head_tail(head, omitted, &truncation.content),
+            _ => truncation.content.clone(),
+        };
         if truncation.truncated {
             let log = self.temp_file_path.as_ref().map(|p| p.to_string_lossy());
             let notice = format_truncation_notice(truncation, log.as_deref(), self.current_line_bytes, self.max_bytes);
