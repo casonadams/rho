@@ -34,10 +34,6 @@ fn emit_git_rerun_hints(git_dir: &Path) {
     if head.exists() {
         println!("cargo:rerun-if-changed={}", head.display());
     }
-    let index = git_dir.join("index");
-    if index.exists() {
-        println!("cargo:rerun-if-changed={}", index.display());
-    }
     if let Ok(content) = std::fs::read_to_string(&head)
         && let Some(ref_rel) = content.trim().strip_prefix("ref:")
     {
@@ -62,7 +58,7 @@ fn resolve_git_sha(workspace: &Path) -> String {
     let Some(sha) = git_stdout(workspace, &["rev-parse", "--short", "HEAD"]) else {
         return String::new();
     };
-    let dirty = git_stdout(workspace, &["status", "--porcelain"]).is_some();
+    let dirty = git_stdout(workspace, &["--no-optional-locks", "status", "--porcelain"]).is_some();
     if dirty { format!("{sha}-dirty") } else { sha }
 }
 
