@@ -173,6 +173,9 @@ pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut
         },
     };
 
+    if auth_store.get_credential(&target).is_none() {
+        return Err(AppError::Auth(format!("No stored credentials for {target}.")));
+    }
     auth_store.remove_key(&target)?;
     println!("Removed stored credentials for {target}");
     Ok(())

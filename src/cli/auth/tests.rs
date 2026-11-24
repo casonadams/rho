@@ -196,6 +196,12 @@ fn test_logout_provider_named_and_empty_list() {
     assert!(auth_store.get_key_sync("openrouter").unwrap().is_some());
     assert!(super::logout_provider(Some("openrouter"), &config, &mut auth_store).is_ok());
     assert!(auth_store.get_key_sync("openrouter").unwrap().is_none());
+
+    let err = super::logout_provider(Some("openrouter"), &config, &mut auth_store).unwrap_err();
+    assert!(
+        err.to_string().contains("No stored credentials for openrouter"),
+        "{err}"
+    );
 }
 
 #[tokio::test]

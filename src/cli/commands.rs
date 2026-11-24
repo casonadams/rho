@@ -85,7 +85,7 @@ async fn handle_config(
             println!("Set {k} = {v} in {}", config.config_dir.join("config.toml").display());
         }
         (None, None) => print_config_summary(config),
-        _ => println!("Usage: rho config <key> <value>"),
+        _ => return Err("Usage: rho config <key> <value>".into()),
     }
     Ok(())
 }

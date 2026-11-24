@@ -44,7 +44,9 @@ fn test_parse_tool_decision_mappings() {
 
 #[test]
 fn unknown_tool_decisions_never_approve() {
-    for decision in ["reject", "no", "nope", "", "  ", "1", "3", "allow!", "yes", "edit", "deny-ish"] {
+    for decision in [
+        "reject", "no", "nope", "", "  ", "1", "3", "allow!", "yes", "edit", "deny-ish",
+    ] {
         assert_eq!(
             parse_tool_decision(decision),
             InteractionResponse::Cancelled,

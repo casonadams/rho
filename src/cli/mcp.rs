@@ -297,8 +297,7 @@ async fn probe_prompts(client: &McpClient) {
 
 async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let Some(server_cfg) = config.mcp.servers.get(name) else {
-        eprintln!("Error: MCP server '{name}' not found in configuration.");
-        return Ok(());
+        return Err(format!("MCP server '{name}' not found in configuration.").into());
     };
 
     println!("Testing MCP server '{name}'...");
@@ -488,9 +487,10 @@ mod tests {
 
         handle_mcp(None, &config).await.unwrap();
         handle_mcp(Some(McpCommands::List), &config).await.unwrap();
-        handle_mcp(Some(McpCommands::Test { name: "missing".into() }), &config)
+        let err = handle_mcp(Some(McpCommands::Test { name: "missing".into() }), &config)
             .await
-            .unwrap();
+            .unwrap_err();
+        assert!(err.to_string().contains("'missing' not found"), "{err}");
     }
 
     #[test]
