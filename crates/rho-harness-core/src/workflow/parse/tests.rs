@@ -302,3 +302,39 @@ fn resume_must_be_a_positive_integer_and_defaults_to_none() {
     let err = parse(&wrap(r#"<agent use="a" resume="0">Go.</agent>"#)).unwrap_err();
     assert!(err.contains("'resume' must be a positive integer"), "{err}");
 }
+
+#[test]
+fn each_body_steps_are_readable_only_inside_the_each() {
+    let ok = [
+        r#"<workflow><each id="e" items="a b" as="x"><run id="inner" cmd="echo {{x}}"/><run id="again" cmd="echo {{inner}}"/></each></workflow>"#,
+        r#"<workflow><each id="e" items="a b" as="x" result="{{inner}}"><run id="inner" cmd="echo {{x}}"/></each><output name="all" value="{{e}}"/></workflow>"#,
+        r#"<workflow><each id="o" items="a" as="x"><each id="i" items="b" as="y"><run id="deep" cmd="echo {{deep}}"/></each></each></workflow>"#,
+        r#"<workflow><run id="before" cmd="echo hi"/><each items="a" as="x"><run cmd="echo {{before}} {{x}}"/></each></workflow>"#,
+    ];
+    for text in ok {
+        assert!(parse(text).is_ok(), "{text}: {:?}", parse(text).err());
+    }
+
+    let bad = [
+        (
+            r#"<workflow><each id="e" items="a b" as="x"><run id="inner" cmd="echo {{x}}"/></each><run id="after" cmd="echo {{inner}}"/></workflow>"#,
+            "unknown reference '{{inner}}'",
+        ),
+        (
+            r#"<workflow><each id="e" items="a b" as="x"><run id="inner" cmd="echo {{x}}"/></each><output name="o" value="{{inner}}"/></workflow>"#,
+            "unknown reference '{{inner}}'",
+        ),
+        (
+            r#"<workflow><each id="o" items="a" as="x"><each id="i" items="b" as="y"><run id="deep" cmd="echo"/></each><run id="mid" cmd="echo {{deep}}"/></each></workflow>"#,
+            "unknown reference '{{deep}}'",
+        ),
+        (
+            r#"<workflow><each items="a" as="x"><run id="a" cmd="echo"/></each><each items="b" as="y"><run cmd="echo {{a}}"/></each></workflow>"#,
+            "unknown reference '{{a}}'",
+        ),
+    ];
+    for (text, expected) in bad {
+        let err = parse(text).unwrap_err();
+        assert!(err.contains(expected), "{text}\n{err}");
+    }
+}

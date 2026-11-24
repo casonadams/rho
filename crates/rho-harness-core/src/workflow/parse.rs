@@ -429,6 +429,34 @@ fn collect_ids(nodes: &[Node], into: &mut Vec<(String, usize)>) {
     }
 }
 
+/// Ids that live inside some `<each>` body: each item runs in its own scope, so nothing outside
+/// that body can read them.
+fn each_body_ids(nodes: &[Node], inside_each: bool, into: &mut BTreeSet<String>) {
+    for node in nodes {
+        if inside_each && let Some(id) = &node.id {
+            into.insert(id.clone());
+        }
+        let nested = inside_each || matches!(node.kind, NodeKind::Each(_));
+        for body in node.kind.bodies() {
+            each_body_ids(body, nested, into);
+        }
+    }
+}
+
+/// Ids declared directly in `nodes`, not counting those inside a nested `<each>` body.
+fn direct_body_ids(nodes: &[Node], into: &mut Vec<String>) {
+    for node in nodes {
+        if let Some(id) = &node.id {
+            into.push(id.clone());
+        }
+        if !matches!(node.kind, NodeKind::Each(_)) {
+            for body in node.kind.bodies() {
+                direct_body_ids(body, into);
+            }
+        }
+    }
+}
+
 impl Checker {
     fn template(&mut self, line: usize, template: &str) {
         match references(template) {
@@ -505,9 +533,18 @@ impl Checker {
             ));
         }
         self.vars.push(each.var.clone());
+        let mut body_ids = Vec::new();
+        direct_body_ids(&each.body, &mut body_ids);
+        let newly_visible: Vec<String> = body_ids
+            .into_iter()
+            .filter(|id| self.names.insert(id.clone()))
+            .collect();
         self.nodes(&each.body);
         if let Some(result) = &each.result {
             self.template(line, result);
+        }
+        for id in &newly_visible {
+            self.names.remove(id);
         }
         self.vars.pop();
     }
@@ -537,7 +574,9 @@ fn validate(workflow: &Workflow) -> Vec<String> {
         }
     }
     let ids: BTreeSet<String> = seen.into_keys().collect();
-    names.extend(ids.iter().cloned());
+    let mut hidden = BTreeSet::new();
+    each_body_ids(&workflow.body, false, &mut hidden);
+    names.extend(ids.iter().filter(|id| !hidden.contains(*id)).cloned());
     let mut checker = Checker {
         names,
         ids,
