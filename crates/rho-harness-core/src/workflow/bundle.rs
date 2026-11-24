@@ -2,7 +2,7 @@ use super::builtin::BUILTINS;
 use super::parse::parse_workflow;
 use super::types::{Node, NodeKind, Workflow};
 use crate::agents::{AgentMetadata, parse_agent_content};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 const ENTRY_FILE: &str = "workflow.xml";
@@ -230,6 +230,13 @@ impl WorkflowCatalog {
             let mut problems = Vec::new();
             for wf in std::iter::once(&bundle.entry).chain(bundle.workflows.values()) {
                 self.call_problems(bundle, wf, &wf.body, &mut problems);
+                if let Some(cycle) = self.call_cycle(bundle, wf) {
+                    problems.push(format!(
+                        "{}: workflows call each other in a cycle ({})",
+                        wf.name,
+                        cycle.join(" -> ")
+                    ));
+                }
             }
             if !problems.is_empty() {
                 invalid.push((bundle.name.clone(), problems));
@@ -239,6 +246,48 @@ impl WorkflowCatalog {
             self.bundles.retain(|b| b.name != name);
             self.errors
                 .push(format!("workflow '{name}' is invalid:\n- {}", problems.join("\n- ")));
+        }
+    }
+
+    /// Returns the call chain leading from `start` back to itself, if any (direct self-calls are reported separately).
+    fn call_cycle(&self, bundle: &WorkflowBundle, start: &Workflow) -> Option<Vec<String>> {
+        let mut seen: HashSet<(&str, &str)> = HashSet::new();
+        let mut stack = vec![(bundle, start, vec![start.name.clone()])];
+        while let Some((owner, wf, path)) = stack.pop() {
+            let mut targets = Vec::new();
+            self.collect_call_targets(owner, &wf.body, &mut targets);
+            for (next_owner, target) in targets {
+                if target.name == wf.name {
+                    continue;
+                }
+                let mut next_path = path.clone();
+                next_path.push(target.name.clone());
+                if std::ptr::eq(target, start) {
+                    return Some(next_path);
+                }
+                if seen.insert((next_owner.name.as_str(), target.name.as_str())) {
+                    stack.push((next_owner, target, next_path));
+                }
+            }
+        }
+        None
+    }
+
+    fn collect_call_targets<'a>(
+        &'a self,
+        bundle: &'a WorkflowBundle,
+        nodes: &[Node],
+        out: &mut Vec<(&'a WorkflowBundle, &'a Workflow)>,
+    ) {
+        for node in nodes {
+            if let NodeKind::Call(call) = &node.kind
+                && let Some(resolved) = self.resolve_call(bundle, &call.workflow)
+            {
+                out.push(resolved);
+            }
+            for body in node.kind.bodies() {
+                self.collect_call_targets(bundle, body, out);
+            }
         }
     }
 

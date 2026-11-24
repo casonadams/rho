@@ -96,6 +96,23 @@ fn invalid_workflows_are_reported_not_loaded() {
 }
 
 #[test]
+fn mutual_call_cycles_are_reported_not_loaded() {
+    let root = temp_root("cycle");
+    let dir = root.join(".agents/workflows");
+    write(&dir.join("a.xml"), "<workflow><call workflow=\"b\"/></workflow>");
+    write(&dir.join("b.xml"), "<workflow><call workflow=\"c\"/></workflow>");
+    write(&dir.join("c.xml"), "<workflow><call workflow=\"a\"/></workflow>");
+    write(&dir.join("leaf.xml"), "<workflow><run cmd=\"true\"/></workflow>");
+    write(&dir.join("user.xml"), "<workflow><call workflow=\"leaf\"/></workflow>");
+
+    let catalog = WorkflowCatalog::discover(Some(&root), None);
+    let names: Vec<&str> = catalog.bundles.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, ["audit", "leaf", "user"]);
+    let errors = catalog.errors.join("\n");
+    assert!(errors.contains("a -> b -> c -> a"), "{errors}");
+}
+
+#[test]
 fn prompt_files_cannot_escape_the_workflow_directory() {
     let root = temp_root("escape");
     for path in ["../secret", "/etc/passwd", ""] {
