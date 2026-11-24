@@ -32,9 +32,20 @@ pub struct McpTokens {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
     pub resource: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_url: Option<String>,
 }
 
 impl McpTokens {
+    /// Tokens saved before `server_url` existed are bound by their `resource` instead.
+    fn is_bound_to(&self, url: &str) -> bool {
+        let bound = self.server_url.as_deref().unwrap_or(&self.resource);
+        match (discovery::canonical_resource(bound), discovery::canonical_resource(url)) {
+            (Ok(bound), Ok(url)) => bound == url,
+            _ => false,
+        }
+    }
+
     fn is_expired(&self) -> bool {
         self.expires_at_ms
             .is_some_and(|at| at <= chrono::Utc::now().timestamp_millis())
@@ -166,15 +177,17 @@ pub fn login_hint(server: &str) -> String {
 
 pub struct McpOAuth {
     server: String,
+    url: String,
     store: McpTokenStore,
     tokens: Mutex<Option<Option<McpTokens>>>,
 }
 
 impl McpOAuth {
     #[must_use]
-    pub fn new(server: impl Into<String>, store: McpTokenStore) -> Self {
+    pub fn new(server: impl Into<String>, url: impl Into<String>, store: McpTokenStore) -> Self {
         Self {
             server: server.into(),
+            url: url.into(),
             store,
             tokens: Mutex::new(None),
         }
@@ -193,6 +206,14 @@ impl McpOAuth {
         let Some(Some(tokens)) = guard.as_ref() else {
             return Ok(None);
         };
+        if !tokens.is_bound_to(&self.url) {
+            return Err(AppError::Auth(format!(
+                "The saved sign-in for MCP server '{}' was issued for a different URL than {}. {}",
+                self.server,
+                self.url,
+                login_hint(&self.server)
+            )));
+        }
         if tokens.is_expired() && tokens.refresh_token.is_some() {
             let refreshed = self.refresh(tokens).await?;
             *guard = Some(Some(refreshed));

@@ -251,6 +251,7 @@ pub async fn login(
         client_id: client.id,
         client_secret: client.secret,
         resource,
+        server_url: Some(url.to_string()),
     };
     store.save(server, tokens).await
 }

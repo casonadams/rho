@@ -239,7 +239,7 @@ pub async fn build_transport(
     };
     let oauth = token_store
         .filter(|_| config.uses_oauth())
-        .map(|store| Arc::new(McpOAuth::new(name, store.clone())));
+        .map(|store| Arc::new(McpOAuth::new(name, url, store.clone())));
     Ok(McpTransport::new_http(
         url,
         config.resolved_transport(),

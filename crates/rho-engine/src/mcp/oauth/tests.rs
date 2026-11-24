@@ -178,7 +178,7 @@ impl OAuthLoginCallbacks for Browser {
 }
 
 fn transport(base: &str, store: &McpTokenStore) -> Arc<McpTransport> {
-    let oauth = Arc::new(McpOAuth::new("srv", store.clone()));
+    let oauth = Arc::new(McpOAuth::new("srv", format!("{base}/mcp"), store.clone()));
     McpTransport::new_http(
         format!("{base}/mcp"),
         McpTransportKind::StreamableHttp,
@@ -275,6 +275,7 @@ async fn a_rejected_token_is_refreshed_once_and_the_request_retried() {
                 client_id: "dyn-client".into(),
                 client_secret: None,
                 resource: format!("{base}/mcp"),
+                server_url: None,
             },
         )
         .await
@@ -306,6 +307,7 @@ async fn expired_tokens_are_refreshed_before_the_request() {
         client_id: "c".into(),
         client_secret: Some("s".into()),
         resource: format!("{base}/mcp"),
+        server_url: None,
     };
     store.save("srv", tokens).await.unwrap();
     transport(&base, &store).request("tools/list", None).await.unwrap();
@@ -330,6 +332,7 @@ async fn a_failed_refresh_asks_the_user_to_sign_in_again() {
         client_id: "c".into(),
         client_secret: None,
         resource: format!("{base}/mcp"),
+        server_url: None,
     };
     store.save("srv", tokens).await.unwrap();
     let err = transport(&base, &store).request("tools/list", None).await.unwrap_err();
@@ -337,6 +340,33 @@ async fn a_failed_refresh_asks_the_user_to_sign_in_again() {
     let message = err.to_string();
     assert!(message.contains("sign-in expired"), "{message}");
     assert!(message.contains("/mcp login srv"), "{message}");
+}
+
+#[tokio::test]
+async fn tokens_issued_for_another_url_are_never_sent() {
+    let (base, state) = fake_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = McpTokenStore::in_config_dir(dir.path());
+    for (resource, server_url) in [
+        (format!("{base}/mcp"), Some("https://other.example.com/mcp".to_string())),
+        ("https://other.example.com/mcp".to_string(), None),
+    ] {
+        let tokens = McpTokens {
+            access_token: "secret".into(),
+            refresh_token: None,
+            expires_at_ms: None,
+            token_endpoint: format!("{base}/auth/token"),
+            client_id: "c".into(),
+            client_secret: None,
+            resource,
+            server_url,
+        };
+        store.save("srv", tokens).await.unwrap();
+        let err = transport(&base, &store).request("tools/list", None).await.unwrap_err();
+        assert!(matches!(err, AppError::Auth(_)), "{err}");
+        assert!(err.to_string().contains("/mcp login srv"), "{err}");
+    }
+    assert!(state.lock().unwrap().seen.iter().all(|r| r.path != "/mcp"));
 }
 
 #[tokio::test]
