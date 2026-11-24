@@ -216,7 +216,7 @@ async fn open_stream_fails_immediately_if_refresh_fails() {
     let provider = ScriptedTokenProvider::new(Ok("stale-token"), Err("token revoked"));
     let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro").with_endpoint(url);
     let err = client.open_stream(&test_completion_request()).await.unwrap_err();
-    assert_eq!(err.status_code(), Some(401));
+    assert_eq!(err, HttpFailure::Local("token revoked".to_string()));
 }
 
 #[test]
