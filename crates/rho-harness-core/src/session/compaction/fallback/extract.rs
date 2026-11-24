@@ -137,9 +137,18 @@ pub fn clean_item(line: &str) -> String {
     } else if let Some(rest) = s.strip_prefix("* ") {
         rest
     } else {
-        s.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ')
+        strip_ordinal(s)
     };
     stripped.trim().to_string()
+}
+
+/// Removes a leading `12. ` list marker and nothing else, so text such as `2 bugs` or `1.5x` survives.
+fn strip_ordinal(s: &str) -> &str {
+    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
+    match s[digits..].strip_prefix(". ") {
+        Some(rest) if digits > 0 => rest,
+        _ => s,
+    }
 }
 
 fn is_error_text(text: &str) -> bool {
@@ -190,5 +199,40 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
     } else {
         let prefix: String = s.chars().take(max_chars).collect();
         format!("{prefix}...")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::generate_fallback_summary;
+    use super::clean_item;
+
+    #[test]
+    fn only_explicit_markers_are_stripped_from_items() {
+        let cases = [
+            ("- item", "item"),
+            ("* item", "item"),
+            ("- [x] done thing", "done thing"),
+            ("- [ ] open thing", "open thing"),
+            ("12. numbered", "numbered"),
+            ("2 bugs in parser", "2 bugs in parser"),
+            ("1.5x faster startup", "1.5x faster startup"),
+            ("404 handler returns html", "404 handler returns html"),
+            ("3.", "3."),
+            (". leading dot", ". leading dot"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(clean_item(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn a_prior_summary_with_digit_led_goal_and_steps_is_preserved() {
+        let prior = "## Goal\n2 bugs in parser\n\n## Next Steps\n1. 3 flaky tests to fix\n2. 404 page\n";
+        let summary = generate_fallback_summary(&[], Some(prior), None);
+        assert!(summary.contains("2 bugs in parser"), "{summary}");
+        assert!(summary.contains("3 flaky tests to fix"), "{summary}");
+        assert!(summary.contains("404 page"), "{summary}");
+        assert_eq!(generate_fallback_summary(&[], Some(&summary), None), summary);
     }
 }
