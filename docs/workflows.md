@@ -480,7 +480,7 @@ You fix validated findings...
     </each>
 
     <agent id="validate" use="validator" model="smol" output="json" context="scan">
-      Re-read every cited line; return {"actionable": [...]}.
+      Re-read every cited line. Result fields: {"actionable": [...]}.
     </agent>
 
     <loop id="attempt" max="3" until="{{review.approved}}" when="{{validate.actionable}}">
@@ -493,7 +493,7 @@ You fix validated findings...
       <run when="{{verify.ok}}" cmd="git add -A"/>
       <run id="diff" when="{{verify.ok}}" cmd="git diff --cached"/>
       <agent id="review" use="reviewer" model="smol" output="json" when="{{verify.ok}}">
-        Review this diff; return {"approved": true|false, "issues": [...]}.
+        Review this diff. Result fields: {"approved": true|false, "issues": [...]}.
         {{diff.output}}
       </agent>
     </loop>

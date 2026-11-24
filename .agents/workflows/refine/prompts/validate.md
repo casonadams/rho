@@ -15,4 +15,4 @@ Classify each surviving finding:
 
 Give every finding a stable `fingerprint` of the form `<file>:<short-kebab-case-rule>` with no line numbers, so the same issue is recognized across rounds.
 
-Return {"actionable": [{"fingerprint", "severity", "confidence", "file", "line", "title", "evidence", "recommendation"}], "deferred": [...], "low_confidence": [...], "rejected": <count>}. Use empty arrays when there is nothing to report.
+Result fields: {"actionable": [{"fingerprint", "severity", "confidence", "file", "line", "title", "evidence", "recommendation"}], "deferred": [...], "low_confidence": [...], "rejected": <count>}. Use empty arrays when there is nothing to report.

@@ -20,4 +20,4 @@ Reject the change if any of these hold:
 
 Each issue must cite file:line and say what to change. Do not reject for style preferences.
 
-Return {"approved": true|false, "issues": [{"file", "line", "problem", "fix"}]}. Approve only when `issues` is empty.
+Result fields: {"approved": true|false, "issues": [{"file", "line", "problem", "fix"}]}. Approve only when `issues` is empty.
