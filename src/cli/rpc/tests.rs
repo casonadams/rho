@@ -42,6 +42,18 @@ fn test_parse_tool_decision_mappings() {
     );
 }
 
+#[test]
+fn unknown_tool_decisions_never_approve() {
+    for decision in ["reject", "no", "nope", "", "  ", "1", "3", "allow!", "yes", "edit", "deny-ish"] {
+        assert_eq!(
+            parse_tool_decision(decision),
+            InteractionResponse::Cancelled,
+            "{decision:?}"
+        );
+    }
+    assert_eq!(parse_tool_decision("  ALLOW "), InteractionResponse::Selected(0));
+}
+
 #[tokio::test]
 async fn test_rpc_presenter_tool_approval_roundtrip() {
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
