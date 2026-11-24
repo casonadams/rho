@@ -1,4 +1,5 @@
 use rho_harness_core::error::{AppError, Result};
+use std::io::Read;
 
 const MAX_ROWS: usize = 50;
 const MAX_COLS: usize = 20;
@@ -86,10 +87,104 @@ pub fn extract_csv(raw: &str, delimiter: u8) -> String {
     out.trim_end().to_string()
 }
 
+const MAX_PDF_STREAM_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_PDF_TOTAL_INFLATED_BYTES: u64 = 512 * 1024 * 1024;
+
+fn is_zlib_header(pair: &[u8]) -> bool {
+    pair[0] & 0x0f == 8 && pair[0] >> 4 <= 7 && u16::from_be_bytes([pair[0], pair[1]]).is_multiple_of(31)
+}
+
+fn inflated_len(data: &[u8], limit: u64) -> u64 {
+    let mut decoder = flate2::read::ZlibDecoder::new(data);
+    let mut buf = [0u8; 64 * 1024];
+    let mut total = 0;
+    while total <= limit {
+        match decoder.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => total += n as u64,
+        }
+    }
+    total
+}
+
+/// pdf-extract (lopdf 0.42) inflates streams without an output cap, so a small file can exhaust memory.
+/// Every zlib-looking offset is trial-inflated under a budget, which holds regardless of how streams are delimited.
+fn ensure_bounded_inflation(bytes: &[u8], stream_cap: u64, total_cap: u64) -> Result<()> {
+    let mut total = 0;
+    for (offset, pair) in bytes.windows(2).enumerate() {
+        if !is_zlib_header(pair) {
+            continue;
+        }
+        let limit = stream_cap.min(total_cap - total);
+        let inflated = inflated_len(&bytes[offset..], limit);
+        if inflated > limit {
+            return Err(AppError::Tool(format!(
+                "PDF rejected: compressed data expands beyond the safe limit ({} MiB per stream, {} MiB total)",
+                stream_cap >> 20,
+                total_cap >> 20
+            )));
+        }
+        total += inflated;
+    }
+    Ok(())
+}
+
 pub async fn extract_pdf_bytes(bytes: Vec<u8>) -> Result<String> {
     tokio::task::spawn_blocking(move || {
+        ensure_bounded_inflation(&bytes, MAX_PDF_STREAM_BYTES, MAX_PDF_TOTAL_INFLATED_BYTES)?;
         pdf_extract::extract_text_from_mem(&bytes).map_err(|e| AppError::Tool(format!("PDF extraction error: {e}")))
     })
     .await
     .map_err(|e| AppError::Tool(format!("Tokio spawn error during PDF extraction: {e}")))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::{Compression, write::ZlibEncoder};
+    use std::io::Write;
+
+    fn zlib_of_zeros(len: usize) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(&vec![0u8; len]).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn pdf_with(stream: &[u8]) -> Vec<u8> {
+        let mut pdf = b"%PDF-1.4\n1 0 obj\n<< /Filter /FlateDecode >>\nstream\n".to_vec();
+        pdf.extend_from_slice(stream);
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        pdf
+    }
+
+    #[test]
+    fn a_stream_expanding_past_the_cap_is_rejected() {
+        let pdf = pdf_with(&zlib_of_zeros(2 << 20));
+        let err = ensure_bounded_inflation(&pdf, 1 << 20, 8 << 20).unwrap_err();
+        assert!(err.to_string().contains("expands beyond the safe limit"), "{err}");
+    }
+
+    #[test]
+    fn many_streams_exceeding_the_total_budget_are_rejected() {
+        let stream = zlib_of_zeros(600 << 10);
+        let mut pdf = pdf_with(&stream);
+        pdf.extend(pdf_with(&stream));
+        pdf.extend(pdf_with(&stream));
+        assert!(ensure_bounded_inflation(&pdf, 1 << 20, 1 << 20).is_err());
+        assert!(ensure_bounded_inflation(&pdf, 1 << 20, 4 << 20).is_ok());
+    }
+
+    #[test]
+    fn modest_streams_and_non_zlib_bytes_pass() {
+        let pdf = pdf_with(&zlib_of_zeros(100 << 10));
+        assert!(ensure_bounded_inflation(&pdf, 1 << 20, 8 << 20).is_ok());
+        assert!(ensure_bounded_inflation(b"corrupt-pdf-bytes", 1 << 20, 8 << 20).is_ok());
+    }
+
+    #[tokio::test]
+    async fn extraction_refuses_a_decompression_bomb_before_parsing() {
+        let pdf = pdf_with(&zlib_of_zeros((MAX_PDF_STREAM_BYTES as usize) + 1));
+        let err = extract_pdf_bytes(pdf).await.unwrap_err();
+        assert!(err.to_string().contains("expands beyond the safe limit"), "{err}");
+    }
 }
