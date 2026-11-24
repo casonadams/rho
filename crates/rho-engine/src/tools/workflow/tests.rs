@@ -239,6 +239,19 @@ async fn a_text_summary_output_is_carried_on_the_run_for_the_cli_to_show() {
     assert_eq!(run.summary.as_deref(), Some("Checked done"));
 }
 
+#[tokio::test]
+async fn a_long_summary_is_capped_for_display() {
+    let long = "x".repeat(MAX_SUMMARY_CHARS + 500);
+    let wf = format!(r#"<workflow name="long"><run cmd="true"/><output name="summary" value="{long}"/></workflow>"#);
+    let fx = Fixture::new(&[], &[("long.xml", &wf)]);
+    let run = fx.run("long", &[]).await;
+
+    let summary = run.summary.unwrap();
+    assert!(summary.starts_with(&"x".repeat(MAX_SUMMARY_CHARS)), "{summary}");
+    assert!(summary.ends_with("[summary truncated; see the report]"), "{summary}");
+    assert!(summary.len() < long.len());
+}
+
 const RUN_ID_WRITE: &str = r#"
 <workflow name="stamped">
   <write path=".rho/out/{{run.id}}.md" value="x"/>

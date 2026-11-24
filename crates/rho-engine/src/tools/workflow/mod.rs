@@ -18,6 +18,8 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+const MAX_SUMMARY_CHARS: usize = 2_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowRun {
     pub ok: bool,
@@ -202,7 +204,7 @@ impl WorkflowRunner {
             Ok(outputs) => {
                 let summary = outputs["summary"]
                     .as_str()
-                    .map(|s| s.trim().to_string())
+                    .map(|s| clamp_summary(s.trim()))
                     .filter(|s| !s.is_empty());
                 let report = log.report(&format!("Workflow `{}` completed.", bundle.name), Some(&outputs));
                 (true, report, summary)
@@ -238,6 +240,13 @@ async fn hand_off(worktree: &crate::worktree::Worktree) -> String {
             worktree.id,
             worktree.path.display()
         ),
+    }
+}
+
+fn clamp_summary(text: &str) -> String {
+    match text.char_indices().nth(MAX_SUMMARY_CHARS) {
+        Some((end, _)) => format!("{}\n[summary truncated; see the report]", &text[..end]),
+        None => text.to_string(),
     }
 }
 
