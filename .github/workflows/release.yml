@@ -200,7 +200,7 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           if [ -n "$TAP_TOKEN" ]; then
-            curl -L \
+            curl -fsS -L \
               -X POST \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer $TAP_TOKEN" \

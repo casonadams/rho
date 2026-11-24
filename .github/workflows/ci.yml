@@ -39,19 +39,16 @@ jobs:
           components: rustfmt, clippy
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: make fmt-check
 
-      - name: Run clippy (production code)
-        run: cargo clippy --workspace --lib --bins -- -D warnings
+      - name: Run clippy
+        run: make clippy
 
-      - name: Run clippy (tests)
-        run: cargo clippy --workspace --tests -- -A clippy::too_many_lines -D warnings
+      - name: Install cccc
+        run: cargo install cccc-cli --locked
 
-      - name: Run cccc complexity gate
-        uses: moznion/cccc-action@v1
-        with:
-          path: .
-          top-cognitive: 10
+      - name: Run cognitive complexity gate
+        run: make complexity
 
   test:
     name: Test
@@ -67,8 +64,5 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Run tests
-        run: cargo nextest run --workspace --all-targets
-
-      - name: Run doc tests
-        run: cargo test --workspace --doc
+      - name: Run tests and fail on leaked temp files
+        run: make leak-check
