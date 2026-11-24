@@ -5,6 +5,7 @@ mod files;
 mod report;
 #[cfg(test)]
 mod tests;
+mod write_step;
 
 use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
@@ -55,7 +56,7 @@ fn preflight(name: &str, bundle: &WorkflowBundle, subagents: &SubagentTool) -> R
     let agents = bundle_agents(bundle);
     let mut missing: Vec<&'static str> = agents
         .iter()
-        .filter_map(|agent| agent.model)
+        .filter_map(|agent| agent.model.as_deref().and_then(|m| ModelRole::parse(m).ok()))
         .filter(|role| !subagents.role_configured(*role))
         .map(ModelRole::as_str)
         .collect();
@@ -158,6 +159,7 @@ impl WorkflowRunner {
             subagents: &self.subagents,
             catalog,
             base_dir: &base_dir,
+            project_dir: &self.base_dir,
             log: &log,
         };
         let frame = Frame {

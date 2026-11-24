@@ -1,5 +1,5 @@
 use super::*;
-use crate::workflow::types::{Items, ModelRole};
+use crate::workflow::types::Items;
 
 fn no_files(path: &str) -> Result<String, String> {
     Err(format!("no file {path}"))
@@ -61,11 +61,14 @@ fn parses_a_nested_workflow_into_typed_nodes() {
         scout.prompt,
         "Scan {{slice}} for {{profile}}.\n  Keep Vec<String> && <file> verbatim."
     );
-    assert_eq!((scout.model, scout.turns, scout.persona.as_deref()), (None, 40, None));
+    assert_eq!(
+        (scout.model.as_deref(), scout.turns, scout.persona.as_deref()),
+        (None, 40, None)
+    );
     let NodeKind::Agent(validate) = &round.body[1].kind else {
         panic!("expected agent");
     };
-    assert_eq!((validate.model, validate.turns), (Some(ModelRole::Slow), 100));
+    assert_eq!((validate.model.as_deref(), validate.turns), (Some("slow"), 100));
     assert_eq!(validate.persona.as_deref(), Some("skeptic"));
     assert_eq!(validate.output, OutputFormat::Json);
     let NodeKind::Run(commit) = &round.body[3].kind else {
@@ -205,4 +208,53 @@ fn choose_and_call_parse_cases_and_inputs() {
     assert_eq!(call.workflow, "fix");
     assert_eq!(call.with["profile"], "{{profile}}");
     assert!(choose.otherwise.is_some());
+}
+
+#[test]
+fn agent_use_and_model_may_be_templates_but_literal_models_are_checked() {
+    let wf = parse(&wrap(
+        r#"<each id="h" items="a b" as="cat"><agent use="hunter-{{cat}}" model="{{profile}}">Go.</agent></each>"#,
+    ))
+    .unwrap();
+    let NodeKind::Each(each) = &wf.body[0].kind else {
+        panic!("expected each");
+    };
+    let NodeKind::Agent(agent) = &each.body[0].kind else {
+        panic!("expected agent");
+    };
+    assert_eq!(
+        (agent.agent.as_str(), agent.model.as_deref()),
+        ("hunter-{{cat}}", Some("{{profile}}"))
+    );
+    let err = parse(&wrap(r#"<agent use="x" model="huge">Go.</agent>"#)).unwrap_err();
+    assert!(err.contains("model must be one of"), "{err}");
+    let err = parse(&wrap(r#"<agent use="x-{{nope}}">Go.</agent>"#)).unwrap_err();
+    assert!(err.contains("unknown reference '{{nope}}'"), "{err}");
+}
+
+#[test]
+fn write_steps_need_a_path_and_value_and_check_references() {
+    let wf = parse(&wrap(
+        r#"<write id="saved" path=".rho/{{profile}}.md" value="{{profile}}"/>"#,
+    ))
+    .unwrap();
+    let NodeKind::Write(write) = &wf.body[0].kind else {
+        panic!("expected write");
+    };
+    assert_eq!(
+        (write.path.as_str(), write.content.as_str()),
+        (".rho/{{profile}}.md", "{{profile}}")
+    );
+    let err = parse(&wrap(r#"<write path=".rho/a"/>"#)).unwrap_err();
+    assert!(err.contains("missing required attribute 'value'"), "{err}");
+    let err = parse(&wrap(r#"<write path=".rho/a" value="{{ghost}}"/>"#)).unwrap_err();
+    assert!(err.contains("unknown reference '{{ghost}}'"), "{err}");
+}
+
+#[test]
+fn filters_are_validated_at_load_time() {
+    let ok = wrap(r#"<output name="n" value="{{profile | count}}"/><run cmd="echo"/>"#);
+    assert!(parse(&ok).is_ok());
+    let bad = wrap(r#"<output name="n" value="{{profile | shout}}"/><run cmd="echo"/>"#);
+    assert!(parse(&bad).unwrap_err().contains("unknown filter 'shout'"));
 }

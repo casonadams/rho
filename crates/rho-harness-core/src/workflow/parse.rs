@@ -1,7 +1,7 @@
 use super::template::references;
 use super::types::{
     AgentNode, CallNode, ChooseNode, DEFAULT_TURNS, EachNode, InputSpec, Items, LoopNode, ModelRole, Node, NodeKind,
-    OutputFormat, RunNode, Workflow,
+    OutputFormat, RunNode, Workflow, WriteNode,
 };
 use super::xml::{Element, parse_document};
 use std::collections::{BTreeMap, BTreeSet};
@@ -68,6 +68,7 @@ impl Builder<'_> {
         let kind = match el.name.as_str() {
             "agent" => self.agent(el).map(NodeKind::Agent),
             "run" => self.run(el).map(NodeKind::Run),
+            "write" => self.write(el).map(NodeKind::Write),
             "call" => self.call(el).map(NodeKind::Call),
             "sequence" => self.group(el).map(NodeKind::Sequence),
             "parallel" => self.group(el).map(NodeKind::Parallel),
@@ -116,10 +117,12 @@ impl Builder<'_> {
             &["use", "model", "persona", "turns", "output", "context", "prompt-file"],
         );
         let agent = self.required(el, "use");
-        let model = el.attr("model").map(ModelRole::parse).transpose().unwrap_or_else(|e| {
+        let model = el.attr("model").map(str::to_string);
+        if let Some(raw) = model.as_deref().filter(|m| !m.contains("{{"))
+            && let Err(e) = ModelRole::parse(raw)
+        {
             self.error(el, e);
-            None
-        });
+        }
         let turns = self.positive(el, "turns", DEFAULT_TURNS);
         let output = self.output(el);
         let prompt = self.prompt(el);
@@ -150,6 +153,16 @@ impl Builder<'_> {
                 None
             }
         }
+    }
+
+    fn write(&mut self, el: &Element) -> Option<WriteNode> {
+        self.check_attrs(el, &["path", "value"]);
+        let path = self.required(el, "path");
+        let content = self.required(el, "value");
+        Some(WriteNode {
+            path: path?,
+            content: content?,
+        })
     }
 
     fn call(&mut self, el: &Element) -> Option<CallNode> {
@@ -433,6 +446,7 @@ impl Checker {
         self.templates(node.line, node.when.iter().chain(&node.unless));
         match &node.kind {
             NodeKind::Agent(agent) => {
+                self.templates(node.line, std::iter::once(&agent.agent).chain(&agent.model));
                 self.template(node.line, &agent.prompt);
                 for id in &agent.context {
                     if !self.ids.contains(id) {
@@ -442,6 +456,7 @@ impl Checker {
                 }
             }
             NodeKind::Run(run) => self.templates(node.line, &run.args),
+            NodeKind::Write(write) => self.templates(node.line, [&write.path, &write.content]),
             NodeKind::Call(call) => self.templates(node.line, call.with.values()),
             NodeKind::Sequence(body) | NodeKind::Parallel(body) => self.nodes(body),
             NodeKind::Each(each) => self.each(node.line, each),

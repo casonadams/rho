@@ -85,16 +85,21 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 |---|---|---|
 | `<agent use="..." model="..." persona="..." turns="..." output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
 | `<run cmd="..." output="text\|json"/>` | Runs one command | `{ok, exit, output}`, plus `json` with `output="json"` |
+| `<write path=".rho/..." value="..."/>` | Writes a file under the project's `.rho/` | The path written |
 | `<call workflow="name" profile="..."/>` | Runs another workflow; other attributes are its inputs | That workflow's outputs |
 
 **`<agent>`**
 
 - `use` names an agent: a file in the workflow's `agents/`, `.agents/agents/`,
   `~/.agents/agents/`, or a built-in role (`scout`, `critic`, `planner`,
-  `general`).
+  `general`). It may contain `{{references}}` (for example
+  `use="hunter-{{task.category}}"`); the name is resolved when the step runs,
+  so an unknown agent fails that step instead of the whole workflow up front.
 - `model` is a model role from settings: `default`, `smol`, or `slow`
   (default: the persona's or agent's pin in
   [`[subagents.models]`](configuration.md#which-model-runs), else `smol`).
+  A literal value is checked when the workflow loads; a `{{reference}}` is
+  checked when the step runs.
 - `persona` adds a [persona](configuration.md#personas)'s instructions to the
   agent's, keeping the agent's tools. An unknown persona stops the workflow
   before any step runs.
@@ -112,8 +117,18 @@ a `default` is required; `choices` is a space-separated list of allowed values.
   keeping spaces inside one argument. `{{references}}` are filled in afterwards,
   each inside its own argument, so a value never becomes extra arguments or
   shell syntax. There is no shell; write `cmd="sh -c '...'"` when you need one.
+  Because `cmd` is split on spaces first, write filters there without spaces:
+  `{{tasks|json}}`.
 - The command runs in the repository root. A non-zero exit does not stop the
   workflow; it sets `ok` to false so later steps can react.
+
+**`<write>`**
+
+- `path` and `value` are both templates. The path must be relative and inside
+  `.rho/` (no `..`); anything else fails the step.
+- It writes into the project itself, not the workflow's worktree, so the file
+  is still there after the run. Parent directories are created and an existing
+  file is replaced atomically.
 
 ### Blocks
 
@@ -142,9 +157,9 @@ value.
 
 Every step and block accepts `when="{{ref}}"` and `unless="{{ref}}"`. A value
 is truthy unless it is empty, `false`, `0`, an empty list or object, or has not
-been produced yet. There is no expression language; decisions are made by steps
-(an agent returning `{"approved": true}`, a command's `ok`) and the workflow
-branches on their values.
+been produced yet. There are no comparisons or arithmetic; decisions are made by
+steps (an agent returning `{"approved": true}`, a command's `ok`) and the
+workflow branches on their values.
 
 ### References
 
@@ -159,6 +174,23 @@ branches on their values.
 Names are checked before the workflow runs, so typos are reported up front. A
 step that has not run yet, or was skipped, reads as empty. Strings are inserted
 as-is; lists and objects as JSON.
+
+#### Filters
+
+`{{ref | filter | filter:arg}}` transforms a value, left to right. A missing
+value is treated as empty. Filter names are checked when the workflow loads.
+
+| Filter | Does |
+|---|---|
+| `compact` | Drops `null` items from a list (failed `<each>` items) |
+| `count` | Length of a list or object; `0` when empty or missing |
+| `pluck:field` | The `field` of each item in a list, skipping items without it |
+| `count_by:field` | `{value: n}` counting items by the value of `field` |
+| `json` | Compact one-line JSON text |
+
+For example, `{{findings | compact | count_by:priority}}` gives
+`{"P1": 2, "P2": 12}`. A template that is exactly one reference (an `<output>`
+value or `each items`) keeps the transformed value's type.
 
 | Step or block | Value |
 |---|---|

@@ -1,5 +1,6 @@
 use super::command::{CANCELLED, run_command};
 use super::report::{RunLog, StepStatus};
+use super::write_step::write_output;
 use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
 use futures::StreamExt;
@@ -7,7 +8,7 @@ use futures::future::BoxFuture;
 use rho_harness_core::workflow::template::{evaluate_with, is_truthy, lookup, render_with};
 use rho_harness_core::workflow::{
     CallNode, ChooseNode, EachNode, Items, LoopNode, Node, NodeKind, OutputFormat, RunNode, Workflow, WorkflowBundle,
-    WorkflowCatalog,
+    WorkflowCatalog, WriteNode,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,6 +76,7 @@ pub(crate) struct Executor<'a> {
     pub subagents: &'a SubagentTool,
     pub catalog: &'a WorkflowCatalog,
     pub base_dir: &'a Path,
+    pub project_dir: &'a Path,
     pub log: &'a RunLog,
 }
 
@@ -96,7 +98,8 @@ impl Frame<'_> {
 pub(crate) fn node_label(node: &Node) -> String {
     match (&node.id, &node.kind) {
         (Some(id), _) => id.clone(),
-        (None, NodeKind::Agent(agent)) => agent.agent.clone(),
+        (None, NodeKind::Agent(agent)) if !agent.agent.contains("{{") => agent.agent.clone(),
+        (None, NodeKind::Agent(_)) => "agent".to_string(),
         (None, kind) => kind.element_name().to_string(),
     }
 }
@@ -187,7 +190,7 @@ impl Executor<'_> {
             return Ok(Value::Null);
         }
         let value = match &node.kind {
-            NodeKind::Agent(_) | NodeKind::Run(_) | NodeKind::Call(_) => {
+            NodeKind::Agent(_) | NodeKind::Run(_) | NodeKind::Write(_) | NodeKind::Call(_) => {
                 self.run_leaf(frame, node, &label, scope).await?
             }
             NodeKind::Sequence(body) => self.run_nodes(frame.clone(), body, scope).await?,
@@ -208,8 +211,9 @@ impl Executor<'_> {
         let result = match &node.kind {
             NodeKind::Agent(agent) => self.run_agent(frame, label, agent, scope).await,
             NodeKind::Run(run) => self.run_command_step(&path, run, scope).await,
+            NodeKind::Write(write) => self.run_write_step(write, scope).await,
             NodeKind::Call(call) => self.run_call(frame, label, call, scope).await,
-            _ => unreachable!("run_leaf only receives agent, run, and call nodes"),
+            _ => unreachable!("run_leaf only receives agent, run, write, and call nodes"),
         };
         match result {
             Ok((value, detail)) => {
@@ -238,6 +242,12 @@ impl Executor<'_> {
             None => "terminated by a signal".to_string(),
         };
         Ok((outcome.to_value(json), detail))
+    }
+
+    async fn run_write_step(&self, write: &WriteNode, scope: &Scope) -> Result<(Value, String), String> {
+        let path = scope.render(&write.path);
+        let detail = write_output(self.project_dir, &path, scope.render(&write.content)).await?;
+        Ok((Value::String(path.trim().to_string()), detail))
     }
 
     async fn run_call(

@@ -173,6 +173,45 @@ impl Fixture {
     }
 }
 
+const TEMPLATED: &str = r#"
+<workflow name="templated">
+  <each id="who" items="scout critic" as="a">
+    <agent use="{{a}}">HELLO {{a}}</agent>
+  </each>
+  <write id="saved" path=".rho/out/report.md" value="{{who | count}} agents, {{who | compact | count}} answered"/>
+  <output name="saved" value="{{saved}}"/>
+</workflow>
+"#;
+
+const ESCAPING_WRITE: &str = r#"
+<workflow name="escaping">
+  <write path="src/main.rs" value="x"/>
+</workflow>
+"#;
+
+#[tokio::test]
+async fn templated_agents_and_write_steps_persist_output_in_the_project() {
+    let fx = Fixture::new(&[], &[("templated.xml", TEMPLATED)]);
+    let run = fx.run("templated", &[]).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert_eq!(fx.model.prompts_starting_with("HELLO").len(), 2);
+    assert!(fx.monitor.summaries().iter().any(|s| s.label == "agent · critic"));
+    let saved = std::fs::read_to_string(fx.dir.path().join(".rho/out/report.md")).unwrap();
+    assert_eq!(saved, "2 agents, 2 answered");
+    assert!(run.report.contains(".rho/out/report.md"), "{}", run.report);
+}
+
+#[tokio::test]
+async fn write_steps_outside_the_output_root_stop_the_workflow() {
+    let fx = Fixture::new(&[], &[("escaping.xml", ESCAPING_WRITE)]);
+    let run = fx.run("escaping", &[]).await;
+
+    assert!(!run.ok, "{}", run.report);
+    assert!(run.report.contains("inside .rho/"), "{}", run.report);
+    assert!(!fx.dir.path().join("src/main.rs").exists());
+}
+
 #[tokio::test]
 async fn loops_until_clean_feeding_failures_and_history_into_later_passes() {
     let fx = Fixture::new(&[FOUND, CLEAN], &[("loop.xml", LOOP)]);

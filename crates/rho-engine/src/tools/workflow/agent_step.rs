@@ -9,7 +9,7 @@ use crate::tools::subagent::runner::SubagentRunner;
 use crate::tools::subagent::{RoundSlot, RunnerSpec};
 use crate::worktree::{Worktree, WorktreeLease};
 use rho_harness_core::workflow::template::value_to_text;
-use rho_harness_core::workflow::{AgentNode, OutputFormat};
+use rho_harness_core::workflow::{AgentNode, ModelRole, OutputFormat};
 use serde_json::{Value, json};
 
 const JSON_INSTRUCTION: &str = "Respond with exactly one JSON object in a ```json fenced block.";
@@ -110,18 +110,25 @@ impl Executor<'_> {
         scope: &Scope,
     ) -> Result<(Value, String), String> {
         let position = frame.child(label).path;
-        let monitor_label = if label == agent.agent {
+        let name = scope.render(&agent.agent);
+        let name = name.trim();
+        let role = agent
+            .model
+            .as_deref()
+            .map(|m| ModelRole::parse(scope.render(m).trim()))
+            .transpose()?;
+        let monitor_label = if label == name {
             label.to_string()
         } else {
-            format!("{label} · {}", agent.agent)
+            format!("{label} · {name}")
         };
         let runner = self
             .subagents
             .runner_for(RunnerSpec {
-                agent: Some(&agent.agent),
+                agent: Some(name),
                 local_agents: &frame.bundle.agents,
                 turns: Some(agent.turns),
-                model: agent.model,
+                model: role,
                 position: Some(position.clone()),
                 task_name: None,
                 persona: agent.persona.as_deref(),
@@ -131,17 +138,17 @@ impl Executor<'_> {
         let model = runner.model_label();
         self.log.event(
             "agent_started",
-            json!({ "step": position, "agent": agent.agent, "model": model }),
+            json!({ "step": position, "agent": name, "model": model }),
         );
         let settings = ConversationSettings {
             name: crate::tools::subagent::task_name(label),
-            agent: Some(agent.agent.clone()),
-            model: agent.model.map(|m| m.as_str().to_string()),
+            agent: Some(name.to_string()),
+            model: role.map(|m| m.as_str().to_string()),
             agent_file: frame
                 .bundle
                 .agents
                 .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(&agent.agent))
+                .find(|a| a.name.eq_ignore_ascii_case(name))
                 .map(|a| a.location.clone()),
             persona: agent.persona.clone(),
             turns: Some(agent.turns),
