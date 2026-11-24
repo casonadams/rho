@@ -22,6 +22,8 @@ pub struct SweepReport {
     pub pending: Vec<Worktree>,
     /// Leftover branches, checkouts, and metadata from interrupted runs that were removed.
     pub leftovers: usize,
+    /// Metadata files that could not be read; their branches and checkouts were kept.
+    pub unreadable: Vec<PathBuf>,
 }
 
 struct Policy {
@@ -34,7 +36,7 @@ fn older_than(time: DateTime<Utc>, age: Duration, now: DateTime<Utc>) -> bool {
     chrono::Duration::from_std(age).is_ok_and(|age| now - time > age)
 }
 
-async fn branch_exists(common_dir: &Path, branch: &str) -> bool {
+pub(super) async fn branch_exists(common_dir: &Path, branch: &str) -> bool {
     let git_dir = format!("--git-dir={}", common_dir.display());
     let name = format!("refs/heads/{branch}");
     git::run(common_dir, &[&git_dir, "rev-parse", "--verify", "--quiet", &name], &[])
@@ -135,8 +137,10 @@ impl WorktreeStore {
         known: &mut BTreeSet<String>,
     ) {
         let Some(worktree) = read_meta(meta).await else {
-            let _ = tokio::fs::remove_file(meta).await;
-            report.leftovers += 1;
+            if let Some(id) = meta.file_stem() {
+                known.insert(id.to_string_lossy().into_owned());
+            }
+            report.unreadable.push(meta.to_path_buf());
             return;
         };
         known.insert(worktree.id.clone());
@@ -221,6 +225,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unreadable_metadata_protects_its_worktree_from_the_sweep() {
+        let (dir, root) = create(&[("a.rs", "base\n")]);
+        let store = WorktreeStore::new(dir.path().join("store"));
+        let worktree = store.create(&root, "damaged", Some("s1")).await.unwrap().unwrap();
+        write(&worktree.path, "a.rs", "agent\n");
+        worktree.commit().await.unwrap();
+        std::fs::write(worktree.meta_path(), "{\"id\": \"trunc").unwrap();
+        let policy = Policy {
+            now: Utc::now(),
+            expire_after: EXPIRE_AFTER,
+            orphan_grace: Duration::ZERO,
+        };
+
+        let report = store.sweep_with(&worktree.common_dir, &policy).await;
+
+        assert_eq!(report.unreadable, [worktree.meta_path()]);
+        assert_eq!(report.leftovers, 0);
+        assert!(worktree.path.join("a.rs").exists());
+        assert!(!git(&root, &["branch", "--list", &worktree.branch]).is_empty());
+        assert!(worktree.meta_path().exists());
+    }
+
+    #[tokio::test]
+    async fn saving_metadata_leaves_no_temporary_files_and_replaces_the_old_file() {
+        let (dir, root) = create(&[("a.rs", "base\n")]);
+        let store = WorktreeStore::new(dir.path().join("store"));
+        let mut worktree = store.create(&root, "saved", Some("s1")).await.unwrap().unwrap();
+        worktree.label = "renamed".into();
+        worktree.save().await.unwrap();
+
+        let names: Vec<_> = std::fs::read_dir(worktree.meta_path().parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, [format!("{}.json", worktree.id)]);
+        assert_eq!(read_meta(&worktree.meta_path()).await.unwrap().label, "renamed");
+    }
+
+    #[tokio::test]
     async fn a_cleared_checkout_is_recreated_from_its_branch() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
         let store = WorktreeStore::new(dir.path().join("store"));
@@ -234,6 +277,37 @@ mod tests {
         assert_eq!(std::fs::read_to_string(found.path.join("a.rs")).unwrap(), "agent\n");
         assert_eq!(store.owned(&root, "s1").await, [found]);
         assert!(store.owned(&root, "other").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn concurrent_finds_of_a_cleared_checkout_keep_the_branch_and_its_commits() {
+        let (dir, root) = create(&[("a.rs", "base\n")]);
+        let store = WorktreeStore::new(dir.path().join("store"));
+        let worktree = store.create(&root, "swept", Some("s1")).await.unwrap().unwrap();
+        write(&worktree.path, "a.rs", "agent\n");
+        worktree.commit().await.unwrap();
+        std::fs::remove_dir_all(&worktree.path).unwrap();
+
+        let (a, b) = tokio::join!(store.find(&root, &worktree.id), store.find(&root, &worktree.id));
+
+        assert!(a.is_some() && b.is_some());
+        assert_eq!(git(&root, &["branch", "--list", "rho/wt/*"]).lines().count(), 1);
+        assert_eq!(std::fs::read_to_string(worktree.path.join("a.rs")).unwrap(), "agent\n");
+    }
+
+    #[tokio::test]
+    async fn finding_a_worktree_whose_branch_is_gone_drops_its_stale_metadata() {
+        let (dir, root) = create(&[("a.rs", "base\n")]);
+        let store = WorktreeStore::new(dir.path().join("store"));
+        let worktree = store.create(&root, "gone", Some("s1")).await.unwrap().unwrap();
+        git(
+            &root,
+            &["worktree", "remove", "--force", &worktree.path.to_string_lossy()],
+        );
+        git(&root, &["branch", "-D", &worktree.branch]);
+
+        assert!(store.find(&root, &worktree.id).await.is_none());
+        assert!(!worktree.meta_path().exists());
     }
 
     #[tokio::test]

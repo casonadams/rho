@@ -318,10 +318,12 @@ happen.
     turn while its session still owns unmerged worktrees, it is reminded once
     to merge or discard them or to tell you why one is kept.
   - The first time rho creates a worktree in a repository, it sweeps that
-    repository: unmerged worktrees older than 24 hours are deleted, and
+    repository: unmerged worktrees older than 24 hours are deleted (including
+    any uncommitted edits in them), and
     branches, checkouts, and details files left by interrupted runs are
     removed (after a one-hour grace period, in case another rho process is
-    still creating them).
+    still creating them). A worktree whose details file cannot be read is kept
+    rather than removed.
 
 - **Names**: pass `name` (camelCase, e.g. `performanceAudit`; other text such
   as `performance audit` is converted) to label the subagent's progress lines,

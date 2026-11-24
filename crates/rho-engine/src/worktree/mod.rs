@@ -254,7 +254,9 @@ impl WorktreeStore {
         match worktree.restore().await {
             Ok(()) => Some(worktree),
             Err(_) => {
-                let _ = worktree.remove().await;
+                if !sweep::branch_exists(&worktree.common_dir, &worktree.branch).await {
+                    let _ = worktree.remove().await;
+                }
                 None
             }
         }
@@ -334,7 +336,7 @@ impl Worktree {
         if let Some(dir) = path.parent() {
             tokio::fs::create_dir_all(dir).await.map_err(|e| e.to_string())?;
         }
-        tokio::fs::write(&path, text)
+        rho_harness_core::fs::write_atomic_async(&path, text.into_bytes(), 0o600)
             .await
             .map_err(|e| format!("could not save worktree metadata: {e}"))
     }
@@ -349,6 +351,9 @@ impl Worktree {
         let path = self.path.to_string_lossy().into_owned();
         {
             let _guard = WORKTREE_LOCK.lock().await;
+            if self.path.is_dir() {
+                return Ok(());
+            }
             git::run(&self.common_dir, &[&git_dir, "worktree", "prune"], &[]).await?;
             if let Some(parent) = self.path.parent() {
                 private_dir(parent.parent().unwrap_or(parent)).await?;
