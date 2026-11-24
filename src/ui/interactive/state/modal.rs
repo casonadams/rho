@@ -88,6 +88,8 @@ pub struct ModalState {
     pub option_layout: OptionLayout,
     pub body_scroll: usize,
     pub save_as_default: bool,
+    /// Value of the option whose deletion awaits a second confirming keystroke.
+    pub pending_delete: Option<String>,
 }
 
 impl ModalState {
@@ -108,6 +110,7 @@ impl ModalState {
             option_layout: OptionLayout::Vertical,
             body_scroll: 0,
             save_as_default: false,
+            pending_delete: None,
         }
     }
 

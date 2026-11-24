@@ -923,40 +923,26 @@ async fn press_session_selector_key(
     (session_id, res, controller)
 }
 
-enum SessionKeyOutcome {
-    Selected,
-    Deleted,
+#[tokio::test]
+async fn session_selector_enter_selects_the_highlighted_session() {
+    let (session_id, res, controller) =
+        press_session_selector_key("test_sessions", KeyCode::Enter, KeyModifiers::NONE).await;
+    assert_eq!(res, ModalKeyResult::SessionSelected { session_id });
+    assert!(controller.state().active_modal().is_none());
 }
 
 #[tokio::test]
-async fn session_selector_modal_key_outcomes() {
-    let cases = [
-        (
-            "test_sessions",
-            KeyCode::Enter,
-            KeyModifiers::NONE,
-            SessionKeyOutcome::Selected,
-        ),
-        (
-            "test_sessions_del",
-            KeyCode::Char('d'),
-            KeyModifiers::CONTROL,
-            SessionKeyOutcome::Deleted,
-        ),
-    ];
-    for (prefix, code, modifiers, outcome) in cases {
-        let (session_id, res, controller) = press_session_selector_key(prefix, code, modifiers).await;
-        match outcome {
-            SessionKeyOutcome::Selected => {
-                assert_eq!(res, ModalKeyResult::SessionSelected { session_id });
-                assert!(controller.state().active_modal().is_none());
-            }
-            SessionKeyOutcome::Deleted => {
-                assert_eq!(res, ModalKeyResult::SessionDeleted { session_id });
-                assert!(controller.state().active_modal().unwrap().options.is_empty());
-            }
-        }
-    }
+async fn session_selector_deletes_only_after_ctrl_d_is_pressed_twice() {
+    let (_temp_dir, session_id, mut controller) = open_session_selector_for_test("test_sessions_del").await;
+    let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+
+    let first = handle_modal_key(&mut controller, ctrl_d, &mut None).unwrap();
+    assert_eq!(first, ModalKeyResult::Handled);
+    assert_eq!(controller.state().active_modal().unwrap().options.len(), 1);
+
+    let second = handle_modal_key(&mut controller, ctrl_d, &mut None).unwrap();
+    assert_eq!(second, ModalKeyResult::SessionDeleted { session_id });
+    assert!(controller.state().active_modal().unwrap().options.is_empty());
 }
 
 // =========================================================================

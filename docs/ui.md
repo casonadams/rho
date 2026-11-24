@@ -128,7 +128,7 @@ autocomplete):
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). Works mid-turn. |
 | `/tools`                    | Open interactive Tools & Permissions modal (alias: `/permissions`). Works mid-turn. |
 | `/agents`                   | Open the subagent monitor modal (same as pressing `Left` on an empty prompt). Works mid-turn. |
-| `/resume [id]`              | Open session selector (rows show name or first message, age, turns, ID), or resume a session by ID.      |
+| `/resume [id]`              | Open session selector (rows show name or first message, age, turns, ID), or resume a session by ID. In the selector, `Ctrl+D` then `Ctrl+D` again deletes the highlighted session; any other key cancels the delete. |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |
 | `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                            |
