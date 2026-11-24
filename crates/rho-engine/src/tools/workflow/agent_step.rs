@@ -1,5 +1,6 @@
 use super::command::CANCELLED;
 use super::executor::{Executor, Frame, Scope};
+use super::resume::step_key;
 use crate::engine::runner::turn::types::unless_cancelled;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
@@ -114,6 +115,13 @@ impl Executor<'_> {
         let position = frame.child(label).path;
         let name = scope.render(&agent.agent);
         let name = name.trim();
+        let prompt = build_prompt(agent, scope);
+        let key = step_key(name, &prompt);
+        if let Some((value, detail)) = self.replay.and_then(|replay| replay.get(&position, &key)) {
+            self.log.event("agent_replayed", json!({ "step": position }));
+            self.log.journal(&position, &key, value, detail);
+            return Ok((value.clone(), format!("resumed · {detail}")));
+        }
         let role = agent
             .model
             .as_deref()
@@ -156,9 +164,7 @@ impl Executor<'_> {
             turns: Some(agent.turns),
         };
         let started = std::time::Instant::now();
-        let run = self
-            .agent_round(&runner, &settings, &position, agent, &build_prompt(agent, scope))
-            .await?;
+        let run = self.agent_round(&runner, &settings, &position, agent, &prompt).await?;
         self.log
             .agent_files(&position, &run.round, started..std::time::Instant::now());
         if self.cancelled() || run.round.end == RoundEnd::Cancelled {
@@ -179,19 +185,24 @@ impl Executor<'_> {
                 .await
                 .map_err(|e| e + &handoff_note(&run))?,
         };
-        if let Some((worktree, head)) = &run.worktree {
-            self.land(&position, worktree, head).await?;
-        }
+        let landed = match &run.worktree {
+            Some((worktree, head)) => self.land(&position, worktree, head).await?,
+            None => false,
+        };
         let problems = crate::tools::subagent::evidence::failed_calls_text(run.round.problem_count())
             .map(|text| format!("{text} · "))
             .unwrap_or_default();
         let detail = format!("{model} · {problems}{}", summarize(&value));
+        if !landed {
+            self.log.journal(&position, &key, &value, &detail);
+        }
         Ok((value, detail))
     }
 
     /// Merges a finished agent's worktree into the workflow's working tree; overlapping edits from
     /// agents that ran at the same time stop the workflow with conflict markers left to resolve.
-    async fn land(&self, position: &str, worktree: &Worktree, head: &str) -> Result<(), String> {
+    /// Returns whether the agent changed any files.
+    async fn land(&self, position: &str, worktree: &Worktree, head: &str) -> Result<bool, String> {
         let outcome = worktree.merge_head_into(head, self.base_dir).await?;
         let files: Vec<&str> = outcome.changed.iter().map(|c| c.path.as_str()).collect();
         self.log.event(
@@ -199,7 +210,7 @@ impl Executor<'_> {
             json!({ "step": position, "worktree": worktree.id, "files": files, "conflicts": outcome.conflicts }),
         );
         if outcome.conflicts.is_empty() {
-            return Ok(());
+            return Ok(!outcome.changed.is_empty());
         }
         Err(format!(
             "{position}'s changes conflict with changes another agent already made: conflict markers were left in {} in {}. Resolve them, then merge the workflow's worktree.",

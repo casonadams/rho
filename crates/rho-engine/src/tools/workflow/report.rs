@@ -84,6 +84,20 @@ impl RunLog {
         &self.id
     }
 
+    /// Records an agent step's result so a later run can resume from it.
+    pub(crate) fn journal(&self, step: &str, key: &str, value: &Value, detail: &str) {
+        let line = json!({ "step": step, "key": key, "value": value, "detail": detail });
+        let path = super::resume::journal_path(&self.path);
+        let written = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut file| writeln!(file, "{line}"));
+        if let Err(e) = written {
+            self.warn(format!("cannot journal {step} for resume: {e}"));
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn path(&self) -> &Path {
         &self.path

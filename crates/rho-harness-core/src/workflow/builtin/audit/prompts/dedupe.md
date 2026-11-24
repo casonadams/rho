@@ -1,7 +1,7 @@
 Merge the validated findings of every pass. Each entry below is one validator result, a SARIF run object `{"results", "properties"}`, for one
 hunt task (a list per pass):
 
-{{check.history}}
+{{verified.history}}
 
 Findings that share a root cause collapse into one SARIF `result`: keep the strongest evidence, list every
 affected location in `locations`, and keep the highest justified `properties.severity` (with matching

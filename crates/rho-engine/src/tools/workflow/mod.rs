@@ -3,6 +3,7 @@ mod command;
 mod executor;
 mod files;
 mod report;
+mod resume;
 #[cfg(test)]
 mod tests;
 mod write_step;
@@ -11,6 +12,7 @@ use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
 use executor::{Executor, Frame};
 use report::RunLog;
+use resume::Replay;
 use rho_harness_core::workflow::{AgentNode, ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -103,6 +105,22 @@ impl WorkflowRunner {
     }
 
     pub async fn run(&self, name: &str, inputs: BTreeMap<String, String>) -> WorkflowRun {
+        self.start(name, inputs, None).await
+    }
+
+    /// Runs again a workflow run that failed or was cancelled, reusing every agent result it already
+    /// produced for an unchanged prompt; `run_id` is the id in the run's log file name.
+    pub async fn resume(&self, run_id: &str) -> WorkflowRun {
+        match resume::load(&self.base_dir, run_id) {
+            Ok(resumed) => {
+                self.start(&resumed.workflow, resumed.inputs, Some(resumed.replay))
+                    .await
+            }
+            Err(e) => failed(format!("cannot resume: {e}")),
+        }
+    }
+
+    async fn start(&self, name: &str, inputs: BTreeMap<String, String>, replay: Option<Replay>) -> WorkflowRun {
         let runner = self.clone();
         let catalog = match tokio::task::spawn_blocking(move || runner.catalog()).await {
             Ok(catalog) => catalog,
@@ -118,7 +136,7 @@ impl WorkflowRunner {
         if let Err(e) = preflight(name, bundle, &self.subagents) {
             return failed(e);
         }
-        self.execute(&catalog, bundle, &inputs).await
+        self.execute(&catalog, bundle, &inputs, replay.as_ref()).await
     }
 
     async fn execute(
@@ -126,6 +144,7 @@ impl WorkflowRunner {
         catalog: &WorkflowCatalog,
         bundle: &WorkflowBundle,
         inputs: &BTreeMap<String, String>,
+        replay: Option<&Replay>,
     ) -> WorkflowRun {
         let log = match RunLog::create(&self.base_dir, &bundle.name) {
             Ok(log) => log,
@@ -160,6 +179,7 @@ impl WorkflowRunner {
             catalog,
             base_dir: &base_dir,
             project_dir: &self.base_dir,
+            replay,
             log: &log,
         };
         let frame = Frame {

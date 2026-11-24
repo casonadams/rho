@@ -244,6 +244,41 @@ async fn templated_agents_and_write_steps_persist_output_in_the_project() {
 }
 
 #[tokio::test]
+async fn resume_replays_journaled_agent_results_without_calling_the_model() {
+    let fx = Fixture::new(&[], &[("templated.xml", TEMPLATED)]);
+    let first = fx.run("templated", &[]).await;
+    assert!(first.ok, "{}", first.report);
+    let asked = fx.model.prompts_starting_with("HELLO").len();
+    assert_eq!(asked, 2);
+    let id = std::fs::read_dir(fx.dir.path().join(".rho/workflows"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .find_map(|n| {
+            n.strip_prefix("templated-")
+                .and_then(|n| n.strip_suffix(".jsonl"))
+                .filter(|id| !id.ends_with(".journal"))
+                .map(str::to_string)
+        })
+        .expect("run log");
+
+    let again = fx.runner().resume(&id).await;
+
+    assert!(again.ok, "{}", again.report);
+    assert_eq!(
+        fx.model.prompts_starting_with("HELLO").len(),
+        asked,
+        "no agent ran again"
+    );
+    assert!(again.report.contains("resumed"), "{}", again.report);
+    let missing = fx.runner().resume("nope").await;
+    assert!(
+        !missing.ok && missing.report.contains("no workflow run 'nope'"),
+        "{}",
+        missing.report
+    );
+}
+
+#[tokio::test]
 async fn write_steps_outside_the_output_root_stop_the_workflow() {
     let fx = Fixture::new(&[], &[("escaping.xml", ESCAPING_WRITE)]);
     let run = fx.run("escaping", &[]).await;
@@ -322,7 +357,9 @@ async fn loops_until_clean_feeding_failures_and_history_into_later_passes() {
     let log = std::fs::read_dir(log_dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .find(|path| {
+            path.extension().is_some_and(|ext| ext == "jsonl") && !path.to_string_lossy().ends_with(".journal.jsonl")
+        })
         .unwrap();
     let text = std::fs::read_to_string(log).unwrap();
     for event in ["run_started", "agent_started", "command", "run_finished"] {

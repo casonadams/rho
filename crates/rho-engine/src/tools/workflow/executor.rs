@@ -1,5 +1,6 @@
 use super::command::{CANCELLED, run_command};
 use super::report::{RunLog, StepStatus};
+use super::resume::Replay;
 use super::write_step::write_output;
 use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
@@ -79,6 +80,7 @@ pub(crate) struct Executor<'a> {
     pub catalog: &'a WorkflowCatalog,
     pub base_dir: &'a Path,
     pub project_dir: &'a Path,
+    pub replay: Option<&'a Replay>,
     pub log: &'a RunLog,
 }
 

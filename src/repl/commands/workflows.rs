@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use super::types::{CommandResult, SlashCommandContext};
+use super::types::{CommandResult, SlashCommandContext, WorkflowLaunch};
 use rho_harness_core::workflow::{WorkflowBundle, WorkflowCatalog, WorkflowOrigin};
 
 pub(crate) async fn discover_workflows(cwd: Option<PathBuf>, home: Option<PathBuf>) -> WorkflowCatalog {
@@ -109,11 +109,24 @@ pub(crate) async fn handle_workflow(ctx: &SlashCommandContext<'_>, parts: &[&str
         ctx.renderer.print_notice(&format_workflow_list(&catalog));
         return CommandResult::Continue;
     };
+    if *name == "resume" {
+        return match parts.get(2) {
+            Some(run_id) => CommandResult::RunWorkflow(WorkflowLaunch::Resume {
+                run_id: (*run_id).to_string(),
+            }),
+            None => {
+                ctx.renderer.print_notice(
+                    "  Usage: /workflow resume <run id> (the id in .rho/workflows/<name>-<run id>.jsonl)\n",
+                );
+                CommandResult::Continue
+            }
+        };
+    }
     match bind(&catalog, name, parts.get(2..).unwrap_or_default()) {
-        Ok(inputs) => CommandResult::RunWorkflow {
+        Ok(inputs) => CommandResult::RunWorkflow(WorkflowLaunch::Start {
             name: (*name).to_string(),
             inputs,
-        },
+        }),
         Err(message) => {
             ctx.renderer.print_notice(&format!("  /workflow {name}: {message}\n"));
             CommandResult::Continue
@@ -201,7 +214,7 @@ mod tests {
         assert_eq!(audit.origin, WorkflowOrigin::Builtin);
         assert_eq!(
             audit.entry.argument_hint(),
-            "[categories] [paths] [passes] [max_tasks] [scope]"
+            "[categories] [paths] [passes] [max_tasks] [scope] <single|panel>"
         );
         assert_eq!(audit.agents.len(), 14);
         assert!(format_workflow_list(&catalog).contains("[builtin]"));

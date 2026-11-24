@@ -4,6 +4,33 @@ use rho_engine::auth::AuthStore;
 use rho_engine::engine::AgentEngine;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkflowLaunch {
+    Start {
+        name: String,
+        inputs: std::collections::BTreeMap<String, String>,
+    },
+    Resume {
+        run_id: String,
+    },
+}
+
+impl WorkflowLaunch {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Start { name, .. } => name,
+            Self::Resume { .. } => "resume",
+        }
+    }
+
+    pub async fn run(self, runner: &rho_engine::tools::WorkflowRunner) -> rho_engine::tools::WorkflowRun {
+        match self {
+            Self::Start { name, inputs } => runner.run(&name, inputs).await,
+            Self::Resume { run_id } => runner.resume(&run_id).await,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandResult {
     Continue,
     ClearContext,
@@ -51,10 +78,7 @@ pub enum CommandResult {
         provider: Option<String>,
     },
     Reload,
-    RunWorkflow {
-        name: String,
-        inputs: std::collections::BTreeMap<String, String>,
-    },
+    RunWorkflow(WorkflowLaunch),
     Exit,
 }
 

@@ -24,10 +24,12 @@ const AUDIT: &[(&str, &str)] = &[
     bundle_file!("audit", "agents/skeptic.md"),
     bundle_file!("audit", "agents/tracer.md"),
     bundle_file!("audit", "prompts/check.md"),
+    bundle_file!("audit", "prompts/check-repro.md"),
     bundle_file!("audit", "prompts/dedupe.md"),
     bundle_file!("audit", "prompts/gaps.md"),
     bundle_file!("audit", "prompts/hunt.md"),
     bundle_file!("audit", "prompts/recon.md"),
     bundle_file!("audit", "prompts/report.md"),
     bundle_file!("audit", "prompts/trace.md"),
+    bundle_file!("audit", "prompts/vote.md"),
 ];

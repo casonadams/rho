@@ -4,6 +4,7 @@
   <input name="passes" default="2" description="Maximum hunt passes; later passes only cover gaps reported by earlier ones"/>
   <input name="max_tasks" default="40" description="Maximum hunt tasks per pass"/>
   <input name="scope" default="repo" description="What to audit: repo (every tracked file), branch:BASE (changes since BASE, e.g. branch:main), or commits:N (the last N commits)"/>
+  <input name="verify" default="single" choices="single panel" description="How findings are verified: single (one skeptic) or panel (two skeptics with different lenses; a finding survives only if both keep it)"/>
 
   <run id="range"
        cmd="sh -c 'case $1 in repo) printf repo;; branch:*) printf %s ${1#branch:}...HEAD;; commits:*) printf %s HEAD~${1#commits:}..HEAD;; *) printf %s unknown-scope-use-repo-branch:BASE-or-commits:N; exit 2;; esac' range {{scope}}"/>
@@ -19,15 +20,23 @@
     <agent id="recon" use="recon" model="default" turns="60" resume="1" output="json" prompt-file="prompts/recon.md"/>
 
     <loop id="pass" max="{{passes}}" while="{{gaps.tasks}}">
-      <each id="hunt" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6">
-        <agent use="hunter-{{task.category}}" model="smol" turns="60" resume="1" output="json" prompt-file="prompts/hunt.md"/>
+      <each id="verified" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6">
+        <agent id="found" use="hunter-{{task.category}}" model="smol" turns="60" resume="1" output="json" prompt-file="prompts/hunt.md"/>
+        <choose on="{{verify}}">
+          <case value="panel">
+            <parallel>
+              <agent id="refute" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
+              <agent id="repro" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check-repro.md"/>
+            </parallel>
+            <agent id="vote" use="curator" model="default" turns="20" resume="1" output="json" prompt-file="prompts/vote.md"/>
+          </case>
+          <otherwise>
+            <agent use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
+          </otherwise>
+        </choose>
       </each>
 
-      <each id="check" items="{{hunt | compact}}" as="result" parallel="6">
-        <agent use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
-      </each>
-
-      <agent id="gaps" use="curator" model="default" turns="30" resume="1" output="json" context="hunt" prompt-file="prompts/gaps.md"/>
+      <agent id="gaps" use="curator" model="default" turns="30" resume="1" output="json" context="verified" prompt-file="prompts/gaps.md"/>
     </loop>
 
     <agent id="dedupe" use="curator" model="default" turns="40" resume="1" output="json" prompt-file="prompts/dedupe.md"/>

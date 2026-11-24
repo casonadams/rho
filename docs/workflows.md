@@ -41,7 +41,7 @@ example to copy.
 
 ### Built-in: `audit`
 
-`/workflow audit [categories] [paths] [passes] [max_tasks] [scope]` audits code
+`/workflow audit [categories] [paths] [passes] [max_tasks] [scope] [verify]` audits code
 across ten categories (correctness, security, performance, reliability,
 maintainability, architecture, testing, compatibility, usability, operability).
 It maps the repository, runs narrow parallel hunts, has a separate agent try to
@@ -56,6 +56,7 @@ results). It never edits code.
 | `paths` | `.` | Git pathspec limiting the audit |
 | `passes` | `2` | Hunt passes; later passes cover gaps earlier ones reported |
 | `max_tasks` | `40` | Hunt tasks per pass |
+| `verify` | `single` | `single` (one skeptic per hunt) or `panel` (two skeptics, one reading the code for guards and one trying to reproduce; a finding survives only if both keep it) |
 | `scope` | `repo` | `repo` (every tracked file), `branch:BASE` (changes since `BASE`), or `commits:N` (the last N commits) |
 
 For example, `/workflow audit security,reliability . 1 10 branch:main` audits
@@ -168,7 +169,7 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 |---|---|
 | `<sequence>` | In order (also the body of every other block) |
 | `<parallel>` | At the same time; each child is one branch |
-| `<each items="..." as="x" parallel="5">` | Once per item, up to `parallel` at a time (default 1); `items` is a `{{reference}}` to a list or a space-separated literal list. A failed item yields `null` and the others continue |
+| `<each items="..." as="x" parallel="5">` | Once per item, up to `parallel` at a time (default 1); `items` is a `{{reference}}` to a list or a space-separated literal list. A failed item yields `null` and the others continue. Every step in the body runs for an item in order, and items do not wait for each other, so `<each>` with a hunter then a checker in its body is a pipeline: one item's checker starts as soon as its hunter finishes. The item's value is its last step's value |
 | `<loop max="6" while="..." until="..." stop-if-unchanged="...">` | Repeatedly, up to `max` passes |
 | `<choose on="{{x}}"><case value="a">…</case><otherwise>…</otherwise></choose>` | The first case whose value equals `on` |
 
@@ -237,6 +238,20 @@ value or `each items`) keeps the transformed value's type.
 | `<parallel>` | an object keyed by each child's `id` |
 | `<loop>` | `{index, passes, stopped}` (`until`, `while`, `unchanged`, or `max`) |
 | `<choose>` | the matched case's value, `otherwise`, or empty |
+
+---
+
+## Resuming a run
+
+An agent that finishes without changing files has its result saved next to the run
+log, in `.rho/workflows/<name>-<run id>.journal.jsonl`. After a run fails, is
+cancelled, or the process dies, `/workflow resume <run id>` (the id is in the log
+file name and in `{{run.id}}`) starts the same workflow with the same inputs and
+reuses every saved result whose step and prompt are unchanged; only the remaining
+steps run. A resume is a new run with its own log and journal, so it can be
+resumed again. Editing a prompt, or an upstream result that changed, makes the
+affected steps run again. Agents that edited files, and `<run>` and `<write>`
+steps, always run again. A workflow named `resume` is shadowed by this command.
 
 ---
 
