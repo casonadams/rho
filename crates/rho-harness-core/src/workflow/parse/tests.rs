@@ -272,6 +272,19 @@ fn run_is_a_reserved_name_bound_by_the_engine() {
 }
 
 #[test]
+fn the_quick_start_example_in_the_docs_loads() {
+    let doc = include_str!("../../../../../docs/workflows.md");
+    let start = doc
+        .find("```xml\n<workflow description=\"Ask an agent")
+        .expect("quick start")
+        + "```xml\n".len();
+    let xml = &doc[start..start + doc[start..].find("```").unwrap()];
+    let wf = parse(xml).unwrap();
+    assert_eq!(wf.inputs.len(), 1);
+    assert_eq!(wf.outputs.len(), 1);
+}
+
+#[test]
 fn resume_must_be_a_positive_integer_and_defaults_to_none() {
     let wf = parse(&wrap(
         r#"<agent use="a">Go.</agent><agent use="b" resume="2">Go.</agent>"#,

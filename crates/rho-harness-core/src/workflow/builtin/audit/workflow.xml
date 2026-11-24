@@ -7,7 +7,7 @@
   <input name="verify" default="single" choices="single panel" description="How findings are verified: single (one skeptic) or panel (two skeptics with different lenses; a finding survives only if both keep it)"/>
 
   <run id="range"
-       cmd="sh -c 'case $1 in repo) printf repo;; branch:*) printf %s ${1#branch:}...HEAD;; commits:*) printf %s HEAD~${1#commits:}..HEAD;; *) printf %s unknown-scope-use-repo-branch:BASE-or-commits:N; exit 2;; esac' range {{scope}}"/>
+       cmd="sh -c 'case $1 in repo) printf repo;; branch:*) printf %s ${1#branch:}...HEAD;; commits:*) n=${1#commits:}; case $n in &quot;&quot;|*[!0-9]*) printf %s commits-needs-a-number-like-commits:3; exit 2;; esac; printf %s HEAD~$((n+1))..HEAD;; *) printf %s unknown-scope-use-repo-branch:BASE-or-commits:N; exit 2;; esac' range {{scope}}"/>
 
   <run id="files" when="{{range.ok}}"
        cmd="sh -c 'if [ $2 = repo ]; then git ls-files -- $1; else git diff --name-only --diff-filter=d $2 -- $1; fi' files {{paths}} {{range.output}}"/>
