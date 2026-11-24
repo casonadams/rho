@@ -17,16 +17,11 @@ pub(crate) fn extract_redirect_targets(words: &[Token], path_tokens: &mut Vec<St
         }
         if let Some(target) = words.get(i + 1)
             && target.kind == TokenKind::Word
-            && !is_fd_dup_target(&target.text)
             && !path_tokens.contains(&target.text)
         {
             path_tokens.push(target.text.clone());
         }
     }
-}
-
-fn is_fd_dup_target(text: &str) -> bool {
-    text.starts_with('&') && text[1..].chars().all(|c| c.is_ascii_digit())
 }
 
 fn is_fd_dup_token(raw: &str) -> bool {
@@ -37,21 +32,9 @@ fn is_fd_dup_token(raw: &str) -> bool {
 pub fn has_file_redirection(command: &str) -> bool {
     let token_res = tokenize(command);
     let tokens = &token_res.tokens;
-    for i in 0..tokens.len() {
-        if tokens[i].kind == TokenKind::Redirect {
-            if is_fd_dup_token(&tokens[i].raw) {
-                continue;
-            }
-            if let Some(target) = tokens.get(i + 1)
-                && target.kind == TokenKind::Word
-                && is_fd_dup_target(&target.text)
-            {
-                continue;
-            }
-            return true;
-        }
-    }
-    false
+    tokens
+        .iter()
+        .any(|token| token.kind == TokenKind::Redirect && !is_fd_dup_token(&token.raw))
 }
 
 pub(crate) fn strip_assignments(words: &mut Vec<Token>, path_tokens: &mut Vec<String>) {
@@ -224,8 +207,7 @@ pub fn format_command_lines(command: &str) -> String {
 }
 
 fn is_continuation_operator(line: &str) -> bool {
-    let trimmed = line.trim_end();
-    trimmed.ends_with("&&") || trimmed.ends_with("||") || trimmed.ends_with('|') || trimmed.ends_with('&')
+    line.trim_end().ends_with(['|', '&'])
 }
 
 fn indent_lines(lines: &[String]) -> String {
