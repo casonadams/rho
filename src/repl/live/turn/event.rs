@@ -8,6 +8,7 @@ use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::agent_focus;
+use crate::repl::live::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use crate::repl::live::modal::actions::{apply_shared_modal_action, open_shared_help_modal, save_or_print_thinking};
 use crate::repl::live::modal::{ModalKeyResult, agents, handle_modal_key, handle_modal_paste};
 use crate::ui::interactive::{Activity, TerminalBackend, UiAction};
@@ -27,9 +28,10 @@ fn handle_resize<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, cols: u16, rows: 
     lp.batch.flush(lp.controller, true)
 }
 
-fn handle_paste<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, text: String) -> Result<()> {
+fn handle_paste<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, completions: &CompletionSet, text: String) -> Result<()> {
     if !handle_modal_paste(lp.controller, &text) {
         lp.controller.state_mut().apply(UiAction::Paste(text));
+        update_autocomplete_state(lp.controller, completions);
     }
     lp.batch.flush(lp.controller, true)
 }
@@ -61,7 +63,7 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
             Ok(false)
         }
         Event::Paste(text) => {
-            handle_paste(lp, text)?;
+            handle_paste(lp, res.completions, text)?;
             Ok(false)
         }
         Event::FocusGained => {
@@ -99,7 +101,16 @@ async fn dispatch_key_event<B: TerminalBackend>(
     }
     let modal_res = handle_modal_key(lp.controller, key, &mut lp.batch.modal)?;
     match modal_res {
-        ModalKeyResult::NotHandled => dispatch_regular_key(lp, res, key).await,
+        ModalKeyResult::NotHandled => {
+            if matches!(
+                handle_autocomplete_key(lp.controller, res.completions, key),
+                AutocompleteKeyResult::Handled
+            ) {
+                lp.batch.flush(lp.controller, true)?;
+                return Ok(false);
+            }
+            dispatch_regular_key(lp, res, key).await
+        }
         other => {
             apply_turn_modal_result(lp, other).await?;
             Ok(false)
