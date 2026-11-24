@@ -310,7 +310,9 @@ async fn collect_body(chunks: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>
 async fn stream_closed_without_terminal_event_is_a_network_error() {
     let events = collect_body(&["data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"]).await;
     assert!(has_event(&events, |e| matches!(e, ModelStreamEvent::Text(_))));
-    assert!(matches!(events.last(), Some(Err(AppError::Network(m))) if m.contains("terminal event")));
+    assert!(
+        matches!(events.last(), Some(Err(AppError::Network(m))) if m == "ChatGPT stream closed before a terminal event")
+    );
 }
 
 #[tokio::test]

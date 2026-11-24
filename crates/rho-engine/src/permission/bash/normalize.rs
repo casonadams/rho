@@ -131,6 +131,36 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_options_that_take_values_are_skipped() {
+        let cases = [
+            ("timeout -s KILL 5 rm -rf build", "rm -rf build"),
+            ("timeout -k 2 5 rm -rf build", "rm -rf build"),
+            ("xargs -n 1 rm -rf", "rm -rf"),
+            ("xargs -I X rm -rf", "rm -rf"),
+            ("stdbuf -o L rm -rf build", "rm -rf build"),
+            ("nice -n 5 rm -rf build", "rm -rf build"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(normalized(input).as_deref(), Some(expected), "{input}");
+        }
+    }
+
+    #[test]
+    fn only_timeout_consumes_a_duration_and_only_valid_names_are_assignments() {
+        let kept = [
+            ("env 5 rm -rf build", "5 rm -rf build"),
+            ("timeout abc rm -rf build", "abc rm -rf build"),
+            ("=x rm -rf build", "=x rm -rf build"),
+            ("1A=x rm -rf build", "1A=x rm -rf build"),
+            ("A-B=x rm -rf build", "A-B=x rm -rf build"),
+        ];
+        for (input, expected) in kept {
+            assert_eq!(normalized(input).as_deref(), Some(expected), "{input}");
+        }
+        assert_eq!(normalized("_A1=x rm -rf build").as_deref(), Some("rm -rf build"));
+    }
+
+    #[test]
     fn segments_with_only_prefixes_normalize_to_nothing() {
         assert_eq!(normalized("}"), Some("}".to_string()));
         assert_eq!(normalized("then"), None);

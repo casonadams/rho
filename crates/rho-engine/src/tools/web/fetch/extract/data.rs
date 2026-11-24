@@ -96,7 +96,7 @@ fn is_zlib_header(pair: &[u8]) -> bool {
 
 fn inflated_len(data: &[u8], limit: u64) -> u64 {
     let mut decoder = flate2::read::ZlibDecoder::new(data);
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = [0u8; 65536];
     let mut total = 0;
     while total <= limit {
         match decoder.read(&mut buf) {
@@ -155,6 +155,30 @@ mod tests {
         pdf.extend_from_slice(stream);
         pdf.extend_from_slice(b"\nendstream\nendobj\n");
         pdf
+    }
+
+    #[test]
+    fn limits_are_pinned() {
+        assert_eq!(MAX_PDF_STREAM_BYTES, 67_108_864);
+        assert_eq!(MAX_PDF_TOTAL_INFLATED_BYTES, 536_870_912);
+    }
+
+    #[test]
+    fn zlib_headers_require_deflate_window_and_checksum() {
+        for valid in [[0x78, 0x01], [0x78, 0x9c], [0x78, 0xda]] {
+            assert!(is_zlib_header(&valid), "{valid:x?}");
+        }
+        for invalid in [[0x78, 0x00], [0x70, 0x03], [0x88, 0x1c], [0x00, 0x00]] {
+            assert!(!is_zlib_header(&invalid), "{invalid:x?}");
+        }
+    }
+
+    #[test]
+    fn a_stream_exactly_at_the_cap_is_accepted() {
+        let pdf = pdf_with(&zlib_of_zeros(1 << 20));
+        assert!(ensure_bounded_inflation(&pdf, 1 << 20, 8 << 20).is_ok());
+        let pdf = pdf_with(&zlib_of_zeros((1 << 20) + 1));
+        assert!(ensure_bounded_inflation(&pdf, 1 << 20, 8 << 20).is_err());
     }
 
     #[test]
