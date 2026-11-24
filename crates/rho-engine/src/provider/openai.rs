@@ -332,8 +332,7 @@ impl OpenAiSseParser {
     fn flush_pending_tools(&mut self, events: &mut Vec<Result<ModelStreamEvent, AppError>>) {
         for (_, entry) in self.pending_tool_calls.drain() {
             if !entry.id.is_empty() && !entry.name.is_empty() {
-                let args_val = serde_json::from_str::<Value>(&entry.arguments)
-                    .unwrap_or_else(|_| json!({ "raw": entry.arguments }));
+                let args_val = crate::provider::adapter::parse_tool_arguments(&entry.arguments);
                 let call = ToolCall::new(entry.id, ToolFunction::new(entry.name, args_val));
                 events.push(Ok(ModelStreamEvent::ToolCall(call)));
             }

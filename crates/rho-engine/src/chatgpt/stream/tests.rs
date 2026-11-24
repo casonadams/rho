@@ -403,3 +403,20 @@ async fn call_id_falls_back_to_the_wire_id_then_to_the_output_index() {
     let (id, _, _) = tool_call_from(&[anonymous, COMPLETED.into()]).await;
     assert_eq!(id, "call-3");
 }
+
+#[tokio::test]
+async fn truncated_tool_arguments_are_kept_raw_instead_of_replaced_with_an_empty_object() {
+    let done = item(
+        "done",
+        ",\"id\":\"fc1\",\"call_id\":\"c1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\": \\\"src/lib\"",
+    );
+    let (_, _, args) = tool_call_from(&[done, COMPLETED.into()]).await;
+    assert_eq!(args, serde_json::json!({"raw": "{\"path\": \"src/lib"}));
+}
+
+#[tokio::test]
+async fn missing_tool_arguments_become_an_empty_object() {
+    let done = item("done", ",\"id\":\"fc1\",\"call_id\":\"c1\",\"name\":\"read\"");
+    let (_, _, args) = tool_call_from(&[done, COMPLETED.into()]).await;
+    assert_eq!(args, serde_json::json!({}));
+}

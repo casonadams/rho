@@ -196,14 +196,6 @@ fn reconcile_function_call(call: FunctionCallPayload, pending: Option<PendingToo
     }
 }
 
-fn parse_call_args(args_str: &str) -> serde_json::Value {
-    if args_str.trim().is_empty() {
-        serde_json::json!({})
-    } else {
-        serde_json::from_str(args_str).unwrap_or_else(|_| serde_json::json!({}))
-    }
-}
-
 impl SseParser {
     pub fn new() -> Self {
         Self::default()
@@ -280,7 +272,7 @@ impl SseParser {
             format!("output-{index}")
         };
         let reconciled = reconcile_function_call(call, self.pending_tool_calls.remove(&key));
-        let parsed_args = parse_call_args(&reconciled.final_args);
+        let parsed_args = crate::provider::adapter::parse_tool_arguments(&reconciled.final_args);
 
         let effective_id = if !reconciled.call_id.is_empty() {
             reconciled.call_id.clone()
