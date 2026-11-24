@@ -42,6 +42,13 @@ pub struct McpRuntime {
     reconnects: Mutex<BTreeMap<String, Vec<Instant>>>,
 }
 
+/// Whether a request may be sent again after the connection dropped with its fate unknown.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Resend {
+    Always,
+    OnlyUndelivered,
+}
+
 struct InFlight(Arc<AtomicUsize>);
 
 impl Drop for InFlight {
@@ -207,38 +214,51 @@ impl McpRuntime {
         res
     }
 
-    async fn with_client<T, F, Fut>(&self, server: &str, op: F) -> Result<T>
+    async fn with_client<T, F, Fut>(&self, server: &str, resend: Resend, op: F) -> Result<T>
     where
         F: Fn(Arc<McpClient>) -> Fut,
         Fut: Future<Output = Result<T>>,
     {
-        let res = match self.attempt(server, &op).await {
-            Err(AppError::McpConnectionLost(reason)) => {
-                self.pool.disconnect(server).await;
-                if !self.allow_reconnect(server) {
-                    let message = format!(
-                        "connection lost {MAX_RECONNECTS} times within {}s; reconnects suspended until /reload ({reason})",
-                        RECONNECT_WINDOW.as_secs()
-                    );
-                    self.report(McpDiagnostic::Failed {
-                        server: server.to_string(),
-                        message: message.clone(),
-                    });
-                    return Err(AppError::Mcp(message));
-                }
-                self.attempt(server, &op).await
-            }
-            other => other,
-        };
+        let res = self.run_with_reconnect(server, resend, &op).await;
         if let Err(e) = &res {
             self.report_error(server, e);
         }
         res
     }
 
+    async fn run_with_reconnect<T, F, Fut>(&self, server: &str, resend: Resend, op: &F) -> Result<T>
+    where
+        F: Fn(Arc<McpClient>) -> Fut,
+        Fut: Future<Output = Result<T>>,
+    {
+        let (reason, may_have_run) = match self.attempt(server, op).await {
+            Err(AppError::McpNotDelivered(reason)) => (reason, false),
+            Err(AppError::McpConnectionLost(reason)) => (reason, true),
+            other => return other,
+        };
+        self.pool.disconnect(server).await;
+        if !self.allow_reconnect(server) {
+            let message = format!(
+                "connection lost {MAX_RECONNECTS} times within {}s; reconnects suspended until /reload ({reason})",
+                RECONNECT_WINDOW.as_secs()
+            );
+            self.report(McpDiagnostic::Failed {
+                server: server.to_string(),
+                message: message.clone(),
+            });
+            return Err(AppError::Mcp(message));
+        }
+        if may_have_run && resend == Resend::OnlyUndelivered {
+            return Err(AppError::Mcp(format!(
+                "connection lost while the request was in flight; not retried because the server may already have run it ({reason})"
+            )));
+        }
+        self.attempt(server, op).await
+    }
+
     pub async fn call_tool(&self, server: &str, tool: &str, arguments: Value) -> ToolResult {
         let res = self
-            .with_client(server, |client| {
+            .with_client(server, Resend::OnlyUndelivered, |client| {
                 let arguments = arguments.clone();
                 async move { client.call_tool(tool, arguments).await }
             })
@@ -251,7 +271,11 @@ impl McpRuntime {
 
     pub async fn list_resources(&self, server: &str) -> ToolResult {
         match self
-            .with_client(server, |client| async move { client.list_resources().await })
+            .with_client(
+                server,
+                Resend::Always,
+                |client| async move { client.list_resources().await },
+            )
             .await
         {
             Ok(resources) => ToolResult::success(format_resource_list(&resources)),
@@ -261,7 +285,9 @@ impl McpRuntime {
 
     pub async fn read_resource(&self, server: &str, uri: &str) -> ToolResult {
         match self
-            .with_client(server, |client| async move { client.read_resource(uri).await })
+            .with_client(server, Resend::Always, |client| async move {
+                client.read_resource(uri).await
+            })
             .await
         {
             Ok(contents) => resource_result(&contents, self.limits()),
@@ -270,8 +296,12 @@ impl McpRuntime {
     }
 
     pub async fn list_prompts(&self, server: &str) -> Result<Vec<McpPromptDefinition>> {
-        self.with_client(server, |client| async move { client.list_prompts().await })
-            .await
+        self.with_client(
+            server,
+            Resend::Always,
+            |client| async move { client.list_prompts().await },
+        )
+        .await
     }
 
     pub async fn get_prompt(
@@ -280,8 +310,10 @@ impl McpRuntime {
         name: &str,
         arguments: &BTreeMap<String, String>,
     ) -> Result<McpPromptResult> {
-        self.with_client(server, |client| async move { client.get_prompt(name, arguments).await })
-            .await
+        self.with_client(server, Resend::Always, |client| async move {
+            client.get_prompt(name, arguments).await
+        })
+        .await
     }
 
     pub(crate) async fn cached_snapshot(&self, server: &str) -> Option<(ServerSnapshot, bool)> {

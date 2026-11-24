@@ -208,7 +208,14 @@ impl HttpTransport {
             .json(payload)
             .send()
             .await
-            .map_err(|e| AppError::McpConnectionLost(format!("HTTP request to '{}' failed: {e}", self.url)))?;
+            .map_err(|e| {
+                let message = format!("HTTP request to '{}' failed: {e}", self.url);
+                if e.is_connect() {
+                    AppError::McpNotDelivered(message)
+                } else {
+                    AppError::McpConnectionLost(message)
+                }
+            })?;
 
         let status = res.status();
         let res_headers = res.headers().clone();
@@ -216,7 +223,7 @@ impl HttpTransport {
         self.record_session_id(&res_headers).await;
 
         if status == reqwest::StatusCode::NOT_FOUND && had_session {
-            return Err(AppError::McpConnectionLost(format!(
+            return Err(AppError::McpNotDelivered(format!(
                 "MCP session at '{}' expired",
                 self.url
             )));

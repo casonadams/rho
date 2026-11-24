@@ -408,16 +408,24 @@ async fn work(load: &McpLoad) -> crate::tools::ToolResult {
 }
 
 #[tokio::test]
-async fn a_lost_connection_is_reconnected_and_the_call_retried_once() {
+async fn a_tool_call_lost_in_flight_is_not_resent_but_the_next_call_reconnects() {
     let dir = tempfile::tempdir().unwrap();
     let server = test_server::spawn(crashing_server(1)).await;
     let config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
     let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
 
-    let result = work(&load).await;
+    let lost = work(&load).await;
 
-    assert!(!result.is_error, "{}", result.content);
-    assert_eq!(result.content, "worked");
+    assert!(lost.is_error);
+    assert!(lost.content.contains("not retried"), "{}", lost.content);
+    let count = |server: &test_server::FakeServer| server.methods().iter().filter(|m| *m == "tools/call").count();
+    assert_eq!(count(&server), 1, "a side-effecting call is never sent twice");
+
+    let next = work(&load).await;
+
+    assert!(!next.is_error, "{}", next.content);
+    assert_eq!(next.content, "worked");
+    assert_eq!(count(&server), 2);
     let methods = server.methods();
     let call_start = methods.iter().position(|m| m == "tools/list").unwrap() + 1;
     assert_eq!(
@@ -431,6 +439,32 @@ async fn a_lost_connection_is_reconnected_and_the_call_retried_once() {
             "tools/call"
         ]
     );
+}
+
+#[tokio::test]
+async fn a_read_only_request_lost_in_flight_is_reconnected_and_resent() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let server = test_server::spawn(handler(move |method, _| {
+        let calls = Arc::clone(&calls);
+        async move {
+            match method.as_str() {
+                "initialize" => init_result(None),
+                "tools/list" => tools_result(&["work"]),
+                "resources/list" if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 => Reply::Drop,
+                _ => Reply::Result(json!({ "resources": [{ "uri": "file:///a", "name": "a" }] })),
+            }
+        }
+    }))
+    .await;
+    let config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
+    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let runtime = Arc::clone(load.runtime.as_ref().unwrap());
+
+    let result = runtime.list_resources("srv").await;
+
+    assert!(!result.is_error, "{}", result.content);
+    assert_eq!(server.methods().iter().filter(|m| *m == "resources/list").count(), 2);
 }
 
 #[tokio::test]

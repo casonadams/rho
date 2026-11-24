@@ -62,7 +62,7 @@ async fn write_stdin_line(stdin: &tokio::sync::Mutex<ChildStdin>, json: String) 
     let mut lock = stdin.lock().await;
     lock.write_all(json.as_bytes())
         .await
-        .map_err(|e| AppError::McpConnectionLost(format!("failed to write to MCP stdin: {e}")))?;
+        .map_err(|e| AppError::McpNotDelivered(format!("failed to write to MCP stdin: {e}")))?;
     lock.flush()
         .await
         .map_err(|e| AppError::McpConnectionLost(format!("failed to flush MCP stdin: {e}")))
