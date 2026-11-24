@@ -391,6 +391,9 @@ async fn run_workflow_plain(session: &ReplSession, engine: &AgentEngine, launch:
         engine.hand_off_workflow_report(&label, &result.report);
     }
     session.renderer.print_notice(&format!("\n{}\n", result.report));
+    if let Some(text) = &result.summary {
+        session.renderer.print_notice(&format!("\n{text}\n"));
+    }
 }
 
 pub async fn handle_command_result(

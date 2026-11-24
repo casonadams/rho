@@ -22,6 +22,8 @@ use std::path::PathBuf;
 pub struct WorkflowRun {
     pub ok: bool,
     pub report: String,
+    /// The workflow's `summary` output when it is text: shown to the user after the run.
+    pub summary: Option<String>,
     /// The workflow started running; a run rejected before its first step has nothing to hand off.
     pub started: bool,
 }
@@ -196,19 +198,25 @@ impl WorkflowRunner {
             }
             None => String::new(),
         };
-        let (ok, report) = match result {
-            Ok(outputs) => (
-                true,
-                log.report(&format!("Workflow `{}` completed.", bundle.name), Some(&outputs)),
-            ),
+        let (ok, report, summary) = match result {
+            Ok(outputs) => {
+                let summary = outputs["summary"]
+                    .as_str()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let report = log.report(&format!("Workflow `{}` completed.", bundle.name), Some(&outputs));
+                (true, report, summary)
+            }
             Err(e) => (
                 false,
                 log.report(&format!("Workflow `{}` stopped: {e}", bundle.name), None),
+                None,
             ),
         };
         WorkflowRun {
             ok,
             report: format!("{report}{handoff}"),
+            summary,
             started: true,
         }
     }
@@ -237,6 +245,7 @@ fn failed(report: String) -> WorkflowRun {
     WorkflowRun {
         ok: false,
         report,
+        summary: None,
         started: false,
     }
 }

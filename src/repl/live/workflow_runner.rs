@@ -109,7 +109,13 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
 }
 
 fn summary(run: &WorkflowRun) -> String {
-    run.report.lines().next().unwrap_or_default().to_string()
+    run.summary
+        .as_deref()
+        .unwrap_or(&run.report)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub(crate) async fn run_user_workflow<B: TerminalBackend>(
@@ -164,11 +170,13 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
     let run = joined.unwrap_or_else(|e| WorkflowRun {
         ok: false,
         report: format!("Workflow `{name}` crashed: {e}"),
+        summary: None,
         started: true,
     });
     if run.started {
         engine.hand_off_workflow_report(&name, &run.report);
     }
+    let summary_text = run.summary.clone();
     renderer.finish_tool_line(ToolLine {
         name: "workflow".to_string(),
         arguments,
@@ -178,6 +186,9 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         duration_ms: Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
         file_change: None,
     });
+    if let Some(text) = summary_text {
+        renderer.print_notice(&format!("\n{text}\n"));
+    }
     view.flush(false)
 }
 

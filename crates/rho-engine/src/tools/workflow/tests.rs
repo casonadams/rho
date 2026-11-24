@@ -226,6 +226,17 @@ async fn each_result_sets_what_each_item_yields_and_text_outputs_print_as_paragr
     assert!(run.report.contains("\"count\": 2"), "{}", run.report);
     assert!(run.report.contains("\ntext:\n"), "{}", run.report);
     assert!(!run.report.contains("\"text\""), "{}", run.report);
+    assert_eq!(run.summary, None);
+}
+
+#[tokio::test]
+async fn a_text_summary_output_is_carried_on_the_run_for_the_cli_to_show() {
+    let wf = r#"<workflow name="sum"><run id="r" cmd="echo done"/><output name="summary" value="Checked {{r.output}}"/></workflow>"#;
+    let fx = Fixture::new(&[], &[("sum.xml", wf)]);
+    let run = fx.run("sum", &[]).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert_eq!(run.summary.as_deref(), Some("Checked done"));
 }
 
 const RUN_ID_WRITE: &str = r#"

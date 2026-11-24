@@ -192,6 +192,11 @@ Each `<output>` is printed after the run. Short values print together as JSON;
 a text value that is long or has several lines prints as its own paragraph under
 its name, so an agent-written summary reads as text.
 
+An output named `summary` is special: when it is text, `/workflow` also prints it
+as its own notice after the run and uses its first line as the run's one-line
+result, so the workflow decides what the user reads. Workflows without one show
+only the report.
+
 ### Conditions
 
 Every step and block accepts `when="{{ref}}"` and `unless="{{ref}}"`. A value
