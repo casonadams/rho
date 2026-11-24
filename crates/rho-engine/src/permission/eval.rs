@@ -123,7 +123,6 @@ fn generic_tool_component(rules: &[PolicyRule], req: &EvalRequest<'_>) -> Compon
         .unwrap_or_else(|| if input.is_empty() { "*".to_string() } else { input });
     let vals = match &tool_path {
         Some(p) => path_policy_values(p, req.working_dir),
-        None if value == "*" => vec!["*".to_string()],
         None => vec![value.clone()],
     };
     let dec = decide_surface(rules, req.tool, &vals, SurfaceKind::First);
