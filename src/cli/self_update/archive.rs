@@ -16,7 +16,9 @@ pub enum ArchiveError {
 pub fn extract_binary(asset_name: &str, data: &[u8], executable_name: &str) -> Result<Vec<u8>, ArchiveError> {
     if asset_name.ends_with(".tar.gz") || asset_name.ends_with(".tgz") {
         extract_from_tar_gz(data, executable_name)
-    } else if asset_name.ends_with(".zip") || asset_name.ends_with(".tar.xz") || asset_name.ends_with(".tar.bz2") {
+    } else if asset_name.ends_with(".zip") {
+        extract_from_zip(data, executable_name)
+    } else if asset_name.ends_with(".tar.xz") || asset_name.ends_with(".tar.bz2") {
         Err(ArchiveError::UnsupportedFormat(asset_name.to_string()))
     } else {
         Ok(data.to_vec())
@@ -66,6 +68,32 @@ fn extract_from_tar_gz(data: &[u8], executable_name: &str) -> Result<Vec<u8>, Ar
         }
     }
 
+    select_executable(found_files, executable_name)
+}
+
+fn extract_from_zip(data: &[u8], executable_name: &str) -> Result<Vec<u8>, ArchiveError> {
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(data)).map_err(|e| ArchiveError::Corrupt(e.to_string()))?;
+    let mut found_files = Vec::new();
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| ArchiveError::Corrupt(e.to_string()))?;
+        if !entry.is_file() {
+            continue;
+        }
+        let name = entry.name().map_err(|e| ArchiveError::Corrupt(e.to_string()))?;
+        let file_name = name.rsplit(['/', '\\']).next().unwrap_or_default().to_string();
+        let mut content = Vec::new();
+        entry
+            .read_to_end(&mut content)
+            .map_err(|e| ArchiveError::Corrupt(e.to_string()))?;
+        found_files.push((file_name, content));
+    }
+    select_executable(found_files, executable_name)
+}
+
+fn select_executable(found_files: Vec<(String, Vec<u8>)>, executable_name: &str) -> Result<Vec<u8>, ArchiveError> {
     if let Some(content) = find_matching_executable(&found_files, executable_name) {
         return Ok(content.to_vec());
     }
@@ -101,4 +129,53 @@ pub fn write_binary_atomically(dest: &Path, content: &[u8]) -> Result<(), Archiv
         let _ = std::fs::remove_file(&tmp_path);
         ArchiveError::Io(e.to_string())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn zip_with(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, content) in files {
+            writer
+                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(content).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn zip_asset_yields_exe_content() {
+        let data = zip_with(&[("README.txt", b"hi"), ("rho.exe", b"MZ-binary")]);
+        let out = extract_binary("rho-1.0.0-x86_64-pc-windows-msvc.zip", &data, "rho").unwrap();
+        assert_eq!(out, b"MZ-binary");
+    }
+
+    #[test]
+    fn zip_asset_without_executable_reports_found_names() {
+        let data = zip_with(&[("a.txt", b"1"), ("b.txt", b"2")]);
+        let err = extract_binary("rho.zip", &data, "rho").unwrap_err();
+        assert_eq!(
+            err,
+            ArchiveError::MissingBinary {
+                expected: "rho".into(),
+                found: vec!["a.txt".into(), "b.txt".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn corrupt_zip_asset_is_rejected() {
+        let err = extract_binary("rho.zip", b"not a zip", "rho").unwrap_err();
+        assert!(matches!(err, ArchiveError::Corrupt(_)));
+    }
+
+    #[test]
+    fn xz_asset_remains_unsupported() {
+        let err = extract_binary("rho.tar.xz", b"", "rho").unwrap_err();
+        assert_eq!(err, ArchiveError::UnsupportedFormat("rho.tar.xz".into()));
+    }
 }
