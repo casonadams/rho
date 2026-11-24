@@ -20,7 +20,7 @@
     <agent id="recon" use="recon" model="default" turns="60" resume="1" output="json" prompt-file="prompts/recon.md"/>
 
     <loop id="pass" max="{{passes}}" while="{{gaps.tasks}}">
-      <each id="verified" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6">
+      <each id="verified" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6" result="{{vote | default:single}}">
         <agent id="found" use="hunter-{{task.category}}" model="smol" turns="60" resume="1" output="json" prompt-file="prompts/hunt.md"/>
         <choose on="{{verify}}">
           <case value="panel">
@@ -31,7 +31,7 @@
             <agent id="vote" use="curator" model="default" turns="20" resume="1" output="json" prompt-file="prompts/vote.md"/>
           </case>
           <otherwise>
-            <agent use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
+            <agent id="single" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
           </otherwise>
         </choose>
       </each>
@@ -49,9 +49,11 @@
 
     <write id="saved_report" path=".rho/audit/{{run.id}}/report.md" value="{{report}}"/>
     <write id="saved_findings" path=".rho/audit/{{run.id}}/findings.json" value="{{assess | compact | json}}"/>
+
+    <agent id="digest" use="curator" model="smol" turns="10" context="report" prompt-file="prompts/digest.md"/>
   </sequence>
 
-  <output name="summary" value="Audited {{range.output}}: {{assess | compact | count}} findings {{assess | compact | count_by:properties.priority | json}}, {{gaps.tasks | count}} uncovered areas. Report: {{saved_report}}"/>
+  <output name="summary" value="{{digest | default:range.output}}"/>
   <output name="scope" value="{{range.output}}"/>
   <output name="status" value="{{empty.output}}"/>
   <output name="report_file" value="{{saved_report}}"/>

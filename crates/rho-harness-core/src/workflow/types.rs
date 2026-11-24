@@ -151,6 +151,7 @@ pub struct EachNode {
     pub items: Items,
     pub var: String,
     pub parallel: usize,
+    pub result: Option<String>,
     pub body: Vec<Node>,
 }
 

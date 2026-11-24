@@ -169,7 +169,7 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 |---|---|
 | `<sequence>` | In order (also the body of every other block) |
 | `<parallel>` | At the same time; each child is one branch |
-| `<each items="..." as="x" parallel="5">` | Once per item, up to `parallel` at a time (default 1); `items` is a `{{reference}}` to a list or a space-separated literal list. A failed item yields `null` and the others continue. Every step in the body runs for an item in order, and items do not wait for each other, so `<each>` with a hunter then a checker in its body is a pipeline: one item's checker starts as soon as its hunter finishes. The item's value is its last step's value |
+| `<each items="..." as="x" parallel="5" result="{{ref}}">` | Once per item, up to `parallel` at a time (default 1); `items` is a `{{reference}}` to a list or a space-separated literal list. A failed item yields `null` and the others continue. Every step in the body runs for an item in order, and items do not wait for each other, so `<each>` with a hunter then a checker in its body is a pipeline: one item's checker starts as soon as its hunter finishes. The item's value is its last step's value, or `result` when set (a template evaluated in the item's scope after its body, so `result="{{vote | default:single}}"` picks whichever branch of a `<choose>` ran) |
 | `<loop max="6" while="..." until="..." stop-if-unchanged="...">` | Repeatedly, up to `max` passes |
 | `<choose on="{{x}}"><case value="a">…</case><otherwise>…</otherwise></choose>` | The first case whose value equals `on` |
 
@@ -185,6 +185,12 @@ exits non-zero does not; it sets `ok` to false. An agent that stops before a
 final answer (turn limit, empty reply, or a failed model call) fails its step
 with the reason and its work so far; its summary never becomes the step's
 value.
+
+### Outputs
+
+Each `<output>` is printed after the run. Short values print together as JSON;
+a text value that is long or has several lines prints as its own paragraph under
+its name, so an agent-written summary reads as text.
 
 ### Conditions
 

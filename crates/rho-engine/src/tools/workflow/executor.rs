@@ -324,9 +324,9 @@ impl Executor<'_> {
         }
         let results: Vec<Result<Value, String>> = futures::stream::iter(runs).buffered(each.parallel).collect().await;
         let mut values = Vec::with_capacity(results.len());
-        for result in results {
+        for (result, (_, item_scope)) in results.into_iter().zip(&item_scopes) {
             match result {
-                Ok(value) => values.push(value),
+                Ok(last) => values.push(each.result.as_ref().map_or(last, |t| item_scope.evaluate(t))),
                 Err(e) if e == CANCELLED => return Err(e),
                 Err(_) => values.push(Value::Null),
             }

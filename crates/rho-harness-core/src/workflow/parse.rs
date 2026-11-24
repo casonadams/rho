@@ -203,7 +203,7 @@ impl Builder<'_> {
     }
 
     fn each(&mut self, el: &Element) -> Option<EachNode> {
-        self.check_attrs(el, &["items", "as", "parallel"]);
+        self.check_attrs(el, &["items", "as", "parallel", "result"]);
         let items = self.required(el, "items")?;
         let items = if items.trim().starts_with("{{") {
             Items::Reference(items)
@@ -216,6 +216,7 @@ impl Builder<'_> {
             items,
             var: el.attr("as").unwrap_or("item").to_string(),
             parallel,
+            result: el.attr("result").map(str::to_string),
             body,
         })
     }
@@ -505,6 +506,9 @@ impl Checker {
         }
         self.vars.push(each.var.clone());
         self.nodes(&each.body);
+        if let Some(result) = &each.result {
+            self.template(line, result);
+        }
         self.vars.pop();
     }
 }

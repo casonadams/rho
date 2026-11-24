@@ -201,6 +201,33 @@ const ESCAPING_WRITE: &str = r#"
 </workflow>
 "#;
 
+const EACH_RESULT: &str = r#"
+<workflow name="yielding">
+  <each id="picked" items="a b" as="x" result="{{note | default:mark}}">
+    <run id="mark" cmd="echo mark-{{x}}"/>
+    <choose on="{{x}}">
+      <case value="a"><run id="note" cmd="echo note-{{x}}"/></case>
+    </choose>
+  </each>
+  <output name="picked" value="{{picked}}"/>
+  <output name="text" value="This sentence is deliberately long enough to be printed as a paragraph rather than inside the JSON block of outputs"/>
+  <output name="count" value="{{picked | count}}"/>
+</workflow>
+"#;
+
+#[tokio::test]
+async fn each_result_sets_what_each_item_yields_and_text_outputs_print_as_paragraphs() {
+    let fx = Fixture::new(&[], &[("yielding.xml", EACH_RESULT)]);
+    let run = fx.run("yielding", &[]).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("\"output\": \"note-a\""), "{}", run.report);
+    assert!(run.report.contains("\"output\": \"mark-b\""), "{}", run.report);
+    assert!(run.report.contains("\"count\": 2"), "{}", run.report);
+    assert!(run.report.contains("\ntext:\n"), "{}", run.report);
+    assert!(!run.report.contains("\"text\""), "{}", run.report);
+}
+
 const RUN_ID_WRITE: &str = r#"
 <workflow name="stamped">
   <write path=".rho/out/{{run.id}}.md" value="x"/>
