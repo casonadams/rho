@@ -562,6 +562,50 @@ agent_border = "gray"          # Agent / sub-agent blocks
 tool_border = "gray"           # General command / tool cards
 bash_success_border = "gray"   # Successful bash commands
 bash_error_border = "red"      # Failed bash commands
+
+# Optional prompt chrome customization (default: 1-space indent, version shown, thinking-colored dividers)
+[ui.prompt]
+prefix = "❯ "                  # Custom prompt glyph (default: " ")
+show_version = true            # Show version label in top divider (default: true)
+divider_style = "thinking"     # "thinking" (default) | "dim" | "none"
+
+# Optional segmented / powerline status bar (default: preset = "default" keeps the 2-line footer)
+[ui.status_bar]
+preset = "default"             # "default" | "minimal" | "compact" | "full" | "nerd" | "ascii" | "custom"
+separator = "powerline-thin"   # "powerline" | "powerline-thin" | "dot" | "slash" | "pipe" | "block" | "none" | "ascii"
+icons = "nerd"                 # "nerd" | "unicode" | "ascii"
+transparent = false            # Drop background fill and powerline end caps
+compact_thinking_level = true  # Show thinking effort as a single glyph next to the model
+context_line = "off"           # Bottom divider gauge: "off" | "percentage" | "annotated" | "embedded"
+left = ["model", "path", "git"]
+right = ["token_total", "cost", "context_pct", "quota"]
+
+# Per-segment options for [ui.status_bar]
+[ui.status_bar.segment_options.path]
+abbreviate = true
+max_length = 40
+
+[ui.status_bar.segment_options.git]
+show_branch = true
+show_staged = true
+show_unstaged = true
+show_untracked = true
+
+[ui.status_bar.segment_options.model]
+show_thinking_level = true
+short_name = true
+# Optional custom display aliases: [ui.status_bar.segment_options.model.names]
+# gemini-4-neon = "Neo4"
+
+[ui.status_bar.segment_options.time]
+format = "24h"                 # "12h" | "24h"
+show_seconds = false
+
+# Optional per-turn telemetry rows below completed assistant responses (all default: false)
+[ui.display]
+show_token_usage = false       # Timestamp, tokens, TTFT, and right-aligned tok/s
+show_turn_time = false         # Include prompt-to-yield Δ duration in the stats row
+cache_miss_marker = false      # Show a divider when a warm prompt cache invalidates
 ```
 
 Top-level preferences:

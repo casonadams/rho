@@ -1,5 +1,25 @@
 use super::editor::EditorState;
 use super::modal::ModalState;
+use rho_harness_core::config::{PromptUiConfig, StatusBarConfig};
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct GitStatusCounts {
+    pub staged: usize,
+    pub unstaged: usize,
+    pub untracked: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitPrInfo {
+    pub number: u64,
+    pub url: Option<String>,
+}
+
+impl GitStatusCounts {
+    pub fn is_dirty(&self) -> bool {
+        self.staged > 0 || self.unstaged > 0 || self.untracked > 0
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueKind {
@@ -61,6 +81,13 @@ pub struct FooterState {
     pub viewing: Option<String>,
     /// The agent, not shown, whose permission prompt is waiting for the user.
     pub awaiting_approval: Option<String>,
+    pub git_status: Option<GitStatusCounts>,
+    pub git_pr: Option<GitPrInfo>,
+    pub session_id: Option<String>,
+    pub hostname: Option<String>,
+    pub active_duration_ms: u64,
+    pub prompt_config: Option<PromptUiConfig>,
+    pub status_bar_config: Option<StatusBarConfig>,
 }
 
 type IdentityKey<'a> = (
@@ -87,6 +114,16 @@ type MetricsKey<'a> = (
 );
 
 type UiKey<'a> = (usize, Option<&'a str>, bool, usize, Option<&'a str>, Option<&'a str>);
+
+type StatusBarKey<'a> = (
+    Option<GitStatusCounts>,
+    Option<&'a GitPrInfo>,
+    Option<&'a str>,
+    Option<&'a str>,
+    u64,
+    Option<&'a PromptUiConfig>,
+    Option<&'a StatusBarConfig>,
+);
 
 impl FooterState {
     fn identity_key(&self) -> IdentityKey<'_> {
@@ -126,6 +163,18 @@ impl FooterState {
             self.awaiting_approval.as_deref(),
         )
     }
+
+    fn status_bar_key(&self) -> StatusBarKey<'_> {
+        (
+            self.git_status,
+            self.git_pr.as_ref(),
+            self.session_id.as_deref(),
+            self.hostname.as_deref(),
+            self.active_duration_ms,
+            self.prompt_config.as_ref(),
+            self.status_bar_config.as_ref(),
+        )
+    }
 }
 
 impl PartialEq for FooterState {
@@ -133,6 +182,7 @@ impl PartialEq for FooterState {
         self.identity_key() == other.identity_key()
             && self.metrics_key() == other.metrics_key()
             && self.ui_key() == other.ui_key()
+            && self.status_bar_key() == other.status_bar_key()
     }
 }
 

@@ -18,6 +18,8 @@ use crate::engine::tracking::UsageTracker;
 
 pub(super) struct TurnStreamState {
     pub(super) model_call_start: Option<Instant>,
+    pub(super) first_token_at: Option<Instant>,
+    pub(super) ttft_ms: Option<u64>,
     pub(super) total_generation_elapsed_ms: u64,
     pub(super) final_response: Option<PromptResponse>,
     pub(super) streaming_tool: StreamingToolTracker,
@@ -28,11 +30,19 @@ impl TurnStreamState {
     fn new() -> Self {
         Self {
             model_call_start: Some(Instant::now()),
+            first_token_at: None,
+            ttft_ms: None,
             total_generation_elapsed_ms: 0,
             final_response: None,
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
         }
+    }
+}
+
+fn mark_first_token(first_token_at: &mut Option<Instant>, non_empty: bool) {
+    if non_empty && first_token_at.is_none() {
+        *first_token_at = Some(Instant::now());
     }
 }
 
@@ -90,13 +100,17 @@ fn record_completion_call(
     call: &CompletionCall,
     usage: &UsageTracker,
     run_tracker: &crate::engine::metrics::RunTracker,
-    start: &mut Option<Instant>,
-    total_elapsed: &mut u64,
+    state: &mut TurnStreamState,
 ) {
-    let started = start.take();
+    let started = state.model_call_start.take();
+    let first_tok = state.first_token_at.take();
+    if let (Some(s), Some(f)) = (started, first_tok) {
+        let ttft = f.saturating_duration_since(s).as_millis() as u64;
+        state.ttft_ms.get_or_insert(ttft);
+    }
     let elapsed_ms = if let Some(s) = started {
         let ms = s.elapsed().as_millis().max(1) as u64;
-        *total_elapsed += ms;
+        state.total_generation_elapsed_ms += ms;
         ms
     } else {
         0
@@ -119,15 +133,10 @@ fn handle_completion_stream_item(
         }
         MultiTurnStreamItem::CompletionCall(call) => {
             state.streaming_tool.reset();
-            record_completion_call(
-                &call,
-                usage,
-                run_tracker,
-                &mut state.model_call_start,
-                &mut state.total_generation_elapsed_ms,
-            );
+            record_completion_call(&call, usage, run_tracker, state);
         }
         MultiTurnStreamItem::ToolCall { tool_call } => {
+            mark_first_token(&mut state.first_token_at, true);
             state.total_tool_calls += 1;
             state.streaming_tool.handle_name(tool_call.function.name.to_string());
         }
@@ -137,11 +146,13 @@ fn handle_completion_stream_item(
             sink.finish_spinner();
             sink.flush_display();
             sink.presenter.print_notice(&format_model_retry(&retry));
+            state.first_token_at = None;
             state.model_call_start = Some(Instant::now());
             sink.resume_model_spinner();
         }
         MultiTurnStreamItem::ToolExecutionCommitted => {
             state.streaming_tool.reset();
+            state.first_token_at = None;
             state.model_call_start = Some(Instant::now());
         }
         MultiTurnStreamItem::DisplayBarrier(drained) => drained.notify_one(),
@@ -176,11 +187,13 @@ impl AgentEngine {
     ) {
         match event {
             StreamEvent::Arguments { ref json, .. } => {
+                mark_first_token(&mut state.first_token_at, !json.is_empty());
                 sink.flush_reasoning();
                 sink.resume_model_spinner();
                 state.streaming_tool.handle_delta(json, sink);
             }
             StreamEvent::Text(t) => {
+                mark_first_token(&mut state.first_token_at, !t.is_empty());
                 let events = vec![DisplayEvent::Text(t)];
                 handle_display_events(
                     events,
@@ -191,6 +204,7 @@ impl AgentEngine {
                 );
             }
             StreamEvent::Reasoning(r) => {
+                mark_first_token(&mut state.first_token_at, !r.is_empty());
                 let events = vec![DisplayEvent::Reasoning(r)];
                 handle_display_events(
                     events,
@@ -328,6 +342,14 @@ impl AgentEngine {
                 .unwrap_or(0))
         .max(1)
     }
+
+    pub(super) fn ttft_ms(state: &TurnStreamState) -> Option<u64> {
+        state.ttft_ms.or_else(|| {
+            let start = state.model_call_start?;
+            let first = state.first_token_at?;
+            Some(first.saturating_duration_since(start).as_millis() as u64)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -357,6 +379,7 @@ mod tests {
             current_prompt: String::new(),
             current_budget: 10,
             overflow_recovered: false,
+            turn_started_at: Instant::now(),
         };
 
         let error = AppError::Network("provider stream went idle for 300s without sending data".into());

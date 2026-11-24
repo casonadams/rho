@@ -1,11 +1,12 @@
 use super::autocomplete::render_autocomplete_dropdown;
 use super::budget::{NormalBudgetInput, NormalLayoutBudget, compute_normal_budget};
 use super::chrome::{
-    active_activity_status, modal_banner_title, modal_top_divider, queued_lines_text, thinking_divider_style,
-    top_divider, working_line_text,
+    active_activity_status, bottom_divider, modal_banner_title, modal_top_divider, queued_lines_text,
+    thinking_divider_style, top_divider, working_line_text,
 };
-use super::editor::{render_editor_lines, window_editor, wrap_editor_indented};
+use super::editor::{render_editor_lines, window_editor, wrap_editor_with_prefix};
 use super::{CursorPosition, InteractiveLayout, LayoutInput};
+use rho_harness_core::config::{ContextLineMode, DividerStyle};
 
 fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
     if input.modal.is_none()
@@ -20,11 +21,24 @@ fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
     }
 }
 
+fn is_divider_none(input: &LayoutInput<'_>) -> bool {
+    input.modal.is_none()
+        && !input.editor.text().trim_start().starts_with('!')
+        && matches!(
+            input.footer.prompt_config.as_ref().and_then(|p| p.divider_style),
+            Some(DividerStyle::None)
+        )
+}
+
 fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str) {
     if input.modal.is_some() {
         ("\x1b[1;36m", "\x1b[0m")
     } else if input.editor.text().trim_start().starts_with('!') {
         ("\x1b[33m", "\x1b[0m")
+    } else if let Some(DividerStyle::Dim) = input.footer.prompt_config.as_ref().and_then(|p| p.divider_style) {
+        ("\x1b[2m", "\x1b[0m")
+    } else if is_divider_none(input) {
+        ("", "")
     } else {
         thinking_divider_style(input.footer.thinking_level.as_deref())
     }
@@ -33,9 +47,16 @@ fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str
 fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset: &str) -> String {
     match input.modal {
         Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
+        None if is_divider_none(input) => String::new(),
         None => {
             let activity = active_activity_status(input.footer, input.spinner_frame);
-            let label = if !input.footer.show_label {
+            let show_version = input
+                .footer
+                .prompt_config
+                .as_ref()
+                .and_then(|p| p.show_version)
+                .unwrap_or(true);
+            let label = if !input.footer.show_label || !show_version {
                 ""
             } else {
                 let full = rho_harness_core::build_info::divider_label();
@@ -115,7 +136,14 @@ fn estimate_layout_demands(input: &LayoutInput<'_>, width: usize, ed_len: usize)
         super::modal::in_input_modal_desired_lines(m, input.editor.text(), width.saturating_sub(4).max(1))
     });
     let ft_lines = input.modal.map_or_else(
-        || crate::ui::interactive::footer::format_footer_lines(input.footer, width, input.system_message),
+        || {
+            crate::ui::interactive::footer::format_footer_lines_with_theme(
+                input.footer,
+                width,
+                input.system_message,
+                input.theme,
+            )
+        },
         |m| vec![super::modal::modal_hint(m).to_string()],
     );
     (total_ed_lines, ft_lines)
@@ -124,7 +152,13 @@ fn estimate_layout_demands(input: &LayoutInput<'_>, width: usize, ed_len: usize)
 fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces {
     let working = working_line_text(input.footer, input.spinner_frame, width);
     let queued = queued_lines_text(input.queued_messages, width);
-    let ed_wrapped = wrap_editor_indented(input.editor, width);
+    let prefix = input
+        .footer
+        .prompt_config
+        .as_ref()
+        .and_then(|p| p.prefix.as_deref())
+        .unwrap_or(" ");
+    let ed_wrapped = wrap_editor_with_prefix(input.editor, width, prefix);
     let ac_desired = desired_autocomplete_count(input, width);
     let (total_editor_lines, ft_lines) = estimate_layout_demands(input, width, ed_wrapped.0.len());
     let budget = compute_normal_budget(&NormalBudgetInput {
@@ -213,13 +247,17 @@ fn push_footer_lines(
     lines: &mut Vec<String>,
     ft_lines: &[String],
     budget_count: usize,
-    style: anstyle::Style,
+    style: Option<anstyle::Style>,
     width: usize,
 ) -> Vec<String> {
     let visible = ft_lines[..ft_lines.len().min(budget_count)].to_vec();
     for fl in &visible {
         let text = crate::ui::interactive::footer::truncate_to_width(fl, width);
-        lines.push(format!("{style}{text}{style:#}"));
+        if let Some(st) = style {
+            lines.push(format!("{st}{text}{st:#}"));
+        } else {
+            lines.push(text);
+        }
     }
     visible
 }
@@ -227,7 +265,19 @@ fn push_footer_lines(
 fn resolve_chrome_dividers(input: &LayoutInput<'_>, width: usize) -> (String, String) {
     let (style, reset) = resolve_divider_style(input);
     let top = resolve_top_divider(input, width, style, reset);
-    let bot = format!("{style}{}{reset}", "─".repeat(width));
+    let has_context_line = input
+        .footer
+        .status_bar_config
+        .as_ref()
+        .and_then(|c| c.context_line)
+        .is_some_and(|m| !matches!(m, ContextLineMode::Off));
+    let bot = if is_divider_none(input) && !has_context_line {
+        String::new()
+    } else if input.modal.is_some() {
+        format!("{style}{}{reset}", "─".repeat(width))
+    } else {
+        bottom_divider(width, style, reset, input.footer)
+    };
     (top, bot)
 }
 
@@ -279,11 +329,16 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         &bot_div,
         &mut lines,
     );
+    let footer_style = if input.modal.is_none() && crate::ui::interactive::footer::is_segmented_footer(input.footer) {
+        None
+    } else {
+        Some(theme.dimmed)
+    };
     let vis_ft = push_footer_lines(
         &mut lines,
         &pieces.ft_lines,
         pieces.budget.footer_count,
-        theme.dimmed,
+        footer_style,
         width,
     );
 

@@ -17,4 +17,8 @@ pub use integrations::{
 };
 pub(crate) use key::ConfigKey;
 pub use paths::{config_dir, default_config_dir, dirs_fallback, home_dir};
-pub use ui::UiConfig;
+pub use ui::{
+    ContextLineMode, DisplayUiConfig, DividerStyle, GitSegmentOptions, ModelSegmentOptions, PathSegmentOptions,
+    PromptUiConfig, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSegmentOptions,
+    StatusBarSeparator, TimeFormat, TimeSegmentOptions, UiConfig,
+};

@@ -342,6 +342,27 @@ tool_border = "gray"             # Tool / command cards
 bash_success_border = "gray"     # Successful bash commands
 bash_error_border = "red"        # Failed bash commands
 
+# Optional prompt chrome, segmented/powerline status bar, and per-turn telemetry (all opt-in)
+[ui.prompt]
+prefix = "❯ "                    # Custom prompt glyph (default: " ")
+show_version = true              # Show version label in top divider
+divider_style = "thinking"       # "thinking" | "dim" | "none"
+
+[ui.status_bar]
+preset = "default"               # "default" (2-line) | "minimal" | "compact" | "full" | "nerd" | "ascii" | "custom"
+separator = "powerline-thin"     # "powerline" | "powerline-thin" | "slash" | "pipe" | "block" | "none" | "ascii"
+icons = "nerd"                   # "nerd" | "unicode" | "ascii"
+transparent = false              # Drop background fill and powerline end caps
+compact_thinking_level = true    # Compact thinking glyph next to model name
+context_line = "off"             # "off" | "percentage" | "annotated" | "embedded"
+left = ["model", "path", "git"]
+right = ["token_total", "cost", "context_pct", "quota"]
+
+[ui.display]
+show_token_usage = false         # Per-turn timestamp, tokens, TTFT, and right-aligned tok/s
+show_turn_time = false           # Include prompt-to-yield Δ duration in stats row
+cache_miss_marker = false        # Show divider when a warm prompt cache invalidates
+
 # Web tools and search provider configuration (persisted automatically via /settings -> Tools & Permissions)
 [tools.web.search]
 enabled = true                  # Enable or disable built-in web_search

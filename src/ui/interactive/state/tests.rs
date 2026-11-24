@@ -560,6 +560,7 @@ fn footer_state_equality_and_inequality() {
         running_agents: 1,
         viewing: None,
         awaiting_approval: None,
+        ..FooterState::default()
     };
     assert_eq!(base, base.clone());
 

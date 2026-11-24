@@ -304,3 +304,28 @@ fn editor_lines_are_indented_one_space_and_wrap_inside_the_margin() {
     assert_eq!(layout.editor_lines, [" abc", " de"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 3 });
 }
+
+#[test]
+fn custom_prompt_prefix_shifts_cursor_column_and_indents_continuations() {
+    use rho_harness_core::config::PromptUiConfig;
+
+    let footer = FooterState {
+        prompt_config: Some(PromptUiConfig {
+            prefix: Some("❯ ".to_string()),
+            ..PromptUiConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let editor = editor_with_text("abcde");
+    let l = layout(LayoutInput {
+        terminal_width: 5,
+        terminal_height: 24,
+        ..base_input(&editor, &footer)
+    });
+    assert_eq!(l.editor_lines, ["❯ abc", "  de"]);
+    assert_eq!(l.cursor, CursorPosition { row: 1, column: 4 });
+
+    let (indented_lines, indented_cursor) = crate::ui::interactive::layout::editor::wrap_editor_indented(&editor, 5);
+    assert_eq!(indented_lines, [" abcd", " e"]);
+    assert_eq!(indented_cursor, CursorPosition { row: 1, column: 2 });
+}

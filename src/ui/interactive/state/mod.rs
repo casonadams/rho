@@ -11,7 +11,7 @@ pub use autocomplete::{AutocompleteItem, AutocompleteState};
 pub use editor::EditorState;
 pub use modal::{ModalMode, ModalOption, ModalState};
 pub use running_tool::{MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, RunningTool};
-pub use types::{Activity, FooterState, QueueKind, QueuedMessage, UiAction, UiEffect};
+pub use types::{Activity, FooterState, GitPrInfo, GitStatusCounts, QueueKind, QueuedMessage, UiAction, UiEffect};
 
 use std::collections::VecDeque;
 use types::ModalFrame;

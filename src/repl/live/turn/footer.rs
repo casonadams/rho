@@ -93,5 +93,18 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
         footer.quota = quota;
         changed = true;
     }
+    if footer.status_bar_config.is_some()
+        && let Some(cwd) = footer.cwd.as_deref()
+    {
+        let pr = crate::ui::interactive::footer::cached_git_pr(std::path::Path::new(cwd), footer.git_branch.as_deref());
+        if footer.git_pr != pr {
+            footer.git_pr = pr;
+            changed = true;
+        }
+    }
+    if footer.session_id.as_deref() != Some(engine.session_manager.session_id.as_str()) {
+        footer.session_id = Some(engine.session_manager.session_id.clone());
+        changed = true;
+    }
     changed
 }

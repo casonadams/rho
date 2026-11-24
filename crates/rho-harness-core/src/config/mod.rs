@@ -14,11 +14,14 @@ pub use validate::SUPPORTED_SEARCH_ENGINES;
 mod tests;
 
 pub use types::{
-    ApprovalFocus, BashConfig, CacheRetention, Config, DEFAULT_MAX_TURNS, LspConfig, McpConfig, McpDirectTools,
-    McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind, ModelSlot, ModelsConfig,
-    PermissionConfig, ProjectMcpServers, ProviderConfig, SubagentsConfig, ToolsConfig, UiConfig, WebFetchConfig,
-    WebSearchConfig, WebToolsConfig, WorktreeConfig, config_dir, default_config_dir, default_idle_timeout_seconds,
-    dirs_fallback, home_dir,
+    ApprovalFocus, BashConfig, CacheRetention, Config, ContextLineMode, DEFAULT_MAX_TURNS, DisplayUiConfig,
+    DividerStyle, GitSegmentOptions, LspConfig, McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode,
+    McpOAuthConfig, McpServerConfig, McpTransportKind, ModelSegmentOptions, ModelSlot, ModelsConfig,
+    PathSegmentOptions, PermissionConfig, ProjectMcpServers, PromptUiConfig, ProviderConfig, StatusBarConfig,
+    StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSegmentOptions, StatusBarSeparator,
+    SubagentsConfig, TimeFormat, TimeSegmentOptions, ToolsConfig, UiConfig, WebFetchConfig, WebSearchConfig,
+    WebToolsConfig, WorktreeConfig, config_dir, default_config_dir, default_idle_timeout_seconds, dirs_fallback,
+    home_dir,
 };
 
 use crate::error::{AppError, Result};

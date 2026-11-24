@@ -143,3 +143,68 @@ fn top_divider_busy_degrades_with_width() {
         assert_eq!(visible_width(&layout.top_divider), width);
     }
 }
+
+#[test]
+fn prompt_show_version_false_omits_version_label() {
+    use rho_harness_core::config::PromptUiConfig;
+
+    let footer = FooterState {
+        show_label: true,
+        prompt_config: Some(PromptUiConfig {
+            show_version: Some(false),
+            ..PromptUiConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let layout = render(&EditorState::default(), &footer, None, 60);
+    assert_eq!(visible_width(&layout.top_divider), 60);
+    assert!(!layout.top_divider.contains("rho"));
+}
+
+#[test]
+fn divider_style_dim_and_none_behave_cleanly() {
+    use rho_harness_core::config::{DividerStyle, PromptUiConfig};
+
+    let dim_footer = FooterState {
+        thinking_level: Some("high".into()),
+        prompt_config: Some(PromptUiConfig {
+            divider_style: Some(DividerStyle::Dim),
+            ..PromptUiConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let dim_layout = render(&EditorState::default(), &dim_footer, None, 20);
+    assert!(dim_layout.top_divider.starts_with("\x1b[2m"));
+
+    let none_footer = FooterState {
+        prompt_config: Some(PromptUiConfig {
+            divider_style: Some(DividerStyle::None),
+            ..PromptUiConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let none_layout = render(&EditorState::default(), &none_footer, None, 20);
+    assert_eq!(none_layout.top_divider, "");
+    assert_eq!(none_layout.bottom_divider, "");
+    assert!(none_layout.cursor_row() < none_layout.height());
+}
+
+#[test]
+fn context_line_embedded_renders_percentage_and_window_in_bottom_divider() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{ContextLineMode, StatusBarConfig};
+
+    let footer = FooterState {
+        context_percent: Some(42.0),
+        context_window: 200_000,
+        status_bar_config: Some(StatusBarConfig {
+            context_line: Some(ContextLineMode::Embedded),
+            ..StatusBarConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let layout = render(&EditorState::default(), &footer, None, 40);
+    assert_eq!(visible_width(&layout.bottom_divider), 40);
+    let plain = strip_ansi(&layout.bottom_divider);
+    assert!(plain.contains("42% / 200k"), "got {plain:?}");
+}

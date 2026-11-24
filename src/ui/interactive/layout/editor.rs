@@ -17,14 +17,35 @@ pub(crate) fn wrap_editor(editor: &EditorState, width: usize) -> (Vec<String>, C
     (lines, CursorPosition { row, column })
 }
 
-pub(crate) fn wrap_editor_indented(editor: &EditorState, width: usize) -> (Vec<String>, CursorPosition) {
-    let (lines, cursor) = wrap_editor(editor, width.saturating_sub(1).max(1));
-    let indented = lines.into_iter().map(|line| format!(" {line}")).collect();
+pub(crate) fn wrap_editor_with_prefix(
+    editor: &EditorState,
+    width: usize,
+    prefix: &str,
+) -> (Vec<String>, CursorPosition) {
+    let prefix_width = crate::ui::block::visible_width(prefix);
+    let (lines, cursor) = wrap_editor(editor, width.saturating_sub(prefix_width).max(1));
+    let cont_indent = " ".repeat(prefix_width);
+    let indented = lines
+        .into_iter()
+        .enumerate()
+        .map(|(idx, line)| {
+            if idx == 0 {
+                format!("{prefix}{line}")
+            } else {
+                format!("{cont_indent}{line}")
+            }
+        })
+        .collect();
     let cursor = CursorPosition {
         row: cursor.row,
-        column: cursor.column + 1,
+        column: cursor.column + prefix_width,
     };
     (indented, cursor)
+}
+
+#[cfg(test)]
+pub(crate) fn wrap_editor_indented(editor: &EditorState, width: usize) -> (Vec<String>, CursorPosition) {
+    wrap_editor_with_prefix(editor, width, " ")
 }
 
 pub(crate) fn window_editor(

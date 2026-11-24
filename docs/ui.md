@@ -43,6 +43,32 @@ duplicated. Output printed before `rho` started is cleared along with it.
 > window usage, costs) are computed strictly in-memory on your local machine.
 > `rho` collects no telemetry and transmits no analytics.
 
+### Customizable Prompt, Segmented Status Bar & Per-Turn Telemetry
+
+By default, `rho` renders the two-line footer and plain prompt above. You can opt
+into custom prompt chrome, a single-line segmented/powerline status bar, and
+per-turn telemetry rows under `[ui.prompt]`, `[ui.status_bar]`, and `[ui.display]`
+in `~/.config/rho/config.toml` (or `.rho/config.toml`):
+
+- **`[ui.prompt]`**: Customize the prompt `prefix` glyph (e.g. `"❯ "`, `"» "`),
+  toggle `show_version`, and set `divider_style` (`"thinking"`, `"dim"`, or `"none"`).
+- **`[ui.status_bar]`**: Choose a `preset` (`"minimal"`, `"compact"`, `"full"`,
+  `"nerd"`, `"ascii"`, `"custom"`), order `left` / `right` segments (`model`,
+  `path`, `git` with `+staged *unstaged ?untracked` counts, `context_pct`,
+  `context_total`, `token_in`, `token_out`, `token_total`, `cache_read`,
+  `cache_write`, `cache_hit`, `token_rate`, `cost`, `time_spent`, `time`,
+  `session`, `session_name`, `subagents`, `quota`, `hostname`), pick a
+  `separator` (`"powerline"`, `"powerline-thin"`, `"slash"`, `"pipe"`, `"block"`,
+  `"none"`, `"ascii"`), set `icons` (`"nerd"`, `"unicode"`, `"ascii"`), toggle
+  `transparent` or `compact_thinking_level`, and optionally enable a
+  context-reactive bottom divider (`context_line = "percentage" | "annotated" | "embedded"`).
+  Narrow terminals drop lower-priority tail segments whole before truncating.
+- **`[ui.display]`**: Enable `show_token_usage = true` to print a dim per-turn
+  stats row below each completed assistant turn (timestamp, optional `Δ` turn
+  duration with `show_turn_time = true`, input/output/cache tokens, TTFT, and
+  right-aligned `tok/s`), and `cache_miss_marker = true` to flag warm prompt
+  cache invalidations. See [Configuration](configuration.md) for all keys.
+
 ---
 
 ## Keyboard Controls & Navigation

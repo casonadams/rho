@@ -36,6 +36,32 @@ pub async fn paste_clipboard_async<B: TerminalBackend>(
     }
 }
 
+fn cached_hostname() -> Option<String> {
+    static HOSTNAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    HOSTNAME
+        .get_or_init(|| {
+            std::env::var("HOSTNAME")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    std::fs::read_to_string("/etc/hostname")
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                })
+                .or_else(|| {
+                    std::process::Command::new("hostname")
+                        .output()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        .filter(|s| !s.is_empty())
+                })
+        })
+        .clone()
+}
+
 pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
     state.set_active_tool(None);
     let footer = state.footer_mut();
@@ -61,6 +87,20 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.tokens_per_second = engine.tokens_per_second();
     footer.context = Some(engine.context_remaining_display());
     footer.show_label = session.config.show_label;
+    footer.prompt_config = session.config.ui.prompt.clone();
+    footer.status_bar_config = session.config.ui.status_bar.clone();
+    footer.session_id = Some(engine.session_manager.session_id.clone());
+    footer.hostname = cached_hostname();
+    footer.git_status = if session.config.ui.status_bar.is_some() {
+        crate::ui::interactive::footer::get_git_status_counts(&cwd)
+    } else {
+        None
+    };
+    footer.git_pr = if session.config.ui.status_bar.is_some() {
+        crate::ui::interactive::footer::cached_git_pr(&cwd, footer.git_branch.as_deref())
+    } else {
+        None
+    };
 }
 
 /// Reports a model or thinking change: a warning when it failed, a notice when it resets a warm prompt cache.

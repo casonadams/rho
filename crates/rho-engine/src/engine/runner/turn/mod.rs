@@ -15,6 +15,7 @@ pub use types::{
 };
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::engine::AgentEngine;
 use prepare::TurnLoopState;
@@ -30,12 +31,14 @@ impl AgentEngine {
         res: StreamRunResult,
         sink: &Arc<TerminalApprovalSink>,
         lifecycle: &crate::hook::LifecycleHook,
+        turn_started_at: Instant,
     ) -> Result<TurnOutput> {
         sink.record_tool_events().await?;
         match res {
             StreamRunResult::Compacted(status) => self.compacted_turn_output(status).await,
             StreamRunResult::Complete(state) => {
                 let elapsed = Self::elapsed_generation_ms(&state);
+                let ttft_ms = Self::ttft_ms(&state);
                 sink.finish_spinner();
                 sink.flush_display();
                 let prompt_response = state.final_response.unwrap_or_default();
@@ -45,6 +48,8 @@ impl AgentEngine {
                         tool_calls_count: state.total_tool_calls,
                         completed_tools: sink.completed(),
                         generation_elapsed_ms: elapsed,
+                        turn_started_at,
+                        ttft_ms,
                     },
                     lifecycle,
                 )
@@ -52,6 +57,7 @@ impl AgentEngine {
             }
             StreamRunResult::ContentFiltered(state) => {
                 let elapsed = Self::elapsed_generation_ms(&state);
+                let ttft_ms = Self::ttft_ms(&state);
                 sink.finish_spinner();
                 sink.flush_display();
                 let prompt_response = crate::engine::metrics::types::PromptResponse::new(
@@ -65,6 +71,8 @@ impl AgentEngine {
                             tool_calls_count: state.total_tool_calls,
                             completed_tools: sink.completed(),
                             generation_elapsed_ms: elapsed,
+                            turn_started_at,
+                            ttft_ms,
                         },
                         lifecycle,
                     )
@@ -90,16 +98,19 @@ impl AgentEngine {
         let stream_res = self
             .run_turn_stream(runner, sink, presenter.as_ref(), loop_state)
             .await?;
-        self.handle_stream_run_result(stream_res, sink, lifecycle).await
+        self.handle_stream_run_result(stream_res, sink, lifecycle, loop_state.turn_started_at)
+            .await
     }
 
     pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
+        let turn_started_at = Instant::now();
         let oauth_secrets = self.router.auth().lock().await.oauth_secret_values();
         self.session_manager.add_secrets_async(oauth_secrets).await?;
         let mut prep = match self.prepare_turn(request.prompt, &presenter).await? {
             prepare::PreparedTurnOutcome::Compacted(out) => return Ok(*out),
             prepare::PreparedTurnOutcome::Ready(prep) => prep,
         };
+        prep.loop_state.turn_started_at = turn_started_at;
         let lifecycle = self.lifecycle_hook(presenter.clone());
         let _in_flight_guard = self.usage.in_flight_guard();
         self.execute_turn_step(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
