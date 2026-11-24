@@ -78,7 +78,7 @@ use serde_json::{Value, json};
 pub fn normalize_model_alias(model: &str) -> &str {
     match model {
         "default" | "sonnet" | "claude-sonnet-4-6" => "claude-sonnet-4-6",
-        "claude-sonnet-4-5" => "claude-sonnet-4-5-20250514",
+        "claude-sonnet-4-5" => "claude-sonnet-4-5-20250929",
         "opus" | "claude-opus-4-6" => "claude-opus-4-6",
         "haiku" | "claude-haiku-4-5" => "claude-haiku-4-5",
         "sonnet-5" | "claude-sonnet-5" => "claude-sonnet-5",
