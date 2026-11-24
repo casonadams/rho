@@ -75,57 +75,117 @@ fn isolate_perm_env() -> EnvGuard {
     }
 }
 
+struct HeadlessRun {
+    result: rho_harness_core::error::Result<rho_engine::engine::runner::TurnOutput>,
+    model: Arc<MockAdapter>,
+    workspace: rho_test_support::TestDir,
+}
+
+impl HeadlessRun {
+    fn tool_result_text(&self) -> String {
+        use rho_harness_core::model::{ChatMessage, UserContent};
+        let requests = self.model.requests();
+        let last = requests.last().expect("the model was called after the tool");
+        last.messages
+            .iter()
+            .filter_map(|m| match m {
+                ChatMessage::User { content } => Some(content),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|c| match c {
+                UserContent::ToolResult(r) => Some(r.text()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 async fn run_headless_turn(
     rules: Option<&str>,
-    cmd: &str,
+    command_for: impl FnOnce(&std::path::Path) -> String,
     final_text: &'static str,
     prompt: &str,
-) -> rho_harness_core::error::Result<rho_engine::engine::runner::TurnOutput> {
+    setup: impl FnOnce(&std::path::Path),
+) -> HeadlessRun {
     let _env = isolate_perm_env();
     let ws = temp_dir("perm_test");
     if let Some(rules) = rules {
-        let perm_dir = ws.join(".agents").join("permissions");
+        let perm_dir = ws.join(".rho");
         std::fs::create_dir_all(&perm_dir).unwrap();
-        std::fs::write(perm_dir.join("rules.toml"), rules).unwrap();
+        std::fs::write(perm_dir.join("permission.toml"), rules).unwrap();
     }
+    setup(&ws);
     let config = Config {
         permission: PermissionConfig::default(),
         ..Config::default()
     };
-    let fix = make_perm_engine(&ws, make_perm_model(cmd, final_text), config);
-    fix.engine.run_turn(TurnRequest::new(prompt), fix.presenter).await
+    let model = make_perm_model(&command_for(&ws), final_text);
+    let fix = make_perm_engine(&ws, Arc::clone(&model), config);
+    let result = fix.engine.run_turn(TurnRequest::new(prompt), fix.presenter).await;
+    HeadlessRun {
+        result,
+        model,
+        workspace: ws,
+    }
 }
 
 #[tokio::test]
 async fn permission_explicit_allow_runs_silently_in_headless() {
-    let output = run_headless_turn(
+    let run = run_headless_turn(
         Some("[permission.bash]\n\"echo *\" = \"allow\"\n"),
-        "echo hello_headless",
+        |_| "echo hello_headless".to_string(),
         "done echoing",
         "run echo",
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(output.final_text, "done echoing");
-}
-
-#[tokio::test]
-async fn permission_explicit_deny_halts_with_error_in_headless() {
-    let result = run_headless_turn(
-        Some("[permission.bash]\n\"rm *\" = \"deny\"\n"),
-        "rm -rf /tmp/foo",
-        "done removing",
-        "remove foo",
+        |_| {},
     )
     .await;
 
-    assert!(result.is_ok() || result.is_err());
+    let tool_text = run.tool_result_text();
+    let result = run.result;
+    assert_eq!(result.unwrap().final_text, "done echoing");
+    assert!(tool_text.contains("hello_headless"));
+}
+
+#[tokio::test]
+async fn permission_explicit_deny_blocks_the_command_in_headless() {
+    let run = run_headless_turn(
+        Some("[permission.bash]\n\"rm *\" = \"deny\"\n"),
+        |ws| format!("rm -rf {}", ws.join("victim").display()),
+        "done removing",
+        "remove victim",
+        |ws| std::fs::write(ws.join("victim"), "keep me").unwrap(),
+    )
+    .await;
+
+    assert_eq!(
+        std::fs::read_to_string(run.workspace.join("victim")).unwrap(),
+        "keep me"
+    );
+    assert!(run.result.is_ok(), "a denied tool call does not abort the turn");
+    assert_eq!(
+        run.tool_result_text(),
+        "Permission denied: denied by permission rule 'bash|rm *'"
+    );
 }
 
 #[tokio::test]
 async fn permission_ask_denies_cleanly_in_headless_mode() {
-    let result = run_headless_turn(None, "touch /tmp/unmatched_file", "should not reach here", "touch file").await;
+    let run = run_headless_turn(
+        None,
+        |ws| format!("touch {}", ws.join("unmatched_file").display()),
+        "should not reach here",
+        "touch file",
+        |_| {},
+    )
+    .await;
 
-    assert!(result.is_ok() || result.is_err());
+    assert!(!run.workspace.join("unmatched_file").exists());
+    assert!(run.result.is_ok(), "a denied tool call does not abort the turn");
+    assert!(
+        run.tool_result_text().contains("cannot prompt in headless mode"),
+        "{}",
+        run.tool_result_text()
+    );
 }
