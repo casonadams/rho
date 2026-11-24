@@ -20,15 +20,12 @@
     <agent id="recon" use="recon" model="default" turns="60" resume="1" output="json" prompt-file="prompts/recon.md"/>
 
     <loop id="pass" max="{{passes}}" while="{{gaps.tasks}}">
-      <each id="verified" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6" result="{{vote | default:single}}">
+      <each id="verified" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6" result="{{repro | default:single}}">
         <agent id="found" use="hunter-{{task.category}}" model="smol" turns="60" resume="1" output="json" prompt-file="prompts/hunt.md"/>
         <choose on="{{verify}}">
           <case value="panel">
-            <parallel>
-              <agent id="refute" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
-              <agent id="repro" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check-repro.md"/>
-            </parallel>
-            <agent id="vote" use="curator" model="default" turns="20" resume="1" output="json" prompt-file="prompts/vote.md"/>
+            <agent id="refute" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
+            <agent id="repro" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check-repro.md"/>
           </case>
           <otherwise>
             <agent id="single" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>

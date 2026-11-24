@@ -32,5 +32,4 @@ const AUDIT: &[(&str, &str)] = &[
     bundle_file!("audit", "prompts/recon.md"),
     bundle_file!("audit", "prompts/report.md"),
     bundle_file!("audit", "prompts/trace.md"),
-    bundle_file!("audit", "prompts/vote.md"),
 ];

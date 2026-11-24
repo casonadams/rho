@@ -82,7 +82,7 @@ results). It never edits code.
 | `paths` | `.` | Git pathspec limiting the audit |
 | `passes` | `2` | Hunt passes; later passes cover gaps earlier ones reported |
 | `max_tasks` | `40` | Hunt tasks per pass |
-| `verify` | `single` | `single` (one skeptic per hunt) or `panel` (two skeptics, one reading the code for guards and one trying to reproduce; a finding survives only if both keep it) |
+| `verify` | `single` | `single` (one skeptic per hunt) or `panel` (two skeptics in turn: one reads the code for guards, then a second tries to reproduce what survived; a finding is kept only if both keep it) |
 | `scope` | `repo` | `repo` (every tracked file), `branch:BASE` (changes since `BASE`), or `commits:N` (the last N commits). A range also includes your uncommitted changes, because the run starts from a snapshot of your working tree |
 
 For example, `/workflow audit security,reliability . 1 10 branch:main` audits
@@ -213,7 +213,7 @@ a `default` is required; `choices` is a space-separated list of allowed values.
   after the `<each>` cannot read them: they see only the `<each>`'s own value, a
   list with one entry per item, and `{{<each id>.history}}`.
 - An item's entry is its last step's value, or the `result` template evaluated
-  in that item's copy after its body (`result="{{vote | default:single}}"`).
+  in that item's copy after its body (`result="{{repro | default:single}}"`).
   A failed item yields `null` and the others continue; use `| compact` to drop
   the nulls.
 
