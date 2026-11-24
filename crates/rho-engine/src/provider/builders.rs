@@ -120,6 +120,11 @@ pub(super) fn build_api_key_model(request: &ModelRequest<'_>, key: String) -> Re
         let client = crate::claude::ClaudeClient::with_api_key(key, model);
         return Ok(Arc::new(configure_claude(client, request)));
     }
+    if provider == ProviderId::Gemini {
+        let client = crate::gemini::GeminiClient::new(key, model)
+            .with_thinking_level(request.thinking_level.map(str::to_string));
+        return Ok(Arc::new(client));
+    }
     let endpoint = openai_endpoint(provider)
         .ok_or_else(|| AppError::Provider(format!("Unsupported API-key provider '{provider}'")))?;
     Ok(openai_model(endpoint.chat, key, model, provider.as_str()))

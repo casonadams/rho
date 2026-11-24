@@ -10,10 +10,12 @@ fn temp_root(label: &str) -> rho_test_support::TestDir {
 }
 
 #[test]
-fn ships_no_builtin_workflows() {
+fn ships_only_the_builtin_audit_and_it_loads_cleanly() {
     let catalog = WorkflowCatalog::discover(None, None);
-    assert!(catalog.bundles.is_empty());
-    assert!(catalog.errors.is_empty());
+    let names: Vec<&str> = catalog.bundles.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, ["audit"]);
+    assert_eq!(catalog.bundles[0].origin, WorkflowOrigin::Builtin);
+    assert!(catalog.errors.is_empty(), "{:?}", catalog.errors);
 }
 
 #[test]
@@ -81,7 +83,7 @@ fn invalid_workflows_are_reported_not_loaded() {
 
     let catalog = WorkflowCatalog::discover(Some(&root), None);
     let names: Vec<&str> = catalog.bundles.iter().map(|b| b.name.as_str()).collect();
-    assert_eq!(names, ["inner"]);
+    assert_eq!(names, ["audit", "inner"]);
     let errors = catalog.errors.join("\n");
     for expected in [
         "missing required attribute 'cmd'",

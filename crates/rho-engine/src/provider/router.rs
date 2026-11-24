@@ -87,6 +87,70 @@ impl ModelRouter {
         };
         self.build(&config, &route).await.map(Some)
     }
+
+    /// Builds a structured [`crate::decision::DecisionHandle`] for `route`, preferring native
+    /// decision APIs (`gemini/gemini-decision-1`, `typesafe/jev-latest`, `openrouter/*decision*`)
+    /// and wrapping chat models in [`crate::decision::ChatDecisionAdapter`].
+    pub async fn build_decision(&self, config: &Config, route: &ModelRoute) -> Result<crate::decision::DecisionHandle> {
+        if crate::decision::is_native_decision_model(route.provider(), &route.model) {
+            return self.build_native_decision(route).await;
+        }
+        let config = Config {
+            thinking_level: rho_harness_core::thinking::ThinkingLevel::Off.setting(),
+            ..config.clone()
+        };
+        let model = self.build(&config, route).await?;
+        Ok(Arc::new(crate::decision::ChatDecisionAdapter::new(model)))
+    }
+
+    /// The guard model resolved as a [`crate::decision::DecisionHandle`].
+    pub async fn build_guard_decision(&self, config: &Config) -> Result<Option<crate::decision::DecisionHandle>> {
+        let Some(route) = guard_route(config) else {
+            return Ok(None);
+        };
+        self.build_decision(config, &route).await.map(Some)
+    }
+
+    async fn build_native_decision(&self, route: &ModelRoute) -> Result<crate::decision::DecisionHandle> {
+        crate::install_crypto_provider();
+        let mut auth_store = self.auth.lock().await.clone();
+        let connection = route.connection.to_string();
+        let provider = route.provider().to_ascii_lowercase();
+        match provider.as_str() {
+            "gemini" | "google" => {
+                let key = resolve_provider_key(ProviderId::Gemini, &connection, &auth_store)?;
+                Ok(Arc::new(crate::decision::GeminiDecisionClient::new(key, &route.model)))
+            }
+            "typesafe" => {
+                let key = resolve_typesafe_key(&connection, &mut auth_store).await?;
+                Ok(Arc::new(crate::decision::SystemOneClient::typesafe(key, &route.model)))
+            }
+            "openrouter" => {
+                let key = resolve_provider_key(ProviderId::OpenRouter, &connection, &auth_store)?;
+                Ok(Arc::new(crate::decision::SystemOneClient::openrouter(
+                    key,
+                    &route.model,
+                )))
+            }
+            _ => Err(AppError::Provider(format!(
+                "Unsupported native decision provider '{}'",
+                route.provider()
+            ))),
+        }
+    }
+}
+
+async fn resolve_typesafe_key(connection: &str, auth_store: &mut AuthStore) -> Result<String> {
+    if let Ok(key) = std::env::var("TYPESAFE_API_KEY")
+        && !key.trim().is_empty()
+    {
+        return Ok(key.trim().to_string());
+    }
+    auth_store.get_key(connection).await?.ok_or_else(|| {
+        AppError::Auth(
+            "Missing API key for provider 'typesafe'. Set TYPESAFE_API_KEY or run 'rho login typesafe'.".to_string(),
+        )
+    })
 }
 
 pub fn guard_route(config: &Config) -> Option<ModelRoute> {

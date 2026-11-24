@@ -148,14 +148,20 @@ fn parse_oauth(val: Option<&Value>) -> Option<McpOAuthConfig> {
     })
 }
 
+fn parse_enabled(obj: &JsonObject) -> bool {
+    let enabled = obj.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+    let disabled = obj.get("disabled").and_then(Value::as_bool).unwrap_or(false);
+    enabled && !disabled
+}
+
 fn parse_single_server_json(obj: &JsonObject) -> McpServerConfig {
     McpServerConfig {
         command: text(obj, &["command"]),
         args: parse_string_vec(obj.get("args")),
         env: parse_string_map(obj.get("env")),
-        enabled: obj.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+        enabled: parse_enabled(obj),
         url: text(obj, &["url"]),
-        transport: parse_transport_kind(obj.get("transport")),
+        transport: parse_transport_kind(first(obj, &["transport", "type"])),
         headers: parse_string_map(obj.get("headers")),
         mode: parse_exposure_mode(obj.get("mode")),
         include_tools: non_empty_list(first(obj, &["includeTools", "include_tools"])),

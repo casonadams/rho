@@ -33,6 +33,7 @@ pub struct Node {
 pub enum NodeKind {
     Agent(AgentNode),
     Run(RunNode),
+    Write(WriteNode),
     Call(CallNode),
     Sequence(Vec<Node>),
     Parallel(Vec<Node>),
@@ -49,7 +50,7 @@ impl NodeKind {
             Self::Each(each) => vec![&each.body],
             Self::Loop(l) => vec![&l.body],
             Self::Choose(c) => c.cases.iter().map(|(_, b)| b).chain(c.otherwise.as_ref()).collect(),
-            Self::Agent(_) | Self::Run(_) | Self::Call(_) => Vec::new(),
+            Self::Agent(_) | Self::Run(_) | Self::Write(_) | Self::Call(_) => Vec::new(),
         }
     }
 
@@ -58,6 +59,7 @@ impl NodeKind {
         match self {
             Self::Agent(_) => "agent",
             Self::Run(_) => "run",
+            Self::Write(_) => "write",
             Self::Call(_) => "call",
             Self::Sequence(_) => "sequence",
             Self::Parallel(_) => "parallel",
@@ -112,9 +114,10 @@ pub enum OutputFormat {
 pub struct AgentNode {
     pub agent: String,
     pub prompt: String,
-    pub model: Option<ModelRole>,
+    pub model: Option<String>,
     pub persona: Option<String>,
     pub turns: usize,
+    pub resume: usize,
     pub output: OutputFormat,
     pub context: Vec<String>,
 }
@@ -123,6 +126,12 @@ pub struct AgentNode {
 pub struct RunNode {
     pub args: Vec<String>,
     pub output: OutputFormat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteNode {
+    pub path: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +151,7 @@ pub struct EachNode {
     pub items: Items,
     pub var: String,
     pub parallel: usize,
+    pub result: Option<String>,
     pub body: Vec<Node>,
 }
 

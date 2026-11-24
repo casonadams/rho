@@ -3,22 +3,29 @@ mod command;
 mod executor;
 mod files;
 mod report;
+mod resume;
 #[cfg(test)]
 mod tests;
+mod write_step;
 
 use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
 use executor::{Executor, Frame};
 use report::RunLog;
+use resume::Replay;
 use rho_harness_core::workflow::{AgentNode, ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+const MAX_SUMMARY_CHARS: usize = 2_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowRun {
     pub ok: bool,
     pub report: String,
+    /// The workflow's `summary` output when it is text: shown to the user after the run.
+    pub summary: Option<String>,
     /// The workflow started running; a run rejected before its first step has nothing to hand off.
     pub started: bool,
 }
@@ -55,7 +62,7 @@ fn preflight(name: &str, bundle: &WorkflowBundle, subagents: &SubagentTool) -> R
     let agents = bundle_agents(bundle);
     let mut missing: Vec<&'static str> = agents
         .iter()
-        .filter_map(|agent| agent.model)
+        .filter_map(|agent| agent.model.as_deref().and_then(|m| ModelRole::parse(m).ok()))
         .filter(|role| !subagents.role_configured(*role))
         .map(ModelRole::as_str)
         .collect();
@@ -102,6 +109,22 @@ impl WorkflowRunner {
     }
 
     pub async fn run(&self, name: &str, inputs: BTreeMap<String, String>) -> WorkflowRun {
+        self.start(name, inputs, None).await
+    }
+
+    /// Runs again a workflow run that failed or was cancelled, reusing every agent result it already
+    /// produced for an unchanged prompt; `run_id` is the id in the run's log file name.
+    pub async fn resume(&self, run_id: &str) -> WorkflowRun {
+        match resume::load(&self.base_dir, run_id) {
+            Ok(resumed) => {
+                self.start(&resumed.workflow, resumed.inputs, Some(resumed.replay))
+                    .await
+            }
+            Err(e) => failed(format!("cannot resume: {e}")),
+        }
+    }
+
+    async fn start(&self, name: &str, inputs: BTreeMap<String, String>, replay: Option<Replay>) -> WorkflowRun {
         let runner = self.clone();
         let catalog = match tokio::task::spawn_blocking(move || runner.catalog()).await {
             Ok(catalog) => catalog,
@@ -117,7 +140,7 @@ impl WorkflowRunner {
         if let Err(e) = preflight(name, bundle, &self.subagents) {
             return failed(e);
         }
-        self.execute(&catalog, bundle, &inputs).await
+        self.execute(&catalog, bundle, &inputs, replay.as_ref()).await
     }
 
     async fn execute(
@@ -125,6 +148,7 @@ impl WorkflowRunner {
         catalog: &WorkflowCatalog,
         bundle: &WorkflowBundle,
         inputs: &BTreeMap<String, String>,
+        replay: Option<&Replay>,
     ) -> WorkflowRun {
         let log = match RunLog::create(&self.base_dir, &bundle.name) {
             Ok(log) => log,
@@ -158,6 +182,8 @@ impl WorkflowRunner {
             subagents: &self.subagents,
             catalog,
             base_dir: &base_dir,
+            project_dir: &self.base_dir,
+            replay,
             log: &log,
         };
         let frame = Frame {
@@ -174,19 +200,25 @@ impl WorkflowRunner {
             }
             None => String::new(),
         };
-        let (ok, report) = match result {
-            Ok(outputs) => (
-                true,
-                log.report(&format!("Workflow `{}` completed.", bundle.name), Some(&outputs)),
-            ),
+        let (ok, report, summary) = match result {
+            Ok(outputs) => {
+                let summary = outputs["summary"]
+                    .as_str()
+                    .map(|s| clamp_summary(s.trim()))
+                    .filter(|s| !s.is_empty());
+                let report = log.report(&format!("Workflow `{}` completed.", bundle.name), Some(&outputs));
+                (true, report, summary)
+            }
             Err(e) => (
                 false,
                 log.report(&format!("Workflow `{}` stopped: {e}", bundle.name), None),
+                None,
             ),
         };
         WorkflowRun {
             ok,
             report: format!("{report}{handoff}"),
+            summary,
             started: true,
         }
     }
@@ -211,10 +243,18 @@ async fn hand_off(worktree: &crate::worktree::Worktree) -> String {
     }
 }
 
+fn clamp_summary(text: &str) -> String {
+    match text.char_indices().nth(MAX_SUMMARY_CHARS) {
+        Some((end, _)) => format!("{}\n[summary truncated; see the report]", &text[..end]),
+        None => text.to_string(),
+    }
+}
+
 fn failed(report: String) -> WorkflowRun {
     WorkflowRun {
         ok: false,
         report,
+        summary: None,
         started: false,
     }
 }

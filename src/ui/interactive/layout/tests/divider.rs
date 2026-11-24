@@ -58,6 +58,10 @@ fn top_divider_shows_name_and_version_when_label_enabled() {
     let label = concat!("rho ", env!("CARGO_PKG_VERSION"));
     assert!(layout.top_divider.contains(label));
     assert!(layout.bottom_divider.contains('─') && !layout.bottom_divider.contains("rho"));
+
+    let wide = render(&EditorState::default(), &footer, None, 80);
+    assert_eq!(visible_width(&wide.top_divider), 80);
+    assert!(wide.top_divider.contains(rho_harness_core::build_info::divider_label()));
 }
 
 #[test]

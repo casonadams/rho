@@ -347,7 +347,8 @@ happen.
   merged, which covers what it saw through `rg` or other directory-wide
   commands. The result says what the subagent was told.
 - **Finishing**: a subagent finishes by calling `complete_task` with its report,
-  which becomes the task's result; text it writes outside that call is not
+  which becomes the task's result (an optional `data` object carries structured
+  output as an A2A data part, saved as the task's `result-data` artifact); text it writes outside that call is not
   passed on. The call is refused while a message from the main agent is
   waiting or the subagent's own background work is still running, so the
   subagent reads or waits for it first. A subagent that ends with a plain
@@ -550,6 +551,11 @@ tools_expanded = false
 # Cursor rendering: "hardware" (default, native terminal cursor) or "software" (reverse-video block)
 cursor = "hardware"
 
+# Syntax-highlight Guard/permission/question modals, bash/JSON tool headers, and tool outputs (default: false)
+syntax_highlight_tools = false
+
+# Display full bash commands in tool cards without 60-character truncation (default: false)
+full_bash_command = false
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent blocks
@@ -590,6 +596,13 @@ fallback = ["duckduckgo", "yahoo"]
 [tools.web.fetch]
 # Enable or disable the built-in web_fetch tool (default: true)
 enabled = true
+
+[tools.bash]
+# Automatically load allowed `.envrc` files via `direnv export json` (default: false)
+direnv = false
+# Maximum time in ms to wait for `direnv export json` (default: 30000)
+direnv_timeout_ms = 30000
+
 [mcp]
 # Enable or disable MCP subsystem (default: true)
 enabled = true
@@ -599,6 +612,10 @@ startup_timeout_ms = 3000
 [permission]
 # Enable or disable runtime permission guardrails (default: true)
 enabled = true
+# Route all non-baseline Ask tool calls (MCP, out-of-workspace writes, etc.) through the guard model (default: false)
+guard_all_tools = false
+# Append JSONL guard decision audit records to ~/.config/rho/guard/decisions.jsonl (default: false)
+guard_audit_log = false
 ```
 
 Supported search engine identifiers:

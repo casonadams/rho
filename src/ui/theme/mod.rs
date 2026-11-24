@@ -55,6 +55,8 @@ pub struct Theme {
     pub bash_error_border: Style,
     pub block_agent_output: bool,
     pub cursor_mode: CursorMode,
+    pub syntax_highlight_tools: bool,
+    pub full_bash_command: bool,
 }
 
 fn resolve_border_style(color: Option<&String>) -> Option<Style> {
@@ -142,6 +144,12 @@ impl Theme {
         if let Some(val) = ui.agent_block_output {
             self.block_agent_output = val;
         }
+        if let Some(val) = ui.syntax_highlight_tools {
+            self.syntax_highlight_tools = val;
+        }
+        if let Some(val) = ui.full_bash_command {
+            self.full_bash_command = val;
+        }
     }
 }
 
@@ -218,6 +226,8 @@ impl Default for Theme {
             bash_error_border: foreground(AnsiColor::Red),
             block_agent_output: false,
             cursor_mode: CursorMode::Hardware,
+            syntax_highlight_tools: false,
+            full_bash_command: false,
         }
     }
 }

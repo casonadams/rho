@@ -68,7 +68,13 @@ fn parses_subagent_settings_and_project_overrides() {
 fn parses_permission_config_disabled() {
     let toml_disabled = "[permission]\nenabled = false\n";
     let file: FileConfig = toml::from_str(toml_disabled).unwrap();
-    assert_eq!(file.permission, Some(PermissionConfig { enabled: false }));
+    assert_eq!(
+        file.permission,
+        Some(PermissionConfig {
+            enabled: false,
+            ..PermissionConfig::default()
+        })
+    );
     let mut config = Config::default();
     super::super::merge::merge_file(&mut config, file);
     assert!(!config.permission.enabled);
@@ -77,7 +83,7 @@ fn parses_permission_config_disabled() {
 #[test]
 fn parses_permission_config_empty_or_omitted() {
     let file_empty: FileConfig = toml::from_str("[permission]\n").unwrap();
-    assert_eq!(file_empty.permission, Some(PermissionConfig { enabled: true }));
+    assert_eq!(file_empty.permission, Some(PermissionConfig::default()));
     let mut config = Config::default();
     super::super::merge::merge_file(&mut config, file_empty);
     assert!(config.permission.enabled);

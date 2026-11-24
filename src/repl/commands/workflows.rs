@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use super::types::{CommandResult, SlashCommandContext};
+use super::types::{CommandResult, SlashCommandContext, WorkflowLaunch};
 use rho_harness_core::workflow::{WorkflowBundle, WorkflowCatalog, WorkflowOrigin};
 
 pub(crate) async fn discover_workflows(cwd: Option<PathBuf>, home: Option<PathBuf>) -> WorkflowCatalog {
@@ -38,6 +38,7 @@ fn command_description(bundle: &WorkflowBundle) -> String {
 
 fn origin_label(origin: WorkflowOrigin) -> &'static str {
     match origin {
+        WorkflowOrigin::Builtin => "builtin",
         WorkflowOrigin::User => "user",
         WorkflowOrigin::Project => "project",
     }
@@ -67,17 +68,65 @@ pub(crate) fn format_workflow_list(catalog: &WorkflowCatalog) -> String {
     out
 }
 
+/// Splits a command line on whitespace, keeping `"..."` and `'...'` groups together; an unclosed quote
+/// falls back to plain whitespace splitting.
+pub(crate) fn split_args(line: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut started = false;
+    for c in line.chars() {
+        match (quote, c) {
+            (Some(open), c) if c == open => quote = None,
+            (Some(_), c) => current.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                started = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if std::mem::take(&mut started) {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            (None, c) => {
+                current.push(c);
+                started = true;
+            }
+        }
+    }
+    if quote.is_some() {
+        return line.split_whitespace().map(str::to_string).collect();
+    }
+    if started {
+        args.push(current);
+    }
+    args
+}
+
 pub(crate) async fn handle_workflow(ctx: &SlashCommandContext<'_>, parts: &[&str]) -> CommandResult {
     let catalog = discover_workflows(std::env::current_dir().ok(), context_home(ctx)).await;
     let Some(name) = parts.get(1) else {
         ctx.renderer.print_notice(&format_workflow_list(&catalog));
         return CommandResult::Continue;
     };
+    if *name == "resume" {
+        return match parts.get(2) {
+            Some(run_id) => CommandResult::RunWorkflow(WorkflowLaunch::Resume {
+                run_id: (*run_id).to_string(),
+            }),
+            None => {
+                ctx.renderer.print_notice(
+                    "  Usage: /workflow resume <run id> (the id in .rho/workflows/<name>-<run id>.jsonl)\n",
+                );
+                CommandResult::Continue
+            }
+        };
+    }
     match bind(&catalog, name, parts.get(2..).unwrap_or_default()) {
-        Ok(inputs) => CommandResult::RunWorkflow {
+        Ok(inputs) => CommandResult::RunWorkflow(WorkflowLaunch::Start {
             name: (*name).to_string(),
             inputs,
-        },
+        }),
         Err(message) => {
             ctx.renderer.print_notice(&format!("  /workflow {name}: {message}\n"));
             CommandResult::Continue
@@ -131,6 +180,54 @@ mod tests {
                 .contains("missing required attribute 'cmd'")
         );
         assert!(bind(&catalog, "ghost", &[]).unwrap_err().contains("unknown workflow"));
+    }
+
+    #[test]
+    fn split_args_keeps_quoted_groups_and_falls_back_on_an_unclosed_quote() {
+        let cases = [
+            (
+                "workflow audit security,correctness . 1 6",
+                vec!["workflow", "audit", "security,correctness", ".", "1", "6"],
+            ),
+            (
+                "workflow audit \"a b\" 'c d' e",
+                vec!["workflow", "audit", "a b", "c d", "e"],
+            ),
+            (
+                "workflow audit paths=\"src lib\" x",
+                vec!["workflow", "audit", "paths=src lib", "x"],
+            ),
+            ("workflow audit \"\" x", vec!["workflow", "audit", "", "x"]),
+            ("workflow audit don't stop", vec!["workflow", "audit", "don't", "stop"]),
+            ("  workflow   audit  ", vec!["workflow", "audit"]),
+        ];
+        for (line, expected) in cases {
+            assert_eq!(split_args(line), expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn the_builtin_audit_is_listed_valid_and_overridable() {
+        let catalog = WorkflowCatalog::discover(None, None);
+        assert!(catalog.errors.is_empty(), "{:?}", catalog.errors);
+        let audit = catalog.find("audit").expect("builtin audit");
+        assert_eq!(audit.origin, WorkflowOrigin::Builtin);
+        assert_eq!(
+            audit.entry.argument_hint(),
+            "[categories] [paths] [passes] [max_tasks] [scope] <single|panel>"
+        );
+        assert_eq!(audit.agents.len(), 14);
+        assert!(format_workflow_list(&catalog).contains("[builtin]"));
+        let dir = tempfile::tempdir().unwrap();
+        let wf = dir.path().join(".agents/workflows");
+        std::fs::create_dir_all(&wf).unwrap();
+        std::fs::write(
+            wf.join("audit.xml"),
+            "<workflow description=\"mine\"><run cmd=\"true\"/></workflow>",
+        )
+        .unwrap();
+        let overridden = WorkflowCatalog::discover(Some(dir.path()), None);
+        assert_eq!(overridden.find("audit").unwrap().entry.description, "mine");
     }
 
     #[test]

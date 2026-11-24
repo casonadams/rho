@@ -480,8 +480,9 @@ fn finished_bash_block_includes_elapsed_duration() {
     });
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
-    assert!(output.contains("cargo test --all-targets"));
-    assert!(output.contains("Took 5s"));
+    let plain = strip_ansi_escapes::strip_str(&output);
+    assert!(plain.contains("cargo test --all-targets"));
+    assert!(plain.contains("Took 5s"));
 }
 
 #[test]
@@ -688,7 +689,7 @@ fn print_welcome_emits_transcript_welcome_item() {
             _ => None,
         })
         .expect("welcome item");
-    assert_eq!(item.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(item.version, rho_harness_core::build_info::welcome_version());
     assert_eq!(item.model, "claude-sonnet");
     assert_eq!(item.provider, "anthropic");
     assert!(item.resumed);

@@ -1,7 +1,7 @@
 use super::template::references;
 use super::types::{
     AgentNode, CallNode, ChooseNode, DEFAULT_TURNS, EachNode, InputSpec, Items, LoopNode, ModelRole, Node, NodeKind,
-    OutputFormat, RunNode, Workflow,
+    OutputFormat, RunNode, Workflow, WriteNode,
 };
 use super::xml::{Element, parse_document};
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,6 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub type FileReader<'a> = &'a dyn Fn(&str) -> Result<String, String>;
 
 const COMMON_ATTRS: [&str; 3] = ["id", "when", "unless"];
+
+/// The built-in reference `{{run.id}}`, bound by the engine for every run.
+pub const RUN_SCOPE: &str = "run";
 
 struct Builder<'a> {
     errors: Vec<String>,
@@ -68,6 +71,7 @@ impl Builder<'_> {
         let kind = match el.name.as_str() {
             "agent" => self.agent(el).map(NodeKind::Agent),
             "run" => self.run(el).map(NodeKind::Run),
+            "write" => self.write(el).map(NodeKind::Write),
             "call" => self.call(el).map(NodeKind::Call),
             "sequence" => self.group(el).map(NodeKind::Sequence),
             "parallel" => self.group(el).map(NodeKind::Parallel),
@@ -113,14 +117,26 @@ impl Builder<'_> {
     fn agent(&mut self, el: &Element) -> Option<AgentNode> {
         self.check_attrs(
             el,
-            &["use", "model", "persona", "turns", "output", "context", "prompt-file"],
+            &[
+                "use",
+                "model",
+                "persona",
+                "turns",
+                "resume",
+                "output",
+                "context",
+                "prompt-file",
+            ],
         );
         let agent = self.required(el, "use");
-        let model = el.attr("model").map(ModelRole::parse).transpose().unwrap_or_else(|e| {
+        let model = el.attr("model").map(str::to_string);
+        if let Some(raw) = model.as_deref().filter(|m| !m.contains("{{"))
+            && let Err(e) = ModelRole::parse(raw)
+        {
             self.error(el, e);
-            None
-        });
+        }
         let turns = self.positive(el, "turns", DEFAULT_TURNS);
+        let resume = self.positive(el, "resume", 0);
         let output = self.output(el);
         let prompt = self.prompt(el);
         let context = el.attr("context").map(split_list).unwrap_or_default();
@@ -134,6 +150,7 @@ impl Builder<'_> {
                 .filter(|p| !p.is_empty())
                 .map(str::to_string),
             turns,
+            resume,
             output,
             context,
         })
@@ -150,6 +167,16 @@ impl Builder<'_> {
                 None
             }
         }
+    }
+
+    fn write(&mut self, el: &Element) -> Option<WriteNode> {
+        self.check_attrs(el, &["path", "value"]);
+        let path = self.required(el, "path");
+        let content = self.required(el, "value");
+        Some(WriteNode {
+            path: path?,
+            content: content?,
+        })
     }
 
     fn call(&mut self, el: &Element) -> Option<CallNode> {
@@ -176,7 +203,7 @@ impl Builder<'_> {
     }
 
     fn each(&mut self, el: &Element) -> Option<EachNode> {
-        self.check_attrs(el, &["items", "as", "parallel"]);
+        self.check_attrs(el, &["items", "as", "parallel", "result"]);
         let items = self.required(el, "items")?;
         let items = if items.trim().starts_with("{{") {
             Items::Reference(items)
@@ -189,6 +216,7 @@ impl Builder<'_> {
             items,
             var: el.attr("as").unwrap_or("item").to_string(),
             parallel,
+            result: el.attr("result").map(str::to_string),
             body,
         })
     }
@@ -433,6 +461,7 @@ impl Checker {
         self.templates(node.line, node.when.iter().chain(&node.unless));
         match &node.kind {
             NodeKind::Agent(agent) => {
+                self.templates(node.line, std::iter::once(&agent.agent).chain(&agent.model));
                 self.template(node.line, &agent.prompt);
                 for id in &agent.context {
                     if !self.ids.contains(id) {
@@ -442,6 +471,7 @@ impl Checker {
                 }
             }
             NodeKind::Run(run) => self.templates(node.line, &run.args),
+            NodeKind::Write(write) => self.templates(node.line, [&write.path, &write.content]),
             NodeKind::Call(call) => self.templates(node.line, call.with.values()),
             NodeKind::Sequence(body) | NodeKind::Parallel(body) => self.nodes(body),
             NodeKind::Each(each) => self.each(node.line, each),
@@ -476,15 +506,18 @@ impl Checker {
         }
         self.vars.push(each.var.clone());
         self.nodes(&each.body);
+        if let Some(result) = &each.result {
+            self.template(line, result);
+        }
         self.vars.pop();
     }
 }
 
 fn validate(workflow: &Workflow) -> Vec<String> {
     let mut errors = Vec::new();
-    let mut names: BTreeSet<String> = BTreeSet::new();
+    let mut names: BTreeSet<String> = BTreeSet::from([RUN_SCOPE.to_string()]);
     for input in &workflow.inputs {
-        if !valid_name(&input.name) {
+        if !valid_name(&input.name) || input.name == RUN_SCOPE {
             errors.push(format!("invalid input name '{}'", input.name));
         }
         names.insert(input.name.clone());

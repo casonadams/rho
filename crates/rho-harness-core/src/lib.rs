@@ -24,6 +24,7 @@ pub mod a2a;
 pub mod agents;
 pub mod args;
 pub mod auth;
+pub mod build_info;
 pub mod config;
 pub mod error;
 pub mod fs;

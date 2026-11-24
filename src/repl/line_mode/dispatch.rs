@@ -2,6 +2,7 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::CommandResult;
+use crate::repl::commands::types::WorkflowLaunch;
 
 pub enum DispatchOutcome {
     Continue,
@@ -366,20 +367,15 @@ pub(crate) async fn handle_terminal_result(
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::ExpandedPrompt { text } => Ok(handle_expanded_prompt(session, text)),
-        CommandResult::RunWorkflow { name, inputs } => {
-            run_workflow_plain(session, engine, &name, inputs).await;
+        CommandResult::RunWorkflow(launch) => {
+            run_workflow_plain(session, engine, launch).await;
             Ok(DispatchOutcome::Continue)
         }
         _ => Ok(DispatchOutcome::Continue),
     }
 }
 
-async fn run_workflow_plain(
-    session: &ReplSession,
-    engine: &AgentEngine,
-    name: &str,
-    inputs: std::collections::BTreeMap<String, String>,
-) {
+async fn run_workflow_plain(session: &ReplSession, engine: &AgentEngine, launch: WorkflowLaunch) {
     let (progress, mut chunks) = crate::repl::live::workflow_runner::progress_channel();
     let cancel = crate::engine::runner::CancellationSignal::default();
     let runner = match engine.workflow_runner(progress, cancel).await {
@@ -389,7 +385,8 @@ async fn run_workflow_plain(
             return;
         }
     };
-    let run = runner.run(name, inputs);
+    let label = launch.label().to_string();
+    let run = launch.run(&runner);
     tokio::pin!(run);
     let result = loop {
         tokio::select! {
@@ -398,7 +395,7 @@ async fn run_workflow_plain(
         }
     };
     if result.started {
-        engine.hand_off_workflow_report(name, &result.report);
+        engine.hand_off_workflow_report(&label, &result.report);
     }
     session.renderer.print_notice(&format!("\n{}\n", result.report));
 }

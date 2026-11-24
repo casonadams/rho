@@ -1,13 +1,16 @@
 use super::command::{CANCELLED, run_command};
 use super::report::{RunLog, StepStatus};
+use super::resume::Replay;
+use super::write_step::write_output;
 use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
 use futures::StreamExt;
 use futures::future::BoxFuture;
+use rho_harness_core::workflow::parse::RUN_SCOPE;
 use rho_harness_core::workflow::template::{evaluate_with, is_truthy, lookup, render_with};
 use rho_harness_core::workflow::{
     CallNode, ChooseNode, EachNode, Items, LoopNode, Node, NodeKind, OutputFormat, RunNode, Workflow, WorkflowBundle,
-    WorkflowCatalog,
+    WorkflowCatalog, WriteNode,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,11 +23,12 @@ pub(crate) struct Scope {
 }
 
 impl Scope {
-    pub(crate) fn new(inputs: &BTreeMap<String, String>) -> Self {
-        let values = inputs
+    pub(crate) fn new(inputs: &BTreeMap<String, String>, run_id: &str) -> Self {
+        let mut values: Map<String, Value> = inputs
             .iter()
             .map(|(k, v)| (k.clone(), Value::String(v.clone())))
             .collect();
+        values.insert(RUN_SCOPE.to_string(), json!({ "id": run_id }));
         Self {
             values,
             history: BTreeMap::new(),
@@ -75,6 +79,8 @@ pub(crate) struct Executor<'a> {
     pub subagents: &'a SubagentTool,
     pub catalog: &'a WorkflowCatalog,
     pub base_dir: &'a Path,
+    pub project_dir: &'a Path,
+    pub replay: Option<&'a Replay>,
     pub log: &'a RunLog,
 }
 
@@ -96,7 +102,8 @@ impl Frame<'_> {
 pub(crate) fn node_label(node: &Node) -> String {
     match (&node.id, &node.kind) {
         (Some(id), _) => id.clone(),
-        (None, NodeKind::Agent(agent)) => agent.agent.clone(),
+        (None, NodeKind::Agent(agent)) if !agent.agent.contains("{{") => agent.agent.clone(),
+        (None, NodeKind::Agent(_)) => "agent".to_string(),
         (None, kind) => kind.element_name().to_string(),
     }
 }
@@ -142,7 +149,7 @@ impl Executor<'_> {
         workflow: &Workflow,
         inputs: &BTreeMap<String, String>,
     ) -> Result<Value, String> {
-        let mut scope = Scope::new(inputs);
+        let mut scope = Scope::new(inputs, self.log.id());
         self.run_nodes(frame, &workflow.body, &mut scope).await?;
         let outputs: Map<String, Value> = workflow
             .outputs
@@ -187,7 +194,7 @@ impl Executor<'_> {
             return Ok(Value::Null);
         }
         let value = match &node.kind {
-            NodeKind::Agent(_) | NodeKind::Run(_) | NodeKind::Call(_) => {
+            NodeKind::Agent(_) | NodeKind::Run(_) | NodeKind::Write(_) | NodeKind::Call(_) => {
                 self.run_leaf(frame, node, &label, scope).await?
             }
             NodeKind::Sequence(body) => self.run_nodes(frame.clone(), body, scope).await?,
@@ -208,8 +215,9 @@ impl Executor<'_> {
         let result = match &node.kind {
             NodeKind::Agent(agent) => self.run_agent(frame, label, agent, scope).await,
             NodeKind::Run(run) => self.run_command_step(&path, run, scope).await,
+            NodeKind::Write(write) => self.run_write_step(write, scope).await,
             NodeKind::Call(call) => self.run_call(frame, label, call, scope).await,
-            _ => unreachable!("run_leaf only receives agent, run, and call nodes"),
+            _ => unreachable!("run_leaf only receives agent, run, write, and call nodes"),
         };
         match result {
             Ok((value, detail)) => {
@@ -238,6 +246,12 @@ impl Executor<'_> {
             None => "terminated by a signal".to_string(),
         };
         Ok((outcome.to_value(json), detail))
+    }
+
+    async fn run_write_step(&self, write: &WriteNode, scope: &Scope) -> Result<(Value, String), String> {
+        let path = scope.render(&write.path);
+        let detail = write_output(self.project_dir, &path, scope.render(&write.content)).await?;
+        Ok((Value::String(path.trim().to_string()), detail))
     }
 
     async fn run_call(
@@ -310,9 +324,9 @@ impl Executor<'_> {
         }
         let results: Vec<Result<Value, String>> = futures::stream::iter(runs).buffered(each.parallel).collect().await;
         let mut values = Vec::with_capacity(results.len());
-        for result in results {
+        for (result, (_, item_scope)) in results.into_iter().zip(&item_scopes) {
             match result {
-                Ok(value) => values.push(value),
+                Ok(last) => values.push(each.result.as_ref().map_or(last, |t| item_scope.evaluate(t))),
                 Err(e) if e == CANCELLED => return Err(e),
                 Err(_) => values.push(Value::Null),
             }
@@ -400,7 +414,7 @@ mod tests {
     fn scope() -> Scope {
         let mut inputs = BTreeMap::new();
         inputs.insert("profile".to_string(), "security".to_string());
-        Scope::new(&inputs)
+        Scope::new(&inputs, "test-run")
     }
 
     #[test]

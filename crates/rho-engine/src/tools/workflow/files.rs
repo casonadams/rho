@@ -109,6 +109,7 @@ mod tests {
     fn round(changed: &[&str], workspace: &[(&str, Option<&str>)]) -> Round {
         Round {
             end: RoundEnd::Answered("ok".into()),
+            data: None,
             transcript: Vec::new(),
             turns: 1,
             tool_calls: 0,

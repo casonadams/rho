@@ -1,0 +1,65 @@
+<workflow name="audit" description="Audit a repository, a branch or recent commits across quality categories: recon, narrow parallel hunts, adversarial validation, gap-fill, dedupe, impact assessment, saved report">
+  <input name="categories" default="all" description="Comma-separated: correctness security performance reliability maintainability architecture testing compatibility usability operability (or all)"/>
+  <input name="paths" default="." description="Git pathspec limiting the audit (default: the whole repository)"/>
+  <input name="passes" default="2" description="Maximum hunt passes; later passes only cover gaps reported by earlier ones"/>
+  <input name="max_tasks" default="40" description="Maximum hunt tasks per pass"/>
+  <input name="scope" default="repo" description="What to audit: repo (every tracked file), branch:BASE (changes since BASE, e.g. branch:main), or commits:N (the last N commits)"/>
+  <input name="verify" default="single" choices="single panel" description="How findings are verified: single (one skeptic) or panel (two skeptics with different lenses; a finding survives only if both keep it)"/>
+
+  <run id="range"
+       cmd="sh -c 'case $1 in repo) printf repo;; branch:*) printf %s ${1#branch:}...HEAD;; commits:*) n=${1#commits:}; case $n in &quot;&quot;|*[!0-9]*) printf %s commits-needs-a-number-like-commits:3; exit 2;; esac; printf %s HEAD~$((n+1))..HEAD;; *) printf %s unknown-scope-use-repo-branch:BASE-or-commits:N; exit 2;; esac' range {{scope}}"/>
+
+  <run id="files" when="{{range.ok}}"
+       cmd="sh -c 'if [ $2 = repo ]; then git ls-files -- $1; else git diff --name-only --diff-filter=d $2 -- $1; fi' files {{paths}} {{range.output}}"/>
+
+  <run id="empty" unless="{{files.output}}" when="{{range.ok}}"
+       cmd="echo no files in scope: nothing changed in {{range.output}} under {{paths}}. Try scope=commits:N or branch:BASE from another branch."/>
+
+  <sequence when="{{files.output}}">
+
+    <agent id="recon" use="recon" model="default" turns="60" resume="1" output="json" prompt-file="prompts/recon.md"/>
+
+    <loop id="pass" max="{{passes}}" while="{{gaps.tasks}}">
+      <each id="verified" items="{{gaps.tasks | default:recon.tasks}}" as="task" parallel="6" result="{{repro | default:single}}">
+        <agent id="found" use="hunter-{{task.category}}" model="smol" turns="60" resume="1" output="json" prompt-file="prompts/hunt.md"/>
+        <choose on="{{verify}}">
+          <case value="panel">
+            <agent id="refute" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
+            <agent id="repro" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check-repro.md"/>
+          </case>
+          <otherwise>
+            <agent id="single" use="skeptic" model="default" turns="30" resume="1" output="json" prompt-file="prompts/check.md"/>
+          </otherwise>
+        </choose>
+      </each>
+
+      <agent id="gaps" use="curator" model="default" turns="30" resume="1" output="json" context="verified" prompt-file="prompts/gaps.md"/>
+    </loop>
+
+    <agent id="dedupe" use="curator" model="default" turns="40" resume="1" output="json" prompt-file="prompts/dedupe.md"/>
+
+    <each id="assess" items="{{dedupe.results}}" as="finding" parallel="6">
+      <agent use="tracer" model="default" turns="30" resume="1" output="json" prompt-file="prompts/trace.md"/>
+    </each>
+
+    <agent id="report" use="curator" model="default" turns="20" context="assess" prompt-file="prompts/report.md"/>
+
+    <write id="saved_report" path=".rho/audit/{{run.id}}/report.md" value="{{report}}"/>
+    <write id="saved_findings" path=".rho/audit/{{run.id}}/findings.json" value="{{assess | compact | json}}"/>
+
+    <agent id="digest" use="curator" model="smol" turns="10" context="report" prompt-file="prompts/digest.md"/>
+  </sequence>
+
+  <output name="summary" value="{{digest | default:range.output}}"/>
+  <output name="scope" value="{{range.output}}"/>
+  <output name="status" value="{{empty.output}}"/>
+  <output name="report_file" value="{{saved_report}}"/>
+  <output name="findings_file" value="{{saved_findings}}"/>
+  <output name="findings" value="{{assess | compact | pluck:message.text}}"/>
+  <output name="assessed" value="{{assess | compact | count}}"/>
+  <output name="by_priority" value="{{assess | compact | count_by:properties.priority}}"/>
+  <output name="by_category" value="{{assess | compact | count_by:properties.category}}"/>
+  <output name="deduped_findings" value="{{dedupe.results | count}}"/>
+  <output name="uncovered_areas" value="{{gaps.tasks | count}}"/>
+  <output name="passes" value="{{pass.passes}}"/>
+</workflow>

@@ -89,6 +89,7 @@ pub(crate) async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "version": env!("CARGO_PKG_VERSION"),
+        "build": rho_harness_core::build_info::welcome_version(),
         "active_workspace": active_workspace,
         "active_branch": active_branch,
         "status": status,

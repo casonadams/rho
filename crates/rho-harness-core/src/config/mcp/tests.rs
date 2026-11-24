@@ -385,3 +385,21 @@ fn server_write_reports_unreadable_config_path() {
         .to_string();
     assert!(error.contains("Failed to read"), "{error}");
 }
+
+#[test]
+fn parse_mcp_json_supports_disabled_flag_and_type_transport_alias() {
+    let json = r#"{
+        "mcpServers": {
+            "remote": { "type": "http", "url": "https://example.com/mcp", "disabled": true },
+            "sse": { "type": "sse", "url": "https://example.com/sse", "disabled": false }
+        }
+    }"#;
+    let parsed = parse_mcp_json_str(json).unwrap();
+    let remote = &parsed.servers["remote"];
+    assert!(!remote.enabled);
+    assert_eq!(remote.transport, Some(McpTransportKind::StreamableHttp));
+
+    let sse = &parsed.servers["sse"];
+    assert!(sse.enabled);
+    assert_eq!(sse.transport, Some(McpTransportKind::Sse));
+}

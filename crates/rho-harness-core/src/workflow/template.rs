@@ -1,7 +1,90 @@
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 const OPEN: &str = "{{";
 const CLOSE: &str = "}}";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Filter {
+    Compact,
+    Count,
+    Json,
+    Default(String),
+    Pluck(String),
+    CountBy(String),
+}
+
+impl Filter {
+    fn parse(spec: &str) -> Result<Self, String> {
+        let (name, arg) = spec.split_once(':').map_or((spec, None), |(n, a)| (n, Some(a.trim())));
+        match (name.trim(), arg) {
+            ("compact", None) => Ok(Self::Compact),
+            ("count", None) => Ok(Self::Count),
+            ("json", None) => Ok(Self::Json),
+            ("default", Some(path)) if !path.is_empty() => Ok(Self::Default(path.to_string())),
+            ("pluck", Some(field)) if !field.is_empty() => Ok(Self::Pluck(field.to_string())),
+            ("count_by", Some(field)) if !field.is_empty() => Ok(Self::CountBy(field.to_string())),
+            _ => Err(format!(
+                "unknown filter '{}' (use compact, count, json, default:<ref>, pluck:<field>, count_by:<field>)",
+                spec.trim()
+            )),
+        }
+    }
+
+    fn apply(&self, value: Value, resolve: Resolver<'_>) -> Value {
+        match self {
+            Self::Default(path) if !is_truthy(&value) => resolve(path).unwrap_or(Value::Null),
+            Self::Default(_) => value,
+            Self::Compact => match value {
+                Value::Array(items) => Value::Array(items.into_iter().filter(|v| !v.is_null()).collect()),
+                other => other,
+            },
+            Self::Count => match &value {
+                Value::Array(items) => items.len().into(),
+                Value::Object(map) => map.len().into(),
+                Value::Null => 0.into(),
+                _ => 1.into(),
+            },
+            Self::Json => Value::String(value.to_string()),
+            Self::Pluck(field) => Value::Array(items_of(&value).filter_map(|i| lookup(i, field).cloned()).collect()),
+            Self::CountBy(field) => {
+                let mut counts = Map::new();
+                for key in items_of(&value).filter_map(|i| lookup(i, field)).map(value_to_text) {
+                    let seen = counts.get(&key).and_then(Value::as_u64).unwrap_or(0);
+                    counts.insert(key, (seen + 1).into());
+                }
+                Value::Object(counts)
+            }
+        }
+    }
+}
+
+fn items_of(value: &Value) -> impl Iterator<Item = &Value> {
+    match value {
+        Value::Array(items) => items.iter(),
+        _ => [].iter(),
+    }
+}
+
+/// Splits `path | filter | filter:arg` into the path and its parsed filters.
+fn parse_expr(expr: &str) -> Result<(&str, Vec<Filter>), String> {
+    let mut parts = expr.split('|');
+    let path = parts.next().unwrap_or_default().trim();
+    let filters = parts.map(Filter::parse).collect::<Result<Vec<_>, _>>()?;
+    Ok((path, filters))
+}
+
+fn resolve_expr(expr: &str, resolve: Resolver<'_>) -> Option<Value> {
+    let (path, filters) = parse_expr(expr).ok()?;
+    let value = resolve(path);
+    if filters.is_empty() {
+        return value;
+    }
+    Some(
+        filters
+            .iter()
+            .fold(value.unwrap_or(Value::Null), |v, f| f.apply(v, resolve)),
+    )
+}
 
 pub fn references(template: &str) -> Result<Vec<String>, String> {
     let mut refs = Vec::new();
@@ -11,11 +94,16 @@ pub fn references(template: &str) -> Result<Vec<String>, String> {
         let end = after
             .find(CLOSE)
             .ok_or_else(|| format!("unclosed '{{{{' in: {}", preview(template)))?;
-        let path = after[..end].trim();
+        let expr = after[..end].trim();
+        let (path, filters) = parse_expr(expr).map_err(|e| format!("{e} in: {}", preview(template)))?;
         if path.is_empty() {
             return Err(format!("empty '{{{{ }}}}' placeholder in: {}", preview(template)));
         }
         refs.push(path.to_string());
+        refs.extend(filters.into_iter().filter_map(|f| match f {
+            Filter::Default(fallback) => Some(fallback),
+            _ => None,
+        }));
         rest = &after[end + CLOSE.len()..];
     }
     Ok(refs)
@@ -40,7 +128,7 @@ pub fn render_with(template: &str, resolve: Resolver<'_>) -> String {
             out.push_str(&rest[start..]);
             return out;
         };
-        if let Some(value) = resolve(after[..end].trim()) {
+        if let Some(value) = resolve_expr(after[..end].trim(), resolve) {
             out.push_str(&value_to_text(&value));
         }
         rest = &after[end + CLOSE.len()..];
@@ -63,7 +151,7 @@ pub fn evaluate_with(template: &str, resolve: Resolver<'_>) -> Value {
         .and_then(|rest| rest.strip_suffix(CLOSE))
         .filter(|inner| !inner.contains(OPEN) && !inner.contains(CLOSE));
     match single {
-        Some(path) => resolve(path.trim()).unwrap_or(Value::Null),
+        Some(expr) => resolve_expr(expr.trim(), resolve).unwrap_or(Value::Null),
         None => Value::String(render_with(template, resolve)),
     }
 }
@@ -138,6 +226,38 @@ mod tests {
         assert_eq!(evaluate("{{ok}}", &scope), json!(true));
         assert_eq!(evaluate("{{missing}}", &scope), Value::Null);
         assert_eq!(evaluate("n={{ok}}", &scope), json!("n=true"));
+    }
+
+    #[test]
+    fn filters_transform_values_in_order() {
+        let scope = json!({"f": [{"p": "P1"}, null, {"p": "P2"}, {"p": "P1"}], "list": [1, 2], "empty": []});
+        let cases = [
+            ("{{f | count}}", json!(4)),
+            ("{{f | compact | count}}", json!(3)),
+            ("{{f | compact | pluck:p}}", json!(["P1", "P2", "P1"])),
+            ("{{f | compact | count_by:p}}", json!({"P1": 2, "P2": 1})),
+            ("{{missing | count}}", json!(0)),
+            ("{{missing | default:list}}", json!([1, 2])),
+            ("{{empty | default:list}}", json!([1, 2])),
+            ("{{list | default:empty}}", json!([1, 2])),
+            ("{{f | compact | pluck:p | json}}", json!("[\"P1\",\"P2\",\"P1\"]")),
+        ];
+        for (template, expected) in cases {
+            assert_eq!(evaluate(template, &scope), expected, "{template}");
+        }
+        assert_eq!(render("n={{f | count}}", &scope), "n=4");
+    }
+
+    #[test]
+    fn references_report_the_path_and_reject_unknown_filters() {
+        assert_eq!(references("{{ a.b | count }}").unwrap(), vec!["a.b"]);
+        assert_eq!(references("{{ a | default:b.c }}").unwrap(), vec!["a", "b.c"]);
+        assert!(
+            references("{{ a | shout }}")
+                .unwrap_err()
+                .contains("unknown filter 'shout'")
+        );
+        assert!(references("{{ a | pluck }}").is_err());
     }
 
     #[test]

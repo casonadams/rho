@@ -1,4 +1,5 @@
 pub mod accumulator;
+pub mod direnv;
 pub mod failures;
 pub mod footer;
 mod log;
@@ -7,13 +8,13 @@ mod poll;
 pub mod runner;
 pub mod sanitize;
 pub mod shell;
-
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::ToolResult;
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
+pub use direnv::DirenvOptions;
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
-pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming};
+pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming, run_command_streaming_with_direnv};
 pub use sanitize::{sanitize_binary_output, split_at_incomplete_ansi};
 pub use shell::resolve_shell_command;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,7 @@ pub struct BashTool {
     log_dir: PathBuf,
     /// The agent whose mailbox hears about commands this tool moves to the background.
     owner: Option<crate::mailbox::Mailbox>,
+    direnv: DirenvOptions,
 }
 
 impl BashTool {
@@ -35,6 +37,7 @@ impl BashTool {
             base_dir: base_dir.as_ref().to_path_buf(),
             log_dir: accumulator::default_log_dir(),
             owner: None,
+            direnv: DirenvOptions::default(),
         }
     }
 
@@ -45,13 +48,27 @@ impl BashTool {
         self
     }
 
+    /// Configures automatic `direnv` environment loading for commands.
+    #[must_use]
+    pub fn with_direnv(mut self, direnv: DirenvOptions) -> Self {
+        self.direnv = direnv;
+        self
+    }
+
     pub async fn execute_streaming<F>(&self, args: BashArgs, on_chunk: F) -> Result<ToolResult, AppError>
     where
         F: FnMut(&str) + Send + 'static,
     {
-        run_command_streaming(&self.base_dir, &self.log_dir, self.owner.as_ref(), &args, on_chunk)
-            .await
-            .map(plain_text_for_model)
+        run_command_streaming_with_direnv(
+            &self.base_dir,
+            &self.log_dir,
+            self.owner.as_ref(),
+            &args,
+            self.direnv,
+            on_chunk,
+        )
+        .await
+        .map(plain_text_for_model)
     }
 
     pub async fn execute(&self, args: BashArgs) -> Result<ToolResult, AppError> {
@@ -90,6 +107,7 @@ impl TypedTool for BashTool {
             base_dir: self.base_dir.clone(),
             log_dir: self.log_dir.clone(),
             owner: Some(owner),
+            direnv: self.direnv,
         }))
     }
 }

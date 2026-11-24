@@ -8,6 +8,8 @@ decides when loops stop. Models only do the individual agent steps.
 /workflow                         # list workflows and any invalid files
 /workflow refine security         # run one; arguments fill inputs in order
 /workflow refine security rounds=3
+/workflow audit all "src lib"     # quote an argument that contains spaces
+/workflow resume <run id>         # continue a failed or cancelled run (see Resuming a run)
 ```
 
 Workflows are started only by you, with `/workflow`. They are not exposed to
@@ -16,12 +18,37 @@ its agents, and `Esc` to cancel it.
 
 ---
 
+## Quick start
+
+Save this as `.agents/workflows/hello.xml` in a project (or in `~/.agents/workflows/`):
+
+```xml
+<workflow description="Ask an agent which tracked files to read first">
+  <input name="dir" default="."/>
+  <run id="files" cmd="git ls-files -- {{dir}}"/>
+  <agent id="note" use="scout">
+    Which five of these files would you read first to learn the project, and why?
+    {{files.output}}
+  </agent>
+  <output name="summary" value="{{note}}"/>
+</workflow>
+```
+
+Run it with `/workflow hello` or `/workflow hello dir=src`. A `<run>` step runs a
+command, an `<agent>` step runs a model, `{{files.output}}` reads an earlier
+step by its `id`, and an `<output>` named `summary` is printed when the run
+ends. Everything else in this page builds on those pieces. A file that does not
+load is listed by `/workflow` with its line number.
+
+---
+
 ## Where workflows live
 
 Later sources override earlier ones with the same name:
 
-1. `~/.agents/workflows/`
-2. `<project>/.agents/workflows/`
+1. built in to rho (`audit`)
+2. `~/.agents/workflows/`
+3. `<project>/.agents/workflows/`
 
 A workflow is either a single file (`.agents/workflows/hello.xml`) or a
 directory:
@@ -34,9 +61,34 @@ directory:
 └── prompts/          # long prompts referenced by prompt-file
 ```
 
-rho ships no built-in workflows. This repository's
+rho ships one built-in workflow, `audit` (below). This repository's
 [`.agents/workflows/refine/`](../.agents/workflows/refine/) is a complete
 example to copy.
+
+### Built-in: `audit`
+
+`/workflow audit [categories] [paths] [passes] [max_tasks] [scope] [verify]` audits code
+across ten categories (correctness, security, performance, reliability,
+maintainability, architecture, testing, compatibility, usability, operability).
+It maps the repository, runs narrow parallel hunts, has a separate agent try to
+disprove each finding, fills gaps, merges duplicates, assesses reachability and
+fix risk, and saves `.rho/audit/<run id>/report.md` and `findings.json` (findings
+are [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html)
+results). It never edits code.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `categories` | `all` | Comma-separated category names |
+| `paths` | `.` | Git pathspec limiting the audit |
+| `passes` | `2` | Hunt passes; later passes cover gaps earlier ones reported |
+| `max_tasks` | `40` | Hunt tasks per pass |
+| `verify` | `single` | `single` (one skeptic per hunt) or `panel` (two skeptics in turn: one reads the code for guards, then a second tries to reproduce what survived; a finding is kept only if both keep it) |
+| `scope` | `repo` | `repo` (every tracked file), `branch:BASE` (changes since `BASE`), or `commits:N` (the last N commits). A range also includes your uncommitted changes, because the run starts from a snapshot of your working tree |
+
+For example, `/workflow audit security,reliability . 1 10 branch:main` audits
+what the current branch changed since `main`. Arguments may be quoted
+(`paths="src lib"`). To change the built-in, put a workflow named `audit` in
+`~/.agents/workflows/` or the project; it replaces it.
 
 ---
 
@@ -47,9 +99,11 @@ permission rules, approval prompts, the guard model, or lifecycle hooks. Every
 step and every agent tool call is still recorded in the run log
 (`.rho/workflows/<name>-<time>-<id>.jsonl`), and `Esc` cancels the whole run.
 
-A workflow never touches your working tree. Each run works in its own git
+A workflow does not edit your working tree. Each run works in its own git
 [worktree](#worktrees), and its changes reach your files only when you or the
-main agent merge them.
+main agent merge them. Three things are written into the project directly, all
+under `.rho/`: the run log and resume journal (`.rho/workflows/`), and files
+that a `<write>` step creates.
 
 ---
 
@@ -83,18 +137,23 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 
 | Element | Does | Value it produces |
 |---|---|---|
-| `<agent use="..." model="..." persona="..." turns="..." output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
+| `<agent use="..." model="..." persona="..." turns="..." resume="1" output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
 | `<run cmd="..." output="text\|json"/>` | Runs one command | `{ok, exit, output}`, plus `json` with `output="json"` |
+| `<write path=".rho/..." value="..."/>` | Writes a file under the project's `.rho/` | The path written |
 | `<call workflow="name" profile="..."/>` | Runs another workflow; other attributes are its inputs | That workflow's outputs |
 
 **`<agent>`**
 
 - `use` names an agent: a file in the workflow's `agents/`, `.agents/agents/`,
   `~/.agents/agents/`, or a built-in role (`scout`, `critic`, `planner`,
-  `general`).
+  `general`). It may contain `{{references}}` (for example
+  `use="hunter-{{task.category}}"`); the name is resolved when the step runs,
+  so an unknown agent fails that step instead of the whole workflow up front.
 - `model` is a model role from settings: `default`, `smol`, or `slow`
   (default: the persona's or agent's pin in
   [`[subagents.models]`](configuration.md#which-model-runs), else `smol`).
+  A literal value is checked when the workflow loads; a `{{reference}}` is
+  checked when the step runs.
 - `persona` adds a [persona](configuration.md#personas)'s instructions to the
   agent's, keeping the agent's tools. An unknown persona stops the workflow
   before any step runs.
@@ -103,8 +162,15 @@ a `default` is required; `choices` is a space-separated list of allowed values.
   contain `<`, `&`, and code. `prompt-file="prompts/x.md"` loads it from a file
   inside the workflow directory instead.
 - `context="scan validate"` appends those steps' values to the prompt.
-- With `output="json"` the agent must return one JSON object; if it does not,
-  one repair call converts its answer, otherwise the step fails.
+- With `output="json"` the agent passes one JSON object as the `data` argument
+  of `complete_task` (an [A2A](https://a2a-protocol.org/latest/specification/)
+  data part), so no schema or fence format is needed in the prompt. If it
+  writes a fenced JSON block in its final reply instead, that is parsed;
+  otherwise one repair call converts its answer, otherwise the step fails.
+- `resume="1"` gives an agent that stopped early (turn limit or empty reply)
+  that many follow-up rounds in the same saved task, each asking it to finish
+  now with what it has. It needs a saved session; without one the step fails
+  as before. It is unrelated to the `/workflow resume` command.
 
 **`<run>`**
 
@@ -112,8 +178,19 @@ a `default` is required; `choices` is a space-separated list of allowed values.
   keeping spaces inside one argument. `{{references}}` are filled in afterwards,
   each inside its own argument, so a value never becomes extra arguments or
   shell syntax. There is no shell; write `cmd="sh -c '...'"` when you need one.
-- The command runs in the repository root. A non-zero exit does not stop the
-  workflow; it sets `ok` to false so later steps can react.
+  Because `cmd` is split on spaces first, write filters there without spaces:
+  `{{tasks|json}}`.
+- The command runs in the root of the run's worktree (see [Worktrees](#worktrees)).
+  A non-zero exit does not stop the workflow; it sets `ok` to false so later
+  steps can react.
+
+**`<write>`**
+
+- `path` and `value` are both templates. The path must be relative and inside
+  `.rho/` (no `..`); anything else fails the step.
+- It writes into the project itself, not the workflow's worktree, so the file
+  is still there after the run. Parent directories are created and an existing
+  file is replaced atomically.
 
 ### Blocks
 
@@ -121,9 +198,28 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 |---|---|
 | `<sequence>` | In order (also the body of every other block) |
 | `<parallel>` | At the same time; each child is one branch |
-| `<each items="..." as="x" parallel="5">` | Once per item, up to `parallel` at a time (default 1); `items` is a `{{reference}}` to a list or a space-separated literal list. A failed item yields `null` and the others continue |
+| `<each items="..." as="x" parallel="5" result="{{ref}}">` | Once per item, up to `parallel` at a time (default 1); see below |
 | `<loop max="6" while="..." until="..." stop-if-unchanged="...">` | Repeatedly, up to `max` passes |
 | `<choose on="{{x}}"><case value="a">…</case><otherwise>…</otherwise></choose>` | The first case whose value equals `on` |
+
+**`<each>`**
+
+- `items` is a `{{reference}}` to a list, or a space-separated literal list.
+- Every step in the body runs for an item in order, and items do not wait for
+  each other. An `<each>` whose body is a hunter then a checker is therefore a
+  pipeline: one item's checker starts as soon as its hunter finishes.
+- Each item has its own copy of the workflow's values. Steps in the body can
+  read each other and the `as` variable (`{{found}}` in the next step), but steps
+  after the `<each>` cannot read them: they see only the `<each>`'s own value, a
+  list with one entry per item, and `{{<each id>.history}}`.
+- An item's entry is its last step's value, or the `result` template evaluated
+  in that item's copy after its body (`result="{{repro | default:single}}"`).
+  A failed item yields `null` and the others continue; use `| compact` to drop
+  the nulls.
+
+**`<choose>`** yields the name of the case that ran (`otherwise` for the
+default, empty when nothing matched), not the value of the steps inside it.
+Give those steps ids and read them, or use `<each result>`.
 
 A `<loop>` first clears the values of the steps inside it, so every loop starts
 fresh; between its passes, a step keeps its last value, which is how one pass
@@ -138,13 +234,24 @@ final answer (turn limit, empty reply, or a failed model call) fails its step
 with the reason and its work so far; its summary never becomes the step's
 value.
 
+### Outputs
+
+Each `<output>` is printed after the run. Short values print together as JSON;
+a text value that is long or has several lines prints as its own paragraph under
+its name, so an agent-written summary reads as text.
+
+An output named `summary` is special: when it is text, `/workflow` also prints it
+as its own notice after the run and uses its first line as the run's one-line
+result, so the workflow decides what the user reads. Workflows without one show
+only the report.
+
 ### Conditions
 
 Every step and block accepts `when="{{ref}}"` and `unless="{{ref}}"`. A value
 is truthy unless it is empty, `false`, `0`, an empty list or object, or has not
-been produced yet. There is no expression language; decisions are made by steps
-(an agent returning `{"approved": true}`, a command's `ok`) and the workflow
-branches on their values.
+been produced yet. There are no comparisons or arithmetic; decisions are made by
+steps (an agent returning `{"approved": true}`, a command's `ok`) and the
+workflow branches on their values.
 
 ### References
 
@@ -155,20 +262,108 @@ branches on their values.
 - the `as` variable inside `<each>`
 - `{{<id>.history}}`: every value the step has produced in this run, oldest
   first
+- `{{run.id}}`: this run's id (`YYYYMMDD-HHMMSS-xxxxxxxx`), the same one in the
+  run log's file name; handy in `<write path>`
 
 Names are checked before the workflow runs, so typos are reported up front. A
 step that has not run yet, or was skipped, reads as empty. Strings are inserted
 as-is; lists and objects as JSON.
 
+#### Filters
+
+`{{ref | filter | filter:arg}}` transforms a value, left to right. A missing
+value is treated as empty. Filter names are checked when the workflow loads.
+
+| Filter | Does |
+|---|---|
+| `compact` | Drops `null` items from a list (failed `<each>` items) |
+| `default:ref` | Uses `{{ref}}` instead when the value is empty, `false`, `0`, or missing |
+| `count` | Length of a list or object; `0` when empty or missing |
+| `pluck:field` | The `field` of each item in a list, skipping items without it |
+| `count_by:field` | `{value: n}` counting items by the value of `field` |
+| `json` | Compact one-line JSON text |
+
+For example, `{{findings | compact | count_by:priority}}` gives
+`{"P1": 2, "P2": 12}`. `field` may be a dotted path such as
+`properties.priority`. A template that is exactly one reference (an `<output>`
+value or `each items`) keeps the transformed value's type.
+
+#### Values steps produce
+
 | Step or block | Value |
 |---|---|
 | `<agent>` | text, or the returned JSON object |
 | `<run>` | `{ok, exit, output, json}` |
+| `<write>` | the path written |
 | `<call>` | the called workflow's outputs |
-| `<each>` | a list with the value of each item's last step |
+| `<each>` | a list with one entry per item (see `<each>` above) |
 | `<parallel>` | an object keyed by each child's `id` |
 | `<loop>` | `{index, passes, stopped}` (`until`, `while`, `unchanged`, or `max`) |
-| `<choose>` | the matched case's value, `otherwise`, or empty |
+| `<choose>` | the matched case's name (`otherwise` for the default branch), or empty |
+
+---
+
+## Authoring notes
+
+Things that are easy to get wrong:
+
+- **Names.** Input names, step `id`s, and `as` variables use letters, digits,
+  `_`, and `-`. An `id` must be unique in the workflow and must not equal an
+  input name, and `run` is reserved for `{{run.id}}`.
+- **XML escaping in attributes.** `cmd`, `value`, `path`, and other attributes
+  are XML, so write `&amp;`, `&lt;`, `&gt;`, `&quot;`, and `&apos;` for those
+  characters (`cmd="sh -c 'a &amp;&amp; b'"`). Any other `&...;` is an error. An
+  agent's prompt text is not escaped; it is taken verbatim.
+- **No line breaks in attributes.** `\n` in an attribute is two characters, not a
+  newline. Put multi-line text in an agent prompt or a `prompt-file`.
+- **Only the first pass has no value yet.** A step that has not run reads as
+  empty, so `{{gaps.tasks | default:recon.tasks}}` means "the previous pass's
+  tasks, or the first pass's tasks". Combine `default` with `<loop while>`.
+- **Filters inside `cmd`** are written without spaces (`{{tasks|json}}`),
+  because `cmd` is split on spaces before references are filled.
+- **Dotted paths** reach into JSON: `{{review.issues.0}}`, `{{task.scope}}`. A
+  missing field is empty, not an error.
+- **Let the engine ask for JSON.** With `output="json"` the engine already tells
+  the agent to return one object through `complete_task`; the prompt only needs
+  to describe the fields.
+- **Keep results you need.** The run log records steps, not their full values,
+  and the report is held in memory until your next prompt. Use `<write>` to keep
+  a result.
+- **Only agents that change files are merged.** `<run>` and agent edits happen in
+  worktrees; see [Worktrees](#worktrees) before writing a workflow that edits code.
+
+---
+
+## Debugging a run
+
+Every run writes `.rho/workflows/<name>-<run id>.jsonl`, one JSON object per
+line, and the report ends with its path. The events are `run_started` (the
+workflow and its inputs), `command` (a `<run>` step's arguments), `agent_started`
+and `agent_task`, `agent_resumed` and `agent_replayed` (see
+[Resuming a run](#resuming-a-run)), `step_finished` (`status` is `done`,
+`skipped`, or `failed`, with a `detail`), and `run_finished`. For example:
+
+```text
+jq -c 'select(.event=="step_finished" and .status=="failed")' .rho/workflows/audit-*.jsonl
+```
+
+A `condition not met` step was skipped by its `when` or `unless`; an empty
+reference is the usual cause. To see what an agent did, open its task from the
+report's `Agent tasks` list (`subagent` with `task_id` and `inspect: true`).
+
+---
+
+## Resuming a run
+
+An agent that finishes without changing files has its result saved next to the run
+log, in `.rho/workflows/<name>-<run id>.journal.jsonl`. After a run fails, is
+cancelled, or the process dies, `/workflow resume <run id>` (the id is in the log
+file name and in `{{run.id}}`) starts the same workflow with the same inputs and
+reuses every saved result whose step and prompt are unchanged; only the remaining
+steps run. A resume is a new run with its own log and journal, so it can be
+resumed again. Editing a prompt, or an upstream result that changed, makes the
+affected steps run again. Agents that edited files, and `<run>` and `<write>`
+steps, always run again. A workflow named `resume` is shadowed by this command.
 
 ---
 
@@ -285,7 +480,7 @@ You fix validated findings...
     </each>
 
     <agent id="validate" use="validator" model="smol" output="json" context="scan">
-      Re-read every cited line; return {"actionable": [...]}.
+      Re-read every cited line. Result fields: {"actionable": [...]}.
     </agent>
 
     <loop id="attempt" max="3" until="{{review.approved}}" when="{{validate.actionable}}">
@@ -298,7 +493,7 @@ You fix validated findings...
       <run when="{{verify.ok}}" cmd="git add -A"/>
       <run id="diff" when="{{verify.ok}}" cmd="git diff --cached"/>
       <agent id="review" use="reviewer" model="smol" output="json" when="{{verify.ok}}">
-        Review this diff; return {"approved": true|false, "issues": [...]}.
+        Review this diff. Result fields: {"approved": true|false, "issues": [...]}.
         {{diff.output}}
       </agent>
     </loop>

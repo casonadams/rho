@@ -130,6 +130,7 @@ struct AgentSetup<'a> {
 /// conversation was compacted (so it replaces the saved one instead of extending it).
 struct Drive {
     end: RoundEnd,
+    data: Option<serde_json::Value>,
     transcript: Vec<ChatMessage>,
     tally: Tally,
     compacted: bool,
@@ -405,6 +406,7 @@ impl SubagentRunner {
         let drive = if prompt.is_empty() && transcript.is_empty() {
             Drive {
                 end: RoundEnd::Failed("subagent prompt cannot be empty".to_string()),
+                data: None,
                 transcript,
                 tally: Tally::default(),
                 compacted: false,
@@ -434,6 +436,7 @@ impl SubagentRunner {
         };
         Round {
             end: drive.end,
+            data: drive.data,
             transcript: drive.transcript,
             turns: drive.tally.turns,
             tool_calls: drive.tally.tool_calls,
@@ -462,6 +465,7 @@ impl SubagentRunner {
         if stop.is_cancelled() {
             return Drive {
                 end: RoundEnd::Cancelled,
+                data: None,
                 transcript,
                 tally: Tally::default(),
                 compacted: false,
@@ -501,17 +505,23 @@ impl SubagentRunner {
         if !round.run.prompt.is_empty() {
             transcript.push(ChatMessage::user(round.run.prompt.clone()));
         }
+        let report = take_report(&report);
+        let data = report.as_ref().and_then(|r| r.data.clone());
         let end = match finish {
             Finish::Stopped => RoundEnd::Cancelled,
             Finish::Done(reply) => {
                 let question = take_question(&questions);
-                self.answered(reply, question, take_report(&report), &mut transcript, &stop)
-                    .await
+                let text = report.map(|r| match (r.text.is_empty(), r.data) {
+                    (true, Some(data)) => data.to_string(),
+                    _ => r.text,
+                });
+                self.answered(reply, question, text, &mut transcript, &stop).await
             }
             Finish::Failed(error) => self.ended_by(error, &mut transcript, &stop).await,
         };
         Drive {
             end,
+            data,
             transcript,
             tally: round.run.tally,
             compacted: round.compacted,

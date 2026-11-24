@@ -39,6 +39,10 @@ pub struct UiConfig {
     pub tools_expanded: Option<bool>,
     #[serde(default, alias = "cursor_style", alias = "cursor_mode")]
     pub cursor: Option<String>,
+    #[serde(default, alias = "highlight_tools")]
+    pub syntax_highlight_tools: Option<bool>,
+    #[serde(default, alias = "full_bash_commands")]
+    pub full_bash_command: Option<bool>,
 }
 
 impl UiConfig {
@@ -70,8 +74,14 @@ impl UiConfig {
         if let Some(val) = other.tools_expanded {
             self.tools_expanded = Some(val);
         }
-        if let Some(ref val) = other.cursor {
+        if let Some(val) = &other.cursor {
             self.cursor = Some(val.clone());
+        }
+        if let Some(val) = other.syntax_highlight_tools {
+            self.syntax_highlight_tools = Some(val);
+        }
+        if let Some(val) = other.full_bash_command {
+            self.full_bash_command = Some(val);
         }
     }
 }

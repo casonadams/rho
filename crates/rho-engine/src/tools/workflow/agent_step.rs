@@ -1,5 +1,6 @@
 use super::command::CANCELLED;
 use super::executor::{Executor, Frame, Scope};
+use super::resume::step_key;
 use crate::engine::runner::turn::types::unless_cancelled;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
@@ -8,11 +9,13 @@ use crate::tools::subagent::round::{Round, RoundEnd, RoundInput};
 use crate::tools::subagent::runner::SubagentRunner;
 use crate::tools::subagent::{RoundSlot, RunnerSpec};
 use crate::worktree::{Worktree, WorktreeLease};
+use rho_harness_core::session::SessionManager;
 use rho_harness_core::workflow::template::value_to_text;
-use rho_harness_core::workflow::{AgentNode, OutputFormat};
+use rho_harness_core::workflow::{AgentNode, ModelRole, OutputFormat};
 use serde_json::{Value, json};
 
-const JSON_INSTRUCTION: &str = "Respond with exactly one JSON object in a ```json fenced block.";
+const JSON_INSTRUCTION: &str = "Return exactly one JSON object: pass it as `data` to complete_task (a ```json fenced block in your final reply also works).";
+const RESUME_PROMPT: &str = "You stopped before finishing. Do not start new work: call complete_task now with what you have found so far, putting any structured output in `data`.";
 const REPAIR_PREAMBLE: &str = "Convert the user's text into exactly one JSON object. Reply with only the JSON object.";
 
 fn context_text(value: &Value) -> String {
@@ -110,18 +113,32 @@ impl Executor<'_> {
         scope: &Scope,
     ) -> Result<(Value, String), String> {
         let position = frame.child(label).path;
-        let monitor_label = if label == agent.agent {
+        let name = scope.render(&agent.agent);
+        let name = name.trim();
+        let prompt = build_prompt(agent, scope);
+        let key = step_key(name, &prompt);
+        if let Some((value, detail)) = self.replay.and_then(|replay| replay.get(&position, &key)) {
+            self.log.event("agent_replayed", json!({ "step": position }));
+            self.log.journal(&position, &key, value, detail);
+            return Ok((value.clone(), format!("resumed · {detail}")));
+        }
+        let role = agent
+            .model
+            .as_deref()
+            .map(|m| ModelRole::parse(scope.render(m).trim()))
+            .transpose()?;
+        let monitor_label = if label == name {
             label.to_string()
         } else {
-            format!("{label} · {}", agent.agent)
+            format!("{label} · {name}")
         };
         let runner = self
             .subagents
             .runner_for(RunnerSpec {
-                agent: Some(&agent.agent),
+                agent: Some(name),
                 local_agents: &frame.bundle.agents,
                 turns: Some(agent.turns),
-                model: agent.model,
+                model: role,
                 position: Some(position.clone()),
                 task_name: None,
                 persona: agent.persona.as_deref(),
@@ -131,25 +148,23 @@ impl Executor<'_> {
         let model = runner.model_label();
         self.log.event(
             "agent_started",
-            json!({ "step": position, "agent": agent.agent, "model": model }),
+            json!({ "step": position, "agent": name, "model": model }),
         );
         let settings = ConversationSettings {
             name: crate::tools::subagent::task_name(label),
-            agent: Some(agent.agent.clone()),
-            model: agent.model.map(|m| m.as_str().to_string()),
+            agent: Some(name.to_string()),
+            model: role.map(|m| m.as_str().to_string()),
             agent_file: frame
                 .bundle
                 .agents
                 .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(&agent.agent))
+                .find(|a| a.name.eq_ignore_ascii_case(name))
                 .map(|a| a.location.clone()),
             persona: agent.persona.clone(),
             turns: Some(agent.turns),
         };
         let started = std::time::Instant::now();
-        let run = self
-            .agent_round(&runner, &settings, &position, &build_prompt(agent, scope))
-            .await?;
+        let run = self.agent_round(&runner, &settings, &position, agent, &prompt).await?;
         self.log
             .agent_files(&position, &run.round, started..std::time::Instant::now());
         if self.cancelled() || run.round.end == RoundEnd::Cancelled {
@@ -162,26 +177,32 @@ impl Executor<'_> {
         let RoundEnd::Answered(text) = &run.round.end else {
             return Err(unfinished_step(&run));
         };
-        let value = match agent.output {
-            OutputFormat::Text => Value::String(text.trim().to_string()),
-            OutputFormat::Json => self
+        let value = match (agent.output, &run.round.data) {
+            (OutputFormat::Json, Some(data)) => data.clone(),
+            (OutputFormat::Text, _) => Value::String(text.trim().to_string()),
+            (OutputFormat::Json, None) => self
                 .parse_json(&runner, text.trim())
                 .await
                 .map_err(|e| e + &handoff_note(&run))?,
         };
-        if let Some((worktree, head)) = &run.worktree {
-            self.land(&position, worktree, head).await?;
-        }
+        let landed = match &run.worktree {
+            Some((worktree, head)) => self.land(&position, worktree, head).await?,
+            None => false,
+        };
         let problems = crate::tools::subagent::evidence::failed_calls_text(run.round.problem_count())
             .map(|text| format!("{text} · "))
             .unwrap_or_default();
         let detail = format!("{model} · {problems}{}", summarize(&value));
+        if !landed {
+            self.log.journal(&position, &key, &value, &detail);
+        }
         Ok((value, detail))
     }
 
     /// Merges a finished agent's worktree into the workflow's working tree; overlapping edits from
     /// agents that ran at the same time stop the workflow with conflict markers left to resolve.
-    async fn land(&self, position: &str, worktree: &Worktree, head: &str) -> Result<(), String> {
+    /// Returns whether the agent changed any files.
+    async fn land(&self, position: &str, worktree: &Worktree, head: &str) -> Result<bool, String> {
         let outcome = worktree.merge_head_into(head, self.base_dir).await?;
         let files: Vec<&str> = outcome.changed.iter().map(|c| c.path.as_str()).collect();
         self.log.event(
@@ -189,7 +210,7 @@ impl Executor<'_> {
             json!({ "step": position, "worktree": worktree.id, "files": files, "conflicts": outcome.conflicts }),
         );
         if outcome.conflicts.is_empty() {
-            return Ok(());
+            return Ok(!outcome.changed.is_empty());
         }
         Err(format!(
             "{position}'s changes conflict with changes another agent already made: conflict markers were left in {} in {}. Resolve them, then merge the workflow's worktree.",
@@ -205,6 +226,7 @@ impl Executor<'_> {
         runner: &SubagentRunner,
         settings: &ConversationSettings,
         position: &str,
+        agent: &AgentNode,
         prompt: &str,
     ) -> Result<AgentRun, String> {
         let _slot = self.round_slot().await?;
@@ -212,14 +234,29 @@ impl Executor<'_> {
         let Some(session) = &self.ctx().session else {
             return self.unsaved_round(runner, &label, prompt).await;
         };
-        let mut exchange = Exchange::start(settings);
-        if let Some(store) = self.subagents.worktrees() {
-            let owner = session.session_id.as_str();
-            exchange = exchange
-                .with_worktree(store, self.base_dir, &label, Some(owner))
-                .await?;
+        let mut outcome = self
+            .attached(Exchange::start(settings), &label, session)
+            .await?
+            .exchange(runner, session, prompt, None)
+            .await;
+        for attempt in 1..=agent.resume {
+            if !matches!(outcome.round.end, RoundEnd::Stopped { .. }) || self.cancelled() {
+                break;
+            }
+            let Some(context) = session.subagent_context(&outcome.task.id).await else {
+                break;
+            };
+            self.log.event(
+                "agent_resumed",
+                json!({ "step": position, "task": outcome.task.id, "attempt": attempt }),
+            );
+            let next = Exchange::resume(context, &outcome.task.id)?.with_settings(settings);
+            outcome = self
+                .attached(next, &label, session)
+                .await?
+                .exchange(runner, session, RESUME_PROMPT, None)
+                .await;
         }
-        let outcome = exchange.exchange(runner, session, prompt, None).await;
         let state = outcome.task.status.state;
         self.log.event(
             "agent_task",
@@ -239,6 +276,18 @@ impl Executor<'_> {
             worktree: outcome.worktree.zip(outcome.record.map(|r| r.head)),
             round: outcome.round,
         })
+    }
+
+    /// Gives `exchange` the agent's worktree when worktrees are available.
+    async fn attached(&self, exchange: Exchange, label: &str, session: &SessionManager) -> Result<Exchange, String> {
+        match self.subagents.worktrees() {
+            Some(store) => {
+                exchange
+                    .with_worktree(store, self.base_dir, label, Some(session.session_id.as_str()))
+                    .await
+            }
+            None => Ok(exchange),
+        }
     }
 
     async fn unsaved_round(&self, runner: &SubagentRunner, label: &str, prompt: &str) -> Result<AgentRun, String> {
@@ -312,6 +361,7 @@ mod tests {
             model: None,
             persona: None,
             turns: 10,
+            resume: 0,
             output,
             context: context.iter().map(|c| (*c).to_string()).collect(),
         }
@@ -321,7 +371,7 @@ mod tests {
     fn prompt_renders_and_appends_context_and_json_instruction() {
         let mut inputs = BTreeMap::new();
         inputs.insert("profile".to_string(), "security".to_string());
-        let mut scope = Scope::new(&inputs);
+        let mut scope = Scope::new(&inputs, "test-run");
         scope.set("scan", json!(["first report", "second report"]));
         let prompt = build_prompt(&agent(&["scan"], OutputFormat::Json), &scope);
         assert_eq!(

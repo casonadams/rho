@@ -76,6 +76,16 @@ pub struct ToolsConfigFile {
     pub web: Option<WebToolsConfigFile>,
     #[serde(default)]
     pub lsp: Option<LspConfigFile>,
+    #[serde(default)]
+    pub bash: Option<BashConfigFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct BashConfigFile {
+    #[serde(default)]
+    pub direnv: Option<bool>,
+    #[serde(default)]
+    pub direnv_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -11,6 +10,7 @@ use rho_harness_core::presentation::{ToolLine, ToolStreamPort, ToolStreamSink};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::error::Result;
+use crate::repl::commands::types::WorkflowLaunch;
 use crate::repl::live::LiveIo;
 use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVAL};
 use crate::repl::live::idle::dispatch::sync_renderer_width;
@@ -109,18 +109,27 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
 }
 
 fn summary(run: &WorkflowRun) -> String {
-    run.report.lines().next().unwrap_or_default().to_string()
+    run.summary
+        .as_deref()
+        .unwrap_or(&run.report)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub(crate) async fn run_user_workflow<B: TerminalBackend>(
     renderer: &TerminalRenderer,
     engine: &AgentEngine,
-    name: &str,
-    inputs: BTreeMap<String, String>,
+    launch: WorkflowLaunch,
     io: &mut LiveIo<'_, B>,
 ) -> Result<()> {
     let started = Instant::now();
-    let arguments = serde_json::json!({ "name": name, "inputs": inputs });
+    let name = launch.label().to_string();
+    let arguments = match &launch {
+        WorkflowLaunch::Start { name, inputs } => serde_json::json!({ "name": name, "inputs": inputs }),
+        WorkflowLaunch::Resume { run_id } => serde_json::json!({ "resume": run_id }),
+    };
     let cancel = CancellationSignal::default();
     let (progress, mut chunks) = progress_channel();
     let runner = match engine.workflow_runner(progress, cancel.clone()).await {
@@ -131,8 +140,7 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         }
     };
     renderer.start_tool_run("workflow", &arguments);
-    let workflow = name.to_string();
-    let mut task = tokio::spawn(async move { runner.run(&workflow, inputs).await });
+    let mut task = tokio::spawn(async move { launch.run(&runner).await });
     let mut view = WorkflowView {
         renderer,
         io,
@@ -162,11 +170,13 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
     let run = joined.unwrap_or_else(|e| WorkflowRun {
         ok: false,
         report: format!("Workflow `{name}` crashed: {e}"),
+        summary: None,
         started: true,
     });
     if run.started {
-        engine.hand_off_workflow_report(name, &run.report);
+        engine.hand_off_workflow_report(&name, &run.report);
     }
+    let summary_text = run.summary.clone();
     renderer.finish_tool_line(ToolLine {
         name: "workflow".to_string(),
         arguments,
@@ -176,6 +186,9 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         duration_ms: Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
         file_change: None,
     });
+    if let Some(text) = summary_text {
+        renderer.print_notice(&format!("\n{text}\n"));
+    }
     view.flush(false)
 }
 

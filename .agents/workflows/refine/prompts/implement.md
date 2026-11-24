@@ -23,4 +23,4 @@ Write the commit message for this change:
 - `commit_subject`: a Conventional Commit subject in short imperative mood describing what changed, e.g. `perf(session): defer active-path rebuild during replay`. Use `perf` for performance fixes, `fix` for security, reliability, and review bugs, and `refactor` for architecture changes. The scope names the area changed, never the profile.
 - `commit_body`: one line per fixed finding, starting with its fingerprint.
 
-Return {"fixed": ["<fingerprint>"], "wont_fix": [{"fingerprint", "reason"}], "files_changed": ["<path>"], "behavior_changes": ["<observable change, or empty>"], "preserved_invariants": ["<behavior that must stay the same and how the change keeps it>"], "commit_subject": "<subject>", "commit_body": "<body>"}.
+Result fields: {"fixed": ["<fingerprint>"], "wont_fix": [{"fingerprint", "reason"}], "files_changed": ["<path>"], "behavior_changes": ["<observable change, or empty>"], "preserved_invariants": ["<behavior that must stay the same and how the change keeps it>"], "commit_subject": "<subject>", "commit_body": "<body>"}.

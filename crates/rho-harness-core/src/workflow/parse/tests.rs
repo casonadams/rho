@@ -1,5 +1,5 @@
 use super::*;
-use crate::workflow::types::{Items, ModelRole};
+use crate::workflow::types::Items;
 
 fn no_files(path: &str) -> Result<String, String> {
     Err(format!("no file {path}"))
@@ -61,11 +61,14 @@ fn parses_a_nested_workflow_into_typed_nodes() {
         scout.prompt,
         "Scan {{slice}} for {{profile}}.\n  Keep Vec<String> && <file> verbatim."
     );
-    assert_eq!((scout.model, scout.turns, scout.persona.as_deref()), (None, 40, None));
+    assert_eq!(
+        (scout.model.as_deref(), scout.turns, scout.persona.as_deref()),
+        (None, 40, None)
+    );
     let NodeKind::Agent(validate) = &round.body[1].kind else {
         panic!("expected agent");
     };
-    assert_eq!((validate.model, validate.turns), (Some(ModelRole::Slow), 100));
+    assert_eq!((validate.model.as_deref(), validate.turns), (Some("slow"), 100));
     assert_eq!(validate.persona.as_deref(), Some("skeptic"));
     assert_eq!(validate.output, OutputFormat::Json);
     let NodeKind::Run(commit) = &round.body[3].kind else {
@@ -205,4 +208,97 @@ fn choose_and_call_parse_cases_and_inputs() {
     assert_eq!(call.workflow, "fix");
     assert_eq!(call.with["profile"], "{{profile}}");
     assert!(choose.otherwise.is_some());
+}
+
+#[test]
+fn agent_use_and_model_may_be_templates_but_literal_models_are_checked() {
+    let wf = parse(&wrap(
+        r#"<each id="h" items="a b" as="cat"><agent use="hunter-{{cat}}" model="{{profile}}">Go.</agent></each>"#,
+    ))
+    .unwrap();
+    let NodeKind::Each(each) = &wf.body[0].kind else {
+        panic!("expected each");
+    };
+    let NodeKind::Agent(agent) = &each.body[0].kind else {
+        panic!("expected agent");
+    };
+    assert_eq!(
+        (agent.agent.as_str(), agent.model.as_deref()),
+        ("hunter-{{cat}}", Some("{{profile}}"))
+    );
+    let err = parse(&wrap(r#"<agent use="x" model="huge">Go.</agent>"#)).unwrap_err();
+    assert!(err.contains("model must be one of"), "{err}");
+    let err = parse(&wrap(r#"<agent use="x-{{nope}}">Go.</agent>"#)).unwrap_err();
+    assert!(err.contains("unknown reference '{{nope}}'"), "{err}");
+}
+
+#[test]
+fn write_steps_need_a_path_and_value_and_check_references() {
+    let wf = parse(&wrap(
+        r#"<write id="saved" path=".rho/{{profile}}.md" value="{{profile}}"/>"#,
+    ))
+    .unwrap();
+    let NodeKind::Write(write) = &wf.body[0].kind else {
+        panic!("expected write");
+    };
+    assert_eq!(
+        (write.path.as_str(), write.content.as_str()),
+        (".rho/{{profile}}.md", "{{profile}}")
+    );
+    let err = parse(&wrap(r#"<write path=".rho/a"/>"#)).unwrap_err();
+    assert!(err.contains("missing required attribute 'value'"), "{err}");
+    let err = parse(&wrap(r#"<write path=".rho/a" value="{{ghost}}"/>"#)).unwrap_err();
+    assert!(err.contains("unknown reference '{{ghost}}'"), "{err}");
+}
+
+#[test]
+fn filters_are_validated_at_load_time() {
+    let ok = wrap(r#"<output name="n" value="{{profile | count}}"/><run cmd="echo"/>"#);
+    assert!(parse(&ok).is_ok());
+    let bad = wrap(r#"<output name="n" value="{{profile | shout}}"/><run cmd="echo"/>"#);
+    assert!(parse(&bad).unwrap_err().contains("unknown filter 'shout'"));
+    let ghost = wrap(r#"<output name="n" value="{{profile | default:ghost}}"/><run cmd="echo"/>"#);
+    assert!(parse(&ghost).unwrap_err().contains("unknown reference '{{ghost}}'"));
+}
+
+#[test]
+fn run_is_a_reserved_name_bound_by_the_engine() {
+    let ok = wrap(r#"<run cmd="echo {{run.id}}"/>"#);
+    assert!(parse(&ok).is_ok());
+    let input = "<workflow><input name=\"run\"/><run cmd=\"echo\"/></workflow>";
+    assert!(parse(input).unwrap_err().contains("invalid input name 'run'"));
+    let id = wrap(r#"<run id="run" cmd="echo"/>"#);
+    assert!(parse(&id).unwrap_err().contains("already an input name"));
+}
+
+#[test]
+fn the_quick_start_example_in_the_docs_loads() {
+    let doc = include_str!("../../../../../docs/workflows.md");
+    let start = doc
+        .find("```xml\n<workflow description=\"Ask an agent")
+        .expect("quick start")
+        + "```xml\n".len();
+    let xml = &doc[start..start + doc[start..].find("```").unwrap()];
+    let wf = parse(xml).unwrap();
+    assert_eq!(wf.inputs.len(), 1);
+    assert_eq!(wf.outputs.len(), 1);
+}
+
+#[test]
+fn resume_must_be_a_positive_integer_and_defaults_to_none() {
+    let wf = parse(&wrap(
+        r#"<agent use="a">Go.</agent><agent use="b" resume="2">Go.</agent>"#,
+    ))
+    .unwrap();
+    let resumes: Vec<usize> = wf
+        .body
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::Agent(a) => Some(a.resume),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(resumes, [0, 2]);
+    let err = parse(&wrap(r#"<agent use="a" resume="0">Go.</agent>"#)).unwrap_err();
+    assert!(err.contains("'resume' must be a positive integer"), "{err}");
 }

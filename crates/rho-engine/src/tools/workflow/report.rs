@@ -1,5 +1,5 @@
 use rho_harness_core::a2a::TaskState;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -47,6 +47,7 @@ pub(crate) struct AgentTask {
 }
 
 pub(crate) struct RunLog {
+    id: String,
     path: PathBuf,
     file: Mutex<Option<std::fs::File>>,
     records: Mutex<Vec<StepRecord>>,
@@ -65,9 +66,11 @@ impl RunLog {
         }
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let path = dir.join(format!("{workflow}-{stamp}-{}.jsonl", &id[..8]));
+        let run_id = format!("{stamp}-{}", &id[..8]);
+        let path = dir.join(format!("{workflow}-{run_id}.jsonl"));
         let file = std::fs::File::create(&path).map_err(|e| format!("cannot create {}: {e}", path.display()))?;
         Ok(Self {
+            id: run_id,
             path,
             file: Mutex::new(Some(file)),
             records: Mutex::new(Vec::new()),
@@ -75,6 +78,24 @@ impl RunLog {
             files: Mutex::default(),
             warnings: Mutex::new(Vec::new()),
         })
+    }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Records an agent step's result so a later run can resume from it.
+    pub(crate) fn journal(&self, step: &str, key: &str, value: &Value, detail: &str) {
+        let line = json!({ "step": step, "key": key, "value": value, "detail": detail });
+        let path = super::resume::journal_path(&self.path);
+        let written = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut file| writeln!(file, "{line}"));
+        if let Err(e) = written {
+            self.warn(format!("cannot journal {step} for resume: {e}"));
+        }
     }
 
     #[cfg(test)]
@@ -188,7 +209,7 @@ impl RunLog {
             out.push_str(&format!("  {} {}{detail}\n", record.status.symbol(), record.path));
         }
         if let Some(outputs) = outputs.filter(|o| o.as_object().is_some_and(|m| !m.is_empty())) {
-            out.push_str(&format!("\nOutputs:\n```json\n{}\n```\n", clamp_json(outputs)));
+            out.push_str(&outputs_section(outputs));
         }
         out.push_str(&self.files.lock().unwrap_or_else(PoisonError::into_inner).section());
         out.push_str(&self.task_section());
@@ -198,6 +219,28 @@ impl RunLog {
         out.push_str(&format!("\nRun log: {}", self.path.display()));
         out
     }
+}
+
+/// Text outputs print as readable paragraphs after the others, which stay JSON.
+fn outputs_section(outputs: &Value) -> String {
+    let Some(map) = outputs.as_object() else {
+        return String::new();
+    };
+    let (texts, rest): (Vec<_>, Vec<_>) = map
+        .iter()
+        .partition(|(_, v)| v.as_str().is_some_and(|s| s.contains('\n') || s.len() > 100));
+    let mut out = String::new();
+    if !rest.is_empty() {
+        let rest: Map<String, Value> = rest.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        out.push_str(&format!(
+            "\nOutputs:\n```json\n{}\n```\n",
+            clamp_json(&Value::Object(rest))
+        ));
+    }
+    for (name, text) in texts {
+        out.push_str(&format!("\n{name}:\n{}\n", text.as_str().unwrap_or_default().trim()));
+    }
+    out
 }
 
 fn clamp_json(value: &Value) -> String {
