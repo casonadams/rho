@@ -257,4 +257,35 @@ fn filters_are_validated_at_load_time() {
     assert!(parse(&ok).is_ok());
     let bad = wrap(r#"<output name="n" value="{{profile | shout}}"/><run cmd="echo"/>"#);
     assert!(parse(&bad).unwrap_err().contains("unknown filter 'shout'"));
+    let ghost = wrap(r#"<output name="n" value="{{profile | default:ghost}}"/><run cmd="echo"/>"#);
+    assert!(parse(&ghost).unwrap_err().contains("unknown reference '{{ghost}}'"));
+}
+
+#[test]
+fn run_is_a_reserved_name_bound_by_the_engine() {
+    let ok = wrap(r#"<run cmd="echo {{run.id}}"/>"#);
+    assert!(parse(&ok).is_ok());
+    let input = "<workflow><input name=\"run\"/><run cmd=\"echo\"/></workflow>";
+    assert!(parse(input).unwrap_err().contains("invalid input name 'run'"));
+    let id = wrap(r#"<run id="run" cmd="echo"/>"#);
+    assert!(parse(&id).unwrap_err().contains("already an input name"));
+}
+
+#[test]
+fn resume_must_be_a_positive_integer_and_defaults_to_none() {
+    let wf = parse(&wrap(
+        r#"<agent use="a">Go.</agent><agent use="b" resume="2">Go.</agent>"#,
+    ))
+    .unwrap();
+    let resumes: Vec<usize> = wf
+        .body
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::Agent(a) => Some(a.resume),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(resumes, [0, 2]);
+    let err = parse(&wrap(r#"<agent use="a" resume="0">Go.</agent>"#)).unwrap_err();
+    assert!(err.contains("'resume' must be a positive integer"), "{err}");
 }

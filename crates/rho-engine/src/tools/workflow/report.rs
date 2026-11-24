@@ -47,6 +47,7 @@ pub(crate) struct AgentTask {
 }
 
 pub(crate) struct RunLog {
+    id: String,
     path: PathBuf,
     file: Mutex<Option<std::fs::File>>,
     records: Mutex<Vec<StepRecord>>,
@@ -65,9 +66,11 @@ impl RunLog {
         }
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let path = dir.join(format!("{workflow}-{stamp}-{}.jsonl", &id[..8]));
+        let run_id = format!("{stamp}-{}", &id[..8]);
+        let path = dir.join(format!("{workflow}-{run_id}.jsonl"));
         let file = std::fs::File::create(&path).map_err(|e| format!("cannot create {}: {e}", path.display()))?;
         Ok(Self {
+            id: run_id,
             path,
             file: Mutex::new(Some(file)),
             records: Mutex::new(Vec::new()),
@@ -75,6 +78,10 @@ impl RunLog {
             files: Mutex::default(),
             warnings: Mutex::new(Vec::new()),
         })
+    }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
     }
 
     #[cfg(test)]

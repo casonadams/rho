@@ -85,6 +85,18 @@ impl ModelAdapter for ScriptedModel {
         let preamble = request.preamble.clone().unwrap_or_default();
         let prompt = request.asked();
         self.requests.lock().unwrap().push((preamble, prompt.clone()));
+        if prompt.starts_with("STRUCT") {
+            let finish = rho_harness_core::model::ToolFunction::new(
+                "complete_task",
+                serde_json::json!({ "result": "found it", "data": { "answer": 42 } }),
+            );
+            return Ok(ModelCompletionResponse {
+                content: String::new(),
+                tool_calls: vec![rho_harness_core::model::ToolCall::new("call-finish", finish)],
+                usage: Default::default(),
+                finish_reason: None,
+            });
+        }
         Ok(ModelCompletionResponse {
             content: self.reply(&prompt),
             tool_calls: Vec::new(),
@@ -188,6 +200,35 @@ const ESCAPING_WRITE: &str = r#"
   <write path="src/main.rs" value="x"/>
 </workflow>
 "#;
+
+const RUN_ID_WRITE: &str = r#"
+<workflow name="stamped">
+  <write path=".rho/out/{{run.id}}.md" value="x"/>
+</workflow>
+"#;
+
+#[tokio::test]
+async fn run_id_names_files_and_matches_the_run_log() {
+    let fx = Fixture::new(&[], &[("stamped.xml", RUN_ID_WRITE)]);
+    let run = fx.run("stamped", &[]).await;
+
+    assert!(run.ok, "{}", run.report);
+    let written = std::fs::read_dir(fx.dir.path().join(".rho/out"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    let name = written.file_name().into_string().unwrap();
+    let id = name.strip_suffix(".md").unwrap();
+    let logs: Vec<String> = std::fs::read_dir(fx.dir.path().join(".rho/workflows"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert!(
+        logs.iter().any(|l| l == &format!("stamped-{id}.jsonl")),
+        "{id} {logs:?}"
+    );
+}
 
 #[tokio::test]
 async fn templated_agents_and_write_steps_persist_output_in_the_project() {
@@ -489,7 +530,50 @@ fn text_turn(text: &str) -> Vec<ModelStreamEvent> {
 }
 
 const REVIEW: &str = r#"<workflow name="gate"><agent id="review" use="checker" turns="1" output="json">REVIEW the diff</agent><run cmd="printf after"/></workflow>"#;
+const RESUMING: &str = r#"<workflow name="gate"><agent id="review" use="checker" turns="1" resume="1" output="json">REVIEW the diff</agent><output name="approved" value="{{review.approved}}"/></workflow>"#;
+const STRUCTURED: &str = r#"<workflow name="structured"><agent id="s" use="scout" output="json">STRUCT go</agent><output name="answer" value="{{s.answer}}"/></workflow>"#;
 const CHECKER: &str = "---\nname: checker\ntools: read\n---\nYou review diffs.";
+
+#[tokio::test]
+async fn structured_data_from_complete_task_is_the_json_value_without_parsing_text() {
+    let fx = Fixture::new(&[CLEAN], &[("structured.xml", STRUCTURED)]);
+    let run = fx.run("structured", &[]).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("\"answer\": 42"), "{}", run.report);
+}
+
+#[tokio::test]
+async fn resume_continues_a_stopped_agent_in_the_same_task_and_takes_its_structured_result() {
+    let mut fx = Fixture::new(
+        &[CLEAN],
+        &[("gate/workflow.xml", RESUMING), ("gate/agents/checker.md", CHECKER)],
+    );
+    let session = rho_harness_core::session::SessionManager::new(&fx.dir.path().join("sessions"), None).unwrap();
+    fx.session = Some(session);
+    let finish = vec![ModelStreamEvent::ToolCall(rho_harness_core::model::ToolCall::new(
+        "call-finish",
+        rho_harness_core::model::ToolFunction::new(
+            "complete_task",
+            serde_json::json!({ "result": "approved", "data": { "approved": true } }),
+        ),
+    ))];
+    let adapter =
+        crate::provider::adapter::MockAdapter::from_turns([read_call(), text_turn("So far: a.rs looks fine."), finish]);
+    let subagents = SubagentTool::new(Some(Arc::new(adapter.clone())), vec![read_tool()])
+        .with_foreground_budget(std::time::Duration::from_secs(60));
+
+    let run = fx.runner_with(subagents, None).run("gate", BTreeMap::new()).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("\"approved\": true"), "{}", run.report);
+    let sent = serde_json::to_string(&adapter.requests().last().unwrap().messages).unwrap();
+    assert!(sent.contains("You stopped before finishing"), "{sent}");
+    assert!(
+        sent.contains("REVIEW the diff"),
+        "the resumed round keeps the conversation: {sent}"
+    );
+}
 
 #[tokio::test]
 async fn an_agent_that_stops_early_fails_its_step_instead_of_producing_a_value() {
@@ -593,7 +677,7 @@ async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent()
     assert!(
         request.messages[0]
             == rho_harness_core::model::ChatMessage::user(
-                "REVIEW the diff\n\nRespond with exactly one JSON object in a ```json fenced block."
+                "REVIEW the diff\n\nReturn exactly one JSON object: pass it as `data` to complete_task (a ```json fenced block in your final reply also works)."
             )
     );
 }

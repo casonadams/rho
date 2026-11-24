@@ -347,7 +347,8 @@ happen.
   merged, which covers what it saw through `rg` or other directory-wide
   commands. The result says what the subagent was told.
 - **Finishing**: a subagent finishes by calling `complete_task` with its report,
-  which becomes the task's result; text it writes outside that call is not
+  which becomes the task's result (an optional `data` object carries structured
+  output as an A2A data part, saved as the task's `result-data` artifact); text it writes outside that call is not
   passed on. The call is refused while a message from the main agent is
   waiting or the subagent's own background work is still running, so the
   subagent reads or waits for it first. A subagent that ends with a plain

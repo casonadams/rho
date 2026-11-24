@@ -8,11 +8,13 @@ use crate::tools::subagent::round::{Round, RoundEnd, RoundInput};
 use crate::tools::subagent::runner::SubagentRunner;
 use crate::tools::subagent::{RoundSlot, RunnerSpec};
 use crate::worktree::{Worktree, WorktreeLease};
+use rho_harness_core::session::SessionManager;
 use rho_harness_core::workflow::template::value_to_text;
 use rho_harness_core::workflow::{AgentNode, ModelRole, OutputFormat};
 use serde_json::{Value, json};
 
-const JSON_INSTRUCTION: &str = "Respond with exactly one JSON object in a ```json fenced block.";
+const JSON_INSTRUCTION: &str = "Return exactly one JSON object: pass it as `data` to complete_task (a ```json fenced block in your final reply also works).";
+const RESUME_PROMPT: &str = "You stopped before finishing. Do not start new work: call complete_task now with what you have found so far, putting any structured output in `data`.";
 const REPAIR_PREAMBLE: &str = "Convert the user's text into exactly one JSON object. Reply with only the JSON object.";
 
 fn context_text(value: &Value) -> String {
@@ -155,7 +157,7 @@ impl Executor<'_> {
         };
         let started = std::time::Instant::now();
         let run = self
-            .agent_round(&runner, &settings, &position, &build_prompt(agent, scope))
+            .agent_round(&runner, &settings, &position, agent, &build_prompt(agent, scope))
             .await?;
         self.log
             .agent_files(&position, &run.round, started..std::time::Instant::now());
@@ -169,9 +171,10 @@ impl Executor<'_> {
         let RoundEnd::Answered(text) = &run.round.end else {
             return Err(unfinished_step(&run));
         };
-        let value = match agent.output {
-            OutputFormat::Text => Value::String(text.trim().to_string()),
-            OutputFormat::Json => self
+        let value = match (agent.output, &run.round.data) {
+            (OutputFormat::Json, Some(data)) => data.clone(),
+            (OutputFormat::Text, _) => Value::String(text.trim().to_string()),
+            (OutputFormat::Json, None) => self
                 .parse_json(&runner, text.trim())
                 .await
                 .map_err(|e| e + &handoff_note(&run))?,
@@ -212,6 +215,7 @@ impl Executor<'_> {
         runner: &SubagentRunner,
         settings: &ConversationSettings,
         position: &str,
+        agent: &AgentNode,
         prompt: &str,
     ) -> Result<AgentRun, String> {
         let _slot = self.round_slot().await?;
@@ -219,14 +223,29 @@ impl Executor<'_> {
         let Some(session) = &self.ctx().session else {
             return self.unsaved_round(runner, &label, prompt).await;
         };
-        let mut exchange = Exchange::start(settings);
-        if let Some(store) = self.subagents.worktrees() {
-            let owner = session.session_id.as_str();
-            exchange = exchange
-                .with_worktree(store, self.base_dir, &label, Some(owner))
-                .await?;
+        let mut outcome = self
+            .attached(Exchange::start(settings), &label, session)
+            .await?
+            .exchange(runner, session, prompt, None)
+            .await;
+        for attempt in 1..=agent.resume {
+            if !matches!(outcome.round.end, RoundEnd::Stopped { .. }) || self.cancelled() {
+                break;
+            }
+            let Some(context) = session.subagent_context(&outcome.task.id).await else {
+                break;
+            };
+            self.log.event(
+                "agent_resumed",
+                json!({ "step": position, "task": outcome.task.id, "attempt": attempt }),
+            );
+            let next = Exchange::resume(context, &outcome.task.id)?.with_settings(settings);
+            outcome = self
+                .attached(next, &label, session)
+                .await?
+                .exchange(runner, session, RESUME_PROMPT, None)
+                .await;
         }
-        let outcome = exchange.exchange(runner, session, prompt, None).await;
         let state = outcome.task.status.state;
         self.log.event(
             "agent_task",
@@ -246,6 +265,18 @@ impl Executor<'_> {
             worktree: outcome.worktree.zip(outcome.record.map(|r| r.head)),
             round: outcome.round,
         })
+    }
+
+    /// Gives `exchange` the agent's worktree when worktrees are available.
+    async fn attached(&self, exchange: Exchange, label: &str, session: &SessionManager) -> Result<Exchange, String> {
+        match self.subagents.worktrees() {
+            Some(store) => {
+                exchange
+                    .with_worktree(store, self.base_dir, label, Some(session.session_id.as_str()))
+                    .await
+            }
+            None => Ok(exchange),
+        }
     }
 
     async fn unsaved_round(&self, runner: &SubagentRunner, label: &str, prompt: &str) -> Result<AgentRun, String> {
@@ -319,6 +350,7 @@ mod tests {
             model: None,
             persona: None,
             turns: 10,
+            resume: 0,
             output,
             context: context.iter().map(|c| (*c).to_string()).collect(),
         }
@@ -328,7 +360,7 @@ mod tests {
     fn prompt_renders_and_appends_context_and_json_instruction() {
         let mut inputs = BTreeMap::new();
         inputs.insert("profile".to_string(), "security".to_string());
-        let mut scope = Scope::new(&inputs);
+        let mut scope = Scope::new(&inputs, "test-run");
         scope.set("scan", json!(["first report", "second report"]));
         let prompt = build_prompt(&agent(&["scan"], OutputFormat::Json), &scope);
         assert_eq!(

@@ -5,6 +5,7 @@ use crate::tools::engine_tool::TurnToolContext;
 use crate::tools::subagent::SubagentTool;
 use futures::StreamExt;
 use futures::future::BoxFuture;
+use rho_harness_core::workflow::parse::RUN_SCOPE;
 use rho_harness_core::workflow::template::{evaluate_with, is_truthy, lookup, render_with};
 use rho_harness_core::workflow::{
     CallNode, ChooseNode, EachNode, Items, LoopNode, Node, NodeKind, OutputFormat, RunNode, Workflow, WorkflowBundle,
@@ -21,11 +22,12 @@ pub(crate) struct Scope {
 }
 
 impl Scope {
-    pub(crate) fn new(inputs: &BTreeMap<String, String>) -> Self {
-        let values = inputs
+    pub(crate) fn new(inputs: &BTreeMap<String, String>, run_id: &str) -> Self {
+        let mut values: Map<String, Value> = inputs
             .iter()
             .map(|(k, v)| (k.clone(), Value::String(v.clone())))
             .collect();
+        values.insert(RUN_SCOPE.to_string(), json!({ "id": run_id }));
         Self {
             values,
             history: BTreeMap::new(),
@@ -145,7 +147,7 @@ impl Executor<'_> {
         workflow: &Workflow,
         inputs: &BTreeMap<String, String>,
     ) -> Result<Value, String> {
-        let mut scope = Scope::new(inputs);
+        let mut scope = Scope::new(inputs, self.log.id());
         self.run_nodes(frame, &workflow.body, &mut scope).await?;
         let outputs: Map<String, Value> = workflow
             .outputs
@@ -410,7 +412,7 @@ mod tests {
     fn scope() -> Scope {
         let mut inputs = BTreeMap::new();
         inputs.insert("profile".to_string(), "security".to_string());
-        Scope::new(&inputs)
+        Scope::new(&inputs, "test-run")
     }
 
     #[test]

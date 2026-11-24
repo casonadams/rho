@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 pub(crate) const RESULT_ARTIFACT: &str = "result";
+pub(crate) const RESULT_DATA_ARTIFACT: &str = "result-data";
 pub(crate) const FILES_CHANGED_ARTIFACT: &str = "files-changed";
 pub(crate) const WORKSPACE_CHANGES_ARTIFACT: &str = "workspace-changes";
 pub(crate) const TOOL_CALLS_ARTIFACT: &str = "tool-calls";
@@ -368,6 +369,9 @@ impl Exchange {
         self.task.history.extend(message.clone());
         if let RoundEnd::Answered(text) = &round.end {
             self.add_artifact(RESULT_ARTIFACT, Part::text(text.trim()));
+        }
+        if let Some(data) = &round.data {
+            self.add_artifact(RESULT_DATA_ARTIFACT, Part::data(data.clone()));
         }
         let data = [
             (

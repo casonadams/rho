@@ -29,6 +29,8 @@ pub enum RoundEnd {
 #[derive(Debug, Clone)]
 pub struct Round {
     pub end: RoundEnd,
+    /// The structured result the subagent passed to `complete_task`, an A2A data part.
+    pub data: Option<serde_json::Value>,
     pub transcript: Vec<ChatMessage>,
     pub turns: usize,
     pub tool_calls: usize,

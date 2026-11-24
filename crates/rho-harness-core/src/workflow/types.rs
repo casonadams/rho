@@ -117,6 +117,7 @@ pub struct AgentNode {
     pub model: Option<String>,
     pub persona: Option<String>,
     pub turns: usize,
+    pub resume: usize,
     pub output: OutputFormat,
     pub context: Vec<String>,
 }

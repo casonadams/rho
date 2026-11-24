@@ -83,7 +83,7 @@ a `default` is required; `choices` is a space-separated list of allowed values.
 
 | Element | Does | Value it produces |
 |---|---|---|
-| `<agent use="..." model="..." persona="..." turns="..." output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
+| `<agent use="..." model="..." persona="..." turns="..." resume="1" output="text\|json" context="a b">prompt</agent>` | Runs one agent | Its final text, or the JSON object it returned with `output="json"` |
 | `<run cmd="..." output="text\|json"/>` | Runs one command | `{ok, exit, output}`, plus `json` with `output="json"` |
 | `<write path=".rho/..." value="..."/>` | Writes a file under the project's `.rho/` | The path written |
 | `<call workflow="name" profile="..."/>` | Runs another workflow; other attributes are its inputs | That workflow's outputs |
@@ -108,8 +108,15 @@ a `default` is required; `choices` is a space-separated list of allowed values.
   contain `<`, `&`, and code. `prompt-file="prompts/x.md"` loads it from a file
   inside the workflow directory instead.
 - `context="scan validate"` appends those steps' values to the prompt.
-- With `output="json"` the agent must return one JSON object; if it does not,
-  one repair call converts its answer, otherwise the step fails.
+- With `output="json"` the agent passes one JSON object as the `data` argument
+  of `complete_task` (an [A2A](https://a2a-protocol.org/latest/specification/)
+  data part), so no schema or fence format is needed in the prompt. If it
+  writes a fenced JSON block in its final reply instead, that is parsed;
+  otherwise one repair call converts its answer, otherwise the step fails.
+- `resume="1"` gives an agent that stopped early (turn limit or empty reply)
+  that many follow-up rounds in the same saved task, each asking it to finish
+  now with what it has. It needs a saved session; without one the step fails
+  as before.
 
 **`<run>`**
 
@@ -170,6 +177,8 @@ workflow branches on their values.
 - the `as` variable inside `<each>`
 - `{{<id>.history}}`: every value the step has produced in this run, oldest
   first
+- `{{run.id}}`: this run's id (`YYYYMMDD-HHMMSS-xxxxxxxx`), the same one in the
+  run log's file name; handy in `<write path>`
 
 Names are checked before the workflow runs, so typos are reported up front. A
 step that has not run yet, or was skipped, reads as empty. Strings are inserted
@@ -183,13 +192,15 @@ value is treated as empty. Filter names are checked when the workflow loads.
 | Filter | Does |
 |---|---|
 | `compact` | Drops `null` items from a list (failed `<each>` items) |
+| `default:ref` | Uses `{{ref}}` instead when the value is empty, `false`, `0`, or missing |
 | `count` | Length of a list or object; `0` when empty or missing |
 | `pluck:field` | The `field` of each item in a list, skipping items without it |
 | `count_by:field` | `{value: n}` counting items by the value of `field` |
 | `json` | Compact one-line JSON text |
 
 For example, `{{findings | compact | count_by:priority}}` gives
-`{"P1": 2, "P2": 12}`. A template that is exactly one reference (an `<output>`
+`{"P1": 2, "P2": 12}`. `field` may be a dotted path such as
+`properties.priority`. A template that is exactly one reference (an `<output>`
 value or `each items`) keeps the transformed value's type.
 
 | Step or block | Value |

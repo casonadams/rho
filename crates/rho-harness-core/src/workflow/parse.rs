@@ -10,6 +10,9 @@ pub type FileReader<'a> = &'a dyn Fn(&str) -> Result<String, String>;
 
 const COMMON_ATTRS: [&str; 3] = ["id", "when", "unless"];
 
+/// The built-in reference `{{run.id}}`, bound by the engine for every run.
+pub const RUN_SCOPE: &str = "run";
+
 struct Builder<'a> {
     errors: Vec<String>,
     read_file: FileReader<'a>,
@@ -114,7 +117,16 @@ impl Builder<'_> {
     fn agent(&mut self, el: &Element) -> Option<AgentNode> {
         self.check_attrs(
             el,
-            &["use", "model", "persona", "turns", "output", "context", "prompt-file"],
+            &[
+                "use",
+                "model",
+                "persona",
+                "turns",
+                "resume",
+                "output",
+                "context",
+                "prompt-file",
+            ],
         );
         let agent = self.required(el, "use");
         let model = el.attr("model").map(str::to_string);
@@ -124,6 +136,7 @@ impl Builder<'_> {
             self.error(el, e);
         }
         let turns = self.positive(el, "turns", DEFAULT_TURNS);
+        let resume = self.positive(el, "resume", 0);
         let output = self.output(el);
         let prompt = self.prompt(el);
         let context = el.attr("context").map(split_list).unwrap_or_default();
@@ -137,6 +150,7 @@ impl Builder<'_> {
                 .filter(|p| !p.is_empty())
                 .map(str::to_string),
             turns,
+            resume,
             output,
             context,
         })
@@ -497,9 +511,9 @@ impl Checker {
 
 fn validate(workflow: &Workflow) -> Vec<String> {
     let mut errors = Vec::new();
-    let mut names: BTreeSet<String> = BTreeSet::new();
+    let mut names: BTreeSet<String> = BTreeSet::from([RUN_SCOPE.to_string()]);
     for input in &workflow.inputs {
-        if !valid_name(&input.name) {
+        if !valid_name(&input.name) || input.name == RUN_SCOPE {
             errors.push(format!("invalid input name '{}'", input.name));
         }
         names.insert(input.name.clone());
