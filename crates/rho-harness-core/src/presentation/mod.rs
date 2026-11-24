@@ -12,7 +12,7 @@ pub use structured::{RecordingSink, StdoutNdjsonSink, StructuredOutputSink, Stru
 pub use summary::summarize_tool_output;
 pub use types::{
     BlockDisplay, FileChange, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse,
-    OptionLayout, SessionStatus, ToolLine, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
+    OptionLayout, SessionStatus, ToolLine, TurnTelemetry, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
 };
 
 /// Starts the result of a subagent call that began in the background; the UI keys a hint on it.

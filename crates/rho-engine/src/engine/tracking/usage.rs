@@ -1,4 +1,7 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+const WARM_CACHE_THRESHOLD: u64 = 2048;
 
 use super::in_flight::{InFlightGuard, InFlightUsage};
 use super::speed::SpeedTracker;
@@ -11,6 +14,7 @@ pub struct UsageTracker {
     totals: Arc<Mutex<SessionUsageTotals>>,
     speed: Arc<Mutex<SpeedTracker>>,
     in_flight: Arc<Mutex<InFlightUsage>>,
+    last_cache_read_tokens: Arc<AtomicU64>,
 }
 
 impl UsageTracker {
@@ -143,5 +147,24 @@ impl UsageTracker {
             return Some(speed);
         }
         self.speed.lock().ok().and_then(|s| s.tokens_per_second())
+    }
+
+    pub fn check_and_update_cache_miss(&self, usage: &StructuralUsage) -> Option<u64> {
+        if usage.cached_input_tokens.is_none() && usage.cache_creation_input_tokens.is_none() {
+            return None;
+        }
+        let cache_read = usage.cached_input_tokens.unwrap_or(0);
+        let cache_write = usage.cache_creation_input_tokens.unwrap_or(0);
+        let prev_read = self.last_cache_read_tokens.swap(cache_read, Ordering::Relaxed);
+        let write_plus_input = cache_write.saturating_add(usage.input_tokens);
+        if prev_read >= WARM_CACHE_THRESHOLD
+            && cache_read == 0
+            && cache_write > 0
+            && write_plus_input >= WARM_CACHE_THRESHOLD
+        {
+            Some(write_plus_input)
+        } else {
+            None
+        }
     }
 }

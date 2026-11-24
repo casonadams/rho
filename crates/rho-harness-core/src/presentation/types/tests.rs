@@ -40,3 +40,30 @@ fn test_interaction_prompt_deserialization_respects_horizontal() {
     let prompt: InteractionPrompt = serde_json::from_str(json_data).unwrap();
     assert_eq!(prompt.option_layout, OptionLayout::Horizontal);
 }
+
+#[test]
+fn test_turn_telemetry_tokens_per_second() {
+    assert_eq!(TurnTelemetry::compute_tokens_per_second(100, 0), None);
+    assert_eq!(TurnTelemetry::compute_tokens_per_second(100, 100), None);
+    assert_eq!(TurnTelemetry::compute_tokens_per_second(0, 2000), None);
+    assert_eq!(TurnTelemetry::compute_tokens_per_second(500, 2000), Some(250.0));
+}
+
+#[test]
+fn test_turn_telemetry_serde_roundtrip() {
+    let telemetry = TurnTelemetry {
+        timestamp_unix_ms: 1_700_000_000_000,
+        turn_elapsed_ms: 2500,
+        request_duration_ms: 2000,
+        ttft_ms: Some(150),
+        input_tokens: 1000,
+        output_tokens: 500,
+        cache_read_tokens: 4096,
+        cache_write_tokens: 0,
+        tokens_per_second: Some(250.0),
+        cache_miss_tokens: None,
+    };
+    let json = serde_json::to_string(&telemetry).unwrap();
+    let parsed: TurnTelemetry = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, telemetry);
+}

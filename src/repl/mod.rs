@@ -41,6 +41,9 @@ impl ReplSession {
     pub fn new(config: Config, auth_store: AuthStore, resume_id: Option<String>) -> Self {
         let mut renderer = TerminalRenderer::default();
         renderer.theme.apply_ui_config(&config.ui);
+        if let Some(display) = &config.ui.display {
+            renderer.set_display_config(display.clone());
+        }
         let mcp_completions = crate::repl::interactive::McpServerList::default();
         mcp_completions.set_from(&config.mcp);
         Self {

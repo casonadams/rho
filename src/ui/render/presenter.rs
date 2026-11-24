@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use rho_harness_core::presentation::{ActivityToken, activity_token};
-use rho_harness_core::presentation::{InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay};
+use rho_harness_core::presentation::{
+    InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, TurnTelemetry, WelcomeDisplay,
+};
 use serde_json::Value;
 
 pub struct InteractiveStreamSink(pub Option<InteractiveUi>);
@@ -99,5 +101,9 @@ impl Presenter for TerminalRenderer {
 
     fn print_block(&self, display: &rho_harness_core::presentation::BlockDisplay) {
         TerminalRenderer::print_block(self, display);
+    }
+
+    fn print_turn_telemetry(&self, telemetry: &TurnTelemetry) {
+        TerminalRenderer::print_turn_telemetry(self, telemetry);
     }
 }

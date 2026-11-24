@@ -3,7 +3,8 @@
 //! presentation side; the engine only passes typed data.
 
 pub use super::types::{
-    BlockDisplay, InteractionPrompt, InteractionResponse, OptionLayout, SessionStatus, ToolLine, WelcomeDisplay,
+    BlockDisplay, InteractionPrompt, InteractionResponse, OptionLayout, SessionStatus, ToolLine, TurnTelemetry,
+    WelcomeDisplay,
 };
 use crate::presentation::stream::ToolStreamPort;
 use async_trait::async_trait;
@@ -36,5 +37,6 @@ pub trait Presenter: Send + Sync {
     fn dismiss_interaction(&self) {}
     fn print_turn_started(&self, _prompt: &str) {}
     fn print_turn_completed(&self, _status: &str) {}
+    fn print_turn_telemetry(&self, _telemetry: &TurnTelemetry) {}
     fn print_block(&self, _display: &BlockDisplay) {}
 }

@@ -71,7 +71,12 @@ async fn rename_is_recorded_per_file_and_undo_reverts_it() {
 
     let result = tool.run(rename_args("src/lib.rs", 1)).await.unwrap();
     assert!(!result.is_error, "{}", result.content);
-    tool.run(hover("src/lib.rs", 1)).await.unwrap();
+    let post_rename_hover = LspArgs {
+        symbol: Some("assist".into()),
+        ..hover("src/lib.rs", 1)
+    };
+    let hover_result = tool.run(post_rename_hover).await.unwrap();
+    assert!(!hover_result.is_error, "{}", hover_result.content);
     assert!(
         launcher
             .received

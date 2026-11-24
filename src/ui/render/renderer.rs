@@ -15,8 +15,9 @@ use crate::ui::render::file_change;
 use crate::ui::render::margin::{Margin, margin_width};
 use crate::ui::render::thinking::ThinkingRenderer;
 use crate::ui::theme::Theme;
+use rho_harness_core::config::DisplayUiConfig;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
-use rho_harness_core::presentation::{FileChange, ToolLine};
+use rho_harness_core::presentation::{FileChange, ToolLine, TurnTelemetry};
 
 pub use super::notices::NoticeKind;
 
@@ -39,6 +40,7 @@ impl RenderActivity {
 #[derive(Clone)]
 pub struct TerminalRenderer {
     pub theme: Theme,
+    pub display: DisplayUiConfig,
     pub(crate) markdown: Arc<Mutex<MarkdownRenderer>>,
     pub(crate) ui: Option<InteractiveUi>,
     pub(crate) assistant_turn_buffer: Arc<Mutex<String>>,
@@ -52,6 +54,7 @@ impl Default for TerminalRenderer {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
+            display: DisplayUiConfig::default(),
             markdown: Arc::new(Mutex::new(MarkdownRenderer::new())),
             ui: None,
             assistant_turn_buffer: Arc::new(Mutex::new(String::new())),
@@ -82,6 +85,19 @@ impl TerminalRenderer {
             let mut stdout = io::stdout().lock();
             let _ = stdout.write_all(text.as_bytes());
             let _ = stdout.flush();
+        }
+    }
+
+    pub fn set_display_config(&mut self, display: DisplayUiConfig) {
+        self.display = display;
+    }
+
+    pub fn print_turn_telemetry(&self, telemetry: &TurnTelemetry) {
+        if let Some(line) = super::turn_stats::format_turn_stats_row(telemetry, &self.display, self.width()) {
+            self.print_notice(&format!("{line}\n"));
+        }
+        if let Some(marker) = super::turn_stats::format_cache_miss_marker(telemetry, &self.display, self.width()) {
+            self.print_notice(&format!("{marker}\n"));
         }
     }
 

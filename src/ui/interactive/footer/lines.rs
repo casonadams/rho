@@ -169,9 +169,30 @@ pub fn format_stats_line(footer: &FooterState, width: usize) -> String {
     fit_right_aligned(&left, &right, width)
 }
 
-pub fn format_footer_lines(footer: &FooterState, width: usize, system_message: Option<&str>) -> Vec<String> {
+pub fn is_segmented_footer(footer: &FooterState) -> bool {
+    footer
+        .status_bar_config
+        .as_ref()
+        .is_some_and(|cfg| !super::segments::is_default_status_bar(cfg))
+}
+
+pub fn format_footer_lines_with_theme(
+    footer: &FooterState,
+    width: usize,
+    system_message: Option<&str>,
+    theme: Option<&crate::ui::theme::Theme>,
+) -> Vec<String> {
+    if let Some(cfg) = footer.status_bar_config.as_ref()
+        && !super::segments::is_default_status_bar(cfg)
+    {
+        return super::segments::format_segmented_status_bar(footer, cfg, width, system_message, theme);
+    }
     vec![
         format_top_line(footer, width, system_message),
         format_stats_line(footer, width),
     ]
+}
+
+pub fn format_footer_lines(footer: &FooterState, width: usize, system_message: Option<&str>) -> Vec<String> {
+    format_footer_lines_with_theme(footer, width, system_message, None)
 }
