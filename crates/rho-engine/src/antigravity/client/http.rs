@@ -116,12 +116,15 @@ pub(super) fn friendly_error(status: Option<u16>, body: &str) -> String {
     }
 }
 
-pub fn resolve_endpoints(explicit: Option<&str>) -> Vec<String> {
+pub(crate) fn resolve_endpoints_with(
+    explicit: Option<&str>,
+    mut env_lookup: impl FnMut(&str) -> Option<String>,
+) -> Vec<String> {
     if let Some(endpoint) = explicit {
         return vec![endpoint.to_string()];
     }
     for var in ["ANTIGRAVITY_ENDPOINT", "ANTIGRAVITY_BASE_URL"] {
-        if let Ok(val) = std::env::var(var) {
+        if let Some(val) = env_lookup(var) {
             let trimmed = val.trim();
             if !trimmed.is_empty() {
                 return vec![trimmed.to_string()];
@@ -129,6 +132,10 @@ pub fn resolve_endpoints(explicit: Option<&str>) -> Vec<String> {
         }
     }
     ENDPOINT_CANDIDATES.iter().map(|&s| s.to_string()).collect()
+}
+
+pub fn resolve_endpoints(explicit: Option<&str>) -> Vec<String> {
+    resolve_endpoints_with(explicit, |var| std::env::var(var).ok())
 }
 
 pub(crate) async fn post_metadata_candidates(
