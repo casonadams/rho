@@ -1,7 +1,7 @@
 use super::SessionManager;
 use super::format::{SessionRecord, append_durable_record};
 use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::model::ChatMessage;
 use chrono::Utc;
 use std::path::Path;
@@ -30,6 +30,11 @@ impl SessionManager {
 
     pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<ChatMessage>> {
         let mut state = self.state.lock().await;
+        if let Some(id) = leaf_id.as_deref()
+            && state.tree.get_node(id).is_none()
+        {
+            return Err(AppError::Session(format!("No such conversation node: {id}")));
+        }
         state.tree.set_active_leaf(leaf_id.clone());
         let messages = state.tree.active_messages();
         state.messages = messages.clone();
