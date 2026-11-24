@@ -1,6 +1,7 @@
-Assess this confirmed finding, a SARIF result.
+Assess this confirmed finding, a SARIF result. It was condensed after validation, so re-read the cited code
+and restore `properties.impact` and `properties.recommendation` (one or two sentences each).
 
-{{finding}}
+{{finding | json}}
 
 Repository architecture notes:
 {{recon.architecture}}
@@ -17,6 +18,6 @@ Answer, from the code:
   high but unlikely), P3 (low, or anything unreachable), with the reason in `priorityReason`.
 
 Result fields: the same SARIF result with
-those added under `properties` as `reachability` ({path, likelihood}), `mitigations`, `fix`
+those added under `properties` as `impact`, `recommendation`, `reachability` ({path, likelihood}), `mitigations`, `fix`
 ({approach, mustPreserve, regressionRisk, tests}), `priority` and `priorityReason`. Keep everything else
-unchanged.
+unchanged, including `properties.evidence`.
