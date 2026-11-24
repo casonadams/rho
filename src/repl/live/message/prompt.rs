@@ -85,6 +85,13 @@ pub(crate) async fn run_prompt_turn<B: TerminalBackend>(
         },
     )
     .await?;
+    if let Some(new_dir) = engine.take_pending_relocation()
+        && let Err(err) = engine.relocate_working_dir(new_dir).await
+    {
+        session
+            .renderer
+            .print_notice(&format!("  Worktree relocation failed: {err}\n"));
+    }
     session.sync_engine_model(engine).await;
     engine.spawn_refresh_quota();
     Ok(false)

@@ -66,6 +66,8 @@ pub(crate) struct FileConfig {
     pub tools: Option<ToolsConfigFile>,
     #[serde(default, skip_serializing_if = "SubagentsConfig::is_empty")]
     pub subagents: SubagentsConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeConfigFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -126,4 +128,12 @@ pub struct McpConfigFile {
     pub startup_timeout_ms: Option<u64>,
     #[serde(default)]
     pub servers: BTreeMap<String, super::integrations::McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct WorktreeConfigFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clean_source: Option<bool>,
 }

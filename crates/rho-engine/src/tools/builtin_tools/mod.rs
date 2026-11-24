@@ -103,6 +103,8 @@ pub struct ToolsetServices {
     pub worktrees: Option<crate::worktree::WorktreeStore>,
     /// Language servers behind the `lsp` tool, `read` symbols, and edit diagnostics.
     pub lsp: Option<Arc<LspManager>>,
+    /// Shared slot populated when `worktree(action="create")` requests live session relocation.
+    pub relocate_slot: Option<Arc<std::sync::Mutex<Option<std::path::PathBuf>>>>,
 }
 
 /// The built-in tools and the subagent tool.
@@ -184,7 +186,13 @@ pub fn build_builtin_toolset(
     }));
     if let Some(store) = services.worktrees {
         subagent = subagent.with_worktrees(store.clone());
-        tools.push(Arc::new(crate::tools::WorktreeTool::new(base_dir, store)) as Arc<dyn EngineTool>);
+        let wt_base = config.worktree.effective_base(&config.config_dir);
+        let wt_tool = crate::tools::WorktreeTool::new(base_dir, store).with_session_worktree(
+            wt_base,
+            config.worktree.clean_source,
+            services.relocate_slot,
+        );
+        tools.push(Arc::new(wt_tool) as Arc<dyn EngineTool>);
     }
     if let Some(memory) = memory_tool(rho_harness_core::config::home_dir().as_deref(), base_dir, config) {
         tools.push(memory);

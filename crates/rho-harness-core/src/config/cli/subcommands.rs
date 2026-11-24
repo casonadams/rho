@@ -37,6 +37,12 @@ pub enum Commands {
         #[arg(long, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..))]
         last: Option<usize>,
     },
+    /// Inspect, create, or prune managed git worktrees
+    #[command(visible_alias = "wt")]
+    Worktree {
+        #[command(subcommand)]
+        action: Option<WorktreeCommands>,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -79,5 +85,23 @@ pub enum McpCommands {
     Approve {
         /// Server names
         names: Vec<String>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum WorktreeCommands {
+    /// List managed worktrees for this repository
+    #[command(visible_alias = "ls")]
+    List,
+    /// Create a managed worktree on a new branch carrying uncommitted & staged changes
+    Add {
+        /// Branch name (defaults to wt/<yyyymmdd-hhmmss>)
+        branch: Option<String>,
+    },
+    /// Remove managed worktrees for this repository (skips the active checkout)
+    Clear {
+        /// Force removal even if a worktree has uncommitted changes
+        #[arg(long)]
+        force: bool,
     },
 }

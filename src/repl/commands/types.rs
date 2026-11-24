@@ -79,6 +79,9 @@ pub enum CommandResult {
     },
     Reload,
     RunWorkflow(WorkflowLaunch),
+    EnterWorktree {
+        branch: Option<String>,
+    },
     Exit,
 }
 
@@ -115,6 +118,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/reload",
     "/export",
     "/workflow",
+    "/wt",
+    "/worktree",
     "/exit",
     "/quit",
 ];

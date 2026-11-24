@@ -30,6 +30,10 @@ const HELP_ENTRIES: &[(&str, &str)] = &[
     ("/reload", "Re-read config, skills, and MCP tools"),
     ("/export", "Export active branch as HTML or Markdown"),
     ("/workflow", "List workflows, or run one: /workflow <name> [inputs]"),
+    (
+        "/wt",
+        "Create a git worktree and move this session into it (alias: /worktree)",
+    ),
     ("/exit", "Exit rho (alias: /quit)"),
     ("Tab", "Complete slash commands & skill names"),
     ("Shift+Tab", "Cycle thinking level"),

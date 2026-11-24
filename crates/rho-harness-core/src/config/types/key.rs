@@ -44,6 +44,8 @@ pub(crate) enum ConfigKey {
     GuardModel,
     SmolModel,
     SlowModel,
+    WorktreeBase,
+    WorktreeCleanSource,
 }
 
 const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
@@ -139,6 +141,8 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
     (ConfigKey::GuardModel, "models.guard", &["guard_model", "guard"]),
     (ConfigKey::SmolModel, "models.smol", &["smol_model", "smol"]),
     (ConfigKey::SlowModel, "models.slow", &["slow_model", "slow"]),
+    (ConfigKey::WorktreeBase, "worktree.base", &[]),
+    (ConfigKey::WorktreeCleanSource, "worktree.clean_source", &[]),
 ];
 
 impl FromStr for ConfigKey {
@@ -163,7 +167,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 42] = [
+    const ALL_KEYS: [ConfigKey; 44] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -206,6 +210,8 @@ mod tests {
         ConfigKey::GuardModel,
         ConfigKey::SmolModel,
         ConfigKey::SlowModel,
+        ConfigKey::WorktreeBase,
+        ConfigKey::WorktreeCleanSource,
     ];
 
     #[test]

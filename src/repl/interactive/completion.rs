@@ -35,6 +35,14 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("reload", "Reload config, skills, prompt templates, and MCP tools"),
     ("export", "Export session (HTML default, or specify path: .html/.md)"),
     ("workflow", "List workflows, or run one: /workflow <name> [inputs]"),
+    (
+        "wt",
+        "Create a git worktree on a new branch and move this session into it",
+    ),
+    (
+        "worktree",
+        "Create a git worktree and move this session into it (alias for /wt)",
+    ),
     ("exit", "Exit rho"),
     ("quit", "Exit rho"),
 ];

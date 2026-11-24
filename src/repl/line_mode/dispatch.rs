@@ -260,6 +260,13 @@ pub(crate) async fn handle_auth_actions(
             *engine = session.reload_engine(engine).await?;
             Ok(true)
         }
+        CommandResult::EnterWorktree { branch } => {
+            match engine.enter_session_worktree(branch.as_deref()).await {
+                Ok(created) => session.renderer.print_notice(&format!("  {}\n", created.summary())),
+                Err(err) => session.renderer.print_notice(&format!("  Worktree failed: {err}\n")),
+            }
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }

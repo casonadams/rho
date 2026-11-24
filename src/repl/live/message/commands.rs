@@ -132,6 +132,21 @@ pub(crate) async fn handle_engine_command_rest<B: TerminalBackend>(
             handle_compact(ctx, io, instructions.as_deref()).await;
             Ok(true)
         }
+        CommandResult::EnterWorktree { branch } => {
+            match ctx.engine.enter_session_worktree(branch.as_deref()).await {
+                Ok(created) => {
+                    ctx.session.renderer.print_notice(&format!("  {}\n", created.summary()));
+                    crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
+                    let _ = io.controller.redraw();
+                }
+                Err(err) => {
+                    ctx.session
+                        .renderer
+                        .print_notice(&format!("  Worktree failed: {err}\n"));
+                }
+            }
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }

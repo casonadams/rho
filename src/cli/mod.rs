@@ -10,6 +10,7 @@ mod runner;
 pub mod self_update;
 mod session;
 pub mod stats;
+pub mod worktree;
 
 #[cfg(test)]
 mod tests;

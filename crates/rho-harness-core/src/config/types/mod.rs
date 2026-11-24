@@ -7,7 +7,7 @@ mod ui;
 
 pub use app::{
     ApprovalFocus, BashConfig, CacheRetention, Config, DEFAULT_MAX_TURNS, LspConfig, ModelSlot, SubagentsConfig,
-    ToolsConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig,
+    ToolsConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig, WorktreeConfig,
 };
 pub use file::ModelsConfig;
 pub(crate) use file::{BashConfigFile, FileConfig, LspConfigFile, WebFetchConfigFile, WebSearchConfigFile};
