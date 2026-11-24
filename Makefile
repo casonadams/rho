@@ -33,6 +33,12 @@ build: ## Build the project in debug mode
 build-release: ## Build the project in release mode
 	$(CARGO) build --release
 
+.PHONY: install
+install: ## Build fast optimized local binary (reusing target/local/) and install to ~/.cargo/bin/rho
+	$(CARGO) build --profile local --bin rho
+	mkdir -p "$${CARGO_HOME:-$$HOME/.cargo}/bin"
+	install -m 755 target/local/rho "$${CARGO_HOME:-$$HOME/.cargo}/bin/rho"
+
 .PHONY: check
 check: ## Type check all targets
 	$(CARGO) check --workspace --all-targets

@@ -3,7 +3,7 @@ use super::classify_stream_error;
 use super::discovery::{extract_project_id, is_selectable_runtime_model};
 use super::http::{
     DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, friendly_error, post_metadata_candidates,
-    resolve_endpoints,
+    resolve_endpoints_with,
 };
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::provider::error::HttpFailure;
@@ -258,10 +258,22 @@ fn classify_stream_error_keeps_the_longest_wait_across_fallbacks() {
 fn resolve_endpoints_order_and_overrides() {
     assert_eq!(DEFAULT_ENDPOINT, "https://daily-cloudcode-pa.googleapis.com");
     assert_eq!(
-        resolve_endpoints(Some("http://custom:1234")),
+        resolve_endpoints_with(Some("http://custom:1234"), |_| None),
         vec!["http://custom:1234".to_string()]
     );
-    let defaults = resolve_endpoints(None);
+    assert_eq!(
+        resolve_endpoints_with(None, |var| {
+            (var == "ANTIGRAVITY_ENDPOINT").then(|| "  http://env-override:8080  ".to_string())
+        }),
+        vec!["http://env-override:8080".to_string()]
+    );
+    assert_eq!(
+        resolve_endpoints_with(None, |var| {
+            (var == "ANTIGRAVITY_BASE_URL").then(|| "http://base-override:9090".to_string())
+        }),
+        vec!["http://base-override:9090".to_string()]
+    );
+    let defaults = resolve_endpoints_with(None, |_| None);
     assert_eq!(defaults.first().map(String::as_str), Some(DEFAULT_ENDPOINT));
     assert_eq!(defaults.len(), ENDPOINT_CANDIDATES.len());
 }

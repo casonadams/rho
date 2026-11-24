@@ -168,3 +168,10 @@ lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[profile.local]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+strip = false
+incremental = true
