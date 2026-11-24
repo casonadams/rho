@@ -16,7 +16,7 @@ Answer, from the code:
 - `priority`: P0 (fix now: critical and likely), P1 (high, or critical but unlikely), P2 (medium, or
   high but unlikely), P3 (low, or anything unreachable), with the reason in `priorityReason`.
 
-Finish with complete_task. Put a one-line summary in `result` and in `data` the same SARIF result with
+Result fields: the same SARIF result with
 those added under `properties` as `reachability` ({path, likelihood}), `mitigations`, `fix`
 ({approach, mustPreserve, regressionRisk, tests}), `priority` and `priorityReason`. Keep everything else
 unchanged.

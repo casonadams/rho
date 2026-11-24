@@ -29,5 +29,5 @@ Produce:
    - `hint` carries what the hunter needs and cannot guess: the trust boundary above the scope, related
      files outside it, and relevant architecture notes.
 
-Finish with complete_task. Put a one-line summary in `result` and in `data`:
+Result fields:
 `{"architecture": "<text>", "tasks": [{"id": "r-01", "category": "<one category>", "scope": ["<path>"], "focus": "<specific question>", "hint": "<context>"}]}`.

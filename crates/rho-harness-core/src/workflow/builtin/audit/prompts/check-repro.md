@@ -9,8 +9,8 @@ command, a measurement. Decide `confirmed` (you reproduced it, or its preconditi
 `downgraded` (you could only partly reproduce it) or `rejected` (it did not happen; say what you ran and what
 you saw). Never modify files inside the repository.
 
-Finish with complete_task. Put a one-line summary in `result` and a run object
-`{"results": [...], "properties": {...}}` in `data`, with no `runs`, `$schema` or `version` wrapper: `results` holds
+Result fields: a run object
+`{"results": [...], "properties": {...}}` (no `runs`, `$schema` or `version` wrapper): `results` holds
 only the confirmed and downgraded results, unchanged except for corrected `level`, `properties.severity` and
 `properties.confidence`, plus `properties.validation` (what you ran); the run's `properties.rejected` is
 `[{fingerprint, reason}]` using each rejected result's `partialFingerprints.primary`. Copy the hunter's

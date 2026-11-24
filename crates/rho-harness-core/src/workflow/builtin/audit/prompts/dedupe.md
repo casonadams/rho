@@ -9,7 +9,7 @@ affected location in `locations`, and keep the highest justified `properties.sev
 the fix belongs in `properties.category` and list the others in `properties.alsoCategories`. Distinct defects
 in the same file stay separate. Keep `partialFingerprints.primary` stable.
 
-Finish with complete_task. Put a one-line summary in `result` and in `data` a SARIF run object,
-`{"results": [...], "properties": {...}}`, with no `runs`, `$schema` or `version` wrapper:
+Result fields: a SARIF run object,
+`{"results": [...], "properties": {...}}` (no `runs`, `$schema` or `version` wrapper):
 `results` is the merged list (empty when nothing was validated) and `properties.mergedDuplicates` is how many
 results were folded into others.

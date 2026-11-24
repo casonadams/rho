@@ -18,8 +18,7 @@ when that is cheap and turns a suspicion into evidence.
 Budget: about 40 tool calls. Once you pass 30, stop exploring and finish with what you have, listing the
 rest as uncovered.
 
-Finish with complete_task. Put a one-line summary in `result` and a SARIF 2.1.0 run object in `data`. The
-object is the run itself, `{"results": [...], "properties": {...}}`: do not wrap it in a SARIF log
+The result is a SARIF 2.1.0 run object, `{"results": [...], "properties": {...}}`, not a full SARIF log
 (no `runs`, `$schema` or `version` keys).
 - `results`: one SARIF `result` per finding. `ruleId` is `<category>/<short-kebab-rule>`; `level` is
   `error` (critical or high), `warning` (medium) or `note` (low); `message.text` is the title;
