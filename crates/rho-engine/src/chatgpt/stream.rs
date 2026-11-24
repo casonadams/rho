@@ -29,6 +29,7 @@ pub struct SseParser {
     current_output_index: Option<u64>,
     active_summary_part: Option<SummaryPartCoord>,
     pending_tool_calls: HashMap<String, PendingToolCall>,
+    terminated: bool,
 }
 
 struct PendingToolCall {
@@ -314,6 +315,15 @@ impl SseParser {
         let Ok(event) = serde_json::from_str::<ResponsesWireEvent>(data) else {
             return;
         };
+        if matches!(
+            event,
+            ResponsesWireEvent::ResponseCompleted { .. }
+                | ResponsesWireEvent::ResponseIncomplete { .. }
+                | ResponsesWireEvent::ResponseFailed { .. }
+                | ResponsesWireEvent::Error { .. }
+        ) {
+            self.terminated = true;
+        }
         match event {
             ResponsesWireEvent::OutputTextDelta { delta } => {
                 events.push(Ok(ModelStreamEvent::Text(delta)));
@@ -396,5 +406,20 @@ impl SseParser {
 impl crate::provider::sse::SseStreamParser for SseParser {
     fn feed(&mut self, bytes: &[u8]) -> SseEvents {
         SseParser::feed(self, bytes)
+    }
+
+    fn finish(&mut self) -> SseEvents {
+        if self.terminated {
+            return Vec::new();
+        }
+        let dropped = self.pending_tool_calls.len();
+        let detail = if dropped > 0 {
+            format!(" with {dropped} unfinished tool call(s)")
+        } else {
+            String::new()
+        };
+        vec![Err(rho_harness_core::error::AppError::Network(format!(
+            "ChatGPT stream closed before a terminal event{detail}"
+        )))]
     }
 }

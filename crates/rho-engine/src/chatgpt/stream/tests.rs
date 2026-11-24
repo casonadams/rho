@@ -292,3 +292,40 @@ fn unknown_and_malformed_events_are_ignored() {
     let events = feed_events(&[r#"{"type": "response.something_new"}"#, r#"{"not_type": true}"#]);
     assert!(events.is_empty());
 }
+
+async fn collect_body(chunks: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {
+    use futures::StreamExt;
+    let body = futures::stream::iter(
+        chunks
+            .iter()
+            .map(|c| Ok::<_, reqwest::Error>(c.as_bytes().to_vec()))
+            .collect::<Vec<_>>(),
+    );
+    crate::provider::sse::unfold_sse_stream(body, SseParser::new())
+        .collect()
+        .await
+}
+
+#[tokio::test]
+async fn stream_closed_without_terminal_event_is_a_network_error() {
+    let events = collect_body(&["data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"]).await;
+    assert!(has_event(&events, |e| matches!(e, ModelStreamEvent::Text(_))));
+    assert!(matches!(events.last(), Some(Err(AppError::Network(m))) if m.contains("terminal event")));
+}
+
+#[tokio::test]
+async fn stream_closed_with_unfinished_tool_call_reports_it() {
+    let events = collect_body(&[concat!(
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,",
+        "\"item\":{\"type\":\"function_call\",\"id\":\"fc1\",\"call_id\":\"c1\",\"name\":\"bash\"}}\n\n"
+    )])
+    .await;
+    assert!(matches!(events.last(), Some(Err(AppError::Network(m))) if m.contains("1 unfinished tool call")));
+}
+
+#[tokio::test]
+async fn stream_with_completed_event_ends_without_error() {
+    let events = collect_body(&["data: {\"type\":\"response.completed\",\"response\":{}}\n\n"]).await;
+    assert!(events.iter().all(Result::is_ok));
+    assert!(has_event(&events, |e| matches!(e, ModelStreamEvent::Finish(_))));
+}

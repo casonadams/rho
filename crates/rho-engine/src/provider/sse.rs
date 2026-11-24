@@ -60,6 +60,11 @@ impl SseLineDecoder {
 /// Provider-specific incremental SSE parser that transforms wire bytes into domain stream events.
 pub trait SseStreamParser: Send + 'static {
     fn feed(&mut self, bytes: &[u8]) -> SseEvents;
+
+    /// Events to emit when the body ends; override to reject a stream that closed before its terminal event.
+    fn finish(&mut self) -> SseEvents {
+        Vec::new()
+    }
 }
 
 type StreamState<S, P> = (S, P, bool);
@@ -78,7 +83,14 @@ where
     loop {
         let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, bytes.next()).await {
             Ok(Some(chunk)) => chunk,
-            Ok(None) => return None,
+            Ok(None) => {
+                let events = parser.finish();
+                return if events.is_empty() {
+                    None
+                } else {
+                    Some((events, (bytes, parser, true)))
+                };
+            }
             Err(_) => {
                 let err = AppError::Network(format!(
                     "provider stream went idle for {}s without sending data",
