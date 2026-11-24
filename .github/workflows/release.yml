@@ -9,14 +9,15 @@ concurrency:
   group: release-main
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   release-please:
     name: "Release Please"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       pr: ${{ steps.release.outputs.pr }}
       releases_created: ${{ steps.release.outputs.releases_created }}
@@ -28,34 +29,16 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   update-workspace:
-    runs-on: ubuntu-latest
     name: "Update Cargo.lock on Release PR"
     needs: release-please
     if: ${{ needs.release-please.outputs.pr }}
-    steps:
-      - name: Checkout release PR branch
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Sync Cargo.lock
-        run: |
-          cargo check --workspace
-          if git diff --quiet -- Cargo.lock; then
-            echo "Cargo.lock is already up to date"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock
-            git commit -m "chore: update Cargo.lock for release"
-            git push
-          fi
+    permissions:
+      contents: write
+    uses: ./.github/workflows/lock-sync.yml
+    with:
+      name: release-pr
+      ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+      message: "chore: update Cargo.lock for release"
 
   publish-crates:
     name: "Publish to crates.io"
@@ -69,10 +52,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      # Dependency build scripts run here, before the publish token exists.
+      - name: Verify the package build
+        run: cargo package -p rho-harness-core --allow-dirty
 
       - name: Exchange OIDC token for a short-lived publish token
         id: auth
@@ -82,7 +70,7 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
-          cargo publish -p rho-harness-core --allow-dirty
+          cargo publish -p rho-harness-core --no-verify --allow-dirty
           sleep 15
           cargo publish -p rho-engine --no-verify --allow-dirty
           sleep 15
@@ -107,12 +95,15 @@ jobs:
             os: macos-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+    permissions:
+      contents: read
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -125,29 +116,52 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package and upload
+      - name: Package
         if: runner.os != 'Windows'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          mkdir dist
           name="rho-${TAG#v}-${{ matrix.target }}"
-          tar czf "$name.tar.gz" -C "target/${{ matrix.target }}/release" rho
-          gh release upload "$TAG" "$name.tar.gz" --clobber
+          tar czf "dist/$name.tar.gz" -C "target/${{ matrix.target }}/release" rho
 
-      - name: Package and upload (Windows)
+      - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          New-Item -ItemType Directory -Path dist | Out-Null
           $name = "rho-$($env:TAG.Substring(1))-${{ matrix.target }}"
-          Compress-Archive -Path "target/${{ matrix.target }}/release/rho.exe" -DestinationPath "$name.zip"
-          gh release upload $env:TAG "$name.zip" --clobber
+          Compress-Archive -Path "target/${{ matrix.target }}/release/rho.exe" -DestinationPath "dist/$name.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  upload-assets:
+    name: "Upload release assets"
+    needs: [release-please, build-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Upload to the release
+        run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/* --clobber
 
   checksums:
     name: "Generate SHA256SUMS"
-    needs: [release-please, build-release]
+    needs: [release-please, upload-assets]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -164,36 +178,21 @@ jobs:
 
   sync-lock:
     name: "Sync Cargo.lock on main after release"
-    needs: [release-please, build-release]
+    needs: [release-please, upload-assets]
     if: ${{ needs.release-please.outputs.releases_created == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      # Heals the race where the release PR merges before update-workspace
-      # pushes the lock update; no-op whenever main's lock already matches.
-      - name: Sync Cargo.lock on main
-        run: |
-          cargo check --workspace
-          if git diff --quiet -- Cargo.lock; then
-            echo "Cargo.lock is already up to date"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock
-            git commit -m "chore: sync Cargo.lock after ${{ needs.release-please.outputs.tag_name }}"
-            git push
-          fi
+    permissions:
+      contents: write
+    uses: ./.github/workflows/lock-sync.yml
+    with:
+      name: main
+      message: "chore: sync Cargo.lock after ${{ needs.release-please.outputs.tag_name }}"
 
   update-homebrew:
     name: "Dispatch Homebrew tap update"
     needs: [release-please, checksums]
     if: ${{ needs.release-please.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Trigger formula update in homebrew-tap
         env:
