@@ -1,3 +1,4 @@
+use super::lock;
 use crate::error::Result;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -39,8 +40,7 @@ pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         let metadata = entry.metadata().await.ok();
-        if should_prune_empty_session(&path, active_session_id, metadata) && tokio::fs::remove_file(&path).await.is_ok()
-        {
+        if should_prune_empty_session(&path, active_session_id, metadata) && lock::remove_unless_held(&path) {
             count += 1;
         }
     }
@@ -62,7 +62,7 @@ async fn prune_single_entry_async(ctx: &PruneContext<'_>, entry: tokio::fs::DirE
     let path = entry.path();
     let metadata = entry.metadata().await.ok();
     if ctx.should_prune_async(&path, metadata).await {
-        tokio::fs::remove_file(&path).await.is_ok()
+        lock::remove_unless_held(&path)
     } else {
         false
     }

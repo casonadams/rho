@@ -1,5 +1,6 @@
 use super::super::prune::{prune_empty_sessions_async, prune_expired_sessions_async};
 use super::temp_dir;
+use crate::session::SessionManager;
 use std::fs::File;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -120,4 +121,23 @@ async fn empty_session_pruning_keeps_active_and_named_sessions() {
     let dir = seeded_dir(seeds);
     assert_eq!(prune_empty_sessions_async(&dir, Some("active_empty")).await.unwrap(), 1);
     assert_sessions(&dir, &kept, &["empty_session"]);
+}
+
+#[tokio::test]
+async fn pruning_skips_sessions_held_open_by_a_manager() {
+    let dir = crate::test_support::temp_dir();
+    let holder = SessionManager::new_async(&dir, None).await.unwrap();
+    let held_path = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.extension().is_some_and(|e| e == "jsonl"))
+        .unwrap();
+    assert!(std::fs::metadata(&held_path).unwrap().len() <= 300);
+
+    assert_eq!(prune_empty_sessions_async(&dir, None).await.unwrap(), 0);
+    assert!(held_path.exists());
+
+    drop(holder);
+    assert_eq!(prune_empty_sessions_async(&dir, None).await.unwrap(), 1);
+    assert!(!held_path.exists());
 }

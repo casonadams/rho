@@ -64,6 +64,25 @@ pub(crate) fn acquire(path: &Path) -> Result<Arc<SessionLock>> {
     }))
 }
 
+/// Removes `path` unless some opener (this or another process) holds its session lock.
+/// The lock stays held through the unlink so no opener can slip in between.
+pub(crate) fn remove_unless_held(path: &Path) -> bool {
+    let held = held();
+    if held.contains_key(path) {
+        return false;
+    }
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    if file.try_lock().is_err() {
+        return false;
+    }
+    let removed = std::fs::remove_file(path).is_ok();
+    drop(file.unlock());
+    drop(held);
+    removed
+}
+
 #[cfg(test)]
 mod tests {
     use crate::session::SessionManager;
