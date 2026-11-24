@@ -244,3 +244,61 @@ fn message_delta_stop_reason_maps_to_finish_reason() {
         );
     }
 }
+
+async fn collect_body(payloads: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {
+    use futures::StreamExt;
+    let body: String = payloads.iter().map(|p| format!("data: {p}\n\n")).collect();
+    let chunks = futures::stream::iter(vec![Ok::<_, reqwest::Error>(body.into_bytes())]);
+    crate::provider::sse::unfold_sse_stream(chunks, SseParser::new())
+        .collect()
+        .await
+}
+
+#[tokio::test]
+async fn stream_closed_before_message_stop_is_a_network_error() {
+    let events = collect_body(&[
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"text"}}"#,
+        r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"cut off"}}"#,
+    ])
+    .await;
+    assert!(matches!(&events[0], Ok(ModelStreamEvent::Text(t)) if t == "cut off"));
+    assert!(
+        matches!(events.last(), Some(Err(AppError::Network(m))) if m == "Claude stream closed before message_stop")
+    );
+}
+
+#[tokio::test]
+async fn stream_with_message_stop_ends_cleanly() {
+    let events = collect_body(&[r#"{"type":"message_stop"}"#]).await;
+    assert!(events.iter().all(Result::is_ok));
+    assert!(matches!(events.last(), Some(Ok(ModelStreamEvent::Finish(_)))));
+}
+
+#[tokio::test]
+async fn provider_error_event_is_not_followed_by_a_second_truncation_error() {
+    let events = collect_body(&[r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#]).await;
+    assert_eq!(events.len(), 1);
+    assert!(events[0].is_err());
+}
+
+#[test]
+fn tool_use_without_input_json_gets_an_empty_object_and_truncated_json_stays_raw() {
+    let start =
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"read"}}"#;
+    let stop = r#"{"type":"content_block_stop","index":0}"#;
+    let call_args = |payloads: &[&str]| {
+        parse_payloads(payloads)
+            .into_iter()
+            .find_map(|e| match e {
+                Ok(ModelStreamEvent::ToolCall(call)) => Some(call.function.arguments),
+                _ => None,
+            })
+            .unwrap()
+    };
+    assert_eq!(call_args(&[start, stop]), serde_json::json!({}));
+    let delta = r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"src"}}"#;
+    assert_eq!(
+        call_args(&[start, delta, stop]),
+        serde_json::json!({"raw": "{\"path\": \"src"})
+    );
+}

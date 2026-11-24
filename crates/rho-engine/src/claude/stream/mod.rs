@@ -28,6 +28,7 @@ pub struct SseParser {
     thinking_text: String,
     thinking_signature: Option<String>,
     tool_uses: HashMap<usize, ToolUseState>,
+    terminated: bool,
 }
 
 struct ToolUseState {
@@ -150,6 +151,9 @@ impl SseParser {
     }
 
     fn interpret_message(&mut self, msg: SseMessage, events: &mut SseEvents) {
+        if matches!(msg, SseMessage::MessageStop | SseMessage::Error { .. }) {
+            self.terminated = true;
+        }
         match msg {
             SseMessage::MessageStart { message } => {
                 if let Some(usage) = message.usage {
@@ -190,8 +194,7 @@ impl SseParser {
             return;
         };
         let canonical_name = crate::claude::request::from_claude_tool_name(&tool.name).to_string();
-        let args = serde_json::from_str::<serde_json::Value>(&tool.input_json)
-            .unwrap_or_else(|_| serde_json::json!({ "raw": tool.input_json }));
+        let args = crate::provider::adapter::parse_tool_arguments(&tool.input_json);
         let call = ToolCall::new(tool.id, ToolFunction::new(canonical_name, args));
         events.push(Ok(ModelStreamEvent::ToolCall(call)));
     }
@@ -208,5 +211,14 @@ impl SseParser {
 impl crate::provider::sse::SseStreamParser for SseParser {
     fn feed(&mut self, bytes: &[u8]) -> SseEvents {
         SseParser::feed(self, bytes)
+    }
+
+    fn finish(&mut self) -> SseEvents {
+        if self.terminated {
+            return Vec::new();
+        }
+        vec![Err(rho_harness_core::error::AppError::Network(
+            "Claude stream closed before message_stop".to_string(),
+        ))]
     }
 }
