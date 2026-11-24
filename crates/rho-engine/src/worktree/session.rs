@@ -130,7 +130,7 @@ async fn copy_source_index(repo: &Repo, worktree_path: &Path) -> Result<(), Stri
     Ok(())
 }
 
-fn remove_non_git_entries(dir: &Path) -> Result<(), String> {
+pub(super) fn remove_non_git_entries(dir: &Path) -> Result<(), String> {
     let entries = std::fs::read_dir(dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;

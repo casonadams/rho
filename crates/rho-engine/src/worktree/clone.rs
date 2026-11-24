@@ -101,6 +101,8 @@ mod reflink {
         let rc = unsafe { libc::ioctl(dst_file.as_raw_fd(), FICLONE as libc::Ioctl, src_file.as_raw_fd()) };
         if rc != 0 {
             let err = std::io::Error::last_os_error();
+            drop(dst_file);
+            let _ = std::fs::remove_file(dst);
             return Err(format!("FICLONE {} -> {}: {err}", src.display(), dst.display()));
         }
         let _ = dst_file.set_permissions(meta.permissions());

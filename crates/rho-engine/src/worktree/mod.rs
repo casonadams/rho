@@ -196,6 +196,10 @@ impl WorktreeStore {
             if cloned.is_ok() {
                 git::run(&worktree.path, &["reset", "--mixed", "--quiet", "HEAD"], &[]).await?;
             } else {
+                let dst_clean = worktree.path.clone();
+                tokio::task::spawn_blocking(move || session::remove_non_git_entries(&dst_clean))
+                    .await
+                    .map_err(|e| e.to_string())??;
                 git::run(&worktree.path, &["reset", "--hard", "--quiet", "HEAD"], &[]).await?;
                 share::share_ignored(&source, &worktree.path, &worktree.common_dir).await?;
             }
