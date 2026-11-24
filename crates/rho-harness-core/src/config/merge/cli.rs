@@ -63,6 +63,10 @@ fn apply_prompt_cli_overrides(config: &mut Config, c: &Cli) {
     if c.no_permission {
         config.permission.enabled = false;
     }
+    if c.no_title {
+        config.ui.auto_title = Some(false);
+        config.ui.terminal_title = Some(false);
+    }
 }
 
 pub(crate) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {

@@ -148,8 +148,8 @@ fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
         SessionRecord::SessionLabel { node_id, label, .. } => {
             state.tree.set_node_label(&node_id, label);
         }
-        SessionRecord::SessionNamed { name, .. } => {
-            state.tree.set_session_name(name);
+        SessionRecord::SessionNamed { name, source, .. } => {
+            state.tree.set_session_name_with_source(name, source);
         }
         SessionRecord::SubagentTask {
             task,

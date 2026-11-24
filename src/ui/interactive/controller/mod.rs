@@ -4,6 +4,7 @@ pub mod cache;
 pub mod paint;
 #[cfg(test)]
 pub(crate) mod tests;
+pub mod title;
 pub mod tools;
 pub mod transcript;
 pub mod view;
@@ -39,6 +40,7 @@ pub struct TerminalController<B: TerminalBackend> {
     /// Another agent shown in place of the main agent.
     pub(super) view: Option<view::AgentView>,
     pub(super) approval_focus: rho_harness_core::config::ApprovalFocus,
+    title: title::TerminalTitleController,
 }
 
 fn init_terminal<B: TerminalBackend>(backend: &mut B) -> io::Result<(usize, usize)> {
@@ -80,6 +82,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             focused: true,
             view: None,
             approval_focus: rho_harness_core::config::ApprovalFocus::default(),
+            title: title::TerminalTitleController::default(),
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
@@ -105,10 +108,20 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.approval_focus = focus;
     }
 
+    pub fn configure_terminal_title(&mut self, enabled: bool, show_state: bool) -> io::Result<()> {
+        self.title
+            .configure(&mut self.backend, enabled, show_state, &self.state)
+    }
+
+    pub fn set_attention(&mut self, attention: bool) {
+        self.title.set_attention(attention);
+    }
+
     pub fn redraw(&mut self) -> io::Result<()> {
         let rendered = self.current_layout();
         paint::render_live_diff(&mut self.backend, self.rendered.as_ref(), &rendered)?;
         self.rendered = Some(rendered);
+        self.title.sync(&mut self.backend, &self.state)?;
         Ok(())
     }
 
@@ -256,6 +269,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         let _ = paint::erase_live_region(&mut self.backend, self.rendered.as_ref());
         self.rendered = None;
+        self.title.dispose(&mut self.backend);
         let _ = self.backend.show_cursor();
         let _ = self.backend.set_raw_mode(false);
         let _ = self.backend.flush();

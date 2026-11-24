@@ -32,6 +32,10 @@ pub(super) fn init_live_ui(
     let state = init_live_state(session, engine);
     let mut controller = TerminalController::stdout(state)?;
     controller.set_approval_focus(session.config.subagents.approval_focus.unwrap_or_default());
+    let _ = controller.configure_terminal_title(
+        session.config.ui.terminal_title_enabled(),
+        session.config.ui.terminal_title_state_enabled(),
+    );
     let _ = controller.set_theme(session.renderer.theme.clone());
     session.renderer.set_width(controller.width());
     Ok((controller, ui_events))

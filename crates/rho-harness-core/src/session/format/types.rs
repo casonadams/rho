@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::super::tree::{SessionTree, TreeNodeData};
+use super::super::tree::{SessionTree, TitleSource, TreeNodeData};
 use super::super::validation::CanonicalHistory;
 
 pub const SESSION_VERSION: u32 = 2;
@@ -83,6 +83,8 @@ pub enum SessionRecord {
         session_id: String,
         timestamp: DateTime<Utc>,
         name: String,
+        #[serde(default, skip_serializing_if = "TitleSource::is_user")]
+        source: TitleSource,
     },
     /// A subagent task snapshot plus the subagent messages added since its context's previous record.
     SubagentTask {

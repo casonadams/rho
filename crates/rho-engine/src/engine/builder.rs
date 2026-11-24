@@ -267,6 +267,7 @@ impl AgentEngineBuilder {
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
             quota_endpoints: self.quota_endpoints,
+            title_tracker: super::title::TitleTracker::default(),
             context,
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),

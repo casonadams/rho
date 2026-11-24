@@ -41,12 +41,27 @@ impl TreeNodeData {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    Auto,
+    #[default]
+    User,
+}
+
+impl TitleSource {
+    pub fn is_user(&self) -> bool {
+        matches!(self, Self::User)
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SessionTree {
     pub nodes: BTreeMap<String, TreeNodeData>,
     pub children: HashMap<Option<String>, Vec<String>>,
     pub active_leaf_id: Option<String>,
     pub session_name: Option<String>,
+    pub session_name_source: Option<TitleSource>,
 }
 
 fn extract_compaction_summary(node: &TreeNodeData, meta: Option<&CompactionMetadata>) -> Vec<ChatMessage> {
@@ -146,7 +161,16 @@ impl SessionTree {
     }
 
     pub fn set_session_name(&mut self, name: String) {
+        self.set_session_name_with_source(name, TitleSource::User);
+    }
+
+    pub fn set_session_name_with_source(&mut self, name: String, source: TitleSource) -> bool {
+        if source == TitleSource::Auto && self.session_name_source == Some(TitleSource::User) {
+            return false;
+        }
         self.session_name = Some(name);
+        self.session_name_source = Some(source);
+        true
     }
 
     pub fn get_node(&self, id: &str) -> Option<&TreeNodeData> {

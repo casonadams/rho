@@ -170,3 +170,37 @@ async fn test_session_tree_node_label_and_naming() {
     let node = tree.get_node(&leaf_id).unwrap();
     assert_eq!(node.label, Some("milestone-1".to_string()));
 }
+
+#[tokio::test]
+async fn test_auto_session_name_respects_user_provenance() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+
+    assert!(session.set_auto_session_name("Auto Title").await.unwrap());
+    assert_eq!(session.cached_session_name().as_deref(), Some("Auto Title"));
+    assert_eq!(
+        session.cached_session_name_source(),
+        Some(crate::session::TitleSource::Auto)
+    );
+
+    session.set_session_name("Manual Title").await.unwrap();
+    assert_eq!(session.cached_session_name().as_deref(), Some("Manual Title"));
+    assert_eq!(
+        session.cached_session_name_source(),
+        Some(crate::session::TitleSource::User)
+    );
+
+    assert!(!session.set_auto_session_name("Late Auto Title").await.unwrap());
+    assert_eq!(session.cached_session_name().as_deref(), Some("Manual Title"));
+
+    let session_id = session.session_id.clone();
+    drop(session);
+
+    let resumed = SessionManager::new(&dir, Some(&session_id)).unwrap();
+    assert_eq!(resumed.cached_session_name().as_deref(), Some("Manual Title"));
+    assert_eq!(
+        resumed.cached_session_name_source(),
+        Some(crate::session::TitleSource::User)
+    );
+    assert!(!resumed.set_auto_session_name("After Resume Auto").await.unwrap());
+}

@@ -556,6 +556,16 @@ syntax_highlight_tools = false
 
 # Display full bash commands in tool cards without 60-character truncation (default: false)
 full_bash_command = false
+
+# Automatically summarize the session into a 3-6 word title using models.smol after turn 1 (default: false)
+auto_title = false
+
+# Publish the session title (or working directory name) to the terminal/tmux titlebar via OSC 2 (default: false)
+terminal_title = false
+
+# Prefix the terminal titlebar with live run state (idle/working/attention; default: false)
+terminal_title_state = false
+
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent blocks
@@ -574,7 +584,7 @@ All adjustments made in the interactive `/settings` modal (Block Style, Box
 Responses, Cursor Style, Model, Guard Model, Thinking Effort, Thinking Output,
 Tool Output, and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
 
-Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
+Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`. Pass `--no-title` (or set `RHO_NO_TITLE=1`) to disable automatic session titling and terminal titlebar updates for a run.
 
 ---
 

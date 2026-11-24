@@ -20,6 +20,7 @@ mod notes;
 pub use notes::TurnNotes;
 pub(crate) mod quota_refresh;
 pub mod runner;
+pub mod title;
 pub mod tracking;
 
 pub use compactor::CompactionStats;
@@ -46,6 +47,7 @@ pub struct AgentEngine {
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
     pub(crate) quota_endpoints: quota_refresh::QuotaEndpoints,
+    pub(crate) title_tracker: title::TitleTracker,
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
@@ -124,6 +126,7 @@ impl AgentEngine {
     /// nothing could deliver the results; rebuilding the same session keeps it.
     pub fn switch_to(&mut self, next: Self) {
         if self.session_manager.session_id != next.session_manager.session_id {
+            self.cancel_auto_title();
             crate::tools::jobs::abandon_background_work(&self.session_manager.session_id);
         }
         *self = next;

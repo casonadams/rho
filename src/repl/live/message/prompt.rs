@@ -94,5 +94,20 @@ pub(crate) async fn run_prompt_turn<B: TerminalBackend>(
     }
     session.sync_engine_model(engine).await;
     engine.spawn_refresh_quota();
+    if engine.config.ui.auto_title_enabled() && engine.session_manager.cached_session_name().is_none() {
+        let reply = last_assistant_reply(&engine.session_manager).await;
+        engine.maybe_spawn_auto_title(&effective, reply.as_deref());
+    }
     Ok(false)
+}
+
+async fn last_assistant_reply(session_manager: &rho_harness_core::session::SessionManager) -> Option<String> {
+    let messages = session_manager.active_messages().await.ok()?;
+    messages.iter().rev().find_map(|msg| match msg {
+        rho_harness_core::model::ChatMessage::Assistant { .. } => {
+            let text = msg.text()?;
+            (!text.trim().is_empty()).then(|| text.to_string())
+        }
+        _ => None,
+    })
 }

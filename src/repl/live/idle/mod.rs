@@ -25,6 +25,7 @@ struct IdleUi {
     frame: tokio::time::Interval,
     quota_rx: tokio::sync::watch::Receiver<u64>,
     catalog_rx: tokio::sync::watch::Receiver<u64>,
+    title_rx: tokio::sync::watch::Receiver<u64>,
     mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
 }
 
@@ -37,6 +38,7 @@ impl IdleUi {
             frame,
             quota_rx: engine.quota_subscribe(),
             catalog_rx: session.catalog.subscribe(),
+            title_rx: engine.title_subscribe(),
             mcp: engine.mcp_runtime().cloned(),
         }
     }
@@ -46,6 +48,7 @@ enum IdleTick {
     Frame,
     Quota,
     Catalog,
+    Title,
     Ui(crate::ui::interactive::UiEvent),
 }
 
@@ -85,6 +88,7 @@ async fn next_idle_step(
         () = wait_mcp_problems(ui.mcp.as_deref()) => IdleSource::McpProblems,
         _ = wait_version_change(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         _ = wait_version_change(&mut ui.catalog_rx) => IdleSource::Tick(IdleTick::Catalog),
+        _ = wait_version_change(&mut ui.title_rx) => IdleSource::Tick(IdleTick::Title),
         tick = next_frame_or_ui(&mut ui.frame, ui_events) => IdleSource::Tick(tick.into()),
     }
 }
@@ -97,6 +101,21 @@ pub(crate) fn sync_idle_quota<B: TerminalBackend>(
     let quota = engine.quota_display();
     if controller.state().footer().quota != quota {
         controller.state_mut().footer_mut().quota = quota;
+        batch.flush(controller, true)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+pub(crate) fn sync_idle_title<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    batch: &mut LiveBatch,
+    engine: &crate::engine::AgentEngine,
+) -> Result<bool> {
+    let name = engine.session_manager.cached_session_name();
+    if controller.state().footer().session_name != name {
+        controller.state_mut().footer_mut().session_name = name;
         batch.flush(controller, true)?;
         Ok(true)
     } else {
@@ -128,8 +147,13 @@ fn handle_frame_tick<B: TerminalBackend>(
     if quota_changed {
         controller.state_mut().footer_mut().quota = quota;
     }
+    let name = engine.session_manager.cached_session_name();
+    let name_changed = controller.state().footer().session_name != name;
+    if name_changed {
+        controller.state_mut().footer_mut().session_name = name;
+    }
     let agents = crate::repl::live::modal::agents::refresh_agent_modals(controller, engine.agent_monitor())?;
-    let should_redraw = expired || resized || quota_changed || agents;
+    let should_redraw = expired || resized || quota_changed || name_changed || agents;
     if !batch.ui.is_empty() || should_redraw {
         batch.flush(controller, should_redraw)?;
     }
@@ -150,6 +174,9 @@ async fn handle_tick<B: TerminalBackend>(
         IdleTick::Catalog => {
             crate::repl::live::modal::refresh_open_model_selector(ctx.session, controller);
             batch.flush(controller, true)?;
+        }
+        IdleTick::Title => {
+            sync_idle_title(controller, batch, ctx.engine)?;
         }
         IdleTick::Ui(event) => {
             handle_ui_event(controller, batch, event).await?;

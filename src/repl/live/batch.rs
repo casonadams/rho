@@ -169,6 +169,7 @@ impl LiveBatch {
         redraw: bool,
     ) -> Result<()> {
         let released = self.release_held_interaction(controller);
+        controller.set_attention(self.modal.is_some() || self.held_interaction.is_some());
         if self.ui.is_empty() && !redraw && !released {
             return Ok(());
         }

@@ -31,6 +31,9 @@ pub(crate) enum ConfigKey {
     Cursor,
     SyntaxHighlightTools,
     FullBashCommand,
+    AutoTitle,
+    TerminalTitle,
+    TerminalTitleState,
     ShowLabel,
     SearchEngine,
     WebSearchEnabled,
@@ -116,6 +119,13 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
         "ui.full_bash_command",
         &["full_bash_command", "full_bash_commands"],
     ),
+    (ConfigKey::AutoTitle, "ui.auto_title", &["auto_title"]),
+    (ConfigKey::TerminalTitle, "ui.terminal_title", &["terminal_title"]),
+    (
+        ConfigKey::TerminalTitleState,
+        "ui.terminal_title_state",
+        &["terminal_title_state"],
+    ),
     (ConfigKey::ShowLabel, "show_label", &[]),
     (
         ConfigKey::SearchEngine,
@@ -167,7 +177,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 44] = [
+    const ALL_KEYS: [ConfigKey; 47] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -197,6 +207,9 @@ mod tests {
         ConfigKey::Cursor,
         ConfigKey::SyntaxHighlightTools,
         ConfigKey::FullBashCommand,
+        ConfigKey::AutoTitle,
+        ConfigKey::TerminalTitle,
+        ConfigKey::TerminalTitleState,
         ConfigKey::ShowLabel,
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,

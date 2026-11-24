@@ -14,6 +14,7 @@ fn sample_cli(model: &str, max_turns: Option<usize>) -> crate::config::cli::Cli 
         max_turns,
         thinking: None,
         name: None,
+        no_title: false,
         export: None,
         resume: None,
         r#continue: false,

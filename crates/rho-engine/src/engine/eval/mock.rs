@@ -36,6 +36,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
         quota_endpoints: crate::engine::quota_refresh::QuotaEndpoints::all_at("http://127.0.0.1:9"),
+        title_tracker: crate::engine::title::TitleTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),

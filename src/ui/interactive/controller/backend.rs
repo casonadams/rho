@@ -34,6 +34,7 @@ fn abort_raw_session(active: &Mutex<bool>, out: &mut impl Write, disable: impl F
         return false;
     }
     let _ = write_restore_modes(out);
+    super::title::pop_title_on_abort(out);
     let _ = execute!(out, Show);
     disable();
     true

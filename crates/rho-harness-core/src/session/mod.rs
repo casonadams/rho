@@ -44,7 +44,7 @@ pub(crate) use fs::{
 pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
 pub use subagents::{SubagentContext, SubagentContexts};
 pub use summary::{SessionSummary, delete_session_async, list_session_summaries, list_session_summaries_async};
-pub use tree::{SessionTree, TreeNodeData, TreeNodeKind};
+pub use tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
 use validation::CanonicalHistory;
 
