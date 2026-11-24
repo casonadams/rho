@@ -5,7 +5,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
-use super::{ProcessTreeGuard, isolate_group};
+use super::{ProcessTreeGuard, isolate_group, kill_group_detached};
 
 const OUTPUT_CHANNEL_CAPACITY: usize = 256;
 
@@ -91,6 +91,7 @@ pub fn configure_shell_command(cmd_str: &str, working_dir: Option<&Path>) -> Com
 
 pub struct StreamingCommand {
     guard: ProcessTreeGuard,
+    pub(super) group_pid: Option<u32>,
     stdout_task: JoinHandle<()>,
     stderr_task: JoinHandle<()>,
 }
@@ -101,12 +102,14 @@ impl StreamingCommand {
         let stdout = child.stdout.take().expect("stdout was piped");
         let stderr = child.stderr.take().expect("stderr was piped");
         let guard = ProcessTreeGuard::new(child);
+        let group_pid = guard.id();
         let (tx, rx) = tokio::sync::mpsc::channel(OUTPUT_CHANNEL_CAPACITY);
         let stdout_task = spawn_reader_task(stdout, tx.clone());
         let stderr_task = spawn_reader_task(stderr, tx);
         Ok((
             Self {
                 guard,
+                group_pid,
                 stdout_task,
                 stderr_task,
             },
@@ -117,7 +120,14 @@ impl StreamingCommand {
     pub async fn cancel(&mut self) {
         self.stdout_task.abort();
         self.stderr_task.abort();
+        let leader_reaped = self.guard.id().is_none();
         self.guard.kill().await;
+        // `wait` already reaped the leader and released its pid, so only the group can still be signalled.
+        if let Some(pid) = self.group_pid.take()
+            && leader_reaped
+        {
+            kill_group_detached(pid);
+        }
     }
 
     pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
