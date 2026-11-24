@@ -844,7 +844,7 @@ rho mcp approve          # approve this directory's project servers
       </p>
 
       <p>
-        Servers defined by the current directory's project file (<code>.agents/mcp.json</code>, <code>.claude/mcp.json</code>, or <code>.mcp.json</code>) are skipped until approved; global servers never need approval. <code>rho mcp list</code> shows each project server's approval state, and <code>rho mcp approve [server...]</code> approves the named servers, or all of them when none are named. An approval covers the hash of the server's command, arguments, environment, URL, and headers, so changing any of them requires approving it again. Approvals live in <code>~/.config/rho/mcp_approved_servers.json</code>; restart or <code>/reload</code> to load newly approved servers.
+        Servers defined by the current directory's project file (<code>.agents/mcp.json</code>, <code>.claude/mcp.json</code>, or <code>.mcp.json</code>) are skipped until approved; global servers never need approval. <code>rho mcp list</code> shows each project server's approval state, and <code>rho mcp approve [server...]</code> approves the named servers, or all of them when none are named. An approval covers the hash of the server's command, arguments, environment, URL, headers, transport, OAuth settings, exposure mode, tool filters, and instructions flag, so changing any of them requires approving it again. Approvals live in <code>~/.config/rho/mcp_approved_servers.json</code>; restart or <code>/reload</code> to load newly approved servers.
       </p>
 
       <div class="code-block-wrapper">

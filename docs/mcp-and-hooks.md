@@ -91,7 +91,7 @@ Direct tools are named `<server>_<tool>`. Characters outside `[A-Za-z0-9_-]` bec
 
 ### Project Server Trust
 
-To guard against malicious repositories, servers defined by the current directory's project file (`.agents/mcp.json`, `.claude/mcp.json`, or `.mcp.json`) are skipped until you approve them. Global servers never need approval, even when you run rho inside a project. An approval covers the SHA-256 hash of the server's command, arguments, environment variables, URL, and headers for that workspace, so editing any of them requires approving it again. Approvals are stored in `~/.config/rho/mcp_approved_servers.json`.
+To guard against malicious repositories, servers defined by the current directory's project file (`.agents/mcp.json`, `.claude/mcp.json`, or `.mcp.json`) are skipped until you approve them. Global servers never need approval, even when you run rho inside a project. An approval covers the SHA-256 hash of the server's command, arguments, environment variables, URL, headers, transport, OAuth settings, exposure mode, tool filters (`include_tools`, `exclude_tools`, `direct_tools`), and `instructions` for that workspace, so editing any of them requires approving it again. Approvals are stored in `~/.config/rho/mcp_approved_servers.json`.
 
 ```sh
 # Show which project servers are approved
@@ -244,7 +244,9 @@ workspace is trusted with `RHO_TRUST_PROJECT=1`:
 3. The hook process exits immediately; no persistent daemon runs in the
    background.
 4. If a hook times out or exits non-zero without a valid action, execution fails
-   closed for safety.
+   closed for safety: a failing `tool_call` hook denies the call, and a failing
+   `tool_result` hook replaces the tool output with a short "withheld" notice
+   instead of passing it to the model.
 
 ### Hook Decision Protocol (`stdout`)
 
