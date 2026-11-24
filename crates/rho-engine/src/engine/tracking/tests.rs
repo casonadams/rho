@@ -291,3 +291,72 @@ fn usage_tracker_step_start_only_on_first_streaming_chunk() {
     tracker.record_step(step, 250);
     assert_eq!(tracker.tokens_per_second(), Some(200.0));
 }
+
+#[test]
+fn usage_tracker_cache_miss_detection() {
+    let tracker = UsageTracker::default();
+
+    // Cold start (< 2048) followed by write does not trigger cache miss.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(500), Some(2000))),
+        None
+    );
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(0), Some(3000))),
+        None
+    );
+
+    // Warm cache (>= 2048) established.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(2048), None)),
+        None
+    );
+    // Still reading from cache (> 0) does not trigger.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(2048), Some(500))),
+        None
+    );
+    // Warm cache invalidated: read == 0, write > 0, write + input >= 2048 -> triggers!
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(500, 10, Some(0), Some(2000))),
+        Some(2500)
+    );
+    // Subsequent call after invalidation sees prev_read == 0 -> does not trigger.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(500, 10, Some(0), Some(2000))),
+        None
+    );
+
+    // Warm cache followed by write + input < 2048 does not trigger.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(4096), None)),
+        None
+    );
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(500, 10, Some(0), Some(1000))),
+        None
+    );
+}
+
+#[test]
+fn usage_tracker_cache_miss_preserves_warm_state_when_cache_fields_none() {
+    let tracker = UsageTracker::default();
+
+    // Establish warm cache (>= 2048).
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(4096), None)),
+        None
+    );
+
+    // Intermediate call that omits both cache fields must not wipe warm-cache state.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, None, None)),
+        None
+    );
+
+    // Subsequent invalidation still sees the warm cache and triggers.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(500, 10, Some(0), Some(2000))),
+        Some(2500)
+    );
+}

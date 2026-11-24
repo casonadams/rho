@@ -345,6 +345,27 @@ tool_border = "gray"             # Tool / command cards
 bash_success_border = "gray"     # Successful bash commands
 bash_error_border = "red"        # Failed bash commands
 
+# Optional prompt chrome, segmented/powerline status bar, and per-turn telemetry (all opt-in)
+[ui.prompt]
+prefix = "❯ "                    # Custom prompt glyph (default: " ")
+show_version = true              # Show version label in top divider
+divider_style = "thinking"       # "thinking" | "dim" | "none"
+
+[ui.status_bar]
+preset = "default"               # "default" (2-line) | "minimal" | "compact" | "full" | "nerd" | "ascii" | "custom"
+separator = "powerline-thin"     # "powerline" | "powerline-thin" | "slash" | "pipe" | "dot" | "block" | "none" | "ascii"
+icons = "nerd"                   # "nerd" | "unicode" | "ascii"
+transparent = false              # Drop background fill and powerline end caps
+compact_thinking_level = true    # Compact thinking glyph next to model name
+context_line = "off"             # "off" | "percentage" | "annotated" | "embedded"
+left = ["model", "path", "git"]
+right = ["token_total", "cost", "context_pct", "quota"]
+
+[ui.display]
+show_token_usage = false         # Per-turn timestamp, tokens, TTFT, and right-aligned tok/s
+show_turn_time = false           # Include prompt-to-yield Δ duration in stats row
+cache_miss_marker = false        # Show divider when a warm prompt cache invalidates
+
 # Web tools and search provider configuration (persisted automatically via /settings -> Tools & Permissions)
 [tools.web.search]
 enabled = true                  # Enable or disable built-in web_search
@@ -847,7 +868,7 @@ rho mcp approve          # approve this directory's project servers
       </p>
 
       <p>
-        Servers defined by the current directory's project file (<code>.agents/mcp.json</code>, <code>.claude/mcp.json</code>, or <code>.mcp.json</code>) are skipped until approved; global servers never need approval. <code>rho mcp list</code> shows each project server's approval state, and <code>rho mcp approve [server...]</code> approves the named servers, or all of them when none are named. An approval covers the hash of the server's command, arguments, environment, URL, and headers, so changing any of them requires approving it again. Approvals live in <code>~/.config/rho/mcp_approved_servers.json</code>; restart or <code>/reload</code> to load newly approved servers.
+        Servers defined by the current directory's project file (<code>.agents/mcp.json</code>, <code>.claude/mcp.json</code>, or <code>.mcp.json</code>) are skipped until approved; global servers never need approval. <code>rho mcp list</code> shows each project server's approval state, and <code>rho mcp approve [server...]</code> approves the named servers, or all of them when none are named. An approval covers the hash of the server's command, arguments, environment, URL, headers, transport, OAuth settings, exposure mode, tool filters, and instructions flag, so changing any of them requires approving it again. Approvals live in <code>~/.config/rho/mcp_approved_servers.json</code>; restart or <code>/reload</code> to load newly approved servers.
       </p>
 
       <div class="code-block-wrapper">

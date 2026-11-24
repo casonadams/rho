@@ -36,6 +36,15 @@ pub struct ModelCompletionRequest {
     pub temperature: Option<f64>,
 }
 
+/// Tool-call arguments as streamed by a provider: empty input means no arguments, and text that is not
+/// valid JSON is kept as `{"raw": text}` so the tool layer rejects it instead of running on made-up input.
+pub fn parse_tool_arguments(raw: &str) -> serde_json::Value {
+    if raw.trim().is_empty() {
+        return serde_json::json!({});
+    }
+    serde_json::from_str(raw).unwrap_or_else(|_| serde_json::json!({ "raw": raw }))
+}
+
 #[cfg(test)]
 impl ModelCompletionRequest {
     /// What the request asked: a one-shot completion's prompt, or the user text a turn ends with
@@ -186,6 +195,18 @@ mod tests {
     use super::*;
     use futures::StreamExt;
     use rho_harness_core::model::ToolFunction;
+
+    #[test]
+    fn tool_arguments_distinguish_empty_valid_and_malformed_input() {
+        use serde_json::json;
+        assert_eq!(parse_tool_arguments(""), json!({}));
+        assert_eq!(parse_tool_arguments("  \n"), json!({}));
+        assert_eq!(parse_tool_arguments(r#"{"a":1}"#), json!({"a": 1}));
+        assert_eq!(
+            parse_tool_arguments(r#"{"path": "src/lib"#),
+            json!({"raw": r#"{"path": "src/lib"#})
+        );
+    }
 
     fn usage() -> StructuralUsage {
         StructuralUsage {

@@ -431,3 +431,68 @@ async fn configured_redirect_uri_and_authorization_params_reach_the_provider() {
     assert_eq!(form_value(&exchange.body, "redirect_uri"), Some(redirect));
     assert_eq!(exchange.headers["accept"], "application/json");
 }
+
+fn sample_tokens() -> McpTokens {
+    McpTokens {
+        access_token: "old".into(),
+        refresh_token: Some("keep-me".into()),
+        expires_at_ms: Some(1),
+        token_endpoint: "https://auth.example.com/token".into(),
+        client_id: "c".into(),
+        client_secret: None,
+        resource: "https://srv.example.com/mcp".into(),
+        server_url: None,
+    }
+}
+
+#[test]
+fn expiry_is_now_plus_lifetime_minus_the_safety_margin() {
+    assert_eq!(expires_at(None), None);
+    let before = chrono::Utc::now().timestamp_millis();
+    let at = expires_at(Some(3600)).unwrap();
+    let after = chrono::Utc::now().timestamp_millis();
+    let lifetime = 3_600_000 - EXPIRY_MARGIN_MS;
+    assert!((before + lifetime..=after + lifetime).contains(&at), "{at}");
+}
+
+#[test]
+fn a_refresh_reply_updates_expiry_and_keeps_the_old_refresh_token_unless_replaced() {
+    let reply = |refresh: Option<&str>| TokenResponse {
+        access_token: "new".into(),
+        refresh_token: refresh.map(String::from),
+        expires_in: Some(3600),
+    };
+    let kept = sample_tokens().with_reply(reply(None));
+    assert_eq!(kept.access_token, "new");
+    assert_eq!(kept.refresh_token.as_deref(), Some("keep-me"));
+    assert!(kept.expires_at_ms.unwrap() > chrono::Utc::now().timestamp_millis());
+    assert!(!kept.is_expired());
+
+    let rotated = sample_tokens().with_reply(reply(Some("rotated")));
+    assert_eq!(rotated.refresh_token.as_deref(), Some("rotated"));
+
+    let mut never_expires = reply(None);
+    never_expires.expires_in = None;
+    assert_eq!(sample_tokens().with_reply(never_expires).expires_at_ms, None);
+}
+
+#[test]
+fn forget_reports_whether_tokens_were_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = McpTokenStore::in_config_dir(dir.path());
+    assert!(!store.forget("srv").unwrap());
+    McpTokenStore::update(&dir.path().join(TOKEN_FILE), "srv", Some(sample_tokens())).unwrap();
+    assert!(store.is_signed_in("srv"));
+    assert!(store.forget("srv").unwrap());
+    assert!(!store.is_signed_in("srv"));
+    assert!(!store.forget("srv").unwrap());
+}
+
+#[test]
+fn an_unreadable_token_file_is_an_error_not_an_empty_store() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(matches!(McpTokenStore::read_all(dir.path()), Err(AppError::Auth(_))));
+    let store = McpTokenStore::new(dir.path());
+    assert!(matches!(store.forget("srv"), Err(AppError::Auth(_))));
+    assert!(!store.is_signed_in("srv"));
+}

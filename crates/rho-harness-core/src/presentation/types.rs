@@ -122,6 +122,30 @@ fn default_style() -> String {
     "info".to_string()
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TurnTelemetry {
+    pub timestamp_unix_ms: u64,
+    pub turn_elapsed_ms: u64,
+    pub request_duration_ms: u64,
+    pub ttft_ms: Option<u64>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub tokens_per_second: Option<f64>,
+    pub cache_miss_tokens: Option<u64>,
+}
+
+impl TurnTelemetry {
+    pub fn compute_tokens_per_second(output_tokens: u64, request_duration_ms: u64) -> Option<f64> {
+        if request_duration_ms > 100 && output_tokens > 0 {
+            Some((output_tokens as f64 / request_duration_ms as f64) * 1000.0)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UiEvent {

@@ -51,6 +51,7 @@ pub(super) struct TurnLoopState {
     pub current_prompt: String,
     pub current_budget: usize,
     pub overflow_recovered: bool,
+    pub turn_started_at: std::time::Instant,
 }
 
 impl AgentEngine {
@@ -238,6 +239,7 @@ impl AgentEngine {
             current_prompt: effective_prompt.to_string(),
             current_budget: self.config.max_turns,
             overflow_recovered: false,
+            turn_started_at: std::time::Instant::now(),
         };
         Ok(PreparedTurn {
             preamble,

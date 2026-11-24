@@ -232,3 +232,426 @@ async fn get_git_branch_async_reads_head_without_blocking_worker() {
     let branch = super::path::get_git_branch_async(dir.path().to_path_buf()).await;
     assert_eq!(branch.as_deref(), Some("feature/async"));
 }
+
+fn rich_segmented_footer() -> FooterState {
+    FooterState {
+        activity: Activity::Idle,
+        provider: "anthropic".into(),
+        model: "claude-sonnet-4-5".into(),
+        thinking_level: Some("high".into()),
+        cwd: Some("/tmp/rho-work".into()),
+        git_branch: Some("main".into()),
+        git_status: Some(super::super::GitStatusCounts {
+            staged: 2,
+            unstaged: 1,
+            untracked: 3,
+        }),
+        session_id: Some("12345678-abcd-ef00".into()),
+        session_name: Some("slice3".into()),
+        hostname: Some("workstation".into()),
+        active_duration_ms: 95_000,
+        quota: Some("80%".into()),
+        context_percent: Some(42.0),
+        context_window: 200_000,
+        total_input_tokens: 1_500,
+        total_output_tokens: 500,
+        total_cache_read_tokens: 3_000,
+        total_cache_write_tokens: 200,
+        total_cost: Some(0.025),
+        tokens_per_second: Some(120.0),
+        running_agents: 2,
+        ..FooterState::default()
+    }
+}
+
+#[test]
+fn default_status_bar_config_matches_legacy_two_line_footer() {
+    use rho_harness_core::config::{StatusBarConfig, StatusBarPreset};
+
+    let base = sample_stats_footer();
+    let legacy = format_footer_lines(&base, 80, Some("Saved"));
+
+    let with_default_cfg = FooterState {
+        status_bar_config: Some(StatusBarConfig {
+            preset: Some(StatusBarPreset::Default),
+            ..StatusBarConfig::default()
+        }),
+        ..base.clone()
+    };
+    assert_eq!(format_footer_lines(&with_default_cfg, 80, Some("Saved")), legacy);
+}
+
+#[test]
+fn presets_render_single_line_with_expected_segments() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{PathSegmentOptions, StatusBarConfig, StatusBarPreset, StatusBarSegmentOptions};
+
+    let mut footer = rich_segmented_footer();
+    let presets = [
+        (
+            StatusBarPreset::Minimal,
+            &["/tmp/rho-work", "main", "slice3", "42.0%"][..],
+        ),
+        (
+            StatusBarPreset::Compact,
+            &["claude-sonnet-4-5", "main", "$0.025", "42.0%"],
+        ),
+        (
+            StatusBarPreset::Full,
+            &["workstation", "claude-sonnet-4-5", "⟳ 2", "⚡67%", "1m35s", "42.0%"],
+        ),
+        (
+            StatusBarPreset::Nerd,
+            &["workstation", "12345678", "↑1.5k", "↓500", "200k", "1m35s"],
+        ),
+        (StatusBarPreset::Ascii, &["git:main", "tok:2.0k", "$0.025", "42.0%"]),
+    ];
+
+    for (preset, needles) in presets {
+        footer.status_bar_config = Some(StatusBarConfig {
+            preset: Some(preset),
+            segment_options: Some(StatusBarSegmentOptions {
+                path: Some(PathSegmentOptions {
+                    abbreviate: Some(false),
+                    max_length: None,
+                }),
+                ..StatusBarSegmentOptions::default()
+            }),
+            ..StatusBarConfig::default()
+        });
+        let lines = format_footer_lines(&footer, 200, None);
+        assert_eq!(lines.len(), 1, "preset {preset:?} should render 1 line");
+        assert!(visible_width(&lines[0]) <= 200);
+        let plain = strip_ansi(&lines[0]);
+        for needle in needles {
+            assert!(
+                plain.contains(needle),
+                "preset {preset:?} missing {needle:?} in {plain:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_ordered_segments_and_separators() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{
+        StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSeparator,
+    };
+
+    let mut footer = rich_segmented_footer();
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        separator: Some(StatusBarSeparator::Pipe),
+        icons: Some(StatusBarIconMode::Ascii),
+        transparent: Some(true),
+        left: Some(vec![StatusBarSegmentId::Hostname, StatusBarSegmentId::Session]),
+        right: Some(vec![StatusBarSegmentId::Cost, StatusBarSegmentId::ContextPct]),
+        ..StatusBarConfig::default()
+    });
+    let lines = format_footer_lines(&footer, 80, None);
+    let plain = strip_ansi(&lines[0]);
+    assert!(plain.contains("workstation │ 12345678"));
+    assert!(plain.contains("$0.025 │ 42.0%"));
+    assert!(!lines[0].contains("\x1b[48;"));
+}
+
+#[test]
+fn separators_and_transparent_mode_behavior() {
+    use super::format_footer_lines_with_theme;
+    use anstyle::{Color, RgbColor, Style};
+    use rho_harness_core::config::{ContextLineMode, StatusBarConfig, StatusBarPreset, StatusBarSeparator};
+
+    let mut footer = rich_segmented_footer();
+    let theme = crate::ui::theme::Theme {
+        block_fill: Style::new().bg_color(Some(Color::Rgb(RgbColor(240, 236, 228)))),
+        ..Default::default()
+    };
+
+    for (sep, expected_glyph) in [
+        (StatusBarSeparator::Powerline, "\u{e0b0}"),
+        (StatusBarSeparator::PowerlineThin, "\u{e0b1}"),
+        (StatusBarSeparator::Pipe, "│"),
+        (StatusBarSeparator::Ascii, ">"),
+    ] {
+        footer.status_bar_config = Some(StatusBarConfig {
+            preset: Some(StatusBarPreset::Minimal),
+            separator: Some(sep),
+            transparent: Some(false),
+            ..StatusBarConfig::default()
+        });
+        let lines = format_footer_lines_with_theme(&footer, 100, None, Some(&theme));
+        assert!(
+            lines[0].contains(expected_glyph),
+            "sep {sep:?} missing {expected_glyph:?} in {:?}",
+            lines[0]
+        );
+    }
+
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Minimal),
+        separator: Some(StatusBarSeparator::Powerline),
+        transparent: Some(true),
+        context_line: Some(ContextLineMode::Embedded),
+        ..StatusBarConfig::default()
+    });
+    let transparent_lines = format_footer_lines_with_theme(&footer, 100, None, Some(&theme));
+    assert!(!transparent_lines[0].contains("\x1b[48;"));
+    assert!(!transparent_lines[0].contains('\u{e0b0}'));
+    assert!(!transparent_lines[0].contains("42.0%"));
+}
+
+#[test]
+fn git_dirty_counts_and_porcelain_parsing() {
+    use super::super::GitStatusCounts;
+    use super::path::parse_git_status_porcelain;
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId};
+
+    let porcelain = "M  staged.rs\n M unstaged.rs\nMM both.rs\n?? untracked.txt\n";
+    let counts = parse_git_status_porcelain(porcelain);
+    assert_eq!(
+        counts,
+        GitStatusCounts {
+            staged: 2,
+            unstaged: 2,
+            untracked: 1,
+        }
+    );
+    assert!(counts.is_dirty());
+
+    let mut footer = rich_segmented_footer();
+    footer.git_status = Some(counts);
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        icons: Some(StatusBarIconMode::Ascii),
+        transparent: Some(true),
+        left: Some(vec![StatusBarSegmentId::Git]),
+        right: Some(vec![]),
+        ..StatusBarConfig::default()
+    });
+    let dirty_line = &format_footer_lines(&footer, 80, None)[0];
+    assert!(dirty_line.contains("\x1b[33m"));
+    assert!(strip_ansi(dirty_line).contains("git:main +2 *2 ?1"));
+
+    footer.git_status = Some(GitStatusCounts::default());
+    let clean_line = &format_footer_lines(&footer, 80, None)[0];
+    assert!(clean_line.contains("\x1b[32m"));
+    assert_eq!(strip_ansi(clean_line).trim(), "git:main");
+}
+
+#[test]
+fn progressive_disclosure_drops_whole_segments_before_truncating() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{
+        StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSeparator,
+    };
+
+    let mut footer = rich_segmented_footer();
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        separator: Some(StatusBarSeparator::Pipe),
+        icons: Some(StatusBarIconMode::Ascii),
+        transparent: Some(true),
+        left: Some(vec![StatusBarSegmentId::Hostname, StatusBarSegmentId::Session]),
+        right: Some(vec![StatusBarSegmentId::Cost, StatusBarSegmentId::ContextPct]),
+        ..StatusBarConfig::default()
+    });
+
+    // At width 34, "workstation │ 12345678" (22) + gap (1) + "$0.025 │ 42.0%" (12) = 35 > 34,
+    // so tail right segment (42.0%) is dropped whole, keeping "$0.025" intact!
+    let narrow = &format_footer_lines(&footer, 34, None)[0];
+    let plain = strip_ansi(narrow);
+    assert!(visible_width(narrow) <= 34);
+    assert!(plain.contains("workstation"));
+    assert!(plain.contains("12345678"));
+    assert!(plain.contains("$0.025"));
+    assert!(!plain.contains("42.0%"));
+}
+
+#[test]
+fn model_compact_thinking_and_short_name_and_system_message() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{
+        ModelSegmentOptions, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId,
+        StatusBarSegmentOptions,
+    };
+
+    let mut footer = rich_segmented_footer();
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        icons: Some(StatusBarIconMode::Ascii),
+        transparent: Some(true),
+        compact_thinking_level: Some(true),
+        left: Some(vec![StatusBarSegmentId::Model]),
+        right: Some(vec![]),
+        segment_options: Some(StatusBarSegmentOptions {
+            model: Some(ModelSegmentOptions {
+                show_thinking_level: Some(true),
+                short_name: Some(true),
+                ..ModelSegmentOptions::default()
+            }),
+            ..StatusBarSegmentOptions::default()
+        }),
+        ..StatusBarConfig::default()
+    });
+    let lines = format_footer_lines(&footer, 80, Some("Model updated"));
+    assert_eq!(lines.len(), 2);
+    assert_eq!(strip_ansi(&lines[0]).trim(), "claude-sonnet-4-5 ◕");
+    assert_eq!(lines[1], "Model updated");
+}
+
+#[test]
+fn pr_segment_dot_separator_and_model_alias_names() {
+    use std::collections::BTreeMap;
+
+    use super::super::GitPrInfo;
+    use super::path::{is_default_branch, parse_gh_pr_json, parse_github_repo};
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{
+        ModelSegmentOptions, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId,
+        StatusBarSegmentOptions, StatusBarSeparator,
+    };
+
+    assert!(is_default_branch("main"));
+    assert!(is_default_branch("master"));
+    assert!(!is_default_branch("feat/status-bar"));
+
+    assert_eq!(
+        parse_github_repo("git@github.com:org/repo.git"),
+        Some("org/repo".into())
+    );
+    assert_eq!(
+        parse_github_repo("https://github.com/org/repo.git\n"),
+        Some("org/repo".into())
+    );
+    assert_eq!(
+        parse_github_repo("ssh://git@github.com/org/repo"),
+        Some("org/repo".into())
+    );
+    assert_eq!(parse_github_repo("https://gitlab.com/org/repo.git"), None);
+
+    let parsed = parse_gh_pr_json(r#"{"number": 72, "url": "https://github.com/org/repo/pull/72"}"#).unwrap();
+    assert_eq!(
+        parsed,
+        GitPrInfo {
+            number: 72,
+            url: Some("https://github.com/org/repo/pull/72".into()),
+        }
+    );
+
+    let mut names = BTreeMap::new();
+    names.insert("gemini-4-neon".into(), "Neo4".into());
+
+    let mut footer = rich_segmented_footer();
+    footer.provider = "gemini".into();
+    footer.model = "gemini-4-neon".into();
+    footer.thinking_level = Some("medium".into());
+    footer.git_pr = Some(parsed);
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        separator: Some(StatusBarSeparator::Dot),
+        icons: Some(StatusBarIconMode::Unicode),
+        transparent: Some(true),
+        compact_thinking_level: Some(false),
+        left: Some(vec![StatusBarSegmentId::Pr, StatusBarSegmentId::Model]),
+        right: Some(vec![StatusBarSegmentId::ContextPct]),
+        segment_options: Some(StatusBarSegmentOptions {
+            model: Some(ModelSegmentOptions {
+                show_thinking_level: Some(true),
+                short_name: Some(true),
+                names,
+            }),
+            ..StatusBarSegmentOptions::default()
+        }),
+        ..StatusBarConfig::default()
+    });
+
+    let lines = format_footer_lines(&footer, 100, None);
+    let plain = strip_ansi(&lines[0]);
+    assert!(plain.contains("PR #72"), "got: {plain}");
+    assert!(plain.contains(" · "), "got: {plain}");
+    assert!(plain.contains("Neo4 · ◒ med"), "got: {plain}");
+    assert!(plain.contains("42.0%/200k"), "got: {plain}");
+}
+
+#[test]
+fn option_only_status_bar_activates_segmented_mode() {
+    use rho_harness_core::config::{ModelSegmentOptions, StatusBarConfig, StatusBarSegmentOptions};
+    use std::collections::BTreeMap;
+
+    let mut names = BTreeMap::new();
+    names.insert("claude-sonnet-4-5".into(), "Sonnet".into());
+    let mut footer = rich_segmented_footer();
+    footer.status_bar_config = Some(StatusBarConfig {
+        compact_thinking_level: Some(true),
+        segment_options: Some(StatusBarSegmentOptions {
+            model: Some(ModelSegmentOptions {
+                names,
+                ..ModelSegmentOptions::default()
+            }),
+            ..StatusBarSegmentOptions::default()
+        }),
+        ..StatusBarConfig::default()
+    });
+    let lines = format_footer_lines(&footer, 120, None);
+    assert_eq!(lines.len(), 1);
+    let plain = crate::ui::block::strip_ansi(&lines[0]);
+    assert!(plain.contains("Sonnet"), "got: {plain}");
+}
+
+#[test]
+fn segments_sanitize_newlines_retain_fitting_right_and_distinguish_powerline() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{
+        PathSegmentOptions, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId,
+        StatusBarSegmentOptions, StatusBarSeparator,
+    };
+
+    let mut footer = rich_segmented_footer();
+    footer.cwd = Some("/tmp/bad\ndir".into());
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        icons: Some(StatusBarIconMode::Ascii),
+        left: Some(vec![StatusBarSegmentId::Path]),
+        right: Some(vec![StatusBarSegmentId::Cost]),
+        segment_options: Some(StatusBarSegmentOptions {
+            path: Some(PathSegmentOptions {
+                abbreviate: Some(false),
+                max_length: None,
+            }),
+            ..StatusBarSegmentOptions::default()
+        }),
+        ..StatusBarConfig::default()
+    });
+    let lines = format_footer_lines(&footer, 80, None);
+    assert!(!lines[0].contains('\n'));
+
+    // Narrow width: left ("workstation") doesn't fit in 10 cols, right ("$0.025") should be retained.
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        icons: Some(StatusBarIconMode::Ascii),
+        left: Some(vec![StatusBarSegmentId::Hostname]),
+        right: Some(vec![StatusBarSegmentId::Cost]),
+        ..StatusBarConfig::default()
+    });
+    let narrow = format_footer_lines(&footer, 10, None);
+    assert!(strip_ansi(&narrow[0]).contains("$0.025"), "got: {:?}", narrow[0]);
+
+    // Powerline vs PowerlineThin render distinct output when a theme surface is present.
+    let themed = crate::ui::theme::Theme {
+        block_fill: anstyle::Style::new().bg_color(Some(anstyle::Color::Rgb(anstyle::RgbColor(240, 236, 228)))),
+        ..Default::default()
+    };
+    footer.status_bar_config = Some(StatusBarConfig {
+        preset: Some(StatusBarPreset::Custom),
+        separator: Some(StatusBarSeparator::Powerline),
+        left: Some(vec![StatusBarSegmentId::Hostname, StatusBarSegmentId::Session]),
+        right: Some(vec![]),
+        ..StatusBarConfig::default()
+    });
+    let pl = super::format_footer_lines_with_theme(&footer, 80, None, Some(&themed));
+    footer.status_bar_config.as_mut().unwrap().separator = Some(StatusBarSeparator::PowerlineThin);
+    let pl_thin = super::format_footer_lines_with_theme(&footer, 80, None, Some(&themed));
+    assert_ne!(pl, pl_thin);
+}

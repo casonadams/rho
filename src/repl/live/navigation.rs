@@ -36,6 +36,22 @@ pub async fn paste_clipboard_async<B: TerminalBackend>(
     }
 }
 
+fn cached_hostname() -> Option<String> {
+    static HOSTNAME: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+        std::env::var("HOSTNAME")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                std::fs::read_to_string("/etc/hostname")
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+    });
+    HOSTNAME.clone()
+}
+
 pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
     state.set_active_tool(None);
     let footer = state.footer_mut();
@@ -61,6 +77,37 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.tokens_per_second = engine.tokens_per_second();
     footer.context = Some(engine.context_remaining_display());
     footer.show_label = session.config.show_label;
+    footer.prompt_config = session.config.ui.prompt.clone();
+    footer.status_bar_config = session.config.ui.status_bar.clone();
+    footer.session_id = Some(engine.session_manager.session_id.clone());
+    let status_bar = session.config.ui.status_bar.as_ref();
+    footer.hostname = status_bar
+        .is_some_and(|c| {
+            crate::ui::interactive::footer::segments::status_bar_uses_segment(
+                c,
+                rho_harness_core::config::StatusBarSegmentId::Hostname,
+            )
+        })
+        .then(cached_hostname)
+        .flatten();
+    footer.git_status = status_bar
+        .is_some_and(|c| {
+            crate::ui::interactive::footer::segments::status_bar_uses_segment(
+                c,
+                rho_harness_core::config::StatusBarSegmentId::Git,
+            )
+        })
+        .then(|| crate::ui::interactive::footer::path::cached_git_status_counts(&cwd))
+        .flatten();
+    footer.git_pr = status_bar
+        .is_some_and(|c| {
+            crate::ui::interactive::footer::segments::status_bar_uses_segment(
+                c,
+                rho_harness_core::config::StatusBarSegmentId::Pr,
+            )
+        })
+        .then(|| crate::ui::interactive::footer::cached_git_pr(&cwd, footer.git_branch.as_deref()))
+        .flatten();
 }
 
 /// Reports a model or thinking change: a warning when it failed, a notice when it resets a warm prompt cache.

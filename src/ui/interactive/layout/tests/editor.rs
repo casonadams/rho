@@ -304,3 +304,50 @@ fn editor_lines_are_indented_one_space_and_wrap_inside_the_margin() {
     assert_eq!(layout.editor_lines, [" abc", " de"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 3 });
 }
+
+#[test]
+fn custom_prompt_prefix_shifts_cursor_column_and_indents_continuations() {
+    use rho_harness_core::config::PromptUiConfig;
+
+    let footer = FooterState {
+        prompt_config: Some(PromptUiConfig {
+            prefix: Some("❯ ".to_string()),
+            ..PromptUiConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let editor = editor_with_text("abcde");
+    let l = layout(LayoutInput {
+        terminal_width: 5,
+        terminal_height: 24,
+        ..base_input(&editor, &footer)
+    });
+    assert_eq!(l.editor_lines, ["❯ abc", "  de"]);
+    assert_eq!(l.cursor, CursorPosition { row: 1, column: 4 });
+
+    let (indented_lines, indented_cursor) = crate::ui::interactive::layout::editor::wrap_editor_indented(&editor, 5);
+    assert_eq!(indented_lines, [" abcd", " e"]);
+    assert_eq!(indented_cursor, CursorPosition { row: 1, column: 2 });
+}
+
+#[test]
+fn custom_prompt_prefix_handles_narrow_widths_zero_one_and_two() {
+    use crate::ui::block::visible_width;
+    use crate::ui::interactive::layout::editor::wrap_editor_with_prefix;
+
+    let editor = editor_with_text("abcde");
+
+    let (lines_0, cursor_0) = wrap_editor_with_prefix(&editor, 0, "❯ ");
+    assert_eq!(lines_0, [""]);
+    assert_eq!(cursor_0, CursorPosition { row: 0, column: 0 });
+
+    let (lines_1, cursor_1) = wrap_editor_with_prefix(&editor, 1, "❯ ");
+    assert_eq!(lines_1, ["a", "b", "c", "d", "e", ""]);
+    assert_eq!(cursor_1, CursorPosition { row: 5, column: 0 });
+    assert!(lines_1.iter().all(|line| visible_width(line) <= 1));
+
+    let (lines_2, cursor_2) = wrap_editor_with_prefix(&editor, 2, "❯ ");
+    assert_eq!(lines_2, ["❯a", " b", " c", " d", " e", " "]);
+    assert_eq!(cursor_2, CursorPosition { row: 5, column: 1 });
+    assert!(lines_2.iter().all(|line| visible_width(line) <= 2));
+}

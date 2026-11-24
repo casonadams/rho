@@ -55,8 +55,25 @@ pub fn compute_definition_hash(config: &McpServerConfig) -> String {
         hasher.update(v.as_bytes());
         hasher.update(b"\n");
     }
+    update_with_json(&mut hasher, "transport", &config.transport);
+    update_with_json(&mut hasher, "oauth", &config.oauth);
+    update_with_json(&mut hasher, "mode", &config.mode);
+    update_with_json(&mut hasher, "include_tools", &config.include_tools);
+    update_with_json(&mut hasher, "exclude_tools", &config.exclude_tools);
+    update_with_json(&mut hasher, "direct_tools", &config.direct_tools);
+    update_with_json(&mut hasher, "instructions", &config.instructions);
     let digest = hasher.finalize();
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Unset fields add nothing, so approvals of configs that predate a field stay valid.
+fn update_with_json<T: Serialize>(hasher: &mut Sha256, label: &str, value: &Option<T>) {
+    if let Some(value) = value {
+        hasher.update(label.as_bytes());
+        hasher.update(b":");
+        hasher.update(serde_json::to_vec(value).unwrap_or_default());
+        hasher.update(b"\n");
+    }
 }
 
 pub fn default_cache_path(config_dir: &Path) -> PathBuf {
@@ -146,6 +163,101 @@ mod tests {
 
         cfg2.args = vec!["hello".to_string()];
         assert_eq!(h1, compute_definition_hash(&cfg2));
+    }
+
+    #[test]
+    fn approval_hash_covers_oauth_transport_exposure_and_tool_filters() {
+        use rho_harness_core::config::{McpDirectTools, McpExposureMode, McpOAuthConfig, McpTransportKind};
+        let base = McpServerConfig {
+            command: Some("srv".into()),
+            ..Default::default()
+        };
+        let base_hash = compute_definition_hash(&base);
+        let changes: Vec<(&str, McpServerConfig)> = vec![
+            (
+                "transport",
+                McpServerConfig {
+                    transport: Some(McpTransportKind::Stdio),
+                    ..base.clone()
+                },
+            ),
+            (
+                "oauth",
+                McpServerConfig {
+                    oauth: Some(McpOAuthConfig {
+                        client_id: Some("x".into()),
+                        ..Default::default()
+                    }),
+                    ..base.clone()
+                },
+            ),
+            (
+                "mode",
+                McpServerConfig {
+                    mode: Some(McpExposureMode::Direct),
+                    ..base.clone()
+                },
+            ),
+            (
+                "include_tools",
+                McpServerConfig {
+                    include_tools: Some(vec!["a".into()]),
+                    ..base.clone()
+                },
+            ),
+            (
+                "exclude_tools",
+                McpServerConfig {
+                    exclude_tools: Some(vec!["a".into()]),
+                    ..base.clone()
+                },
+            ),
+            (
+                "direct_tools",
+                McpServerConfig {
+                    direct_tools: Some(McpDirectTools::All(true)),
+                    ..base.clone()
+                },
+            ),
+            (
+                "instructions",
+                McpServerConfig {
+                    instructions: Some(true),
+                    ..base.clone()
+                },
+            ),
+        ];
+        for (field, changed) in changes {
+            assert_ne!(compute_definition_hash(&changed), base_hash, "{field}");
+        }
+        let mut a = base.clone();
+        a.oauth = Some(McpOAuthConfig {
+            scopes: vec!["read".into()],
+            ..Default::default()
+        });
+        let mut b = a.clone();
+        b.oauth.as_mut().unwrap().scopes = vec!["admin".into()];
+        assert_ne!(compute_definition_hash(&a), compute_definition_hash(&b));
+    }
+
+    #[test]
+    fn approval_hash_ignores_operational_settings_and_keeps_legacy_values() {
+        let base = McpServerConfig {
+            command: Some("srv".into()),
+            ..Default::default()
+        };
+        let tuned = McpServerConfig {
+            timeout_seconds: Some(5),
+            idle_timeout_seconds: Some(9),
+            enabled: false,
+            ..base.clone()
+        };
+        assert_eq!(compute_definition_hash(&base), compute_definition_hash(&tuned));
+
+        let mut legacy = Sha256::new();
+        legacy.update(b"command:srv\n");
+        let expected: String = legacy.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(compute_definition_hash(&base), expected);
     }
 
     #[test]

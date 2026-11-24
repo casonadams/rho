@@ -59,6 +59,31 @@ fn metric_changes_differ(footer: &mut crate::ui::interactive::FooterState, m: &L
     changed
 }
 
+fn sync_turn_git_footer(footer: &mut crate::ui::interactive::FooterState) -> bool {
+    use crate::ui::interactive::footer::segments::status_bar_uses_segment;
+    use rho_harness_core::config::StatusBarSegmentId;
+
+    let Some(cfg) = footer.status_bar_config.as_ref() else {
+        return false;
+    };
+    let Some(cwd) = footer.cwd.as_deref() else {
+        return false;
+    };
+    let cwd_path = std::path::Path::new(cwd);
+    let pr = status_bar_uses_segment(cfg, StatusBarSegmentId::Pr)
+        .then(|| crate::ui::interactive::footer::cached_git_pr(cwd_path, footer.git_branch.as_deref()))
+        .flatten();
+    let git_status = status_bar_uses_segment(cfg, StatusBarSegmentId::Git)
+        .then(|| crate::ui::interactive::footer::path::cached_git_status_counts(cwd_path))
+        .flatten();
+    let changed = footer.git_pr != pr || footer.git_status != git_status;
+    if changed {
+        footer.git_pr = pr;
+        footer.git_status = git_status;
+    }
+    changed
+}
+
 pub(crate) fn sync_turn_footer<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     engine: &AgentEngine,
@@ -96,6 +121,11 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
     let session_name = engine.session_manager.cached_session_name();
     if footer.session_name != session_name {
         footer.session_name = session_name;
+        changed = true;
+    }
+    changed |= sync_turn_git_footer(footer);
+    if footer.session_id.as_deref() != Some(engine.session_manager.session_id.as_str()) {
+        footer.session_id = Some(engine.session_manager.session_id.clone());
         changed = true;
     }
     changed

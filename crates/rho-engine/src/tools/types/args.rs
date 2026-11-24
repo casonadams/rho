@@ -134,11 +134,21 @@ fn invalid_arguments(tool: &str, error: &serde_json::Error, schema: &Value) -> T
     ))
 }
 
+fn is_unparsed_raw_arguments(args: &Value) -> bool {
+    args.as_object()
+        .is_some_and(|map| map.len() == 1 && map.get("raw").is_some_and(Value::is_string))
+}
+
 pub fn parse_tool_args<T: DeserializeOwned>(
     tool: &str,
     args: Value,
     schema: impl FnOnce() -> Value,
 ) -> Result<T, ToolResult> {
+    if is_unparsed_raw_arguments(&args) {
+        return Err(ToolResult::error(format!(
+            "Invalid arguments for {tool}: the arguments were not valid JSON (the call may have been cut off). Pass a complete JSON object matching the tool schema."
+        )));
+    }
     let error = match try_parse_tool_args(&args) {
         Ok(parsed) => return Ok(parsed),
         Err(error) => error,
@@ -218,6 +228,19 @@ mod tests {
             "{}",
             err.content
         );
+    }
+
+    #[test]
+    fn raw_unparsed_arguments_are_rejected_even_when_every_field_is_optional() {
+        #[derive(Debug, serde::Deserialize)]
+        struct AllOptional {}
+        let optional_schema = || json!({ "type": "object", "properties": { "limit": { "type": "integer" } } });
+        let err =
+            parse_tool_args::<AllOptional>("ls", json!({ "raw": "{\"path\": \"a" }), optional_schema).unwrap_err();
+        assert!(err.is_error);
+        assert!(err.content.contains("not valid JSON"), "{}", err.content);
+
+        assert!(parse_tool_args::<AllOptional>("ls", json!({}), optional_schema).is_ok());
     }
 
     #[test]

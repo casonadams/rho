@@ -19,6 +19,7 @@ pub(crate) mod presenter;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
 pub(crate) mod thinking;
+pub mod turn_stats;
 
 #[cfg(test)]
 mod tests;

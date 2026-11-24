@@ -26,6 +26,7 @@ struct IdleUi {
     quota_rx: tokio::sync::watch::Receiver<u64>,
     catalog_rx: tokio::sync::watch::Receiver<u64>,
     title_rx: tokio::sync::watch::Receiver<u64>,
+    pr_rx: tokio::sync::watch::Receiver<u64>,
     mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
 }
 
@@ -39,6 +40,7 @@ impl IdleUi {
             quota_rx: engine.quota_subscribe(),
             catalog_rx: session.catalog.subscribe(),
             title_rx: engine.title_subscribe(),
+            pr_rx: crate::ui::interactive::footer::subscribe_git_pr(),
             mcp: engine.mcp_runtime().cloned(),
         }
     }
@@ -49,6 +51,7 @@ enum IdleTick {
     Quota,
     Catalog,
     Title,
+    Pr,
     Ui(crate::ui::interactive::UiEvent),
 }
 
@@ -89,6 +92,7 @@ async fn next_idle_step(
         _ = wait_version_change(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         _ = wait_version_change(&mut ui.catalog_rx) => IdleSource::Tick(IdleTick::Catalog),
         _ = wait_version_change(&mut ui.title_rx) => IdleSource::Tick(IdleTick::Title),
+        _ = wait_version_change(&mut ui.pr_rx) => IdleSource::Tick(IdleTick::Pr),
         tick = next_frame_or_ui(&mut ui.frame, ui_events) => IdleSource::Tick(tick.into()),
     }
 }
@@ -121,6 +125,37 @@ pub(crate) fn sync_idle_title<B: TerminalBackend>(
     } else {
         Ok(false)
     }
+}
+
+pub(crate) fn sync_idle_pr<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    batch: &mut LiveBatch,
+) -> Result<bool> {
+    use crate::ui::interactive::footer::segments::status_bar_uses_segment;
+    use rho_harness_core::config::StatusBarSegmentId;
+
+    let footer = controller.state().footer();
+    let Some(cfg) = footer.status_bar_config.as_ref() else {
+        return Ok(false);
+    };
+    let Some(cwd) = footer.cwd.as_deref() else {
+        return Ok(false);
+    };
+    let cwd_path = std::path::Path::new(cwd);
+    let pr = status_bar_uses_segment(cfg, StatusBarSegmentId::Pr)
+        .then(|| crate::ui::interactive::footer::cached_git_pr(cwd_path, footer.git_branch.as_deref()))
+        .flatten();
+    let git_status = status_bar_uses_segment(cfg, StatusBarSegmentId::Git)
+        .then(|| crate::ui::interactive::footer::path::cached_git_status_counts(cwd_path))
+        .flatten();
+    let changed = footer.git_pr != pr || footer.git_status != git_status;
+    if changed {
+        let footer_mut = controller.state_mut().footer_mut();
+        footer_mut.git_pr = pr;
+        footer_mut.git_status = git_status;
+        batch.flush(controller, true)?;
+    }
+    Ok(changed)
 }
 
 async fn handle_ui_event<B: TerminalBackend>(
@@ -177,6 +212,9 @@ async fn handle_tick<B: TerminalBackend>(
         }
         IdleTick::Title => {
             sync_idle_title(controller, batch, ctx.engine)?;
+        }
+        IdleTick::Pr => {
+            sync_idle_pr(controller, batch)?;
         }
         IdleTick::Ui(event) => {
             handle_ui_event(controller, batch, event).await?;
