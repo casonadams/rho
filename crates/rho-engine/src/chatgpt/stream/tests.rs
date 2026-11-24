@@ -331,3 +331,75 @@ async fn stream_with_completed_event_ends_without_error() {
     assert!(events.iter().all(Result::is_ok));
     assert!(has_event(&events, |e| matches!(e, ModelStreamEvent::Finish(_))));
 }
+
+fn item(kind: &str, fields: &str) -> String {
+    format!(
+        "data: {{\"type\":\"response.output_item.{kind}\",\"output_index\":3,\"item\":{{\"type\":\"function_call\"{fields}}}}}\n\n"
+    )
+}
+
+async fn tool_call_from(chunks: &[String]) -> (String, String, serde_json::Value) {
+    let refs: Vec<&str> = chunks.iter().map(String::as_str).collect();
+    let calls: Vec<_> = collect_body(&refs)
+        .await
+        .into_iter()
+        .filter_map(|e| match e {
+            Ok(ModelStreamEvent::ToolCall(call)) => Some(call),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls.len(), 1);
+    let call = &calls[0];
+    (
+        call.id.clone(),
+        call.function.name.clone(),
+        call.function.arguments.clone(),
+    )
+}
+
+const COMPLETED: &str = "data: {\"type\":\"response.completed\",\"response\":{}}\n\n";
+
+#[tokio::test]
+async fn done_event_without_ids_or_arguments_falls_back_to_the_pending_call() {
+    let added = item("added", ",\"id\":\"fc1\",\"call_id\":\"c1\",\"name\":\"bash\"");
+    let done = item("done", ",\"id\":\"fc1\"");
+    let delta = "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc1\",\"delta\":\"{\\\"a\\\":1}\"}\n\n";
+    let (id, name, args) = tool_call_from(&[added, delta.into(), done, COMPLETED.into()]).await;
+    assert_eq!(
+        (id.as_str(), name.as_str(), args),
+        ("c1", "bash", serde_json::json!({"a": 1}))
+    );
+}
+
+#[tokio::test]
+async fn done_event_values_win_over_the_pending_call() {
+    let added = item(
+        "added",
+        ",\"id\":\"fc1\",\"call_id\":\"old\",\"name\":\"bash\",\"arguments\":\"{\\\"a\\\":1}\"",
+    );
+    let done = item(
+        "done",
+        ",\"id\":\"fc1\",\"call_id\":\"new\",\"name\":\"bash\",\"arguments\":\"{\\\"a\\\":2}\"",
+    );
+    let (id, _, args) = tool_call_from(&[added, done, COMPLETED.into()]).await;
+    assert_eq!((id.as_str(), args), ("new", serde_json::json!({"a": 2})));
+}
+
+#[tokio::test]
+async fn pending_wire_id_is_used_when_the_done_event_has_none() {
+    let added = item("added", ",\"id\":\"output-3\",\"name\":\"bash\"");
+    let done = item("done", ",\"name\":\"bash\"");
+    let (id, _, _) = tool_call_from(&[added, done, COMPLETED.into()]).await;
+    assert_eq!(id, "output-3");
+}
+
+#[tokio::test]
+async fn call_id_falls_back_to_the_wire_id_then_to_the_output_index() {
+    let with_wire_id = item("done", ",\"id\":\"fc9\",\"name\":\"bash\"");
+    let (id, _, _) = tool_call_from(&[with_wire_id, COMPLETED.into()]).await;
+    assert_eq!(id, "fc9");
+
+    let anonymous = item("done", ",\"name\":\"bash\"");
+    let (id, _, _) = tool_call_from(&[anonymous, COMPLETED.into()]).await;
+    assert_eq!(id, "call-3");
+}
