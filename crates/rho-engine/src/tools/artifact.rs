@@ -24,25 +24,41 @@ pub struct ArtifactFile {
     pub modified: SystemTime,
 }
 
+/// A symlinked or foreign-owned `dir` and symlinked entries are skipped: the sweep deletes what it
+/// collects, and `dir` has a predictable name under the shared temp directory.
 pub(crate) fn collect_artifact_files(dir: &Path) -> std::io::Result<Vec<ArtifactFile>> {
     let mut files = Vec::new();
-    if !dir.exists() {
+    let Ok(dir_meta) = std::fs::symlink_metadata(dir) else {
+        return Ok(files);
+    };
+    if !dir_meta.is_dir() || !owned_by_current_user(&dir_meta) {
         return Ok(files);
     }
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
-        let path = entry.path();
-        if path.is_file() {
+        if entry.file_type()?.is_file() {
             let metadata = entry.metadata()?;
             let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
             files.push(ArtifactFile {
-                path,
+                path: entry.path(),
                 size: metadata.len(),
                 modified,
             });
         }
     }
     Ok(files)
+}
+
+#[cfg(unix)]
+fn owned_by_current_user(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    meta.uid() == unsafe { libc::geteuid() }
+}
+
+#[cfg(not(unix))]
+fn owned_by_current_user(_meta: &std::fs::Metadata) -> bool {
+    true
 }
 
 fn prune_expired_files(files: &mut Vec<ArtifactFile>, cutoff: SystemTime) -> usize {
@@ -146,6 +162,29 @@ mod tests {
 
         assert_eq!(removed, 0);
         assert_eq!(collect_artifact_files(dir.path()).unwrap().len(), 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_never_follows_a_symlinked_directory_or_symlinked_files() {
+        let root = tempfile::tempdir().unwrap();
+        let victim_dir = root.path().join("victim");
+        std::fs::create_dir(&victim_dir).unwrap();
+        let victim_file = victim_dir.join("notes.txt");
+        std::fs::write(&victim_file, "precious").unwrap();
+
+        let log_dir = root.path().join("rho-bash");
+        std::os::unix::fs::symlink(&victim_dir, &log_dir).unwrap();
+        let removed = cleanup_artifacts(&log_dir, Duration::ZERO, 0, Duration::ZERO).unwrap();
+        assert_eq!(removed, 0);
+        assert!(victim_file.exists());
+
+        let real_dir = root.path().join("real");
+        std::fs::create_dir(&real_dir).unwrap();
+        std::os::unix::fs::symlink(&victim_file, real_dir.join("link.log")).unwrap();
+        let removed = cleanup_artifacts(&real_dir, Duration::ZERO, 0, Duration::ZERO).unwrap();
+        assert_eq!(removed, 0);
+        assert!(victim_file.exists());
     }
 
     #[test]
