@@ -40,8 +40,8 @@ pub(crate) fn nul_fields(out: &[u8]) -> Vec<String> {
 pub(crate) struct Repo {
     pub top: PathBuf,
     pub common_dir: PathBuf,
-    git_dir: PathBuf,
-    head: Option<String>,
+    pub(crate) git_dir: PathBuf,
+    pub(crate) head: Option<String>,
 }
 
 fn parse_repo(out: &str) -> Option<Repo> {

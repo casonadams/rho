@@ -155,6 +155,7 @@ struct ToolSources {
     tools: Option<Vec<Arc<dyn EngineTool>>>,
     extra: Vec<Arc<dyn EngineTool>>,
     lsp: Option<Arc<crate::lsp::LspManager>>,
+    relocate_slot: Arc<std::sync::Mutex<Option<PathBuf>>>,
 }
 
 async fn build_engine_tools(
@@ -168,6 +169,7 @@ async fn build_engine_tools(
         tools: tools_opt,
         extra: extra_tools,
         lsp,
+        relocate_slot,
     } = sources;
     let mut mcp = crate::mcp::load_mcp(config, base_dir, history_tools).await;
     let mcp_tools = std::mem::take(&mut mcp.tools);
@@ -183,6 +185,7 @@ async fn build_engine_tools(
                 crate::tools::builtin_tools::ToolsetServices {
                     worktrees: Some(crate::worktree::WorktreeStore::default_location()),
                     lsp,
+                    relocate_slot: Some(relocate_slot),
                 },
                 models.runtime,
             )?;
@@ -278,6 +281,7 @@ impl AgentEngineBuilder {
             workflows: None,
             subagent_models: None,
             worktrees: None,
+            pending_relocation: Arc::default(),
             mcp: super::EngineMcp::default(),
             ollama_host: crate::ollama::local::local_host(),
         }
@@ -300,6 +304,7 @@ impl AgentEngineBuilder {
             }
             None => None,
         };
+        let pending_relocation = Arc::new(std::sync::Mutex::new(None));
         let EngineTools { tools, subagents, mcp } = build_engine_tools(
             &base_dir,
             &self.config,
@@ -312,6 +317,7 @@ impl AgentEngineBuilder {
                 tools: self.tools.take(),
                 extra: std::mem::take(&mut self.extra_tools),
                 lsp,
+                relocate_slot: Arc::clone(&pending_relocation),
             },
             &history_tools,
         )
@@ -332,6 +338,7 @@ impl AgentEngineBuilder {
         engine.workflows = workflows;
         engine.subagent_models = subagent_models;
         engine.worktrees = worktrees;
+        engine.pending_relocation = pending_relocation;
         engine.mcp = super::EngineMcp {
             diagnostics: mcp.diagnostics,
             instructions: mcp.instructions,

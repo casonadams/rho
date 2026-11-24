@@ -1,21 +1,27 @@
 //! Per-agent git worktrees: every agent works in its own checkout of a snapshot of the tree that
 //! started it, and its changes reach that tree only when its parent merges them.
 
+pub mod clone;
 pub(crate) mod git;
 mod lease;
 mod merge;
 mod review;
+pub mod session;
 mod share;
 mod sweep;
 
+use chrono::{DateTime, Utc};
+pub use clone::CloneKind;
 pub use lease::{WorktreeLease, settle_abandoned};
 pub use merge::MergeOutcome;
-pub use sweep::EXPIRE_AFTER;
-
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+pub use session::{
+    ClearReport, ManagedWorktree, SessionWorktree, clear_managed_worktrees, create_session_worktree,
+    default_session_branch, list_managed_worktrees, validate_branch_name,
+};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+pub use sweep::EXPIRE_AFTER;
 use tokio::sync::Mutex;
 
 const MAX_DIFF_CHARS: usize = 30_000;
@@ -171,6 +177,7 @@ impl WorktreeStore {
             let args = [
                 "worktree",
                 "add",
+                "--no-checkout",
                 "--quiet",
                 "-b",
                 &worktree.branch,
@@ -180,7 +187,18 @@ impl WorktreeStore {
             git::run(&source, &args, &[]).await?;
         }
         let finished = async {
-            share::share_ignored(&source, &worktree.path, &worktree.common_dir).await?;
+            let src = source.clone();
+            let dst = worktree.path.clone();
+            let cloned =
+                tokio::task::spawn_blocking(move || clone::clone_tree(&src, &dst, &[std::ffi::OsStr::new(".git")]))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            if cloned.is_ok() {
+                git::run(&worktree.path, &["reset", "--mixed", "--quiet", "HEAD"], &[]).await?;
+            } else {
+                git::run(&worktree.path, &["reset", "--hard", "--quiet", "HEAD"], &[]).await?;
+                share::share_ignored(&source, &worktree.path, &worktree.common_dir).await?;
+            }
             worktree.save().await
         }
         .await;

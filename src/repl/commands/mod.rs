@@ -46,6 +46,15 @@ async fn handle_async_slash_commands(
         })),
         "export" => handle_export(ctx, parts).await,
         "workflow" => Ok(Some(workflows::handle_workflow(ctx, parts).await)),
+        "wt" | "worktree" => {
+            if parts.len() > 2 {
+                ctx.renderer.print_notice("Usage: /wt [<branch>]\n");
+                return Ok(Some(CommandResult::Continue));
+            }
+            Ok(Some(CommandResult::EnterWorktree {
+                branch: parts.get(1).map(|v| (*v).to_string()),
+            }))
+        }
         custom => handle_custom(ctx, custom, parts).await,
     }
 }

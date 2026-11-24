@@ -51,6 +51,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         turn_notes: crate::engine::TurnNotes::default(),
         prune_memory: std::sync::Mutex::default(),
         worktrees: None,
+        pending_relocation: std::sync::Arc::default(),
         workflows: None,
         subagent_models: None,
         mcp: crate::engine::EngineMcp::default(),

@@ -437,15 +437,20 @@ pub enum WorktreeAction {
     Merge,
     /// Delete a worktree and its changes
     Discard,
+    /// Create a new linked worktree on a branch (carrying uncommitted & staged changes) and relocate this session into it
+    Create,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct WorktreeArgs {
     /// What to do
     pub action: WorktreeAction,
-    /// Worktree id from a subagent result or workflow report (required except for list)
+    /// Worktree id from a subagent result or workflow report (required for diff, merge, discard)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Branch name for action="create" (optional; defaults to wt/<yyyymmdd-hhmmss>)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

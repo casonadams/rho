@@ -63,6 +63,7 @@ pub struct AgentEngine {
     pub(crate) subagent_models: Option<crate::tools::subagent::SubagentModels>,
     /// Where subagent and workflow worktrees live; the parent is reminded to merge or discard its own.
     pub(crate) worktrees: Option<crate::worktree::WorktreeStore>,
+    pub(crate) pending_relocation: Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
     pub(crate) mcp: EngineMcp,
     pub(crate) ollama_host: String,
 }
@@ -174,6 +175,55 @@ impl AgentEngine {
         let rebuilt = builder.build().await?;
         rebuilt.spawn_refresh_quota();
         Ok(rebuilt)
+    }
+
+    /// Returns and clears any pending working-directory relocation requested by `worktree(action="create")`.
+    pub fn take_pending_relocation(&self) -> Option<std::path::PathBuf> {
+        self.pending_relocation.lock().ok()?.take()
+    }
+
+    /// Relocates the live session into `new_base_dir` without dropping conversation history.
+    pub async fn relocate_working_dir(&mut self, new_base_dir: std::path::PathBuf) -> Result<()> {
+        let _ = std::env::set_current_dir(&new_base_dir);
+        let _ = rho_harness_core::session::record_session_for_cwd(
+            &self.config.sessions_dir,
+            &new_base_dir,
+            &self.session_manager.session_id,
+        );
+        let auth_store = self.router.auth().lock().await.clone();
+        let mut builder = builder::AgentEngineBuilder::new(self.config.clone(), auth_store)
+            .session(self.session_manager.clone())
+            .agent_monitor(self.agent_monitor.clone())
+            .subagent_runtime(self.subagent_runtime.clone())
+            .turn_notes(self.turn_notes.clone())
+            .model_catalog(self.model_catalog().clone())
+            .base_dir(new_base_dir);
+        if let Some(hook) = &self.demotion_hook {
+            builder = builder.demotion_hook(Arc::clone(hook));
+        }
+        let rebuilt = builder.build().await?;
+        rebuilt.spawn_refresh_quota();
+        self.switch_to(rebuilt);
+        Ok(())
+    }
+
+    /// Creates a managed session worktree on `branch` (or `wt/<yyyymmdd-hhmmss>`) and relocates this session into it.
+    pub async fn enter_session_worktree(&mut self, branch: Option<&str>) -> Result<crate::worktree::SessionWorktree> {
+        let branch = branch
+            .map(str::trim)
+            .filter(|b| !b.is_empty())
+            .map_or_else(crate::worktree::default_session_branch, str::to_string);
+        let base_dir = self.config.worktree.effective_base(&self.config.config_dir);
+        let created = crate::worktree::create_session_worktree(
+            &self.base_dir,
+            &base_dir,
+            &branch,
+            self.config.worktree.clean_source,
+        )
+        .await
+        .map_err(|msg| AppError::Other(anyhow::anyhow!("{msg}")))?;
+        self.relocate_working_dir(created.path.clone()).await?;
+        Ok(created)
     }
 
     fn build_cached_context_dirs<'a>(

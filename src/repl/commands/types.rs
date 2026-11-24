@@ -55,6 +55,9 @@ pub enum CommandResult {
         name: String,
         inputs: std::collections::BTreeMap<String, String>,
     },
+    EnterWorktree {
+        branch: Option<String>,
+    },
     Exit,
 }
 
@@ -91,6 +94,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/reload",
     "/export",
     "/workflow",
+    "/wt",
+    "/worktree",
     "/exit",
     "/quit",
 ];

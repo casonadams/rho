@@ -91,6 +91,8 @@ pub struct Config {
     #[serde(default)]
     pub subagents: SubagentsConfig,
     #[serde(default)]
+    pub worktree: WorktreeConfig,
+    #[serde(default)]
     pub hook_dirs: Vec<PathBuf>,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
@@ -136,6 +138,7 @@ macro_rules! default_config_literal {
             ui: $crate::config::UiConfig::default(),
             tools: $crate::config::ToolsConfig::default(),
             subagents: SubagentsConfig::default(),
+            worktree: WorktreeConfig::default(),
             hook_dirs: Vec::new(),
             sessions_dir: $base_dir.join("sessions"),
             auth_file: $base_dir.join("auth.json"),
@@ -148,6 +151,26 @@ impl Default for Config {
     fn default() -> Self {
         let base_dir = default_config_dir();
         default_config_literal!(base_dir)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorktreeConfig {
+    /// Directory under which managed session worktrees are created (default: `<config_dir>/wt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<PathBuf>,
+    /// Whether `/wt` resets and cleans the source checkout after carrying changes into the worktree.
+    #[serde(default)]
+    pub clean_source: bool,
+}
+
+impl WorktreeConfig {
+    pub fn is_empty(&self) -> bool {
+        self.base.is_none() && !self.clean_source
+    }
+
+    pub fn effective_base(&self, config_dir: &std::path::Path) -> PathBuf {
+        self.base.clone().unwrap_or_else(|| config_dir.join("wt"))
     }
 }
 

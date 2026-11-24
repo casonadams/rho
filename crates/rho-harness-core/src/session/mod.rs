@@ -31,6 +31,7 @@ pub use compaction::{
     compaction_summary_message, compose_compaction_summary, extract_file_ops, generate_fallback_summary,
     merge_split_turn_summary, render_file_lists_xml, serialize_conversation,
 };
+pub use cwd::record_session_for_cwd;
 
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;

@@ -6,10 +6,13 @@ use rho_harness_core::error::AppError;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-/// The main agent's view of agent worktrees: review, merge into its working tree, or discard.
+/// The main agent's view of worktrees: review/merge/discard agent worktrees, or create & enter a session worktree.
 pub struct WorktreeTool {
     root: PathBuf,
     store: WorktreeStore,
+    session_base: Option<PathBuf>,
+    clean_source: bool,
+    relocate_slot: Option<std::sync::Arc<std::sync::Mutex<Option<PathBuf>>>>,
 }
 
 impl WorktreeTool {
@@ -18,9 +21,24 @@ impl WorktreeTool {
         Self {
             root: root.into(),
             store,
+            session_base: None,
+            clean_source: false,
+            relocate_slot: None,
         }
     }
 
+    #[must_use]
+    pub fn with_session_worktree(
+        mut self,
+        base: PathBuf,
+        clean_source: bool,
+        relocate_slot: Option<std::sync::Arc<std::sync::Mutex<Option<PathBuf>>>>,
+    ) -> Self {
+        self.session_base = Some(base);
+        self.clean_source = clean_source;
+        self.relocate_slot = relocate_slot;
+        self
+    }
     async fn find(&self, id: Option<&str>) -> Result<Worktree, String> {
         let id = id
             .map(str::trim)
@@ -72,6 +90,26 @@ impl WorktreeTool {
                 let worktree = self.find(id).await?;
                 worktree.remove().await?;
                 Ok(format!("Discarded worktree `{}` and its changes.", worktree.id))
+            }
+            WorktreeAction::Create => {
+                let branch = args
+                    .branch
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|b| !b.is_empty())
+                    .map_or_else(crate::worktree::default_session_branch, str::to_string);
+                let base = self
+                    .session_base
+                    .clone()
+                    .unwrap_or_else(|| rho_harness_core::config::default_config_dir().join("wt"));
+                let created =
+                    crate::worktree::create_session_worktree(&self.root, &base, &branch, self.clean_source).await?;
+                if let Some(slot) = &self.relocate_slot
+                    && let Ok(mut guard) = slot.lock()
+                {
+                    *guard = Some(created.path.clone());
+                }
+                Ok(created.summary())
             }
         }
     }

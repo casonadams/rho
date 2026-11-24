@@ -174,6 +174,17 @@ fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_worktree_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(wt) = &file.worktree {
+        if let Some(base) = &wt.base {
+            config.worktree.base = Some(base.clone());
+        }
+        if let Some(clean_source) = wt.clean_source {
+            config.worktree.clean_source = clean_source;
+        }
+    }
+}
+
 /// Applies a workspace's `.rho/config.toml`: model and UI preferences only.
 /// Security-relevant keys (permission, providers, private-network access, MCP)
 /// are read from the user config alone, so a cloned repo cannot set them.
@@ -197,4 +208,5 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_permission(config, &file);
     merge_providers(config, &file);
     merge_mcp_settings(config, &file);
+    merge_worktree_settings(config, &file);
 }

@@ -189,6 +189,12 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(name, value)?),
         ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(name, value)?),
         ConfigKey::SessionRetentionDays => file_config.session_retention_days = parse_retention(name, value)?,
+        ConfigKey::WorktreeBase => {
+            file_config.worktree.get_or_insert_with(Default::default).base = Some(std::path::PathBuf::from(value));
+        }
+        ConfigKey::WorktreeCleanSource => {
+            file_config.worktree.get_or_insert_with(Default::default).clean_source = Some(parse_bool(name, value)?);
+        }
     }
     Ok(())
 }
