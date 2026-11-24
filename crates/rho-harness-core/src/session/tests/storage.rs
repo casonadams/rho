@@ -1,4 +1,5 @@
 use super::{SessionManager, temp_dir};
+use crate::model::ChatMessage;
 use std::io::Write;
 
 #[cfg(unix)]
@@ -182,4 +183,44 @@ async fn last_session_lookup_reports_unreadable_or_corrupt_index() {
             "{name}"
         );
     }
+}
+
+#[tokio::test]
+async fn two_managers_on_a_live_session_share_one_history_and_stay_loadable() {
+    let dir = temp_dir();
+    let first = SessionManager::new_async(&dir, None).await.unwrap();
+    let id = first.session_id.clone();
+    first
+        .append_messages(&id, vec![ChatMessage::user("one"), ChatMessage::assistant("1")])
+        .await
+        .unwrap();
+
+    let second = SessionManager::new_async(&dir, Some(&id)).await.unwrap();
+    first
+        .append_messages(&id, vec![ChatMessage::user("two"), ChatMessage::assistant("2")])
+        .await
+        .unwrap();
+    second
+        .append_messages(&id, vec![ChatMessage::user("three"), ChatMessage::assistant("3")])
+        .await
+        .unwrap();
+
+    let texts = |messages: &[ChatMessage]| {
+        messages
+            .iter()
+            .filter_map(|m| m.text().map(str::to_string))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        texts(&first.load_messages().await.unwrap()),
+        ["one", "1", "two", "2", "three", "3"]
+    );
+    assert_eq!(
+        texts(&second.load_messages().await.unwrap()),
+        texts(&first.load_messages().await.unwrap())
+    );
+
+    drop((first, second));
+    let reloaded = SessionManager::new_async(&dir, Some(&id)).await.unwrap();
+    assert_eq!(texts(&reloaded.load_messages().await.unwrap()).len(), 6);
 }

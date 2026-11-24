@@ -127,9 +127,9 @@ impl SessionManager {
         set_private_directory_permissions(sessions_dir)?;
         let (session_id, file_path) = session_paths(sessions_dir, resume_id)?;
         let state = load_or_create_state(&file_path, &session_id, resume_id.is_some())?;
-        let session_lock = lock::acquire(&file_path)?;
+        let session_lock = lock::acquire(&file_path, state)?;
         record_cwd_if_present(sessions_dir, &session_id);
-        Ok(Self::assemble(session_id, file_path, state, secrets, session_lock))
+        Ok(Self::assemble(session_id, file_path, secrets, session_lock))
     }
 
     pub async fn new_with_secrets_async(
@@ -145,14 +145,13 @@ impl SessionManager {
     fn assemble(
         session_id: String,
         file_path: PathBuf,
-        state: StoreState,
         secrets: Vec<String>,
         session_lock: Arc<lock::SessionLock>,
     ) -> Self {
         Self {
             session_id,
             file_path,
-            state: Arc::new(tokio::sync::Mutex::new(state)),
+            state: Arc::clone(session_lock.state()),
             secrets: Arc::new(SecretGuard::new(secrets)),
             _session_lock: session_lock,
         }
