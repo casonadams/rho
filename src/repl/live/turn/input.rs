@@ -21,6 +21,7 @@ pub(super) struct TurnInputContext<'a, B: TerminalBackend> {
     pub batch: &'a mut LiveBatch,
     pub steering: &'a crate::repl::coordinator::SharedSteeringQueue,
     pub session: &'a mut crate::repl::ReplSession,
+    pub engine: Option<&'a crate::engine::AgentEngine>,
 }
 
 async fn open_model_selector_and_flush<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {
@@ -36,13 +37,78 @@ async fn flush_if<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, changed
 }
 
 fn queue_status_message<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, kind: QueueKind, text: &str) {
-    if kind == QueueKind::Steering && !crate::repl::commands::is_slash_command(text) {
+    if crate::repl::commands::is_slash_command(text) {
+        ctx.controller
+            .set_system_message("[Command queued for turn completion]");
+    } else if kind == QueueKind::Steering {
         ctx.steering.enqueue(text.to_string());
         ctx.controller.set_system_message("[Steering queued for tool boundary]");
     } else if kind == QueueKind::FollowUp {
         ctx.controller
             .set_system_message("[Follow-up queued for turn completion]");
     }
+}
+
+async fn apply_mid_turn_command<B: TerminalBackend>(
+    ctx: &mut TurnInputContext<'_, B>,
+    result: crate::repl::commands::CommandResult,
+) -> Result<()> {
+    use crate::repl::commands::CommandResult;
+    match result {
+        CommandResult::OpenSettingsSelector
+        | CommandResult::OpenModelSelector
+        | CommandResult::OpenModelsSelector
+        | CommandResult::OpenToolsSelector
+        | CommandResult::OpenHelpSelector => {
+            crate::repl::live::message::open_selector_modal(ctx.session, ctx.controller, &result);
+        }
+        CommandResult::OpenAgentsSelector => {
+            if let Some(engine) = ctx.engine {
+                crate::repl::live::modal::agents::open_agents_selector(ctx.controller, engine.agent_monitor())?;
+            }
+        }
+        CommandResult::ModelChanged {
+            new_model,
+            new_provider,
+        } => {
+            let provider = new_provider.unwrap_or_else(|| ctx.session.config.provider.clone());
+            super::model_switch::apply_turn_model_switch(super::model_switch::TurnModelSwitchInput {
+                model: &new_model,
+                provider: &provider,
+                save_as_default: false,
+                config: &mut ctx.session.config,
+                auth_store: &ctx.session.auth_store,
+                renderer: &ctx.session.renderer,
+                controller: ctx.controller,
+                batch: ctx.batch,
+            })
+            .await?;
+        }
+        CommandResult::ThinkingChanged { level } => {
+            ctx.session.config.thinking_level = level;
+            if let Some(engine) = ctx.engine {
+                crate::repl::live::navigation::update_footer(ctx.controller.state_mut(), ctx.session, engine);
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn execute_mid_turn_command<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, text: &str) -> Result<()> {
+    let mut cmd_ctx = crate::repl::commands::SlashCommandContext {
+        config: &mut ctx.session.config,
+        auth_store: &mut ctx.session.auth_store,
+        renderer: &ctx.session.renderer,
+        session_id: ctx.engine.map(|e| e.session_manager.session_id.as_str()),
+        session_manager: ctx.engine.map(|e| &e.session_manager),
+        engine: ctx.engine,
+        home_dir: None,
+    };
+    if let Some(result) = crate::repl::commands::SlashCommandHandler::handle(text, &mut cmd_ctx).await? {
+        apply_mid_turn_command(ctx, result).await?;
+    }
+    Ok(())
 }
 
 async fn handle_edit_action<B: TerminalBackend>(
@@ -52,7 +118,12 @@ async fn handle_edit_action<B: TerminalBackend>(
     let effect = ctx.controller.state_mut().apply(action);
     if let UiEffect::Queued(ref msg) = effect {
         record_submission(ctx.history, &msg.text)?;
-        queue_status_message(ctx, msg.kind, &msg.text);
+        if crate::repl::commands::mid_turn_policy(&msg.text) == crate::repl::commands::MidTurnPolicy::Immediate {
+            ctx.controller.state_mut().pop_back_queued();
+            execute_mid_turn_command(ctx, &msg.text).await?;
+        } else {
+            queue_status_message(ctx, msg.kind, &msg.text);
+        }
     }
     ctx.batch.flush(ctx.controller, true)?;
     Ok(TurnKeyResult::Handled)

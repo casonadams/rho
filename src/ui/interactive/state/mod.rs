@@ -117,6 +117,10 @@ impl InteractiveState {
         self.queue.pop_front()
     }
 
+    pub fn pop_back_queued(&mut self) -> Option<QueuedMessage> {
+        self.queue.pop_back()
+    }
+
     pub fn push_front_queued(&mut self, message: QueuedMessage) {
         self.queue.push_front(message);
     }

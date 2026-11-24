@@ -529,20 +529,32 @@ rho config models.guard none</code></pre>
           </thead>
           <tbody>
             <tr>
-              <td><code>/help</code></td>
-              <td>Open interactive command reference and shortcut modal</td>
+              <td><code>/help [cmd]</code></td>
+              <td>Open interactive command reference and shortcut modal, or print detailed usage for a specific command (works mid-turn)</td>
             </tr>
             <tr>
               <td><code>/model</code></td>
-              <td>Open interactive model and provider switcher modal (<kbd class="kbd">Ctrl+L</kbd>)</td>
+              <td>Open interactive model and provider switcher modal (<kbd class="kbd">Ctrl+L</kbd>, works mid-turn)</td>
+            </tr>
+            <tr>
+              <td><code>/models</code></td>
+              <td>Configure role models (<code>default</code>, <code>smol</code>, <code>slow</code>, <code>guard</code>; works mid-turn)</td>
             </tr>
             <tr>
               <td><code>/thinking</code></td>
-              <td>Set reasoning effort level, default <code>medium</code>; subagents follow it. A change while the prompt cache is warm shows a notice that the next request rewrites the cache (<kbd class="kbd">Shift+Tab</kbd>)</td>
+              <td>Set reasoning effort level, default <code>medium</code>; subagents follow it. Works mid-turn. A change while the prompt cache is warm shows a notice that the next request rewrites the cache (<kbd class="kbd">Shift+Tab</kbd>)</td>
             </tr>
             <tr>
               <td><code>/settings</code></td>
-              <td>Open interactive runtime settings modal (block style, framing, role models, thinking, tools &amp; permissions with hierarchical back navigation and in-place updates)</td>
+              <td>Open interactive runtime settings modal (block style, framing, role models, thinking, tools &amp; permissions with hierarchical back navigation and in-place updates; works mid-turn)</td>
+            </tr>
+            <tr>
+              <td><code>/tools</code></td>
+              <td>Open interactive Tools &amp; Permissions modal (alias: <code>/permissions</code>; works mid-turn)</td>
+            </tr>
+            <tr>
+              <td><code>/agents</code></td>
+              <td>Open the subagent monitor modal (same as pressing <kbd class="kbd">Left</kbd> on an empty prompt; works mid-turn)</td>
             </tr>
             <tr>
               <td><code>/resume</code></td>

@@ -5,6 +5,7 @@ mod prompt;
 mod session_ops;
 pub(crate) mod types;
 
+pub(crate) use commands::open_selector_modal;
 pub(super) use prompt::resolve_effective_prompt;
 #[cfg(test)]
 pub(crate) use session_ops::handle_session_diagnostics;

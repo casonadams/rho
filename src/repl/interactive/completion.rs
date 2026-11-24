@@ -3,49 +3,9 @@ use std::ops::Range;
 use rho_harness_core::provider::ProviderId;
 use rho_harness_core::thinking::ThinkingLevel;
 
+use crate::repl::commands::BUILTIN_COMMANDS;
 use crate::ui::fuzzy::fuzzy_score;
 use std::cmp::Reverse;
-
-pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
-    ("help", "Show reference of available commands and shortcuts"),
-    (
-        "settings",
-        "Configure runtime interface settings (thinking effort, display toggles)",
-    ),
-    ("models", "Configure role models (default, smol, slow, guard)"),
-    ("model", "Select model (opens selector UI) <provider/model>"),
-    ("resume", "Resume a previous session (opens session selector)"),
-    ("skill", "List, inspect, or invoke declarative skills"),
-    ("mcp", "Inspect and manage Model Context Protocol servers"),
-    ("session", "Display token capacity and session diagnostics"),
-    (
-        "tokens",
-        "Display token capacity and session diagnostics (alias for /session)",
-    ),
-    ("compact", "Manually compact the session context"),
-    ("tree", "Navigate session tree (switch branches)"),
-    ("fork", "Create a new fork from a previous user message"),
-    ("clone", "Duplicate the current session at the current position"),
-    ("name", "Set session display name"),
-    ("rewind", "Rewind context to a specific prior turn"),
-    ("new", "Start a new session"),
-    ("clear", "Start a new session (alias for /new)"),
-    ("login", "Configure provider authentication <provider>"),
-    ("logout", "Remove stored provider authentication <provider>"),
-    ("reload", "Reload config, skills, prompt templates, and MCP tools"),
-    ("export", "Export session (HTML default, or specify path: .html/.md)"),
-    ("workflow", "List workflows, or run one: /workflow <name> [inputs]"),
-    (
-        "wt",
-        "Create a git worktree on a new branch and move this session into it",
-    ),
-    (
-        "worktree",
-        "Create a git worktree and move this session into it (alias for /wt)",
-    ),
-    ("exit", "Exit rho"),
-    ("quit", "Exit rho"),
-];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandItem {
@@ -138,11 +98,17 @@ pub struct CompletionSet {
 
 fn build_command_items(sources: &super::sources::CompletionSources) -> Vec<CommandItem> {
     let mut commands = Vec::new();
-    for (name, desc) in BUILTIN_SLASH_COMMANDS {
+    for spec in BUILTIN_COMMANDS {
         commands.push(CommandItem {
-            name: format!("/{name}"),
-            description: (*desc).to_string(),
+            name: format!("/{}", spec.name),
+            description: spec.summary.to_string(),
         });
+        for alias in spec.aliases {
+            commands.push(CommandItem {
+                name: format!("/{alias}"),
+                description: format!("{} (alias for /{})", spec.summary, spec.name),
+            });
+        }
     }
     for name in &sources.prompt_templates {
         commands.push(CommandItem {
@@ -363,13 +329,34 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
     if let Some(argument) = prefix.strip_prefix("/model ") {
         return Some(complete_models(&set.models.items(), argument, cursor));
     }
-    if let Some(argument) = prefix.strip_prefix("/thinking ") {
+    if let Some(argument) = prefix
+        .strip_prefix("/thinking ")
+        .or_else(|| prefix.strip_prefix("/think "))
+    {
         return Some(complete_thinking(argument, cursor));
+    }
+    if let Some(argument) = prefix.strip_prefix("/help ") {
+        return Some(complete_help_args(argument, cursor));
     }
     if let Some(rest) = prefix.strip_prefix("/mcp ") {
         return Some(complete_mcp(&set.mcp_servers.snapshot(), rest, cursor));
     }
     complete_auth_args(set, prefix, cursor)
+}
+
+fn complete_help_args(argument: &str, cursor: usize) -> Vec<Completion> {
+    if argument.contains(' ') {
+        return Vec::new();
+    }
+    let query = argument.trim_start_matches('/');
+    rank_by_name(BUILTIN_COMMANDS, query, |spec| spec.name)
+        .into_iter()
+        .map(|spec| Completion {
+            value: format!("/help {}", spec.name),
+            description: Some(spec.summary.to_string()),
+            replacement: 0..cursor,
+        })
+        .collect()
 }
 
 fn rank_by_name<'a, T>(items: &'a [T], query: &str, name: impl Fn(&T) -> &str) -> Vec<&'a T> {

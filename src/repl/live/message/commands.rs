@@ -11,6 +11,8 @@ pub(crate) fn open_selector_modal<B: TerminalBackend>(
 ) {
     match action {
         CommandResult::OpenModelSelector => crate::repl::live::modal::open_model_selector(session, io_controller),
+        CommandResult::OpenModelsSelector => crate::repl::live::modal::open_models_selector(session, io_controller),
+        CommandResult::OpenToolsSelector => crate::repl::live::modal::open_tools_selector(session, io_controller),
         CommandResult::OpenSettingsSelector => crate::repl::live::modal::open_settings_selector(
             Some(&session.config.canonical_model_spec()),
             session.config.guard_model(),
@@ -158,11 +160,16 @@ pub(crate) async fn handle_engine_command<B: TerminalBackend>(
 ) -> Result<bool> {
     match result {
         CommandResult::OpenModelSelector
+        | CommandResult::OpenModelsSelector
+        | CommandResult::OpenToolsSelector
         | CommandResult::OpenSettingsSelector
         | CommandResult::OpenHelpSelector
         | CommandResult::OpenLoginSelector
         | CommandResult::OpenMcpSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
+        }
+        CommandResult::OpenAgentsSelector => {
+            crate::repl::live::modal::agents::open_agents_selector(io.controller, ctx.engine.agent_monitor())?;
         }
         CommandResult::ClearContext => clear_engine_context(ctx).await?,
         rest => return handle_engine_command_rest(ctx, io, rest).await,

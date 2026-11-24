@@ -128,6 +128,21 @@ fn open_selected<B: TerminalBackend>(controller: &mut TerminalController<B>, mon
     agent_focus::show_agent(controller, Some(monitor), Some(id))
 }
 
+/// Opens the subagent monitor modal (or shows a notice if no subagents have started yet).
+pub fn open_agents_selector<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    monitor: &AgentMonitor,
+) -> Result<()> {
+    if monitor.is_empty() {
+        controller.set_system_message("No subagents yet \u{2014} they are listed here once they start");
+    } else {
+        let modal = ModalState::new(AGENTS_TITLE, "", list_options(monitor)).with_search(true);
+        controller.state_mut().push_modal(modal);
+    }
+    controller.redraw()?;
+    Ok(())
+}
+
 /// `Left` on an empty prompt: returns to the main agent while another agent is shown, otherwise
 /// opens the agent list. Returns whether the key was consumed.
 pub fn try_open_agents<B: TerminalBackend>(
@@ -147,13 +162,7 @@ pub fn try_open_agents<B: TerminalBackend>(
         controller.leave_agent_view()?;
         return Ok(true);
     }
-    if monitor.is_empty() {
-        controller.set_system_message("No subagents yet \u{2014} they are listed here once they start");
-    } else {
-        let modal = ModalState::new(AGENTS_TITLE, "", list_options(monitor)).with_search(true);
-        controller.state_mut().push_modal(modal);
-    }
-    controller.redraw()?;
+    open_agents_selector(controller, monitor)?;
     Ok(true)
 }
 

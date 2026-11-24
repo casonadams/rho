@@ -57,6 +57,7 @@ impl TurnTestFixture {
             batch: &mut self.batch,
             steering: &self.steering,
             session: &mut self.session,
+            engine: None,
         }
     }
 }
@@ -665,4 +666,110 @@ async fn test_turn_loop_tick_refreshes_spinner_only_after_frame_interval() {
         ctx.loop_ctx.on_tick().unwrap();
         assert_eq!(ctx.loop_ctx.last_spinner != before, refreshed);
     }
+}
+
+#[tokio::test]
+async fn test_mid_turn_settings_opens_immediately_and_applies_toggles() {
+    let temp = rho_test_support::TestDir::new();
+    let mut f = LoopFixture::new("/settings").await;
+    let (ui, _events) = crate::ui::interactive::InteractiveUi::channel();
+    f.base.session.renderer = TerminalRenderer::with_ui(ui);
+    f.base.session.config.config_dir = temp.to_path_buf();
+
+    let mut ctx = f.context();
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+
+    assert!(
+        ctx.loop_ctx.controller.state().queue().is_empty(),
+        "/settings should run immediately instead of queueing"
+    );
+    assert_eq!(
+        ctx.loop_ctx.controller.state().active_modal().map(|m| m.title.as_str()),
+        Some("Settings")
+    );
+
+    // Toggle Block Style (index 0) mid-turn and verify it updates session config.
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+    assert!(ctx.loop_ctx.session.config.ui.block_style.is_some());
+
+    // Jump to Thinking Effort (key '3') and step right mid-turn.
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Char('3'), KeyModifiers::empty())),
+    )
+    .await;
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Right, KeyModifiers::empty())),
+    )
+    .await;
+    assert!(ctx.loop_ctx.session.config.thinking_level.is_some());
+
+    // Jump to Tools & Permissions (key '9') and open submenu mid-turn.
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Char('9'), KeyModifiers::empty())),
+    )
+    .await;
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+    assert_eq!(ctx.loop_ctx.controller.state().modal_depth(), 2);
+}
+
+#[tokio::test]
+async fn test_mid_turn_mutating_command_queues_for_turn_completion() {
+    let mut f = LoopFixture::new("/compact").await;
+    let (ui, _events) = crate::ui::interactive::InteractiveUi::channel();
+    f.base.session.renderer = TerminalRenderer::with_ui(ui);
+
+    let mut ctx = f.context();
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+
+    assert_eq!(ctx.loop_ctx.controller.state().queue().len(), 1);
+    assert_eq!(ctx.loop_ctx.controller.state().queue()[0].text, "/compact");
+    assert!(ctx.loop_ctx.controller.state().active_modal().is_none());
+}
+
+#[tokio::test]
+async fn test_mid_turn_help_modal_opens_safe_commands_and_defers_idle_only() {
+    let mut f = LoopFixture::new("/help").await;
+    let (ui, _events) = crate::ui::interactive::InteractiveUi::channel();
+    f.base.session.renderer = TerminalRenderer::with_ui(ui);
+
+    let mut ctx = f.context();
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+    assert_eq!(
+        ctx.loop_ctx.controller.state().active_modal().map(|m| m.title.as_str()),
+        Some("Help")
+    );
+
+    // Index 0 in Help modal is /settings -> selecting it opens Settings mid-turn.
+    dispatch(
+        &mut ctx,
+        crossterm::event::Event::Key(key_event(KeyCode::Enter, KeyModifiers::empty())),
+    )
+    .await;
+    assert_eq!(
+        ctx.loop_ctx.controller.state().active_modal().map(|m| m.title.as_str()),
+        Some("Settings")
+    );
 }
