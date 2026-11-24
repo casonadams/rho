@@ -1,3 +1,4 @@
+use super::builtin::BUILTINS;
 use super::parse::parse_workflow;
 use super::types::{Node, NodeKind, Workflow};
 use crate::agents::{AgentMetadata, parse_agent_content};
@@ -9,6 +10,7 @@ const EXTENSION: &str = "xml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowOrigin {
+    Builtin,
     User,
     Project,
 }
@@ -94,6 +96,47 @@ impl WorkflowBundle {
         })
     }
 
+    fn load_embedded(name: &str, files: &[(&str, &str)]) -> Result<Self, String> {
+        let read = |rel: &str| -> Result<String, String> {
+            if !is_contained(rel) {
+                return Err("path must be relative and stay inside the workflow directory".to_string());
+            }
+            let rel = rel.strip_prefix("./").unwrap_or(rel);
+            files
+                .iter()
+                .find(|(path, _)| *path == rel)
+                .map(|(_, text)| (*text).to_string())
+                .ok_or_else(|| format!("builtin workflow '{name}' has no file {rel}"))
+        };
+        let dir = PathBuf::from(format!("builtin:{name}"));
+        let entry = parse_workflow(name, &read(ENTRY_FILE)?, &read)?;
+        let mut workflows = BTreeMap::new();
+        let mut agents = Vec::new();
+        for (path, text) in files {
+            let file = Path::new(path);
+            let nested = path.contains('/');
+            if !nested && *path != ENTRY_FILE && file.extension().is_some_and(|e| e == EXTENSION) {
+                let local = parse_workflow(&stem(file), text, &read)?;
+                workflows.insert(local.name.clone(), local);
+            } else if path.starts_with("agents/") && file.extension().is_some_and(|e| e == "md") {
+                agents.push(parse_agent_content(
+                    text,
+                    &stem(file),
+                    &dir.join(path).display().to_string(),
+                ));
+            }
+        }
+        Ok(Self {
+            name: entry.name.clone(),
+            origin: WorkflowOrigin::Builtin,
+            location: dir.join(ENTRY_FILE),
+            dir,
+            entry,
+            workflows,
+            agents,
+        })
+    }
+
     fn load_single(path: &Path, origin: WorkflowOrigin) -> Result<Self, String> {
         let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         let entry = load_file(path, &stem(path), &dir)?;
@@ -119,6 +162,7 @@ impl WorkflowCatalog {
     #[must_use]
     pub fn discover(project_dir: Option<&Path>, home_dir: Option<&Path>) -> Self {
         let mut catalog = Self::default();
+        catalog.add_builtins();
         if let Some(home) = home_dir {
             catalog.scan_dir(&home.join(".agents/workflows"), WorkflowOrigin::User);
         }
@@ -127,6 +171,15 @@ impl WorkflowCatalog {
         }
         catalog.validate_calls();
         catalog
+    }
+
+    fn add_builtins(&mut self) {
+        for (name, files) in BUILTINS {
+            match WorkflowBundle::load_embedded(name, files) {
+                Ok(bundle) => self.bundles.push(bundle),
+                Err(e) => self.errors.push(format!("builtin workflow '{name}': {e}")),
+            }
+        }
     }
 
     fn scan_dir(&mut self, dir: &Path, origin: WorkflowOrigin) {

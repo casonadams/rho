@@ -1,5 +1,6 @@
 //! Declarative agent workflows: XML step trees that the engine executes deterministically.
 
+mod builtin;
 pub mod bundle;
 pub mod parse;
 pub mod template;

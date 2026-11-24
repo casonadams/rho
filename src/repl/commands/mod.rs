@@ -59,7 +59,13 @@ impl SlashCommandHandler {
             return Ok(None);
         }
 
-        let parts: Vec<&str> = trimmed[1..].split_whitespace().collect();
+        let words = trimmed[1..].split_whitespace().next();
+        let tokens: Vec<String> = if words.is_some_and(|w| w.eq_ignore_ascii_case("workflow")) {
+            workflows::split_args(&trimmed[1..])
+        } else {
+            trimmed[1..].split_whitespace().map(str::to_string).collect()
+        };
+        let parts: Vec<&str> = tokens.iter().map(String::as_str).collect();
         let Some(&first) = parts.first() else {
             return Ok(None);
         };

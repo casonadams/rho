@@ -482,7 +482,11 @@ async fn rejects_unknown_workflows_bad_inputs_and_unconfigured_models_before_run
     let fx = Fixture::new(&[CLEAN], &[("loop.xml", LOOP), ("slowpoke.xml", slow)]);
     type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str);
     let cases: [Case<'_>; 3] = [
-        ("ghost", &[], "unknown workflow 'ghost'; available: loop, slowpoke"),
+        (
+            "ghost",
+            &[],
+            "unknown workflow 'ghost'; available: audit, loop, slowpoke",
+        ),
         ("loop", &[("nope", "1")], "no input named 'nope'"),
         ("slowpoke", &[], "model roles that are not configured: slow"),
     ];

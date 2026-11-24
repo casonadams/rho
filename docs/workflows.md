@@ -20,8 +20,9 @@ its agents, and `Esc` to cancel it.
 
 Later sources override earlier ones with the same name:
 
-1. `~/.agents/workflows/`
-2. `<project>/.agents/workflows/`
+1. built in to rho (`audit`)
+2. `~/.agents/workflows/`
+3. `<project>/.agents/workflows/`
 
 A workflow is either a single file (`.agents/workflows/hello.xml`) or a
 directory:
@@ -34,9 +35,33 @@ directory:
 └── prompts/          # long prompts referenced by prompt-file
 ```
 
-rho ships no built-in workflows. This repository's
+rho ships one built-in workflow, `audit` (below). This repository's
 [`.agents/workflows/refine/`](../.agents/workflows/refine/) is a complete
 example to copy.
+
+### Built-in: `audit`
+
+`/workflow audit [categories] [paths] [passes] [max_tasks] [scope]` audits code
+across ten categories (correctness, security, performance, reliability,
+maintainability, architecture, testing, compatibility, usability, operability).
+It maps the repository, runs narrow parallel hunts, has a separate agent try to
+disprove each finding, fills gaps, merges duplicates, assesses reachability and
+fix risk, and saves `.rho/audit/<run id>/report.md` and `findings.json` (findings
+are [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html)
+results). It never edits code.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `categories` | `all` | Comma-separated category names |
+| `paths` | `.` | Git pathspec limiting the audit |
+| `passes` | `2` | Hunt passes; later passes cover gaps earlier ones reported |
+| `max_tasks` | `40` | Hunt tasks per pass |
+| `scope` | `repo` | `repo` (every tracked file), `branch:BASE` (changes since `BASE`), or `commits:N` (the last N commits) |
+
+For example, `/workflow audit security,reliability . 1 10 branch:main` audits
+what the current branch changed since `main`. Arguments may be quoted
+(`paths="src lib"`). To change the built-in, put a workflow named `audit` in
+`~/.agents/workflows/` or the project; it replaces it.
 
 ---
 
