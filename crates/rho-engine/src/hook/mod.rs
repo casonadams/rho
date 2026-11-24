@@ -174,7 +174,10 @@ impl LifecycleHook {
         match run_hook(&hook, &hook_event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
             Ok(HookAction::Stop { reason }) => ToolOutcomeAction::Stop(reason),
             Ok(HookAction::RewriteResult { result }) => ToolOutcomeAction::RewriteResult(result),
-            _ => ToolOutcomeAction::Proceed,
+            Ok(_) => ToolOutcomeAction::Proceed,
+            Err(err) => {
+                ToolOutcomeAction::RewriteResult(format!("[tool output withheld: the tool_result hook failed ({err})]"))
+            }
         }
     }
 }

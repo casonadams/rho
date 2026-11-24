@@ -243,3 +243,38 @@ fn test_hook_precedence_user_then_project_then_configured_dirs() {
     );
     assert_eq!(all, vec![extra_hook, user_hook, project_hook]);
 }
+
+#[cfg(unix)]
+async fn outcome_with_hook_script(script: &str) -> ToolOutcomeAction {
+    let dir = tempfile::tempdir().unwrap();
+    let hook = dir.path().join("tool_result");
+    crate::test_support::write_file(&hook, script);
+    set_unix_mode(&hook, 0o755);
+    let lifecycle = LifecycleHook::new(
+        dir.path().to_path_buf(),
+        "s1",
+        std::sync::Arc::new(crate::engine::eval::presenter::NoopPresenter),
+    )
+    .with_hook_dirs(vec![dir.path().to_path_buf()]);
+    lifecycle
+        .on_tool_outcome("read", &serde_json::json!({}), "SECRET=hunter2", false)
+        .await
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_failing_tool_result_hook_withholds_the_raw_output() {
+    let action = outcome_with_hook_script("#!/bin/sh\necho boom >&2\nexit 3\n").await;
+    let ToolOutcomeAction::RewriteResult(text) = action else {
+        panic!("expected the output to be replaced");
+    };
+    assert!(text.contains("withheld") && text.contains("boom"), "{text}");
+    assert!(!text.contains("hunter2"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tool_result_hook_that_continues_leaves_the_output_alone() {
+    let action = outcome_with_hook_script("#!/bin/sh\nexit 0\n").await;
+    assert!(matches!(action, ToolOutcomeAction::Proceed));
+}
