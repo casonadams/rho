@@ -38,20 +38,23 @@ struct CancellationSignalInner {
 }
 
 impl CancellationSignal {
-    fn set_flag(&self, flag: &AtomicBool) {
-        flag.store(true, Ordering::Relaxed);
+    pub fn cancel(&self) {
+        self.inner.cancelled.store(true, Ordering::Release);
         self.inner.notify.notify_waiters();
     }
-
-    pub fn cancel(&self) {
-        self.set_flag(&self.inner.cancelled);
-    }
     pub fn is_cancelled(&self) -> bool {
-        self.inner.cancelled.load(Ordering::Relaxed)
+        self.inner.cancelled.load(Ordering::Acquire)
     }
+    /// `notify_waiters` stores no permit, so the waiter must be registered before the flag is read.
     pub async fn wait_cancelled(&self) {
-        while !self.is_cancelled() {
-            self.inner.notify.notified().await;
+        loop {
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
         }
     }
 }
@@ -144,5 +147,32 @@ mod tests {
         });
         sig.cancel();
         assert!(sig.is_cancelled() && h.await.unwrap());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cancel_racing_the_waiter_is_never_lost() {
+        for _ in 0..2_000 {
+            let sig = CancellationSignal::default();
+            let waiter = {
+                let sig = sig.clone();
+                tokio::spawn(async move { sig.wait_cancelled().await })
+            };
+            let canceller = tokio::spawn(async move { sig.cancel() });
+            canceller.await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(2), waiter)
+                .await
+                .expect("waiter woke after cancel")
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn waiting_after_cancel_returns_immediately_and_unless_cancelled_yields_none() {
+        let sig = CancellationSignal::default();
+        sig.cancel();
+        sig.wait_cancelled().await;
+        let out = unless_cancelled(Some(&sig), std::future::pending::<()>()).await;
+        assert!(out.is_none());
+        assert_eq!(unless_cancelled(None, async { 7 }).await, Some(7));
     }
 }
