@@ -139,7 +139,8 @@ fn append_environment_info(prompt: &mut String, ctx: &ProjectContext) {
         "Today's date is {}. When searching for recent events, releases, or \"latest\" information, factor in this current date.\n",
         ctx.date_str
     ));
-    prompt.push_str(&format!("Platform: {}", ctx.os_info));
+    prompt.push_str(&format!("Platform: {}\n", ctx.os_info));
+    prompt.push_str(&format!("Runtime: {}", rho_harness_core::build_info::runtime_summary()));
 }
 
 pub fn format_turn_prompt(prompt: &str, git_status: Option<&str>) -> String {

@@ -1,3 +1,4 @@
+mod highlight;
 mod input_mode;
 mod select_mode;
 pub(crate) mod types;
@@ -14,7 +15,7 @@ use crate::ui::interactive::{
 };
 use select_mode::handle_select_mode_key;
 
-fn build_interaction_state(prompt: InteractionPrompt) -> ModalState {
+fn build_interaction_state(prompt: InteractionPrompt, theme: &crate::ui::theme::Theme) -> ModalState {
     let options = prompt
         .options
         .into_iter()
@@ -26,7 +27,8 @@ fn build_interaction_state(prompt: InteractionPrompt) -> ModalState {
         })
         .collect::<Vec<_>>();
     let is_empty = options.is_empty();
-    let mut state = ModalState::new(prompt.title, prompt.body, options)
+    let body = highlight::style_permission_body(&prompt.title, prompt.body, theme);
+    let mut state = ModalState::new(prompt.title, body, options)
         .with_custom(prompt.allow_custom)
         .with_option_layout(prompt.option_layout);
     state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
@@ -47,7 +49,8 @@ pub fn install_interaction<B: TerminalBackend>(
     let UiEvent::Interaction { prompt, responder } = event else {
         unreachable!("only interaction events create ordered barriers");
     };
-    controller.state_mut().push_modal(build_interaction_state(prompt));
+    let state = build_interaction_state(prompt, controller.theme());
+    controller.state_mut().push_modal(state);
     *modal = Some(PendingModal { responder });
 }
 

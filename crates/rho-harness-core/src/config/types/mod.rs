@@ -6,11 +6,11 @@ mod paths;
 mod ui;
 
 pub use app::{
-    ApprovalFocus, CacheRetention, Config, DEFAULT_MAX_TURNS, LspConfig, ModelSlot, SubagentsConfig, ToolsConfig,
-    WebFetchConfig, WebSearchConfig, WebToolsConfig,
+    ApprovalFocus, BashConfig, CacheRetention, Config, DEFAULT_MAX_TURNS, LspConfig, ModelSlot, SubagentsConfig,
+    ToolsConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig,
 };
 pub use file::ModelsConfig;
-pub(crate) use file::{FileConfig, LspConfigFile, WebFetchConfigFile, WebSearchConfigFile};
+pub(crate) use file::{BashConfigFile, FileConfig, LspConfigFile, WebFetchConfigFile, WebSearchConfigFile};
 pub use integrations::{
     McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind,
     PermissionConfig, ProjectMcpServers, ProviderConfig, default_idle_timeout_seconds,

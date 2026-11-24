@@ -1,6 +1,12 @@
-//! Gemini usage aggregation and billing window tracking for API key authentication.
+//! Native Google Generative Language API (`v1beta`) client, Gemini 4 wire format,
+//! and usage aggregation / billing window tracking for API key authentication.
+
+pub mod client;
+pub mod request;
+pub mod stream;
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
+pub use client::GeminiClient;
 use std::path::Path;
 
 use crate::engine::SessionUsageTotals;
@@ -26,7 +32,9 @@ pub fn billing_windows(now: DateTime<Utc>) -> BillingWindows {
 pub fn calculate_gemini_cost(model: &str, input_tokens: u64, output_tokens: u64, cached_tokens: u64) -> f64 {
     let lower = model.to_ascii_lowercase();
     let is_pro = lower.contains("pro");
-    let (input_per_m, output_per_m, cached_per_m) = if lower.contains("argon") || lower.contains("carbon") {
+    let (input_per_m, output_per_m, cached_per_m) = if lower.contains("decision") {
+        (0.10, 0.00, 0.00)
+    } else if lower.contains("argon") || lower.contains("carbon") {
         (2.00, 10.00, 0.50)
     } else if lower.contains("neon") {
         (3.00, 15.00, 0.15)

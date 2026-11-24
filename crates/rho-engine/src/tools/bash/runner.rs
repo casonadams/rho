@@ -20,12 +20,17 @@ const BACKGROUND_MAX_RUNTIME: Duration = Duration::from_secs(60 * 60);
 static NOTICE_TAG: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?i)<(\s*/?\s*system-notice)").expect("valid notice tag regex"));
 
-fn setup_command_child(
+async fn setup_command_child(
     base_dir: &Path,
     command_str: &str,
+    direnv: super::direnv::DirenvOptions,
+    command_timeout: Option<Duration>,
 ) -> std::result::Result<(StreamingCommand, Receiver<String>), ToolResult> {
     let base = Workspace::new(base_dir);
-    let cmd = configure_shell_command(command_str, Some(base.root()));
+    let mut cmd = configure_shell_command(command_str, Some(base.root()));
+    if let Some(diff) = super::direnv::load_direnv_env(base.root(), direnv, command_timeout).await {
+        super::direnv::apply_direnv(&mut cmd, &diff);
+    }
     StreamingCommand::spawn(cmd)
         .map_err(|e| ToolResult::error(format!("Failed to spawn process for command '{command_str}': {e}")))
 }
@@ -281,10 +286,15 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
     ))
 }
 
+struct RunContext<'a> {
+    base_dir: &'a Path,
+    log_dir: &'a Path,
+    owner: Option<&'a Mailbox>,
+    direnv: super::direnv::DirenvOptions,
+}
+
 async fn run_with_timeout<F>(
-    base_dir: &Path,
-    log_dir: &Path,
-    owner: Option<&Mailbox>,
+    ctx: RunContext<'_>,
     args: &BashArgs,
     mut on_chunk: F,
     timeout_sec: u64,
@@ -292,11 +302,18 @@ async fn run_with_timeout<F>(
 where
     F: FnMut(&str) + Send + 'static,
 {
-    let (mut cmd, mut rx) = match setup_command_child(base_dir, &args.command) {
+    let (mut cmd, mut rx) = match setup_command_child(
+        ctx.base_dir,
+        &args.command,
+        ctx.direnv,
+        Some(Duration::from_secs(timeout_sec)),
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return Ok(e),
     };
-    let mut acc = OutputAccumulator::new().with_log_dir(log_dir);
+    let mut acc = OutputAccumulator::new().with_log_dir(ctx.log_dir);
     let exec = execute_process_loop(&mut rx, &mut on_chunk, &mut acc, &mut cmd);
     match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
         Ok(Ok(status)) => Ok(tokio::task::spawn_blocking(move || format_exit_result(status, &acc))
@@ -307,16 +324,16 @@ where
             args.command
         ))),
         Err(_) => {
-            let ctx = TimeoutFallbackContext {
+            let timeout_ctx = TimeoutFallbackContext {
                 cmd,
                 rx,
                 on_chunk,
                 acc,
                 args,
-                owner,
+                owner: ctx.owner,
                 timeout_sec,
             };
-            Ok(handle_timeout_fallback(ctx).await)
+            Ok(handle_timeout_fallback(timeout_ctx).await)
         }
     }
 }
@@ -331,8 +348,30 @@ pub async fn run_command_streaming<F>(
 where
     F: FnMut(&str) + Send + 'static,
 {
+    run_command_streaming_with_direnv(
+        base_dir,
+        log_dir,
+        owner,
+        args,
+        super::direnv::DirenvOptions::default(),
+        on_chunk,
+    )
+    .await
+}
+
+pub async fn run_command_streaming_with_direnv<F>(
+    base_dir: &Path,
+    log_dir: &Path,
+    owner: Option<&Mailbox>,
+    args: &BashArgs,
+    direnv: super::direnv::DirenvOptions,
+    on_chunk: F,
+) -> Result<ToolResult, AppError>
+where
+    F: FnMut(&str) + Send + 'static,
+{
     if args.background.unwrap_or(false) {
-        let (cmd, rx) = match setup_command_child(base_dir, &args.command) {
+        let (cmd, rx) = match setup_command_child(base_dir, &args.command, direnv, None).await {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
@@ -345,12 +384,22 @@ where
     }
 
     let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
-    run_with_timeout(base_dir, log_dir, owner, args, on_chunk, timeout_sec).await
+    let ctx = RunContext {
+        base_dir,
+        log_dir,
+        owner,
+        direnv,
+    };
+    run_with_timeout(ctx, args, on_chunk, timeout_sec).await
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    const NO_DIRENV: crate::tools::bash::DirenvOptions = crate::tools::bash::DirenvOptions {
+        enabled: false,
+        timeout_ms: 1_000,
+    };
 
     #[test]
     fn neutralizes_notice_tags_in_job_output() {
@@ -366,7 +415,7 @@ mod tests {
         let _queue = crate::engine::runner::turn::types::BACKGROUND_QUEUE_TEST_LOCK
             .lock()
             .await;
-        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), "sleep 1000") else {
+        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), "sleep 1000", NO_DIRENV, None).await else {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
@@ -385,7 +434,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pid_file = dir.path().join("pid.txt");
         let command = format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display());
-        let Ok((cmd, rx)) = setup_command_child(dir.path(), &command) else {
+        let Ok((cmd, rx)) = setup_command_child(dir.path(), &command, NO_DIRENV, None).await else {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
@@ -425,7 +474,7 @@ mod tests {
     #[tokio::test]
     async fn a_finished_background_job_shows_the_model_text_without_terminal_colors() {
         let command = "printf '\\033[31mred\\033[0m done\\n'";
-        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command) else {
+        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command, NO_DIRENV, None).await else {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
@@ -457,7 +506,7 @@ mod tests {
     async fn a_background_job_with_long_output_reports_it_windowed_with_its_log() {
         let logs = rho_test_support::TestDir::new();
         let command = "seq 1 5000";
-        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command) else {
+        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command, NO_DIRENV, None).await else {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();

@@ -25,7 +25,10 @@ async fn setup_budget_exhausted_checkpoint() -> (String, TestDir) {
         budget_exhausted_model(),
         Config {
             max_turns: 2,
-            permission: crate::config::PermissionConfig { enabled: false },
+            permission: crate::config::PermissionConfig {
+                enabled: false,
+                ..Default::default()
+            },
             ..Config::default()
         },
     );
@@ -71,7 +74,10 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
         resumed_model.clone(),
         Config {
             max_turns: 2,
-            permission: crate::config::PermissionConfig { enabled: false },
+            permission: crate::config::PermissionConfig {
+                enabled: false,
+                ..Default::default()
+            },
             ..Config::default()
         },
         Some(resumed_store),
@@ -95,7 +101,10 @@ async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String,
         model,
         Config {
             max_turns: 1,
-            permission: crate::config::PermissionConfig { enabled: false },
+            permission: crate::config::PermissionConfig {
+                enabled: false,
+                ..Default::default()
+            },
             ..Config::default()
         },
     );
@@ -142,7 +151,10 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
     let resumed = test_engine_with_session(
         resumed_model.clone(),
         Config {
-            permission: crate::config::PermissionConfig { enabled: false },
+            permission: crate::config::PermissionConfig {
+                enabled: false,
+                ..Default::default()
+            },
             ..Config::default()
         },
         Some(resumed_store),
@@ -183,7 +195,10 @@ async fn second_budget_exhaustion_keeps_the_first_checkpoint() {
         resumed_model,
         Config {
             max_turns: 2,
-            permission: crate::config::PermissionConfig { enabled: false },
+            permission: crate::config::PermissionConfig {
+                enabled: false,
+                ..Default::default()
+            },
             ..Config::default()
         },
         Some(resumed_store),

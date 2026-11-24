@@ -170,7 +170,7 @@ pub(crate) async fn init_engine(session: &mut ReplSession) -> Result<AgentEngine
 pub(crate) async fn resume_hint(session_manager: &SessionManager) -> Option<String> {
     let tree = session_manager.load_tree().await.ok()?;
     (!tree.is_empty() || tree.session_name.is_some())
-        .then(|| format!("Resume this session: rho --resume {}", session_manager.session_id))
+        .then(|| format!("Resume this session:\nrho --resume {}", session_manager.session_id))
 }
 
 pub(crate) async fn print_resume_hint(engine: &AgentEngine) {

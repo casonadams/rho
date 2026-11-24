@@ -136,13 +136,21 @@ fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
     if let Some(enabled) = file.tools.as_ref().and_then(|t| t.lsp.as_ref()).and_then(|l| l.enabled) {
         config.tools.lsp.enabled = enabled;
     }
+    if let Some(bash) = file.tools.as_ref().and_then(|t| t.bash.as_ref()) {
+        if let Some(direnv) = bash.direnv {
+            config.tools.bash.direnv = direnv;
+        }
+        if let Some(timeout_ms) = bash.direnv_timeout_ms {
+            config.tools.bash.direnv_timeout_ms = timeout_ms;
+        }
+    }
     let Some(web) = file.tools.as_ref().and_then(|t| t.web.as_ref()) else {
         return;
     };
-    if let Some(ref search) = web.search {
+    if let Some(search) = &web.search {
         merge_web_search_settings(config, search);
     }
-    if let Some(ref fetch) = web.fetch {
+    if let Some(fetch) = &web.fetch {
         merge_web_fetch_settings(config, fetch);
     }
 }

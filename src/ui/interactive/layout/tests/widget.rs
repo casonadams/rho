@@ -36,7 +36,7 @@ fn render_test_widget(tool: &RunningTool, expanded: bool) -> String {
 fn running_tool_widget_collapsed_header_and_tail() {
     let mut tool = RunningTool::new("bash", "cargo test", None);
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
-    let full = render_test_widget(&tool, false);
+    let full = strip_ansi_escapes::strip_str(render_test_widget(&tool, false));
 
     assert!(full.contains("bash") && full.contains("cargo test"));
     assert!(full.contains("... (2 earlier lines)") && full.contains("line 7"));
@@ -144,8 +144,9 @@ fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
         l.widget_lines.first().unwrap().contains('╭'),
         "top border must be preserved"
     );
+    let header_plain = strip_ansi_escapes::strip_str(&l.widget_lines[1]);
     assert!(
-        l.widget_lines[1].contains("bash") && l.widget_lines[1].contains("git log"),
+        header_plain.contains("bash") && header_plain.contains("git log"),
         "header must be preserved"
     );
     assert!(

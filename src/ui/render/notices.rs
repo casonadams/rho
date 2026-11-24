@@ -82,7 +82,7 @@ impl TerminalRenderer {
             .unwrap_or_else(|| ".".to_string());
         let agents = display.agents.iter().map(|path| to_relative_path(path)).collect();
         let item = crate::ui::interactive::WelcomeItem {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: rho_harness_core::build_info::welcome_version().to_string(),
             model: display.model.to_string(),
             provider: display.provider.to_string(),
             resumed: display.resumed,

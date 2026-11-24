@@ -3,7 +3,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use super::types::{
-    ConfigKey, FileConfig, LspConfigFile, McpServerConfig, UiConfig, WebFetchConfigFile, WebSearchConfigFile,
+    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, UiConfig, WebFetchConfigFile,
+    WebSearchConfigFile,
 };
 
 impl super::Config {
@@ -132,6 +133,11 @@ fn lsp_section(file_config: &mut FileConfig) -> &mut LspConfigFile {
     tools.lsp.get_or_insert_with(Default::default)
 }
 
+fn bash_section(file_config: &mut FileConfig) -> &mut BashConfigFile {
+    let tools = file_config.tools.get_or_insert_with(Default::default);
+    tools.bash.get_or_insert_with(Default::default)
+}
+
 /// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
     let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
@@ -156,6 +162,12 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::HideThinking => ui_section(file_config).hide_thinking = Some(parse_bool(name, value)?),
         ConfigKey::ToolsExpanded => ui_section(file_config).tools_expanded = Some(parse_bool(name, value)?),
         ConfigKey::Cursor => ui_section(file_config).cursor = Some(value.to_string()),
+        ConfigKey::SyntaxHighlightTools => {
+            ui_section(file_config).syntax_highlight_tools = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::FullBashCommand => {
+            ui_section(file_config).full_bash_command = Some(parse_bool(name, value)?);
+        }
         ConfigKey::SearchEngine => {
             if !crate::config::validate::is_valid_search_engine_name(value) {
                 return Err(AppError::Config(format!(
@@ -168,11 +180,24 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::WebSearchEnabled => web_search_section(file_config).enabled = Some(parse_bool(name, value)?),
         ConfigKey::WebFetchEnabled => web_fetch_section(file_config).enabled = Some(parse_bool(name, value)?),
         ConfigKey::LspEnabled => lsp_section(file_config).enabled = Some(parse_bool(name, value)?),
+        ConfigKey::BashDirenv => bash_section(file_config).direnv = Some(parse_bool(name, value)?),
         ConfigKey::McpEnabled => {
             file_config.mcp.get_or_insert_with(Default::default).enabled = Some(parse_bool(name, value)?);
         }
         ConfigKey::PermissionEnabled => {
             file_config.permission.get_or_insert_with(Default::default).enabled = parse_bool(name, value)?;
+        }
+        ConfigKey::GuardAllTools => {
+            file_config
+                .permission
+                .get_or_insert_with(Default::default)
+                .guard_all_tools = parse_bool(name, value)?;
+        }
+        ConfigKey::GuardAuditLog => {
+            file_config
+                .permission
+                .get_or_insert_with(Default::default)
+                .guard_audit_log = parse_bool(name, value)?;
         }
         ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(name, value)?),
         ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(name, value)?),

@@ -10,11 +10,19 @@ pub(crate) fn default_true() -> bool {
 pub struct PermissionConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub guard_all_tools: bool,
+    #[serde(default)]
+    pub guard_audit_log: bool,
 }
 
 impl Default for PermissionConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            guard_all_tools: false,
+            guard_audit_log: false,
+        }
     }
 }
 

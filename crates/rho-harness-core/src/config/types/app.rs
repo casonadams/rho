@@ -157,6 +157,29 @@ pub struct ToolsConfig {
     pub web: WebToolsConfig,
     #[serde(default)]
     pub lsp: LspConfig,
+    #[serde(default)]
+    pub bash: BashConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BashConfig {
+    #[serde(default)]
+    pub direnv: bool,
+    #[serde(default = "default_direnv_timeout_ms")]
+    pub direnv_timeout_ms: u64,
+}
+
+fn default_direnv_timeout_ms() -> u64 {
+    30_000
+}
+
+impl Default for BashConfig {
+    fn default() -> Self {
+        Self {
+            direnv: false,
+            direnv_timeout_ms: default_direnv_timeout_ms(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

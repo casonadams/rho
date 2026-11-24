@@ -4,7 +4,7 @@ use super::formatters::{EditDiffRequest, format_edit_diff, format_read_expanded,
 use crate::ui::interactive::truncate_to_visual_lines;
 use crate::ui::theme::{BlockStyle, Theme};
 use rho_harness_core::presentation::summary::{
-    ReadClassification, classify_read_path, format_tool_args_summary, read_summary_parts,
+    ReadClassification, classify_read_path, format_bash_full_summary, format_tool_args_summary, read_summary_parts,
 };
 use rho_harness_core::presentation::{SUBAGENT_STARTED_MARKER, ToolLine};
 
@@ -71,18 +71,37 @@ pub fn detect_language_from_path(path: &str) -> Option<&str> {
     std::path::Path::new(path).extension()?.to_str()
 }
 
-pub fn format_bash_args_header(summary: &str, accent: anstyle::Style, dim: anstyle::Style) -> String {
+fn split_bash_timeout(summary: &str) -> (&str, Option<&str>) {
     if let Some(idx) = summary.rfind(" (timeout ")
         && summary.ends_with(')')
     {
         let timeout_part = &summary[idx + 1..];
         let inner = &timeout_part["(timeout ".len()..timeout_part.len() - 1];
         if inner.ends_with('s') && inner[..inner.len() - 1].chars().all(|c| c.is_ascii_digit()) {
-            let cmd = &summary[..idx];
-            return format!("{accent}{cmd}{accent:#} {dim}{timeout_part}{dim:#}");
+            return (&summary[..idx], Some(timeout_part));
         }
     }
-    format!("{accent}{summary}{accent:#}")
+    (summary, None)
+}
+
+pub fn format_bash_args_header(summary: &str, accent: anstyle::Style, dim: anstyle::Style) -> String {
+    match split_bash_timeout(summary) {
+        (cmd, Some(timeout_part)) => format!("{accent}{cmd}{accent:#} {dim}{timeout_part}{dim:#}"),
+        (cmd, None) => format!("{accent}{cmd}{accent:#}"),
+    }
+}
+
+/// Syntax-highlights a `bash` tool header using `syntect` ANSI-16 colors while keeping any trailing
+/// `(timeout Ns)` suffix dim.
+pub fn highlight_bash_args_header(summary: &str, theme: &Theme) -> String {
+    let dim = theme.dimmed;
+    match split_bash_timeout(summary) {
+        (cmd, Some(timeout_part)) => {
+            let highlighted = crate::ui::markdown::highlight_code_line(cmd, Some("sh"), theme);
+            format!("{highlighted} {dim}{timeout_part}{dim:#}")
+        }
+        (cmd, None) => crate::ui::markdown::highlight_code_line(cmd, Some("sh"), theme),
+    }
 }
 
 pub fn format_read_header(tool: &ToolLine, theme: &Theme) -> String {
@@ -115,7 +134,11 @@ pub fn format_read_header(tool: &ToolLine, theme: &Theme) -> String {
 }
 
 pub fn format_tool_header(tool: &ToolLine, theme: &Theme) -> String {
-    let mut header = format_tool_header_base(tool, theme);
+    format_tool_header_with_expansion(tool, theme, false)
+}
+
+pub fn format_tool_header_with_expansion(tool: &ToolLine, theme: &Theme, expanded: bool) -> String {
+    let mut header = format_tool_header_base(tool, theme, expanded);
     if let Some(details) = file_change::header_details(tool) {
         let dim = theme.dimmed;
         header.push_str(&format!("{dim} \u{b7} {details}{dim:#}"));
@@ -123,7 +146,22 @@ pub fn format_tool_header(tool: &ToolLine, theme: &Theme) -> String {
     header
 }
 
-fn format_tool_header_base(tool: &ToolLine, theme: &Theme) -> String {
+fn style_tool_header_args(tool_name: &str, summary: &str, theme: &Theme) -> String {
+    if tool_name == "bash" {
+        return if theme.syntax_highlight_tools {
+            highlight_bash_args_header(summary, theme)
+        } else {
+            format_bash_args_header(summary, theme.highlight, theme.dimmed)
+        };
+    }
+    if theme.syntax_highlight_tools && (summary.starts_with('{') || summary.starts_with('[')) {
+        return crate::ui::markdown::highlight_code_line(summary, Some("json"), theme);
+    }
+    let accent = theme.highlight;
+    format!("{accent}{summary}{accent:#}")
+}
+
+fn format_tool_header_base(tool: &ToolLine, theme: &Theme, expanded: bool) -> String {
     let title = theme.tool_title_style(tool.is_error);
     let accent = theme.highlight;
     let display_name = normalize_tool_name(&tool.name);
@@ -140,15 +178,15 @@ fn format_tool_header_base(tool: &ToolLine, theme: &Theme) -> String {
         let kind = fetch_content_kind(&tool.arguments);
         return format!("{title}web_fetch{title:#} {accent}{url}{accent:#} {dim}({kind}){dim:#}");
     }
-    let summary = format_tool_args_summary(&tool.name, &tool.arguments);
+    let summary = if tool.name == "bash" && (theme.full_bash_command || expanded) {
+        format_bash_full_summary(&tool.arguments)
+    } else {
+        format_tool_args_summary(&tool.name, &tool.arguments)
+    };
     if summary.is_empty() {
         format!("{title}{display_name}{title:#}")
     } else {
-        let header_args = if tool.name == "bash" {
-            format_bash_args_header(&summary, accent, theme.dimmed)
-        } else {
-            format!("{accent}{summary}{accent:#}")
-        };
+        let header_args = style_tool_header_args(&tool.name, &summary, theme);
         format!("{title}{display_name}{title:#} {header_args}")
     }
 }
@@ -184,10 +222,15 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
     }
 }
 
-fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, dim: anstyle::Style) {
+fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) {
     let clean = replace_tabs(raw_output(tool).trim_end());
     if !clean.is_empty() {
-        append_output_lines(content, &clean, width, expanded, dim);
+        let rendered = if theme.syntax_highlight_tools {
+            super::output_highlight::highlight_tool_output(&tool.name, &clean, theme)
+        } else {
+            clean
+        };
+        append_output_lines(content, &rendered, width, expanded, theme.dimmed);
     }
 }
 
@@ -248,7 +291,7 @@ pub fn append_tool_details(
     } else if !append_edit_or_write(content, tool, expanded, theme)
         && (tool.name == "bash" || tool.is_error || expanded)
     {
-        append_generic_output(content, tool, width, expanded, theme.dimmed);
+        append_generic_output(content, tool, width, expanded, theme);
     }
     if tool.is_error && tool.name == "edit" {
         append_failed_edit_attempt(content, tool, expanded, theme);
@@ -270,7 +313,7 @@ pub fn render_tool_block(
     show_read_expanded: bool,
     theme: &Theme,
 ) -> String {
-    let mut content = format_tool_header(tool, theme);
+    let mut content = format_tool_header_with_expansion(tool, theme, expanded);
     append_tool_details(&mut content, tool, width, expanded, show_read_expanded, theme);
     theme
         .tool_block(tool.name == "bash", tool.is_error, width)

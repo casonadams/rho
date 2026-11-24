@@ -28,6 +28,7 @@ pub struct PermissionHook {
     presenter: Arc<dyn Presenter>,
     policy: Arc<RwLock<Policy>>,
     guard_evaluator: Option<GuardEvaluator>,
+    guard_all_tools: bool,
     mcp_servers: Vec<String>,
     prompt_lock: Arc<tokio::sync::Mutex<()>>,
     /// The subagent whose tool calls this copy of the hook checks; its prompts mark it as waiting.
@@ -51,6 +52,7 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
+            guard_all_tools: false,
             mcp_servers: Vec::new(),
             prompt_lock: Arc::default(),
             asker: None,
@@ -65,6 +67,7 @@ impl PermissionHook {
             presenter,
             policy: Arc::new(RwLock::new(policy)),
             guard_evaluator: None,
+            guard_all_tools: false,
             mcp_servers: Vec::new(),
             prompt_lock: Arc::default(),
             asker: None,
@@ -76,6 +79,10 @@ impl PermissionHook {
         self
     }
 
+    pub fn with_guard_all_tools(mut self, enabled: bool) -> Self {
+        self.guard_all_tools = enabled;
+        self
+    }
     pub fn with_mcp_servers(mut self, servers: Vec<String>) -> Self {
         self.mcp_servers = servers;
         self
@@ -91,6 +98,7 @@ impl PermissionHook {
             presenter: self.presenter.clone(),
             policy: self.policy.clone(),
             guard_evaluator: self.guard_evaluator.clone(),
+            guard_all_tools: self.guard_all_tools,
             mcp_servers: self.mcp_servers.clone(),
             prompt_lock: self.prompt_lock.clone(),
             asker: self.asker.clone(),
@@ -107,6 +115,7 @@ impl PermissionHook {
             presenter: self.presenter.clone(),
             policy: self.policy.clone(),
             guard_evaluator: self.guard_evaluator.clone(),
+            guard_all_tools: self.guard_all_tools,
             mcp_servers: self.mcp_servers.clone(),
             prompt_lock: self.prompt_lock.clone(),
             asker: Some(asker),
@@ -169,25 +178,42 @@ impl PermissionHook {
         let response = self.presenter.request_interaction(prompt).await;
         self.map_interaction_action(response, req, drafts).await
     }
+    fn format_guard_input(&self, req: EvalRequest<'_>) -> (String, String) {
+        if req.tool == "bash" {
+            return ("bash".to_string(), match_input(req.args));
+        }
+        let is_mcp = req.tool == "mcp"
+            || self
+                .mcp_servers
+                .iter()
+                .any(|s| req.tool.starts_with(s.as_str()) && req.tool.as_bytes().get(s.len()) == Some(&b'_'));
+        let lang = if is_mcp { "mcp" } else { req.tool }.to_string();
+        let args_str = serde_json::to_string(req.args).unwrap_or_else(|_| match_input(req.args));
+        (lang, format!("{} {}", req.tool, args_str))
+    }
 
     async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> PermissionAction {
-        if req.tool == "bash" {
-            let cmd = match_input(req.args);
-            if let Some(guard) = &self.guard_evaluator {
-                let verdict = guard.evaluate(&cmd).await;
-                if verdict.safe {
-                    return PermissionAction::Proceed;
-                }
-                let (notice, risk) = match &verdict.action {
-                    Some(action) => (Some(action.as_str()), Some(verdict.reason.as_str())),
-                    None => (Some(verdict.reason.as_str()), None),
-                };
-                return self
-                    .handle_ask_with_evaluator(req, drafts, notice, risk, Some("Guard"))
-                    .await;
-            }
+        let Some(guard) = &self.guard_evaluator else {
+            return self.handle_ask(req, drafts, None, None).await;
+        };
+        if req.tool != "bash" && !self.guard_all_tools {
+            return self.handle_ask(req, drafts, None, None).await;
         }
-        self.handle_ask(req, drafts, None, None).await
+        let (lang, input) = self.format_guard_input(req);
+        let eval = guard.evaluate_tool(&lang, &input, req.working_dir).await;
+        if eval.verdict.safe {
+            eval.record_audit(super::guard::DecisionTargetKey::SafeAutoAllow, eval.source, None);
+            return PermissionAction::Proceed;
+        }
+        let (notice, risk) = match &eval.verdict.action {
+            Some(action) => (Some(action.as_str()), Some(eval.verdict.reason.as_str())),
+            None => (Some(eval.verdict.reason.as_str()), None),
+        };
+        let action = self
+            .handle_ask_with_evaluator(req, drafts, notice, risk, Some("Guard"))
+            .await;
+        record_post_prompt_audit(&eval, &action);
+        action
     }
 
     async fn always_allow(
@@ -273,4 +299,23 @@ fn skip_with_feedback(text: &str) -> PermissionAction {
         format!("Operation denied by user: {trimmed}")
     };
     PermissionAction::Deny(msg)
+}
+
+fn record_post_prompt_audit(eval: &super::guard::GuardEvaluation, action: &PermissionAction) {
+    use super::guard::{DecisionSource, DecisionTargetKey};
+    match action {
+        PermissionAction::Proceed | PermissionAction::RewriteArgs(_) => {
+            eval.record_audit(DecisionTargetKey::AskConfirmation, DecisionSource::UserProceed, None);
+        }
+        PermissionAction::Deny(reason) => {
+            let (source, feedback) = if reason.contains("non-interactive") || reason.contains("headless") {
+                (DecisionSource::HeadlessBlock, None)
+            } else if let Some(fb) = reason.strip_prefix("Operation denied by user: ") {
+                (DecisionSource::UserFeedback, Some(fb.to_string()))
+            } else {
+                (DecisionSource::UserCancel, None)
+            };
+            eval.record_audit(DecisionTargetKey::HardDeny, source, feedback);
+        }
+    }
 }

@@ -30,7 +30,11 @@ use rho_harness_core::error::Result;
 use std::path::Path;
 use std::sync::Arc;
 
-fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -> Vec<Arc<dyn EngineTool>> {
+fn build_workspace_native_tools(
+    base_dir: &Path,
+    lsp: Option<Arc<LspManager>>,
+    direnv: crate::tools::bash::DirenvOptions,
+) -> Vec<Arc<dyn EngineTool>> {
     let history = EditHistory::default();
     let write = Arc::new(
         WriteTool::new(base_dir)
@@ -48,7 +52,7 @@ fn build_workspace_native_tools(base_dir: &Path, lsp: Option<Arc<LspManager>>) -
             .with_artifact_dir(Some(base_dir.join(".rho/artifacts")))
             .with_lsp(lsp.clone()),
     );
-    let bash = Arc::new(BashTool::new(base_dir));
+    let bash = Arc::new(BashTool::new(base_dir).with_direnv(direnv));
     let fd = Arc::new(FdTool::new(base_dir));
     let rg = Arc::new(RgTool::new(base_dir));
 
@@ -112,7 +116,11 @@ pub fn build_builtin_toolset(
 ) -> Result<(Vec<Arc<dyn EngineTool>>, SubagentTool)> {
     let has_lsp = services.lsp.is_some();
     let shared_lsp = services.lsp.clone();
-    let mut tools = build_workspace_native_tools(base_dir, services.lsp);
+    let direnv = crate::tools::bash::DirenvOptions {
+        enabled: config.tools.bash.direnv,
+        timeout_ms: config.tools.bash.direnv_timeout_ms,
+    };
+    let mut tools = build_workspace_native_tools(base_dir, services.lsp, direnv);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
         if config.tools.web.search.enabled {
@@ -211,7 +219,7 @@ pub(crate) fn fresh_session_state(
     root: &Path,
     lsp: Option<Arc<LspManager>>,
 ) -> Vec<Arc<dyn EngineTool>> {
-    let native = build_workspace_native_tools(root, lsp);
+    let native = build_workspace_native_tools(root, lsp, crate::tools::bash::DirenvOptions::default());
     let fresh = tools
         .iter()
         .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {

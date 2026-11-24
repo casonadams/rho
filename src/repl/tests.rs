@@ -138,7 +138,7 @@ async fn resume_hint_names_the_session_only_when_it_has_content() {
     assert_eq!(crate::repl::resume_hint(&empty).await, None);
     assert_eq!(
         crate::repl::resume_hint(&used).await,
-        Some(format!("Resume this session: rho --resume {}", used.session_id))
+        Some(format!("Resume this session:\nrho --resume {}", used.session_id))
     );
     assert!(crate::repl::resume_hint(&named).await.is_some());
 }

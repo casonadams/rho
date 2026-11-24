@@ -15,6 +15,13 @@ fn assert_contains_none(target: &str, unexpected: &[&str]) {
 }
 
 #[test]
+fn system_prompt_includes_runtime_build_summary() {
+    let ctx = ProjectContext::for_tests(std::path::Path::new("/tmp/repo"));
+    let prompt = ctx.build_system_prompt();
+    assert!(prompt.contains(&format!("Runtime: {}", rho_harness_core::build_info::runtime_summary())));
+}
+
+#[test]
 fn default_tools_assemble_matches_static_system_prompt() {
     let default_tools = default_tool_names();
     let assembled = assemble_base_system_prompt(&default_tools);

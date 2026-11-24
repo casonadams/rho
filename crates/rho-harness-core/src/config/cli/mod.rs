@@ -21,7 +21,7 @@ pub use subcommands::{Commands, McpCommands};
 #[command(
     name = "rho",
     author,
-    version,
+    version = crate::build_info::welcome_version(),
     about = "Minimal agentic coding CLI harness",
     after_help = help::CLI_AFTER_HELP
 )]
