@@ -96,7 +96,7 @@ impl TerminalRenderer {
         if let Some(line) = super::turn_stats::format_turn_stats_row(telemetry, &self.display, self.width()) {
             self.print_notice(&format!("{line}\n"));
         }
-        if let Some(marker) = super::turn_stats::format_cache_miss_marker(telemetry, &self.display) {
+        if let Some(marker) = super::turn_stats::format_cache_miss_marker(telemetry, &self.display, self.width()) {
             self.print_notice(&format!("{marker}\n"));
         }
     }

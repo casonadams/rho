@@ -112,21 +112,31 @@ pub(crate) fn sync_idle_pr<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     batch: &mut LiveBatch,
 ) -> Result<bool> {
+    use crate::ui::interactive::footer::segments::status_bar_uses_segment;
+    use rho_harness_core::config::StatusBarSegmentId;
+
     let footer = controller.state().footer();
-    if footer.status_bar_config.is_none() {
+    let Some(cfg) = footer.status_bar_config.as_ref() else {
         return Ok(false);
-    }
+    };
     let Some(cwd) = footer.cwd.as_deref() else {
         return Ok(false);
     };
-    let pr = crate::ui::interactive::footer::cached_git_pr(std::path::Path::new(cwd), footer.git_branch.as_deref());
-    if footer.git_pr != pr {
-        controller.state_mut().footer_mut().git_pr = pr;
+    let cwd_path = std::path::Path::new(cwd);
+    let pr = status_bar_uses_segment(cfg, StatusBarSegmentId::Pr)
+        .then(|| crate::ui::interactive::footer::cached_git_pr(cwd_path, footer.git_branch.as_deref()))
+        .flatten();
+    let git_status = status_bar_uses_segment(cfg, StatusBarSegmentId::Git)
+        .then(|| crate::ui::interactive::footer::path::cached_git_status_counts(cwd_path))
+        .flatten();
+    let changed = footer.git_pr != pr || footer.git_status != git_status;
+    if changed {
+        let footer_mut = controller.state_mut().footer_mut();
+        footer_mut.git_pr = pr;
+        footer_mut.git_status = git_status;
         batch.flush(controller, true)?;
-        Ok(true)
-    } else {
-        Ok(false)
     }
+    Ok(changed)
 }
 
 async fn handle_ui_event<B: TerminalBackend>(

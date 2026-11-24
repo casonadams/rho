@@ -337,3 +337,26 @@ fn usage_tracker_cache_miss_detection() {
         None
     );
 }
+
+#[test]
+fn usage_tracker_cache_miss_preserves_warm_state_when_cache_fields_none() {
+    let tracker = UsageTracker::default();
+
+    // Establish warm cache (>= 2048).
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, Some(4096), None)),
+        None
+    );
+
+    // Intermediate call that omits both cache fields must not wipe warm-cache state.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(100, 10, None, None)),
+        None
+    );
+
+    // Subsequent invalidation still sees the warm cache and triggers.
+    assert_eq!(
+        tracker.check_and_update_cache_miss(&make_usage(500, 10, Some(0), Some(2000))),
+        Some(2500)
+    );
+}

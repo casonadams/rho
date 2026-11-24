@@ -180,10 +180,10 @@ pub fn bottom_divider(width: usize, style: &str, reset: &str, footer: &FooterSta
 
     let used_part: String = chars[..used_cols].iter().collect();
     let rest_part: String = chars[used_cols..].iter().collect();
-    let used_color = if pct >= 50.0 {
+    let used_color = if pct >= 50.0 || style == "\x1b[2m" {
         context_threshold_color(pct)
     } else {
         style
     };
-    format!("{used_color}{used_part}\x1b[2m{rest_part}{reset}")
+    format!("{used_color}{used_part}\x1b[2m{rest_part}\x1b[0m")
 }

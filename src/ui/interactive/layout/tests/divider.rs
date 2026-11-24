@@ -208,3 +208,51 @@ fn context_line_embedded_renders_percentage_and_window_in_bottom_divider() {
     let plain = strip_ansi(&layout.bottom_divider);
     assert!(plain.contains("42% / 200k"), "got {plain:?}");
 }
+
+#[test]
+fn context_line_annotated_with_divider_style_none_ends_with_ansi_reset() {
+    use rho_harness_core::config::{ContextLineMode, DividerStyle, PromptUiConfig, StatusBarConfig};
+
+    let footer = FooterState {
+        context_percent: Some(42.0),
+        prompt_config: Some(PromptUiConfig {
+            divider_style: Some(DividerStyle::None),
+            ..PromptUiConfig::default()
+        }),
+        status_bar_config: Some(StatusBarConfig {
+            context_line: Some(ContextLineMode::Annotated),
+            ..StatusBarConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let layout = render(&EditorState::default(), &footer, None, 40);
+    assert_eq!(visible_width(&layout.bottom_divider), 40);
+    assert!(
+        layout.bottom_divider.ends_with("\x1b[0m"),
+        "got {:?}",
+        layout.bottom_divider
+    );
+}
+
+#[test]
+fn context_line_percentage_with_divider_style_dim_distinguishes_used_and_rest() {
+    use rho_harness_core::config::{ContextLineMode, DividerStyle, PromptUiConfig, StatusBarConfig};
+
+    let footer = FooterState {
+        context_percent: Some(25.0),
+        prompt_config: Some(PromptUiConfig {
+            divider_style: Some(DividerStyle::Dim),
+            ..PromptUiConfig::default()
+        }),
+        status_bar_config: Some(StatusBarConfig {
+            context_line: Some(ContextLineMode::Percentage),
+            ..StatusBarConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let layout = render(&EditorState::default(), &footer, None, 40);
+    assert_eq!(
+        layout.bottom_divider,
+        format!("\x1b[32m{}\x1b[2m{}\x1b[0m", "─".repeat(10), "─".repeat(30))
+    );
+}

@@ -329,3 +329,25 @@ fn custom_prompt_prefix_shifts_cursor_column_and_indents_continuations() {
     assert_eq!(indented_lines, [" abcd", " e"]);
     assert_eq!(indented_cursor, CursorPosition { row: 1, column: 2 });
 }
+
+#[test]
+fn custom_prompt_prefix_handles_narrow_widths_zero_one_and_two() {
+    use crate::ui::block::visible_width;
+    use crate::ui::interactive::layout::editor::wrap_editor_with_prefix;
+
+    let editor = editor_with_text("abcde");
+
+    let (lines_0, cursor_0) = wrap_editor_with_prefix(&editor, 0, "❯ ");
+    assert_eq!(lines_0, [""]);
+    assert_eq!(cursor_0, CursorPosition { row: 0, column: 0 });
+
+    let (lines_1, cursor_1) = wrap_editor_with_prefix(&editor, 1, "❯ ");
+    assert_eq!(lines_1, ["a", "b", "c", "d", "e", ""]);
+    assert_eq!(cursor_1, CursorPosition { row: 5, column: 0 });
+    assert!(lines_1.iter().all(|line| visible_width(line) <= 1));
+
+    let (lines_2, cursor_2) = wrap_editor_with_prefix(&editor, 2, "❯ ");
+    assert_eq!(lines_2, ["❯a", " b", " c", " d", " e", " "]);
+    assert_eq!(cursor_2, CursorPosition { row: 5, column: 1 });
+    assert!(lines_2.iter().all(|line| visible_width(line) <= 2));
+}

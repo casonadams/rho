@@ -24,6 +24,7 @@ pub(super) struct TurnStreamState {
     pub(super) final_response: Option<PromptResponse>,
     pub(super) streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
+    pub(super) cache_miss_tokens: Option<u64>,
 }
 
 impl TurnStreamState {
@@ -36,6 +37,7 @@ impl TurnStreamState {
             final_response: None,
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
+            cache_miss_tokens: None,
         }
     }
 }
@@ -116,6 +118,11 @@ fn record_completion_call(
         0
     };
     usage.record_step(call.usage, elapsed_ms);
+    if call.usage.is_reported()
+        && let Some(miss) = usage.check_and_update_cache_miss(&call.usage)
+    {
+        state.cache_miss_tokens = Some(state.cache_miss_tokens.unwrap_or(0).saturating_add(miss));
+    }
     run_tracker.completion(call.clone(), started.unwrap_or_else(Instant::now));
 }
 

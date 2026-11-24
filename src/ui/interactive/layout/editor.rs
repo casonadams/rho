@@ -22,15 +22,23 @@ pub(crate) fn wrap_editor_with_prefix(
     width: usize,
     prefix: &str,
 ) -> (Vec<String>, CursorPosition) {
-    let prefix_width = crate::ui::block::visible_width(prefix);
-    let (lines, cursor) = wrap_editor(editor, width.saturating_sub(prefix_width).max(1));
-    let cont_indent = " ".repeat(prefix_width);
+    if width == 0 {
+        return (vec![String::new()], CursorPosition { row: 0, column: 0 });
+    }
+    let effective_prefix = if crate::ui::block::visible_width(prefix) >= width {
+        crate::ui::interactive::footer::truncate_to_width(prefix, width - 1)
+    } else {
+        prefix.to_string()
+    };
+    let effective_prefix_width = crate::ui::block::visible_width(&effective_prefix);
+    let (lines, cursor) = wrap_editor(editor, width.saturating_sub(effective_prefix_width).max(1));
+    let cont_indent = " ".repeat(effective_prefix_width);
     let indented = lines
         .into_iter()
         .enumerate()
         .map(|(idx, line)| {
             if idx == 0 {
-                format!("{prefix}{line}")
+                format!("{effective_prefix}{line}")
             } else {
                 format!("{cont_indent}{line}")
             }
@@ -38,7 +46,7 @@ pub(crate) fn wrap_editor_with_prefix(
         .collect();
     let cursor = CursorPosition {
         row: cursor.row,
-        column: cursor.column + prefix_width,
+        column: cursor.column + effective_prefix_width,
     };
     (indented, cursor)
 }

@@ -50,6 +50,7 @@ impl AgentEngine {
                         generation_elapsed_ms: elapsed,
                         turn_started_at,
                         ttft_ms,
+                        cache_miss_tokens: Some(state.cache_miss_tokens),
                     },
                     lifecycle,
                 )
@@ -73,6 +74,7 @@ impl AgentEngine {
                             generation_elapsed_ms: elapsed,
                             turn_started_at,
                             ttft_ms,
+                            cache_miss_tokens: Some(state.cache_miss_tokens),
                         },
                         lifecycle,
                     )

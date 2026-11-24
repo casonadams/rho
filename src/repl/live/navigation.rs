@@ -37,29 +37,19 @@ pub async fn paste_clipboard_async<B: TerminalBackend>(
 }
 
 fn cached_hostname() -> Option<String> {
-    static HOSTNAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    HOSTNAME
-        .get_or_init(|| {
-            std::env::var("HOSTNAME")
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    std::fs::read_to_string("/etc/hostname")
-                        .ok()
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                })
-                .or_else(|| {
-                    std::process::Command::new("hostname")
-                        .output()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                        .filter(|s| !s.is_empty())
-                })
-        })
-        .clone()
+    static HOSTNAME: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+        std::env::var("HOSTNAME")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                std::fs::read_to_string("/etc/hostname")
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+    });
+    HOSTNAME.clone()
 }
 
 pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
@@ -90,17 +80,34 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.prompt_config = session.config.ui.prompt.clone();
     footer.status_bar_config = session.config.ui.status_bar.clone();
     footer.session_id = Some(engine.session_manager.session_id.clone());
-    footer.hostname = cached_hostname();
-    footer.git_status = if session.config.ui.status_bar.is_some() {
-        crate::ui::interactive::footer::get_git_status_counts(&cwd)
-    } else {
-        None
-    };
-    footer.git_pr = if session.config.ui.status_bar.is_some() {
-        crate::ui::interactive::footer::cached_git_pr(&cwd, footer.git_branch.as_deref())
-    } else {
-        None
-    };
+    let status_bar = session.config.ui.status_bar.as_ref();
+    footer.hostname = status_bar
+        .is_some_and(|c| {
+            crate::ui::interactive::footer::segments::status_bar_uses_segment(
+                c,
+                rho_harness_core::config::StatusBarSegmentId::Hostname,
+            )
+        })
+        .then(cached_hostname)
+        .flatten();
+    footer.git_status = status_bar
+        .is_some_and(|c| {
+            crate::ui::interactive::footer::segments::status_bar_uses_segment(
+                c,
+                rho_harness_core::config::StatusBarSegmentId::Git,
+            )
+        })
+        .then(|| crate::ui::interactive::footer::path::cached_git_status_counts(&cwd))
+        .flatten();
+    footer.git_pr = status_bar
+        .is_some_and(|c| {
+            crate::ui::interactive::footer::segments::status_bar_uses_segment(
+                c,
+                rho_harness_core::config::StatusBarSegmentId::Pr,
+            )
+        })
+        .then(|| crate::ui::interactive::footer::cached_git_pr(&cwd, footer.git_branch.as_deref()))
+        .flatten();
 }
 
 /// Reports a model or thinking change: a warning when it failed, a notice when it resets a warm prompt cache.

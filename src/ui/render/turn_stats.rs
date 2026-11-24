@@ -15,13 +15,15 @@ fn format_local_timestamp(timestamp_unix_ms: u64) -> Option<String> {
     Some(dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string())
 }
 
-fn format_turn_elapsed(ms: u64) -> String {
+fn format_duration_ms(ms: u64) -> String {
     if ms < 1_000 {
-        format!("{ms}ms")
-    } else if ms < 60_000 {
-        format!("{:.1}s", ms as f64 / 1000.0)
+        return format!("{ms}ms");
+    }
+    let tenths = (ms + 50) / 100;
+    if tenths < 600 {
+        format!("{}.{}s", tenths / 10, tenths % 10)
     } else {
-        let secs = ms / 1000;
+        let secs = (ms + 500) / 1000;
         format!("{}m{:02}s", secs / 60, secs % 60)
     }
 }
@@ -32,7 +34,7 @@ fn build_left_items(telemetry: &TurnTelemetry, display: &DisplayUiConfig) -> Vec
         items.push(ts);
     }
     if display.show_turn_time.unwrap_or(false) && telemetry.turn_elapsed_ms > 0 {
-        items.push(format!("Δ {}", format_turn_elapsed(telemetry.turn_elapsed_ms)));
+        items.push(format!("Δ {}", format_duration_ms(telemetry.turn_elapsed_ms)));
     }
     let input_total = telemetry.input_tokens.saturating_add(telemetry.cache_write_tokens);
     items.push(format!("↑{}", format_tokens(input_total)));
@@ -43,7 +45,7 @@ fn build_left_items(telemetry: &TurnTelemetry, display: &DisplayUiConfig) -> Vec
     if let Some(ttft) = telemetry.ttft_ms
         && ttft > 0
     {
-        items.push(format!("⏱ {:.1}s", ttft as f64 / 1000.0));
+        items.push(format!("⏱ {}", format_duration_ms(ttft)));
     }
     items
 }
@@ -67,15 +69,21 @@ pub fn format_turn_stats_row(telemetry: &TurnTelemetry, display: &DisplayUiConfi
     Some(format!("\x1b[2m {body}\x1b[0m"))
 }
 
-pub fn format_cache_miss_marker(telemetry: &TurnTelemetry, display: &DisplayUiConfig) -> Option<String> {
+pub fn format_cache_miss_marker(telemetry: &TurnTelemetry, display: &DisplayUiConfig, width: usize) -> Option<String> {
     if !display.cache_miss_marker.unwrap_or(false) {
         return None;
     }
     let tokens = telemetry.cache_miss_tokens?;
-    Some(format!(
-        "\x1b[2m────────── ⊘ cache miss · {} tokens\x1b[0m",
-        format_tokens(tokens)
-    ))
+    let msg = format!("⊘ cache miss · {} tokens", format_tokens(tokens));
+    let msg_cols = msg.chars().count();
+    let available = width.saturating_sub(msg_cols);
+    let body = if available >= 2 {
+        let dashes = (available - 1).min(10);
+        format!("{} {msg}", "─".repeat(dashes))
+    } else {
+        truncate_with_ellipsis(&msg, width)
+    };
+    Some(format!("\x1b[2m{body}\x1b[0m"))
 }
 
 #[cfg(test)]
@@ -163,15 +171,22 @@ mod tests {
             cache_miss_marker: Some(true),
             ..Default::default()
         };
-        let marker = format_cache_miss_marker(&telemetry, &enabled).expect("marker should render");
+        let marker = format_cache_miss_marker(&telemetry, &enabled, 100).expect("marker should render");
         assert_eq!(marker, "\x1b[2m────────── ⊘ cache miss · 50.9k tokens\x1b[0m");
+
+        let narrow = format_cache_miss_marker(&telemetry, &enabled, 30).expect("narrow marker should render");
+        assert_eq!(narrow, "\x1b[2m── ⊘ cache miss · 50.9k tokens\x1b[0m");
+
+        let tiny = format_cache_miss_marker(&telemetry, &enabled, 16).expect("tiny marker should render");
+        assert!(crate::ui::block::visible_width(&tiny) <= 16, "got: {tiny:?}");
+        assert!(tiny.contains("...") || tiny.contains('…'), "got: {tiny:?}");
 
         let disabled = DisplayUiConfig {
             cache_miss_marker: Some(false),
             ..Default::default()
         };
-        assert!(format_cache_miss_marker(&telemetry, &disabled).is_none());
-        assert!(format_cache_miss_marker(&telemetry, &DisplayUiConfig::default()).is_none());
+        assert!(format_cache_miss_marker(&telemetry, &disabled, 100).is_none());
+        assert!(format_cache_miss_marker(&telemetry, &DisplayUiConfig::default(), 100).is_none());
     }
 
     #[test]
@@ -202,5 +217,15 @@ mod tests {
         };
         assert!(marker.contains("────────── ⊘ cache miss · 50.9k tokens"));
         assert!(events.try_recv().is_err());
+    }
+
+    #[test]
+    fn format_duration_ms_handles_subsecond_and_rounding_boundaries() {
+        assert_eq!(format_duration_ms(40), "40ms");
+        assert_eq!(format_duration_ms(999), "999ms");
+        assert_eq!(format_duration_ms(1_400), "1.4s");
+        assert_eq!(format_duration_ms(59_949), "59.9s");
+        assert_eq!(format_duration_ms(59_999), "1m00s");
+        assert_eq!(format_duration_ms(72_000), "1m12s");
     }
 }

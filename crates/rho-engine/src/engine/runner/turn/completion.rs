@@ -91,28 +91,26 @@ impl AgentEngine {
         Ok(metrics)
     }
 
-    fn build_turn_telemetry(
-        &self,
-        response: &PromptResponse,
-        usage: UsageDetails,
-        generation_elapsed_ms: u64,
-        turn_started_at: std::time::Instant,
-        ttft_ms: Option<u64>,
-    ) -> TurnTelemetry {
-        let cache_miss_tokens = self.detect_turn_cache_miss(response);
+    fn build_turn_telemetry(&self, artifacts: &TurnArtifacts, usage: UsageDetails) -> TurnTelemetry {
+        let cache_miss_tokens = artifacts
+            .cache_miss_tokens
+            .unwrap_or_else(|| self.detect_turn_cache_miss(&artifacts.response));
         let timestamp_unix_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
         TurnTelemetry {
             timestamp_unix_ms,
-            turn_elapsed_ms: turn_started_at.elapsed().as_millis() as u64,
-            request_duration_ms: generation_elapsed_ms,
-            ttft_ms,
+            turn_elapsed_ms: artifacts.turn_started_at.elapsed().as_millis() as u64,
+            request_duration_ms: artifacts.generation_elapsed_ms,
+            ttft_ms: artifacts.ttft_ms,
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
             cache_read_tokens: usage.cached_input_tokens.unwrap_or(0),
             cache_write_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
-            tokens_per_second: TurnTelemetry::compute_tokens_per_second(usage.output_tokens, generation_elapsed_ms),
+            tokens_per_second: TurnTelemetry::compute_tokens_per_second(
+                usage.output_tokens,
+                artifacts.generation_elapsed_ms,
+            ),
             cache_miss_tokens,
         }
     }
@@ -141,37 +139,35 @@ impl AgentEngine {
         artifacts: TurnArtifacts,
         lifecycle_hook: &crate::hook::LifecycleHook,
     ) -> Result<TurnOutput> {
+        self.session_manager
+            .append_event(
+                SessionEventKind::AssistantResponse,
+                serde_json::json!({ "content": artifacts.response.output() }),
+            )
+            .await?;
+
+        let usage = self
+            .record_turn_usage(&artifacts.response, artifacts.generation_elapsed_ms)
+            .await?;
+        let (status, terminal_status) = determine_turn_status(&artifacts.response);
+        let metrics = self.finalize_turn_summary(&artifacts.response, terminal_status).await?;
+        self.spawn_local_context_probe();
+
+        lifecycle_hook
+            .notify_turn_end(&format!("{terminal_status:?}"), artifacts.tool_calls_count)
+            .await;
+
+        if let Some(reported) = usage {
+            let telemetry = self.build_turn_telemetry(&artifacts, reported);
+            lifecycle_hook.presenter().print_turn_telemetry(&telemetry);
+        }
+
         let TurnArtifacts {
             response,
             tool_calls_count,
             completed_tools,
-            generation_elapsed_ms,
-            turn_started_at,
-            ttft_ms,
+            ..
         } = artifacts;
-
-        self.session_manager
-            .append_event(
-                SessionEventKind::AssistantResponse,
-                serde_json::json!({ "content": response.output() }),
-            )
-            .await?;
-
-        let usage = self.record_turn_usage(&response, generation_elapsed_ms).await?;
-        let (status, terminal_status) = determine_turn_status(&response);
-        let metrics = self.finalize_turn_summary(&response, terminal_status).await?;
-        self.spawn_local_context_probe();
-
-        lifecycle_hook
-            .notify_turn_end(&format!("{terminal_status:?}"), tool_calls_count)
-            .await;
-
-        if let Some(reported) = usage {
-            let telemetry =
-                self.build_turn_telemetry(&response, reported, generation_elapsed_ms, turn_started_at, ttft_ms);
-            lifecycle_hook.presenter().print_turn_telemetry(&telemetry);
-        }
-
         Ok(TurnOutput {
             tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
             requests: response.requests,
@@ -306,6 +302,7 @@ mod tests {
                     generation_elapsed_ms: 500,
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: None,
+                    cache_miss_tokens: None,
                 },
                 &lifecycle,
             )
@@ -324,6 +321,7 @@ mod tests {
                     generation_elapsed_ms: 2000,
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: Some(120),
+                    cache_miss_tokens: None,
                 },
                 &lifecycle,
             )
@@ -348,6 +346,7 @@ mod tests {
                     generation_elapsed_ms: 50,
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: Some(20),
+                    cache_miss_tokens: None,
                 },
                 &lifecycle,
             )

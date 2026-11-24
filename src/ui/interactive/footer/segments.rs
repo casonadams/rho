@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use anstyle::{Color, Style};
 use chrono::Local;
@@ -122,7 +123,17 @@ pub(crate) fn is_default_status_bar(cfg: &StatusBarConfig) -> bool {
         && cfg.separator.is_none()
         && cfg.icons.is_none()
         && cfg.transparent.is_none()
+        && cfg.compact_thinking_level.is_none()
         && cfg.context_line.is_none()
+        && cfg.segment_options.is_none()
+}
+
+pub fn status_bar_uses_segment(cfg: &StatusBarConfig, target: StatusBarSegmentId) -> bool {
+    if is_default_status_bar(cfg) {
+        return false;
+    }
+    let resolved = resolve_status_bar(cfg);
+    resolved.left.contains(&target) || resolved.right.contains(&target)
 }
 
 struct ResolvedStatusBar {
@@ -261,7 +272,7 @@ fn render_model_segment(
         StatusBarIconMode::Unicode => "◆ ",
         StatusBarIconMode::Ascii => "",
     };
-    let name = model_name_part(footer, short_name, opts);
+    let name = sanitize_status_text(&model_name_part(footer, short_name, opts));
     if !show_thinking {
         return Some(format!("{prefix}{name}"));
     }
@@ -275,31 +286,69 @@ fn render_model_segment(
     }
 }
 
+fn sanitize_osc8_url(url: &str) -> Option<&str> {
+    let valid_scheme = url.starts_with("https://") || url.starts_with("http://");
+    let has_ctrl = url.bytes().any(|b| b < 0x20 || b == 0x7f);
+    (valid_scheme && !has_ctrl).then_some(url)
+}
+
 fn render_pr_segment(footer: &FooterState, icons: StatusBarIconMode) -> Option<String> {
     let pr = footer.git_pr.as_ref()?;
     let label = match icons {
         StatusBarIconMode::Nerd => format!("\u{f407} #{}", pr.number),
         StatusBarIconMode::Unicode | StatusBarIconMode::Ascii => format!("PR #{}", pr.number),
     };
-    match pr.url.as_deref() {
+    match pr.url.as_deref().and_then(sanitize_osc8_url) {
         Some(url) => Some(format!("\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\")),
         None => Some(label),
     }
 }
 
+fn split_clusters(text: &str) -> Vec<(&str, usize)> {
+    let mut clusters = Vec::new();
+    let mut start = 0;
+    let mut width = 0;
+    for (idx, ch) in text.char_indices() {
+        let w = ch.width().unwrap_or(0);
+        if idx > 0 && w > 0 {
+            clusters.push((&text[start..idx], width));
+            start = idx;
+            width = w;
+        } else {
+            width += w;
+        }
+    }
+    if start < text.len() {
+        clusters.push((&text[start..], width));
+    }
+    clusters
+}
+
 fn truncate_path_left(text: &str, max_len: usize, ascii: bool) -> String {
-    let count = text.chars().count();
-    if count <= max_len {
+    if text.width() <= max_len {
         return text.to_string();
     }
     let ellipsis = if ascii { "..." } else { "…" };
-    let e_len = ellipsis.chars().count();
+    let e_len = ellipsis.width();
     if max_len <= e_len {
         return ellipsis.chars().take(max_len).collect();
     }
-    let keep = max_len - e_len;
-    let tail: String = text.chars().skip(count - keep).collect();
-    format!("{ellipsis}{tail}")
+    let keep_width = max_len - e_len;
+    let clusters = split_clusters(text);
+    let mut used = 0;
+    let mut start_idx = clusters.len();
+    for (idx, &(_, w)) in clusters.iter().enumerate().rev() {
+        if used + w > keep_width {
+            break;
+        }
+        used += w;
+        start_idx = idx;
+    }
+    let mut out = String::from(ellipsis);
+    for &(cluster, _) in &clusters[start_idx..] {
+        out.push_str(cluster);
+    }
+    out
 }
 
 fn render_path_segment(
@@ -315,6 +364,7 @@ fn render_path_segment(
     } else {
         raw.to_string()
     };
+    display = sanitize_status_text(&display);
     if let Some(max_len) = opts.and_then(|o| o.max_length) {
         display = truncate_path_left(&display, max_len, matches!(icons, StatusBarIconMode::Ascii));
     }
@@ -356,7 +406,7 @@ fn render_git_segment(
             StatusBarIconMode::Unicode => "⎇ ",
             StatusBarIconMode::Ascii => "git:",
         };
-        parts.push(format!("{prefix}{b}"));
+        parts.push(format!("{prefix}{}", sanitize_status_text(b)));
     }
 
     let is_dirty = footer.git_status.is_some_and(|st| {
@@ -448,7 +498,7 @@ fn render_token_metric(id: StatusBarSegmentId, footer: &FooterState, ascii: bool
             format!("{p}{}", format_tokens(footer.total_output_tokens))
         }),
         StatusBarSegmentId::TokenTotal => {
-            let total = footer.total_input_tokens + footer.total_output_tokens;
+            let total = footer.total_input_tokens.saturating_add(footer.total_output_tokens);
             (total > 0).then(|| {
                 let p = if ascii { "tok:" } else { "Σ" };
                 format!("{p}{}", format_tokens(total))
@@ -460,7 +510,7 @@ fn render_token_metric(id: StatusBarSegmentId, footer: &FooterState, ascii: bool
         StatusBarSegmentId::CacheWrite => (footer.total_cache_write_tokens > 0)
             .then(|| format!("W{}", format_tokens(footer.total_cache_write_tokens))),
         StatusBarSegmentId::CacheHit => {
-            let denom = footer.total_input_tokens + footer.total_cache_read_tokens;
+            let denom = footer.total_input_tokens.saturating_add(footer.total_cache_read_tokens);
             (denom > 0 && footer.total_cache_read_tokens > 0).then(|| {
                 let pct = ((footer.total_cache_read_tokens as f64 / denom as f64) * 100.0).round() as u64;
                 let p = if ascii { "hit:" } else { "⚡" };
@@ -495,12 +545,12 @@ fn render_meta_segment(id: StatusBarSegmentId, footer: &FooterState, icons: Stat
             .session_id
             .as_deref()
             .filter(|s| !s.is_empty())
-            .map(|s| s.chars().take(8).collect()),
+            .map(|s| sanitize_status_text(s).chars().take(8).collect()),
         StatusBarSegmentId::SessionName => footer
             .session_name
             .as_deref()
             .filter(|s| !s.is_empty())
-            .map(str::to_string),
+            .map(sanitize_status_text),
         StatusBarSegmentId::Subagents => (footer.running_agents > 0).then(|| {
             if ascii {
                 format!("agents:{}", footer.running_agents)
@@ -513,7 +563,11 @@ fn render_meta_segment(id: StatusBarSegmentId, footer: &FooterState, icons: Stat
             .as_deref()
             .filter(|s| !s.is_empty())
             .map(sanitize_status_text),
-        StatusBarSegmentId::Hostname => footer.hostname.as_deref().filter(|s| !s.is_empty()).map(str::to_string),
+        StatusBarSegmentId::Hostname => footer
+            .hostname
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(sanitize_status_text),
         _ => None,
     }
 }
@@ -571,10 +625,11 @@ fn join_surface_group(
     sep: StatusBarSeparator,
     side: GroupSide,
     surface: (&str, &str),
-    dim_fg: &str,
+    dim: (&str, &str),
 ) -> String {
     let (bg, cap_fg) = surface;
-    let inner_sep = format!("{dim_fg}{}\x1b[39m", plain_separator(sep, side));
+    let (dim_start, dim_end) = dim;
+    let inner_sep = format!("{dim_start}{}{dim_end}", plain_separator(sep, side));
     let body = segments.join(&inner_sep);
     match side {
         GroupSide::Left => format!("{bg} {body} \x1b[49m{cap_fg}\u{e0b0}\x1b[0m"),
@@ -592,15 +647,17 @@ fn join_group(
     if segments.is_empty() {
         return String::new();
     }
-    let dim_fg = theme.map_or_else(|| "\x1b[2m".to_string(), |t| fg_code(t.dimmed));
-    let is_powerline = matches!(sep, StatusBarSeparator::Powerline | StatusBarSeparator::PowerlineThin);
+    let (dim_start, dim_end) = match theme {
+        Some(t) => (fg_code(t.dimmed), "\x1b[39m"),
+        None => ("\x1b[2m".to_string(), "\x1b[22m"),
+    };
     if !transparent
-        && is_powerline
+        && matches!(sep, StatusBarSeparator::Powerline)
         && let Some((bg, cap_fg)) = surface_codes(theme)
     {
-        return join_surface_group(segments, sep, side, (&bg, &cap_fg), &dim_fg);
+        return join_surface_group(segments, sep, side, (&bg, &cap_fg), (&dim_start, dim_end));
     }
-    let sep_str = format!("{dim_fg}{}\x1b[39m", plain_separator(sep, side));
+    let sep_str = format!("{dim_start}{}{dim_end}", plain_separator(sep, side));
     format!("{}\x1b[0m", segments.join(&sep_str))
 }
 
@@ -611,6 +668,7 @@ fn fit_segments(
     resolved: &ResolvedStatusBar,
     theme: Option<&Theme>,
 ) -> String {
+    let orig_right = right.clone();
     loop {
         let l = join_group(&left, resolved.separator, GroupSide::Left, resolved.transparent, theme);
         let r = join_group(
@@ -631,6 +689,7 @@ fn fit_segments(
             right.pop();
         } else if !left.is_empty() {
             left.pop();
+            right = orig_right.clone();
         } else {
             return String::new();
         }

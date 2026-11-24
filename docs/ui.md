@@ -54,12 +54,12 @@ in `~/.config/rho/config.toml` (or `.rho/config.toml`):
   toggle `show_version`, and set `divider_style` (`"thinking"`, `"dim"`, or `"none"`).
 - **`[ui.status_bar]`**: Choose a `preset` (`"minimal"`, `"compact"`, `"full"`,
   `"nerd"`, `"ascii"`, `"custom"`), order `left` / `right` segments (`model`,
-  `path`, `git` with `+staged *unstaged ?untracked` counts, `context_pct`,
+  `path`, `git` with `+staged *unstaged ?untracked` counts, `pr`, `context_pct`,
   `context_total`, `token_in`, `token_out`, `token_total`, `cache_read`,
   `cache_write`, `cache_hit`, `token_rate`, `cost`, `time_spent`, `time`,
   `session`, `session_name`, `subagents`, `quota`, `hostname`), pick a
-  `separator` (`"powerline"`, `"powerline-thin"`, `"slash"`, `"pipe"`, `"block"`,
-  `"none"`, `"ascii"`), set `icons` (`"nerd"`, `"unicode"`, `"ascii"`), toggle
+  `separator` (`"powerline"`, `"powerline-thin"`, `"slash"`, `"pipe"`, `"dot"`,
+  `"block"`, `"none"`, `"ascii"`), set `icons` (`"nerd"`, `"unicode"`, `"ascii"`), toggle
   `transparent` or `compact_thinking_level`, and optionally enable a
   context-reactive bottom divider (`context_line = "percentage" | "annotated" | "embedded"`).
   Narrow terminals drop lower-priority tail segments whole before truncating.

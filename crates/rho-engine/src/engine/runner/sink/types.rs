@@ -20,6 +20,7 @@ pub struct TurnArtifacts {
     pub generation_elapsed_ms: u64,
     pub turn_started_at: Instant,
     pub ttft_ms: Option<u64>,
+    pub cache_miss_tokens: Option<Option<u64>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

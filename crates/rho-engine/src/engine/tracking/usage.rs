@@ -150,6 +150,9 @@ impl UsageTracker {
     }
 
     pub fn check_and_update_cache_miss(&self, usage: &StructuralUsage) -> Option<u64> {
+        if usage.cached_input_tokens.is_none() && usage.cache_creation_input_tokens.is_none() {
+            return None;
+        }
         let cache_read = usage.cached_input_tokens.unwrap_or(0);
         let cache_write = usage.cache_creation_input_tokens.unwrap_or(0);
         let prev_read = self.last_cache_read_tokens.swap(cache_read, Ordering::Relaxed);
