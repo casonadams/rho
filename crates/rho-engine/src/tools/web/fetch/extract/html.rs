@@ -1,6 +1,7 @@
 use super::markdown::resolve_markdown_links;
 use rho_harness_core::error::{AppError, Result};
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 use url::Url;
 
@@ -87,12 +88,30 @@ pub fn html_to_text(html: &str, width: usize) -> String {
     })
 }
 
+/// Matching elements nested inside another match are skipped: their text is a subset of the
+/// ancestor's, and converting each nested level separately is quadratic in nesting depth.
+fn outermost_main_elements(document: &Html) -> Vec<ElementRef<'_>> {
+    let mut inside_main = HashSet::new();
+    let mut outermost = Vec::new();
+    for element in document.root_element().descendants().filter_map(ElementRef::wrap) {
+        let nested = element.parent().is_some_and(|p| inside_main.contains(&p.id()));
+        let is_main = MAIN_SEL.matches(&element);
+        if is_main && !nested {
+            outermost.push(element);
+        }
+        if is_main || nested {
+            inside_main.insert(element.id());
+        }
+    }
+    outermost
+}
+
 fn find_semantic_main(document: &Html, full_text_len: usize, base_url: &str) -> Option<(String, String)> {
     let threshold = 400.min(120.max(full_text_len * 15 / 100));
     let mut best_text = String::new();
     let mut best_tag = String::new();
 
-    for candidate in document.select(&MAIN_SEL) {
+    for candidate in outermost_main_elements(document) {
         let tag_name = candidate.value().name().to_string();
         let html_content = candidate.html();
         let text = html_to_text(&html_content, 120);

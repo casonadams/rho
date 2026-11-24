@@ -255,3 +255,34 @@ fn test_extract_override_document_and_fallback_formats() {
     .unwrap();
     assert_eq!(unknown_format, "plain text fallback");
 }
+
+fn nested_articles(depth: usize, text: &str) -> String {
+    format!(
+        "<html><body>{}{text}{}</body></html>",
+        "<article>".repeat(depth),
+        "</article>".repeat(depth)
+    )
+}
+
+#[test]
+fn deeply_nested_articles_extract_in_linear_time() {
+    let text = "Substantial article content for extraction. ".repeat(20);
+    let started = std::time::Instant::now();
+    let out = extract_html(&nested_articles(800, &text), "https://example.com/", "auto").unwrap();
+    let elapsed = started.elapsed();
+
+    assert!(out.contains("main content via <article>"), "{}", &out[..80]);
+    assert!(out.contains("Substantial article content"));
+    assert!(elapsed.as_millis() < 1500, "took {elapsed:?}");
+}
+
+#[test]
+fn nested_main_elements_pick_the_longest_outermost_candidate() {
+    let short = "Short sidebar article with just enough words to be listed here and there. ".repeat(6);
+    let long = "The long article body carries the real content of this page. ".repeat(20);
+    let html =
+        format!("<html><body><article>{short}</article><main><article>inner</article>{long}</main></body></html>");
+    let out = extract_html(&html, "https://example.com/", "auto").unwrap();
+    assert!(out.contains("main content via <main>"), "{out}");
+    assert!(out.contains("real content of this page"));
+}
