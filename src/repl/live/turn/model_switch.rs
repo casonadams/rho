@@ -72,6 +72,8 @@ pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(
     );
     update_config_model(&mut input, &model, &provider, save_as_default).await;
     validate_engine_model(&mut input).await;
+    crate::repl::live::modal::update_models_role_description(input.controller, None, &model);
+    crate::repl::live::modal::update_settings_model_description(input.controller, &model);
     input.controller.state_mut().footer_mut().provider = provider;
     input.controller.state_mut().footer_mut().model = model;
     input.batch.flush(input.controller, true)?;

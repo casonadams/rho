@@ -2,56 +2,43 @@ use crossterm::event::KeyEvent;
 
 use super::super::ModalKeyResult;
 use crate::error::Result;
+use crate::repl::commands::{BUILTIN_COMMANDS, BuiltinCommand, SHORTCUTS};
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
-const HELP_ENTRIES: &[(&str, &str)] = &[
-    ("/settings", "Interactive runtime interface settings"),
-    ("/models", "Configure role models (default, smol, slow, guard)"),
-    ("/model", "Inspect or switch the active model"),
-    ("/resume", "Resume a prior session"),
-    ("/session", "Token capacity & diagnostics (alias: /tokens)"),
-    ("/compact", "Summarize earlier context to free space"),
-    ("/tree", "View conversation turn and branch tree"),
-    ("/fork", "Fork session from turn into a new session"),
-    ("/clone", "Duplicate active branch into a new session"),
-    ("/name", "Assign a human-readable name to session"),
-    ("/rewind", "Rewind context to a specific prior turn"),
-    ("/clear", "Start a new session; preserve history (alias: /new)"),
-    ("/mcp", "List configured MCP servers"),
-    ("/mcp login <server>", "Sign in to an OAuth MCP server"),
-    ("/mcp prompts [server]", "List MCP server prompts"),
-    (
-        "/mcp prompt <server> <name>",
-        "Send an MCP prompt (key=value arguments)",
-    ),
-    ("/login", "Add API-key or subscription auth"),
-    ("/logout", "Remove stored provider auth"),
-    ("/skill", "List or inspect skills"),
-    ("/reload", "Re-read config, skills, and MCP tools"),
-    ("/export", "Export active branch as HTML or Markdown"),
-    ("/workflow", "List workflows, or run one: /workflow <name> [inputs]"),
-    (
-        "/wt",
-        "Create a git worktree and move this session into it (alias: /worktree)",
-    ),
-    ("/exit", "Exit rho (alias: /quit)"),
-    ("Tab", "Complete slash commands & skill names"),
-    ("Shift+Tab", "Cycle thinking level"),
-    ("Ctrl+L", "Select model"),
-    ("Ctrl+O", "Expand or collapse tool output"),
-    ("Ctrl+T", "Toggle thinking blocks visibility"),
-    ("Ctrl+C", "Clear the input prompt"),
-    ("Ctrl+D", "Exit at an empty prompt"),
-    ("Left", "Watch subagents (at an empty prompt)"),
-    ("Escape", "Cancel active execution or dismiss modal"),
-];
+fn help_modal_options() -> Vec<ModalOption> {
+    let mut options = Vec::new();
+    for spec in BUILTIN_COMMANDS {
+        if spec.id == BuiltinCommand::Help {
+            continue;
+        }
+        let desc = if spec.aliases.is_empty() {
+            spec.summary.to_string()
+        } else {
+            let aliases = spec
+                .aliases
+                .iter()
+                .map(|a| format!("/{a}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{} (alias: {aliases})", spec.summary)
+        };
+        let label = format!("/{}", spec.name);
+        options.push(ModalOption::new(format!("{label:<15}"), Some(desc)));
+        for sub in spec.subcommands {
+            options.push(ModalOption::new(format!("{:<15}", sub.usage), Some(sub.summary)));
+        }
+    }
+    for shortcut in SHORTCUTS {
+        options.push(ModalOption::new(
+            format!("{:<15}", shortcut.key),
+            Some(shortcut.summary),
+        ));
+    }
+    options
+}
 
 pub fn open_help_selector<B: TerminalBackend>(controller: &mut TerminalController<B>) {
-    let options = HELP_ENTRIES
-        .iter()
-        .map(|(key, desc)| ModalOption::new(format!("{key:<15}"), Some(*desc)))
-        .collect();
-    let modal = ModalState::new("Help", "", options).with_search(true);
+    let modal = ModalState::new("Help", "", help_modal_options()).with_search(true);
     controller.state_mut().push_modal(modal);
 }
 

@@ -8,6 +8,7 @@ use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::agent_focus;
+use crate::repl::live::modal::actions::{apply_shared_modal_action, open_shared_help_modal, save_or_print_thinking};
 use crate::repl::live::modal::{ModalKeyResult, agents, handle_modal_key, handle_modal_paste};
 use crate::ui::interactive::{Activity, TerminalBackend, UiAction};
 
@@ -99,16 +100,40 @@ async fn dispatch_key_event<B: TerminalBackend>(
     let modal_res = handle_modal_key(lp.controller, key, &mut lp.batch.modal)?;
     match modal_res {
         ModalKeyResult::NotHandled => dispatch_regular_key(lp, res, key).await,
+        other => {
+            apply_turn_modal_result(lp, other).await?;
+            Ok(false)
+        }
+    }
+}
+
+async fn apply_turn_modal_result<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, res: ModalKeyResult) -> Result<()> {
+    match res {
+        ModalKeyResult::Handled | ModalKeyResult::NotHandled => {}
         ModalKeyResult::ModelSelected {
             model,
             provider,
             save_as_default,
         } => {
             switch_modal_model(lp, &model, &provider, save_as_default).await?;
-            Ok(false)
+            return Ok(());
         }
-        _ => Ok(false),
+        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
+            lp.session.config.thinking_level = level.clone();
+            save_or_print_thinking(lp.session, level.as_deref(), save_as_default).await;
+            crate::repl::live::navigation::update_footer(lp.controller.state_mut(), lp.session, lp.engine);
+        }
+        ModalKeyResult::HelpCommandSelected { command } => {
+            if !open_shared_help_modal(&command, lp.session, lp.engine, lp.controller)? {
+                lp.controller
+                    .set_system_message(format!("{command} is available after the current turn finishes"));
+            }
+        }
+        action => {
+            apply_shared_modal_action(lp.session, lp.engine, lp.controller, &action).await?;
+        }
     }
+    lp.batch.flush(lp.controller, true)
 }
 
 async fn switch_modal_model<B: TerminalBackend>(
@@ -142,6 +167,7 @@ async fn dispatch_regular_key<B: TerminalBackend>(
         batch: &mut lp.batch,
         steering: &lp.steering,
         session: lp.session,
+        engine: Some(lp.engine),
     };
     if let TurnKeyResult::Cancelled = handle_turn_key(key, &mut ctx).await? {
         cancel_active_turn(lp, res.ui_events, res.cancellation).await?;

@@ -1,46 +1,43 @@
 use std::fmt::Write as _;
 
-use super::types::SlashCommandContext;
+use super::registry::{BUILTIN_COMMANDS, MidTurnPolicy, SHORTCUTS, SlashCommandSpec, lookup_builtin};
+use super::types::{CommandResult, SlashCommandContext};
 use crate::config::Config;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::footer::format_tokens;
 
-const HELP_REFERENCE: &str = "\nCommands\n\
-  /help                       Show this reference\n\
-  /settings                   Interactive runtime interface settings\n\
-  /model [<model>]            Inspect or switch the model (<provider>/<model>)\n\
-  /resume [id]                Resume a prior session\n\
-  /skill [name]               List or inspect skills\n\
-  /mcp                        List configured MCP servers\n\
-  /mcp login|logout <server>  Sign in to or out of an OAuth MCP server\n\
-  /mcp prompts [server]       List MCP server prompts\n\
-  /mcp prompt <server> <name> [key=value ...]  Send an MCP prompt\n\
-  /session                    Display token capacity and session diagnostics\n\
-  /compact [instructions]     Summarize earlier context to free context space\n\
-  /tree                       View conversation turn and branch tree\n\
-  /fork [id]                  Fork session from turn or node into a new session\n\
-  /clone                      Duplicate active branch into a new session\n\
-  /name [name]                Assign a human-readable name to the session\n\
-  /rewind <turn>              Rewind context to a specific prior turn\n\
-  /clear                      Start a new session; preserve history (alias: /new)\n\
-  /login [provider]           Add API-key or subscription auth\n\
-  /logout [provider]          Remove stored provider auth\n\
-  /reload                     Re-read config, skills, and MCP tools; keep history\n\
-  /export [html|md] [path]    Export the active branch as a readable artifact\n\
-  /workflow [name] [inputs]   List workflows, or run one (Left watches agents)\n\
-  /wt [branch]                Create a git worktree and move this session into it (alias: /worktree)\n\
-  /exit                       Exit rho (alias: /quit)\n\
-\nShortcuts\n\
-  Tab                         Complete slash commands & skill names\n\
-  Shift+Tab                   Cycle thinking level\n\
-  Escape                      Cancel active execution / operation\n\
-  Ctrl+C                      Clear the input prompt\n\
-  Ctrl+D                      Exit at an empty prompt\n\
-  Left                        Watch subagents (at an empty prompt)\n\
-  Ctrl+L                      Select model\n\
-  Ctrl+O                      Expand or collapse tool output\n\
-  Ctrl+T                      Toggle thinking blocks visibility\n\
-\nCurrent session\n";
+fn format_aliases(aliases: &[&str]) -> String {
+    aliases
+        .iter()
+        .map(|alias| format!("/{alias}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn append_command_line(output: &mut String, spec: &SlashCommandSpec) {
+    if spec.aliases.is_empty() {
+        let _ = writeln!(output, "  {:<28}{}", spec.usage, spec.summary);
+    } else {
+        let aliases = format_aliases(spec.aliases);
+        let _ = writeln!(output, "  {:<28}{} (alias: {aliases})", spec.usage, spec.summary);
+    }
+    for sub in spec.subcommands {
+        let _ = writeln!(output, "  {:<28}{}", sub.usage, sub.summary);
+    }
+}
+
+fn format_help_reference() -> String {
+    let mut output = String::from("\nCommands\n");
+    for spec in BUILTIN_COMMANDS {
+        append_command_line(&mut output, spec);
+    }
+    output.push_str("\nShortcuts\n");
+    for shortcut in SHORTCUTS {
+        let _ = writeln!(output, "  {:<28}{}", shortcut.key, shortcut.summary);
+    }
+    output.push_str("\nCurrent session\n");
+    output
+}
 
 fn append_session_help(output: &mut String, config: &Config) {
     let _ = writeln!(output, "  Model                       {}", config.model);
@@ -55,9 +52,58 @@ fn append_session_help(output: &mut String, config: &Config) {
 }
 
 pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
-    let mut output = HELP_REFERENCE.to_string();
+    let mut output = format_help_reference();
     append_session_help(&mut output, config);
     renderer.write_output(&output);
+}
+
+pub fn format_command_help(spec: &SlashCommandSpec) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "\n/{}", spec.name);
+    let _ = writeln!(out, "  Usage:      {}", spec.usage);
+    if !spec.aliases.is_empty() {
+        let _ = writeln!(out, "  Aliases:    {}", format_aliases(spec.aliases));
+    }
+    let availability = match spec.mid_turn {
+        MidTurnPolicy::Immediate => "Available while a turn is running",
+        MidTurnPolicy::Queue => "Queued until the active turn finishes",
+    };
+    let _ = writeln!(out, "  Mid-turn:   {availability}");
+    let _ = writeln!(out, "  Summary:    {}", spec.summary);
+    let _ = writeln!(out, "\n  {}", spec.detail);
+    if !spec.subcommands.is_empty() {
+        out.push_str("\nSubcommands\n");
+        for sub in spec.subcommands {
+            let _ = writeln!(out, "  {:<44}{}", sub.usage, sub.summary);
+        }
+    }
+    out.push('\n');
+    out
+}
+
+pub fn print_command_help(query: &str, renderer: &TerminalRenderer) {
+    match lookup_builtin(query) {
+        Some(spec) => renderer.print_notice(&format_command_help(spec)),
+        None => {
+            let clean = query.trim().trim_start_matches('/');
+            renderer.print_notice(&format!(
+                "  Unknown command: /{clean}. Run /help to list available commands.\n"
+            ));
+        }
+    }
+}
+
+pub(crate) fn handle_help_command(parts: &[&str], ctx: &SlashCommandContext<'_>) -> CommandResult {
+    if let Some(target) = parts.get(1) {
+        print_command_help(target, ctx.renderer);
+        return CommandResult::Continue;
+    }
+    if ctx.renderer.has_interactive_ui() {
+        CommandResult::OpenHelpSelector
+    } else {
+        print_help(ctx.config, ctx.renderer);
+        CommandResult::Continue
+    }
 }
 
 fn append_engine_totals(out: &mut String, engine: &rho_engine::engine::AgentEngine) {

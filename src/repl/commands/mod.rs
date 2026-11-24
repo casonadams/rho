@@ -3,6 +3,7 @@ pub mod export;
 pub mod help;
 mod mcp;
 pub mod model;
+pub mod registry;
 pub mod session;
 pub mod skills;
 #[cfg(test)]
@@ -12,13 +13,18 @@ pub mod workflows;
 
 use export::handle_export;
 pub use help::print_help;
+use help::{handle_help_command, handle_session};
 use model::{handle_model, handle_thinking};
+pub use registry::{
+    BUILTIN_COMMANDS, BuiltinCommand, MidTurnPolicy, SHORTCUTS, SlashCommandSpec, lookup_builtin, mid_turn_policy,
+};
 use rho_harness_core::error::Result;
 use session::{
-    handle_login_cmd, handle_session_slash_commands, handle_simple_slash_commands, handle_tree_slash_commands,
+    handle_compact_command, handle_login_cmd, handle_name_command, handle_resume_command, handle_rewind_command,
+    handle_tree_command, handle_ui_modal_command, handle_worktree_command,
 };
 use skills::{handle_custom, handle_skill};
-pub use types::{CommandResult, SLASH_COMMANDS, SlashCommandContext};
+pub use types::{CommandResult, SlashCommandContext};
 
 pub fn is_slash_command(trimmed: &str) -> bool {
     if !trimmed.starts_with('/') {
@@ -30,32 +36,71 @@ pub fn is_slash_command(trimmed: &str) -> bool {
     !first_word.contains('/') && !first_word.contains('\\') && !std::path::Path::new(trimmed).exists()
 }
 
-async fn handle_async_slash_commands(
-    name: &str,
+async fn dispatch_builtin(
+    id: BuiltinCommand,
     parts: &[&str],
     ctx: &mut SlashCommandContext<'_>,
 ) -> Result<Option<CommandResult>> {
-    match name {
-        "thinking" | "think" => handle_thinking(ctx, parts),
-        "model" => handle_model(ctx, parts),
-        "skill" | "skills" => handle_skill(ctx, parts).await,
-        "mcp" => mcp::handle_mcp(ctx, parts).await,
-        "login" => Ok(Some(handle_login_cmd(parts))),
-        "logout" => Ok(Some(CommandResult::Logout {
+    let has_ui = ctx.renderer.has_interactive_ui();
+    match id {
+        BuiltinCommand::Help => Ok(Some(handle_help_command(parts, ctx))),
+        BuiltinCommand::Settings => Ok(Some(handle_ui_modal_command(
+            has_ui,
+            CommandResult::OpenSettingsSelector,
+            "  Settings: thinking effort, thinking blocks, tool outputs\n",
+            ctx.renderer,
+        ))),
+        BuiltinCommand::Models => Ok(Some(handle_ui_modal_command(
+            has_ui,
+            CommandResult::OpenModelsSelector,
+            "  Role models require interactive TUI mode (or edit config.toml)\n",
+            ctx.renderer,
+        ))),
+        BuiltinCommand::Model => handle_model(ctx, parts),
+        BuiltinCommand::Thinking => handle_thinking(ctx, parts),
+        BuiltinCommand::Tools => Ok(Some(handle_ui_modal_command(
+            has_ui,
+            CommandResult::OpenToolsSelector,
+            "  Tools & permissions selector requires interactive TUI mode\n",
+            ctx.renderer,
+        ))),
+        BuiltinCommand::Agents => Ok(Some(handle_ui_modal_command(
+            has_ui,
+            CommandResult::OpenAgentsSelector,
+            "  Agent monitor requires interactive TUI mode\n",
+            ctx.renderer,
+        ))),
+        BuiltinCommand::Resume => Ok(Some(handle_resume_command(parts, has_ui, ctx.renderer))),
+        BuiltinCommand::Skill => handle_skill(ctx, parts).await,
+        BuiltinCommand::Mcp => mcp::handle_mcp(ctx, parts).await,
+        BuiltinCommand::Session => {
+            handle_session(ctx);
+            Ok(Some(CommandResult::Continue))
+        }
+        BuiltinCommand::Compact => Ok(Some(handle_compact_command(parts))),
+        BuiltinCommand::Tree => Ok(Some(handle_tree_command(has_ui))),
+        BuiltinCommand::Fork => Ok(Some(CommandResult::ForkSession {
+            turn_or_node_id: parts.get(1).map(|s| (*s).to_string()),
+        })),
+        BuiltinCommand::Clone => Ok(Some(CommandResult::CloneSession)),
+        BuiltinCommand::Name => Ok(Some(handle_name_command(parts, ctx.renderer))),
+        BuiltinCommand::Rewind => Ok(Some(handle_rewind_command(parts, ctx.renderer))),
+        BuiltinCommand::Clear => {
+            ctx.renderer.print_status("Context cleared");
+            Ok(Some(CommandResult::ClearContext))
+        }
+        BuiltinCommand::Login => Ok(Some(handle_login_cmd(parts))),
+        BuiltinCommand::Logout => Ok(Some(CommandResult::Logout {
             provider: parts.get(1).map(|v| (*v).to_string()),
         })),
-        "export" => handle_export(ctx, parts).await,
-        "workflow" => Ok(Some(workflows::handle_workflow(ctx, parts).await)),
-        "wt" | "worktree" => {
-            if parts.len() > 2 {
-                ctx.renderer.print_notice("Usage: /wt [<branch>]\n");
-                return Ok(Some(CommandResult::Continue));
-            }
-            Ok(Some(CommandResult::EnterWorktree {
-                branch: parts.get(1).map(|v| (*v).to_string()),
-            }))
+        BuiltinCommand::Reload => Ok(Some(CommandResult::Reload)),
+        BuiltinCommand::Export => handle_export(ctx, parts).await,
+        BuiltinCommand::Workflow => Ok(Some(workflows::handle_workflow(ctx, parts).await)),
+        BuiltinCommand::Worktree => Ok(Some(handle_worktree_command(parts, ctx.renderer))),
+        BuiltinCommand::Exit => {
+            ctx.renderer.print_notice("  Bye!\n");
+            Ok(Some(CommandResult::Exit))
         }
-        custom => handle_custom(ctx, custom, parts).await,
     }
 }
 
@@ -80,15 +125,9 @@ impl SlashCommandHandler {
         };
         let cmd = first.to_lowercase();
 
-        if let Some(res) = handle_simple_slash_commands(&cmd, ctx) {
-            return Ok(Some(res));
+        if let Some(spec) = lookup_builtin(&cmd) {
+            return dispatch_builtin(spec.id, &parts, ctx).await;
         }
-        if let Some(res) = handle_tree_slash_commands(&cmd, &parts, ctx.renderer.has_interactive_ui()) {
-            return Ok(Some(res));
-        }
-        if let Some(res) = handle_session_slash_commands(&cmd, &parts, ctx.renderer) {
-            return Ok(Some(res));
-        }
-        handle_async_slash_commands(&cmd, &parts, ctx).await
+        handle_custom(ctx, &cmd, &parts).await
     }
 }

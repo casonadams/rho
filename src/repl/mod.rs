@@ -132,7 +132,17 @@ impl ReplSession {
         Ok(rebuilt)
     }
 
+    pub(crate) fn sync_engine_settings(&self, engine: &mut AgentEngine) {
+        engine.config.models = self.config.models.clone();
+        engine.config.tools.web = self.config.tools.web.clone();
+        engine.config.mcp.enabled = self.config.mcp.enabled;
+        engine.config.permission.enabled = self.config.permission.enabled;
+        engine.config.ui = self.config.ui.clone();
+        engine.config.show_label = self.config.show_label;
+    }
+
     pub(crate) async fn sync_engine_model(&self, engine: &mut AgentEngine) {
+        self.sync_engine_settings(engine);
         if self.config.model != engine.config.model
             || self.config.provider != engine.config.provider
             || self.config.thinking_level != engine.config.thinking_level

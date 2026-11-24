@@ -750,3 +750,100 @@ fn test_prompt_skill_choice_from() {
     let mut writer3 = Vec::new();
     assert_eq!(prompt_skill_choice_from(&mut reader3, &mut writer3, &skills), None);
 }
+
+#[test]
+fn registry_has_unique_names_and_aliases() {
+    use std::collections::HashSet;
+
+    let mut seen_ids = HashSet::new();
+    let mut seen_names = HashSet::new();
+    for spec in BUILTIN_COMMANDS {
+        assert!(seen_ids.insert(spec.id), "duplicate BuiltinCommand {:?}", spec.id);
+        assert!(seen_names.insert(spec.name), "duplicate name {}", spec.name);
+        assert!(!spec.usage.is_empty());
+        assert!(!spec.summary.is_empty());
+        assert!(!spec.detail.is_empty());
+        assert_eq!(lookup_builtin(spec.name).map(|s| s.id), Some(spec.id));
+        assert_eq!(lookup_builtin(&format!("/{}", spec.name)).map(|s| s.id), Some(spec.id));
+        for alias in spec.aliases {
+            assert!(seen_names.insert(alias), "duplicate alias {alias}");
+            assert_eq!(lookup_builtin(alias).map(|s| s.id), Some(spec.id));
+            assert_eq!(lookup_builtin(&alias.to_uppercase()).map(|s| s.id), Some(spec.id));
+        }
+    }
+}
+
+#[tokio::test]
+async fn help_with_command_argument_prints_extended_guide() {
+    let mut config = Config::default();
+
+    let (res, out) = run_command("/help mcp", &mut config, "s1", None).await;
+    assert_eq!(res, Some(CommandResult::Continue));
+    assert!(out.contains("/mcp"));
+    assert!(out.contains("Subcommands"));
+    assert!(out.contains("/mcp login <server>"));
+
+    let (res, out) = run_command("/help /worktree", &mut config, "s1", None).await;
+    assert_eq!(res, Some(CommandResult::Continue));
+    assert!(out.contains("/wt"));
+    assert!(out.contains("Aliases:"));
+    assert!(out.contains("/worktree"));
+
+    let (res, out) = run_command("/help settings", &mut config, "s1", None).await;
+    assert_eq!(res, Some(CommandResult::Continue));
+    assert!(out.contains("Available while a turn is running"));
+
+    let (res, out) = run_command("/help nope", &mut config, "s1", None).await;
+    assert_eq!(res, Some(CommandResult::Continue));
+    assert!(out.contains("Unknown command: /nope"));
+}
+
+#[tokio::test]
+async fn models_tools_and_agents_dispatch_in_tui_mode() {
+    let mut config = Config::default();
+    let cases = [
+        ("/models", CommandResult::OpenModelsSelector),
+        ("/tools", CommandResult::OpenToolsSelector),
+        ("/permissions", CommandResult::OpenToolsSelector),
+        ("/agents", CommandResult::OpenAgentsSelector),
+    ];
+    for (cmd, expected) in cases {
+        let (res, _) = run_command(cmd, &mut config, "s1", None).await;
+        assert_eq!(res, Some(expected), "failed for {cmd}");
+    }
+}
+
+#[test]
+fn mid_turn_policy_classifies_immediate_vs_queued() {
+    for cmd in [
+        "/settings",
+        "/help",
+        "/help mcp",
+        "/model",
+        "/model gpt-4o",
+        "/models",
+        "/thinking high",
+        "/think off",
+        "/tools",
+        "/permissions",
+        "/agents",
+        "/session",
+        "/tokens",
+    ] {
+        assert_eq!(
+            mid_turn_policy(cmd),
+            MidTurnPolicy::Immediate,
+            "expected immediate: {cmd}"
+        );
+    }
+    for cmd in ["/compact", "/clear", "/new", "/rewind 1", "/fork", "/wt", "/unknown"] {
+        assert_eq!(mid_turn_policy(cmd), MidTurnPolicy::Queue, "expected queued: {cmd}");
+    }
+}
+
+#[test]
+fn help_arg_completion_completes_builtin_commands() {
+    let completions = crate::repl::interactive::CompletionSet::from_sources(Default::default());
+    let matches = completions.complete("/help set", "/help set".len());
+    assert!(matches.iter().any(|c| c.value == "/help settings"));
+}

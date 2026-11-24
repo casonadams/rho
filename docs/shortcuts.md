@@ -109,9 +109,13 @@ commands:
 
 | Command     | Action                           | Details                                                                       |
 | :---------- | :------------------------------- | :---------------------------------------------------------------------------- |
-| `/settings` | **Runtime Settings**             | Interactive settings modal preserving stack hierarchy: switch role models (default, smol, slow, guard), configure thinking, styling, and tools in-place. |
-| `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers.             |
-| `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). |
+| `/help [cmd]` | **Command Help**               | Interactive command reference modal, or extended usage/subcommands for a specific command. Works mid-turn. |
+| `/settings` | **Runtime Settings**             | Interactive settings modal preserving stack hierarchy: switch role models (default, smol, slow, guard), configure thinking, styling, and tools in-place. Works mid-turn. |
+| `/models`   | **Role Models**                  | Configure role models (`default`, `smol`, `slow`, `guard`). Works mid-turn.   |
+| `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers. Works mid-turn. |
+| `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Works mid-turn. |
+| `/tools`    | **Tools & Permissions**          | Configure web search, web fetch, MCP, and permission guards (alias: `/permissions`). Works mid-turn. |
+| `/agents`   | **Subagent Monitor**             | Inspect, focus, steer, or stop running/completed subagents. Works mid-turn.   |
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |
 | `/tree`     | **Conversation Tree**            | Visualize turn DAG, switch branches, and label checkpoints.                   |
