@@ -55,7 +55,18 @@ fn components(policy: &Policy, req: EvalRequest<'_>) -> Vec<Component> {
     }
 }
 
-fn decide_bash_cmd(rules: &[PolicyRule], cmd: &String) -> Decision {
+fn decide_bash_cmd(rules: &[PolicyRule], cmd: &String, normalized: &String) -> Decision {
+    let raw = decide_raw_bash_cmd(rules, cmd);
+    if normalized == cmd {
+        return raw;
+    }
+    match decide_raw_bash_cmd(rules, normalized) {
+        denied @ Decision::Deny(_) => denied,
+        _ => raw,
+    }
+}
+
+fn decide_raw_bash_cmd(rules: &[PolicyRule], cmd: &String) -> Decision {
     let dec = decide_surface(rules, "bash", std::slice::from_ref(cmd), SurfaceKind::First);
     if dec.matched_pattern.is_some() {
         map_surface_decision("bash", dec)
@@ -69,11 +80,11 @@ fn bash_components(rules: &[PolicyRule], req: EvalRequest<'_>) -> Vec<Component>
     let analysis = analyze_bash_command(&command);
     let mut components = Vec::new();
 
-    for cmd in &analysis.commands {
+    for (cmd, normalized) in analysis.commands.iter().zip(&analysis.normalized_commands) {
         components.push(Component {
             surface: "bash".into(),
             value: cmd.clone(),
-            decision: decide_bash_cmd(rules, cmd),
+            decision: decide_bash_cmd(rules, cmd, normalized),
         });
     }
     if analysis.suspicious {

@@ -513,3 +513,36 @@ fn prompts_read_without_approval_but_config_files_do_not() {
     let permission = config_dir.join("permission.toml").display().to_string();
     assert_eq!(check_eval(&policy, "read", json!({"path": permission})), Decision::Ask);
 }
+
+#[test]
+fn bash_deny_rules_apply_to_obfuscated_and_wrapped_commands() {
+    let scope = parse_scope_from_str("[deny]\nbash = [\"rm -rf *\"]\n").unwrap();
+    let policy = build_policy(Some(scope), None);
+    let denied = [
+        "rm -rf build",
+        "\"rm\" -rf build",
+        "r''m -rf build",
+        "\\rm -rf build",
+        "/bin/rm -rf build",
+        "env rm -rf build",
+        "sudo rm -rf build",
+        "sudo -u root rm -rf build",
+        "xargs -0 rm -rf",
+        "{ rm -rf build; }",
+        "if true; then rm -rf build; fi",
+        "echo hi && /usr/bin/env rm -rf build",
+    ];
+    for command in denied {
+        assert!(
+            matches!(
+                check_eval(&policy, "bash", json!({"command": command})),
+                Decision::Deny(_)
+            ),
+            "{command}"
+        );
+    }
+    assert_eq!(
+        check_eval(&policy, "bash", json!({"command": "ls build"})),
+        Decision::Ask
+    );
+}

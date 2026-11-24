@@ -2,6 +2,7 @@
 //! extracts path arguments, and formats compound commands for display.
 
 use super::lexer::{Token, TokenKind, tokenize};
+use super::normalize::normalize_segment;
 
 // ---------------------------------------------------------------------------
 // Token filtering: wrapper stripping, assignments, and path extraction
@@ -309,6 +310,8 @@ impl LineBuilder {
 
 pub struct BashAnalysis {
     pub commands: Vec<String>,
+    /// Canonical form of each entry in `commands` (same order), used to match deny rules.
+    pub normalized_commands: Vec<String>,
     pub path_tokens: Vec<String>,
     pub suspicious: bool,
 }
@@ -320,12 +323,14 @@ struct Segment {
 
 struct SegmentAnalysis {
     command: Option<String>,
+    normalized: Option<String>,
     path_tokens: Vec<String>,
     suspicious: bool,
 }
 
 struct AnalysisCollector {
     commands: Vec<String>,
+    normalized_commands: Vec<String>,
     path_tokens: Vec<String>,
     suspicious: bool,
 }
@@ -334,6 +339,7 @@ impl AnalysisCollector {
     fn new() -> Self {
         Self {
             commands: Vec::new(),
+            normalized_commands: Vec::new(),
             path_tokens: Vec::new(),
             suspicious: false,
         }
@@ -348,6 +354,8 @@ impl AnalysisCollector {
             self.suspicious = true;
         }
         if let Some(cmd) = analysis.command {
+            self.normalized_commands
+                .push(analysis.normalized.unwrap_or_else(|| cmd.clone()));
             self.commands.push(cmd);
         }
         for token in analysis.path_tokens {
@@ -368,6 +376,7 @@ pub fn analyze_bash_command(command: &str) -> BashAnalysis {
     let suspicious = token_res.suspicious || collector.commands.is_empty() || collector.suspicious;
     BashAnalysis {
         commands: collector.commands,
+        normalized_commands: collector.normalized_commands,
         path_tokens: collector.path_tokens,
         suspicious,
     }
@@ -425,6 +434,7 @@ fn analyze_segment(segment: Segment) -> SegmentAnalysis {
     if words.is_empty() || words[0].kind != TokenKind::Word {
         return SegmentAnalysis {
             command: None,
+            normalized: None,
             path_tokens,
             suspicious,
         };
@@ -435,6 +445,7 @@ fn analyze_segment(segment: Segment) -> SegmentAnalysis {
 
     SegmentAnalysis {
         command: Some(command),
+        normalized: normalize_segment(&words),
         path_tokens,
         suspicious,
     }
