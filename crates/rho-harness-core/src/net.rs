@@ -38,27 +38,47 @@ pub fn is_private_host(host: &str) -> bool {
 }
 
 pub fn is_private_ipv4(v4: std::net::Ipv4Addr) -> bool {
-    let [a, b, ..] = v4.octets();
-    v4.is_loopback() || v4.is_private() || v4.is_link_local() || a == 0 || (a == 100 && (64..128).contains(&b))
+    let [a, b, c, _] = v4.octets();
+    v4.is_loopback()
+        || v4.is_private()
+        || v4.is_link_local()
+        || v4.is_multicast()
+        || a == 0
+        || a >= 240
+        || (a == 100 && (64..128).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 198 && (18..20).contains(&b))
+}
+
+fn embedded_ipv4(s: [u16; 8], first: usize) -> std::net::Ipv4Addr {
+    let [a, b] = s[first].to_be_bytes();
+    let [c, d] = s[first + 1].to_be_bytes();
+    std::net::Ipv4Addr::new(a, b, c, d)
 }
 
 pub fn is_private_ipv6(v6: std::net::Ipv6Addr) -> bool {
-    if v6.is_loopback() || v6.is_unspecified() {
+    if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
         return true;
     }
-    if (v6.segments()[0] & 0xfe00) == 0xfc00 {
+    let s = v6.segments();
+    if (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 {
         return true;
     }
-    if (v6.segments()[0] & 0xffc0) == 0xfe80 {
-        return true;
-    }
-    if let Some(v4) = v6.to_ipv4_mapped() {
+    if let Some(v4) = v6.to_ipv4_mapped().or_else(|| v6.to_ipv4()) {
         return is_private_ipv4(v4);
     }
-    if let Some(v4) = v6.to_ipv4() {
-        return is_private_ipv4(v4);
+    let nat64 = s[..6] == [0x64, 0xff9b, 0, 0, 0, 0];
+    if nat64 {
+        return is_private_ipv4(embedded_ipv4(s, 6));
     }
-    false
+    // Local-use NAT64, 6to4 and Teredo embed an IPv4 address a translator or relay will connect to.
+    if s[..3] == [0x64, 0xff9b, 1] {
+        return true;
+    }
+    if s[0] == 0x2002 {
+        return is_private_ipv4(embedded_ipv4(s, 1));
+    }
+    s[0] == 0x2001 && s[1] == 0
 }
 
 pub fn validate_url(raw_url: &str, allow_private_network: bool) -> Result<Url> {
@@ -114,16 +134,42 @@ mod tests {
             "fe80::1",
             "100.64.0.1",
             "100.127.255.254",
+            "224.0.0.1",
+            "255.255.255.255",
+            "240.0.0.1",
+            "192.0.0.8",
+            "198.18.0.1",
+            "198.19.255.255",
+            "ff02::1",
+            "[64:ff9b::7f00:1]",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b::c0a8:101",
+            "64:ff9b:1::1",
+            "[2002:7f00:1::1]",
+            "2002:a9fe:a9fe::",
+            "2002:0a00:0001::5",
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
         ];
         for host in private {
-            assert!(is_private_host(host));
+            assert!(is_private_host(host), "{host}");
         }
     }
 
     #[test]
     fn classifies_public_hosts() {
-        for host in ["example.com", "93.184.216.34", "2606:4700:4700::1111", "100.128.0.1"] {
-            assert!(!is_private_host(host));
+        for host in [
+            "example.com",
+            "93.184.216.34",
+            "2606:4700:4700::1111",
+            "100.128.0.1",
+            "198.17.255.255",
+            "198.20.0.1",
+            "192.0.1.1",
+            "64:ff9b::5db8:d822",
+            "2002:5db8:d822::1",
+            "2001:4860:4860::8888",
+        ] {
+            assert!(!is_private_host(host), "{host}");
         }
     }
 
