@@ -249,3 +249,18 @@ async fn test_edit_external_file_successfully() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn an_lf_file_with_one_stray_crlf_keeps_lf_for_multi_line_edits() {
+    let dir = fixture("mixed-lf");
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "one\ntwo\nthree\nfour\r\nfive\n").unwrap();
+
+    let res = edit_file(dir.path(), &file, "one\ntwo", "ONE\nTWO\nextra").await;
+
+    assert!(!res.is_error, "{}", res.content);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "ONE\nTWO\nextra\nthree\nfour\r\nfive\n"
+    );
+}

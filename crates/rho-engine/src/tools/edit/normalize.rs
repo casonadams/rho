@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 
-/// Detects whether the content predominantly uses CRLF or LF.
+/// Detects whether the content predominantly uses CRLF or LF; ties go to LF.
 pub fn detect_line_ending(content: &str) -> &'static str {
-    if content.contains("\r\n") { "\r\n" } else { "\n" }
+    let crlf = content.matches("\r\n").count();
+    let bare_lf = content.matches('\n').count() - crlf;
+    if crlf > bare_lf { "\r\n" } else { "\n" }
 }
 
 /// Normalizes newlines in `text` to match `target_ending`.
@@ -82,6 +84,14 @@ mod tests {
         assert_eq!(detect_line_ending("hello\r\nworld\r\n"), "\r\n");
         assert_eq!(detect_line_ending("hello\nworld\n"), "\n");
         assert_eq!(detect_line_ending("single line"), "\n");
+    }
+
+    #[test]
+    fn mixed_endings_follow_the_majority_and_ties_go_to_lf() {
+        assert_eq!(detect_line_ending("a\nb\nc\nd\r\n"), "\n");
+        assert_eq!(detect_line_ending("a\r\nb\r\nc\r\nd\n"), "\r\n");
+        assert_eq!(detect_line_ending("a\r\nb\n"), "\n");
+        assert_eq!(detect_line_ending(""), "\n");
     }
 
     #[test]
