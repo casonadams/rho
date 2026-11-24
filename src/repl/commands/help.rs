@@ -28,6 +28,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /reload                     Re-read config, skills, and MCP tools; keep history\n\
   /export [html|md] [path]    Export the active branch as a readable artifact\n\
   /workflow [name] [inputs]   List workflows, or run one (Left watches agents)\n\
+  /wt [branch]                Create a git worktree and move this session into it (alias: /worktree)\n\
   /exit                       Exit rho (alias: /quit)\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\
