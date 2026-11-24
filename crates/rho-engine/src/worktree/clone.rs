@@ -76,7 +76,7 @@ mod apfs {
         for entry in entries {
             let entry = entry.map_err(|e| format!("read_dir entry failed: {e}"))?;
             let name = entry.file_name();
-            if skip_top_level.iter().any(|skip| *skip == name.as_os_str()) {
+            if skip_top_level.contains(&name.as_os_str()) {
                 continue;
             }
             clone_entry(&entry.path(), &dst.join(&name))?;
