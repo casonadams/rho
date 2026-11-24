@@ -773,3 +773,45 @@ async fn test_mid_turn_help_modal_opens_safe_commands_and_defers_idle_only() {
         Some("Settings")
     );
 }
+
+#[tokio::test]
+async fn test_mid_turn_typing_slash_opens_autocomplete_and_esc_dismisses_without_cancelling() {
+    let mut f = LoopFixture::new("").await;
+    let mut ctx = f.context();
+
+    for ch in ['/', 's', 'e', 't', 't'] {
+        dispatch(
+            &mut ctx,
+            crossterm::event::Event::Key(key_event(KeyCode::Char(ch), KeyModifiers::empty())),
+        )
+        .await;
+    }
+
+    assert!(
+        ctx.loop_ctx.controller.state().autocomplete.visible,
+        "typing /sett mid-turn should open the live autocomplete popup"
+    );
+    assert!(
+        ctx.loop_ctx
+            .controller
+            .state()
+            .autocomplete
+            .items
+            .iter()
+            .any(|item| item.value == "/settings")
+    );
+
+    // Pressing Esc while autocomplete popup is open closes the popup and does NOT cancel the turn.
+    let cancelled = super::handle_turn_event(
+        &mut ctx,
+        super::TurnEvent::Input(Some(Ok(crossterm::event::Event::Key(key_event(
+            KeyCode::Esc,
+            KeyModifiers::empty(),
+        ))))),
+    )
+    .await
+    .unwrap();
+    assert!(!cancelled, "Esc should dismiss autocomplete, not cancel the turn");
+    assert!(!ctx.loop_ctx.controller.state().autocomplete.visible);
+    assert!(!ctx.resources.cancellation.is_cancelled());
+}

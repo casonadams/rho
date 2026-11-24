@@ -116,6 +116,7 @@ async fn handle_edit_action<B: TerminalBackend>(
     action: crate::ui::interactive::UiAction,
 ) -> Result<TurnKeyResult> {
     let effect = ctx.controller.state_mut().apply(action);
+    crate::repl::live::autocomplete::update_autocomplete_state(ctx.controller, ctx.completions);
     if let UiEffect::Queued(ref msg) = effect {
         record_submission(ctx.history, &msg.text)?;
         if crate::repl::commands::mid_turn_policy(&msg.text) == crate::repl::commands::MidTurnPolicy::Immediate {

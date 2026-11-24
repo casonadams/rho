@@ -19,8 +19,9 @@ fn pop_and_cancel_interaction<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     pending: &mut Option<PendingModal>,
 ) {
+    let was_bottom = controller.state().modal_depth() <= 1;
     controller.state_mut().pop_modal();
-    if let Some(pending) = pending.take() {
+    if was_bottom && let Some(pending) = pending.take() {
         let _ = pending.responder.respond(InteractionResponse::Cancelled);
     }
 }
