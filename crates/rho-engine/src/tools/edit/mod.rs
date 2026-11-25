@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub struct EditTool {
-    pub base_dir: PathBuf,
+    pub base_dir: crate::tools::WorkspaceDir,
     pub lsp: Option<Arc<LspManager>>,
     pub history: Option<crate::tools::undo::EditHistory>,
     /// The agent's mailbox, where diagnostics that arrive late are delivered.
@@ -116,11 +116,16 @@ async fn write_edit_result(path: &Path, outcome: EditOutcome<'_>) -> Result<Tool
 impl EditTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
             lsp: None,
             history: None,
             inbox: None,
         }
+    }
+
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
@@ -134,7 +139,7 @@ impl EditTool {
     }
 
     fn validate_edit_target(&self, clean_path: &str) -> std::result::Result<(Workspace, PathBuf), ToolResult> {
-        let workspace = Workspace::new(&self.base_dir);
+        let workspace = Workspace::new(self.base_dir.get());
         let path = resolve_tool_path(&workspace, clean_path, "edit")?;
         Ok((workspace, path))
     }

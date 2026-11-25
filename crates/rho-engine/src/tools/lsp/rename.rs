@@ -198,7 +198,7 @@ impl LspTool {
             }
             applied.files.push(format!(
                 "{} ({})",
-                render::display_path(&self.base_dir, &file_plan.path),
+                render::display_path(&self.base_dir.get(), &file_plan.path),
                 file_plan.count
             ));
         }

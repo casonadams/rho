@@ -12,7 +12,7 @@ use std::sync::Arc;
 mod tests;
 
 pub struct WriteTool {
-    pub base_dir: PathBuf,
+    pub base_dir: crate::tools::WorkspaceDir,
     pub lsp: Option<Arc<LspManager>>,
     pub history: Option<crate::tools::undo::EditHistory>,
     /// The agent's mailbox, where diagnostics that arrive late are delivered.
@@ -61,11 +61,16 @@ async fn perform_atomic_write(path: &Path, clean_path: &str, content: &str) -> R
 impl WriteTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
             lsp: None,
             history: None,
             inbox: None,
         }
+    }
+
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
@@ -80,7 +85,8 @@ impl WriteTool {
 
     pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
         let clean_path = clean_path_arg(&args.path);
-        let workspace = Workspace::new(&self.base_dir);
+        let base_dir = self.base_dir.get();
+        let workspace = Workspace::new(&base_dir);
         let path = match resolve_tool_path(&workspace, clean_path, "write") {
             Ok(p) => p,
             Err(e) => return Ok(e),

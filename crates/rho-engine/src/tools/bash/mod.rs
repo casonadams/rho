@@ -8,6 +8,7 @@ mod poll;
 pub mod runner;
 pub mod sanitize;
 pub mod shell;
+use crate::tools::WorkspaceDir;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::ToolResult;
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
@@ -24,7 +25,7 @@ use std::sync::Arc;
 mod tests;
 
 pub struct BashTool {
-    pub base_dir: PathBuf,
+    pub base_dir: WorkspaceDir,
     log_dir: PathBuf,
     /// The agent whose mailbox hears about commands this tool moves to the background.
     owner: Option<crate::mailbox::Mailbox>,
@@ -34,11 +35,17 @@ pub struct BashTool {
 impl BashTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: WorkspaceDir::new(base_dir.as_ref()),
             log_dir: accumulator::default_log_dir(),
             owner: None,
             direnv: DirenvOptions::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_workspace_dir(mut self, base_dir: WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     /// Writes full output logs under `dir` instead of the shared temp-dir cache.
@@ -59,8 +66,9 @@ impl BashTool {
     where
         F: FnMut(&str) + Send + 'static,
     {
+        let base_dir = self.base_dir.get();
         run_command_streaming_with_direnv(
-            &self.base_dir,
+            &base_dir,
             &self.log_dir,
             self.owner.as_ref(),
             &args,

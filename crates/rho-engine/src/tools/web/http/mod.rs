@@ -21,6 +21,29 @@ pub struct HttpResponse<T> {
     pub final_url: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct HttpPostResponse {
+    pub status: reqwest::StatusCode,
+    pub content_type: String,
+    pub body: String,
+}
+
+pub struct PostJsonRequest<'a> {
+    pub url: &'a str,
+    pub body: &'a serde_json::Value,
+    pub headers: &'a [(&'a str, &'a str)],
+    pub timeout_sec: u64,
+    pub max_bytes: usize,
+}
+
+fn sanitize_url_for_error(url: &Url) -> String {
+    let mut sanitized = url.clone();
+    sanitized.set_query(None);
+    sanitized.set_fragment(None);
+    let _ = sanitized.set_password(None);
+    sanitized.to_string()
+}
+
 static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     crate::install_crypto_provider();
     Client::builder()
@@ -155,6 +178,45 @@ impl HttpClient {
             body: bytes,
             content_type,
             final_url,
+        })
+    }
+
+    pub async fn post_json(&self, request: PostJsonRequest<'_>) -> Result<HttpPostResponse> {
+        let valid_url = self.validate_url(request.url)?;
+        let safe_url = sanitize_url_for_error(&valid_url);
+        let mut req = self
+            .client
+            .post(valid_url.as_str())
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(request.timeout_sec))
+            .json(request.body);
+        for &(name, value) in request.headers {
+            req = req.header(name, value);
+        }
+        let resp = req.send().await.map_err(|e| {
+            let clean = e.without_url();
+            AppError::Tool(format!("HTTP POST request failed for {safe_url}: {clean}"))
+        })?;
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let bytes = read_limited(ReadLimitedParams {
+            response: resp,
+            content_type: &content_type,
+            max_bytes: request.max_bytes,
+            pdf_max_bytes: None,
+        })
+        .await?;
+        let body = String::from_utf8_lossy(&bytes).to_string();
+        Ok(HttpPostResponse {
+            status,
+            content_type,
+            body,
         })
     }
 }

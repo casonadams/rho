@@ -21,7 +21,7 @@ use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
 
 pub struct RgTool {
-    base_dir: PathBuf,
+    base_dir: crate::tools::WorkspaceDir,
 }
 
 async fn validate_rg_params(
@@ -45,18 +45,24 @@ async fn validate_rg_params(
 impl RgTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
         }
     }
 
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
+    }
+
     pub async fn execute(&self, args: RgArgs) -> Result<ToolResult, AppError> {
-        let (matcher, types, search_root) = match validate_rg_params(&args, &self.base_dir).await {
+        let base_dir = self.base_dir.get();
+        let (matcher, types, search_root) = match validate_rg_params(&args, &base_dir).await {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
         let request = PageRequest::new(args.offset, args.limit);
         let mut query = RgQuery {
-            workspace_root: self.base_dir.clone(),
+            workspace_root: base_dir,
             search_root,
             search_path_display: args.path,
             matcher,

@@ -110,7 +110,8 @@ fn search_engine_validation_accepts_and_rejects() {
     let cases = [
         ("nonexistent_engine", None, false),
         ("brave", Some(vec!["brave", "unknown_engine"]), false),
-        ("brave", Some(vec!["duckduckgo", "ddg_lite", "yahoo"]), true),
+        ("brave", Some(vec!["duckduckgo", "ddg_lite", "yahoo", "exa"]), true),
+        ("exa", Some(vec!["brave", "duckduckgo"]), true),
     ];
     for (default, fallback, valid) in cases {
         let mut cfg = Config::default();
@@ -124,10 +125,13 @@ fn search_engine_validation_accepts_and_rejects() {
 
 #[test]
 fn rejects_removed_search_engines() {
-    for engine in ["firecrawl", "exa", "gemini", "google"] {
+    for engine in ["firecrawl", "gemini", "google"] {
         let mut cfg = Config::default();
         cfg.tools.web.search.default = engine.to_string();
         let err = cfg.validate().unwrap_err();
-        assert!(err.to_string().contains("Supported engines: brave, duckduckgo, yahoo"));
+        assert!(
+            err.to_string()
+                .contains("Supported engines: brave, duckduckgo, yahoo, exa")
+        );
     }
 }

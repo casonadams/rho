@@ -31,30 +31,41 @@ use std::path::Path;
 use std::sync::Arc;
 
 fn build_workspace_native_tools(
-    base_dir: &Path,
+    workspace: crate::tools::WorkspaceDir,
     lsp: Option<Arc<LspManager>>,
     direnv: crate::tools::bash::DirenvOptions,
 ) -> Vec<Arc<dyn EngineTool>> {
+    let base_dir = workspace.get();
     let history = EditHistory::default();
     let write = Arc::new(
-        WriteTool::new(base_dir)
+        WriteTool::new(&base_dir)
+            .with_workspace_dir(workspace.clone())
             .with_lsp(lsp.clone())
             .with_history(Some(history.clone())),
     );
     let edit = Arc::new(
-        EditTool::new(base_dir)
+        EditTool::new(&base_dir)
+            .with_workspace_dir(workspace.clone())
             .with_lsp(lsp.clone())
             .with_history(Some(history.clone())),
     );
-    let undo = Arc::new(UndoTool::new(base_dir, history.clone()).with_lsp(lsp.clone()));
-    let read = Arc::new(
-        ReadTool::new(base_dir)
-            .with_artifact_dir(Some(base_dir.join(".rho/artifacts")))
+    let undo = Arc::new(
+        UndoTool::new(&base_dir, history.clone())
+            .with_workspace_dir(workspace.clone())
             .with_lsp(lsp.clone()),
     );
-    let bash = Arc::new(BashTool::new(base_dir).with_direnv(direnv));
-    let fd = Arc::new(FdTool::new(base_dir));
-    let rg = Arc::new(RgTool::new(base_dir));
+    let read = Arc::new(
+        ReadTool::new(&base_dir)
+            .with_workspace_dir(workspace.clone())
+            .with_lsp(lsp.clone()),
+    );
+    let bash = Arc::new(
+        BashTool::new(&base_dir)
+            .with_workspace_dir(workspace.clone())
+            .with_direnv(direnv),
+    );
+    let fd = Arc::new(FdTool::new(&base_dir).with_workspace_dir(workspace.clone()));
+    let rg = Arc::new(RgTool::new(&base_dir).with_workspace_dir(workspace.clone()));
 
     let mut tools = vec![
         read as Arc<dyn EngineTool>,
@@ -66,7 +77,11 @@ fn build_workspace_native_tools(
         rg as Arc<dyn EngineTool>,
     ];
     if let Some(lsp) = lsp {
-        tools.push(Arc::new(LspTool::new(base_dir, lsp).with_history(Some(history))) as Arc<dyn EngineTool>);
+        tools.push(Arc::new(
+            LspTool::new(&base_dir, lsp)
+                .with_workspace_dir(workspace)
+                .with_history(Some(history)),
+        ) as Arc<dyn EngineTool>);
     }
     tools
 }
@@ -122,7 +137,8 @@ pub fn build_builtin_toolset(
         enabled: config.tools.bash.direnv,
         timeout_ms: config.tools.bash.direnv_timeout_ms,
     };
-    let mut tools = build_workspace_native_tools(base_dir, services.lsp, direnv);
+    let workspace = crate::tools::WorkspaceDir::new(base_dir);
+    let mut tools = build_workspace_native_tools(workspace.clone(), services.lsp, direnv);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
         if config.tools.web.search.enabled {
@@ -137,6 +153,7 @@ pub fn build_builtin_toolset(
                     region: config.region.clone(),
                     timeout_sec: config.search_timeout_sec,
                     engines,
+                    auth_file: Some(config.auth_file.clone()),
                 },
             );
             tools.push(Arc::new(search));
@@ -180,18 +197,17 @@ pub fn build_builtin_toolset(
     if has_lsp {
         subagent = subagent.with_worktree_lsp(Arc::new(LspManager::for_workspace));
     }
-    let (root, session_lsp) = (base_dir.to_path_buf(), shared_lsp);
+    let (subagent_workspace, session_lsp) = (workspace.clone(), shared_lsp);
     subagent = subagent.with_fresh_session_state(Arc::new(move |tools| {
-        fresh_session_state(tools, &root, session_lsp.clone())
+        let current_root = subagent_workspace.get();
+        fresh_session_state(tools, &current_root, session_lsp.clone())
     }));
     if let Some(store) = services.worktrees {
         subagent = subagent.with_worktrees(store.clone());
         let wt_base = config.worktree.effective_base(&config.config_dir);
-        let wt_tool = crate::tools::WorktreeTool::new(base_dir, store).with_session_worktree(
-            wt_base,
-            config.worktree.clean_source,
-            services.relocate_slot,
-        );
+        let wt_tool = crate::tools::WorktreeTool::new(base_dir, store)
+            .with_workspace_dir(workspace)
+            .with_session_worktree(wt_base, config.worktree.clean_source, services.relocate_slot);
         tools.push(Arc::new(wt_tool) as Arc<dyn EngineTool>);
     }
     if let Some(memory) = memory_tool(rho_harness_core::config::home_dir().as_deref(), base_dir, config) {
@@ -227,7 +243,11 @@ pub(crate) fn fresh_session_state(
     root: &Path,
     lsp: Option<Arc<LspManager>>,
 ) -> Vec<Arc<dyn EngineTool>> {
-    let native = build_workspace_native_tools(root, lsp, crate::tools::bash::DirenvOptions::default());
+    let native = build_workspace_native_tools(
+        crate::tools::WorkspaceDir::new(root),
+        lsp,
+        crate::tools::bash::DirenvOptions::default(),
+    );
     let fresh = tools
         .iter()
         .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {
