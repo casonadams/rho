@@ -379,3 +379,28 @@ async fn dropping_the_guard_of_an_aborted_round_still_shuts_the_worktree_languag
     assert!(launcher.received.lock().unwrap().iter().any(|m| m == "shutdown"));
     assert!(!is_registered(&worktree));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_round_does_not_wait_for_the_language_servers_to_shut_down() {
+    use crate::lsp::manager::{is_registered, register_manager};
+    use crate::lsp::test_server::{FakeOptions, fake_manager};
+    let worktree = lsp_worktree();
+    let (manager, launcher) = fake_manager(&worktree, FakeOptions::default());
+    register_manager(&manager);
+    manager.client_for(&worktree.join("src/lib.rs")).await.unwrap();
+    let opened: lsp::WorktreeLsp = {
+        let manager = manager.clone();
+        Arc::new(move |_| manager.clone())
+    };
+    let runner = SubagentRunner::new(Arc::new(TestModel::answering("done")), SubagentRole::Scout, &[], 5)
+        .with_worktree_lsp(Some(opened))
+        .in_worktree(&worktree);
+
+    runner.worktree_lsp_guard().close_unless_cancelled(true).await;
+    assert!(!launcher.received.lock().unwrap().iter().any(|m| m == "shutdown"));
+
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    assert!(manager.running_clients().is_empty());
+    assert!(launcher.received.lock().unwrap().iter().any(|m| m == "shutdown"));
+    assert!(!is_registered(&worktree));
+}

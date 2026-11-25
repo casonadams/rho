@@ -301,7 +301,7 @@ impl Executor<'_> {
         };
         let lsp_guard = runner.worktree_lsp_guard();
         let round = runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await;
-        lsp_guard.close().await;
+        lsp_guard.close_unless_cancelled(round.end == RoundEnd::Cancelled).await;
         let worktree = match lease {
             Some(lease) => {
                 let record = settle(lease.worktree()).await?;

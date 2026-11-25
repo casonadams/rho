@@ -16,7 +16,12 @@ use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_I
 use crate::repl::live::idle::dispatch::sync_renderer_width;
 use crate::repl::live::modal::agents;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{InputAction, TerminalBackend, map_key};
+use crate::ui::interactive::{InputAction, TerminalBackend, UiEffect, map_key};
+
+/// How long a cancelled workflow gets to stop its agents and settle worktrees before it is aborted.
+const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+const CANCELLING: &str = "Cancelling workflow: stopping agents, waiting for them to report…";
 
 struct ChannelSink(UnboundedSender<String>);
 
@@ -37,6 +42,7 @@ struct WorkflowView<'a, 'b, B: TerminalBackend> {
     batch: LiveBatch,
     monitor: AgentMonitor,
     cancel: CancellationSignal,
+    abort_at: Option<tokio::time::Instant>,
     last_spinner: Instant,
 }
 
@@ -64,10 +70,24 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
         if agent_key.consumed() || agents::try_open_agents(self.io.controller, &key, &self.monitor)? {
             return Ok(());
         }
-        if map_key(key) == InputAction::Cancel {
-            self.cancel.cancel();
-            self.io.controller.set_system_message("Cancelling workflow…");
-            self.flush(true)?;
+        match map_key(key) {
+            InputAction::Cancel => {
+                self.cancel.cancel();
+                self.abort_at
+                    .get_or_insert_with(|| tokio::time::Instant::now() + CANCEL_GRACE);
+                self.io.controller.set_system_message(CANCELLING);
+                self.flush(true)?;
+            }
+            InputAction::Edit(action) => {
+                let queued = matches!(self.io.controller.state_mut().apply(action), UiEffect::Queued(_));
+                if queued {
+                    self.io
+                        .controller
+                        .set_system_message("[Queued until the workflow completes]");
+                }
+                self.flush(true)?;
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -103,8 +123,18 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
         let resized = self.io.controller.refresh_size()?;
         sync_renderer_width(self.renderer, self.io.controller, resized);
         self.io.controller.check_system_message_expiration();
+        if self.abort_at.is_some() {
+            self.io.controller.set_system_message(CANCELLING);
+        }
         agents::refresh_agent_modals(self.io.controller, &self.monitor)?;
         self.flush(true)
+    }
+}
+
+async fn abort_deadline(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -147,6 +177,7 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         batch: LiveBatch::new(),
         monitor: engine.agent_monitor().clone(),
         cancel,
+        abort_at: None,
         last_spinner: Instant::now(),
     };
     view.io
@@ -155,13 +186,19 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
     view.flush(true)?;
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut aborted = false;
     let joined = loop {
+        let abort_at = view.abort_at;
         tokio::select! {
             biased;
             event = view.io.input.recv() => view.handle_event(event)?,
             Some(chunk) = chunks.recv() => view.handle_chunk(&chunk, &mut chunks)?,
             _ = frame.tick() => view.handle_frame()?,
             joined = &mut task => break joined,
+            () = abort_deadline(abort_at), if !aborted => {
+                aborted = true;
+                task.abort();
+            }
         }
     };
     while let Ok(chunk) = chunks.try_recv() {
@@ -169,9 +206,13 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
     }
     let run = joined.unwrap_or_else(|e| WorkflowRun {
         ok: false,
-        report: format!("Workflow `{name}` crashed: {e}"),
+        report: if e.is_cancelled() {
+            format!("Workflow `{name}` was cancelled; its agents were stopped before cleanup finished.")
+        } else {
+            format!("Workflow `{name}` crashed: {e}")
+        },
         summary: None,
-        started: true,
+        started: !e.is_cancelled(),
     });
     if run.started {
         engine.hand_off_workflow_report(&name, &run.report);
@@ -216,6 +257,7 @@ mod tests {
             batch: LiveBatch::new(),
             monitor: AgentMonitor::default(),
             cancel: CancellationSignal::default(),
+            abort_at: None,
             last_spinner: Instant::now(),
         };
         view.flush(true).unwrap();
@@ -228,5 +270,43 @@ mod tests {
 
         assert!(first.contains("working"));
         assert_ne!(working_line(&view), first);
+    }
+
+    #[tokio::test]
+    async fn typing_during_a_workflow_edits_the_draft_and_enter_queues_it() {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+        let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut io = LiveIo {
+            controller: &mut controller,
+            events: &mut events,
+            input: &mut input,
+        };
+        let mut view = WorkflowView {
+            renderer: &renderer,
+            io: &mut io,
+            batch: LiveBatch::new(),
+            monitor: AgentMonitor::default(),
+            cancel: CancellationSignal::default(),
+            abort_at: None,
+            last_spinner: Instant::now(),
+        };
+        let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+
+        view.handle_key(press(KeyCode::Char('h'))).unwrap();
+        view.handle_key(press(KeyCode::Char('i'))).unwrap();
+        assert_eq!(view.io.controller.state_mut().editor().text(), "hi");
+
+        view.handle_key(press(KeyCode::Enter)).unwrap();
+        let queued = view.io.controller.state_mut().pop_queued().unwrap();
+        assert_eq!(queued.text, "hi");
+        assert!(!view.cancel.is_cancelled());
+        assert!(view.abort_at.is_none());
+
+        view.handle_key(press(KeyCode::Esc)).unwrap();
+        assert!(view.cancel.is_cancelled());
+        assert!(view.abort_at.is_some());
     }
 }

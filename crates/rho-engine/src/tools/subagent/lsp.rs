@@ -23,6 +23,14 @@ impl WorktreeLspGuard {
             crate::lsp::manager::shutdown_workspace(&root).await;
         }
     }
+
+    /// Closes the servers, unless the round was cancelled: then they shut down in the background so
+    /// the operator is not kept waiting on their shutdown handshake.
+    pub(crate) async fn close_unless_cancelled(self, cancelled: bool) {
+        if !cancelled {
+            self.close().await;
+        }
+    }
 }
 
 impl Drop for WorktreeLspGuard {

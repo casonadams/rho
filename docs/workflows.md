@@ -14,7 +14,10 @@ decides when loops stop. Models only do the individual agent steps.
 
 Workflows are started only by you, with `/workflow`. They are not exposed to
 the model as a tool. While one runs, press `Left` on an empty prompt to watch
-its agents, and `Esc` to cancel it.
+its agents, and `Esc` to cancel it. `Esc` stops the agents and waits briefly for
+them to report; a run that has not finished stopping after about 1.5 seconds is
+aborted. You can type while it runs: `Enter` queues the message until the
+workflow completes.
 
 ---
 
