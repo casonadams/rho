@@ -755,6 +755,24 @@ fallback = []
 
 When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from LLM dynamic registration and model tool catalogs. Tool toggles and default search engine selection can be changed interactively without leaving the session via `/settings` -> **Tools & Permissions**.
 
+## Worktree Settings
+
+Managed session worktrees (created by `/wt` and `worktree(action="create")`) are configured in the
+`[worktree]` table of `~/.config/rho/config.toml`. Like `permission` and `providers`, this table is read
+from the global file only.
+
+```toml
+[worktree]
+# Directory under which managed session worktrees are created (default: ~/.config/rho/wt)
+base = "/Users/me/worktrees"
+# After `/wt` carries your changes into the new worktree, run `git reset --hard HEAD` and
+# `git clean -fd` in the source checkout (default: false)
+clean_source = false
+```
+
+`clean_source = true` discards uncommitted changes in the source checkout, so enable it only when you want
+`/wt` to move work rather than copy it.
+
 ## Language Servers
 
 The `lsp` tool, `read` with `symbol`, and the diagnostics at the end of `edit`
