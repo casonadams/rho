@@ -31,7 +31,7 @@ pub use compaction::{
     compaction_summary_message, compose_compaction_summary, extract_file_ops, generate_fallback_summary,
     merge_split_turn_summary, render_file_lists_xml, serialize_conversation,
 };
-pub use cwd::record_session_for_cwd;
+pub use cwd::{cwd_for_session, record_session_for_cwd};
 
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
@@ -167,6 +167,14 @@ impl SessionManager {
 
     pub async fn last_session_for_cwd_async(sessions_dir: &Path, cwd: &Path) -> Result<Option<String>> {
         cwd::last_session_for_cwd_async(sessions_dir, cwd).await
+    }
+
+    pub fn cwd_for_session(sessions_dir: &Path, session_id: &str) -> Result<Option<PathBuf>> {
+        cwd::cwd_for_session(sessions_dir, session_id)
+    }
+
+    pub async fn cwd_for_session_async(sessions_dir: &Path, session_id: &str) -> Result<Option<PathBuf>> {
+        cwd::cwd_for_session_async(sessions_dir, session_id).await
     }
 
     pub async fn add_secrets_async(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {

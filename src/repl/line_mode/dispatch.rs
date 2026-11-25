@@ -152,6 +152,12 @@ pub(crate) async fn resume_session(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
 ) -> Result<()> {
+    if let Ok(Some(saved)) =
+        rho_harness_core::session::SessionManager::cwd_for_session_async(&session.config.sessions_dir, session_id).await
+        && saved.is_dir()
+    {
+        let _ = std::env::set_current_dir(&saved);
+    }
     let next = session.new_engine(Some(session_id)).await?;
     engine.switch_to(next);
     session.config = engine.config.clone();

@@ -159,6 +159,31 @@ async fn last_session_for_cwd_async_resolves_missing_directories_by_raw_path() {
     );
 }
 
+#[tokio::test]
+async fn cwd_for_session_tracks_latest_relocated_workspace() {
+    let sessions_dir = temp_dir();
+    let repo_dir = temp_dir();
+    let worktree_dir = temp_dir();
+    std::fs::create_dir_all(&repo_dir).unwrap();
+    std::fs::create_dir_all(&worktree_dir).unwrap();
+
+    SessionManager::record_session_for_cwd(&sessions_dir, &repo_dir, "sess-1").unwrap();
+    assert_eq!(
+        SessionManager::cwd_for_session(&sessions_dir, "sess-1").unwrap(),
+        Some(std::fs::canonicalize(&repo_dir).unwrap())
+    );
+
+    // Relocating the session to a worktree updates session_id -> cwd.
+    SessionManager::record_session_for_cwd(&sessions_dir, &worktree_dir, "sess-1").unwrap();
+    assert_eq!(
+        SessionManager::cwd_for_session_async(&sessions_dir, "sess-1")
+            .await
+            .unwrap(),
+        Some(std::fs::canonicalize(&worktree_dir).unwrap())
+    );
+    assert_eq!(SessionManager::cwd_for_session(&sessions_dir, "unknown").unwrap(), None);
+}
+
 type IndexFixture = fn(&std::path::Path);
 
 #[tokio::test]
