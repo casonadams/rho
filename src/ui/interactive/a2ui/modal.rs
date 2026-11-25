@@ -168,8 +168,12 @@ impl A2uiModalState {
             .map(|l| clamp_line(&l, width))
             .collect();
         let (windowed, offset) = window_around_focus(lines, ctx.focus_range, max_lines, width, theme);
-        let (cursor, cursor_visible) = adjust_cursor(ctx.cursor, offset, windowed.len(), focused);
-        (windowed, cursor, cursor_visible)
+        let (mut cursor, cursor_visible) = adjust_cursor(ctx.cursor, offset, windowed.len(), focused);
+        let indented = windowed.into_iter().map(|l| format!("  {l}")).collect();
+        if cursor_visible {
+            cursor.column += 2;
+        }
+        (indented, cursor, cursor_visible)
     }
 
     pub fn handle_paste(&mut self, text: &str) -> bool {
@@ -916,6 +920,12 @@ fn render_modal_choice_picker(ctx: &mut ModalRenderCtx<'_, '_>, spec: ChoicePick
     }
     let selected_single = resolve_pointer(&ctx.state.surface.data_model, selection_path).and_then(Value::as_str);
     let selected_multi = ctx.state.read_string_array(selection_path);
+    let label_col_w = options
+        .iter()
+        .map(|opt| visible_width(&ctx.state.surface.resolve_string(&opt.label)))
+        .max()
+        .unwrap_or(0)
+        .min((ctx.width / 2).max(1));
 
     for (idx, opt) in options.iter().enumerate() {
         let active_cursor = is_focused && cursor == idx;
@@ -924,7 +934,16 @@ fn render_modal_choice_picker(ctx: &mut ModalRenderCtx<'_, '_>, spec: ChoicePick
         } else {
             selected_single == Some(opt.value.as_str())
         };
-        let line = format_choice_option_line(&ctx.state.surface, opt, active_cursor, checked, multi_select, ctx.theme);
+        let line = format_choice_option_line(ChoiceOptionFormat {
+            surface: &ctx.state.surface,
+            opt,
+            active_cursor,
+            checked,
+            multi_select,
+            label_col_w,
+            max_width: ctx.width,
+            theme: ctx.theme,
+        });
         out.push(clamp_line(&line, ctx.width));
     }
 
@@ -961,14 +980,38 @@ fn render_modal_choice_picker(ctx: &mut ModalRenderCtx<'_, '_>, spec: ChoicePick
     out
 }
 
-fn format_choice_option_line(
-    surface: &A2uiSurface,
-    opt: &ChoiceOption,
+struct ChoiceOptionFormat<'a> {
+    surface: &'a A2uiSurface,
+    opt: &'a ChoiceOption,
     active_cursor: bool,
     checked: bool,
     multi_select: bool,
-    theme: &Theme,
-) -> String {
+    label_col_w: usize,
+    max_width: usize,
+    theme: &'a Theme,
+}
+
+fn truncate_description(desc: &str, max_w: usize) -> String {
+    if visible_width(desc) <= max_w {
+        return desc.to_string();
+    }
+    if max_w <= 1 {
+        return "…".to_string();
+    }
+    format!("{}…", truncate_to_width(desc, max_w - 1))
+}
+
+fn format_choice_option_line(spec: ChoiceOptionFormat<'_>) -> String {
+    let ChoiceOptionFormat {
+        surface,
+        opt,
+        active_cursor,
+        checked,
+        multi_select,
+        label_col_w,
+        max_width,
+        theme,
+    } = spec;
     let prefix = if active_cursor {
         format!("{}▸{:#} ", theme.highlight, theme.highlight)
     } else {
@@ -981,21 +1024,29 @@ fn format_choice_option_line(
         (false, false) => "○".to_string(),
     };
     let label = surface.resolve_string(&opt.label);
+    let label_w = visible_width(&label);
     let styled_label = if active_cursor {
         format!("\x1b[1m{label}\x1b[0m")
     } else {
         label
     };
-    match &opt.description {
-        Some(desc) => {
-            let d = surface.resolve_string(desc);
-            format!(
-                "{prefix}{indicator} {styled_label}  {}{d}{:#}",
-                theme.dimmed, theme.dimmed
-            )
-        }
-        None => format!("{prefix}{indicator} {styled_label}"),
+    let Some(desc) = &opt.description else {
+        return format!("{prefix}{indicator} {styled_label}");
+    };
+    let pad = label_col_w.saturating_sub(label_w);
+    let used_w = visible_width(&prefix) + visible_width(&indicator) + 1 + label_w + pad + 2;
+    let desc_max = max_width.saturating_sub(used_w);
+    if desc_max == 0 {
+        return format!("{prefix}{indicator} {styled_label}");
     }
+    let d = surface.resolve_string(desc);
+    let truncated_desc = truncate_description(&d, desc_max);
+    format!(
+        "{prefix}{indicator} {styled_label}{}  {}{truncated_desc}{:#}",
+        " ".repeat(pad),
+        theme.dimmed,
+        theme.dimmed
+    )
 }
 
 struct OtherOptionRender<'a> {
@@ -1029,6 +1080,14 @@ fn format_other_option_line(spec: OtherOptionRender<'_>) -> (String, usize) {
         (false, true) => format!("{}●{:#}", theme.highlight, theme.highlight),
         (false, false) => "○".to_string(),
     };
+    if !checked && !editing && other_text.is_empty() {
+        let label = if active_cursor {
+            "\x1b[1mOther…\x1b[0m"
+        } else {
+            "Other…"
+        };
+        return (format!("{prefix}{indicator} {label}"), 0);
+    }
     let base = format!("{prefix}{indicator} Other: [");
     let col = visible_width(&base) + visible_width(other_text);
     let cursor_block = if editing && focused && theme.cursor_mode == CursorMode::Software {
@@ -1047,6 +1106,17 @@ fn render_modal_text_field(
     value_path: &str,
     masked: bool,
 ) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(lbl) = label {
+        out.extend(render_text(
+            &ctx.state.surface,
+            lbl,
+            TextUsageHint::Body,
+            None,
+            ctx.width,
+            ctx.theme,
+        ));
+    }
     let is_focused = ctx.state.focused_component_id() == Some(id);
     let val = ctx.state.read_string(value_path);
     let display = if val.is_empty() && !is_focused {
@@ -1062,21 +1132,23 @@ fn render_modal_text_field(
     } else {
         "  ".to_string()
     };
-    let lbl = label
-        .map(|l| format!("{}: ", ctx.state.surface.resolve_string(l)))
-        .unwrap_or_default();
-    let head = format!("{prefix}{lbl}[");
-    let col = visible_width(&head) + visible_width(&display);
+    let head = format!("{prefix}[");
+    let col = (visible_width(&head) + visible_width(&display)).min(ctx.width);
     let cursor_block = if is_focused && ctx.focused && ctx.theme.cursor_mode == CursorMode::Software {
         "\x1b[7m \x1b[27m"
     } else {
         ""
     };
+    let input_row = out.len();
+    out.push(clamp_line(&format!("{head}{display}{cursor_block}]"), ctx.width));
     if is_focused {
-        ctx.cursor = Some(CursorPosition { row: 0, column: col });
-        ctx.focus_range = Some((0, 1));
+        ctx.cursor = Some(CursorPosition {
+            row: input_row,
+            column: col,
+        });
+        ctx.focus_range = Some((0, out.len().max(1)));
     }
-    vec![clamp_line(&format!("{head}{display}{cursor_block}]"), ctx.width)]
+    out
 }
 
 fn render_modal_checkbox(
@@ -1418,15 +1490,93 @@ mod tests {
         state.handle_key(key(KeyCode::Backspace));
         assert_eq!(state.surface().data_model["token"], json!("abc"));
 
-        let (lines, _, cursor_vis) = state.render(60, 10, &Theme::default(), true);
+        let (lines, cursor, cursor_vis) = state.render(60, 10, &Theme::default(), true);
         assert!(cursor_vis);
         let plain: Vec<String> = lines.iter().map(|l| strip_ansi(l)).collect();
-        assert!(plain[0].contains("***"), "expected masked output, got: {:?}", plain);
-        assert!(!plain[0].contains("abc"));
+        assert_eq!(plain[0], "  API Key");
+        assert!(plain[1].starts_with("  ▸ ["), "got: {:?}", plain);
+        assert!(plain[1].contains("***"), "expected masked output, got: {:?}", plain);
+        assert!(!plain[1].contains("abc"));
+        assert_eq!(cursor.row, 1);
 
         // Ctrl+C clears the input buffer without cancelling
         assert_eq!(state.handle_key(ctrl_c()), A2uiKeyOutcome::Handled);
         assert_eq!(state.surface().data_model["token"], json!(""));
+    }
+
+    #[test]
+    fn other_option_renders_ellipsis_when_idle_and_box_when_active() {
+        let mut state = A2uiModalState::from_request(single_select_request(true)).unwrap();
+        let (lines, _, _) = state.render(60, 10, &Theme::default(), true);
+        let plain: Vec<String> = lines.iter().map(|l| strip_ansi(l)).collect();
+        let other_line = plain.iter().find(|l| l.contains("Other")).expect("other line");
+        assert!(other_line.contains("○ Other…"), "got: {other_line}");
+        assert!(!other_line.contains("Other: []"));
+
+        // Activate Other by digit jump '3'
+        state.handle_key(key(KeyCode::Char('3')));
+        let (lines, _, cursor_vis) = state.render(60, 10, &Theme::default(), true);
+        assert!(cursor_vis);
+        let plain: Vec<String> = lines.iter().map(|l| strip_ansi(l)).collect();
+        let other_line = plain.iter().find(|l| l.contains("Other")).expect("other line");
+        assert!(other_line.contains("Other: ["), "got: {other_line}");
+    }
+
+    #[test]
+    fn choice_descriptions_align_vertically_and_truncate_with_ellipsis() {
+        let req = A2uiModalRequest {
+            surface_id: "align".to_string(),
+            title: Some("Align".to_string()),
+            messages: vec![
+                A2uiMessage::CreateSurface(CreateSurface {
+                    surface_id: "align".to_string(),
+                    catalog_id: None,
+                    placement: SurfacePlacement::Modal,
+                    title: None,
+                    priority: 100,
+                    root_id: "q1".to_string(),
+                }),
+                A2uiMessage::UpdateComponents(UpdateComponents {
+                    surface_id: "align".to_string(),
+                    components: vec![A2uiComponent::new(
+                        "q1",
+                        A2uiComponentKind::ChoicePicker {
+                            label: None,
+                            options: vec![
+                                ChoiceOption {
+                                    value: "0".to_string(),
+                                    label: BoundString::literal("Go"),
+                                    description: Some(BoundString::literal("Short desc")),
+                                },
+                                ChoiceOption {
+                                    value: "1".to_string(),
+                                    label: BoundString::literal("PostgreSQL"),
+                                    description: Some(BoundString::literal(
+                                        "Very long description that should truncate cleanly",
+                                    )),
+                                },
+                            ],
+                            selection_path: "/q1".to_string(),
+                            multi_select: false,
+                            allow_other: false,
+                            other_path: None,
+                        },
+                    )],
+                }),
+            ],
+            timeout_ms: None,
+        };
+        let state = A2uiModalState::from_request(req).unwrap();
+        let (lines, _, _) = state.render(44, 10, &Theme::default(), true);
+        let plain: Vec<String> = lines.iter().map(|l| strip_ansi(l)).collect();
+        let col0 = plain[0].find("Short desc").expect("first desc");
+        let col1 = plain[1].find("Very long").expect("second desc");
+        assert_eq!(
+            visible_width(&plain[0][..col0]),
+            visible_width(&plain[1][..col1]),
+            "descriptions should align vertically: {plain:?}"
+        );
+        assert!(plain[1].ends_with('…'), "expected ellipsis truncation: {:?}", plain[1]);
     }
 
     #[test]

@@ -224,10 +224,10 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
     if max_lines == 0 {
         return (Vec::new(), CursorPosition { row: 0, column: 0 }, false);
     }
-    if let Some(a2ui) = &input.modal.a2ui {
-        return a2ui.render(width, max_lines, input.theme, input.focused);
-    }
     let inner_width = width.saturating_sub(4).max(1);
+    if let Some(a2ui) = &input.modal.a2ui {
+        return a2ui.render(inner_width, max_lines, input.theme, input.focused);
+    }
     let (b_space, opt_space, input_lines, has_draft) =
         modal_in_input_spaces(input.modal, input.draft_text, max_lines, inner_width);
 

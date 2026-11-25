@@ -348,8 +348,12 @@ fn build_modal_request(questions: &[PreparedQuestion]) -> A2uiModalRequest {
     let mut initial_answers = Map::new();
 
     for q in questions {
+        let field_id = format!("q_{}", q.id);
+        components.push(build_question_component(&field_id, q));
+
         if let Some(header) = &q.redacted_header {
             let header_id = format!("header_{}", q.id);
+            let group_id = format!("group_{}", q.id);
             components.push(A2uiComponent::new(
                 header_id.clone(),
                 A2uiComponentKind::Text {
@@ -358,12 +362,18 @@ fn build_modal_request(questions: &[PreparedQuestion]) -> A2uiModalRequest {
                     tone: Some(SemanticTone::Accent),
                 },
             ));
-            root_children.push(header_id);
+            components.push(A2uiComponent::new(
+                group_id.clone(),
+                A2uiComponentKind::Column {
+                    children: vec![header_id, field_id],
+                    gap: Some(0),
+                },
+            ));
+            root_children.push(group_id);
+        } else {
+            root_children.push(field_id);
         }
 
-        let field_id = format!("q_{}", q.id);
-        components.push(build_question_component(&field_id, q));
-        root_children.push(field_id);
         initial_answers.insert(q.id.clone(), initial_answer_value(q));
     }
 
@@ -1063,5 +1073,67 @@ mod tests {
         let options = choice_picker_options(&presenter.requests()[0]);
         assert_eq!(options[0].label, BoundString::literal("SQLite (Recommended)"));
         assert_eq!(options[1].label, BoundString::literal("Postgres"));
+    }
+
+    #[test]
+    fn build_modal_request_groups_headers_with_zero_gap() {
+        let questions = vec![
+            PreparedQuestion {
+                id: "q1".to_string(),
+                raw_question: "Pick auth method".to_string(),
+                redacted_question: "Pick auth method".to_string(),
+                redacted_header: Some("Auth".to_string()),
+                raw_labels: Vec::new(),
+                choices: Vec::new(),
+                multi_select: false,
+                allow_other: false,
+                recommended_index: None,
+            },
+            PreparedQuestion {
+                id: "q2".to_string(),
+                raw_question: "Enter region".to_string(),
+                redacted_question: "Enter region".to_string(),
+                redacted_header: None,
+                raw_labels: Vec::new(),
+                choices: Vec::new(),
+                multi_select: false,
+                allow_other: false,
+                recommended_index: None,
+            },
+        ];
+        let req = build_modal_request(&questions);
+        let components = req
+            .messages
+            .iter()
+            .find_map(|msg| match msg {
+                A2uiMessage::UpdateComponents(uc) => Some(&uc.components),
+                _ => None,
+            })
+            .expect("UpdateComponents present");
+
+        let root = components.iter().find(|c| c.id == "root").expect("root present");
+        let A2uiComponentKind::Column {
+            children: root_children,
+            gap: root_gap,
+        } = &root.kind
+        else {
+            panic!("expected root Column");
+        };
+        assert_eq!(*root_gap, Some(1));
+        assert_eq!(root_children, &vec!["group_q1", "q_q2", "actions"]);
+
+        let group = components
+            .iter()
+            .find(|c| c.id == "group_q1")
+            .expect("group_q1 present");
+        let A2uiComponentKind::Column {
+            children: group_children,
+            gap: group_gap,
+        } = &group.kind
+        else {
+            panic!("expected group_q1 Column");
+        };
+        assert_eq!(*group_gap, Some(0));
+        assert_eq!(group_children, &vec!["header_q1", "q_q1"]);
     }
 }

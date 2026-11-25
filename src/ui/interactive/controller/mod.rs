@@ -305,7 +305,7 @@ impl<B: TerminalBackend> TerminalController<B> {
                 tools_expanded: self.state.tools_expanded(),
             })
         });
-        if self.state.a2ui_widgets() {
+        if self.state.a2ui_widgets() && self.state.active_modal().is_none() {
             let surfaces = self
                 .state
                 .a2ui_surfaces_for(rho_harness_core::a2ui::SurfacePlacement::AboveEditor);
@@ -320,7 +320,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn below_widget_lines(&self) -> Vec<String> {
-        if !self.state.a2ui_widgets() {
+        if !self.state.a2ui_widgets() || self.state.active_modal().is_some() {
             return Vec::new();
         }
         let surfaces = self

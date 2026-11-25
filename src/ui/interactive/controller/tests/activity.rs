@@ -105,3 +105,52 @@ fn idle_footer_is_rendered_dimmed() {
             .any(|op| matches!(op, Operation::Write(text) if text.contains("\u{1b}[2m")))
     );
 }
+
+#[test]
+fn modal_suppresses_persistent_a2ui_widget_lines() {
+    use crate::ui::interactive::ModalState;
+    use rho_harness_core::a2ui::{
+        A2uiComponent, A2uiComponentKind, A2uiMessage, BoundString, CreateSurface, SurfacePlacement, TextUsageHint,
+        UpdateComponents,
+    };
+
+    let (backend, _, _) = FakeTerminal::new(60);
+    let mut state = InteractiveState::default();
+    state.set_a2ui_widgets(true);
+    for (id, placement) in [
+        ("above:1", SurfacePlacement::AboveEditor),
+        ("below:1", SurfacePlacement::BelowEditor),
+    ] {
+        state
+            .apply_a2ui_message(A2uiMessage::CreateSurface(CreateSurface {
+                surface_id: id.to_string(),
+                catalog_id: None,
+                placement,
+                title: None,
+                priority: 10,
+                root_id: "root".to_string(),
+            }))
+            .unwrap();
+        state
+            .apply_a2ui_message(A2uiMessage::UpdateComponents(UpdateComponents {
+                surface_id: id.to_string(),
+                components: vec![A2uiComponent::new(
+                    "root",
+                    A2uiComponentKind::Text {
+                        text: BoundString::literal("persistent widget"),
+                        usage_hint: TextUsageHint::Body,
+                        tone: None,
+                    },
+                )],
+            }))
+            .unwrap();
+    }
+
+    let mut controller = TerminalController::new(backend, state).unwrap();
+    assert!(!controller.active_widget_lines().is_empty());
+    assert!(!controller.below_widget_lines().is_empty());
+
+    controller.state_mut().push_modal(ModalState::new("Test", "", vec![]));
+    assert!(controller.active_widget_lines().is_empty());
+    assert!(controller.below_widget_lines().is_empty());
+}
