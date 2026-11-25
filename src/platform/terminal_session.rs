@@ -22,8 +22,14 @@ pub fn write_terminal_session(config_dir: &Path, tty: &str, session_id: &str) ->
     })
 }
 
-/// Device name of the controlling terminal without `/dev/` (for example `ttys004`), or `None`
-/// unless both stdin and stdout are terminals.
+/// Device name without `/dev/`, with `/` replaced by `-` so Linux ptys (`/dev/pts/3`) get a file
+/// name (`pts-3`) rather than a nested path.
+fn tty_file_name(device: &str) -> String {
+    device.strip_prefix("/dev/").unwrap_or(device).replace('/', "-")
+}
+
+/// Device name of the controlling terminal as a file name (for example `ttys004` or `pts-3`), or
+/// `None` unless both stdin and stdout are terminals.
 #[cfg(unix)]
 pub fn interactive_tty_name() -> Option<String> {
     use std::os::fd::AsRawFd;
@@ -38,7 +44,7 @@ pub fn interactive_tty_name() -> Option<String> {
     }
     // SAFETY: a zero return means `buf` holds a NUL-terminated string.
     let name = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }.to_str().ok()?;
-    Some(name.strip_prefix("/dev/").unwrap_or(name).to_string())
+    Some(tty_file_name(name))
 }
 
 #[cfg(not(unix))]
@@ -70,6 +76,21 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "20261109_080000_deadbeef\n");
         let leftovers = std::fs::read_dir(dir.path().join(DIR)).unwrap().count();
         assert_eq!(leftovers, 1, "temp files must not be left behind");
+    }
+
+    #[test]
+    fn device_names_become_single_path_components() {
+        for (device, expected) in [
+            ("/dev/ttys004", "ttys004"),
+            ("/dev/pts/3", "pts-3"),
+            ("/dev/tty1", "tty1"),
+            ("pts/12", "pts-12"),
+        ] {
+            assert_eq!(tty_file_name(device), expected, "{device}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_terminal_session(dir.path(), &tty_file_name("/dev/pts/3"), "id").unwrap();
+        assert!(terminal_session_path(dir.path(), "pts-3").unwrap().is_file());
     }
 
     #[test]
