@@ -6,7 +6,7 @@ use crate::tools::types::{ToolResult, resolve_tool_path};
 use crate::tools::undo::EditHistory;
 pub use rho_harness_core::args::{LspAction, LspArgs};
 use rho_harness_core::error::AppError;
-use rho_harness_core::workspace::{Workspace, clean_path_arg};
+use rho_harness_core::workspace::{Workspace, canonicalize_path, clean_path_arg};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -228,7 +228,7 @@ impl LspTool {
             .query
             .as_deref()
             .ok_or("symbols needs path (file outline) or query (workspace search)")?;
-        let base_dir = self.base_dir.get();
+        let base_dir = canonicalize_path(&self.base_dir.get());
         let clients: Vec<_> = self
             .manager
             .workspace_clients()
