@@ -33,6 +33,10 @@ Input: cargo test --workspace
 [Allow]  [Edit]  [Always]  [Deny]
 ```
 
+Move with the arrow keys, `h`/`l`, or `Tab`/`Shift+Tab`; press `1`-`4` to jump straight to
+Allow, Edit, Always, or Deny; press **Enter** to confirm and **Esc** to deny. Jumping only moves
+the highlight, so nothing runs until you confirm.
+
 ### 1. Allow
 
 Executes the tool call once. The rule is not saved.

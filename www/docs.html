@@ -403,6 +403,7 @@ enabled = true                  # Enable or disable mutation guardrails</code></
         <li><strong>Targeted Risk Interception:</strong> Hazardous operations—remote git pushes, remote branch deletions, cluster/cloud infrastructure mutations, privilege escalation, credential access, or mass deletions—are flagged (<code>{"safe": false}</code>) and pause for confirmation with the model's security rationale.</li>
         <li><strong>Fail-Safe Closed Architecture:</strong> If the guard model times out (10s), is offline, encounters an error, or returns unparseable text, <code>rho</code> fails closed and falls back to manual human confirmation (or denial in headless mode). Commands never slip through silently on error. If the guard model cannot be built at all, <code>rho</code> shows a notice naming it and asks for approval on every unclassified command.</li>
       </ul>
+      <p>In the terminal approval prompt, move with the arrow keys, <code>h</code>/<code>l</code>, or <code>Tab</code>; press <code>1</code>&ndash;<code>4</code> to jump to Allow, Edit, Always, or Deny; <code>Enter</code> confirms and <code>Esc</code> denies. Jumping only moves the highlight, so nothing runs until you confirm.</p>
 
       <h3>Recommended Local Model: <code>qwen2.5-coder:7b</code></h3>
       <p>

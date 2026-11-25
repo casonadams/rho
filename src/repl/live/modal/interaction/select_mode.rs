@@ -269,6 +269,10 @@ pub(crate) fn handle_select_mode_key<B: TerminalBackend>(
         controller.redraw()?;
         return Ok(ModalKeyResult::Handled);
     }
+    let typing = captures_typing(controller);
+    if super::super::try_digit_jump(controller, &key, typing)? {
+        return Ok(ModalKeyResult::Handled);
+    }
     if handle_action_key(controller, key, pending)? {
         return Ok(ModalKeyResult::Handled);
     }
@@ -328,6 +332,57 @@ mod tests {
             &mut pending,
         );
         (controller, pending, rx)
+    }
+
+    #[test]
+    fn digits_jump_to_the_numbered_option_without_confirming_it() {
+        let (mut controller, mut pending, mut rx) = setup_test_modal(sample_prompt());
+        let digit = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+
+        handle_select_mode_key(&mut controller, digit('2'), &mut pending).unwrap();
+        assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+        handle_select_mode_key(&mut controller, digit('1'), &mut pending).unwrap();
+        assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+
+        handle_select_mode_key(&mut controller, digit('9'), &mut pending).unwrap();
+        assert_eq!(
+            controller.state().active_modal().unwrap().selected,
+            0,
+            "a digit past the last option leaves the selection alone"
+        );
+        handle_select_mode_key(&mut controller, digit('0'), &mut pending).unwrap();
+        assert!(
+            pending.is_some() && rx.try_recv().is_err(),
+            "jumping never answers the prompt"
+        );
+
+        handle_select_mode_key(&mut controller, digit('2'), &mut pending).unwrap();
+        handle_select_mode_key(
+            &mut controller,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut pending,
+        )
+        .unwrap();
+        assert_eq!(rx.try_recv().unwrap(), InteractionResponse::Selected(1));
+    }
+
+    #[test]
+    fn digits_stay_typed_text_when_the_modal_captures_typing() {
+        let digit = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+
+        let mut custom = sample_prompt();
+        custom.allow_custom = true;
+        let (mut controller, mut pending, _rx) = setup_test_modal(custom);
+        handle_select_mode_key(&mut controller, digit, &mut pending).unwrap();
+        let modal = controller.state().active_modal().unwrap();
+        assert_eq!(modal.selected, 0);
+        assert_eq!(modal.input.text(), "2");
+
+        let (mut controller, mut pending, _rx) = setup_test_modal(sample_prompt());
+        controller.state_mut().active_modal_mut().unwrap().is_searchable = true;
+        handle_select_mode_key(&mut controller, digit, &mut pending).unwrap();
+        let modal = controller.state().active_modal().unwrap();
+        assert_eq!(modal.filter_query, "2");
     }
 
     #[test]

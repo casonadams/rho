@@ -445,12 +445,40 @@ mod horizontal {
         let mut modal = sample_permission_modal();
         assert_eq!(
             modal_hint(&modal),
+            "←/→ or h/l select • 1-9 jump • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
+        );
+        modal.allow_custom = true;
+        assert_eq!(
+            modal_hint(&modal),
             "←/→ or h/l select • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
         );
+        modal.allow_custom = false;
         modal.mode = ModalMode::Input {
             prompt_label: "cmd".into(),
         };
         assert_eq!(modal_hint(&modal), "Enter submit • Shift+Enter newline • Esc back");
+    }
+
+    #[test]
+    fn vertical_hints_advertise_digit_jump_only_where_digits_jump() {
+        let cases = [
+            (
+                "Permission Required",
+                false,
+                "↑/↓ select • 1-9 jump • Enter confirm • Esc deny",
+            ),
+            ("Permission Required", true, "↑/↓ select • Enter confirm • Esc deny"),
+            ("Choose", false, "↑/↓ select • 1-9 jump • Enter confirm • Esc cancel"),
+            (
+                "Choose",
+                true,
+                "↑/↓ select • Enter confirm • Esc cancel • or type custom",
+            ),
+        ];
+        for (title, custom, expected) in cases {
+            let modal = ModalState::new(title, "", vec![ModalOption::from("Allow")]).with_custom(custom);
+            assert_eq!(modal_hint(&modal), expected, "{title} custom={custom}");
+        }
     }
 }
 

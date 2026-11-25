@@ -68,13 +68,18 @@ const TITLE_HINTS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Digits jump to an option only when the modal does not treat typed characters as text.
+fn digits_jump(modal: &ModalState) -> bool {
+    !modal.allow_custom && !modal.is_searchable
+}
+
 fn fallback_select_hint(modal: &ModalState) -> &'static str {
-    if modal.title.contains("Permission") || modal.title.contains("Approve") {
-        "↑/↓ select • Enter confirm • Esc deny"
-    } else if modal.allow_custom {
-        "↑/↓ select • Enter confirm • Esc cancel • or type custom"
-    } else {
-        "↑/↓ select • Enter confirm • Esc cancel"
+    let permission = modal.title.contains("Permission") || modal.title.contains("Approve");
+    match (permission, modal.allow_custom) {
+        (true, false) => "↑/↓ select • 1-9 jump • Enter confirm • Esc deny",
+        (true, true) => "↑/↓ select • Enter confirm • Esc deny",
+        (false, true) => "↑/↓ select • Enter confirm • Esc cancel • or type custom",
+        (false, false) => "↑/↓ select • 1-9 jump • Enter confirm • Esc cancel",
     }
 }
 
@@ -88,7 +93,11 @@ fn select_modal_hint(modal: &ModalState) -> &'static str {
     if modal.is_searchable {
         "Enter to select • Esc to cancel"
     } else if modal.option_layout == OptionLayout::Horizontal {
-        "←/→ or h/l select • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
+        if digits_jump(modal) {
+            "←/→ or h/l select • 1-9 jump • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
+        } else {
+            "←/→ or h/l select • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
+        }
     } else {
         fallback_select_hint(modal)
     }
