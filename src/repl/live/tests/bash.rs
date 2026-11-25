@@ -40,9 +40,13 @@ async fn test_user_bash_runner_cancellation_preempts_and_terminates() {
         input: &mut input_reader,
     };
 
-    let res = super::super::bash_runner::run_user_bash("sleep 30 & wait", &renderer, &mut live_io)
-        .await
-        .unwrap();
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        super::super::bash_runner::run_user_bash("sleep 30 & wait", &renderer, &mut live_io),
+    )
+    .await
+    .expect("Esc must stop the 30 second command promptly")
+    .unwrap();
 
     assert!(res.is_cancelled);
     assert!(res.is_error);
