@@ -46,7 +46,7 @@ impl AuthStore {
 
     async fn resolve_key(&mut self, provider: &str, force_refresh: bool) -> Result<Option<String>> {
         let Some(cred) = self.credentials.get(provider) else {
-            return resolve_env_key(provider);
+            return resolve_env_key_async(provider).await;
         };
         match cred {
             StoredCredential::ApiKey { key, .. } => resolve_secret_value_async(key).await.map(Some),
@@ -269,20 +269,61 @@ fn is_fresher(disk: &StoredCredential, memory: Option<&StoredCredential>) -> boo
     memory.is_none_or(|memory| memory != disk && expiry_ms(disk) >= expiry_ms(memory))
 }
 
-fn resolve_env_key(provider: &str) -> Result<Option<String>> {
+fn env_key_value(provider: &str) -> Option<String> {
     if let Ok(id) = ProviderId::from_str(provider)
         && let Some(env_name) = id.api_key_env()
-        && let Ok(val) = std::env::var(env_name)
-        && !val.trim().is_empty()
+        && let Some(val) = non_blank_env(env_name)
     {
-        return resolve_secret_value(&val).map(Some);
+        return Some(val);
     }
     let generic_env = format!("{}_API_KEY", provider.to_ascii_uppercase().replace('-', "_"));
-    if let Ok(val) = std::env::var(&generic_env)
-        && !val.trim().is_empty()
-    {
-        return resolve_secret_value(&val).map(Some);
-    }
+    non_blank_env(&generic_env)
+}
 
-    Ok(None)
+fn non_blank_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|val| !val.trim().is_empty())
+}
+
+fn resolve_env_key(provider: &str) -> Result<Option<String>> {
+    match env_key_value(provider) {
+        Some(val) => resolve_secret_value(&val).map(Some),
+        None => Ok(None),
+    }
+}
+
+async fn resolve_env_key_async(provider: &str) -> Result<Option<String>> {
+    match env_key_value(provider) {
+        Some(val) => resolve_secret_value_async(&val).await.map(Some),
+        None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn env_secret_command_does_not_block_the_runtime() {
+        let provider = "rho-test-async-env";
+        unsafe { std::env::set_var("RHO_TEST_ASYNC_ENV_API_KEY", "!echo async_env_secret") };
+        let mut store = AuthStore::default();
+        let done = Cell::new(false);
+        let ticks = Cell::new(0u32);
+        let resolve = async {
+            let key = store.get_key(provider).await;
+            done.set(true);
+            key
+        };
+        let ticker = async {
+            while !done.get() {
+                ticks.set(ticks.get() + 1);
+                tokio::task::yield_now().await;
+            }
+        };
+        let (key, ()) = tokio::join!(resolve, ticker);
+        unsafe { std::env::remove_var("RHO_TEST_ASYNC_ENV_API_KEY") };
+        assert_eq!(key.unwrap().as_deref(), Some("async_env_secret"));
+        assert!(ticks.get() > 0);
+    }
 }
