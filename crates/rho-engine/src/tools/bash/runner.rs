@@ -54,6 +54,12 @@ fn register_background_job(owner: Option<&Mailbox>, command: &str) -> JobComplet
     )
 }
 
+async fn shape_on_blocking_pool<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, AppError> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| AppError::Tool(format!("formatting bash output failed: {e}")))
+}
+
 fn dispatch_background_task(
     mut cmd: StreamingCommand,
     mut rx: Receiver<String>,
@@ -82,7 +88,10 @@ fn dispatch_background_task(
         if let Some(path) = snapshot.full_output_path.clone() {
             JobManager::global().attach_log(job.id(), path);
         }
-        report_background_result(job, status, &snapshot);
+        match tokio::task::spawn_blocking(move || report_background_result(job, status, &snapshot)).await {
+            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            Ok(()) | Err(_) => {}
+        }
     })
 }
 
@@ -264,7 +273,9 @@ struct TimeoutFallbackContext<'a, F: FnMut(&str)> {
     timeout_sec: u64,
 }
 
-async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext<'_, F>) -> ToolResult {
+async fn handle_timeout_fallback<F: FnMut(&str)>(
+    mut ctx: TimeoutFallbackContext<'_, F>,
+) -> Result<ToolResult, AppError> {
     if ctx.args.background == Some(false) {
         ctx.cmd.cancel().await;
         while let Ok(chunk) = ctx.rx.try_recv() {
@@ -272,18 +283,21 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(mut ctx: TimeoutFallbackContext
             ctx.acc.append(chunk.as_bytes());
         }
         ctx.acc.finish();
-        return ToolResult::error(timeout_text(&ctx.acc.snapshot(), ctx.timeout_sec));
+        let snapshot = ctx.acc.snapshot();
+        let timeout_sec = ctx.timeout_sec;
+        let text = shape_on_blocking_pool(move || timeout_text(&snapshot, timeout_sec)).await?;
+        return Ok(ToolResult::error(text));
     }
 
     let job = register_background_job(ctx.owner, &ctx.args.command);
     let job_id = job.id().to_string();
     dispatch_background_task(ctx.cmd, ctx.rx, ctx.acc, job, BACKGROUND_MAX_RUNTIME);
 
-    ToolResult::error(format!(
+    Ok(ToolResult::error(format!(
         "[timeout {}s; {}]",
         ctx.timeout_sec,
         format_background_notice(&job_id)
-    ))
+    )))
 }
 
 struct RunContext<'a> {
@@ -316,9 +330,7 @@ where
     let mut acc = OutputAccumulator::new().with_log_dir(ctx.log_dir);
     let exec = execute_process_loop(&mut rx, &mut on_chunk, &mut acc, &mut cmd);
     match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
-        Ok(Ok(status)) => Ok(tokio::task::spawn_blocking(move || format_exit_result(status, &acc))
-            .await
-            .map_err(|e| AppError::Tool(format!("formatting bash output failed: {e}")))?),
+        Ok(Ok(status)) => shape_on_blocking_pool(move || format_exit_result(status, &acc)).await,
         Ok(Err(e)) => Ok(ToolResult::error(format!(
             "Failed waiting for command '{}': {e}",
             args.command
@@ -333,7 +345,7 @@ where
                 owner: ctx.owner,
                 timeout_sec,
             };
-            Ok(handle_timeout_fallback(timeout_ctx).await)
+            handle_timeout_fallback(timeout_ctx).await
         }
     }
 }
