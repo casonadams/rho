@@ -103,6 +103,20 @@ pub fn refresh<B: TerminalBackend>(controller: &mut TerminalController<B>, monit
     let Some(id) = controller.viewed_agent() else {
         return Ok(false);
     };
+    let version = monitor.version();
+    if controller.view_synced_version() == Some(version) {
+        return Ok(false);
+    }
+    let changed = sync_viewed(controller, monitor, id)?;
+    controller.set_view_synced_version(version);
+    Ok(changed)
+}
+
+fn sync_viewed<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    monitor: &AgentMonitor,
+    id: u64,
+) -> Result<bool> {
     let Some(record) = monitor.record(id) else {
         controller.leave_agent_view()?;
         return Ok(true);

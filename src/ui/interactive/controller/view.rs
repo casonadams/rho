@@ -23,6 +23,8 @@ pub(crate) struct AgentView {
     parked: Parked,
     /// The raw reply text already streamed to the terminal.
     streamed: String,
+    /// The monitor version the shown frame was last synced at.
+    synced_version: Option<u64>,
 }
 
 struct Parked {
@@ -50,6 +52,18 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.view.as_ref().map(|view| view.agent)
     }
 
+    /// The monitor version the shown agent was last synced at; `None` until it is synced.
+    pub fn view_synced_version(&self) -> Option<u64> {
+        self.view.as_ref().and_then(|view| view.synced_version)
+    }
+
+    /// Records that the shown agent is synced with the monitor at `version`.
+    pub fn set_view_synced_version(&mut self, version: u64) {
+        if let Some(view) = self.view.as_mut() {
+            view.synced_version = Some(version);
+        }
+    }
+
     /// Shows agent `agent` as `frame`, titled `title` in the footer. The main agent stays parked
     /// when switching from one agent to another.
     pub fn enter_agent_view(&mut self, agent: u64, title: String, frame: ViewFrame) -> io::Result<()> {
@@ -66,6 +80,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             agent,
             parked,
             streamed: String::new(),
+            synced_version: None,
         });
         self.state.footer_mut().viewing = Some(title);
         self.show_frame(frame)

@@ -154,6 +154,24 @@ fn the_view_follows_the_agent_into_the_round_that_continues_its_task() {
 }
 
 #[test]
+fn the_shown_agent_is_resynced_only_when_the_monitor_changes() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "audit");
+    let mut c = controller();
+    show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
+    assert_eq!(c.view_synced_version(), None);
+
+    assert!(!refresh(&mut c, &monitor).unwrap());
+    assert_eq!(c.view_synced_version(), Some(monitor.version()));
+    assert!(!refresh(&mut c, &monitor).unwrap());
+
+    handle.stream(rho_harness_core::agents::Streamed::Text, "Look");
+    assert_ne!(c.view_synced_version(), Some(monitor.version()));
+    assert!(refresh(&mut c, &monitor).unwrap());
+    assert_eq!(c.view_synced_version(), Some(monitor.version()));
+}
+
+#[test]
 fn enter_while_an_agent_is_shown_takes_the_prompt_for_that_agent() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "audit");
