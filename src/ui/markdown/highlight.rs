@@ -224,6 +224,53 @@ pub struct CodeHighlighter {
     scope_stack: ScopeStack,
 }
 
+fn is_valid_sgr_params(params: &str) -> bool {
+    params.bytes().all(|b| b.is_ascii_digit() || b == b';')
+}
+
+fn parse_escaped_sgr(rest: &str) -> Option<(&str, usize)> {
+    let prefix_len = if rest.starts_with("\\x1b[") || rest.starts_with("\\033[") {
+        5
+    } else if rest.starts_with("\\e[") {
+        3
+    } else if rest.starts_with("\\u001b[") {
+        7
+    } else if rest.starts_with("\x1b[") {
+        2
+    } else {
+        return None;
+    };
+    let after = &rest[prefix_len..];
+    let m_pos = after.find('m')?;
+    let params = &after[..m_pos];
+    is_valid_sgr_params(params).then_some((params, prefix_len + m_pos + 1))
+}
+
+fn render_ansi_code_line(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    let mut emitted_sgr = false;
+    while !rest.is_empty() {
+        if let Some((params, consumed)) = parse_escaped_sgr(rest) {
+            out.push_str("\x1b[");
+            out.push_str(params);
+            out.push('m');
+            rest = &rest[consumed..];
+            emitted_sgr = true;
+            continue;
+        }
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        out.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+    if emitted_sgr && !out.ends_with("\x1b[0m") && !out.ends_with("\x1b[m") {
+        out.push_str("\x1b[0m");
+    }
+    out
+}
+
 impl CodeHighlighter {
     pub fn new(lang: Option<&str>, _theme: &Theme) -> Self {
         let syntax = resolve_syntax(lang);
@@ -239,6 +286,9 @@ impl CodeHighlighter {
     }
 
     pub fn highlight_line(&mut self, line: &str, theme: &Theme) -> String {
+        if self.lang.as_deref().is_some_and(|l| l.eq_ignore_ascii_case("ansi")) {
+            return render_ansi_code_line(line);
+        }
         let parse_input: Cow<'_, str> = if line.ends_with('\n') {
             Cow::Borrowed(line)
         } else {
@@ -283,6 +333,22 @@ pub fn warmup_syntax_highlighter() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ansi_code_block_renders_escaped_sgr_and_resets() {
+        let theme = Theme::default();
+        let line = r"\x1b[32m✓\x1b[0m \e[1mBash\033[0m \x1b[2m3.4s";
+        let rendered = highlight_code_line(line, Some("ansi"), &theme);
+        assert_eq!(rendered, "\x1b[32m✓\x1b[0m \x1b[1mBash\x1b[0m \x1b[2m3.4s\x1b[0m");
+    }
+
+    #[test]
+    fn ansi_code_block_ignores_non_sgr_escape_sequences() {
+        let theme = Theme::default();
+        let line = r"\x1b[2Jclear";
+        let rendered = highlight_code_line(line, Some("ansi"), &theme);
+        assert_eq!(rendered, r"\x1b[2Jclear");
+    }
 
     #[test]
     fn plain_text_emits_no_ansi_escapes() {

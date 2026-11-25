@@ -142,3 +142,81 @@ fn only_read_only_builtin_tools_run_concurrently() {
     parallel.sort_unstable();
     assert_eq!(parallel, ["fd", "read", "rg", "web_fetch", "web_search"]);
 }
+
+struct InteractivePresenterStub {
+    interactive: bool,
+}
+
+#[async_trait::async_trait]
+impl rho_harness_core::presentation::Presenter for InteractivePresenterStub {
+    fn write_output(&self, _: &str) {}
+    fn print_welcome(&self, _: &rho_harness_core::presentation::WelcomeDisplay) {}
+    fn print_session_status(&self, _: &rho_harness_core::presentation::SessionStatus) {}
+    fn print_notice(&self, _: &str) {}
+    fn print_user_block(&self, _: &str) {}
+    fn print_token(&self, _: &str) {}
+    fn print_thinking_token(&self, _: &str) {}
+    fn finish_tool_line(&self, _: rho_harness_core::presentation::ToolLine) {}
+    fn flush(&self) {}
+    fn has_interactive_ui(&self) -> bool {
+        self.interactive
+    }
+    fn start_spinner(&self, _: &str) -> rho_harness_core::presentation::ActivityToken {
+        rho_harness_core::presentation::activity_token(|| {})
+    }
+    fn start_tool_spinner(&self, _: &str, _: &serde_json::Value) -> rho_harness_core::presentation::ActivityToken {
+        rho_harness_core::presentation::activity_token(|| {})
+    }
+    fn start_tool_run(&self, _: &str, _: &serde_json::Value) {}
+    fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
+        rho_harness_core::presentation::ToolStreamPort::new(None)
+    }
+}
+
+#[tokio::test]
+async fn ask_tool_is_registered_only_with_interactive_presenter_and_omitted_from_subagents() {
+    let dir = TestDir::new();
+    let model: crate::engine::compactor::llm::ModelHandle = Arc::new(MockAdapter::text("x"));
+
+    let (headless_tools, _) = build_builtin_toolset(
+        &dir,
+        &Config::default(),
+        Some(model.clone()),
+        None,
+        ToolsetServices {
+            presenter: Some(Arc::new(InteractivePresenterStub { interactive: false })),
+            ..ToolsetServices::default()
+        },
+        &SubagentRuntime::default(),
+    )
+    .unwrap();
+    assert!(headless_tools.iter().all(|t| t.name() != "ask"));
+
+    let (interactive_tools, subagent) = build_builtin_toolset(
+        &dir,
+        &Config::default(),
+        Some(model),
+        None,
+        ToolsetServices {
+            presenter: Some(Arc::new(InteractivePresenterStub { interactive: true })),
+            ..ToolsetServices::default()
+        },
+        &SubagentRuntime::default(),
+    )
+    .unwrap();
+    assert!(interactive_tools.iter().any(|t| t.name() == "ask"));
+
+    let runner = subagent
+        .runner_for(RunnerSpec {
+            agent: Some("general"),
+            local_agents: &[],
+            turns: None,
+            model: None,
+            position: None,
+            task_name: None,
+            persona: None,
+        })
+        .await
+        .unwrap();
+    assert!(runner.tool("ask").is_none());
+}

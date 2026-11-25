@@ -63,6 +63,7 @@ fn block_style_label(style: BlockStyle) -> &'static str {
     match style {
         BlockStyle::Border => "Border",
         BlockStyle::Solid => "Solid",
+        BlockStyle::Divider => "Divider",
     }
 }
 

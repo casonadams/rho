@@ -45,7 +45,7 @@ resume the exact session of each pane with `rho --resume <id>`.
 
 ## Built-in Tools
 
-`rho` includes 15 fast, native tools designed for coding agents:
+`rho` includes 16 fast, native tools designed for coding agents:
 
 - **`read`**: Read file contents with line numbering, offset, and limit
   safeguards. Supports image sniffing and downscaling. `symbol` reads just one
@@ -109,6 +109,10 @@ resume the exact session of each pane with `rho --resume <id>`.
   item in progress; a call without `todos` shows the current list. The list is
   read back from the conversation, so it survives `--resume`, and compaction
   copies an unfinished list into its summary. Each subagent keeps its own list.
+- **`ask`**: Ask the user 1 to 5 clarifying questions in an interactive A2UI
+  modal (up to 4 structured choices with optional `multi_select` and custom
+  "Other" input, or free-text). Available in interactive TUI sessions only
+  (omitted in headless runs and subagents).
 - **`wait`**: Block until background work reports back, instead of polling with
   `sleep`. It returns as soon as a background `bash` job or subagent task
   finishes, with every result that has arrived (which is then not delivered
@@ -153,12 +157,14 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Custom OpenAI-compatible endpoints with private network protection.
   - Hierarchical instruction loading (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`).
   - Declarative parameter-guided skills (`SKILL.md`).
+  - Extensible `[models.<role>]` configuration (`default`, built-in roles `smol`, `slow`, `guard`, `judge`, `widget`, `review`, `plan`, `task`, `vision`, and custom roles) with `@<role>` selector syntax.
   - Custom subagents with their own tools, model, and turn limit.
 
 - **[Interactive UI & Terminal Styling](docs/ui.md)**
   - Dynamic upward-expanding multiline editor with stable screen scrollback.
   - Live two-line footer metrics: token count, context percentage, speed,
     cost, and active model.
+  - Opt-in A2UI v1.0 persistent TUI widgets (`[ui] a2ui_widgets = true`, `rho:todo`, `rho:subagents`) and interactive A2UI modals (`ask` tool with optional `decision_assist`).
   - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background
     turns.
   - Universal native theme that adopts your terminal's 16-color palette, with

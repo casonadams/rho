@@ -1,7 +1,9 @@
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::ToolResult;
+use rho_harness_core::a2ui::todo_surface_messages;
 use rho_harness_core::args::{TodoArgs, TodoItem};
 use rho_harness_core::error::AppError;
+use rho_harness_core::presentation::Presenter;
 use rho_harness_core::todo::{TODO_TOOL, latest_todos, render_todos, validate_todos};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -10,6 +12,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 #[derive(Default)]
 pub struct TodoTool {
     todos: Mutex<Vec<TodoItem>>,
+    presenter: Option<Arc<dyn Presenter>>,
+    emit_surface: bool,
 }
 
 #[async_trait::async_trait]
@@ -24,6 +28,13 @@ impl TypedTool for TodoTool {
                 return Ok(ToolResult::error(error));
             }
             *todos = next;
+            if self.emit_surface
+                && let Some(presenter) = &self.presenter
+            {
+                for msg in todo_surface_messages(&todos) {
+                    presenter.emit_a2ui(msg);
+                }
+            }
         }
         Ok(ToolResult::success(render_todos(&todos)))
     }
@@ -31,6 +42,8 @@ impl TypedTool for TodoTool {
     fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
         Some(Arc::new(Self {
             todos: Mutex::new(latest_todos(&ctx.parent_history).unwrap_or_default()),
+            presenter: ctx.presenter.clone(),
+            emit_surface: ctx.a2ui_widgets && ctx.a2ui_config.todo_widget,
         }))
     }
 }
@@ -184,5 +197,53 @@ mod tests {
         assert_eq!(before.content, "0/0 done");
         assert_eq!(parent_after.content, "0/1 done\n[ ] parent task");
         assert_eq!(call(&shared, json!({})).await.content, "0/0 done");
+    }
+
+    #[tokio::test]
+    async fn emits_a2ui_todo_surface_only_when_enabled() {
+        use rho_harness_core::a2ui::{A2uiMessage, TODO_SURFACE_ID};
+        use rho_harness_core::config::A2uiConfig;
+        use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
+
+        let recording = RecordingSink::default();
+        let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::new(Arc::new(recording.clone())));
+
+        let disabled = TodoTool::default()
+            .bind_to_turn(&TurnToolContext {
+                presenter: Some(Arc::clone(&presenter)),
+                a2ui_widgets: false,
+                ..TurnToolContext::default()
+            })
+            .unwrap();
+        call(
+            disabled.as_ref(),
+            json!({ "todos": [{ "content": "Hidden", "status": "in_progress" }] }),
+        )
+        .await;
+        assert!(recording.events().is_empty());
+
+        let enabled = TodoTool::default()
+            .bind_to_turn(&TurnToolContext {
+                presenter: Some(presenter),
+                a2ui_widgets: true,
+                a2ui_config: A2uiConfig {
+                    todo_widget: true,
+                    ..A2uiConfig::default()
+                },
+                ..TurnToolContext::default()
+            })
+            .unwrap();
+        call(
+            enabled.as_ref(),
+            json!({ "todos": [{ "content": "Visible", "status": "in_progress" }] }),
+        )
+        .await;
+        let events = recording.events();
+        assert!(events.iter().any(|e| matches!(
+            e,
+            UiEvent::A2ui {
+                message: A2uiMessage::CreateSurface(c)
+            } if c.surface_id == TODO_SURFACE_ID
+        )));
     }
 }

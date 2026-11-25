@@ -5,6 +5,7 @@ pub(crate) struct NormalBudgetInput {
     pub terminal_height: usize,
     pub raw_queued_count: usize,
     pub raw_widgets_count: usize,
+    pub raw_below_widgets_count: usize,
     pub raw_footer_count: usize,
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
@@ -17,6 +18,7 @@ pub(crate) struct NormalLayoutBudget {
     pub show_bot_div: bool,
     pub footer_count: usize,
     pub widget_count: usize,
+    pub below_widget_count: usize,
     pub queued_count: usize,
     pub editor_max_lines: usize,
     pub autocomplete_max_lines: usize,
@@ -116,6 +118,13 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
         ac_desired,
         input.terminal_height,
     );
+    let below_widget_count = allocate_widgets(
+        input.raw_below_widgets_count,
+        &mut surplus,
+        extra_ed,
+        ac_desired,
+        input.terminal_height,
+    );
     let (autocomplete_max_lines, mut editor_max_lines) =
         allocate_editor_and_autocomplete(surplus, extra_ed, ac_desired);
     if input.is_modal {
@@ -128,6 +137,7 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
         show_bot_div: chrome.show_bot_div,
         footer_count: chrome.footer_count,
         widget_count,
+        below_widget_count,
         queued_count,
         editor_max_lines,
         autocomplete_max_lines,

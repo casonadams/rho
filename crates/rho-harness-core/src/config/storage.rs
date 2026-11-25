@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use super::scalar::{parse_bool, parse_positive};
 use super::types::{
-    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, UiConfig, WebFetchConfigFile,
+    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, ModelRole, UiConfig, WebFetchConfigFile,
     WebSearchConfigFile,
 };
 
@@ -149,6 +149,13 @@ fn bash_section(file_config: &mut FileConfig) -> &mut BashConfigFile {
 
 /// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
+    if let Some(raw_role) = key.strip_prefix("models.")
+        && raw_role != "default"
+    {
+        let role = ModelRole::parse(raw_role).map_err(AppError::Config)?;
+        file_config.models.set_role(role.as_str(), parse_optional_model(value));
+        return Ok(());
+    }
     let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
     let name = key.as_str();
     match key {
@@ -161,9 +168,9 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
             retire_legacy_model_keys(file_config);
             file_config.models.default = Some(spec);
         }
-        ConfigKey::GuardModel => file_config.models.guard = parse_optional_model(value),
-        ConfigKey::SmolModel => file_config.models.smol = parse_optional_model(value),
-        ConfigKey::SlowModel => file_config.models.slow = parse_optional_model(value),
+        ConfigKey::GuardModel => file_config.models.set_role("guard", parse_optional_model(value)),
+        ConfigKey::SmolModel => file_config.models.set_role("smol", parse_optional_model(value)),
+        ConfigKey::SlowModel => file_config.models.set_role("slow", parse_optional_model(value)),
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level =
                 crate::thinking::ThinkingLevel::parse_setting(value).map_err(AppError::Config)?;
@@ -184,6 +191,12 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::FullBashCommand => {
             ui_section(file_config).full_bash_command = Some(parse_bool(name, value)?);
         }
+        ConfigKey::StructuredToolCards => {
+            ui_section(file_config).structured_tool_cards = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::DeltaDiffs => {
+            ui_section(file_config).delta_diffs = Some(parse_bool(name, value)?);
+        }
         ConfigKey::AutoTitle => {
             ui_section(file_config).auto_title = Some(parse_bool(name, value)?);
         }
@@ -192,6 +205,24 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         }
         ConfigKey::TerminalTitleState => {
             ui_section(file_config).terminal_title_state = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::A2uiWidgets => {
+            ui_section(file_config).a2ui_widgets = parse_bool(name, value)?;
+        }
+        ConfigKey::A2uiMaxAboveLines => {
+            ui_section(file_config).a2ui.max_above_lines = parse_positive(name, value)?;
+        }
+        ConfigKey::A2uiMaxBelowLines => {
+            ui_section(file_config).a2ui.max_below_lines = parse_positive(name, value)?;
+        }
+        ConfigKey::A2uiTodoWidget => {
+            ui_section(file_config).a2ui.todo_widget = parse_bool(name, value)?;
+        }
+        ConfigKey::A2uiSubagentWidget => {
+            ui_section(file_config).a2ui.subagent_widget = parse_bool(name, value)?;
+        }
+        ConfigKey::A2uiDecisionAssist => {
+            ui_section(file_config).a2ui.decision_assist = parse_bool(name, value)?;
         }
         ConfigKey::SearchEngine => {
             if !crate::config::validate::is_valid_search_engine_name(value) {

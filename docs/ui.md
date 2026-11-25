@@ -71,6 +71,38 @@ in `~/.config/rho/config.toml` (or `.rho/config.toml`):
 
 ---
 
+## A2UI v1.0 Widgets, Modals & the `ask` Tool
+
+`rho` includes an in-process **A2UI v1.0** (`rho.tui.v1`) declarative surface renderer that maps layout (`Column`, `Row`, `Card`, `Divider`), display (`Text`, `Code`, `Badge`, `Table`), and interactive (`Button`, `ChoicePicker`, `TextField`, `CheckBox`) components directly to `rho`'s ANSI-16 semantic palette (no hardcoded RGB or hex colors).
+
+### Persistent Widget Regions (Opt-In)
+
+Persistent widgets are opt-in and disabled by default (`[ui] a2ui_widgets = false`). Enable them in `~/.config/rho/config.toml` or `.rho/config.toml`:
+
+```toml
+[ui]
+a2ui_widgets = true
+
+[ui.a2ui]
+max_above_lines = 8
+max_below_lines = 4
+todo_widget = true
+subagent_widget = true
+decision_assist = false
+```
+
+- **Placement & height bounds**: Surfaces with `aboveEditor` placement render above the prompt editor (capped at `max_above_lines`, default `8`); surfaces with `belowEditor` placement render below it (capped at `max_below_lines`, default `4`).
+- **`rho:todo` (`aboveEditor`, priority `10`)**: Controlled by `todo_widget` (default `true`). Displays up to 3 active or pending items from the `todo` tool alongside a `done/total` progress badge, and automatically deletes itself when the list is empty or all items are completed.
+- **`rho:subagents` (`aboveEditor`, priority `20`)**: Controlled by `subagent_widget` (default `true`). Displays running background subagents with their name, optional role, status badge, and elapsed time, and automatically deletes itself when no subagents are running.
+
+### Interactive A2UI Modals & the `ask` Tool
+
+- **Built-in `ask` tool**: Presents 1 to 5 clarifying questions in a modal A2UI surface (`rho:ask`), each supporting 0 to 4 structured choices (`ChoicePicker` with optional `multi_select`, `recommended` index, and custom `allow_other` input) or free-text input (`TextField`). Prompts and headers are credential-redacted before display.
+- **Surface-aware availability**: `ask` is registered only in interactive TUI sessions and is stripped in headless runs (`rho -p`, RPC) and subagents.
+- **Optional `DecisionModel` assist**: When `[ui.a2ui] decision_assist = true` (default `false`), questions with 2+ choices and no explicit `recommended` index query `DecisionModel` via the role fallback chain `models.widget` -> `models.judge` -> `models.guard` (600ms timeout, falling back to index `0`) to pre-highlight the most likely default choice.
+
+---
+
 ## Keyboard Controls & Navigation
 
 For the comprehensive reference categorized by lifecycle, prompt queueing,
@@ -123,7 +155,7 @@ autocomplete):
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
 | `/help [command]`           | Open interactive command reference modal, or display detailed usage and subcommands for a command. Works mid-turn. |
 | `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly. Works mid-turn. |
-| `/models`                   | Open interactive role-model configuration modal (`default`, `smol`, `slow`, `guard`). Works mid-turn. |
+| `/models`                   | Open interactive role-model configuration modal (`default`, built-in roles like `smol`, `slow`, `guard`, `judge`, `widget`, and custom roles). Works mid-turn. |
 | `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`). Default `medium`; subagents follow the current level. Works mid-turn. A change while the prompt cache is warm shows a notice that the next request rewrites the cache. |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). Works mid-turn. |
 | `/tools`                    | Open interactive Tools & Permissions modal (alias: `/permissions`). Works mid-turn. |
@@ -343,7 +375,7 @@ The interactive `/settings` modal allows reviewing and tweaking runtime preferen
 - **Tool Output**: Toggle default tool card expansion (`Expanded` / `Collapsed`).
 - **Version Banner**: Toggle version banner visibility at the start of transcripts (`Shown` / `Hidden`).
 - **Cursor Style**: Switch between `Hardware` and `Software` prompt cursors.
-- **Models**: Displays the active model with a drill-down indicator (e.g. `claude-3-7-sonnet  ›`). Pressing `Enter` opens the **Models** submenu to configure primary and specialized role models (`Default`, `Smol`, `Slow`, `Guard`). Selecting a model updates the setting in-place across all menu levels while keeping you inside the menu.
+- **Models**: Displays the active model with a drill-down indicator (e.g. `claude-3-7-sonnet  ›`). Pressing `Enter` opens the **Models** submenu to configure `Default`, built-in roles (`Smol`, `Slow`, `Guard`, `Judge`, `Widget`, `Review`, `Plan`, `Task`, `Vision`), and any configured custom roles. Selecting a model updates the setting in-place across all menu levels while keeping you inside the menu.
 - **Tools & Permissions**: Interactive submenu (`Configure  ›`) to manage tool availability and search providers.
 
 Submenus and child pickers maintain a true modal stack: selecting an option updates the setting dynamically in-place, while `Esc` navigates back one level (`Select Model` → `Models` → `Settings` → REPL prompt).

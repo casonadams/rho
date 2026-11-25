@@ -164,6 +164,7 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
     let budget = compute_normal_budget(&NormalBudgetInput {
         terminal_height: input.terminal_height,
         raw_widgets_count: input.widget_lines.len(),
+        raw_below_widgets_count: input.below_widget_lines.len(),
         raw_queued_count: queued.len(),
         total_editor_lines,
         autocomplete_desired: ac_desired,
@@ -329,6 +330,8 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         &bot_div,
         &mut lines,
     );
+    let vis_below = window_widget_lines(input.below_widget_lines, pieces.budget.below_widget_count);
+    lines.extend(vis_below.iter().cloned());
     let footer_style = if input.modal.is_none() && crate::ui::interactive::footer::is_segmented_footer(input.footer) {
         None
     } else {
@@ -355,6 +358,7 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         top_divider: top_div,
         editor_lines: ed_lines,
         bottom_divider: bot_div,
+        below_widget_lines: vis_below,
         footer: vis_ft.join("\n"),
         footer_lines: vis_ft,
     }

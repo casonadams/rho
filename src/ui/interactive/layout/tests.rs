@@ -22,6 +22,7 @@ fn base_input<'a>(editor: &'a EditorState, footer: &'a FooterState) -> LayoutInp
         system_message: None,
         queued_messages: &[],
         widget_lines: &[],
+        below_widget_lines: &[],
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,

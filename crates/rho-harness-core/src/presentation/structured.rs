@@ -175,6 +175,10 @@ impl Presenter for StructuredPresenter {
             status: status.to_string(),
         });
     }
+
+    fn emit_a2ui(&self, message: crate::a2ui::A2uiMessage) {
+        self.sink.emit(UiEvent::A2ui { message });
+    }
 }
 
 #[cfg(test)]

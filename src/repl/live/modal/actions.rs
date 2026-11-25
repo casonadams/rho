@@ -4,7 +4,7 @@ use crate::repl::ReplSession;
 use crate::repl::live::navigation::update_footer;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
-use rho_harness_core::config::ModelSlot;
+use rho_harness_core::config::ModelRole;
 
 use super::ModalKeyResult;
 
@@ -33,8 +33,8 @@ pub(crate) fn handle_modal_menu_open<B: TerminalBackend>(
         ModalKeyResult::OpenModelsMenu => {
             super::open_models_selector(session, controller);
         }
-        ModalKeyResult::OpenSlotModelSelector { slot } => {
-            super::open_slot_model_selector(session, controller, *slot);
+        ModalKeyResult::OpenRoleModelSelector { role } => {
+            super::open_role_model_selector(session, controller, role);
         }
         ModalKeyResult::OpenToolsMenu => {
             super::open_tools_selector(session, controller);
@@ -192,10 +192,10 @@ pub(crate) async fn handle_search_engine_selected<B: TerminalBackend>(
     Ok(true)
 }
 
-pub(crate) async fn handle_slot_model_selected<B: TerminalBackend>(
+pub(crate) async fn handle_role_model_selected<B: TerminalBackend>(
     session: &mut ReplSession,
     controller: &mut TerminalController<B>,
-    slot: ModelSlot,
+    role: &ModelRole,
     model: &str,
     provider: &str,
 ) -> Result<bool> {
@@ -205,10 +205,10 @@ pub(crate) async fn handle_slot_model_selected<B: TerminalBackend>(
         Some(rho_harness_core::provider::ModelRoute::new(provider, model).to_string())
     };
 
-    let key = slot.key();
+    let key = role.key();
     match &spec {
-        Some(spec) => session.config.models.insert(key.to_string(), spec.clone()),
-        None => session.config.models.remove(key),
+        Some(spec) => session.config.model_roles.insert(key.to_string(), spec.clone()),
+        None => session.config.model_roles.remove(key),
     };
 
     let save_val = spec.as_deref().unwrap_or("none");
@@ -220,11 +220,11 @@ pub(crate) async fn handle_slot_model_selected<B: TerminalBackend>(
     .await;
 
     let display = spec.as_deref().unwrap_or("None");
-    super::update_models_role_description(controller, Some(slot), display);
+    super::update_models_role_description(controller, Some(role), display);
     if report_save(&session.renderer, &format!("{key} model"), &saved) && controller.state().active_modal().is_none() {
         session
             .renderer
-            .print_status(&format!("{} model set to {display}", slot.title()));
+            .print_status(&format!("{} model set to {display}", role.title()));
     }
     controller.redraw()?;
     Ok(true)
@@ -292,8 +292,8 @@ pub(crate) async fn apply_shared_modal_action<B: TerminalBackend>(
         ModalKeyResult::SearchEngineSelected { engine: name } => {
             handle_search_engine_selected(session, controller, name).await
         }
-        ModalKeyResult::SlotModelSelected { slot, model, provider } => {
-            handle_slot_model_selected(session, controller, *slot, model, provider).await
+        ModalKeyResult::RoleModelSelected { role, model, provider } => {
+            handle_role_model_selected(session, controller, role, model, provider).await
         }
         _ => Ok(false),
     }

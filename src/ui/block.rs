@@ -209,6 +209,7 @@ pub enum BlockMode {
     #[default]
     Fill,
     Border,
+    Divider,
 }
 
 pub struct BlockFormat {
@@ -240,6 +241,16 @@ impl BlockFormat {
         }
     }
 
+    pub fn divider(style: Style, border_style: Style, width: usize) -> Self {
+        Self {
+            style,
+            width,
+            vertical_padding: false,
+            mode: BlockMode::Divider,
+            border_style,
+        }
+    }
+
     pub fn with_vertical_padding(mut self) -> Self {
         self.vertical_padding = true;
         self
@@ -254,7 +265,7 @@ impl BlockFormat {
     pub fn render_styled(&self, content: &str) -> String {
         let inner_width = self.inner_width();
         let wrap_style = match self.mode {
-            BlockMode::Fill => self.style,
+            BlockMode::Fill | BlockMode::Divider => self.style,
             BlockMode::Border => Style::new(),
         };
         let lines: Vec<String> = content
@@ -267,7 +278,7 @@ impl BlockFormat {
     pub fn render_line(&self, content: &str) -> String {
         let inner_width = self.inner_width();
         let wrap_style = match self.mode {
-            BlockMode::Fill => self.style,
+            BlockMode::Fill | BlockMode::Divider => self.style,
             BlockMode::Border => Style::new(),
         };
         let lines = wrap_styled_line(content, inner_width, wrap_style);
@@ -278,7 +289,7 @@ impl BlockFormat {
 
     pub fn inner_width(&self) -> usize {
         match self.mode {
-            BlockMode::Fill => self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1),
+            BlockMode::Fill | BlockMode::Divider => self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1),
             BlockMode::Border => self.width.saturating_sub(4).max(1),
         }
     }
@@ -307,7 +318,21 @@ impl BlockFormat {
                 output.push_str(&self.bottom_border_line());
                 output
             }
+            BlockMode::Divider => {
+                let mut output = String::new();
+                output.push_str(&self.divider_line());
+                for line in lines {
+                    output.push_str(&self.padded_line(line));
+                }
+                output.push_str(&self.divider_line());
+                output
+            }
         }
+    }
+
+    fn divider_line(&self) -> String {
+        let style = self.border_style;
+        format!("{style}{}{style:#}\n", "─".repeat(self.width))
     }
 
     fn top_border_line(&self) -> String {
@@ -446,6 +471,21 @@ mod tests {
             assert!(line.starts_with("\x1b[40m "));
         }
         assert!(rendered.contains("\x1b[0m\x1b[40m extra"));
+    }
+
+    #[test]
+    fn divider_blocks_combine_solid_fill_with_top_and_bottom_rules() {
+        let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack)));
+        let rendered = BlockFormat::divider(background(), border_style, 20)
+            .with_vertical_padding()
+            .render_styled("\x1b[32mok\x1b[0m text");
+        let lines: Vec<&str> = rendered.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines.iter().all(|line| visible_width(line) == 20));
+        assert_eq!(strip_ansi(lines[0]), "─".repeat(20));
+        assert_eq!(strip_ansi(lines[2]), "─".repeat(20));
+        assert!(lines[1].starts_with("\x1b[40m \x1b[32mok\x1b[0m\x1b[40m text"));
+        assert!(!strip_ansi(lines[1]).contains('│'));
     }
 
     #[test]

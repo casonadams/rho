@@ -89,8 +89,9 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn toggle_block_style(&mut self) -> io::Result<crate::ui::theme::BlockStyle> {
         let next = match self.theme.block_style {
-            crate::ui::theme::BlockStyle::Solid => crate::ui::theme::BlockStyle::Border,
             crate::ui::theme::BlockStyle::Border => crate::ui::theme::BlockStyle::Solid,
+            crate::ui::theme::BlockStyle::Solid => crate::ui::theme::BlockStyle::Divider,
+            crate::ui::theme::BlockStyle::Divider => crate::ui::theme::BlockStyle::Border,
         };
         self.set_block_style(next)
     }

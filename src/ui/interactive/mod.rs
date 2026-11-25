@@ -1,3 +1,4 @@
+pub mod a2ui;
 pub(crate) mod controller;
 mod events;
 pub mod footer;

@@ -1072,6 +1072,7 @@ fn model_selector_displays_claude_tag() {
         system_message: None,
         queued_messages: &[],
         widget_lines: &[],
+        below_widget_lines: &[],
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
@@ -1109,43 +1110,50 @@ fn model_selector_selects_claude_model() {
 }
 
 #[test]
-fn slot_model_selector_lifecycle() {
-    use rho_harness_core::config::ModelSlot;
+fn role_model_selector_lifecycle() {
+    use rho_harness_core::config::ModelRole;
     let (_dir, session) = setup_claude_session();
     let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
     let key = |controller: &mut TerminalController<NullBackend>, code| {
         handle_modal_key(controller, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
     };
-    for slot in ModelSlot::ALL {
-        super::super::modal::open_slot_model_selector(&session, &mut controller, slot);
+    let custom = ModelRole::parse("custom_role").unwrap();
+    for role in [
+        ModelRole::SMOL,
+        ModelRole::SLOW,
+        ModelRole::GUARD,
+        ModelRole::WIDGET,
+        custom,
+    ] {
+        super::super::modal::open_role_model_selector(&session, &mut controller, &role);
         let modal = controller.state().active_modal().unwrap();
-        assert_eq!(modal.title, format!("Select {} Model", slot.title()));
+        assert_eq!(modal.title, format!("Select {} Model", role.title()));
         assert_eq!(modal.options[0].label, "None");
         assert_eq!(key(&mut controller, KeyCode::Esc), ModalKeyResult::Handled);
         assert!(controller.state().active_modal().is_none());
 
-        super::super::modal::open_slot_model_selector(&session, &mut controller, slot);
+        super::super::modal::open_role_model_selector(&session, &mut controller, &role);
         assert_eq!(
             key(&mut controller, KeyCode::Enter),
-            ModalKeyResult::SlotModelSelected {
-                slot,
+            ModalKeyResult::RoleModelSelected {
+                role: role.clone(),
                 model: "None".into(),
                 provider: "none".into()
             }
         );
 
-        super::super::modal::open_slot_model_selector(&session, &mut controller, slot);
+        super::super::modal::open_role_model_selector(&session, &mut controller, &role);
         key(&mut controller, KeyCode::Down);
         match key(&mut controller, KeyCode::Enter) {
-            ModalKeyResult::SlotModelSelected {
-                slot: picked,
+            ModalKeyResult::RoleModelSelected {
+                role: picked,
                 model,
                 provider,
             } => {
-                assert_eq!(picked, slot);
+                assert_eq!(picked, role);
                 assert!(!model.is_empty() && !provider.is_empty());
             }
-            other => panic!("expected SlotModelSelected, got {other:?}"),
+            other => panic!("expected RoleModelSelected, got {other:?}"),
         }
     }
 }

@@ -221,7 +221,7 @@ fn guard_route_reads_the_guard_role() {
     for (spec, expected) in cases {
         let mut config = Config::default();
         if let Some(spec) = spec {
-            config.models.insert("guard".to_string(), spec.to_string());
+            config.model_roles.insert("guard".to_string(), spec.to_string());
         }
         assert_eq!(
             guard_route(&config).map(|r| r.to_string()).as_deref(),
@@ -242,7 +242,7 @@ async fn guard_model_builds_only_when_configured_and_releases_the_auth_lock() {
     assert!(router.build_guard(&config).await.unwrap().is_none());
 
     config
-        .models
+        .model_roles
         .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
     let guard = router.build_guard(&config).await.unwrap().unwrap();
     assert_eq!(
@@ -345,4 +345,44 @@ fn gemini_and_chatgpt_builders_name_provider_and_model() {
         .build_blocking(&Config::default(), &ModelRoute::new("chatgpt", "gpt-5.4"))
         .unwrap();
     assert_eq!((chatgpt.provider_name(), chatgpt.model_name()), ("chatgpt", "gpt-5.4"));
+}
+
+#[tokio::test]
+async fn build_role_decision_follows_role_chain_and_skips_unconfigured() {
+    let (_dir, auth_store) = temp_auth_store();
+    let router = router(&auth_store);
+    let mut config = Config::default();
+
+    assert!(
+        router
+            .build_role_decision(&config, &["widget", "judge", "guard"])
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(router.build_guard_decision(&config).await.unwrap().is_none());
+
+    config
+        .model_roles
+        .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
+    assert!(
+        router
+            .build_role_decision(&config, &["widget", "judge", "guard"])
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(router.build_guard_decision(&config).await.unwrap().is_some());
+
+    // Earlier role in chain takes precedence over guard.
+    config
+        .model_roles
+        .insert("widget".to_string(), "local/phi-4-mini".to_string());
+    assert!(
+        router
+            .build_role_decision(&config, &["widget", "judge", "guard"])
+            .await
+            .unwrap()
+            .is_some()
+    );
 }

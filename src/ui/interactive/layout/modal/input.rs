@@ -44,6 +44,7 @@ pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize,
             terminal_height: height,
             raw_queued_count: 0,
             raw_widgets_count: 0,
+            raw_below_widgets_count: 0,
             raw_footer_count: 1,
             total_editor_lines: desired,
             autocomplete_desired: 0,
@@ -55,6 +56,9 @@ pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize,
 }
 
 pub fn in_input_modal_desired_lines(modal: &ModalState, draft_text: &str, inner_width: usize) -> usize {
+    if let Some(a2ui) = &modal.a2ui {
+        return a2ui.desired_lines(inner_width);
+    }
     let search = usize::from(modal.is_searchable);
     let input = if matches!(modal.mode, ModalMode::Input { .. }) {
         wrap_to_width(modal.input.text(), input_wrap_width(modal, inner_width))
@@ -221,6 +225,9 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
         return (Vec::new(), CursorPosition { row: 0, column: 0 }, false);
     }
     let inner_width = width.saturating_sub(4).max(1);
+    if let Some(a2ui) = &input.modal.a2ui {
+        return a2ui.render(inner_width, max_lines, input.theme, input.focused);
+    }
     let (b_space, opt_space, input_lines, has_draft) =
         modal_in_input_spaces(input.modal, input.draft_text, max_lines, inner_width);
 

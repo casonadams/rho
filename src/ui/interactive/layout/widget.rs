@@ -1,5 +1,9 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::interactive::state::RunningTool;
+use crate::ui::render::card::style_tool_header_args;
+use crate::ui::render::structured::{
+    align_header_with_right, append_section, format_structured_bash_input, format_structured_header_left,
+};
 use crate::ui::render::{format_bash_args_header, highlight_bash_args_header, normalize_tool_name, tool_title_style};
 use crate::ui::theme::Theme;
 
@@ -93,12 +97,65 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
     content
 }
 
+fn format_structured_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> String {
+    let inner_width = input
+        .theme
+        .tool_block(input.tool.name == "bash", false, width)
+        .inner_width();
+    let (input_body, meta) = if input.tool.name == "bash" {
+        format_structured_bash_input(&input.tool.args_summary, input.theme)
+    } else if input.tool.args_summary.is_empty() {
+        (String::new(), None)
+    } else {
+        (
+            style_tool_header_args(&input.tool.name, &input.tool.args_summary, input.theme),
+            None,
+        )
+    };
+    let left = format_structured_header_left(
+        &input.tool.name,
+        "\u{25cf}",
+        input.theme.dimmed,
+        false,
+        meta.as_deref(),
+        input.theme,
+    );
+    let elapsed = format_elapsed(input.tool.elapsed());
+    let mut content = align_header_with_right(&left, Some(&elapsed), inner_width, input.theme.dimmed);
+    append_section(&mut content, "Input", &input_body, input.theme.dimmed);
+
+    let mut output_parts = Vec::new();
+    if let Some(preview) = &input.tool.preview {
+        output_parts.push(preview.clone());
+    }
+    let raw_output = input.tool.output.trim_end().replace('\t', "   ");
+    if !raw_output.is_empty() {
+        let rendered = if input.theme.syntax_highlight_tools {
+            crate::ui::render::output_highlight::highlight_tool_output(&input.tool.name, &raw_output, input.theme)
+        } else {
+            raw_output
+        };
+        let formatted = if input.tools_expanded {
+            rendered
+        } else {
+            format_collapsed_output(&rendered, width, input.theme.dimmed)
+        };
+        output_parts.push(formatted);
+    }
+    append_section(&mut content, "Output", &output_parts.join("\n\n"), input.theme.dimmed);
+    content
+}
+
 pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
     if input.tool.preview.is_none() && input.tool.output.is_empty() && !RunningTool::has_live_card(&input.tool.name) {
         return Vec::new();
     }
     let width = input.width.max(20);
-    let content = format_widget_content(input, width);
+    let content = if input.theme.structured_tool_cards {
+        format_structured_widget_content(input, width)
+    } else {
+        format_widget_content(input, width)
+    };
     let block = input
         .theme
         .tool_block(input.tool.name == "bash", false, width)

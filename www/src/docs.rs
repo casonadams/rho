@@ -286,8 +286,8 @@ mod tests {
     #[test]
     fn the_tool_list_comes_from_the_readme() {
         let tools = tools();
-        assert_eq!(tools.len(), 15);
-        assert!(Doc::Overview.markdown().contains("includes 15 fast, native tools"));
+        assert_eq!(tools.len(), 16);
+        assert!(Doc::Overview.markdown().contains("includes 16 fast, native tools"));
         let read = &tools[0];
         assert_eq!(read.name, "read");
         assert_eq!(

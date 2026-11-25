@@ -6,7 +6,7 @@ mod paths;
 mod ui;
 
 pub use app::{
-    ApprovalFocus, BashConfig, CacheRetention, Config, DEFAULT_MAX_TURNS, LspConfig, ModelSlot, SubagentsConfig,
+    ApprovalFocus, BashConfig, CacheRetention, Config, DEFAULT_MAX_TURNS, LspConfig, ModelRole, SubagentsConfig,
     ToolsConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig, WorktreeConfig,
 };
 pub use file::ModelsConfig;
@@ -18,7 +18,7 @@ pub use integrations::{
 pub(crate) use key::ConfigKey;
 pub use paths::{config_dir, default_config_dir, dirs_fallback, home_dir};
 pub use ui::{
-    ContextLineMode, DisplayUiConfig, DividerStyle, GitSegmentOptions, ModelSegmentOptions, PathSegmentOptions,
-    PromptUiConfig, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSegmentOptions,
-    StatusBarSeparator, TimeFormat, TimeSegmentOptions, UiConfig,
+    A2uiConfig, ContextLineMode, DisplayUiConfig, DividerStyle, GitSegmentOptions, ModelSegmentOptions,
+    PathSegmentOptions, PromptUiConfig, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId,
+    StatusBarSegmentOptions, StatusBarSeparator, TimeFormat, TimeSegmentOptions, UiConfig,
 };

@@ -192,7 +192,7 @@ guard = "local/qwen2.5-coder:7b"
 "#;
     let file: FileConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
-    assert_eq!(file.models.guard.as_deref(), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(file.models.role("guard"), Some("local/qwen2.5-coder:7b"));
 
     let mut config = Config::default();
     super::super::merge::merge_file(&mut config, file);
@@ -265,4 +265,48 @@ fn test_mcp_config_defaults() {
     assert!(config.enabled);
     assert_eq!(config.defer_threshold, 4);
     assert!(config.servers.is_empty());
+}
+
+#[test]
+fn model_role_validation_and_resolution() {
+    use crate::config::ModelRole;
+
+    assert_eq!(ModelRole::BUILTINS.len(), 9);
+    assert_eq!(ModelRole::parse(" Widget ").unwrap(), ModelRole::WIDGET);
+    assert_eq!(ModelRole::parse("my-custom_1").unwrap().as_str(), "my-custom_1");
+    assert_eq!(ModelRole::WIDGET.title(), "Widget");
+
+    for invalid in ["", "   ", "default", "DEFAULT", "bad.role", "bad role", "a/b"] {
+        assert!(ModelRole::parse(invalid).is_err(), "{invalid:?}");
+    }
+
+    let mut config = Config {
+        default_model: Some("anthropic/claude-sonnet-4-5".to_string()),
+        ..Default::default()
+    };
+    config
+        .model_roles
+        .insert("smol".to_string(), "google/gemini-2.5-flash".to_string());
+    config.model_roles.insert("widget".to_string(), "none".to_string());
+    config.model_roles.insert("judge".to_string(), "  ".to_string());
+    config
+        .model_roles
+        .insert("guard".to_string(), "local/qwen2.5-coder:7b".to_string());
+
+    assert_eq!(config.role_model("SMOL"), Some("google/gemini-2.5-flash"));
+    assert_eq!(config.role_model("widget"), None);
+    assert_eq!(config.role_model("judge"), None);
+    assert_eq!(
+        config.resolve_role_chain(&["widget", "judge", "guard"]),
+        Some(("guard", "local/qwen2.5-coder:7b"))
+    );
+    assert_eq!(config.resolve_role_chain(&["widget", "judge"]), None);
+    assert_eq!(config.resolve_model_selector("@smol"), Some("google/gemini-2.5-flash"));
+    assert_eq!(
+        config.resolve_model_selector("@default"),
+        Some("anthropic/claude-sonnet-4-5")
+    );
+    assert_eq!(config.resolve_model_selector("openai/gpt-5"), Some("openai/gpt-5"));
+    assert_eq!(config.resolve_model_selector("@widget"), None);
+    assert_eq!(config.resolve_model_selector("none"), None);
 }

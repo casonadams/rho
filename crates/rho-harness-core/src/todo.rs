@@ -2,7 +2,7 @@
 //! result, or the `<todos>` block a compaction summary carries, so it follows the session through
 //! resume and compaction without separate state.
 
-use crate::args::{TodoItem, TodoStatus};
+pub use crate::args::{TodoItem, TodoStatus};
 use crate::model::{ChatMessage, UserContent};
 use std::fmt::Write as _;
 

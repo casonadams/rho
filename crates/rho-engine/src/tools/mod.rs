@@ -3,6 +3,7 @@
 //! `registry` wires declarations into the model-facing tool list.
 
 pub mod artifact;
+pub mod ask;
 pub(crate) mod atomic;
 pub mod bash;
 pub mod builtin_tools;
@@ -30,6 +31,7 @@ pub mod worktree_tool;
 pub mod write;
 
 pub use artifact::{cleanup_artifacts, format_artifact_notice, spill_artifact};
+pub use ask::AskTool;
 pub use bash::{BashArgs, BashTool};
 pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_builtin_tools};
 pub use edit::{EditArgs, EditTool};

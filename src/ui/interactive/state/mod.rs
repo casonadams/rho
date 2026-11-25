@@ -27,6 +27,9 @@ pub struct InteractiveState {
     modals: Vec<ModalFrame>,
     pub autocomplete: AutocompleteState,
     system_message: Option<String>,
+    a2ui_store: rho_harness_core::a2ui::SurfaceStore,
+    a2ui_widgets: bool,
+    a2ui_config: rho_harness_core::config::A2uiConfig,
 }
 
 impl InteractiveState {
@@ -57,6 +60,40 @@ impl InteractiveState {
 
     pub fn set_system_message(&mut self, message: Option<String>) {
         self.system_message = message;
+    }
+
+    pub fn a2ui_widgets(&self) -> bool {
+        self.a2ui_widgets
+    }
+
+    pub fn set_a2ui_widgets(&mut self, enabled: bool) {
+        self.a2ui_widgets = enabled;
+    }
+
+    pub fn a2ui_config(&self) -> &rho_harness_core::config::A2uiConfig {
+        &self.a2ui_config
+    }
+
+    pub fn set_a2ui_config(&mut self, config: rho_harness_core::config::A2uiConfig) {
+        self.a2ui_config = config;
+    }
+
+    pub fn a2ui_store(&self) -> &rho_harness_core::a2ui::SurfaceStore {
+        &self.a2ui_store
+    }
+
+    pub fn apply_a2ui_message(
+        &mut self,
+        msg: rho_harness_core::a2ui::A2uiMessage,
+    ) -> Result<(), rho_harness_core::a2ui::A2uiError> {
+        self.a2ui_store.apply(msg)
+    }
+
+    pub fn a2ui_surfaces_for(
+        &self,
+        placement: rho_harness_core::a2ui::SurfacePlacement,
+    ) -> Vec<&rho_harness_core::a2ui::A2uiSurface> {
+        self.a2ui_store.surfaces_for(placement)
     }
 
     pub fn set_hide_thinking(&mut self, hide: bool) {

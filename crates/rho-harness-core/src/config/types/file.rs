@@ -1,26 +1,80 @@
-use super::app::SubagentsConfig;
+use super::app::{ModelRole, SubagentsConfig};
 use super::integrations::{PermissionConfig, ProviderConfig};
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ModelsConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub smol: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slow: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub guard: Option<String>,
-    /// Keys this version does not know, kept so saving a setting never deletes them.
-    #[serde(flatten)]
+    pub roles: BTreeMap<String, String>,
+    /// Non-string or invalid keys kept so saving a setting never deletes them.
     pub extra: BTreeMap<String, toml::Value>,
 }
 
 impl ModelsConfig {
     pub fn is_empty(&self) -> bool {
-        *self == Self::default()
+        self.default.is_none() && self.roles.is_empty() && self.extra.is_empty()
+    }
+
+    pub fn role(&self, role: &str) -> Option<&str> {
+        self.roles.get(role).map(String::as_str)
+    }
+
+    pub fn set_role(&mut self, role: &str, value: Option<String>) {
+        match value {
+            Some(spec) => {
+                self.roles.insert(role.to_string(), spec);
+            }
+            None => {
+                self.roles.remove(role);
+            }
+        }
+    }
+}
+
+impl Serialize for ModelsConfig {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let len = usize::from(self.default.is_some()) + self.roles.len() + self.extra.len();
+        let mut map = serializer.serialize_map(Some(len))?;
+        if let Some(ref default) = self.default {
+            map.serialize_entry("default", default)?;
+        }
+        for (role, spec) in &self.roles {
+            map.serialize_entry(role, spec)?;
+        }
+        for (key, value) in &self.extra {
+            if key != "default" && !self.roles.contains_key(key) {
+                map.serialize_entry(key, value)?;
+            }
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelsConfig {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = BTreeMap::<String, toml::Value>::deserialize(deserializer)?;
+        let mut config = Self::default();
+        for (key, value) in raw {
+            if key == "default" {
+                match value {
+                    toml::Value::String(s) => config.default = Some(s),
+                    other => {
+                        config.extra.insert(key, other);
+                    }
+                }
+                continue;
+            }
+            if let toml::Value::String(spec) = &value
+                && let Ok(role) = ModelRole::parse(&key)
+            {
+                config.roles.insert(role.as_str().to_string(), spec.clone());
+                continue;
+            }
+            config.extra.insert(key, value);
+        }
+        Ok(config)
     }
 }
 

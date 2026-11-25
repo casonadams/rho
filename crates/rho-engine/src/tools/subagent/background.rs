@@ -4,8 +4,9 @@ use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
 use crate::tools::bash::runner::neutralize_notice_tags;
 use crate::tools::jobs::{JobManager, JobStatus, job_notice};
 use crate::tools::types::ToolResult;
+use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
 use rho_harness_core::args::SubagentRole;
-use rho_harness_core::presentation::{SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
+use rho_harness_core::presentation::{Presenter, SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -98,6 +99,8 @@ struct OpenRound {
     mailbox: Mailbox,
     settings: ConversationSettings,
     stop: CancellationSignal,
+    started_at: std::time::Instant,
+    presenter: Option<Arc<dyn Presenter>>,
 }
 
 /// The running rounds by task id.
@@ -110,7 +113,40 @@ impl OpenRounds {
     }
 
     fn insert(&self, task_id: &str, round: OpenRound) {
+        let presenter = round.presenter.clone();
         self.lock().insert(task_id.to_string(), round);
+        self.emit_surface(presenter.as_deref());
+    }
+
+    fn snapshot_rows(&self) -> Vec<SubagentSurfaceRow> {
+        let rounds = self.lock();
+        let mut rows: Vec<SubagentSurfaceRow> = rounds
+            .iter()
+            .map(|(task_id, round)| SubagentSurfaceRow {
+                id: task_id.clone(),
+                name: round.settings.name.clone().unwrap_or_else(|| task_id.clone()),
+                role: round
+                    .settings
+                    .agent
+                    .clone()
+                    .or_else(|| Some(SubagentRole::default().as_str().to_string())),
+                status: "running".to_string(),
+                tone: SemanticTone::Accent,
+                elapsed_ms: Some(round.started_at.elapsed().as_millis() as u64),
+            })
+            .collect();
+        rows.sort_by(|a, b| a.id.cmp(&b.id));
+        rows
+    }
+
+    fn emit_surface(&self, presenter: Option<&dyn Presenter>) {
+        let Some(presenter) = presenter else {
+            return;
+        };
+        let rows = self.snapshot_rows();
+        for msg in subagent_surface_messages(&rows) {
+            presenter.emit_a2ui(msg);
+        }
     }
 
     fn settings(&self, task_id: &str) -> Option<ConversationSettings> {
@@ -135,10 +171,13 @@ impl OpenRounds {
     /// the messages the round never read.
     fn close(&self, task_id: &str, mailbox: Mailbox) -> Vec<String> {
         let mut rounds = self.lock();
-        if rounds.get(task_id).is_some_and(|round| round.mailbox.same(&mailbox)) {
-            rounds.remove(task_id);
-        }
+        let presenter = if rounds.get(task_id).is_some_and(|round| round.mailbox.same(&mailbox)) {
+            rounds.remove(task_id).and_then(|round| round.presenter)
+        } else {
+            None
+        };
         drop(rounds);
+        self.emit_surface(presenter.as_deref());
         mailbox.close().into_iter().map(|m| m.body).collect()
     }
 }
@@ -187,6 +226,8 @@ pub(crate) struct BackgroundTask<'a> {
     pub cancellation: Option<CancellationSignal>,
     /// What the task runs as; a message sent while it runs is checked against it.
     pub settings: ConversationSettings,
+    /// Optional presenter for emitting live `rho:subagents` A2UI surface updates.
+    pub presenter: Option<Arc<dyn Presenter>>,
 }
 
 /// What a running round works with: where to stream progress, its mailbox, and the signal asking it
@@ -397,6 +438,8 @@ impl Backgrounding {
                 mailbox: inbox.clone(),
                 settings: task.settings.clone(),
                 stop: stop.clone(),
+                started_at: std::time::Instant::now(),
+                presenter: task.presenter.clone(),
             },
         );
         let mut open_inbox = OpenInbox {

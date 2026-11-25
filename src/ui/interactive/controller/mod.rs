@@ -297,19 +297,47 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn active_widget_lines(&self) -> Vec<String> {
-        self.state.active_tool().map_or_else(Vec::new, |tool| {
+        let mut lines = self.state.active_tool().map_or_else(Vec::new, |tool| {
             super::layout::render_running_tool_widget(super::layout::RunningToolWidgetInput {
                 tool,
                 theme: &self.theme,
                 width: self.width,
                 tools_expanded: self.state.tools_expanded(),
             })
-        })
+        });
+        if self.state.a2ui_widgets() && self.state.active_modal().is_none() {
+            let surfaces = self
+                .state
+                .a2ui_surfaces_for(rho_harness_core::a2ui::SurfacePlacement::AboveEditor);
+            lines.extend(super::a2ui::render_surfaces(
+                &surfaces,
+                self.width,
+                self.state.a2ui_config().max_above_lines,
+                &self.theme,
+            ));
+        }
+        lines
+    }
+
+    fn below_widget_lines(&self) -> Vec<String> {
+        if !self.state.a2ui_widgets() || self.state.active_modal().is_some() {
+            return Vec::new();
+        }
+        let surfaces = self
+            .state
+            .a2ui_surfaces_for(rho_harness_core::a2ui::SurfacePlacement::BelowEditor);
+        super::a2ui::render_surfaces(
+            &surfaces,
+            self.width,
+            self.state.a2ui_config().max_below_lines,
+            &self.theme,
+        )
     }
 
     pub(super) fn current_layout(&self) -> InteractiveLayout {
         let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
         let widget_lines = self.active_widget_lines();
+        let below_widget_lines = self.below_widget_lines();
         let editor = self
             .state
             .active_modal_saved_editor()
@@ -323,6 +351,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             system_message: self.state.system_message(),
             queued_messages: &queue_slice,
             widget_lines: &widget_lines,
+            below_widget_lines: &below_widget_lines,
             terminal_width: self.width,
             terminal_height: self.height,
             spinner_frame: self.spinner_frame,

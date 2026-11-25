@@ -36,6 +36,7 @@ pub struct InteractiveLayout {
     pub top_divider: String,
     pub editor_lines: Vec<String>,
     pub bottom_divider: String,
+    pub below_widget_lines: Vec<String>,
     pub footer_lines: Vec<String>,
     pub footer: String,
 }
@@ -59,6 +60,7 @@ pub struct LayoutInput<'a> {
     pub system_message: Option<&'a str>,
     pub queued_messages: &'a [QueuedMessage],
     pub widget_lines: &'a [String],
+    pub below_widget_lines: &'a [String],
     pub terminal_width: usize,
     pub terminal_height: usize,
     pub spinner_frame: usize,

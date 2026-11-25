@@ -160,6 +160,7 @@ impl LiveBatch {
             }
             changed = true;
         }
+        changed |= apply_a2ui_updates(controller, &mut drained.a2ui_messages);
         Ok(changed)
     }
 
@@ -217,6 +218,23 @@ pub fn drain_ui_events<B: crate::ui::interactive::TerminalBackend>(
     let result = batch.drain_events(controller, events);
     *modal = batch.modal;
     result
+}
+
+fn apply_a2ui_updates<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    messages: &mut Vec<rho_harness_core::a2ui::A2uiMessage>,
+) -> bool {
+    if !controller.state().a2ui_widgets() {
+        messages.clear();
+        return false;
+    }
+    let mut changed = false;
+    for message in messages.drain(..) {
+        if controller.state_mut().apply_a2ui_message(message).is_ok() {
+            changed = true;
+        }
+    }
+    changed
 }
 
 #[cfg(test)]
@@ -408,5 +426,121 @@ mod tests {
         queue(&mut batch, vec![UiEvent::RunningTool(Some("grep".into()))]);
         batch.flush(&mut controller, true).unwrap();
         assert_eq!(controller.state().footer().running_tool.as_deref(), Some("grep"));
+    }
+
+    #[test]
+    fn presenter_emit_a2ui_updates_controller_only_when_enabled() {
+        use rho_harness_core::a2ui::{TODO_SURFACE_ID, todo_surface_messages};
+        use rho_harness_core::presentation::Presenter;
+        use rho_harness_core::todo::{TodoItem, TodoStatus};
+
+        let (ui, mut rx) = crate::ui::interactive::InteractiveUi::channel();
+        let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+        let items = vec![TodoItem {
+            content: "Wire A2UI".to_string(),
+            status: TodoStatus::InProgress,
+        }];
+        for msg in todo_surface_messages(&items) {
+            renderer.emit_a2ui(msg);
+        }
+
+        let mut disabled_ctrl = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut modal = None;
+        drain_ui_events(&mut disabled_ctrl, &mut rx, &mut modal).unwrap();
+        assert!(disabled_ctrl.state().a2ui_store().is_empty());
+
+        for msg in todo_surface_messages(&items) {
+            renderer.emit_a2ui(msg);
+        }
+        let mut enabled_state = InteractiveState::default();
+        enabled_state.set_a2ui_widgets(true);
+        let mut enabled_ctrl = TerminalController::new(NullBackend, enabled_state).unwrap();
+        drain_ui_events(&mut enabled_ctrl, &mut rx, &mut modal).unwrap();
+        assert!(enabled_ctrl.state().a2ui_store().surface(TODO_SURFACE_ID).is_some());
+        let rendered = enabled_ctrl.rendered().unwrap();
+        assert!(!rendered.widget_lines.is_empty());
+    }
+
+    #[tokio::test]
+    async fn presenter_request_a2ui_modal_round_trips_through_live_batch() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use rho_harness_core::a2ui::{
+            A2uiComponent, A2uiComponentKind, A2uiMessage, A2uiModalRequest, A2uiModalResult, BoundString,
+            CreateSurface, SurfacePlacement, UpdateComponents,
+        };
+        use rho_harness_core::presentation::Presenter;
+
+        let headless = crate::ui::TerminalRenderer::default();
+        assert!(
+            headless
+                .request_a2ui_modal(A2uiModalRequest {
+                    surface_id: "s".into(),
+                    title: None,
+                    messages: vec![],
+                    timeout_ms: None,
+                })
+                .await
+                .is_none()
+        );
+
+        let (ui, mut rx) = crate::ui::interactive::InteractiveUi::channel();
+        let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+        let req = A2uiModalRequest {
+            surface_id: "ask:test".into(),
+            title: Some("Confirm".into()),
+            messages: vec![
+                A2uiMessage::CreateSurface(CreateSurface {
+                    surface_id: "ask:test".into(),
+                    catalog_id: None,
+                    placement: SurfacePlacement::Modal,
+                    title: Some("Confirm".into()),
+                    priority: 100,
+                    root_id: "name".into(),
+                }),
+                A2uiMessage::UpdateComponents(UpdateComponents {
+                    surface_id: "ask:test".into(),
+                    components: vec![A2uiComponent::new(
+                        "name",
+                        A2uiComponentKind::TextField {
+                            label: Some(BoundString::literal("Name")),
+                            placeholder: None,
+                            value_path: "/name".into(),
+                            multiline: false,
+                            masked: false,
+                        },
+                    )],
+                }),
+            ],
+            timeout_ms: None,
+        };
+        let task = tokio::spawn(async move { renderer.request_a2ui_modal(req).await });
+        tokio::task::yield_now().await;
+
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut modal = None;
+        drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
+        assert!(modal.is_some());
+        assert!(controller.state().active_modal().is_some());
+
+        crate::repl::live::modal::handle_modal_key(
+            &mut controller,
+            KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE),
+            &mut modal,
+        )
+        .unwrap();
+        crate::repl::live::modal::handle_modal_key(
+            &mut controller,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut modal,
+        )
+        .unwrap();
+
+        let result = task.await.unwrap();
+        let Some(A2uiModalResult::Submitted { data_model, .. }) = result else {
+            panic!("expected Submitted, got {result:?}");
+        };
+        assert_eq!(data_model["name"], "R");
+        assert!(modal.is_none());
+        assert!(controller.state().active_modal().is_none());
     }
 }

@@ -19,7 +19,7 @@ pub use types::*;
 use batch::drain_ui_events;
 use idle::read_idle_input;
 use navigation::update_footer;
-use setup::{build_completions, init_live_ui, maybe_hydrate_transcript};
+use setup::{build_completions, init_live_controller, init_live_renderer, maybe_hydrate_transcript};
 
 use super::ReplSession;
 use super::interactive::{CompletionSet, InteractiveHistory};
@@ -115,27 +115,24 @@ async fn run_live_loop<B: TerminalBackend>(
 async fn build_live_environment(
     session: &mut ReplSession,
     engine: &AgentEngine,
-) -> Result<(
-    TerminalController<CrosstermBackend>,
-    tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
-    InteractiveHistory,
-    CompletionSet,
-)> {
-    let (mut controller, mut ui_events) = init_live_ui(session, engine)?;
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+) -> Result<(TerminalController<CrosstermBackend>, InteractiveHistory, CompletionSet)> {
+    let mut controller = init_live_controller(session, engine)?;
     let skills = crate::repl::print_welcome(session, engine).await;
-    drain_ui_events(&mut controller, &mut ui_events, &mut None)?;
+    drain_ui_events(&mut controller, ui_events, &mut None)?;
     let history = InteractiveHistory::with_file_async(1000, session.config.config_dir.join("history.txt"))
         .await
         .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
     let completions = build_completions(session, skills).await;
     maybe_hydrate_transcript(session.resume_id.is_some(), engine, &mut controller).await;
-    Ok((controller, ui_events, history, completions))
+    Ok((controller, history, completions))
 }
 
 impl ReplSession {
     pub(super) async fn run_live(&mut self) -> Result<()> {
+        let mut ui_events = init_live_renderer(self);
         let mut engine = crate::repl::init_engine(self).await?;
-        let (mut controller, mut ui_events, mut history, completions) = build_live_environment(self, &engine).await?;
+        let (mut controller, mut history, completions) = build_live_environment(self, &engine, &mut ui_events).await?;
         let mut input = TerminalInputReader::spawn()?;
         let io = LiveIo {
             controller: &mut controller,

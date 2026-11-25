@@ -68,6 +68,7 @@ pub struct AgentEngine {
     pub(crate) pending_relocation: Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
     pub(crate) mcp: EngineMcp,
     pub(crate) ollama_host: String,
+    pub(crate) presenter: Option<Arc<dyn rho_harness_core::presentation::Presenter>>,
 }
 
 #[derive(Default)]
@@ -175,6 +176,9 @@ impl AgentEngine {
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));
         }
+        if let Some(presenter) = &self.presenter {
+            builder = builder.presenter(Arc::clone(presenter));
+        }
         let rebuilt = builder.build().await?;
         rebuilt.spawn_refresh_quota();
         Ok(rebuilt)
@@ -203,6 +207,9 @@ impl AgentEngine {
             .base_dir(new_base_dir);
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));
+        }
+        if let Some(presenter) = &self.presenter {
+            builder = builder.presenter(Arc::clone(presenter));
         }
         let rebuilt = builder.build().await?;
         rebuilt.spawn_refresh_quota();

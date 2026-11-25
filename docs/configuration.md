@@ -225,7 +225,26 @@ smol = "ollama/qwen2.5-coder:7b"
 
 # Deep-reasoning model selected by `rho --slow`
 slow = "openai/o3-mini"
+
+# Additional built-in roles (all optional)
+judge = "anthropic/claude-3-7-sonnet"
+widget = "ollama/qwen2.5-coder:7b"
+review = "anthropic/claude-3-7-sonnet"
+plan = "anthropic/claude-3-7-sonnet"
+task = "ollama/qwen2.5-coder:7b"
+vision = "anthropic/claude-3-7-sonnet"
+
+# User-defined custom roles: any lowercase ASCII [a-z0-9_-]+ name except "default"
+architect = "openai/o3-mini"
 ```
+
+### Extensible `[models.<role>]` Roles & `@<role>` Selectors
+
+`[models]` supports `default` (the primary assistant model), nine built-in roles (`smol`, `slow`, `guard`, `judge`, `widget`, `review`, `plan`, `task`, `vision`), and arbitrary user-defined custom roles (any lowercase ASCII `[a-z0-9_-]+` name other than `default`):
+
+- **Configure any role** in `config.toml` under `[models.<role>]` or via `rho config models.<role> <provider>/<model>`. Set a role to `"none"` or an empty string to clear it.
+- **`@<role>` selector syntax**: Pass `@<role>` wherever a model selector is accepted to resolve against `[models].<role>` (case-insensitive), or `@default` to resolve `[models].default`. Any selector not starting with `@` is used as a literal `<provider>/<model>` spec.
+- **Fallback chains**: Subsystems that accept a role chain resolve the first configured role in order (for example, A2UI `decision_assist` resolves `models.widget` -> `models.judge` -> `models.guard`).
 
 `cache_retention` sets how long Claude (`claude` and `anthropic` providers)
 keeps each request's prompt cache. `auto` uses `long` for `claude`
@@ -574,7 +593,7 @@ Configure block framing styles, visibility options, and border colors in
 
 ```toml
 [ui]
-# Block framing: "border" (outline, default) or "solid" (fill)
+# Block framing: "border" (outline, default), "solid" (fill), or "divider" (solid fill with top/bottom rules)
 block_style = "border"
 
 # Box assistant responses in bordered frames (default: false)
@@ -594,6 +613,12 @@ syntax_highlight_tools = false
 
 # Display full bash commands in tool cards without 60-character truncation (default: false)
 full_bash_command = false
+
+# Render tool cards with a status + Title Case header, right-aligned duration, and explicit Input/Output sections (default: false)
+structured_tool_cards = false
+
+# Syntax-highlight edit diffs with delta-style red/green background tints and word-level emphasis (default: false)
+delta_diffs = false
 
 # Automatically summarize the session into a 3-6 word title using models.smol after turn 1 (default: false)
 auto_title = false
@@ -654,6 +679,16 @@ show_seconds = false
 show_token_usage = false       # Timestamp, tokens, TTFT, and right-aligned tok/s
 show_turn_time = false         # Include prompt-to-yield Δ duration in the stats row
 cache_miss_marker = false      # Show a divider when a warm prompt cache invalidates
+
+# Opt-in A2UI v1.0 persistent TUI widgets (default: false)
+a2ui_widgets = false
+
+[ui.a2ui]
+max_above_lines = 8            # Max lines rendered above the editor
+max_below_lines = 4            # Max lines rendered below the editor
+todo_widget = true             # Enable built-in `rho:todo` surface when a2ui_widgets = true
+subagent_widget = true         # Enable built-in `rho:subagents` surface when a2ui_widgets = true
+decision_assist = false        # Optional DecisionModel assist via models.widget -> models.judge -> models.guard
 ```
 
 Top-level preferences:

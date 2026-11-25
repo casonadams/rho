@@ -7,36 +7,109 @@ use std::path::PathBuf;
 
 pub const DEFAULT_MAX_TURNS: usize = 1000;
 
-/// A model chosen for a job other than the main conversation, set under `[models]`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ModelSlot {
-    Smol,
-    Slow,
-    Guard,
-}
+/// An extensible model role configured under `[models.<role>]` (e.g. `smol`, `slow`, `guard`,
+/// `widget`, `judge`, or a user-defined role).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct ModelRole(std::borrow::Cow<'static, str>);
 
-impl ModelSlot {
-    pub const ALL: [Self; 3] = [Self::Smol, Self::Slow, Self::Guard];
+impl ModelRole {
+    pub const SMOL: Self = Self(std::borrow::Cow::Borrowed("smol"));
+    pub const SLOW: Self = Self(std::borrow::Cow::Borrowed("slow"));
+    pub const GUARD: Self = Self(std::borrow::Cow::Borrowed("guard"));
+    pub const JUDGE: Self = Self(std::borrow::Cow::Borrowed("judge"));
+    pub const WIDGET: Self = Self(std::borrow::Cow::Borrowed("widget"));
+    pub const REVIEW: Self = Self(std::borrow::Cow::Borrowed("review"));
+    pub const PLAN: Self = Self(std::borrow::Cow::Borrowed("plan"));
+    pub const TASK: Self = Self(std::borrow::Cow::Borrowed("task"));
+    pub const VISION: Self = Self(std::borrow::Cow::Borrowed("vision"));
+
+    pub const BUILTINS: &'static [Self] = &[
+        Self::SMOL,
+        Self::SLOW,
+        Self::GUARD,
+        Self::JUDGE,
+        Self::WIDGET,
+        Self::REVIEW,
+        Self::PLAN,
+        Self::TASK,
+        Self::VISION,
+    ];
+
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let normalized = raw.trim().to_ascii_lowercase();
+        if !is_valid_role_name(&normalized) {
+            return Err(format!(
+                "invalid model role '{raw}': expected lowercase ASCII [a-z0-9_-]+ and not 'default'"
+            ));
+        }
+        Ok(Self(std::borrow::Cow::Owned(normalized)))
+    }
+
+    pub fn is_valid_name(raw: &str) -> bool {
+        let normalized = raw.trim().to_ascii_lowercase();
+        is_valid_role_name(&normalized)
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref()
+    }
 
     /// The `[models]` key.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Smol => "smol",
-            Self::Slow => "slow",
-            Self::Guard => "guard",
-        }
+    pub fn key(&self) -> &str {
+        self.as_str()
     }
 
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Smol => "Smol",
-            Self::Slow => "Slow",
-            Self::Guard => "Guard",
+    pub fn title(&self) -> String {
+        let mut chars = self.as_str().chars();
+        match chars.next() {
+            Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+            None => String::new(),
         }
     }
+}
 
-    pub fn from_title(title: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|slot| slot.title() == title)
+fn is_valid_role_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "default"
+        && name
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'))
+}
+
+impl std::str::FromStr for ModelRole {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl std::fmt::Display for ModelRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl AsRef<str> for ModelRole {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::borrow::Borrow<str> for ModelRole {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelRole {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -76,7 +149,7 @@ pub struct Config {
     #[serde(default)]
     pub default_model: Option<String>,
     #[serde(default)]
-    pub models: BTreeMap<String, String>,
+    pub model_roles: BTreeMap<String, String>,
     #[serde(default)]
     pub session_retention_days: Option<u32>,
     /// Problems found while loading config; shown to the user and otherwise ignored.
@@ -129,7 +202,7 @@ macro_rules! default_config_literal {
             append_system_prompt: None,
             no_context_files: false,
             default_model: None,
-            models: BTreeMap::new(),
+            model_roles: BTreeMap::new(),
             session_retention_days: Some(5),
             config_warnings: Vec::new(),
             providers: BTreeMap::new(),
@@ -368,20 +441,54 @@ impl Config {
     }
 
     fn resolve_named_model(&self, name: &str) -> Option<&str> {
-        self.models
-            .get(name)
-            .map(String::as_str)
+        let trimmed = name.trim();
+        let raw = if trimmed.bytes().any(|b| b.is_ascii_uppercase()) {
+            self.model_roles.get(&trimmed.to_ascii_lowercase())
+        } else {
+            self.model_roles.get(trimmed)
+        };
+        raw.map(String::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
     }
 
-    /// The model configured for `slot`; unset, blank and `none` all mean no model.
-    pub fn slot_model(&self, slot: ModelSlot) -> Option<&str> {
-        self.resolve_named_model(slot.key())
+    /// The model configured for `role`; unset, blank and `none` all mean no model.
+    pub fn role_model(&self, role: &str) -> Option<&str> {
+        self.resolve_named_model(role)
+    }
+
+    /// Returns the first configured `(role, model_spec)` pair in `roles`.
+    pub fn resolve_role_chain<'a>(&'a self, roles: &[&'a str]) -> Option<(&'a str, &'a str)> {
+        for &role in roles {
+            if let Some(spec) = self.role_model(role) {
+                return Some((role, spec));
+            }
+        }
+        None
+    }
+
+    /// Resolves `@<role>` against `model_roles` (or `@default` against `default_model`),
+    /// returning a literal model spec unchanged when it does not start with `@`.
+    pub fn resolve_model_selector<'a>(&'a self, selector: &'a str) -> Option<&'a str> {
+        let trimmed = selector.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        if let Some(role) = trimmed.strip_prefix('@') {
+            if role.trim().eq_ignore_ascii_case("default") {
+                return self
+                    .default_model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"));
+            }
+            return self.role_model(role);
+        }
+        Some(trimmed)
     }
 
     pub fn guard_model(&self) -> Option<&str> {
-        self.slot_model(ModelSlot::Guard)
+        self.role_model(ModelRole::GUARD.as_str())
     }
 
     /// The active selection; `model` may still carry a `provider/` prefix from older writers.

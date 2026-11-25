@@ -43,7 +43,7 @@ fn locate_match_line(content: &str, target: &str) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, PartialEq, Eq)]
-enum DiffToken<'a> {
+pub(crate) enum DiffToken<'a> {
     Same(&'a str),
     Removed(&'a str),
     Added(&'a str),
@@ -66,7 +66,7 @@ fn char_category(c: char) -> CharCat {
     }
 }
 
-fn tokenize(text: &str) -> Vec<&str> {
+pub(crate) fn tokenize(text: &str) -> Vec<&str> {
     if text.is_empty() {
         return Vec::new();
     }
@@ -140,7 +140,7 @@ fn handle_diff_op<'a>(
     }
 }
 
-fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
+pub(crate) fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
     let mut diff = Vec::new();
     for op in similar::capture_diff_slices(similar::Algorithm::Myers, old_tokens, new_tokens) {
         handle_diff_op(op, old_tokens, new_tokens, &mut diff);
@@ -217,6 +217,7 @@ pub struct EntryDiffInput<'a> {
     pub new_text: &'a str,
     pub theme: &'a Theme,
     pub start_line: Option<usize>,
+    pub lang: Option<&'a str>,
 }
 
 fn push_edit_header(out: &mut String, idx: usize, total: usize, start_line: Option<usize>, dim: anstyle::Style) {
@@ -319,6 +320,22 @@ pub fn format_entry_diff(input: EntryDiffInput<'_>) -> String {
         .map(|start| start + old_lines.len().max(new_lines.len()))
         .unwrap_or(0);
     let gutter_width = max_line.to_string().len().max(3);
+
+    if input.theme.delta_diffs {
+        super::delta_diff::render_delta_diff(
+            &mut out,
+            super::delta_diff::DeltaDiffRequest {
+                old_lines: &old_lines,
+                new_lines: &new_lines,
+                lang: input.lang,
+                start_line: input.start_line,
+                gutter_width,
+                expanded: input.expanded,
+                theme: input.theme,
+            },
+        );
+        return out;
+    }
 
     if old_lines.len() == 1 && new_lines.len() == 1 {
         push_single_line_diff(

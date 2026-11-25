@@ -314,7 +314,8 @@ impl AgentEngine {
                 self.context_limit_source(),
                 self.context_limit().saturating_sub(self.config.reserve_tokens),
             )))
-            .working_dir(self.base_dir.clone());
+            .working_dir(self.base_dir.clone())
+            .a2ui_config(self.config.ui.a2ui_widgets, self.config.ui.a2ui.clone());
 
         if let Some(pending) = params.checkpoint {
             let combined = continuation_history(params.history, pending);
@@ -546,7 +547,7 @@ mod tests {
         };
         app_config.permission.enabled = true;
         app_config
-            .models
+            .model_roles
             .insert("guard".to_string(), "mystery/model".to_string());
         let engine = mock_engine(
             Arc::new(MockAdapter::new("mock-model", "claude")),

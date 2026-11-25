@@ -67,11 +67,14 @@ impl ReplSession {
 
     /// A fresh engine for this session's config, sharing its model catalog.
     pub(crate) async fn new_engine(&self, resume: Option<&str>) -> Result<AgentEngine> {
-        crate::platform::agent_engine(
+        let presenter: std::sync::Arc<dyn rho_harness_core::presentation::Presenter> =
+            std::sync::Arc::new(self.renderer.clone());
+        crate::platform::agent_engine_with_presenter(
             self.config.clone(),
             self.auth_store.clone(),
             self.catalog.clone(),
             resume,
+            Some(presenter),
         )
         .await
     }
@@ -136,7 +139,7 @@ impl ReplSession {
     }
 
     pub(crate) fn sync_engine_settings(&self, engine: &mut AgentEngine) {
-        engine.config.models = self.config.models.clone();
+        engine.config.model_roles = self.config.model_roles.clone();
         engine.config.tools.web = self.config.tools.web.clone();
         engine.config.mcp.enabled = self.config.mcp.enabled;
         engine.config.permission.enabled = self.config.permission.enabled;

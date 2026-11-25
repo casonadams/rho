@@ -50,18 +50,16 @@ fn format_block_title(title: &str) -> String {
 }
 
 fn resolve_block_format(theme: &Theme, style: &str) -> BlockFormat {
+    let border = if style == "warning" {
+        theme.warning
+    } else {
+        theme.agent_border
+    };
     match theme.block_style {
-        crate::ui::theme::BlockStyle::Solid => {
-            let bg = resolve_block_bg(theme, style);
-            BlockFormat::new(bg, terminal_width())
-        }
-        crate::ui::theme::BlockStyle::Border => {
-            let border = if style == "warning" {
-                theme.warning
-            } else {
-                theme.agent_border
-            };
-            BlockFormat::border(border, terminal_width())
+        crate::ui::theme::BlockStyle::Solid => BlockFormat::new(resolve_block_bg(theme, style), terminal_width()),
+        crate::ui::theme::BlockStyle::Border => BlockFormat::border(border, terminal_width()),
+        crate::ui::theme::BlockStyle::Divider => {
+            BlockFormat::divider(resolve_block_bg(theme, style), border, terminal_width())
         }
     }
 }

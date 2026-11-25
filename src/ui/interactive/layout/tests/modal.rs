@@ -672,3 +672,61 @@ fn test_unfocused_modal_suppresses_software_cursor() {
     assert!(!unfocused.cursor_visible);
     assert!(!unfocused.lines.iter().any(|l| l.contains("\x1b[7m")));
 }
+
+#[test]
+fn a2ui_modal_uses_inner_width_and_two_space_indent() {
+    use crate::ui::interactive::a2ui::A2uiModalState;
+    use crate::ui::interactive::layout::modal::{
+        in_input_modal_desired_lines, render_in_input_modal, types::InInputModalInput,
+    };
+    use rho_harness_core::a2ui::{
+        A2uiComponent, A2uiComponentKind, A2uiMessage, A2uiModalRequest, BoundString, CreateSurface, SurfacePlacement,
+        TextUsageHint, UpdateComponents,
+    };
+
+    // Text of length 22 fits on 1 line at width=24, but wraps to 2 lines at inner_width=20.
+    let req = A2uiModalRequest {
+        surface_id: "test:wrap".to_string(),
+        title: Some("Wrap".to_string()),
+        messages: vec![
+            A2uiMessage::CreateSurface(CreateSurface {
+                surface_id: "test:wrap".to_string(),
+                catalog_id: None,
+                placement: SurfacePlacement::Modal,
+                title: None,
+                priority: 100,
+                root_id: "txt".to_string(),
+            }),
+            A2uiMessage::UpdateComponents(UpdateComponents {
+                surface_id: "test:wrap".to_string(),
+                components: vec![A2uiComponent::new(
+                    "txt",
+                    A2uiComponentKind::Text {
+                        text: BoundString::literal("12345678901 1234567890"),
+                        usage_hint: TextUsageHint::Body,
+                        tone: None,
+                    },
+                )],
+            }),
+        ],
+        timeout_ms: None,
+    };
+    let a2ui = A2uiModalState::from_request(req).unwrap();
+    let mut modal = ModalState::new("Wrap", "", vec![]);
+    modal.a2ui = Some(a2ui);
+
+    let width: usize = 24;
+    let inner_width = width.saturating_sub(4).max(1);
+    let desired = in_input_modal_desired_lines(&modal, "", inner_width);
+    let theme = crate::ui::theme::Theme::default();
+    let (lines, _, _) = render_in_input_modal(InInputModalInput {
+        modal: &modal,
+        draft_text: "",
+        bounds: (width, 10),
+        theme: &theme,
+        focused: true,
+    });
+    assert_eq!(desired, 2);
+    assert_eq!(lines.len(), desired);
+    assert!(lines.iter().all(|l| l.starts_with("  ")), "lines: {lines:?}");
+}
