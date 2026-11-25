@@ -31,6 +31,7 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
             file_change::edit_start_lines(edits, content.as_deref())
         }
     };
+    let lang = super::card::detect_language_from_args(request.args);
     let mut out = String::new();
     for (idx, edit) in edits.iter().enumerate() {
         let old_text = file_change::removed_text(edit, idx, request.file_change);
@@ -42,6 +43,7 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
             new_text: edit.get("newText").and_then(|v| v.as_str()).unwrap_or(""),
             theme,
             start_line: start_lines.get(idx).copied().flatten(),
+            lang,
         }));
     }
     Some(out)

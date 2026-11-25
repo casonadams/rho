@@ -45,6 +45,10 @@ pub struct UiConfig {
     pub syntax_highlight_tools: Option<bool>,
     #[serde(default, alias = "full_bash_commands")]
     pub full_bash_command: Option<bool>,
+    #[serde(default, alias = "structured_tools")]
+    pub structured_tool_cards: Option<bool>,
+    #[serde(default, alias = "delta_diff", alias = "syntax_highlight_diffs")]
+    pub delta_diffs: Option<bool>,
     #[serde(default)]
     pub auto_title: Option<bool>,
     #[serde(default)]
@@ -351,6 +355,8 @@ impl UiConfig {
         merge_opt(&mut self.cursor, &other.cursor);
         merge_opt(&mut self.syntax_highlight_tools, &other.syntax_highlight_tools);
         merge_opt(&mut self.full_bash_command, &other.full_bash_command);
+        merge_opt(&mut self.structured_tool_cards, &other.structured_tool_cards);
+        merge_opt(&mut self.delta_diffs, &other.delta_diffs);
         merge_opt(&mut self.auto_title, &other.auto_title);
         merge_opt(&mut self.terminal_title, &other.terminal_title);
         merge_opt(&mut self.terminal_title_state, &other.terminal_title_state);

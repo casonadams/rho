@@ -31,6 +31,8 @@ pub(crate) enum ConfigKey {
     Cursor,
     SyntaxHighlightTools,
     FullBashCommand,
+    StructuredToolCards,
+    DeltaDiffs,
     AutoTitle,
     TerminalTitle,
     TerminalTitleState,
@@ -119,6 +121,16 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
         "ui.full_bash_command",
         &["full_bash_command", "full_bash_commands"],
     ),
+    (
+        ConfigKey::StructuredToolCards,
+        "ui.structured_tool_cards",
+        &["structured_tool_cards", "structured_tools"],
+    ),
+    (
+        ConfigKey::DeltaDiffs,
+        "ui.delta_diffs",
+        &["delta_diffs", "delta_diff", "syntax_highlight_diffs"],
+    ),
     (ConfigKey::AutoTitle, "ui.auto_title", &["auto_title"]),
     (ConfigKey::TerminalTitle, "ui.terminal_title", &["terminal_title"]),
     (
@@ -177,7 +189,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 47] = [
+    const ALL_KEYS: [ConfigKey; 49] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -207,6 +219,8 @@ mod tests {
         ConfigKey::Cursor,
         ConfigKey::SyntaxHighlightTools,
         ConfigKey::FullBashCommand,
+        ConfigKey::StructuredToolCards,
+        ConfigKey::DeltaDiffs,
         ConfigKey::AutoTitle,
         ConfigKey::TerminalTitle,
         ConfigKey::TerminalTitleState,

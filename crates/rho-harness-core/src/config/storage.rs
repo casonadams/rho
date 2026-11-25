@@ -184,6 +184,12 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::FullBashCommand => {
             ui_section(file_config).full_bash_command = Some(parse_bool(name, value)?);
         }
+        ConfigKey::StructuredToolCards => {
+            ui_section(file_config).structured_tool_cards = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::DeltaDiffs => {
+            ui_section(file_config).delta_diffs = Some(parse_bool(name, value)?);
+        }
         ConfigKey::AutoTitle => {
             ui_section(file_config).auto_title = Some(parse_bool(name, value)?);
         }

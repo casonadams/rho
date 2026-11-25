@@ -352,7 +352,7 @@ auto_title  = true</code></pre>
         <div class="config-list">
           <div class="config-item">
             <div class="config-head"><code class="config-key">ui.block_style</code><span class="config-default">border</span><span class="config-meta">env <code>RHO_BLOCK_STYLE</code></span></div>
-            <p><code>border</code> (outline) or <code>solid</code> (fill).</p>
+            <p><code>border</code> (outline), <code>solid</code> (fill), or <code>divider</code> (solid fill with top and bottom horizontal rules).</p>
           </div>
           <div class="config-item">
             <div class="config-head"><code class="config-key">ui.cursor</code><span class="config-default">hardware</span><span class="config-meta">env <code>RHO_CURSOR</code></span></div>
@@ -377,6 +377,14 @@ auto_title  = true</code></pre>
           <div class="config-item">
             <div class="config-head"><code class="config-key">ui.full_bash_command</code><span class="config-default">false</span></div>
             <p>Show full bash commands in tool cards instead of truncating at 60 characters.</p>
+          </div>
+          <div class="config-item">
+            <div class="config-head"><code class="config-key">ui.structured_tool_cards</code><span class="config-default">false</span></div>
+            <p>Render tool cards with a status glyph and Title Case header, right-aligned duration, and explicit Input/Output sections.</p>
+          </div>
+          <div class="config-item">
+            <div class="config-head"><code class="config-key">ui.delta_diffs</code><span class="config-default">false</span></div>
+            <p>Syntax-highlight edit diffs with delta-style red/green background tints and intra-line word-level emphasis.</p>
           </div>
           <div class="config-item">
             <div class="config-head"><code class="config-key">ui.auto_title</code><span class="config-default">false</span></div>
