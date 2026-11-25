@@ -2,6 +2,7 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
+use super::scalar::{parse_bool, parse_positive};
 use super::types::{
     BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, UiConfig, WebFetchConfigFile,
     WebSearchConfigFile,
@@ -314,23 +315,4 @@ async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Resul
         return Err(error.into());
     }
     Ok(())
-}
-
-fn parse_bool(key: &str, value: &str) -> Result<bool> {
-    value
-        .parse()
-        .map_err(|_| AppError::Config(format!("{key} must be true or false")))
-}
-
-fn parse_positive<T>(key: &str, value: &str) -> Result<T>
-where
-    T: FromStr + Default + PartialEq,
-{
-    let parsed = value
-        .parse::<T>()
-        .map_err(|_| AppError::Config(format!("{key} must be a positive integer")))?;
-    if parsed == T::default() {
-        return Err(AppError::Config(format!("{key} must be a positive integer")));
-    }
-    Ok(parsed)
 }

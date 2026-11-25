@@ -1,4 +1,5 @@
 use super::super::Config;
+use super::super::scalar::{parse_bool, parse_positive};
 use super::cli::resolve_model_with_provider;
 use crate::error::{AppError, Result};
 
@@ -113,34 +114,4 @@ fn apply_ui_env_overrides(config: &mut Config, get: &dyn Fn(&str) -> Option<Stri
         config.ui.cursor = Some(val);
     }
     Ok(())
-}
-
-fn parse_bool(name: &str, value: &str) -> Result<bool> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" => Ok(true),
-        "0" | "false" | "no" => Ok(false),
-        _ => Err(AppError::Config(format!("{name} must be true or false"))),
-    }
-}
-
-fn parse_positive<T>(name: &str, value: &str) -> Result<T>
-where
-    T: std::str::FromStr + Default + PartialEq,
-{
-    let parsed = value
-        .trim()
-        .parse::<T>()
-        .map_err(|_| AppError::Config(format!("{name} must be a positive integer")))?;
-    if parsed == T::default() {
-        return Err(AppError::Config(format!("{name} must be greater than zero")));
-    }
-    Ok(parsed)
-}
-
-#[cfg(test)]
-pub(crate) fn parse_positive_for_test<T>(name: &str, value: &str) -> Result<T>
-where
-    T: std::str::FromStr + Default + PartialEq,
-{
-    parse_positive(name, value)
 }

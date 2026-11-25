@@ -78,6 +78,25 @@ fn stale_theme_key_in_config_file_is_ignored() {
 }
 
 #[test]
+fn rho_config_accepts_the_same_boolean_syntax_as_environment_overrides() {
+    let dir = crate::test_support::temp_dir();
+    for (input, expected) in [
+        ("yes", true),
+        (" TRUE ", true),
+        ("1", true),
+        ("No", false),
+        ("0", false),
+    ] {
+        Config::set_file_value(&dir, "show_label", input).unwrap();
+        let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+        let file: FileConfig = toml::from_str(&content).unwrap();
+        assert_eq!(file.show_label, Some(expected), "{input:?}");
+    }
+    assert!(Config::set_file_value(&dir, "show_label", "maybe").is_err());
+    Config::set_file_value(&dir, "max_turns", " 12 ").unwrap();
+}
+
+#[test]
 fn test_set_file_value_persists_and_validates() {
     let dir = crate::test_support::temp_dir();
 

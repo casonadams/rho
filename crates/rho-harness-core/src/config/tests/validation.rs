@@ -73,6 +73,38 @@ fn rejects_zero_context_and_compaction_bytes() {
     assert!(cfg.validate().is_ok());
 }
 
+type ZeroCase = (&'static str, fn(&mut Config));
+
+#[test]
+fn rejects_zero_in_every_limit_that_rho_config_rejects() {
+    let cases: [ZeroCase; 12] = [
+        ("max_output_tokens", |c| c.max_output_tokens = Some(0)),
+        ("max_turns", |c| c.max_turns = 0),
+        ("context_limit", |c| c.context_limit = Some(0)),
+        ("context_window_messages", |c| c.context_window_messages = 0),
+        ("compaction_max_bytes", |c| c.compaction_max_bytes = 0),
+        ("reserve_tokens", |c| c.reserve_tokens = 0),
+        ("keep_recent_tokens", |c| c.keep_recent_tokens = 0),
+        ("search_timeout_sec", |c| c.search_timeout_sec = 0),
+        ("fetch_timeout_sec", |c| c.fetch_timeout_sec = 0),
+        ("fetch_limit", |c| c.fetch_limit = 0),
+        ("fetch_max_bytes", |c| c.fetch_max_bytes = 0),
+        ("output_max_bytes", |c| c.output_max_bytes = 0),
+    ];
+    Config::default().validate().unwrap();
+    for (name, zero) in cases {
+        let mut cfg = Config::default();
+        zero(&mut cfg);
+        let error = cfg.validate().unwrap_err().to_string();
+        assert!(error.contains(name), "{name}: {error}");
+    }
+    let unthrottled = Config {
+        search_min_interval_ms: 0,
+        ..Config::default()
+    };
+    unthrottled.validate().unwrap();
+}
+
 #[test]
 fn search_engine_validation_accepts_and_rejects() {
     let cases = [

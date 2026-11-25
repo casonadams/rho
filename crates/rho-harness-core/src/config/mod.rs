@@ -4,6 +4,7 @@
 pub mod cli;
 pub mod mcp;
 mod merge;
+mod scalar;
 mod storage;
 mod types;
 mod validate;

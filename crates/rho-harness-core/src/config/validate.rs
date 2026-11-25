@@ -1,26 +1,27 @@
 use crate::error::{AppError, Result};
 use std::str::FromStr;
 
+/// Keys that `rho config` and the environment overrides already reject at zero, because zero
+/// would disable the feature outright (a zero timeout, byte limit or context size).
 fn validate_limits(config: &super::Config) -> Result<()> {
-    if config.max_output_tokens == Some(0) {
-        return Err(AppError::Config(
-            "max_output_tokens must be greater than zero".to_string(),
-        ));
+    let limits: [(&str, Option<u64>); 12] = [
+        ("max_output_tokens", config.max_output_tokens),
+        ("max_turns", Some(config.max_turns as u64)),
+        ("context_limit", config.context_limit.map(|v| v as u64)),
+        ("context_window_messages", Some(config.context_window_messages as u64)),
+        ("compaction_max_bytes", Some(config.compaction_max_bytes as u64)),
+        ("reserve_tokens", Some(config.reserve_tokens as u64)),
+        ("keep_recent_tokens", Some(config.keep_recent_tokens as u64)),
+        ("search_timeout_sec", Some(config.search_timeout_sec)),
+        ("fetch_timeout_sec", Some(config.fetch_timeout_sec)),
+        ("fetch_limit", Some(config.fetch_limit as u64)),
+        ("fetch_max_bytes", Some(config.fetch_max_bytes as u64)),
+        ("output_max_bytes", Some(config.output_max_bytes as u64)),
+    ];
+    match limits.iter().find(|(_, value)| *value == Some(0)) {
+        Some((name, _)) => Err(AppError::Config(format!("{name} must be greater than zero"))),
+        None => Ok(()),
     }
-    if config.max_turns == 0 {
-        return Err(AppError::Config("max_turns must be greater than zero".to_string()));
-    }
-    if config.context_window_messages == 0 {
-        return Err(AppError::Config(
-            "context_window_messages must be greater than zero".to_string(),
-        ));
-    }
-    if config.compaction_max_bytes == 0 {
-        return Err(AppError::Config(
-            "compaction_max_bytes must be greater than zero".to_string(),
-        ));
-    }
-    Ok(())
 }
 
 fn validate_single_provider(name: &str, provider: &crate::config::types::ProviderConfig) -> Result<()> {
