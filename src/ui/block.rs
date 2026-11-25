@@ -218,7 +218,6 @@ pub struct BlockFormat {
     vertical_padding: bool,
     mode: BlockMode,
     border_style: Style,
-    border_title: Option<String>,
 }
 
 impl BlockFormat {
@@ -229,7 +228,6 @@ impl BlockFormat {
             vertical_padding: false,
             mode: BlockMode::Fill,
             border_style: Style::new(),
-            border_title: None,
         }
     }
 
@@ -240,7 +238,6 @@ impl BlockFormat {
             vertical_padding: false,
             mode: BlockMode::Border,
             border_style,
-            border_title: None,
         }
     }
 
@@ -251,13 +248,7 @@ impl BlockFormat {
             vertical_padding: false,
             mode: BlockMode::Divider,
             border_style,
-            border_title: None,
         }
-    }
-
-    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
-        self.border_title = Some(title.into());
-        self
     }
 
     pub fn with_vertical_padding(mut self) -> Self {
@@ -348,13 +339,6 @@ impl BlockFormat {
         let style = self.border_style;
         if self.width < 2 {
             return format!("{style}╭{style:#}\n");
-        }
-        if let Some(title) = self.border_title.as_deref().filter(|t| !t.is_empty()) {
-            let label_w = visible_width(title);
-            if self.width >= label_w.saturating_add(6) {
-                let trailing = self.width - label_w - 5;
-                return format!("{style}╭─ {title} {}╮{style:#}\n", "─".repeat(trailing));
-            }
         }
         let inner = self.width.saturating_sub(2);
         format!("{style}╭{}╮{style:#}\n", "─".repeat(inner))

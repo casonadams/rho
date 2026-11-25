@@ -34,10 +34,10 @@ fn slice_tail_lines(raw: &str, limit: usize) -> (&str, usize) {
     }
 }
 
-fn format_collapsed_output(raw_output: &str, width: usize, dim: anstyle::Style) -> String {
+fn format_collapsed_output(raw_output: &str, max_width: usize, dim: anstyle::Style) -> String {
     const PRE_SLICE_LINE_LIMIT: usize = 50;
     let (tail_text, earlier_skipped) = slice_tail_lines(raw_output, PRE_SLICE_LINE_LIMIT);
-    let truncated = truncate_to_visual_lines(tail_text, 5, width.saturating_sub(4).max(1));
+    let truncated = truncate_to_visual_lines(tail_text, 5, max_width.max(1));
     let total_skipped = earlier_skipped + truncated.skipped_count;
     let mut out = String::new();
     if total_skipped > 0 {
@@ -55,7 +55,11 @@ fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, wi
     if expanded {
         content.push_str(raw_output);
     } else {
-        content.push_str(&format_collapsed_output(raw_output, width, dim));
+        content.push_str(&format_collapsed_output(
+            raw_output,
+            width.saturating_sub(4).max(1),
+            dim,
+        ));
     }
 }
 

@@ -106,15 +106,13 @@ pub fn append_section(content: &mut String, label: &str, body: &str, inner_width
     if body.is_empty() {
         return;
     }
-    if inner_width < 6 {
-        content.push_str(&format!("\n\n{dim}{label}{dim:#}\n{body}"));
+    let label_width = visible_width(label);
+    if inner_width < label_width.saturating_add(4) {
+        content.push_str(&format!("\n{dim}{label}{dim:#}\n{body}"));
         return;
     }
-    content.push_str("\n\n");
-    let boxed = crate::ui::block::BlockFormat::border(dim, inner_width)
-        .with_border_title(label)
-        .render_styled(body);
-    content.push_str(boxed.trim_end_matches('\n'));
+    let dashes = "─".repeat(inner_width - label_width - 3);
+    content.push_str(&format!("\n{dim}─ {label} {dashes}{dim:#}\n{body}"));
 }
 
 const SUBAGENT_PREVIEW_MAX_LINES: usize = 4;
@@ -450,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_sections_frame_input_and_output_in_rounded_boxes_at_inner_width() {
+    fn structured_sections_render_horizontal_dividers_at_inner_width() {
         use crate::ui::theme::BlockStyle;
         use anstyle::{AnsiColor, Color, Style};
 
@@ -480,43 +478,22 @@ mod tests {
             lines.iter().all(|line| visible_width(line) == width),
             "every line must match outer width {width}:\n{stripped}"
         );
-
-        let input_top = format!("╭─ Input {}╮", "─".repeat(inner_width - visible_width("╭─ Input ") - 1));
-        let output_top = format!(
-            "╭─ Output {}╮",
-            "─".repeat(inner_width - visible_width("╭─ Output ") - 1)
-        );
-        let bottom_border = format!("╰{}╯", "─".repeat(inner_width - 2));
         assert!(
-            lines.iter().any(|l| l.trim() == input_top),
-            "expected Input titled top border of width {inner_width}:\n{stripped}"
-        );
-        assert!(
-            lines.iter().any(|l| l.trim() == output_top),
-            "expected Output titled top border of width {inner_width}:\n{stripped}"
-        );
-        assert_eq!(
-            lines.iter().filter(|l| l.trim() == bottom_border).count(),
-            2,
-            "expected Input and Output bottom borders of width {inner_width}:\n{stripped}"
-        );
-        assert!(
-            lines
-                .iter()
-                .any(|l| l.contains("│ $ sleep 10") && l.trim().ends_with('│')),
-            "expected boxed input line:\n{stripped}"
-        );
-        assert!(
-            lines
-                .iter()
-                .any(|l| l.contains("│ [exit 0; no output]") && l.trim().ends_with('│')),
-            "expected boxed output line:\n{stripped}"
+            !stripped.contains(['╭', '╮', '╰', '╯', '│']),
+            "must not contain nested box borders:\n{stripped}"
         );
 
-        for raw_line in raw_rendered.lines().filter(|l| l.contains('│')) {
+        let input_divider = format!("─ Input {}", "─".repeat(inner_width - visible_width("─ Input ")));
+        let output_divider = format!("─ Output {}", "─".repeat(inner_width - visible_width("─ Output ")));
+        assert_eq!(lines[2].trim(), input_divider, "got:\n{stripped}");
+        assert_eq!(lines[3].trim(), "$ sleep 10", "got:\n{stripped}");
+        assert_eq!(lines[4].trim(), output_divider, "got:\n{stripped}");
+        assert_eq!(lines[5].trim(), "[exit 0; no output]", "got:\n{stripped}");
+
+        for raw_line in raw_rendered.lines().filter(|l| l.contains("─ Input ")) {
             assert!(
                 raw_line.starts_with("\x1b[40m "),
-                "expected block_fill background on boxed line: {raw_line:?}"
+                "expected block_fill background on divider line: {raw_line:?}"
             );
             assert!(
                 raw_line.contains("\x1b[0m\x1b[40m"),
@@ -526,29 +503,26 @@ mod tests {
     }
 
     #[test]
-    fn append_section_falls_back_to_unboxed_when_inner_width_below_six() {
-        let mut content = String::new();
-        append_section(&mut content, "Input", "echo hi", 5, anstyle::Style::new());
-        let stripped = strip_ansi(&content);
-        assert!(stripped.contains("Input\necho hi"), "got:\n{stripped}");
-        assert!(!stripped.contains('╭'), "should not draw box at width < 6:\n{stripped}");
-    }
-
-    #[test]
-    fn titled_inner_border_aligns_to_exact_width_and_falls_back_when_narrow() {
+    fn append_section_aligns_divider_to_exact_width_and_falls_back_when_narrow() {
         let mut content = String::new();
         append_section(&mut content, "Input", "x", 20, anstyle::Style::new());
         let stripped = strip_ansi(&content);
-        let top = stripped.lines().nth(2).expect("top border line");
-        assert_eq!(visible_width(top), 20);
-        assert_eq!(top, "╭─ Input ──────────╮");
+        let divider = stripped.lines().nth(1).expect("divider line");
+        assert_eq!(visible_width(divider), 20);
+        assert_eq!(divider, "─ Input ────────────");
+
+        let mut min_fit = String::new();
+        append_section(&mut min_fit, "Input", "x", 9, anstyle::Style::new());
+        let min_stripped = strip_ansi(&min_fit);
+        let min_divider = min_stripped.lines().nth(1).expect("min divider line");
+        assert_eq!(visible_width(min_divider), 9);
+        assert_eq!(min_divider, "─ Input ─");
 
         let mut narrow = String::new();
-        append_section(&mut narrow, "Input", "x", 10, anstyle::Style::new());
+        append_section(&mut narrow, "Input", "x", 8, anstyle::Style::new());
         let narrow_stripped = strip_ansi(&narrow);
-        let narrow_top = narrow_stripped.lines().nth(2).expect("narrow top border");
-        assert_eq!(visible_width(narrow_top), 10);
-        assert_eq!(narrow_top, "╭────────╮");
+        assert_eq!(narrow_stripped, "\nInput\nx");
+        assert!(!narrow_stripped.contains('─'));
     }
 
     #[test]
