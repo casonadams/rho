@@ -42,6 +42,20 @@ fn test_parse_tool_decision_mappings() {
     );
 }
 
+#[test]
+fn unknown_tool_decisions_never_approve() {
+    for decision in [
+        "reject", "no", "nope", "", "  ", "1", "3", "allow!", "yes", "edit", "deny-ish",
+    ] {
+        assert_eq!(
+            parse_tool_decision(decision),
+            InteractionResponse::Cancelled,
+            "{decision:?}"
+        );
+    }
+    assert_eq!(parse_tool_decision("  ALLOW "), InteractionResponse::Selected(0));
+}
+
 #[tokio::test]
 async fn test_rpc_presenter_tool_approval_roundtrip() {
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
@@ -740,6 +754,30 @@ async fn test_handle_node_session_auth_and_resume_cmds() {
 }
 
 #[tokio::test]
+async fn switching_to_an_unknown_node_over_rpc_reports_failure() {
+    use super::handlers::handle_session_lifecycle_cmd;
+    use rho_harness_core::rpc::protocol::RpcCommand;
+
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_switch_unknown");
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    let cmd = RpcCommand::SwitchBranch {
+        node_id: "nonexistent-node-xyz".to_string(),
+    };
+
+    assert!(
+        handle_session_lifecycle_cmd(&cmd, Some("req-switch".into()), &mut ctx)
+            .await
+            .unwrap()
+    );
+
+    let resp = read_response(&mut client_reader).await;
+    assert_eq!(resp.command, "switch_branch");
+    assert!(!resp.success);
+    assert!(resp.error.unwrap().contains("nonexistent-node-xyz"));
+}
+
+#[tokio::test]
 async fn test_handle_session_lifecycle_cmd_variants() {
     use super::handlers::handle_session_lifecycle_cmd;
     use rho_harness_core::rpc::protocol::RpcCommand;
@@ -757,13 +795,6 @@ async fn test_handle_session_lifecycle_cmd_variants() {
             },
             "req-label",
             "set_node_label",
-        ),
-        (
-            RpcCommand::SwitchBranch {
-                node_id: "nonexistent-node-xyz".to_string(),
-            },
-            "req-switch",
-            "switch_branch",
         ),
         (RpcCommand::ListSessions, "req-list", "list_sessions"),
     ];

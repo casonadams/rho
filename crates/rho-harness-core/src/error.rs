@@ -40,6 +40,8 @@ pub enum AppError {
     Mcp(String),
     #[error("MCP connection lost: {0}")]
     McpConnectionLost(String),
+    #[error("MCP request not delivered: {0}")]
+    McpNotDelivered(String),
     #[error("Hook error: {0}")]
     Hook(String),
     #[error("Invalid tool call: {0}")]

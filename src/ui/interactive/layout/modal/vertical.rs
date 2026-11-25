@@ -79,6 +79,9 @@ fn fallback_select_hint(modal: &ModalState) -> &'static str {
 }
 
 fn select_modal_hint(modal: &ModalState) -> &'static str {
+    if modal.pending_delete.is_some() {
+        return "Press Ctrl+D again to delete this session • any other key cancels";
+    }
     if let Some((_, hint)) = TITLE_HINTS.iter().find(|(title, _)| modal.title == *title) {
         return hint;
     }

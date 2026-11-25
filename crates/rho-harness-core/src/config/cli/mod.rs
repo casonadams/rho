@@ -87,7 +87,7 @@ pub struct Cli {
     pub resume_picker: bool,
 
     /// Execution mode: interactive, rpc, or json
-    #[arg(long = "mode", default_value = "interactive")]
+    #[arg(long = "mode", default_value = "interactive", value_parser = ["interactive", "rpc", "json"])]
     pub mode: String,
 
     /// Trailing prompt messages or files to run

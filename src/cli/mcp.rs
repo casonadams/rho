@@ -297,9 +297,14 @@ async fn probe_prompts(client: &McpClient) {
 
 async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let Some(server_cfg) = config.mcp.servers.get(name) else {
-        eprintln!("Error: MCP server '{name}' not found in configuration.");
-        return Ok(());
+        return Err(format!("MCP server '{name}' not found in configuration.").into());
     };
+    if project_server_approval(config, name, server_cfg) == Some(false) {
+        return Err(format!(
+            "MCP server '{name}' is defined by this project and is not approved, so it will not be started. Review it, then run 'rho mcp approve {name}'."
+        )
+        .into());
+    }
 
     println!("Testing MCP server '{name}'...");
     let start = Instant::now();
@@ -488,9 +493,10 @@ mod tests {
 
         handle_mcp(None, &config).await.unwrap();
         handle_mcp(Some(McpCommands::List), &config).await.unwrap();
-        handle_mcp(Some(McpCommands::Test { name: "missing".into() }), &config)
+        let err = handle_mcp(Some(McpCommands::Test { name: "missing".into() }), &config)
             .await
-            .unwrap();
+            .unwrap_err();
+        assert!(err.to_string().contains("'missing' not found"), "{err}");
     }
 
     #[test]
@@ -525,6 +531,24 @@ mod tests {
 
     fn approval(config: &Config, name: &str) -> Option<bool> {
         project_server_approval(config, name, &config.mcp.servers[name])
+    }
+
+    #[tokio::test]
+    async fn mcp_test_refuses_to_start_an_unapproved_project_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("started");
+        let mut config = workspace_config(dir.path());
+        config.mcp.servers.insert(
+            "proj_a".into(),
+            McpServerConfig::stdio("sh", vec!["-c".into(), format!("touch {}", marker.display())]),
+        );
+
+        let err = handle_mcp(Some(McpCommands::Test { name: "proj_a".into() }), &config)
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("not approved"), "{err}");
+        assert!(!marker.exists(), "the unapproved command must not run");
     }
 
     #[test]

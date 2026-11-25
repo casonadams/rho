@@ -145,3 +145,21 @@ async fn stdio_errors_distinguish_server_errors_from_lost_connections() {
     let lost = await_mcp_response(rx, "test_method").await.unwrap_err();
     assert!(matches!(lost, AppError::McpConnectionLost(_)), "{lost}");
 }
+
+#[tokio::test]
+async fn a_refused_connection_is_reported_as_not_delivered() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+    drop(listener);
+    let transport = McpTransport::new_http(
+        url,
+        rho_harness_core::config::McpTransportKind::StreamableHttp,
+        Default::default(),
+        None,
+        None,
+    );
+
+    let err = transport.request("tools/call", None).await.unwrap_err();
+
+    assert!(matches!(err, AppError::McpNotDelivered(_)), "{err}");
+}

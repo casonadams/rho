@@ -87,12 +87,13 @@ async fn try_post_stream_refresh(
         && failure.status_code() == Some(401)
         && !*refreshed
     {
-        if let Ok(new_token) = client.token_provider.force_refresh().await {
-            *token = new_token;
-            *refreshed = true;
-            res = client.post_stream(endpoint.with_token(token), request).await;
-        } else {
-            return Err(HttpFailure::status(401, failure.body()));
+        match client.token_provider.force_refresh().await {
+            Ok(new_token) => {
+                *token = new_token;
+                *refreshed = true;
+                res = client.post_stream(endpoint.with_token(token), request).await;
+            }
+            Err(refresh_error) => return Err(HttpFailure::Local(refresh_error)),
         }
     }
     res

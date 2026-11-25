@@ -161,3 +161,21 @@ fn credential_store_follows_rust_ai_home_config_dir() {
     }
     assert!(protected);
 }
+
+#[test]
+fn leading_env_variables_resolve_before_the_credential_check() {
+    let _env = super::ENV_LOCK.blocking_lock();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.path());
+    }
+    let hits = ["$RHO_HOME/auth.json", "${RHO_HOME}/auth.json"].map(|raw| is_credential_path(raw, None));
+    let lookalikes = ["$RHO_HOME_X/auth.json", "$RHO_HOMEauth.json", "x$RHO_HOME/auth.json"]
+        .map(|raw| is_credential_path(raw, None));
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    assert_eq!(hits, [true, true]);
+    assert_eq!(lookalikes, [false, false, false]);
+}

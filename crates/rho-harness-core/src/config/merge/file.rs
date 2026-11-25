@@ -12,7 +12,35 @@ macro_rules! merge_copied_fields {
 }
 
 fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
-    if let Some(ref default_spec) = file.models.default {
+    let legacy_provider = file.extra.get("provider").and_then(toml::Value::as_str);
+    let legacy_spec = file
+        .extra
+        .get("model")
+        .and_then(toml::Value::as_str)
+        .map(|model| match legacy_provider {
+            Some(provider) => crate::provider::ModelRoute::new(provider, model).to_string(),
+            None => model.to_string(),
+        });
+    let default_spec = match (&file.models.default, legacy_spec) {
+        (Some(spec), legacy) => {
+            if legacy.is_some() {
+                config.config_warnings.push(
+                    "config.toml has both models.default and the old top-level model/provider keys; using models.default."
+                        .to_string(),
+                );
+            }
+            Some(spec.clone())
+        }
+        (None, Some(spec)) => {
+            config.config_warnings.push(format!(
+                "config.toml sets the model with the old top-level model/provider keys; using '{spec}' as models.default. Run 'rho config model {spec}' to update the file."
+            ));
+            Some(spec)
+        }
+        (None, None) => None,
+    };
+    warn_unknown_model_keys(config, file, legacy_provider);
+    if let Some(ref default_spec) = default_spec {
         config.set_route(crate::provider::ModelRoute::parse(default_spec, None, "local"));
         config.default_model = Some(config.canonical_model_spec());
     }
@@ -34,6 +62,14 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
                 .config_warnings
                 .push(format!("Ignoring thinking_level in config.toml: {e}")),
         }
+    }
+}
+
+fn warn_unknown_model_keys(config: &mut Config, file: &FileConfig, legacy_provider: Option<&str>) {
+    for key in file.models.extra.keys().filter(|k| Some(k.as_str()) != legacy_provider) {
+        config.config_warnings.push(format!(
+            "Ignoring [models].{key} in config.toml: only default, smol, slow and guard are supported."
+        ));
     }
 }
 

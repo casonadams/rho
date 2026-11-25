@@ -475,3 +475,89 @@ fn mcp_server_added_to_config_dir_is_removed_exactly_once() {
     Config::remove_mcp_server(&dir, "echo").unwrap();
     assert!(Config::remove_mcp_server(&dir, "echo").is_err());
 }
+
+const FUTURE_CONFIG: &str = r#"
+future_top_level = { nested = [1, 2], flag = true }
+theme = "nord"
+
+[models]
+default = "openai/gpt-4o"
+plan = "openai/o3"
+"#;
+
+fn write_config(dir: &std::path::Path, text: &str) {
+    std::fs::write(dir.join("config.toml"), text).unwrap();
+}
+
+fn load_file_config(dir: &std::path::Path) -> FileConfig {
+    toml::from_str(&std::fs::read_to_string(dir.join("config.toml")).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn saving_a_setting_keeps_keys_this_version_does_not_know() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, FUTURE_CONFIG);
+
+    Config::save_default_thinking_level_async(&dir, Some("high"))
+        .await
+        .unwrap();
+    Config::set_file_value_async(&dir, "max_turns", "7").await.unwrap();
+
+    let saved = load_file_config(&dir);
+    assert_eq!(saved.thinking_level.as_deref(), Some("high"));
+    assert_eq!(saved.max_turns, Some(7));
+    assert_eq!(saved.models.default.as_deref(), Some("openai/gpt-4o"));
+    assert_eq!(saved.models.extra["plan"].as_str(), Some("openai/o3"));
+    assert_eq!(saved.extra["theme"].as_str(), Some("nord"));
+    assert_eq!(saved.extra["future_top_level"]["nested"][1].as_integer(), Some(2));
+    assert_eq!(saved.extra["future_top_level"]["flag"].as_bool(), Some(true));
+}
+
+#[test]
+fn a_v0_10_file_restores_the_default_model_and_warns() {
+    let mut config = Config::default();
+    let file: FileConfig =
+        toml::from_str("model = \"gpt-4o\"\nprovider = \"openai\"\n\n[models]\nopenai = \"gpt-4o\"\n").unwrap();
+
+    crate::config::merge::merge_file(&mut config, file);
+
+    assert_eq!((config.provider.as_str(), config.model.as_str()), ("openai", "gpt-4o"));
+    assert_eq!(config.config_warnings.len(), 1, "{:?}", config.config_warnings);
+    assert!(config.config_warnings[0].contains("old top-level model/provider"));
+}
+
+#[test]
+fn models_default_wins_over_legacy_keys_and_unsupported_role_keys_warn() {
+    let mut config = Config::default();
+    let file: FileConfig = toml::from_str(
+        "model = \"old\"\n\n[models]\ndefault = \"openai/new\"\nplan = \"openai/o3\"\nadvisor = \"openai/o3\"\n",
+    )
+    .unwrap();
+
+    crate::config::merge::merge_file(&mut config, file);
+
+    assert_eq!(config.model, "new");
+    let warnings = config.config_warnings.join("\n");
+    assert!(warnings.contains("using models.default"), "{warnings}");
+    assert!(
+        warnings.contains("[models].plan") && warnings.contains("[models].advisor"),
+        "{warnings}"
+    );
+}
+
+#[tokio::test]
+async fn saving_a_model_retires_the_legacy_keys_so_the_warning_stops() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, "model = \"gpt-4o\"\nprovider = \"openai\"\n");
+
+    Config::save_default_model_async(&dir, "gpt-4.1", "openai")
+        .await
+        .unwrap();
+
+    let saved = load_file_config(&dir);
+    assert_eq!(saved.models.default.as_deref(), Some("openai/gpt-4.1"));
+    assert!(!saved.extra.contains_key("model") && !saved.extra.contains_key("provider"));
+    let mut config = Config::default();
+    crate::config::merge::merge_file(&mut config, saved);
+    assert!(config.config_warnings.is_empty(), "{:?}", config.config_warnings);
+}

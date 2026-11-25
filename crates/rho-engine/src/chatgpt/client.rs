@@ -147,11 +147,7 @@ impl ChatGptClient {
     }
 
     async fn retry_post_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
-        let fresh = self
-            .token_provider
-            .force_refresh()
-            .await
-            .map_err(|e| HttpFailure::status(401, e))?;
+        let fresh = self.token_provider.force_refresh().await.map_err(HttpFailure::Local)?;
         self.post_stream(&fresh, request).await
     }
 
@@ -164,26 +160,51 @@ impl ChatGptClient {
     }
 }
 
+fn input_image(img: &rho_harness_core::model::ImageContent) -> Value {
+    json!({
+        "type": "input_image",
+        "image_url": format!("data:{};base64,{}", img.media_type_or_png(), img.data),
+    })
+}
+
 fn convert_chatgpt_user(content: &[rho_harness_core::model::UserContent]) -> Vec<Value> {
+    use rho_harness_core::model::{ToolResultContent, UserContent};
     let mut items = Vec::new();
+    let mut tool_images = Vec::new();
     for part in content {
         match part {
-            rho_harness_core::model::UserContent::Text(t) => {
+            UserContent::Text(t) => {
                 items.push(json!({
                     "type": "message",
                     "role": "user",
                     "content": [{"type": "input_text", "text": t.text}]
                 }));
             }
-            rho_harness_core::model::UserContent::ToolResult(r) => {
+            UserContent::ToolResult(r) => {
                 items.push(json!({
                     "type": "function_call_output",
                     "call_id": r.call,
                     "output": r.text(),
                 }));
+                for item in &r.content {
+                    if let ToolResultContent::Image(img) = item {
+                        tool_images.push(input_image(img));
+                    }
+                }
             }
-            _ => {}
+            UserContent::Image(img) => {
+                items.push(json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [input_image(img)]
+                }));
+            }
         }
+    }
+    if !tool_images.is_empty() {
+        let mut parts = vec![json!({"type": "input_text", "text": "Images returned by the tool calls above:"})];
+        parts.extend(tool_images);
+        items.push(json!({"type": "message", "role": "user", "content": parts}));
     }
     items
 }
@@ -373,7 +394,41 @@ mod tests {
         let provider = ScriptedTokenProvider::new(Ok("initial-token"), Err("refresh failed"));
         let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
-        assert_eq!(err, HttpFailure::status(401, "refresh failed"));
+        assert_eq!(err, HttpFailure::Local("refresh failed".to_string()));
+        let shown = crate::http::friendly_oauth_error("ChatGPT", "chatgpt", err.status_code(), err.body());
+        assert!(
+            shown.contains("refresh failed") && !shown.contains("expired"),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn user_and_tool_result_images_are_sent_as_input_images() {
+        use rho_harness_core::model::{ToolResult, ToolResultContent, UserContent};
+        let mut result = ToolResult::new("call-1", "read", "saw a picture");
+        result
+            .content
+            .push(ToolResultContent::image("TOOLIMG", Some("image/jpeg".into())));
+        let items = convert_chatgpt_user(&[
+            UserContent::text("look"),
+            UserContent::image("USERIMG", None),
+            UserContent::ToolResult(result),
+        ]);
+
+        assert_eq!(items[1]["content"][0]["type"], "input_image");
+        assert_eq!(items[1]["content"][0]["image_url"], "data:image/png;base64,USERIMG");
+        assert_eq!(items[2]["type"], "function_call_output");
+        assert_eq!(items[2]["output"], "saw a picture");
+        let follow_up = &items[3]["content"];
+        assert_eq!(items.len(), 4);
+        assert_eq!(follow_up[1]["image_url"], "data:image/jpeg;base64,TOOLIMG");
+    }
+
+    #[test]
+    fn tool_results_without_images_add_no_follow_up_message() {
+        use rho_harness_core::model::{ToolResult, UserContent};
+        let items = convert_chatgpt_user(&[UserContent::ToolResult(ToolResult::new("c", "read", "plain"))]);
+        assert_eq!(items.len(), 1);
     }
 
     #[tokio::test]

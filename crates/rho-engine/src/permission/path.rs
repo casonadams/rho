@@ -15,8 +15,27 @@ pub fn is_safe_system_path(path: &str) -> bool {
     SAFE_SYSTEM_PATHS.contains(&path)
 }
 
+const EXPANDED_ENV_VARS: &[&str] = &["HOME", "RHO_HOME"];
+
+/// Shell path tokens reach policy checks before the shell expands them, so a leading `$HOME` or
+/// `${RHO_HOME}` is expanded here with the same environment the command will run in.
+fn expand_leading_env(raw: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
+    for name in EXPANDED_ENV_VARS {
+        for prefix in [format!("${name}"), format!("${{{name}}}")] {
+            let Some(rest) = raw.strip_prefix(prefix.as_str()) else {
+                continue;
+            };
+            if let Some(value) = lookup(name).filter(|v| !v.is_empty() && (rest.is_empty() || rest.starts_with('/'))) {
+                return format!("{value}{rest}");
+            }
+        }
+    }
+    raw.to_string()
+}
+
 pub fn resolve_tool_path(raw: &str, cwd: Option<&Path>) -> Option<PathBuf> {
-    resolve_path(raw, cwd.unwrap_or(Path::new(".")))
+    let expanded = expand_leading_env(raw, |name| std::env::var(name).ok());
+    resolve_path(&expanded, cwd.unwrap_or(Path::new(".")))
 }
 
 pub fn path_policy_values(raw: &str, cwd: Option<&Path>) -> Vec<String> {

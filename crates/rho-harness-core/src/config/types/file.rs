@@ -3,7 +3,7 @@ use super::integrations::{PermissionConfig, ProviderConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ModelsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
@@ -13,6 +13,9 @@ pub struct ModelsConfig {
     pub slow: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<String>,
+    /// Keys this version does not know, kept so saving a setting never deletes them.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, toml::Value>,
 }
 
 impl ModelsConfig {
@@ -68,6 +71,10 @@ pub(crate) struct FileConfig {
     pub subagents: SubagentsConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeConfigFile>,
+    /// Keys this version does not know (for example `model` and `provider` from v0.10), kept so
+    /// saving a setting never deletes them.
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

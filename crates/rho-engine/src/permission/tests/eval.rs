@@ -546,3 +546,26 @@ fn bash_deny_rules_apply_to_obfuscated_and_wrapped_commands() {
         Decision::Ask
     );
 }
+
+#[test]
+fn bash_reads_of_the_credential_file_through_env_variables_are_denied() {
+    let _env = super::ENV_LOCK.blocking_lock();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.path());
+    }
+    let policy = build_policy(None, None);
+    let decisions = [
+        "cat $RHO_HOME/auth.json",
+        "cat \"$RHO_HOME\"/auth.json",
+        "cat ${RHO_HOME}/auth.json",
+    ]
+    .map(|command| check_eval(&policy, "bash", json!({"command": command})));
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    for decision in decisions {
+        assert!(matches!(decision, Decision::Deny(_)));
+    }
+}

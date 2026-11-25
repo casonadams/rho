@@ -1,4 +1,5 @@
 use super::parser::GuardVerdict;
+use crate::permission::bash::analyze_bash_command;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -21,52 +22,96 @@ static DEV_STORAGE_REGEX: LazyLock<Regex> =
 static GIT_RESET_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bgit\s+reset\s+--hard\b").expect("valid git reset regex"));
 
-pub fn check_critical_danger(command: &str) -> Option<GuardVerdict> {
-    if !CRITICAL_DANGER_REGEX.is_match(command) {
+const WIPE_ACTION: (&str, &str) = (
+    "Recursively deletes root, home, parent, or wildcard files",
+    "Critical destructive filesystem wipe detected.",
+);
+
+fn is_recursive_flag(token: &str) -> bool {
+    token == "--recursive" || (token.starts_with('-') && !token.starts_with("--") && token.contains(['r', 'R']))
+}
+
+fn is_wipe_target(token: &str) -> bool {
+    let trimmed = if token.len() > 1 {
+        token.trim_end_matches('/')
+    } else {
+        token
+    };
+    let trimmed = if trimmed.is_empty() { "/" } else { trimmed };
+    matches!(
+        trimmed,
+        "/" | "~" | ".." | "*" | "/*" | "~/*" | "$HOME" | "${HOME}" | "$HOME/*" | "${HOME}/*"
+    )
+}
+
+/// Judges `rm` on its arguments, so split flags (`-r -f`), long options and quoted or
+/// variable targets are caught the same way as `rm -rf /`.
+fn rm_wipes_argv(segment: &str) -> bool {
+    let mut tokens = segment.split_whitespace();
+    if tokens.next() != Some("rm") {
+        return false;
+    }
+    let args: Vec<&str> = tokens.collect();
+    let recursive = args.iter().take_while(|a| **a != "--").any(|a| is_recursive_flag(a));
+    recursive && args.iter().any(|a| is_wipe_target(a))
+}
+
+fn classify(text: &str) -> Option<(&'static str, &'static str)> {
+    if !CRITICAL_DANGER_REGEX.is_match(text) {
         return None;
     }
-
-    let (action, reason) = if RM_WIPE_REGEX.is_match(command) {
-        (
-            "Recursively deletes root, home, parent, or wildcard files",
-            "Critical destructive filesystem wipe detected.",
-        )
-    } else if FORK_BOMB_REGEX.is_match(command) {
-        (
+    if RM_WIPE_REGEX.is_match(text) {
+        return Some(WIPE_ACTION);
+    }
+    if FORK_BOMB_REGEX.is_match(text) {
+        return Some((
             "Executes a shell fork bomb",
             "Catastrophic system denial of service / resource exhaustion.",
-        )
-    } else if MKFS_REGEX.is_match(command) {
-        (
+        ));
+    }
+    if MKFS_REGEX.is_match(text) {
+        return Some((
             "Formats disk partition or builds a new filesystem",
             "Critical destructive drive format detected.",
-        )
-    } else if DD_REGEX.is_match(command) {
-        (
+        ));
+    }
+    if DD_REGEX.is_match(text) {
+        return Some((
             "Performs low-level raw byte copying or writing with dd",
             "Potential low-level raw disk or partition overwrite.",
-        )
-    } else if DEV_STORAGE_REGEX.is_match(command) {
-        (
+        ));
+    }
+    if DEV_STORAGE_REGEX.is_match(text) {
+        return Some((
             "Redirects output directly into storage device node",
             "Direct raw storage device overwrite detected.",
-        )
-    } else if GIT_RESET_REGEX.is_match(command) {
-        (
+        ));
+    }
+    if GIT_RESET_REGEX.is_match(text) {
+        return Some((
             "Resets git working tree and index discarding uncommitted changes",
             "Irreversible loss of git working tree state and uncommitted changes.",
-        )
-    } else {
-        (
-            "Executes high-risk destructive shell command",
-            "Critical destructive or irreversible infrastructure action detected.",
-        )
-    };
+        ));
+    }
+    Some((
+        "Executes high-risk destructive shell command",
+        "Critical destructive or irreversible infrastructure action detected.",
+    ))
+}
 
+/// Checks the raw text, then each command segment with quotes, paths and wrappers normalized away.
+pub fn check_critical_danger(command: &str) -> Option<GuardVerdict> {
+    let analysis = analyze_bash_command(command);
+    let hit = classify(command).or_else(|| {
+        analysis
+            .normalized_commands
+            .iter()
+            .find_map(|segment| classify(segment).or_else(|| rm_wipes_argv(segment).then_some(WIPE_ACTION)))
+    })?;
     Some(GuardVerdict {
         safe: false,
-        action: Some(action.to_string()),
-        reason: reason.to_string(),
+        action: Some(hit.0.to_string()),
+        reason: hit.1.to_string(),
     })
 }
 
@@ -82,6 +127,46 @@ mod tests {
             assert!(!verdict.safe);
             assert!(verdict.reason.contains("filesystem wipe"));
             assert!(verdict.action.unwrap().contains("Recursively deletes"));
+        }
+    }
+
+    #[test]
+    fn catches_obfuscated_and_split_rm_forms() {
+        let targets = [
+            "rm -r -f /",
+            "rm -rf \"/\"",
+            "\"rm\" -rf /",
+            "rm -rf \"$HOME\"",
+            "rm -rf $HOME",
+            "rm -rf ${HOME}/",
+            "rm --recursive --force /",
+            "rm -Rf ~",
+            "/bin/rm -rf /",
+            "sudo rm -rf /",
+            "env rm -fr /",
+            "rm -rf -- /",
+            "rm / -rf",
+            "echo ok && rm -r -f \"..\"",
+            "git status; rm -rf /*",
+            "\"git\" reset --hard HEAD",
+        ];
+        for cmd in targets {
+            assert!(check_critical_danger(cmd).is_some(), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn argv_check_leaves_ordinary_rm_alone() {
+        let ok = [
+            "rm -r build",
+            "rm -rf ./target",
+            "rm -rf \"$HOME/project/tmp\"",
+            "rm -f /tmp/a.log",
+            "rm /",
+            "rm -- -r /",
+        ];
+        for cmd in ok {
+            assert!(check_critical_danger(cmd).is_none(), "{cmd}");
         }
     }
 

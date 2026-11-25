@@ -124,6 +124,39 @@ async fn drain_tasks_within_stops_waiting_for_a_grandchild_holding_the_pipes() {
 
 #[tokio::test]
 #[cfg(unix)]
+async fn a_drain_timeout_kills_the_grandchild_that_held_the_pipes() {
+    let cmd = configure_shell_command("sleep 30 & echo started", None);
+    let (mut running, _rx) = StreamingCommand::spawn(cmd).expect("spawn test shell");
+    let group = running.group_pid.expect("spawned process has a pid");
+    running.wait().await.expect("shell exits");
+    assert_eq!(
+        unsafe { libc::kill(-(group as libc::pid_t), 0) },
+        0,
+        "grandchild is alive"
+    );
+
+    running.drain_tasks_within(std::time::Duration::from_millis(50)).await;
+
+    wait_group_dead(group).await;
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn background_work_that_released_the_pipes_survives_normal_completion() {
+    let cmd = configure_shell_command("sleep 31 >/dev/null 2>&1 & echo started", None);
+    let (mut running, _rx) = StreamingCommand::spawn(cmd).expect("spawn test shell");
+    let group = running.group_pid.expect("spawned process has a pid");
+    running.wait().await.expect("shell exits");
+
+    running.drain_tasks_within(std::time::Duration::from_secs(2)).await;
+
+    assert_eq!(unsafe { libc::kill(-(group as libc::pid_t), 0) }, 0);
+    kill_group_detached(group);
+    wait_group_dead(group).await;
+}
+
+#[tokio::test]
+#[cfg(unix)]
 async fn isolated_child_leads_its_own_session_without_a_controlling_terminal() {
     let mut cmd = Command::new("sleep");
     cmd.arg("30");

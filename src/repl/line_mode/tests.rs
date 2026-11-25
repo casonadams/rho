@@ -259,12 +259,23 @@ async fn test_maybe_summarize_abandoned_and_branch_switch() {
         None
     );
 
+    engine
+        .session_manager
+        .append_messages(
+            &engine.session_manager.session_id,
+            vec![
+                rho_harness_core::model::ChatMessage::user("hello"),
+                rho_harness_core::model::ChatMessage::assistant("hi"),
+            ],
+        )
+        .await
+        .unwrap();
     let active_leaf = engine
         .session_manager
         .active_leaf_id()
         .await
         .unwrap()
-        .unwrap_or_default();
+        .expect("a stored turn creates a leaf");
     assert!(
         super::dispatch::switch_active_branch(active_leaf, &mut session, &mut engine)
             .await

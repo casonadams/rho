@@ -69,7 +69,7 @@ pub(crate) fn parse_tool_decision(decision: &str) -> InteractionResponse {
             index: 3,
             text: decision.trim()[5..].trim().to_string(),
         },
-        _ => InteractionResponse::Selected(0),
+        _ => InteractionResponse::Cancelled,
     }
 }
 

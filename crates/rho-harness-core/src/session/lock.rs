@@ -1,3 +1,4 @@
+use super::format::StoreState;
 use super::fs::session_error;
 use crate::error::Result;
 use std::collections::BTreeMap;
@@ -8,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 struct Entry {
     file: File,
     holders: usize,
+    state: Arc<tokio::sync::Mutex<StoreState>>,
 }
 
 impl Drop for Entry {
@@ -18,10 +20,11 @@ impl Drop for Entry {
     }
 }
 
-/// Open handles keyed by session path. Managers in this process share one handle so
-/// a session can be re-opened while its previous engine is still alive; the OS lock
-/// excludes other processes. Holder counts change only under this mutex, so the file
-/// closes before another opener can observe the entry as gone.
+/// Open handles and in-memory state keyed by session path. Managers in this process share one
+/// handle and one state, so a session can be re-opened while its previous engine is still alive
+/// without two sequence counters writing to the same file; the OS lock excludes other processes.
+/// Holder counts change only under this mutex, so the file closes before another opener can
+/// observe the entry as gone.
 static HELD: Mutex<BTreeMap<PathBuf, Entry>> = Mutex::new(BTreeMap::new());
 
 fn held() -> MutexGuard<'static, BTreeMap<PathBuf, Entry>> {
@@ -30,6 +33,13 @@ fn held() -> MutexGuard<'static, BTreeMap<PathBuf, Entry>> {
 
 pub(crate) struct SessionLock {
     path: PathBuf,
+    state: Arc<tokio::sync::Mutex<StoreState>>,
+}
+
+impl SessionLock {
+    pub(crate) fn state(&self) -> &Arc<tokio::sync::Mutex<StoreState>> {
+        &self.state
+    }
 }
 
 impl Drop for SessionLock {
@@ -44,10 +54,13 @@ impl Drop for SessionLock {
     }
 }
 
-pub(crate) fn acquire(path: &Path) -> Result<Arc<SessionLock>> {
+/// Registers a holder for `path`. The first holder's `loaded` state becomes the shared one; later
+/// holders in this process adopt it and their freshly loaded copy is discarded.
+pub(crate) fn acquire(path: &Path, loaded: StoreState) -> Result<Arc<SessionLock>> {
     let mut held = held();
-    if let Some(entry) = held.get_mut(path) {
+    let state = if let Some(entry) = held.get_mut(path) {
         entry.holders += 1;
+        Arc::clone(&entry.state)
     } else {
         let file = OpenOptions::new().read(true).append(true).open(path)?;
         match file.try_lock() {
@@ -57,10 +70,20 @@ pub(crate) fn acquire(path: &Path) -> Result<Arc<SessionLock>> {
             }
             Err(TryLockError::Error(error)) => return Err(error.into()),
         }
-        held.insert(path.to_path_buf(), Entry { file, holders: 1 });
-    }
+        let state = Arc::new(tokio::sync::Mutex::new(loaded));
+        held.insert(
+            path.to_path_buf(),
+            Entry {
+                file,
+                holders: 1,
+                state: Arc::clone(&state),
+            },
+        );
+        state
+    };
     Ok(Arc::new(SessionLock {
         path: path.to_path_buf(),
+        state,
     }))
 }
 

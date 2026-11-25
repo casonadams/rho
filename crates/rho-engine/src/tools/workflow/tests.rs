@@ -950,3 +950,24 @@ async fn parallel_agent_worktrees_with_overlapping_edits_stop_the_workflow() {
         "{merged}"
     );
 }
+
+const CHOOSE_STALE: &str = r#"
+<workflow name="stale">
+  <loop id="lp" max="2">
+    <choose on="{{lp.index}}"><case value="1"><run id="s" cmd="echo one"/></case></choose>
+    <run id="seen" cmd="echo seen-[{{s.output}}]"/>
+  </loop>
+  <output name="seen" value="{{seen.output}}"/>
+  <output name="history" value="{{s.history | count}}"/>
+</workflow>
+"#;
+
+#[tokio::test]
+async fn steps_in_a_choose_branch_that_is_not_taken_read_as_empty() {
+    let fx = Fixture::new(&["unused"], &[("stale.xml", CHOOSE_STALE)]);
+    let run = fx.run("stale", &[]).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("seen-[]"), "{}", run.report);
+    assert!(run.report.contains("\"history\": 1"), "{}", run.report);
+}

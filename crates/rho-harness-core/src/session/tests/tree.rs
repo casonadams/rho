@@ -204,3 +204,26 @@ async fn test_auto_session_name_respects_user_provenance() {
     );
     assert!(!resumed.set_auto_session_name("After Resume Auto").await.unwrap());
 }
+
+#[tokio::test]
+async fn switching_to_an_unknown_node_is_rejected_and_changes_nothing() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let (_, branch_a_leaf) = setup_root_and_branch_a(&session).await;
+    let before = session.load_messages().await.unwrap();
+    let size_before = std::fs::metadata(&session.file_path).unwrap().len();
+
+    let err = session
+        .switch_branch(Some("no-such-node".to_string()))
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("no-such-node"), "{err}");
+    assert_eq!(
+        session.active_leaf_id().await.unwrap().as_deref(),
+        Some(branch_a_leaf.as_str())
+    );
+    assert_eq!(session.load_messages().await.unwrap(), before);
+    assert_eq!(std::fs::metadata(&session.file_path).unwrap().len(), size_before);
+    assert!(session.switch_branch(None).await.is_ok());
+}

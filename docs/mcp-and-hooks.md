@@ -76,7 +76,7 @@ MCP servers default to lazy on-demand lifecycle (`lifecycle: "lazy"`):
 - Tool calls may run for 600 seconds; other requests (`initialize`, listing tools, reading resources) time out after 30 seconds. A per-server `timeout` (seconds) replaces both.
 - rho sends a `progressToken` with every tool call. Each `notifications/progress` the server sends starts a fresh timeout window, up to one hour in total.
 - When a call times out or you press Esc, rho sends `notifications/cancelled` so the server can stop the work, over both stdio and HTTP.
-- If a stdio server exits or an HTTP session expires (`404` for a request carrying `Mcp-Session-Id`), rho reconnects and retries the request once. After 5 reconnects within 30 seconds it stops reconnecting that server until `/reload` and reports why.
+- If a stdio server exits or an HTTP session expires (`404` for a request carrying `Mcp-Session-Id`), rho reconnects and retries the request once. A tool call that was already sent when the connection dropped is not retried, because the server may have run it; the call reports an error and the next call reconnects. After 5 reconnects within 30 seconds it stops reconnecting that server until `/reload` and reports why.
 - Problems found after startup (a slow server that needs a sign-in, a refresh that fails, or a token that can no longer be refreshed mid-session) are shown as one warning when the REPL is idle; tool calls to such a server return an error that names the fix, such as `/mcp login <server>`.
 - Server instructions are read when the engine is built. Instructions from servers that finish connecting later, or that change on refresh, take effect at the next `/reload` or login, so the system prompt (and the provider's prompt cache) stays fixed within a session.
 

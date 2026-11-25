@@ -47,6 +47,20 @@ fn test_cli_model_parsing() {
     assert_eq!(cli.provider.as_deref(), Some("anthropic"));
 }
 
+#[test]
+fn mode_accepts_only_known_values() {
+    use clap::Parser;
+    use rho_harness_core::config::cli::Cli;
+
+    for mode in ["interactive", "rpc", "json"] {
+        assert_eq!(Cli::try_parse_from(["rho", "--mode", mode]).unwrap().mode, mode);
+    }
+    assert_eq!(Cli::try_parse_from(["rho"]).unwrap().mode, "interactive");
+    for mode in ["JSON", "jsonl", "bogus", ""] {
+        assert!(Cli::try_parse_from(["rho", "--mode", mode]).is_err(), "{mode:?}");
+    }
+}
+
 #[tokio::test]
 async fn test_handle_command_mcp_lifecycle() {
     use super::commands::handle_command;
@@ -232,7 +246,7 @@ async fn test_handle_command_config_variants() {
         &mut auth_store,
     )
     .await;
-    assert!(res.is_ok());
+    assert!(res.unwrap_err().to_string().contains("Usage: rho config"));
 
     let res = handle_command(
         Commands::Config {
@@ -243,7 +257,7 @@ async fn test_handle_command_config_variants() {
         &mut auth_store,
     )
     .await;
-    assert!(res.is_ok());
+    assert!(res.unwrap_err().to_string().contains("Usage: rho config"));
 
     let res = handle_command(
         Commands::Config {

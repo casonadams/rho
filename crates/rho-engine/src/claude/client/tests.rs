@@ -26,7 +26,7 @@ fn test_model_alias_normalization() {
         ("default", "claude-sonnet-4-6"),
         ("sonnet", "claude-sonnet-4-6"),
         ("claude-sonnet-4-6", "claude-sonnet-4-6"),
-        ("claude-sonnet-4-5", "claude-sonnet-4-5-20250514"),
+        ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929"),
         ("opus", "claude-opus-4-6"),
         ("claude-opus-4-6", "claude-opus-4-6"),
         ("haiku", "claude-haiku-4-5"),
@@ -96,7 +96,7 @@ fn test_build_request_body_with_thinking_omits_temperature() {
     assert_eq!(
         actual,
         (
-            Some("claude-sonnet-4-5-20250514"),
+            Some("claude-sonnet-4-5-20250929"),
             Some("You are Claude Code, Anthropic's official CLI for Claude."),
             Some("system instructions"),
             Some("ephemeral"),

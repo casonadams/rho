@@ -144,8 +144,16 @@ pub fn parse_http_get_params(request: &str) -> CallbackParams {
     }
 }
 
+/// Callback text comes from whatever request reaches the loopback port, so it is shown only after
+/// control characters (terminal escape sequences) are replaced and its length is capped.
 fn percent_decode_str(s: &str) -> String {
-    percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string()
+    const MAX_CHARS: usize = 200;
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .chars()
+        .take(MAX_CHARS)
+        .map(|c| if c.is_control() { '\u{fffd}' } else { c })
+        .collect()
 }
 
 #[cfg(test)]
@@ -159,6 +167,24 @@ mod tests {
         assert_eq!(params.code.as_deref(), Some("abc-123"));
         assert_eq!(params.state.as_deref(), Some("xyz-789"));
         assert!(params.error.is_none());
+    }
+
+    #[test]
+    fn callback_text_cannot_carry_terminal_control_sequences() {
+        let req = format!(
+            "GET /cb?error=bad%1B%5D52%3Bc%3Bxx%07&error_description={}%1B%5B2J%0A%0D HTTP/1.1\r\n",
+            "a".repeat(500)
+        );
+        let params = parse_http_get_params(&req);
+        let error = params.error.unwrap();
+        let desc = params.error_description.unwrap();
+        assert_eq!(error, "bad\u{fffd}]52;c;xx\u{fffd}");
+        assert_eq!(desc.chars().count(), 200);
+        assert!(!desc.chars().any(char::is_control));
+
+        let req = "GET /cb?error_description=x%1B%5B2J%0A%0D HTTP/1.1\r\n";
+        let desc = parse_http_get_params(req).error_description.unwrap();
+        assert_eq!(desc, "x\u{fffd}[2J\u{fffd}\u{fffd}");
     }
 
     #[test]

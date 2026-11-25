@@ -386,6 +386,16 @@ impl Executor<'_> {
     }
 
     async fn run_choose(&self, frame: &Frame<'_>, choose: &ChooseNode, scope: &mut Scope) -> Result<Value, String> {
+        let mut skipped_ids = BTreeSet::new();
+        for (_, body) in &choose.cases {
+            collect_ids(body, &mut skipped_ids);
+        }
+        if let Some(body) = &choose.otherwise {
+            collect_ids(body, &mut skipped_ids);
+        }
+        for id in &skipped_ids {
+            scope.clear(id);
+        }
         let on = scope.render(&choose.on);
         let on = on.trim();
         let branch = choose
