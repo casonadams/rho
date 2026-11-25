@@ -15,6 +15,8 @@ use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet
 
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 static SCOPE_RULES: LazyLock<Vec<(Scope, TokenRole)>> = LazyLock::new(build_scope_rules);
+static BOLD_SCOPE: LazyLock<Scope> = LazyLock::new(|| Scope::new("markup.bold").expect("valid scope"));
+static ITALIC_SCOPE: LazyLock<Scope> = LazyLock::new(|| Scope::new("markup.italic").expect("valid scope"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TokenRole {
@@ -28,11 +30,16 @@ enum TokenRole {
     Inserted,
     Deleted,
     Heading,
-    Bold,
-    Italic,
     Raw,
     Link,
     Quote,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TokenStyle {
+    role: TokenRole,
+    bold: bool,
+    italic: bool,
 }
 
 impl TokenRole {
@@ -48,11 +55,26 @@ impl TokenRole {
             Self::Inserted => Some(theme.tool_ok),
             Self::Deleted => Some(theme.tool_err),
             Self::Heading => Some(theme.heading_h1.bold()),
-            Self::Bold => Some(Style::new().bold()),
-            Self::Italic => Some(Style::new().italic()),
             Self::Raw => Some(theme.code_inline),
             Self::Link => Some(theme.highlight),
         }
+    }
+}
+
+impl TokenStyle {
+    fn style(self, theme: &Theme) -> Option<Style> {
+        let base = self.role.style(theme);
+        if base.is_none() && !self.bold && !self.italic {
+            return None;
+        }
+        let mut style = base.unwrap_or_default();
+        if self.bold {
+            style = style.bold();
+        }
+        if self.italic {
+            style = style.italic();
+        }
+        Some(style)
     }
 }
 
@@ -69,8 +91,6 @@ fn build_scope_rules() -> Vec<(Scope, TokenRole)> {
         ("meta.diff.range", TokenRole::Keyword),
         ("markup.heading", TokenRole::Heading),
         ("entity.name.section", TokenRole::Heading),
-        ("markup.bold", TokenRole::Bold),
-        ("markup.italic", TokenRole::Italic),
         ("markup.raw", TokenRole::Raw),
         ("markup.underline.link", TokenRole::Link),
         ("meta.link", TokenRole::Link),
@@ -86,7 +106,6 @@ fn build_scope_rules() -> Vec<(Scope, TokenRole)> {
         ("storage.modifier", TokenRole::Keyword),
         ("entity.name.function", TokenRole::Function),
         ("support.function", TokenRole::Function),
-        ("meta.function-call", TokenRole::Function),
         ("variable.function", TokenRole::Function),
         ("entity.name.type", TokenRole::Type),
         ("support.type", TokenRole::Type),
@@ -96,6 +115,7 @@ fn build_scope_rules() -> Vec<(Scope, TokenRole)> {
         ("entity.name.enum", TokenRole::Type),
         ("entity.name.interface", TokenRole::Type),
         ("entity.name.trait", TokenRole::Type),
+        ("constant.other.language-name", TokenRole::Raw),
         ("constant", TokenRole::Number),
         // Embedded source scopes (e.g. `source.rust` inside markdown fences)
         // stop outer `markup.raw.block` rules from tinting plain code tokens.
@@ -114,13 +134,26 @@ fn classify_scope(scope: Scope) -> Option<TokenRole> {
         .map(|(_, role)| *role)
 }
 
-fn resolve_role(stack: &ScopeStack) -> TokenRole {
-    stack
-        .as_slice()
-        .iter()
-        .rev()
-        .find_map(|&scope| classify_scope(scope))
-        .unwrap_or(TokenRole::Plain)
+fn resolve_style(stack: &ScopeStack) -> TokenStyle {
+    let mut role = None;
+    let mut bold = false;
+    let mut italic = false;
+    for &scope in stack.as_slice().iter().rev() {
+        if BOLD_SCOPE.is_prefix_of(scope) {
+            bold = true;
+        }
+        if ITALIC_SCOPE.is_prefix_of(scope) {
+            italic = true;
+        }
+        if role.is_none() {
+            role = classify_scope(scope);
+        }
+    }
+    TokenStyle {
+        role: role.unwrap_or(TokenRole::Plain),
+        bold,
+        italic,
+    }
 }
 
 fn resolve_syntax(lang: Option<&str>) -> &'static SyntaxReference {
@@ -129,11 +162,11 @@ fn resolve_syntax(lang: Option<&str>) -> &'static SyntaxReference {
         .unwrap_or_else(|| ss.find_syntax_plain_text())
 }
 
-fn emit_segment(out: &mut String, text: &str, role: TokenRole, theme: &Theme) {
+fn emit_segment(out: &mut String, text: &str, style: TokenStyle, theme: &Theme) {
     if text.is_empty() {
         return;
     }
-    if let Some(style) = role.style(theme) {
+    if let Some(style) = style.style(theme) {
         let _ = write!(out, "{style}{text}{style:#}");
     } else {
         out.push_str(text);
@@ -145,7 +178,7 @@ struct RunEmitter<'a> {
     theme: &'a Theme,
     out: String,
     run_start: usize,
-    run_role: Option<TokenRole>,
+    run_style: Option<TokenStyle>,
 }
 
 impl<'a> RunEmitter<'a> {
@@ -155,31 +188,31 @@ impl<'a> RunEmitter<'a> {
             theme,
             out: String::with_capacity(line.len() + 32),
             run_start: 0,
-            run_role: None,
+            run_style: None,
         }
     }
 
-    fn push(&mut self, seg_start: usize, next_role: TokenRole) {
-        if let Some(prev_role) = self.run_role {
-            if prev_role != next_role {
+    fn push(&mut self, seg_start: usize, next_style: TokenStyle) {
+        if let Some(prev_style) = self.run_style {
+            if prev_style != next_style {
                 emit_segment(
                     &mut self.out,
                     &self.line[self.run_start..seg_start],
-                    prev_role,
+                    prev_style,
                     self.theme,
                 );
                 self.run_start = seg_start;
-                self.run_role = Some(next_role);
+                self.run_style = Some(next_style);
             }
         } else {
             self.run_start = seg_start;
-            self.run_role = Some(next_role);
+            self.run_style = Some(next_style);
         }
     }
 
     fn finish(mut self) -> String {
-        if let Some(role) = self.run_role {
-            emit_segment(&mut self.out, &self.line[self.run_start..], role, self.theme);
+        if let Some(style) = self.run_style {
+            emit_segment(&mut self.out, &self.line[self.run_start..], style, self.theme);
         }
         self.out
     }
@@ -223,14 +256,14 @@ impl CodeHighlighter {
             let seg_start = prev_end.min(visible_len);
             let seg_end = offset.min(visible_len);
             if seg_end > seg_start {
-                emitter.push(seg_start, resolve_role(&self.scope_stack));
+                emitter.push(seg_start, resolve_style(&self.scope_stack));
             }
             prev_end = offset;
             let _ = self.scope_stack.apply(&op);
         }
 
         if prev_end < visible_len {
-            emitter.push(prev_end, resolve_role(&self.scope_stack));
+            emitter.push(prev_end, resolve_style(&self.scope_stack));
         }
         emitter.finish()
     }
@@ -243,6 +276,8 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
 pub fn warmup_syntax_highlighter() {
     let _ = &*SYNTAX_SET;
     let _ = &*SCOPE_RULES;
+    let _ = &*BOLD_SCOPE;
+    let _ = &*ITALIC_SCOPE;
 }
 
 #[cfg(test)]
@@ -300,6 +335,19 @@ mod tests {
         let bold = hl.highlight_line("Some **bold** word", &theme);
         assert!(bold.contains("\x1b[1m"), "bold: {bold:?}");
         assert!(!bold.contains("\x1b[93m"), "bold must not be bright yellow: {bold:?}");
+        let both = hl.highlight_line("Some ***both*** word", &theme);
+        let expected = Style::new().bold().italic();
+        assert!(
+            both.contains(&format!("{expected}*both*{expected:#}")),
+            "bold+italic: {both:?}"
+        );
+    }
+
+    #[test]
+    fn python_call_arguments_and_punctuation_stay_unstyled() {
+        let theme = Theme::default();
+        let highlighted = highlight_code_line("f(value)", Some("python"), &theme);
+        assert_eq!(highlighted, "\x1b[34mf\x1b[0m(value)");
     }
 
     #[test]
@@ -311,7 +359,10 @@ mod tests {
         assert!(inline.contains(&format!("{}", theme.code_inline)), "inline: {inline:?}");
         assert!(!inline.contains("\x1b[9"), "no bright ANSI codes: {inline:?}");
 
-        let _ = hl.highlight_line("```rust", &theme);
+        let fence = hl.highlight_line("```rust", &theme);
+        assert_eq!(fence, format!("{}```rust{:#}", theme.code_inline, theme.code_inline));
+        assert!(!fence.contains("\x1b[33m"), "fence lang must not be yellow: {fence:?}");
+
         let code = hl.highlight_line("let x = 1;", &theme);
         assert!(code.contains("let x = 1;"), "code: {code:?}");
         assert!(!code.contains("\x1b[9"), "no bright ANSI codes: {code:?}");
