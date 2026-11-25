@@ -86,8 +86,11 @@ fn multiline_comment_state_carries_across_streamed_code_lines() {
         carried_second, per_line,
         "input must keep a different style when comment state spans lines"
     );
-    assert!(out.contains(&carried_second), "streamed output: {out:?}");
-    assert!(!out.contains(&per_line), "streamed output: {out:?}");
+    assert!(
+        out.lines().any(|line| line == carried_second),
+        "streamed output: {out:?}"
+    );
+    assert!(!out.lines().any(|line| line == per_line), "streamed output: {out:?}");
 }
 
 #[test]

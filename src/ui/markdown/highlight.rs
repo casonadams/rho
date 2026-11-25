@@ -1,51 +1,203 @@
-//! Code-block syntax highlighting via `syntect`.
+//! Transparent, theme-native syntax highlighting via `syntect` scope parsing.
 //!
-//! Reduces `syntect`'s 24-bit color output to ANSI-16 escape codes so the result
-//! composes with the rest of our ANSI-styled output.
+//! Instead of baking a hardcoded 24-bit `syntect` color scheme (like
+//! `base16-ocean`), this parses lines into TextMate scopes and maps semantic
+//! token roles onto the active [`Theme`] and standard ANSI-16 palette slots.
+//! Unstyled text, identifiers, and punctuation emit no color escapes so they
+//! inherit the terminal's native foreground transparently.
 
 use crate::ui::theme::Theme;
+use anstyle::{AnsiColor, Color, Style};
+use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::sync::LazyLock;
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
+use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
 
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
-static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
+static SCOPE_RULES: LazyLock<Vec<(Scope, TokenRole)>> = LazyLock::new(build_scope_rules);
 
-fn resolve_highlighter<'a>(lang: Option<&str>, is_light: bool) -> HighlightLines<'a> {
-    let ss = &*SYNTAX_SET;
-    let ts = &*THEME_SET;
-    let syntax = lang
-        .and_then(|l| ss.find_syntax_by_token(l).or_else(|| ss.find_syntax_by_extension(l)))
-        .unwrap_or_else(|| ss.find_syntax_plain_text());
-    let syn_theme = if is_light {
-        &ts.themes["base16-ocean.light"]
-    } else {
-        &ts.themes["base16-ocean.dark"]
-    };
-    HighlightLines::new(syntax, syn_theme)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenRole {
+    Plain,
+    Comment,
+    Keyword,
+    String,
+    Number,
+    Function,
+    Type,
+    Inserted,
+    Deleted,
+    Heading,
+    Bold,
+    Italic,
+    Raw,
+    Link,
+    Quote,
 }
 
-fn format_highlighted_ranges(ranges: &[(syntect::highlighting::Style, &str)]) -> String {
-    let mut out = String::new();
-    for (style, text) in ranges {
-        out.push_str(syntect_color_to_ansi16(style.foreground));
+impl TokenRole {
+    fn style(self, theme: &Theme) -> Option<Style> {
+        match self {
+            Self::Plain => None,
+            Self::Comment | Self::Quote => Some(theme.dimmed),
+            Self::Keyword => Some(ansi_fg(AnsiColor::Magenta)),
+            Self::String => Some(ansi_fg(AnsiColor::Green)),
+            Self::Number => Some(ansi_fg(AnsiColor::Yellow)),
+            Self::Function => Some(ansi_fg(AnsiColor::Blue)),
+            Self::Type => Some(ansi_fg(AnsiColor::Cyan)),
+            Self::Inserted => Some(theme.tool_ok),
+            Self::Deleted => Some(theme.tool_err),
+            Self::Heading => Some(theme.heading_h1.bold()),
+            Self::Bold => Some(Style::new().bold()),
+            Self::Italic => Some(Style::new().italic()),
+            Self::Raw => Some(theme.code_inline),
+            Self::Link => Some(theme.highlight),
+        }
+    }
+}
+
+fn ansi_fg(color: AnsiColor) -> Style {
+    Style::new().fg_color(Some(Color::Ansi(color)))
+}
+
+fn build_scope_rules() -> Vec<(Scope, TokenRole)> {
+    const RULES: &[(&str, TokenRole)] = &[
+        ("comment", TokenRole::Comment),
+        ("markup.inserted", TokenRole::Inserted),
+        ("markup.deleted", TokenRole::Deleted),
+        ("meta.diff.header", TokenRole::Keyword),
+        ("meta.diff.range", TokenRole::Keyword),
+        ("markup.heading", TokenRole::Heading),
+        ("entity.name.section", TokenRole::Heading),
+        ("markup.bold", TokenRole::Bold),
+        ("markup.italic", TokenRole::Italic),
+        ("markup.raw", TokenRole::Raw),
+        ("markup.underline.link", TokenRole::Link),
+        ("meta.link", TokenRole::Link),
+        ("markup.quote", TokenRole::Quote),
+        ("string", TokenRole::String),
+        ("constant.character", TokenRole::String),
+        ("meta.string", TokenRole::String),
+        ("constant.numeric", TokenRole::Number),
+        ("constant.integer", TokenRole::Number),
+        ("keyword.operator", TokenRole::Plain),
+        ("keyword", TokenRole::Keyword),
+        ("storage.type", TokenRole::Keyword),
+        ("storage.modifier", TokenRole::Keyword),
+        ("entity.name.function", TokenRole::Function),
+        ("support.function", TokenRole::Function),
+        ("meta.function-call", TokenRole::Function),
+        ("variable.function", TokenRole::Function),
+        ("entity.name.type", TokenRole::Type),
+        ("support.type", TokenRole::Type),
+        ("support.class", TokenRole::Type),
+        ("entity.name.class", TokenRole::Type),
+        ("entity.name.struct", TokenRole::Type),
+        ("entity.name.enum", TokenRole::Type),
+        ("entity.name.interface", TokenRole::Type),
+        ("entity.name.trait", TokenRole::Type),
+        ("constant", TokenRole::Number),
+        // Embedded source scopes (e.g. `source.rust` inside markdown fences)
+        // stop outer `markup.raw.block` rules from tinting plain code tokens.
+        ("source", TokenRole::Plain),
+    ];
+    RULES
+        .iter()
+        .filter_map(|&(pattern, role)| Scope::new(pattern).ok().map(|scope| (scope, role)))
+        .collect()
+}
+
+fn classify_scope(scope: Scope) -> Option<TokenRole> {
+    SCOPE_RULES
+        .iter()
+        .find(|(prefix, _)| prefix.is_prefix_of(scope))
+        .map(|(_, role)| *role)
+}
+
+fn resolve_role(stack: &ScopeStack) -> TokenRole {
+    stack
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|&scope| classify_scope(scope))
+        .unwrap_or(TokenRole::Plain)
+}
+
+fn resolve_syntax(lang: Option<&str>) -> &'static SyntaxReference {
+    let ss = &*SYNTAX_SET;
+    lang.and_then(|l| ss.find_syntax_by_token(l).or_else(|| ss.find_syntax_by_extension(l)))
+        .unwrap_or_else(|| ss.find_syntax_plain_text())
+}
+
+fn emit_segment(out: &mut String, text: &str, role: TokenRole, theme: &Theme) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(style) = role.style(theme) {
+        let _ = write!(out, "{style}{text}{style:#}");
+    } else {
         out.push_str(text);
     }
-    out.push_str("\x1b[0m");
-    out
 }
 
-pub struct CodeHighlighter<'a> {
+struct RunEmitter<'a> {
+    line: &'a str,
+    theme: &'a Theme,
+    out: String,
+    run_start: usize,
+    run_role: Option<TokenRole>,
+}
+
+impl<'a> RunEmitter<'a> {
+    fn new(line: &'a str, theme: &'a Theme) -> Self {
+        Self {
+            line,
+            theme,
+            out: String::with_capacity(line.len() + 32),
+            run_start: 0,
+            run_role: None,
+        }
+    }
+
+    fn push(&mut self, seg_start: usize, next_role: TokenRole) {
+        if let Some(prev_role) = self.run_role {
+            if prev_role != next_role {
+                emit_segment(
+                    &mut self.out,
+                    &self.line[self.run_start..seg_start],
+                    prev_role,
+                    self.theme,
+                );
+                self.run_start = seg_start;
+                self.run_role = Some(next_role);
+            }
+        } else {
+            self.run_start = seg_start;
+            self.run_role = Some(next_role);
+        }
+    }
+
+    fn finish(mut self) -> String {
+        if let Some(role) = self.run_role {
+            emit_segment(&mut self.out, &self.line[self.run_start..], role, self.theme);
+        }
+        self.out
+    }
+}
+
+pub struct CodeHighlighter {
     lang: Option<String>,
-    highlighter: HighlightLines<'a>,
+    parse_state: ParseState,
+    scope_stack: ScopeStack,
 }
 
-impl<'a> CodeHighlighter<'a> {
-    pub fn new(lang: Option<&str>, theme: &Theme) -> Self {
+impl CodeHighlighter {
+    pub fn new(lang: Option<&str>, _theme: &Theme) -> Self {
+        let syntax = resolve_syntax(lang);
         Self {
             lang: lang.map(str::to_string),
-            highlighter: resolve_highlighter(lang, theme.is_light),
+            parse_state: ParseState::new(syntax),
+            scope_stack: ScopeStack::new(),
         }
     }
 
@@ -54,13 +206,33 @@ impl<'a> CodeHighlighter<'a> {
     }
 
     pub fn highlight_line(&mut self, line: &str, theme: &Theme) -> String {
-        match self.highlighter.highlight_line(line, &SYNTAX_SET) {
-            Ok(ranges) => format_highlighted_ranges(&ranges),
-            Err(_) => {
-                let d = theme.dimmed;
-                format!("{d}{line}{d:#}")
+        let parse_input: Cow<'_, str> = if line.ends_with('\n') {
+            Cow::Borrowed(line)
+        } else {
+            Cow::Owned(format!("{line}\n"))
+        };
+        let Ok(ops) = self.parse_state.parse_line(&parse_input, &SYNTAX_SET) else {
+            return line.to_string();
+        };
+
+        let visible_len = line.len();
+        let mut emitter = RunEmitter::new(line, theme);
+        let mut prev_end = 0usize;
+
+        for (offset, op) in ops {
+            let seg_start = prev_end.min(visible_len);
+            let seg_end = offset.min(visible_len);
+            if seg_end > seg_start {
+                emitter.push(seg_start, resolve_role(&self.scope_stack));
             }
+            prev_end = offset;
+            let _ = self.scope_stack.apply(&op);
         }
+
+        if prev_end < visible_len {
+            emitter.push(prev_end, resolve_role(&self.scope_stack));
+        }
+        emitter.finish()
     }
 }
 
@@ -70,106 +242,79 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
 
 pub fn warmup_syntax_highlighter() {
     let _ = &*SYNTAX_SET;
-    let _ = &*THEME_SET;
-}
-
-const ANSI16_CODES: [&str; 16] = [
-    "\x1b[30m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[37m", "\x1b[90m",
-    "\x1b[91m", "\x1b[92m", "\x1b[93m", "\x1b[94m", "\x1b[95m", "\x1b[96m", "\x1b[97m",
-];
-
-fn ansi16(code: u8, is_bright: bool) -> &'static str {
-    ANSI16_CODES[usize::from(if is_bright { 8 + code } else { code })]
-}
-
-fn grayscale_ansi(lightness: u16) -> &'static str {
-    match lightness {
-        0..=80 => ansi16(0, false),
-        81..=200 => ansi16(0, true),
-        201..=400 => ansi16(7, false),
-        _ => ansi16(7, true),
-    }
-}
-
-fn yellow_or_magenta(g: u8, b: u8, is_bright: bool) -> Option<&'static str> {
-    if g.saturating_sub(b) > 30 {
-        Some(ansi16(3, is_bright))
-    } else if b.saturating_sub(g) > 30 {
-        Some(ansi16(5, is_bright))
-    } else {
-        None
-    }
-}
-
-fn red_dominant_ansi(g: u8, b: u8, is_bright: bool) -> &'static str {
-    if let Some(ansi) = yellow_or_magenta(g, b, is_bright) {
-        return ansi;
-    }
-    ansi16(1, is_bright)
-}
-
-fn green_dominant_ansi(r: u8, b: u8, is_bright: bool) -> &'static str {
-    if b > r && (b - r) > 30 {
-        ansi16(6, is_bright)
-    } else {
-        ansi16(2, is_bright)
-    }
-}
-
-fn syntect_color_to_ansi16(color: syntect::highlighting::Color) -> &'static str {
-    let (r, g, b) = (color.r, color.g, color.b);
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    let lightness = u16::from(max) + u16::from(min);
-    if max - min < 20 {
-        return grayscale_ansi(lightness);
-    }
-    let is_bright = lightness > 256;
-    if r >= g && r >= b {
-        red_dominant_ansi(g, b, is_bright)
-    } else if g >= r && g >= b {
-        green_dominant_ansi(r, b, is_bright)
-    } else {
-        ansi16(4, is_bright)
-    }
+    let _ = &*SCOPE_RULES;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn rgb(r: u8, g: u8, b: u8) -> syntect::highlighting::Color {
-        syntect::highlighting::Color { r, g, b, a: 0xFF }
+    #[test]
+    fn plain_text_emits_no_ansi_escapes() {
+        let theme = Theme::default();
+        let highlighted = highlight_code_line("just plain text", None, &theme);
+        assert_eq!(highlighted, "just plain text");
     }
 
     #[test]
-    fn ansi16_mapping_matches_existing_escapes() {
-        let cases = [
-            (rgb(0, 0, 0), "\x1b[30m"),
-            (rgb(40, 40, 40), "\x1b[30m"),
-            (rgb(41, 41, 41), "\x1b[90m"),
-            (rgb(100, 100, 100), "\x1b[90m"),
-            (rgb(101, 101, 101), "\x1b[37m"),
-            (rgb(128, 128, 128), "\x1b[37m"),
-            (rgb(200, 200, 200), "\x1b[37m"),
-            (rgb(201, 201, 201), "\x1b[97m"),
-            (rgb(255, 255, 255), "\x1b[97m"),
-            (rgb(255, 0, 0), "\x1b[31m"),
-            (rgb(255, 120, 120), "\x1b[91m"),
-            (rgb(0, 200, 0), "\x1b[32m"),
-            (rgb(0, 255, 0), "\x1b[32m"),
-            (rgb(0, 255, 100), "\x1b[36m"),
-            (rgb(100, 255, 255), "\x1b[96m"),
-            (rgb(0, 255, 255), "\x1b[36m"),
-            (rgb(0, 0, 255), "\x1b[34m"),
-            (rgb(100, 100, 255), "\x1b[94m"),
-            (rgb(255, 255, 0), "\x1b[33m"),
-            (rgb(255, 255, 100), "\x1b[93m"),
-            (rgb(255, 0, 255), "\x1b[35m"),
-            (rgb(255, 100, 255), "\x1b[95m"),
-        ];
-        for (color, expected) in cases {
-            assert_eq!(syntect_color_to_ansi16(color), expected, "for rgb {color:?}");
-        }
+    fn code_uses_normal_ansi_palette_without_bright_or_truecolor() {
+        let theme = Theme::default();
+        let highlighted = highlight_code_line("let count = 42; // note", Some("rust"), &theme);
+        assert!(highlighted.contains("\x1b[35mlet\x1b[0m"), "got: {highlighted:?}");
+        assert!(highlighted.contains("\x1b[33m42\x1b[0m"), "got: {highlighted:?}");
+        assert!(!highlighted.contains("\x1b[9"), "no bright ANSI codes: {highlighted:?}");
+        assert!(
+            !highlighted.contains("\x1b[37m"),
+            "no forced white ANSI: {highlighted:?}"
+        );
+        assert!(
+            !highlighted.contains("\x1b[48;"),
+            "no background fills: {highlighted:?}"
+        );
+    }
+
+    #[test]
+    fn single_line_comment_does_not_leak_to_next_line() {
+        let theme = Theme::default();
+        let mut hl = CodeHighlighter::new(Some("rust"), &theme);
+        let first = hl.highlight_line("// comment", &theme);
+        let second = hl.highlight_line("let x = 1;", &theme);
+        assert!(first.contains(&format!("{}", theme.dimmed)), "first: {first:?}");
+        assert!(second.contains("\x1b[35mlet\x1b[0m"), "second: {second:?}");
+    }
+
+    #[test]
+    fn markdown_uses_theme_styles_and_transparent_body() {
+        let theme = Theme::default();
+        let mut hl = CodeHighlighter::new(Some("md"), &theme);
+
+        let heading = hl.highlight_line("# Heading", &theme);
+        assert_eq!(
+            heading,
+            format!("{}# Heading{:#}", theme.heading_h1.bold(), theme.heading_h1.bold())
+        );
+
+        let body = hl.highlight_line("Plain body text", &theme);
+        assert_eq!(body, "Plain body text");
+
+        let bold = hl.highlight_line("Some **bold** word", &theme);
+        assert!(bold.contains("\x1b[1m"), "bold: {bold:?}");
+        assert!(!bold.contains("\x1b[93m"), "bold must not be bright yellow: {bold:?}");
+    }
+
+    #[test]
+    fn markdown_inline_code_and_fences_use_theme_code_style_without_bright_ansi() {
+        let theme = Theme::default();
+        let mut hl = CodeHighlighter::new(Some("md"), &theme);
+        let inline = hl.highlight_line("Run `cargo test` now", &theme);
+        assert!(inline.contains("`cargo test`"), "inline: {inline:?}");
+        assert!(inline.contains(&format!("{}", theme.code_inline)), "inline: {inline:?}");
+        assert!(!inline.contains("\x1b[9"), "no bright ANSI codes: {inline:?}");
+
+        let _ = hl.highlight_line("```rust", &theme);
+        let code = hl.highlight_line("let x = 1;", &theme);
+        assert!(code.contains("let x = 1;"), "code: {code:?}");
+        assert!(!code.contains("\x1b[9"), "no bright ANSI codes: {code:?}");
+        assert!(!code.contains("\x1b[37m"), "no forced white ANSI: {code:?}");
     }
 }
