@@ -1,0 +1,85 @@
+[tools]
+"github:nextest-rs/nextest" = { version = "0.9.149", version_prefix = "cargo-nextest-" }
+"cargo:cccc-cli" = "1.9.2"
+jq = "1.7.1"
+
+# Output is quiet by default (no per-crate compile lines, no PASS line per test) so `mise run all`
+# stays readable and cheap in a coding agent's context; `V=1 mise run <task>` shows everything.
+[env]
+CARGO_TERM_QUIET = "{% if get_env(name='V', default='') == '1' %}false{% else %}true{% endif %}"
+
+[tasks.all]
+description = "Run every check: format, clippy, headless clippy, complexity, tests"
+depends = ["fmt-check", "clippy", "headless", "complexity", "test"]
+
+[tasks.build]
+description = "Build the project in debug mode"
+run = "cargo build"
+
+[tasks.build-release]
+description = "Build the project in release mode"
+run = "cargo build --release"
+
+[tasks.install]
+description = "Build the optimized local binary (target/local/) and install it to ~/.cargo/bin/rho"
+run = '''
+cargo build --profile local --bin rho
+mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+install -m 755 target/local/rho "${CARGO_HOME:-$HOME/.cargo}/bin/rho"
+'''
+
+[tasks.check]
+description = "Type check all targets"
+run = "cargo check --workspace --all-targets"
+
+[tasks.fmt]
+description = "Format all Rust source files"
+run = "cargo fmt --all"
+
+[tasks.fmt-check]
+description = "Check formatting of Rust source files"
+run = "cargo fmt --all -- --check"
+
+[tasks.clippy]
+description = "Run Clippy with warnings treated as errors"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.headless]
+description = "Lint the headless build (no ui feature) so RPC and print mode never depend on the terminal UI"
+run = "cargo clippy --lib --bins --no-default-features -- -D warnings"
+
+[tasks.clippy-fix]
+description = "Automatically fix Clippy suggestions where possible"
+run = "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged"
+
+[tasks.clean]
+description = "Clean cargo build artifacts"
+run = "cargo clean"
+
+[tasks.test]
+description = "Run the workspace tests with nextest, then the doc tests; V=1 prints every test"
+run = '''
+level=""
+[ "${V:-}" = 1 ] && level="--status-level pass"
+cargo nextest run --workspace --all-targets $level
+out=$(cargo test --workspace --doc 2>&1); status=$?
+if [ $status -ne 0 ] || [ "${V:-}" = 1 ]; then echo "$out"; fi
+exit $status
+'''
+
+[tasks.leak-check]
+description = "Run the tests with a private TMPDIR and fail if they leave files behind"
+run = '''
+dir=$(mktemp -d) || exit 1
+TMPDIR="$dir" mise run test; status=$?
+leaked=$(find "$dir" -mindepth 1 -maxdepth 1)
+if [ -n "$leaked" ]; then echo "Tests leaked into the temp dir ($dir):"; echo "$leaked"; exit 1; fi
+rm -rf "$dir"; exit $status
+'''
+
+[tasks.complexity]
+description = "Gate on the cognitive complexity limit set in cccc.toml"
+run = '''
+max=$(sed -n 's/^max-cognitive *= *\([0-9]*\).*/\1/p' cccc.toml)
+out=$(cccc .) || { echo "$out" | jq -c --argjson max "$max" '.files[]? | .path as $path | .functions[]? | select(.cognitive > $max) | {file: $path, line, function: .name, cognitive, cyclomatic}'; exit 1; }
+'''

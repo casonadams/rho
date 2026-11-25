@@ -2,9 +2,9 @@ Fix these validated `{{profile}}` findings in rho:
 
 {{validate.actionable}}
 
-After you finish, the workflow runs `make all` and then a reviewer reads your staged diff. Feedback from the previous attempt, if it failed (both are empty on the first attempt):
+After you finish, the workflow runs `mise run all` and then a reviewer reads your staged diff. Feedback from the previous attempt, if it failed (both are empty on the first attempt):
 
-`make all` output:
+`mise run all` output:
 {{verify.output}}
 
 Reviewer issues:

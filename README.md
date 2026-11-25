@@ -200,15 +200,15 @@ Comprehensive guides are organized in [`docs/`](docs/):
 
 ## Development
 
-Run the test suite, linter, and format checks:
+Tasks run through [mise](https://mise.jdx.dev), which also installs the pinned tools (nextest, cccc, jq). Run
+`mise install` once, then:
 
 ```sh
-make all          # fmt check, clippy, complexity, tests; quiet unless something fails
-make test V=1     # every test and compile line, for when you want the full output
-cargo test --workspace
-make clippy
-cargo fmt --all -- --check
-make leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
+mise run all          # fmt check, clippy, headless clippy, complexity, tests; quiet unless something fails
+V=1 mise run test     # every test and compile line, for when you want the full output
+mise run clippy
+mise run leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
+mise tasks            # every task
 ```
 
 ---
