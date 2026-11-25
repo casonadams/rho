@@ -2,6 +2,7 @@ use super::*;
 use crate::engine::metrics::{PruneAction, PruneDecision};
 use crate::engine::runner::turn::prune::cache::WARM_REBUILD_RATIO;
 use rho_harness_core::model::*;
+use rho_harness_core::tokens::MessageTokenCache;
 
 fn prune_historical_tool_outputs(
     messages: &[ChatMessage],
@@ -1661,6 +1662,37 @@ fn with_sizes_matches_if_changed_for_precomputed_sizes() {
         prune_historical_tool_outputs_with_sizes(&messages, &sizes, &policy),
         expected
     );
+}
+
+#[test]
+fn repeated_prune_of_unchanged_prefix_does_not_retokenize() {
+    let policy = cache_test_policy();
+    let history = verbose_read_history(30, None);
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(&history, "claude-sonnet-4");
+    let mut memo = MessageTokenCache::new();
+    let first = prune_with_token_cache(&history, &sizes, &policy, &mut memo);
+    let misses = memo.misses();
+    assert!(misses > 0);
+
+    let second = prune_with_token_cache(&history, &sizes, &policy, &mut memo);
+    assert_eq!(second, first);
+    assert_eq!(memo.misses(), misses);
+}
+
+#[test]
+fn repeated_prune_of_long_history_does_not_retokenize() {
+    let policy = cache_test_policy();
+    let history = verbose_read_history(600, None);
+    assert!(history.len() > rho_harness_core::tokens::DEFAULT_CACHE_CAPACITY);
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(&history, "claude-sonnet-4");
+    let mut memo = MessageTokenCache::new();
+    let first = prune_with_token_cache(&history, &sizes, &policy, &mut memo);
+    let misses = memo.misses();
+    assert!(misses > 0);
+
+    let second = prune_with_token_cache(&history, &sizes, &policy, &mut memo);
+    assert_eq!(second, first);
+    assert_eq!(memo.misses(), misses);
 }
 
 #[test]

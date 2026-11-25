@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use rho_harness_core::model::{ChatMessage, UserContent};
-use rho_harness_core::tokens::estimate_message_tokens;
+use rho_harness_core::tokens::MessageTokenCache;
 
 use crate::engine::metrics::{PruneAction, PruneDecision};
 
-use super::{PrunePolicy, prune_historical_tool_outputs_with_sizes};
+use super::{PrunePolicy, prune_with_token_cache};
 
 /// Re-pruning a warm prefix rewrites everything after the first changed message, so a warm
 /// prompt cache is only abandoned when the pruned tokens are at least this share of that rewrite.
@@ -23,6 +23,7 @@ pub enum PromptCache {
 #[derive(Debug, Default)]
 pub struct PruneMemory {
     stubs: HashMap<String, UserContent>,
+    tokens: MessageTokenCache,
 }
 
 impl PruneMemory {
@@ -34,12 +35,16 @@ impl PruneMemory {
         policy: &PrunePolicy,
         cache: PromptCache,
     ) -> (Option<Vec<ChatMessage>>, PruneDecision) {
-        let fresh = prune_historical_tool_outputs_with_sizes(messages, sizes, policy);
+        let fresh = prune_with_token_cache(messages, sizes, policy, &mut self.tokens);
         let (chosen, decision) = match cache {
             PromptCache::Cold => (fresh, PruneDecision::new(PruneAction::Cold, 0, 0)),
-            PromptCache::Warm => {
-                choose_for_warm_cache(messages, self.replay(messages), fresh, policy.tokenizer_model())
-            }
+            PromptCache::Warm => choose_for_warm_cache(
+                messages,
+                self.replay(messages),
+                fresh,
+                policy.tokenizer_model(),
+                &mut self.tokens,
+            ),
         };
         self.remember(messages, chosen.as_deref());
         (chosen, decision)
@@ -92,8 +97,8 @@ fn tool_call_id(item: &UserContent) -> Option<String> {
     }
 }
 
-fn suffix_tokens(messages: &[ChatMessage], from: usize, model: &str) -> usize {
-    messages[from..].iter().map(|m| estimate_message_tokens(m, model)).sum()
+fn suffix_tokens(memo: &mut MessageTokenCache, messages: &[ChatMessage], from: usize, model: &str) -> usize {
+    memo.estimate_messages_tokens_memoized(&messages[from..], model)
 }
 
 fn choose_for_warm_cache(
@@ -101,14 +106,15 @@ fn choose_for_warm_cache(
     kept: Option<Vec<ChatMessage>>,
     fresh: Option<Vec<ChatMessage>>,
     model: &str,
+    memo: &mut MessageTokenCache,
 ) -> (Option<Vec<ChatMessage>>, PruneDecision) {
     let kept_view = kept.as_deref().unwrap_or(raw);
     let fresh_view = fresh.as_deref().unwrap_or(raw);
     let Some(first_change) = kept_view.iter().zip(fresh_view).position(|(a, b)| a != b) else {
         return (kept, PruneDecision::new(PruneAction::Unchanged, 0, 0));
     };
-    let rebuilt = suffix_tokens(fresh_view, first_change, model);
-    let saved = suffix_tokens(kept_view, first_change, model).saturating_sub(rebuilt);
+    let rebuilt = suffix_tokens(memo, fresh_view, first_change, model);
+    let saved = suffix_tokens(memo, kept_view, first_change, model).saturating_sub(rebuilt);
     if saved as f64 >= rebuilt as f64 * WARM_REBUILD_RATIO {
         (fresh, PruneDecision::new(PruneAction::Rewritten, saved, rebuilt))
     } else {

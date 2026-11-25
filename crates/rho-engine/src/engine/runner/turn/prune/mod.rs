@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use rho_harness_core::model::{
     AssistantContent, ChatMessage, ImageContent, ToolCall, ToolResult, ToolResultContent, UserContent,
 };
+use rho_harness_core::tokens::MessageTokenCache;
 use rho_harness_core::tokens::cut_point::is_user_turn_start;
 
 mod cache;
@@ -269,7 +270,11 @@ fn resolve_tool_prune_stub(
     }
 }
 
-fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<UserContent> {
+fn prune_tool_result_item(
+    item: &UserContent,
+    ctx: &PruneContext<'_>,
+    memo: &mut MessageTokenCache,
+) -> Option<UserContent> {
     let UserContent::ToolResult(res) = item else {
         return None;
     };
@@ -288,7 +293,7 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
     let text = extract_tool_result_text(&res.content);
 
     if ctx.min_prune_tokens > 0 && !is_superseded {
-        let tokens = rho_harness_core::tokens::estimate_text_tokens(&text, ctx.model);
+        let tokens = memo.get_or_compute_text(&text, ctx.model);
         if tokens < ctx.min_prune_tokens {
             return None;
         }
@@ -309,10 +314,14 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
     }))
 }
 
-fn prune_user_message_content(content: &[UserContent], ctx: &PruneContext<'_>) -> Option<Vec<UserContent>> {
+fn prune_user_message_content(
+    content: &[UserContent],
+    ctx: &PruneContext<'_>,
+    memo: &mut MessageTokenCache,
+) -> Option<Vec<UserContent>> {
     let mut new_content: Option<Vec<UserContent>> = None;
     for (idx, item) in content.iter().enumerate() {
-        if let Some(pruned) = prune_tool_result_item(item, ctx) {
+        if let Some(pruned) = prune_tool_result_item(item, ctx, memo) {
             new_content.get_or_insert_with(|| content.to_vec())[idx] = pruned;
         }
     }
@@ -342,6 +351,20 @@ pub fn prune_historical_tool_outputs_with_sizes(
     sizes: &[usize],
     policy: &PrunePolicy,
 ) -> Option<Vec<ChatMessage>> {
+    prune_with_token_cache(messages, sizes, policy, &mut MessageTokenCache::new())
+}
+
+/// A pass keys each message in the suffix sums, each pruned message, and each tool result text;
+/// four keys per message keeps those from evicting one another before the next pass.
+const KEYS_PER_MESSAGE: usize = 4;
+
+/// Counts tokens through `memo`, so a caller that keeps it across turns re-tokenizes only new messages.
+pub(super) fn prune_with_token_cache(
+    messages: &[ChatMessage],
+    sizes: &[usize],
+    policy: &PrunePolicy,
+    memo: &mut MessageTokenCache,
+) -> Option<Vec<ChatMessage>> {
     if messages.is_empty() {
         return None;
     }
@@ -355,6 +378,7 @@ pub fn prune_historical_tool_outputs_with_sizes(
         return None;
     }
 
+    memo.grow_to_fit(messages.len().saturating_mul(KEYS_PER_MESSAGE));
     let tool_calls = collect_tool_calls(messages);
     let superseded_ids = collect_superseded_tool_call_ids(&messages[..effective_cutoff]);
     let ctx = PruneContext {
@@ -370,9 +394,9 @@ pub fn prune_historical_tool_outputs_with_sizes(
         .iter()
         .enumerate()
         .filter_map(|(idx, msg)| match msg {
-            ChatMessage::User { content } => prune_user_message_content(content, &ctx).map(|new_content| {
+            ChatMessage::User { content } => prune_user_message_content(content, &ctx, memo).map(|new_content| {
                 let new_msg = ChatMessage::User { content: new_content };
-                let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, model);
+                let new_tokens = memo.get_or_compute(&new_msg, model);
                 total_savings = total_savings.saturating_add(sizes[idx].saturating_sub(new_tokens));
                 (idx, new_msg)
             }),

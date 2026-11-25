@@ -3,7 +3,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::model::{AssistantContent, ChatMessage, ImageContent, ReasoningContent, ToolResultContent, UserContent};
 
-use super::{ContextTokenStats, estimate_message_tokens};
+use super::{ContextTokenStats, estimate_message_tokens, estimate_text_tokens};
 
 pub const DEFAULT_CACHE_CAPACITY: usize = 2048;
 /// Hard ceiling when a scan over a long history grows the cache; entries are a `u64` and a `usize`.
@@ -100,6 +100,15 @@ fn hash_assistant_content_item(item: &AssistantContent, hasher: &mut impl Hasher
     }
 }
 
+/// Tag 3 lies past the message variant tags, so text keys never collide with message keys.
+fn hash_text(text: &str, model: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    model.hash(&mut hasher);
+    3u8.hash(&mut hasher);
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
 pub fn hash_message(message: &ChatMessage, model: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     model.hash(&mut hasher);
@@ -172,12 +181,21 @@ impl MessageTokenCache {
 
     pub fn get_or_compute(&mut self, message: &ChatMessage, model: &str) -> usize {
         let key = hash_message(message, model);
+        self.get_or_insert_with(key, || estimate_message_tokens(message, model))
+    }
+
+    pub fn get_or_compute_text(&mut self, text: &str, model: &str) -> usize {
+        let key = hash_text(text, model);
+        self.get_or_insert_with(key, || estimate_text_tokens(text, model))
+    }
+
+    fn get_or_insert_with(&mut self, key: u64, compute: impl FnOnce() -> usize) -> usize {
         if let Some(&tokens) = self.cache.get(&key) {
             self.hits += 1;
             tokens
         } else {
             self.misses += 1;
-            let tokens = estimate_message_tokens(message, model);
+            let tokens = compute();
             self.insert(key, tokens);
             tokens
         }
@@ -185,7 +203,7 @@ impl MessageTokenCache {
 
     /// A sequential scan over more messages than fit evicts each entry just before it is needed
     /// again (first in, first out), so a long history would be re-tokenized on every pass.
-    fn grow_to_fit(&mut self, messages: usize) {
+    pub fn grow_to_fit(&mut self, messages: usize) {
         self.capacity = self.capacity.max(messages.min(MAX_CACHE_CAPACITY));
     }
 
