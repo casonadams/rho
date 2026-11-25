@@ -31,6 +31,7 @@ impl super::Config {
             crate::provider::ModelRoute::new(provider, model).to_string()
         };
         file_config.models.default = Some(spec);
+        retire_legacy_model_keys(&mut file_config);
         write_file_config_async(&path, &file_config).await
     }
 
@@ -112,6 +113,13 @@ fn default_model_on_provider(file_config: &FileConfig, provider: &str) -> Result
     Ok(format!("{provider}/{}", route.model))
 }
 
+/// The v0.10 top-level `model` and `provider` keys are kept on rewrite, but once `models.default`
+/// is written they would only produce a conflict warning.
+fn retire_legacy_model_keys(file_config: &mut FileConfig) {
+    file_config.extra.remove("model");
+    file_config.extra.remove("provider");
+}
+
 fn ui_section(file_config: &mut FileConfig) -> &mut UiConfig {
     file_config.ui.get_or_insert_with(Default::default)
 }
@@ -143,8 +151,15 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
     let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
     let name = key.as_str();
     match key {
-        ConfigKey::Model => file_config.models.default = Some(value.to_string()),
-        ConfigKey::Provider => file_config.models.default = Some(default_model_on_provider(file_config, value)?),
+        ConfigKey::Model => {
+            retire_legacy_model_keys(file_config);
+            file_config.models.default = Some(value.to_string());
+        }
+        ConfigKey::Provider => {
+            let spec = default_model_on_provider(file_config, value)?;
+            retire_legacy_model_keys(file_config);
+            file_config.models.default = Some(spec);
+        }
         ConfigKey::GuardModel => file_config.models.guard = parse_optional_model(value),
         ConfigKey::SmolModel => file_config.models.smol = parse_optional_model(value),
         ConfigKey::SlowModel => file_config.models.slow = parse_optional_model(value),
