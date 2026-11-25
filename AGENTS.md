@@ -86,7 +86,8 @@
 
 ## Documentation, and website synchronization
 
-- When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
+- When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update the markdown documentation (`docs/`, `README.md`). The website (`www/`, an nsh app in Rust) compiles `README.md`, `docs/*.md` and `examples/hooks/` in, so it follows them; update its curated parts by hand: the home page (`www/src/ui/home.rs`) and the configuration reference (`www/src/config_ref.rs`, which a core test checks against every config key).
+- Build the site with `mise run www` and preview it with `mise run www-serve` (`http://127.0.0.1:4173/rho/`).
 
 ## Completion
 

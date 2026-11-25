@@ -9,3 +9,6 @@ improvements.md
 .playwright-mcp/
 .pi/
 .cccc.cache
+/dist
+/www/target
+/www/.nsh
