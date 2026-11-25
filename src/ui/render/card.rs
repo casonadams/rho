@@ -71,7 +71,7 @@ pub fn detect_language_from_path(path: &str) -> Option<&str> {
     std::path::Path::new(path).extension()?.to_str()
 }
 
-fn split_bash_timeout(summary: &str) -> (&str, Option<&str>) {
+pub(crate) fn split_bash_timeout(summary: &str) -> (&str, Option<&str>) {
     if let Some(idx) = summary.rfind(" (timeout ")
         && summary.ends_with(')')
     {
@@ -146,7 +146,7 @@ pub fn format_tool_header_with_expansion(tool: &ToolLine, theme: &Theme, expande
     header
 }
 
-fn style_tool_header_args(tool_name: &str, summary: &str, theme: &Theme) -> String {
+pub(crate) fn style_tool_header_args(tool_name: &str, summary: &str, theme: &Theme) -> String {
     if tool_name == "bash" {
         return if theme.syntax_highlight_tools {
             highlight_bash_args_header(summary, theme)
@@ -191,7 +191,7 @@ fn format_tool_header_base(tool: &ToolLine, theme: &Theme, expanded: bool) -> St
     }
 }
 
-fn raw_output(tool: &ToolLine) -> &str {
+pub(crate) fn raw_output(tool: &ToolLine) -> &str {
     if tool.output.is_empty() {
         &tool.output_summary
     } else {
@@ -206,20 +206,26 @@ fn append_read_expanded(content: &mut String, tool: &ToolLine, theme: &Theme) {
     }
 }
 
-fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
-    content.push_str("\n\n");
+pub(crate) fn format_output_lines(clean: &str, width: usize, expanded: bool, dim: anstyle::Style) -> String {
     if expanded {
-        content.push_str(clean);
+        clean.to_string()
     } else {
         let truncated = truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
+        let mut out = String::new();
         if truncated.skipped_count > 0 {
-            content.push_str(&format!(
+            out.push_str(&format!(
                 "{dim}... ({n} earlier lines, Ctrl+O to expand){dim:#}\n",
                 n = truncated.skipped_count
             ));
         }
-        content.push_str(&truncated.visual_lines.join("\n"));
+        out.push_str(&truncated.visual_lines.join("\n"));
+        out
     }
+}
+
+fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
+    content.push_str("\n\n");
+    content.push_str(&format_output_lines(clean, width, expanded, dim));
 }
 
 fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) {
@@ -234,7 +240,7 @@ fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, ex
     }
 }
 
-fn edit_diff(tool: &ToolLine, expanded: bool, theme: &Theme) -> Option<String> {
+pub(crate) fn edit_diff(tool: &ToolLine, expanded: bool, theme: &Theme) -> Option<String> {
     let request = EditDiffRequest {
         args: &tool.arguments,
         file_change: tool.file_change.as_ref(),
@@ -243,7 +249,7 @@ fn edit_diff(tool: &ToolLine, expanded: bool, theme: &Theme) -> Option<String> {
     format_edit_diff(request, theme)
 }
 
-fn append_failed_edit_attempt(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) {
+pub(crate) fn append_failed_edit_attempt(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) {
     if let Some(diff) = edit_diff(tool, expanded, theme) {
         let dim = theme.dimmed;
         content.push_str(&format!("\n\n{dim}Attempted change:{dim:#}\n{diff}"));
@@ -268,7 +274,7 @@ fn append_edit_or_write(content: &mut String, tool: &ToolLine, expanded: bool, t
     false
 }
 
-fn append_background_hint(content: &mut String, tool: &ToolLine, dim: anstyle::Style) {
+pub(crate) fn append_background_hint(content: &mut String, tool: &ToolLine, dim: anstyle::Style) {
     if tool.name == "subagent" && !tool.is_error && raw_output(tool).starts_with(SUBAGENT_STARTED_MARKER) {
         content.push_str(&format!(
             "\n\n{dim}running in the background - press \u{2190} on an empty prompt to watch{dim:#}"
@@ -313,8 +319,13 @@ pub fn render_tool_block(
     show_read_expanded: bool,
     theme: &Theme,
 ) -> String {
-    let mut content = format_tool_header_with_expansion(tool, theme, expanded);
-    append_tool_details(&mut content, tool, width, expanded, show_read_expanded, theme);
+    let content = if theme.structured_tool_cards {
+        super::structured::render_structured_tool_content(tool, width, expanded, show_read_expanded, theme)
+    } else {
+        let mut content = format_tool_header_with_expansion(tool, theme, expanded);
+        append_tool_details(&mut content, tool, width, expanded, show_read_expanded, theme);
+        content
+    };
     theme
         .tool_block(tool.name == "bash", tool.is_error, width)
         .with_vertical_padding()

@@ -19,6 +19,7 @@ pub enum BlockStyle {
     Solid,
     #[default]
     Border,
+    Divider,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -57,6 +58,8 @@ pub struct Theme {
     pub cursor_mode: CursorMode,
     pub syntax_highlight_tools: bool,
     pub full_bash_command: bool,
+    pub structured_tool_cards: bool,
+    pub delta_diffs: bool,
 }
 
 fn resolve_border_style(color: Option<&String>) -> Option<Style> {
@@ -68,6 +71,7 @@ fn parse_block_style(style: &str) -> Option<BlockStyle> {
     match style.trim().to_lowercase().as_str() {
         "border" | "outline" => Some(BlockStyle::Border),
         "solid" | "fill" => Some(BlockStyle::Solid),
+        "divider" | "dividers" | "rule" | "separator" => Some(BlockStyle::Divider),
         _ => None,
     }
 }
@@ -93,6 +97,7 @@ impl Theme {
         match self.block_style {
             BlockStyle::Solid => crate::ui::block::BlockFormat::new(self.block_fill, width),
             BlockStyle::Border => crate::ui::block::BlockFormat::border(border_style, width),
+            BlockStyle::Divider => crate::ui::block::BlockFormat::divider(self.block_fill, border_style, width),
         }
     }
 
@@ -149,6 +154,12 @@ impl Theme {
         }
         if let Some(val) = ui.full_bash_command {
             self.full_bash_command = val;
+        }
+        if let Some(val) = ui.structured_tool_cards {
+            self.structured_tool_cards = val;
+        }
+        if let Some(val) = ui.delta_diffs {
+            self.delta_diffs = val;
         }
     }
 }
@@ -228,6 +239,8 @@ impl Default for Theme {
             cursor_mode: CursorMode::Hardware,
             syntax_highlight_tools: false,
             full_bash_command: false,
+            structured_tool_cards: false,
+            delta_diffs: false,
         }
     }
 }

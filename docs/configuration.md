@@ -593,7 +593,7 @@ Configure block framing styles, visibility options, and border colors in
 
 ```toml
 [ui]
-# Block framing: "border" (outline, default) or "solid" (fill)
+# Block framing: "border" (outline, default), "solid" (fill), or "divider" (solid fill with top/bottom rules)
 block_style = "border"
 
 # Box assistant responses in bordered frames (default: false)
@@ -613,6 +613,12 @@ syntax_highlight_tools = false
 
 # Display full bash commands in tool cards without 60-character truncation (default: false)
 full_bash_command = false
+
+# Render tool cards with a status + Title Case header, right-aligned duration, and explicit Input/Output sections (default: false)
+structured_tool_cards = false
+
+# Syntax-highlight edit diffs with delta-style red/green background tints and word-level emphasis (default: false)
+delta_diffs = false
 
 # Automatically summarize the session into a 3-6 word title using models.smol after turn 1 (default: false)
 auto_title = false

@@ -9,6 +9,7 @@
 //! to use `crate::ui::render::{TerminalRenderer, ToolLine}` etc.
 
 pub(crate) mod card;
+pub(crate) mod delta_diff;
 pub(crate) mod diff;
 pub(crate) mod file_change;
 pub(crate) mod formatters;
@@ -17,6 +18,7 @@ pub(crate) mod notices;
 pub(crate) mod output_highlight;
 pub(crate) mod presenter;
 pub(crate) mod renderer;
+pub(crate) mod structured;
 pub(crate) mod thinking;
 pub mod turn_stats;
 
