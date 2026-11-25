@@ -46,6 +46,34 @@ fn border_colors_follow_thinking_level_and_bash_mode() {
 }
 
 #[test]
+fn auto_thinking_divider_uses_resolved_level_color_during_turn() {
+    use rho_harness_core::thinking::ThinkingLevel;
+
+    let cases = [
+        (None, "\u{1b}[33m"),
+        (Some(ThinkingLevel::Low), "\u{1b}[34m"),
+        (Some(ThinkingLevel::Medium), "\u{1b}[36m"),
+        (Some(ThinkingLevel::High), "\u{1b}[35m"),
+    ];
+
+    for (resolved, expected_style) in cases {
+        let mut footer = footer_with_thinking(Some("auto"));
+        footer.resolved_thinking_level = resolved;
+        let layout = render(&EditorState::default(), &footer, None, 10);
+        assert!(
+            layout.top_divider.starts_with(expected_style),
+            "resolved={resolved:?}, got={:?}",
+            layout.top_divider
+        );
+        assert!(
+            layout.bottom_divider.starts_with(expected_style),
+            "resolved={resolved:?}, got={:?}",
+            layout.bottom_divider
+        );
+    }
+}
+
+#[test]
 fn top_divider_shows_name_and_version_when_label_enabled() {
     let footer = FooterState {
         show_label: true,

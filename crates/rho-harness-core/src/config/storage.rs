@@ -210,6 +210,9 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::TerminalTitleState => {
             ui_section(file_config).terminal_title_state = Some(parse_bool(name, value)?);
         }
+        ConfigKey::UiPromptPrediction => {
+            ui_section(file_config).prompt_prediction = Some(parse_bool(name, value)?);
+        }
         ConfigKey::A2uiWidgets => {
             ui_section(file_config).a2ui_widgets = parse_bool(name, value)?;
         }

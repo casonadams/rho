@@ -77,7 +77,41 @@ pub(crate) fn window_editor(
     (windowed, new_cursor)
 }
 
-pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize, ghost_text: Option<&str>) {
+pub(crate) fn fit_ghost_text(ghost: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    let first_line = ghost.split(['\n', '\r']).next().unwrap_or("");
+    let total_width: usize = first_line
+        .chars()
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum();
+    if total_width <= max_width {
+        return first_line.to_string();
+    }
+    let limit = if max_width >= 2 { max_width - 1 } else { max_width };
+    let mut out = String::new();
+    let mut used = 0;
+    for ch in first_line.chars() {
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > limit {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    if max_width >= 2 {
+        out.push('…');
+    }
+    out
+}
+
+pub(crate) fn apply_software_cursor(
+    line: &mut String,
+    target_column: usize,
+    ghost_text: Option<&str>,
+    max_width: usize,
+) {
     let mut current_col = 0;
     let mut byte_offset = None;
     let mut char_len = 0;
@@ -98,19 +132,31 @@ pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize, gho
         let after = &line[offset + char_len..];
         *line = format!("{before}\x1b[7m{ch_str}\x1b[27m{after}");
     } else {
+        let used = crate::ui::block::visible_width(line) + 1;
         line.push_str("\x1b[7m \x1b[27m");
-        if let Some(ghost) = ghost_text {
-            line.push_str("\x1b[2m");
-            line.push_str(ghost);
-            line.push_str("\x1b[22m");
+        let remaining = max_width.saturating_sub(used);
+        if remaining > 0
+            && let Some(ghost) = ghost_text
+        {
+            let fitted = fit_ghost_text(ghost, remaining);
+            if !fitted.is_empty() {
+                line.push_str("\x1b[2m");
+                line.push_str(&fitted);
+                line.push_str("\x1b[22m");
+            }
         }
     }
 }
 
-pub(crate) fn render_editor_lines(lines: Vec<String>, cursor: CursorPosition, ghost_text: Option<&str>) -> Vec<String> {
+pub(crate) fn render_editor_lines(
+    lines: Vec<String>,
+    cursor: CursorPosition,
+    ghost_text: Option<&str>,
+    max_width: usize,
+) -> Vec<String> {
     let mut lines = lines;
     if cursor.row < lines.len() {
-        apply_software_cursor(&mut lines[cursor.row], cursor.column, ghost_text);
+        apply_software_cursor(&mut lines[cursor.row], cursor.column, ghost_text, max_width);
     }
     lines
 }

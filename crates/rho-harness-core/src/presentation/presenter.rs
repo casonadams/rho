@@ -38,6 +38,7 @@ pub trait Presenter: Send + Sync {
     fn print_turn_started(&self, _prompt: &str) {}
     fn print_turn_completed(&self, _status: &str) {}
     fn print_turn_telemetry(&self, _telemetry: &TurnTelemetry) {}
+    fn set_resolved_thinking_level(&self, _level: Option<crate::thinking::ThinkingLevel>) {}
     fn print_block(&self, _display: &BlockDisplay) {}
     fn emit_a2ui(&self, _message: crate::a2ui::A2uiMessage) {}
     async fn request_a2ui_modal(

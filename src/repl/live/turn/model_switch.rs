@@ -137,8 +137,12 @@ async fn apply_thinking_cycle<B: TerminalBackend>(
     })
     .await?;
 
-    ctx.controller.state_mut().footer_mut().thinking_level = ctx.session.config.thinking_level.clone();
-    let level = ThinkingLevel::from_setting(ctx.session.config.thinking_level.as_deref());
+    let footer = ctx.controller.state_mut().footer_mut();
+    footer.thinking_level = ctx.session.config.thinking_level.clone();
+    let level = ThinkingLevel::from_setting(footer.thinking_level.as_deref());
+    if !level.is_auto() {
+        footer.resolved_thinking_level = None;
+    }
     ctx.session
         .renderer
         .print_status(&format!("Thinking: {}", level.as_str()));

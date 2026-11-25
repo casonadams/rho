@@ -631,6 +631,9 @@ terminal_title = false
 # Prefix the terminal titlebar with live run state (idle/working/attention; default: false)
 terminal_title_state = false
 
+# Predict the next likely user prompt as dim inline ghost text after each turn (default: false)
+prompt_prediction = false
+
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent blocks

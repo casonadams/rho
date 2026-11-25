@@ -86,13 +86,20 @@ fn handle_edit_action<B: TerminalBackend>(
     };
 
     update_autocomplete_state(controller, resources.completions);
-    let pred = crate::repl::interactive::predict_inline_completion(
-        controller.state().editor().text(),
-        controller.state().editor().cursor(),
-        resources.history,
-        resources.completions,
-    );
-    controller.state_mut().editor_mut().set_ghost_text(pred);
+    let ed = controller.state().editor();
+    if ed.cursor() != ed.text().len() {
+        controller.state_mut().editor_mut().clear_ghost_text();
+    } else if ed.ghost_text().is_none() {
+        let pred = crate::repl::interactive::predict_inline_completion(
+            ed.text(),
+            ed.cursor(),
+            resources.history,
+            resources.completions,
+        );
+        if pred.is_some() {
+            controller.state_mut().editor_mut().set_ghost_text(pred);
+        }
+    }
 
     if let UiEffect::Queued(message) = effect {
         record_submission(resources.history, &message.text)?;
@@ -119,6 +126,18 @@ fn handle_completion_action<B: TerminalBackend>(
     batch: &mut LiveBatch,
     completions: &CompletionSet,
 ) -> Result<()> {
+    let accept_ghost = {
+        let state = controller.state();
+        let ed = state.editor();
+        !state.autocomplete.visible && ed.cursor() == ed.text().len() && ed.ghost_text().is_some()
+    };
+    if accept_ghost {
+        if controller.state_mut().editor_mut().accept_ghost_text() {
+            update_autocomplete_state(controller, completions);
+            batch.flush(controller, true)?;
+        }
+        return Ok(());
+    }
     if apply_completion(controller, completions) {
         batch.flush(controller, true)?;
     }
@@ -498,5 +517,65 @@ mod tests {
         unsafe {
             std::env::remove_var("VISUAL");
         }
+    }
+
+    #[tokio::test]
+    async fn tab_accepts_ghost_text_when_autocomplete_is_hidden() {
+        let temp = tempfile::tempdir().unwrap();
+        let (backend, _, _) = FakeTerminal::new(80);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        let mut history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let completions = CompletionSet::from_sources(Default::default());
+        let mut input = TerminalInputReader::spawn_dummy();
+        controller
+            .state_mut()
+            .editor_mut()
+            .set_ghost_text(Some("Run cargo test".to_string()));
+
+        let mut resources = EditorResources {
+            history: &mut history,
+            completions: &completions,
+        };
+        handle_misc_action(
+            &mut controller,
+            &InputAction::Complete,
+            &mut batch,
+            &mut resources,
+            &mut input,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(controller.state().editor().text(), "Run cargo test");
+        assert_eq!(controller.state().editor().ghost_text(), None);
+    }
+
+    #[tokio::test]
+    async fn typing_prefix_preserves_llm_ghost_text_through_handle_edit_action() {
+        let temp = rho_test_support::TestDir::new();
+        let (backend, _, _) = FakeTerminal::new(80);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        let mut history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
+        let completions = CompletionSet::from_sources(Default::default());
+        controller
+            .state_mut()
+            .editor_mut()
+            .set_ghost_text(Some("Commit changes".to_string()));
+
+        let mut resources = EditorResources {
+            history: &mut history,
+            completions: &completions,
+        };
+        for ch in ['C', 'o', 'm'] {
+            handle_edit_action(&mut controller, &mut batch, UiAction::Insert(ch), &mut resources).unwrap();
+        }
+        assert_eq!(controller.state().editor().text(), "Com");
+        assert_eq!(controller.state().editor().ghost_text(), Some("mit changes"));
+
+        // Moving cursor away from end clears ghost_text
+        handle_edit_action(&mut controller, &mut batch, UiAction::MoveLeft, &mut resources).unwrap();
+        assert_eq!(controller.state().editor().ghost_text(), None);
     }
 }

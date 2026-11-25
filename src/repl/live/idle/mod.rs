@@ -5,6 +5,7 @@ pub(crate) mod shortcut;
 use dispatch::{IdleInputResult, process_raw_input};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use super::prediction::{IdlePredictionController, PredictionResult};
 use super::recap::{IdleRecapController, RecapEvent, has_transcript_history};
 use super::types::{FrameOrUi, next_frame_or_ui, wait_version_change};
 use super::{EditorResources, IdleContext, LiveIo};
@@ -30,6 +31,7 @@ struct IdleUi {
     pr_rx: tokio::sync::watch::Receiver<u64>,
     mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
     recap: IdleRecapController,
+    prediction: IdlePredictionController,
 }
 
 impl IdleUi {
@@ -45,6 +47,7 @@ impl IdleUi {
             pr_rx: crate::ui::interactive::footer::subscribe_git_pr(),
             mcp: engine.mcp_runtime().cloned(),
             recap: IdleRecapController::new(),
+            prediction: IdlePredictionController::new(),
         }
     }
 }
@@ -74,6 +77,7 @@ enum IdleSource {
     McpProblems,
     RecapTimer,
     RecapReady(Option<String>),
+    PredictionReady(PredictionResult),
 }
 
 async fn wait_mcp_problems(runtime: Option<&rho_engine::mcp::McpRuntime>) {
@@ -98,6 +102,7 @@ async fn next_idle_step(
             RecapEvent::Timer => IdleSource::RecapTimer,
             RecapEvent::Ready(res) => IdleSource::RecapReady(res),
         },
+        res = ui.prediction.next_result() => IdleSource::PredictionReady(res),
         _ = wait_version_change(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         _ = wait_version_change(&mut ui.catalog_rx) => IdleSource::Tick(IdleTick::Catalog),
         _ = wait_version_change(&mut ui.title_rx) => IdleSource::Tick(IdleTick::Title),
@@ -289,15 +294,28 @@ fn is_idle_recap_ready<B: TerminalBackend>(controller: &TerminalController<B>) -
     controller.state().editor().is_empty() && controller.state().active_modal().is_none()
 }
 
-fn cancel_recap_if_typing(event: &Option<std::io::Result<Event>>, recap: &mut IdleRecapController) {
-    if let Some(Ok(ev)) = event
-        && matches!(
-            dispatch::classify_event(ev.clone()),
-            dispatch::RawInput::Key(_) | dispatch::RawInput::Paste(_)
-        )
-    {
-        recap.cancel_and_disarm();
-    }
+fn is_typing_input(event: &Option<std::io::Result<Event>>) -> bool {
+    let Some(Ok(ev)) = event else {
+        return false;
+    };
+    matches!(
+        dispatch::classify_event(ev.clone()),
+        dispatch::RawInput::Key(_) | dispatch::RawInput::Paste(_)
+    )
+}
+
+async fn prepare_idle_prediction<B: TerminalBackend>(
+    controller: &TerminalController<B>,
+    ctx: &LiveIdleContext<'_, '_>,
+    prediction: &mut IdlePredictionController,
+) {
+    let enabled = ctx.session.config.ui.prompt_prediction_enabled();
+    let has_history = has_transcript_history(controller.transcript());
+    let editor_empty = controller.state().editor().is_empty();
+    let has_modal = controller.state().active_modal().is_some();
+    prediction
+        .start_if_eligible(ctx.engine, enabled, has_history, editor_empty, has_modal)
+        .await;
 }
 
 async fn prepare_idle_recap<B: TerminalBackend>(
@@ -343,6 +361,27 @@ fn handle_recap_ready<B: TerminalBackend>(
     Ok(())
 }
 
+fn handle_prediction_ready<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    batch: &mut LiveBatch,
+    result: PredictionResult,
+) -> Result<()> {
+    let Some(text) = result.text else {
+        return Ok(());
+    };
+    let state = controller.state();
+    let ed = state.editor();
+    if ed.text() == result.expected_draft
+        && ed.cursor() == ed.text().len()
+        && !state.autocomplete.visible
+        && state.active_modal().is_none()
+    {
+        controller.state_mut().editor_mut().set_ghost_text(Some(text));
+        batch.flush(controller, true)?;
+    }
+    Ok(())
+}
+
 async fn handle_idle_step_source<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     ui: &mut IdleUi,
@@ -357,12 +396,17 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             Ok(IdleStepOutcome::Continue)
         }
         IdleSource::Input(event) => {
-            cancel_recap_if_typing(&event, &mut ui.recap);
+            let typing = is_typing_input(&event);
+            if typing {
+                ui.recap.cancel_and_disarm();
+                ui.prediction.cancel();
+            }
             let res = handle_input_source(controller, event, &mut ui.batch, resources, input, ctx).await?;
             Ok(map_input_result(res))
         }
         IdleSource::Mail => {
             ui.recap.cancel_and_disarm();
+            ui.prediction.cancel();
             handle_mail(ctx)
         }
         IdleSource::McpProblems => {
@@ -375,6 +419,10 @@ async fn handle_idle_step_source<B: TerminalBackend>(
         }
         IdleSource::RecapReady(text) => {
             handle_recap_ready(controller, &mut ui.recap, text)?;
+            Ok(IdleStepOutcome::Continue)
+        }
+        IdleSource::PredictionReady(result) => {
+            handle_prediction_ready(controller, &mut ui.batch, result)?;
             Ok(IdleStepOutcome::Continue)
         }
     }
@@ -394,6 +442,7 @@ async fn drive_idle_loop<B: TerminalBackend>(
             ui.quota_rx = ctx.engine.quota_subscribe();
         }
         prepare_idle_recap(controller, ctx, &mut ui.recap).await;
+        prepare_idle_prediction(controller, ctx, &mut ui.prediction).await;
         let inbox = ctx.engine.inbox();
         let step = next_idle_step(&mut ui, &inbox, input, ui_events).await;
         drop(inbox);

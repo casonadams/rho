@@ -143,7 +143,7 @@ pub(crate) fn push_modal_input_prompt(
     let (wrapped, cursor_pos) = wrap_editor(&modal.input, edit_width);
     let (windowed, cur) = window_editor(wrapped, cursor_pos, max_input_lines.max(1));
     let windowed = if focused && theme.cursor_mode == crate::ui::theme::CursorMode::Software {
-        render_editor_lines(windowed, cur, None)
+        render_editor_lines(windowed, cur, None, edit_width)
     } else {
         windowed
     };

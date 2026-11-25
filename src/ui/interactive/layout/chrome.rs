@@ -6,8 +6,8 @@ use crate::ui::interactive::{Activity, FooterState, QueueKind, QueuedMessage};
 use rho_harness_core::config::ContextLineMode;
 use rho_harness_core::thinking::ThinkingLevel;
 
-pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'static str) {
-    let style = match ThinkingLevel::from_setting(thinking_level) {
+fn thinking_divider_style_for(level: ThinkingLevel) -> (&'static str, &'static str) {
+    let style = match level {
         ThinkingLevel::Off => "\x1b[2m",
         ThinkingLevel::Minimal => "\x1b[90m",
         ThinkingLevel::Low => "\x1b[34m",
@@ -18,6 +18,17 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
         ThinkingLevel::Auto => "\x1b[33m",
     };
     (style, "\x1b[0m")
+}
+
+pub fn thinking_divider_style_with_resolved(
+    thinking_level: Option<&str>,
+    resolved_thinking_level: Option<ThinkingLevel>,
+) -> (&'static str, &'static str) {
+    let effective = match (ThinkingLevel::from_setting(thinking_level), resolved_thinking_level) {
+        (ThinkingLevel::Auto, Some(resolved)) => resolved,
+        (level, _) => level,
+    };
+    thinking_divider_style_for(effective)
 }
 
 fn format_act_tag(act: Option<(&str, char)>) -> Option<String> {

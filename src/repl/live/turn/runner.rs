@@ -10,8 +10,10 @@ use crate::ui::interactive::{Activity, TerminalBackend, TerminalController, UiEv
 
 pub(super) fn reset_controller_idle<B: TerminalBackend>(controller: &mut TerminalController<B>) {
     controller.clear_active_tool();
-    controller.state_mut().footer_mut().activity = Activity::Idle;
-    controller.state_mut().footer_mut().running_tool = None;
+    let footer = controller.state_mut().footer_mut();
+    footer.activity = Activity::Idle;
+    footer.running_tool = None;
+    footer.resolved_thinking_level = None;
 }
 
 pub(super) struct TurnLoop<'a, B: TerminalBackend> {
@@ -30,7 +32,9 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         controller: &'a mut TerminalController<B>,
         steering: Arc<SharedSteeringQueue>,
     ) -> Self {
-        controller.state_mut().footer_mut().activity = Activity::Working;
+        let footer = controller.state_mut().footer_mut();
+        footer.activity = Activity::Working;
+        footer.resolved_thinking_level = None;
         controller.set_approval_focus(session.config.subagents.approval_focus.unwrap_or_default());
         sync_turn_footer(controller, engine);
         Self {

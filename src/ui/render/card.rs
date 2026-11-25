@@ -206,11 +206,11 @@ fn append_read_expanded(content: &mut String, tool: &ToolLine, theme: &Theme) {
     }
 }
 
-pub(crate) fn format_output_lines(clean: &str, width: usize, expanded: bool, dim: anstyle::Style) -> String {
+pub(crate) fn format_output_lines(clean: &str, max_width: usize, expanded: bool, dim: anstyle::Style) -> String {
     if expanded {
         clean.to_string()
     } else {
-        let truncated = truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
+        let truncated = truncate_to_visual_lines(clean, 5, max_width.max(1));
         let mut out = String::new();
         if truncated.skipped_count > 0 {
             out.push_str(&format!(
@@ -225,7 +225,12 @@ pub(crate) fn format_output_lines(clean: &str, width: usize, expanded: bool, dim
 
 fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
     content.push_str("\n\n");
-    content.push_str(&format_output_lines(clean, width, expanded, dim));
+    content.push_str(&format_output_lines(
+        clean,
+        width.saturating_sub(4).max(1),
+        expanded,
+        dim,
+    ));
 }
 
 fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) {

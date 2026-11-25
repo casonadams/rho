@@ -79,6 +79,7 @@ impl BtwSession {
             extra_messages,
             partial_assistant: self.partial_assistant.clone(),
             max_tokens: None,
+            thinking_level: None,
             cancellation: cancel,
         };
 

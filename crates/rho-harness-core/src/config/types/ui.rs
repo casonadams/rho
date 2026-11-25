@@ -55,6 +55,8 @@ pub struct UiConfig {
     pub terminal_title: Option<bool>,
     #[serde(default)]
     pub terminal_title_state: Option<bool>,
+    #[serde(default)]
+    pub prompt_prediction: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<PromptUiConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -392,6 +394,10 @@ impl UiConfig {
         self.terminal_title_state.unwrap_or(false)
     }
 
+    pub fn prompt_prediction_enabled(&self) -> bool {
+        self.prompt_prediction.unwrap_or(false)
+    }
+
     pub fn merge(&mut self, other: &UiConfig) {
         merge_opt(&mut self.block_style, &other.block_style);
         merge_opt(&mut self.user_border, &other.user_border);
@@ -410,6 +416,7 @@ impl UiConfig {
         merge_opt(&mut self.auto_title, &other.auto_title);
         merge_opt(&mut self.terminal_title, &other.terminal_title);
         merge_opt(&mut self.terminal_title_state, &other.terminal_title_state);
+        merge_opt(&mut self.prompt_prediction, &other.prompt_prediction);
         merge_nested(&mut self.prompt, &other.prompt, PromptUiConfig::merge);
         merge_nested(&mut self.status_bar, &other.status_bar, StatusBarConfig::merge);
         merge_nested(&mut self.display, &other.display, DisplayUiConfig::merge);

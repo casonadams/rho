@@ -1,6 +1,7 @@
 use super::editor::EditorState;
 use super::modal::ModalState;
 use rho_harness_core::config::{PromptUiConfig, StatusBarConfig};
+use rho_harness_core::thinking::ThinkingLevel;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct GitStatusCounts {
@@ -60,6 +61,7 @@ pub struct FooterState {
     pub provider: String,
     pub model: String,
     pub thinking_level: Option<String>,
+    pub resolved_thinking_level: Option<ThinkingLevel>,
     pub cwd: Option<String>,
     pub git_branch: Option<String>,
     pub session_name: Option<String>,
@@ -96,6 +98,7 @@ type IdentityKey<'a> = (
     &'a str,
     &'a str,
     Option<&'a str>,
+    Option<ThinkingLevel>,
     Option<&'a str>,
     Option<&'a str>,
     Option<&'a str>,
@@ -133,6 +136,7 @@ impl FooterState {
             &self.provider,
             &self.model,
             self.thinking_level.as_deref(),
+            self.resolved_thinking_level,
             self.cwd.as_deref(),
             self.git_branch.as_deref(),
             self.session_name.as_deref(),

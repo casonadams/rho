@@ -107,6 +107,12 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::print_turn_telemetry(self, telemetry);
     }
 
+    fn set_resolved_thinking_level(&self, level: Option<rho_harness_core::thinking::ThinkingLevel>) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.set_resolved_thinking_level(level);
+        }
+    }
+
     fn emit_a2ui(&self, message: rho_harness_core::a2ui::A2uiMessage) {
         if let Some(ui) = &self.ui {
             let _ = ui.emit_a2ui(message);

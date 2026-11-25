@@ -111,12 +111,22 @@ fn push_speed_part(footer: &FooterState, parts: &mut Vec<String>) {
     }
 }
 
-pub(crate) fn format_model_details(footer: &FooterState) -> String {
-    let thinking = footer
+fn format_thinking_detail(footer: &FooterState) -> std::borrow::Cow<'_, str> {
+    let raw = footer
         .thinking_level
         .as_deref()
         .filter(|s| !s.is_empty())
         .unwrap_or("off");
+    if rho_harness_core::thinking::ThinkingLevel::from_setting(Some(raw)).is_auto()
+        && let Some(resolved) = footer.resolved_thinking_level
+    {
+        return std::borrow::Cow::Owned(format!("auto ({})", resolved.as_str()));
+    }
+    std::borrow::Cow::Borrowed(raw)
+}
+
+pub(crate) fn format_model_details(footer: &FooterState) -> String {
+    let thinking = format_thinking_detail(footer);
 
     if footer.model.is_empty() {
         return if footer.provider.is_empty() {

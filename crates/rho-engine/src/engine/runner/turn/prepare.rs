@@ -283,6 +283,7 @@ impl AgentEngine {
             .build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
             .await?;
         ready.loop_state.thinking_level = self.resolve_turn_thinking_level(prompt).await;
+        presenter.set_resolved_thinking_level(ready.loop_state.thinking_level);
         self.turn_notes.consume(notes.len());
         Ok(PreparedTurnOutcome::Ready(ready))
     }

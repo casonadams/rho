@@ -338,11 +338,10 @@ impl BlockFormat {
     fn top_border_line(&self) -> String {
         let style = self.border_style;
         if self.width < 2 {
-            format!("{style}╭{style:#}\n")
-        } else {
-            let inner = self.width.saturating_sub(2);
-            format!("{style}╭{}╮{style:#}\n", "─".repeat(inner))
+            return format!("{style}╭{style:#}\n");
         }
+        let inner = self.width.saturating_sub(2);
+        format!("{style}╭{}╮{style:#}\n", "─".repeat(inner))
     }
 
     fn bottom_border_line(&self) -> String {

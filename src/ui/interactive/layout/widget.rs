@@ -34,10 +34,10 @@ fn slice_tail_lines(raw: &str, limit: usize) -> (&str, usize) {
     }
 }
 
-fn format_collapsed_output(raw_output: &str, width: usize, dim: anstyle::Style) -> String {
+fn format_collapsed_output(raw_output: &str, max_width: usize, dim: anstyle::Style) -> String {
     const PRE_SLICE_LINE_LIMIT: usize = 50;
     let (tail_text, earlier_skipped) = slice_tail_lines(raw_output, PRE_SLICE_LINE_LIMIT);
-    let truncated = truncate_to_visual_lines(tail_text, 5, width.saturating_sub(4).max(1));
+    let truncated = truncate_to_visual_lines(tail_text, 5, max_width.max(1));
     let total_skipped = earlier_skipped + truncated.skipped_count;
     let mut out = String::new();
     if total_skipped > 0 {
@@ -55,7 +55,11 @@ fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, wi
     if expanded {
         content.push_str(raw_output);
     } else {
-        content.push_str(&format_collapsed_output(raw_output, width, dim));
+        content.push_str(&format_collapsed_output(
+            raw_output,
+            width.saturating_sub(4).max(1),
+            dim,
+        ));
     }
 }
 
@@ -122,7 +126,7 @@ fn format_structured_widget_content(input: RunningToolWidgetInput<'_>, width: us
     );
     let elapsed = format_elapsed(input.tool.elapsed());
     let mut content = align_header_with_right(&left, Some(&elapsed), inner_width, input.theme.dimmed);
-    append_section(&mut content, "Input", &input_body, input.theme.dimmed);
+    append_section(&mut content, "Input", &input_body, inner_width, input.theme.dimmed);
 
     let mut output_parts = Vec::new();
     if let Some(preview) = &input.tool.preview {
@@ -138,11 +142,17 @@ fn format_structured_widget_content(input: RunningToolWidgetInput<'_>, width: us
         let formatted = if input.tools_expanded {
             rendered
         } else {
-            format_collapsed_output(&rendered, width, input.theme.dimmed)
+            format_collapsed_output(&rendered, inner_width, input.theme.dimmed)
         };
         output_parts.push(formatted);
     }
-    append_section(&mut content, "Output", &output_parts.join("\n\n"), input.theme.dimmed);
+    append_section(
+        &mut content,
+        "Output",
+        &output_parts.join("\n\n"),
+        inner_width,
+        input.theme.dimmed,
+    );
     content
 }
 
