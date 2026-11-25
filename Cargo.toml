@@ -71,6 +71,8 @@ ui = [
     "dep:pulldown-cmark",
     "dep:syntect",
     "dep:terminal-colorsaurus",
+    "dep:fuzzy-matcher",
+    "dep:strip-ansi-escapes",
 ]
 
 [lib]
@@ -119,12 +121,12 @@ thiserror.workspace = true
 anyhow.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-fuzzy-matcher.workspace = true
+fuzzy-matcher = { workspace = true, optional = true }
 regex = "1.11"
 unicode-width = "0.2"
 arboard = "3.4"
 similar.workspace = true
-strip-ansi-escapes.workspace = true
+strip-ansi-escapes = { workspace = true, optional = true }
 rpassword.workspace = true
 image.workspace = true
 
