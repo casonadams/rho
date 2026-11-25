@@ -489,7 +489,7 @@ You fix validated findings...
         Last verification failure: {{verify.output}}
         Last review issues: {{review.issues}}
       </agent>
-      <run id="verify" cmd="make all"/>
+      <run id="verify" cmd="mise run all"/>
       <run when="{{verify.ok}}" cmd="git add -A"/>
       <run id="diff" when="{{verify.ok}}" cmd="git diff --cached"/>
       <agent id="review" use="reviewer" model="smol" output="json" when="{{verify.ok}}">

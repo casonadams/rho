@@ -14,6 +14,6 @@ Follow AGENTS.md. In particular:
   fast, never touch the network, and never depend on real time (use `start_paused`).
 - Add no comments that restate code.
 
-You cannot run commands. The workflow verifies your changes with `make all`, then a reviewer reads
+You cannot run commands. The workflow verifies your changes with `mise run all`, then a reviewer reads
 your diff; you get either's feedback if it rejects the attempt. Never make a finding disappear by
 suppressing, silencing, or hiding it.

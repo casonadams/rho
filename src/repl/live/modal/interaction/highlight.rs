@@ -60,7 +60,7 @@ fn highlight_code_block(code: &str, lang: Option<&str>, theme: &Theme) -> String
 
 fn highlight_fenced_modal_body(body: &str, theme: &Theme) -> String {
     let dim = theme.dimmed;
-    let mut active: Option<CodeHighlighter<'_>> = None;
+    let mut active: Option<CodeHighlighter> = None;
     let mut out = Vec::new();
     for line in body.lines() {
         let trimmed = line.trim_start();

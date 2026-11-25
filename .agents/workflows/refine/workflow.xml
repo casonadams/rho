@@ -12,7 +12,7 @@
 
     <loop id="attempt" max="3" until="{{review.approved}}" when="{{validate.actionable}}">
       <agent id="implement" use="implementor" model="smol" turns="60" output="json" prompt-file="prompts/implement.md"/>
-      <run id="verify" cmd="make all"/>
+      <run id="verify" cmd="mise run all"/>
       <run when="{{verify.ok}}" cmd="git add -A"/>
       <run id="diff" when="{{verify.ok}}" cmd="git diff --cached"/>
       <agent id="review" use="reviewer" model="smol" turns="40" output="json" when="{{verify.ok}}" prompt-file="prompts/review.md"/>

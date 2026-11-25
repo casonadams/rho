@@ -38,20 +38,19 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - uses: jdx/mise-action@v5
+
       - name: Check formatting
-        run: make fmt-check
+        run: mise run fmt-check
 
       - name: Run clippy
-        run: make clippy
+        run: mise run clippy
 
       - name: Lint the headless build
-        run: make headless
-
-      - name: Install cccc
-        run: cargo install cccc-cli --locked
+        run: mise run headless
 
       - name: Run cognitive complexity gate
-        run: make complexity
+        run: mise run complexity
 
   test:
     name: Test
@@ -62,10 +61,7 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v2
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
+      - uses: jdx/mise-action@v5
 
       - name: Run tests and fail on leaked temp files
-        run: make leak-check
+        run: mise run leak-check

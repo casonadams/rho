@@ -1,0 +1,14 @@
+{
+  "name": "rho",
+  "id": "io.github.casonadams.rho",
+  "version": "1.0.0",
+  "build": 1,
+  "nsh": ">=0.6.1, <0.7",
+  "rust": ".",
+  "root": "App",
+  "icon": "icon.png",
+  "theme": "theme.json",
+  "appearance": "system",
+  "window": { "title": "rho - a fast, private coding agent CLI" },
+  "web": { "base": "/rho/" }
+}

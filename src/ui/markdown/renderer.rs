@@ -9,7 +9,7 @@ use crate::ui::theme::Theme;
 #[derive(Default)]
 pub struct MarkdownRenderer {
     code_fence: CodeFenceTracker,
-    code_highlighter: Option<CodeHighlighter<'static>>,
+    code_highlighter: Option<CodeHighlighter>,
     current_line: String,
     emitted_on_current_line: bool,
     table_lines: Vec<String>,
@@ -178,7 +178,7 @@ impl MarkdownRenderer {
     /// Drops the cached highlighter when no fence is open and re-resolves it
     /// whenever the fence language changes, so syntect parse state persists
     /// across the lines of one block.
-    fn sync_code_highlighter(&mut self, theme: &Theme) -> Option<&mut CodeHighlighter<'static>> {
+    fn sync_code_highlighter(&mut self, theme: &Theme) -> Option<&mut CodeHighlighter> {
         if !self.code_fence.in_code_block {
             self.code_highlighter = None;
             return None;
