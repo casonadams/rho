@@ -1,5 +1,5 @@
 use super::super::Config;
-use super::super::types::{FileConfig, ModelSlot, WebFetchConfigFile, WebSearchConfigFile};
+use super::super::types::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
 
 macro_rules! merge_copied_fields {
     ($config:expr, $file:expr, $($field:ident),+ $(,)?) => {
@@ -21,6 +21,7 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
             Some(provider) => crate::provider::ModelRoute::new(provider, model).to_string(),
             None => model.to_string(),
         });
+    let has_legacy_spec = legacy_spec.is_some();
     let default_spec = match (&file.models.default, legacy_spec) {
         (Some(spec), legacy) => {
             if legacy.is_some() {
@@ -39,21 +40,18 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
         }
         (None, None) => None,
     };
-    warn_unknown_model_keys(config, file, legacy_provider);
+    let legacy_for_models = has_legacy_spec.then_some(legacy_provider).flatten();
+    warn_unknown_model_keys(config, file, legacy_for_models);
     if let Some(ref default_spec) = default_spec {
         config.set_route(crate::provider::ModelRoute::parse(default_spec, None, "local"));
         config.default_model = Some(config.canonical_model_spec());
     }
 
-    let overrides = [
-        (ModelSlot::Guard, &file.models.guard),
-        (ModelSlot::Smol, &file.models.smol),
-        (ModelSlot::Slow, &file.models.slow),
-    ];
-    for (slot, model) in overrides {
-        if let Some(model) = model {
-            config.models.insert(slot.key().to_string(), model.clone());
+    for (role, model) in &file.models.roles {
+        if legacy_for_models == Some(role.as_str()) {
+            continue;
         }
+        config.model_roles.insert(role.clone(), model.clone());
     }
     if let Some(ref t) = file.thinking_level {
         match crate::thinking::ThinkingLevel::parse_setting(t) {
@@ -68,7 +66,7 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
 fn warn_unknown_model_keys(config: &mut Config, file: &FileConfig, legacy_provider: Option<&str>) {
     for key in file.models.extra.keys().filter(|k| Some(k.as_str()) != legacy_provider) {
         config.config_warnings.push(format!(
-            "Ignoring [models].{key} in config.toml: only default, smol, slow and guard are supported."
+            "Ignoring [models].{key} in config.toml: expected a string model spec for a valid role name."
         ));
     }
 }

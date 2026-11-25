@@ -154,6 +154,9 @@ impl SubagentTool {
             label,
             cancellation: self.ctx.cancellation.clone(),
             settings: exchange.settings(),
+            presenter: (self.ctx.a2ui_widgets && self.ctx.a2ui_config.subagent_widget)
+                .then(|| self.ctx.presenter.clone())
+                .flatten(),
         };
         self.background
             .run(slot, task, &self.ctx.progress, move |io| async move {

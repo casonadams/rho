@@ -122,3 +122,25 @@ fn welcome_status_and_tool_chunk_emit_events() {
         ]
     );
 }
+
+#[tokio::test]
+async fn structured_presenter_emits_a2ui_events_and_returns_none_for_modals() {
+    use crate::a2ui::{A2uiMessage, A2uiModalRequest, CreateSurface};
+
+    let recording = RecordingSink::new();
+    let presenter = StructuredPresenter::recording(recording.clone());
+    let message = A2uiMessage::CreateSurface(CreateSurface::new("rho:test"));
+
+    presenter.emit_a2ui(message.clone());
+    assert_eq!(recording.events(), vec![UiEvent::A2ui { message }]);
+
+    let modal_result = presenter
+        .request_a2ui_modal(A2uiModalRequest {
+            surface_id: "ask:1".to_string(),
+            title: None,
+            messages: Vec::new(),
+            timeout_ms: None,
+        })
+        .await;
+    assert_eq!(modal_result, None);
+}

@@ -181,7 +181,7 @@ fn smol_and_slow_flags_select_their_configured_model() {
         let slot = if args[1] == "--smol" { "smol" } else { "slow" };
         config.set_route(crate::provider::ModelRoute::new("openai", "gpt-6"));
         if let Some(model) = configured {
-            config.models.insert(slot.to_string(), model.to_string());
+            config.model_roles.insert(slot.to_string(), model.to_string());
         }
         let cli = cli::Cli::try_parse_from(args).unwrap();
         merge::apply_cli_overrides(&mut config, Some(&cli));
@@ -218,7 +218,7 @@ fn test_cli_provider_switch_clears_model_when_not_in_models_table() {
 fn test_cli_provider_switch_with_explicit_model_flag_overrides_models_table() {
     let mut config = Config::default();
     config
-        .models
+        .model_roles
         .insert("gemini".to_string(), "gemini-3.6-flash".to_string());
     merge::merge_file(
         &mut config,
@@ -275,14 +275,12 @@ fn test_merge_models() {
     assert_eq!(config1.provider, "anthropic");
     assert_eq!(config1.model, "claude-3-7-sonnet");
     assert_eq!(config1.guard_model(), Some("local/qwen2.5-coder:7b"));
-    assert_eq!(
-        config1.models.get("smol").map(String::as_str),
-        Some("google/gemini-2.5-flash")
-    );
-    assert_eq!(config1.models.get("slow").map(String::as_str), Some("openai/o3-mini"));
-    assert!(!config1.models.contains_key("commit"));
-    assert!(!config1.models.contains_key("plan"));
-    assert!(!config1.models.contains_key("advisor"));
+    assert_eq!(config1.role_model("smol"), Some("google/gemini-2.5-flash"));
+    assert_eq!(config1.role_model("slow"), Some("openai/o3-mini"));
+    assert_eq!(config1.role_model("commit"), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(config1.role_model("plan"), Some("openai/o3-mini"));
+    assert_eq!(config1.role_model("advisor"), Some("google/gemini-2.5-flash"));
+    assert!(config1.config_warnings.is_empty(), "{:?}", config1.config_warnings);
 
     // OpenRouter multi-slash model
     let toml2 = r#"

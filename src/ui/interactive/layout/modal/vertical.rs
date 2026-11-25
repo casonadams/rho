@@ -104,6 +104,9 @@ fn select_modal_hint(modal: &ModalState) -> &'static str {
 }
 
 pub fn modal_hint(modal: &ModalState) -> &'static str {
+    if let Some(a2ui) = &modal.a2ui {
+        return a2ui.footer_hint();
+    }
     match &modal.mode {
         crate::ui::interactive::ModalMode::Select => select_modal_hint(modal),
         crate::ui::interactive::ModalMode::Input { .. } if modal.options.is_empty() => {

@@ -23,6 +23,30 @@ pub async fn active_tools(config: &Config, base_dir: &Path) -> Result<ToolAssemb
     Ok(ToolAssembly { tools })
 }
 
+pub fn agent_engine_in_dir_with_presenter(
+    config: Config,
+    auth_store: AuthStore,
+    catalog: ModelCatalog,
+    base_dir: PathBuf,
+    resume: Option<&str>,
+    presenter: Option<std::sync::Arc<dyn rho_harness_core::presentation::Presenter>>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AgentEngine>> + Send + '_>> {
+    Box::pin(async move {
+        let mut builder = AgentEngineBuilder::new(config, auth_store)
+            .model_catalog(catalog)
+            .resume(resume)
+            .base_dir(base_dir);
+        if let Some(presenter) = presenter {
+            builder = builder.presenter(presenter);
+        }
+        let engine = builder.build().await?;
+        // A hint for external tools must never stop a session from starting.
+        let _ =
+            terminal_session::record_terminal_session(&engine.config.config_dir, &engine.session_manager.session_id);
+        Ok(engine)
+    })
+}
+
 pub async fn agent_engine_in_dir(
     config: Config,
     auth_store: AuthStore,
@@ -30,15 +54,18 @@ pub async fn agent_engine_in_dir(
     base_dir: PathBuf,
     resume: Option<&str>,
 ) -> Result<AgentEngine> {
-    let engine = AgentEngineBuilder::new(config, auth_store)
-        .model_catalog(catalog)
-        .resume(resume)
-        .base_dir(base_dir)
-        .build()
-        .await?;
-    // A hint for external tools must never stop a session from starting.
-    let _ = terminal_session::record_terminal_session(&engine.config.config_dir, &engine.session_manager.session_id);
-    Ok(engine)
+    agent_engine_in_dir_with_presenter(config, auth_store, catalog, base_dir, resume, None).await
+}
+
+pub async fn agent_engine_with_presenter(
+    config: Config,
+    auth_store: AuthStore,
+    catalog: ModelCatalog,
+    resume: Option<&str>,
+    presenter: Option<std::sync::Arc<dyn rho_harness_core::presentation::Presenter>>,
+) -> Result<AgentEngine> {
+    let base_dir = std::env::current_dir()?;
+    agent_engine_in_dir_with_presenter(config, auth_store, catalog, base_dir, resume, presenter).await
 }
 
 pub async fn agent_engine(
@@ -47,8 +74,7 @@ pub async fn agent_engine(
     catalog: ModelCatalog,
     resume: Option<&str>,
 ) -> Result<AgentEngine> {
-    let base_dir = std::env::current_dir()?;
-    agent_engine_in_dir(config, auth_store, catalog, base_dir, resume).await
+    agent_engine_with_presenter(config, auth_store, catalog, resume, None).await
 }
 
 #[cfg(test)]

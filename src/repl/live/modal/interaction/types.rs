@@ -1,7 +1,24 @@
 use crate::ui::interactive::{InteractionResponder, InteractionResponse};
+use rho_harness_core::a2ui::A2uiModalResult;
+use tokio::sync::oneshot;
 
-pub struct PendingModal {
-    pub(crate) responder: InteractionResponder,
+pub enum PendingModal {
+    Interaction(InteractionResponder),
+    A2ui(oneshot::Sender<A2uiModalResult>),
+}
+
+impl PendingModal {
+    pub(crate) fn respond_interaction(self, response: InteractionResponse) {
+        if let Self::Interaction(responder) = self {
+            let _ = responder.respond(response);
+        }
+    }
+
+    pub(crate) fn respond_a2ui(self, result: A2uiModalResult) {
+        if let Self::A2ui(tx) = self {
+            let _ = tx.send(result);
+        }
+    }
 }
 
 pub(crate) fn is_input_trigger(label: &str) -> bool {

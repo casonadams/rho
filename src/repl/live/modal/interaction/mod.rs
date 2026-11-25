@@ -46,12 +46,56 @@ pub fn install_interaction<B: TerminalBackend>(
     event: UiEvent,
     modal: &mut Option<PendingModal>,
 ) {
-    let UiEvent::Interaction { prompt, responder } = event else {
-        unreachable!("only interaction events create ordered barriers");
+    match event {
+        UiEvent::Interaction { prompt, responder } => {
+            let state = build_interaction_state(prompt, controller.theme());
+            controller.state_mut().push_modal(state);
+            *modal = Some(PendingModal::Interaction(responder));
+        }
+        UiEvent::A2uiModalRequest { request, response_tx } => {
+            if let Some(a2ui) = crate::ui::interactive::a2ui::A2uiModalState::from_request(request) {
+                controller.state_mut().push_modal(ModalState::from_a2ui(a2ui));
+                *modal = Some(PendingModal::A2ui(response_tx));
+            } else {
+                let _ = response_tx.send(rho_harness_core::a2ui::A2uiModalResult::Cancelled);
+            }
+        }
+        _ => unreachable!("only interaction events create ordered barriers"),
+    }
+}
+
+pub fn handle_a2ui_modal_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: KeyEvent,
+    pending: &mut Option<PendingModal>,
+) -> Result<ModalKeyResult> {
+    let outcome = {
+        let Some(modal) = controller.state_mut().active_modal_mut() else {
+            return Ok(ModalKeyResult::NotHandled);
+        };
+        let Some(a2ui) = modal.a2ui.as_mut() else {
+            return Ok(ModalKeyResult::NotHandled);
+        };
+        a2ui.handle_key(key)
     };
-    let state = build_interaction_state(prompt, controller.theme());
-    controller.state_mut().push_modal(state);
-    *modal = Some(PendingModal { responder });
+    if let crate::ui::interactive::a2ui::A2uiKeyOutcome::Completed(result) = outcome {
+        controller.state_mut().pop_modal();
+        if let Some(pending) = pending.take() {
+            pending.respond_a2ui(result);
+        }
+    }
+    controller.redraw()?;
+    Ok(ModalKeyResult::Handled)
+}
+
+pub fn handle_a2ui_modal_paste<B: TerminalBackend>(controller: &mut TerminalController<B>, text: &str) -> bool {
+    let Some(modal) = controller.state_mut().active_modal_mut() else {
+        return false;
+    };
+    let Some(a2ui) = modal.a2ui.as_mut() else {
+        return false;
+    };
+    a2ui.handle_paste(text)
 }
 
 pub fn handle_interaction_key<B: TerminalBackend>(

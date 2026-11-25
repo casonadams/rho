@@ -237,9 +237,9 @@ rho update</code></pre>
 
       <img src="assets/chat.svg" alt="rho streaming assistant turn with collapsible reasoning block" class="doc-screenshot" width="960" height="620">
 
-      <h2 id="built-in-tools">14 Built-in Native Tools</h2>
+      <h2 id="built-in-tools">16 Built-in Native Tools</h2>
       <p>
-        rho includes 15 fast, native tools designed specifically for coding agents:
+        rho includes 16 fast, native tools designed specifically for coding agents:
       </p>
 
       <ul>
@@ -260,6 +260,7 @@ rho update</code></pre>
         <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs.</li>
         <li><strong><code>memory</code></strong>: Keeps short notes across sessions (<code>view</code>, <code>add</code>, <code>remove</code>) for durable, non-obvious facts. Notes are markdown bullets in <code>~/.agents/memory/&lt;project key&gt;.md</code> (scope <code>project</code>, the default) and <code>~/.agents/memory/global.md</code> (scope <code>global</code>), at most 50 notes or 8 KB per scope, one line of up to 300 characters each. Both files are read once at session start into a <code>&lt;memory&gt;</code> block of the system prompt, so changes take effect in the next session. Memory calls need no permission prompt; subagents do not get the tool; <code>--no-context-files</code> skips loading the notes.</li>
         <li><strong><code>todo</code></strong>: An ordered task list (<code>pending</code>, <code>in_progress</code>, <code>completed</code>) for multi-step work. Each call replaces the whole list and allows at most one item in progress; a call without <code>todos</code> shows the current list. The list is read back from the conversation, so it survives <code>--resume</code>, and compaction copies an unfinished list into its summary. Each subagent keeps its own list. Its card header shows progress and the active item, such as <code>todo 1/3 done &middot; Add tests</code>.</li>
+        <li><strong><code>ask</code></strong>: Presents 1 to 5 clarifying questions in an interactive A2UI modal (<code>rho:ask</code>), each supporting 0 to 4 structured choices (with optional <code>multi_select</code>, <code>recommended</code>, and custom "Other" input) or free-text input. Surface-aware: available in interactive TUI sessions only and stripped in headless runs (<code>-p</code> / RPC) and subagents.</li>
         <li><strong><code>wait</code></strong>: Blocks until background work reports back, instead of polling with <code>sleep</code>. It returns as soon as a background <code>bash</code> job or subagent task finishes, with every result that has arrived (which is then not delivered again as a follow-up message), when a new message arrives, or after 10 minutes with a <code>Still running:</code> list. With nothing running it returns at once. Calling it again waits for the work still running. The footer shows it while it waits, and it leaves no card in the transcript. <code>Esc</code> ends the wait without stopping the jobs. <code>bash</code> refuses a bare <code>sleep</code>, <code>pgrep</code>, <code>ps</code>, or <code>tail -f</code> poll run in the foreground while a job or subagent task is running and points to <code>wait</code>.</li>
       </ul>
 
@@ -318,6 +319,9 @@ cache_retention = "auto"
 [models]
 default = "anthropic/claude-3-7-sonnet"
 guard = "local/qwen2.5-coder:7b"
+# Built-in roles: smol, slow, guard, judge, widget, review, plan, task, vision
+# Plus any custom lowercase [a-z0-9_-]+ role (except "default"), selectable with @<role>
+widget = "local/qwen2.5-coder:7b"
 
 # Execution limits & context window
 max_turns = 1000
@@ -339,6 +343,7 @@ cursor = "hardware"              # "hardware" (default, native cursor) or "softw
 auto_title = false               # Background session title summary via models.smol (disable with --no-title / RHO_NO_TITLE=1)
 terminal_title = false           # Publish session title to terminal/tmux titlebar via OSC 0
 terminal_title_state = false     # Prefix terminal titlebar with idle/working/attention state
+a2ui_widgets = false             # Opt-in A2UI v1.0 persistent TUI widgets (default: false)
 user_border = "blue"             # User prompt blocks
 agent_border = "gray"            # Agent / sub-agent blocks
 tool_border = "gray"             # Tool / command cards
@@ -366,6 +371,13 @@ show_token_usage = false         # Per-turn timestamp, tokens, TTFT, and right-a
 show_turn_time = false           # Include prompt-to-yield Δ duration in stats row
 cache_miss_marker = false        # Show divider when a warm prompt cache invalidates
 
+[ui.a2ui]
+max_above_lines = 8              # Max lines rendered above the editor
+max_below_lines = 4              # Max lines rendered below the editor
+todo_widget = true               # Built-in `rho:todo` surface when a2ui_widgets = true
+subagent_widget = true           # Built-in `rho:subagents` surface when a2ui_widgets = true
+decision_assist = false          # Optional DecisionModel assist via models.widget -> models.judge -> models.guard
+
 # Web tools and search provider configuration (persisted automatically via /settings -> Tools & Permissions)
 [tools.web.search]
 enabled = true                  # Enable or disable built-in web_search
@@ -382,6 +394,13 @@ enabled = true                  # Enable or disable mutation guardrails</code></
       </div>
 
       <p>A model spec without a <code>&lt;provider&gt;/</code> prefix uses the <code>--provider</code> flag when given, then the provider implied by the model name (<code>claude-*</code> is <code>anthropic</code>, <code>gpt-*</code> is <code>openai</code>), then the current provider (<code>local</code> at startup). During a session, a bare id the current provider's live list carries stays on that provider instead, for <code>/model</code>, <code>set_model</code>, and subagent model specs alike. Everything after the first <code>/</code> is the provider's model id, so OpenRouter ids keep their vendor segment: <code>openrouter/anthropic/claude-3.7-sonnet</code>.</p>
+
+      <h3>Extensible <code>[models.&lt;role&gt;]</code> &amp; A2UI v1.0 TUI Widgets</h3>
+      <ul>
+        <li><strong>Extensible Model Roles</strong>: Configure <code>default</code>, any built-in role (<code>smol</code>, <code>slow</code>, <code>guard</code>, <code>judge</code>, <code>widget</code>, <code>review</code>, <code>plan</code>, <code>task</code>, <code>vision</code>), or arbitrary custom roles (lowercase ASCII <code>[a-z0-9_-]+</code> except <code>default</code>) under <code>[models.&lt;role&gt;]</code> or via <code>rho config models.&lt;role&gt; &lt;provider&gt;/&lt;model&gt;</code>. Use <code>@&lt;role&gt;</code> (or <code>@default</code>) as a model selector to resolve the configured role.</li>
+        <li><strong>A2UI v1.0 Persistent Widgets</strong>: Opt in with <code>[ui] a2ui_widgets = true</code> (default <code>false</code>) to render declarative surfaces in bounded above-editor (<code>max_above_lines = 8</code>) and below-editor (<code>max_below_lines = 4</code>) regions using <code>rho</code>'s ANSI-16 theme. Built-in surfaces include <code>rho:todo</code> (<code>todo_widget = true</code>) and <code>rho:subagents</code> (<code>subagent_widget = true</code>), which automatically delete themselves when empty.</li>
+        <li><strong>DecisionModel Assist</strong>: Set <code>[ui.a2ui] decision_assist = true</code> (default <code>false</code>) to let interactive <code>ask</code> modals pre-highlight the most likely default choice via the role fallback chain <code>models.widget</code> &rarr; <code>models.judge</code> &rarr; <code>models.guard</code>.</li>
+      </ul>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
       <p>
@@ -563,7 +582,7 @@ rho config models.guard none</code></pre>
             </tr>
             <tr>
               <td><code>/models</code></td>
-              <td>Configure role models (<code>default</code>, <code>smol</code>, <code>slow</code>, <code>guard</code>; works mid-turn)</td>
+              <td>Configure role models (<code>default</code>, built-in roles like <code>smol</code>, <code>slow</code>, <code>guard</code>, <code>judge</code>, <code>widget</code>, and custom roles; works mid-turn)</td>
             </tr>
             <tr>
               <td><code>/thinking</code></td>

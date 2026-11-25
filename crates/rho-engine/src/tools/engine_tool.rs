@@ -26,6 +26,10 @@ pub struct TurnToolContext {
     pub inbox: Option<crate::mailbox::Mailbox>,
     /// The user's queued steering, which ends a wait for background work.
     pub steering: Option<Arc<dyn crate::engine::runner::SteeringQueueProvider>>,
+    /// Active presenter for live UI updates (e.g. A2UI surfaces).
+    pub presenter: Option<Arc<dyn rho_harness_core::presentation::Presenter>>,
+    pub a2ui_widgets: bool,
+    pub a2ui_config: rho_harness_core::config::A2uiConfig,
 }
 
 #[async_trait::async_trait]

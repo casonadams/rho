@@ -8,7 +8,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rho_harness_core::config::{Config, ModelSlot};
+use rho_harness_core::config::{Config, ModelRole};
 use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
 use rho_harness_core::thinking::ThinkingLevel;
@@ -178,7 +178,7 @@ async fn resolve_title_model(
         thinking_level: ThinkingLevel::Off.setting(),
         ..config.clone()
     };
-    if let Some(smol_spec) = config.slot_model(ModelSlot::Smol) {
+    if let Some(smol_spec) = config.role_model(ModelRole::SMOL.as_str()) {
         let route = ModelRoute::parse(smol_spec, None, &config.route().connection.to_string());
         if let Ok(handle) = router.build(&off_config, &route).await {
             return Some(handle);

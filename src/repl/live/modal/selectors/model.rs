@@ -4,7 +4,7 @@ use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use rho_harness_core::config::ModelSlot;
+use rho_harness_core::config::ModelRole;
 
 pub const MODEL_SELECTOR_TITLE: &str = "Select Model";
 
@@ -66,14 +66,14 @@ pub fn open_model_selector_with_default<B: TerminalBackend>(
     controller.state_mut().push_modal(modal);
 }
 
-fn slot_selector_options(session: &ReplSession, slot: ModelSlot) -> (Vec<ModalOption>, usize) {
-    let current_model = session.config.slot_model(slot);
+fn role_selector_options(session: &ReplSession, role: &ModelRole) -> (Vec<ModalOption>, usize) {
+    let current_model = session.config.role_model(role.as_str());
     let none_mark = if current_model.is_none() { "✓" } else { "" };
     let mut options = vec![ModalOption::new(
         "None",
         Some(format!(
             "none\t{none_mark}\t\tDisable {} model (fallback to default)",
-            slot.title()
+            role.title()
         )),
     )];
     let mut selected = 0;
@@ -92,24 +92,23 @@ fn slot_selector_options(session: &ReplSession, slot: ModelSlot) -> (Vec<ModalOp
     (options, selected)
 }
 
-fn slot_selector_title(slot: ModelSlot) -> String {
-    format!("Select {} Model", slot.title())
+fn role_selector_title(role: &ModelRole) -> String {
+    format!("Select {} Model", role.title())
 }
 
-/// The slot whose model selector carries `title`.
-pub fn slot_of_title(title: &str) -> Option<ModelSlot> {
-    ModelSlot::ALL
-        .into_iter()
-        .find(|&slot| slot_selector_title(slot) == title)
+/// The role whose model selector carries `title`.
+pub fn role_of_title(title: &str) -> Option<ModelRole> {
+    let raw = title.strip_prefix("Select ")?.strip_suffix(" Model")?;
+    ModelRole::parse(raw).ok()
 }
 
-pub fn open_slot_model_selector<B: TerminalBackend>(
+pub fn open_role_model_selector<B: TerminalBackend>(
     session: &ReplSession,
     controller: &mut TerminalController<B>,
-    slot: ModelSlot,
+    role: &ModelRole,
 ) {
-    let (options, selected) = slot_selector_options(session, slot);
-    let mut modal = ModalState::new(slot_selector_title(slot), catalog_status(session), options).with_search(true);
+    let (options, selected) = role_selector_options(session, role);
+    let mut modal = ModalState::new(role_selector_title(role), catalog_status(session), options).with_search(true);
     modal.selected = selected;
     controller.state_mut().push_modal(modal);
 }
@@ -121,8 +120,8 @@ pub fn refresh_open_model_selector<B: TerminalBackend>(session: &ReplSession, co
     };
     let options = if title == MODEL_SELECTOR_TITLE {
         model_selector_options(session).0
-    } else if let Some(slot) = slot_of_title(&title) {
-        slot_selector_options(session, slot).0
+    } else if let Some(role) = role_of_title(&title) {
+        role_selector_options(session, &role).0
     } else {
         return;
     };
@@ -192,14 +191,14 @@ pub fn handle_model_key<B: TerminalBackend>(
     handle_selector_key(controller, key, select)
 }
 
-pub fn handle_slot_model_key<B: TerminalBackend>(
+pub fn handle_role_model_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
-    slot: ModelSlot,
+    role: ModelRole,
 ) -> Result<ModalKeyResult> {
     handle_selector_key(controller, key, |controller| {
-        pop_and_select(controller, |model, provider| ModalKeyResult::SlotModelSelected {
-            slot,
+        pop_and_select(controller, |model, provider| ModalKeyResult::RoleModelSelected {
+            role,
             model,
             provider,
         })

@@ -57,6 +57,53 @@ pub struct UiConfig {
     pub status_bar: Option<StatusBarConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display: Option<DisplayUiConfig>,
+    #[serde(default)]
+    pub a2ui_widgets: bool,
+    #[serde(default)]
+    pub a2ui: A2uiConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct A2uiConfig {
+    pub max_above_lines: usize,
+    pub max_below_lines: usize,
+    pub todo_widget: bool,
+    pub subagent_widget: bool,
+    pub decision_assist: bool,
+}
+
+impl Default for A2uiConfig {
+    fn default() -> Self {
+        Self {
+            max_above_lines: 8,
+            max_below_lines: 4,
+            todo_widget: true,
+            subagent_widget: true,
+            decision_assist: false,
+        }
+    }
+}
+
+impl A2uiConfig {
+    pub fn merge(&mut self, other: &Self) {
+        let defaults = Self::default();
+        if other.max_above_lines != defaults.max_above_lines {
+            self.max_above_lines = other.max_above_lines;
+        }
+        if other.max_below_lines != defaults.max_below_lines {
+            self.max_below_lines = other.max_below_lines;
+        }
+        if other.todo_widget != defaults.todo_widget {
+            self.todo_widget = other.todo_widget;
+        }
+        if other.subagent_widget != defaults.subagent_widget {
+            self.subagent_widget = other.subagent_widget;
+        }
+        if other.decision_assist != defaults.decision_assist {
+            self.decision_assist = other.decision_assist;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -357,6 +404,10 @@ impl UiConfig {
         merge_nested(&mut self.prompt, &other.prompt, PromptUiConfig::merge);
         merge_nested(&mut self.status_bar, &other.status_bar, StatusBarConfig::merge);
         merge_nested(&mut self.display, &other.display, DisplayUiConfig::merge);
+        if other.a2ui_widgets {
+            self.a2ui_widgets = true;
+        }
+        self.a2ui.merge(&other.a2ui);
     }
 }
 
@@ -677,5 +728,71 @@ cache_miss_marker = true
         assert_eq!(base.prompt, overlay.prompt);
         assert_eq!(base.status_bar, overlay.status_bar);
         assert_eq!(base.display, overlay.display);
+    }
+
+    #[test]
+    fn a2ui_config_defaults_off_and_parses_custom_values() {
+        let default_cfg: UiConfig = toml::from_str("").expect("parse empty");
+        assert!(!default_cfg.a2ui_widgets);
+        assert_eq!(
+            default_cfg.a2ui,
+            A2uiConfig {
+                max_above_lines: 8,
+                max_below_lines: 4,
+                todo_widget: true,
+                subagent_widget: true,
+                decision_assist: false,
+            }
+        );
+
+        let custom_cfg: UiConfig = toml::from_str(
+            r#"
+a2ui_widgets = true
+
+[a2ui]
+max_above_lines = 12
+max_below_lines = 6
+todo_widget = false
+subagent_widget = true
+decision_assist = true
+"#,
+        )
+        .expect("parse custom a2ui");
+        assert!(custom_cfg.a2ui_widgets);
+        assert_eq!(custom_cfg.a2ui.max_above_lines, 12);
+        assert_eq!(custom_cfg.a2ui.max_below_lines, 6);
+        assert!(!custom_cfg.a2ui.todo_widget);
+        assert!(custom_cfg.a2ui.subagent_widget);
+        assert!(custom_cfg.a2ui.decision_assist);
+    }
+
+    #[test]
+    fn a2ui_config_merge_preserves_custom_and_applies_overrides() {
+        let mut base: UiConfig = toml::from_str(
+            r#"
+a2ui_widgets = true
+
+[a2ui]
+max_above_lines = 14
+todo_widget = false
+"#,
+        )
+        .expect("parse base");
+        let overlay: UiConfig = toml::from_str(
+            r#"
+[a2ui]
+max_below_lines = 2
+decision_assist = true
+"#,
+        )
+        .expect("parse overlay");
+
+        base.merge(&overlay);
+        assert!(base.a2ui_widgets);
+        assert_eq!(base.a2ui.max_above_lines, 14);
+        assert_eq!(base.a2ui.max_below_lines, 2);
+        assert!(!base.a2ui.todo_widget);
+        assert!(base.a2ui.subagent_widget);
+        assert!(base.a2ui.decision_assist);
     }
 }

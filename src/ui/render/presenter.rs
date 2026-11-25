@@ -106,4 +106,17 @@ impl Presenter for TerminalRenderer {
     fn print_turn_telemetry(&self, telemetry: &TurnTelemetry) {
         TerminalRenderer::print_turn_telemetry(self, telemetry);
     }
+
+    fn emit_a2ui(&self, message: rho_harness_core::a2ui::A2uiMessage) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.emit_a2ui(message);
+        }
+    }
+
+    async fn request_a2ui_modal(
+        &self,
+        request: rho_harness_core::a2ui::A2uiModalRequest,
+    ) -> Option<rho_harness_core::a2ui::A2uiModalResult> {
+        self.ui.as_ref()?.request_a2ui_modal(request).await.ok()
+    }
 }

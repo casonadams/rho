@@ -446,7 +446,7 @@ fn test_set_file_value_models() {
     let file: FileConfig = toml::from_str(&content).unwrap();
 
     assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
-    assert_eq!(file.models.guard.as_deref(), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(file.models.role("guard"), Some("local/qwen2.5-coder:7b"));
     assert!(!content.contains("[providers]"));
 
     let config = load_config_with_rho_home(&dir);
@@ -502,6 +502,7 @@ theme = "nord"
 [models]
 default = "openai/gpt-4o"
 plan = "openai/o3"
+future_meta = { temperature = 0.2 }
 "#;
 
 fn write_config(dir: &std::path::Path, text: &str) {
@@ -526,7 +527,8 @@ async fn saving_a_setting_keeps_keys_this_version_does_not_know() {
     assert_eq!(saved.thinking_level.as_deref(), Some("high"));
     assert_eq!(saved.max_turns, Some(7));
     assert_eq!(saved.models.default.as_deref(), Some("openai/gpt-4o"));
-    assert_eq!(saved.models.extra["plan"].as_str(), Some("openai/o3"));
+    assert_eq!(saved.models.role("plan"), Some("openai/o3"));
+    assert_eq!(saved.models.extra["future_meta"]["temperature"].as_float(), Some(0.2));
     assert_eq!(saved.extra["theme"].as_str(), Some("nord"));
     assert_eq!(saved.extra["future_top_level"]["nested"][1].as_integer(), Some(2));
     assert_eq!(saved.extra["future_top_level"]["flag"].as_bool(), Some(true));
@@ -546,22 +548,23 @@ fn a_v0_10_file_restores_the_default_model_and_warns() {
 }
 
 #[test]
-fn models_default_wins_over_legacy_keys_and_unsupported_role_keys_warn() {
+fn models_default_wins_over_legacy_keys_and_non_string_model_keys_warn() {
     let mut config = Config::default();
     let file: FileConfig = toml::from_str(
-        "model = \"old\"\n\n[models]\ndefault = \"openai/new\"\nplan = \"openai/o3\"\nadvisor = \"openai/o3\"\n",
+        "model = \"old\"\n\n[models]\ndefault = \"openai/new\"\nplan = \"openai/o3\"\nadvisor = \"openai/o3\"\nfuture_meta = { flag = true }\n",
     )
     .unwrap();
 
     crate::config::merge::merge_file(&mut config, file);
 
     assert_eq!(config.model, "new");
+    assert_eq!(config.role_model("plan"), Some("openai/o3"));
+    assert_eq!(config.role_model("advisor"), Some("openai/o3"));
     let warnings = config.config_warnings.join("\n");
     assert!(warnings.contains("using models.default"), "{warnings}");
-    assert!(
-        warnings.contains("[models].plan") && warnings.contains("[models].advisor"),
-        "{warnings}"
-    );
+    assert!(warnings.contains("[models].future_meta"), "{warnings}");
+    assert!(!warnings.contains("[models].plan"), "{warnings}");
+    assert!(!warnings.contains("[models].advisor"), "{warnings}");
 }
 
 #[tokio::test]
@@ -579,4 +582,24 @@ async fn saving_a_model_retires_the_legacy_keys_so_the_warning_stops() {
     let mut config = Config::default();
     crate::config::merge::merge_file(&mut config, saved);
     assert!(config.config_warnings.is_empty(), "{:?}", config.config_warnings);
+}
+
+#[test]
+fn custom_and_builtin_model_roles_roundtrip_through_storage() {
+    let dir = crate::test_support::temp_dir();
+
+    Config::set_file_value(&dir, "models.default", "anthropic/claude-sonnet-4-5").unwrap();
+    Config::set_file_value(&dir, "models.widget", "gemini/gemini-decision-1").unwrap();
+    Config::set_file_value(&dir, "models.my_custom", "openrouter/qwen/qwen3-coder").unwrap();
+
+    let loaded = load_config_with_rho_home(&dir);
+    assert_eq!(loaded.role_model("widget"), Some("gemini/gemini-decision-1"));
+    assert_eq!(loaded.role_model("my_custom"), Some("openrouter/qwen/qwen3-coder"));
+    assert!(loaded.config_warnings.is_empty(), "{:?}", loaded.config_warnings);
+
+    Config::set_file_value(&dir, "models.widget", "none").unwrap();
+    let cleared = load_config_with_rho_home(&dir);
+    assert_eq!(cleared.role_model("widget"), None);
+    assert_eq!(cleared.role_model("my_custom"), Some("openrouter/qwen/qwen3-coder"));
+    assert!(Config::set_file_value(&dir, "models.bad.role", "x/y").is_err());
 }

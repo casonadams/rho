@@ -90,6 +90,8 @@ pub struct ModalState {
     pub save_as_default: bool,
     /// Value of the option whose deletion awaits a second confirming keystroke.
     pub pending_delete: Option<String>,
+    /// Declarative A2UI modal state when this modal is backed by an A2UI surface.
+    pub a2ui: Option<crate::ui::interactive::a2ui::A2uiModalState>,
 }
 
 impl ModalState {
@@ -111,7 +113,14 @@ impl ModalState {
             body_scroll: 0,
             save_as_default: false,
             pending_delete: None,
+            a2ui: None,
         }
+    }
+
+    pub fn from_a2ui(a2ui: crate::ui::interactive::a2ui::A2uiModalState) -> Self {
+        let mut state = Self::new(a2ui.title().to_string(), "", Vec::new());
+        state.a2ui = Some(a2ui);
+        state
     }
 
     pub fn with_save_as_default(mut self, save: bool) -> Self {

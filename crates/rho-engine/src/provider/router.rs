@@ -103,12 +103,25 @@ impl ModelRouter {
         Ok(Arc::new(crate::decision::ChatDecisionAdapter::new(model)))
     }
 
-    /// The guard model resolved as a [`crate::decision::DecisionHandle`].
-    pub async fn build_guard_decision(&self, config: &Config) -> Result<Option<crate::decision::DecisionHandle>> {
-        let Some(route) = guard_route(config) else {
+    /// Resolves the first configured role in `role_chain` as a [`crate::decision::DecisionHandle`].
+    pub async fn build_role_decision(
+        &self,
+        config: &Config,
+        role_chain: &[&str],
+    ) -> Result<Option<crate::decision::DecisionHandle>> {
+        let Some((_, spec)) = config.resolve_role_chain(role_chain) else {
             return Ok(None);
         };
+        let route = ModelRoute::parse(spec, None, "local");
+        if route.model.is_empty() {
+            return Ok(None);
+        }
         self.build_decision(config, &route).await.map(Some)
+    }
+
+    /// The guard model resolved as a [`crate::decision::DecisionHandle`].
+    pub async fn build_guard_decision(&self, config: &Config) -> Result<Option<crate::decision::DecisionHandle>> {
+        self.build_role_decision(config, &["guard"]).await
     }
 
     async fn build_native_decision(&self, route: &ModelRoute) -> Result<crate::decision::DecisionHandle> {

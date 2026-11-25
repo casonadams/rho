@@ -34,6 +34,12 @@ pub(crate) enum ConfigKey {
     AutoTitle,
     TerminalTitle,
     TerminalTitleState,
+    A2uiWidgets,
+    A2uiMaxAboveLines,
+    A2uiMaxBelowLines,
+    A2uiTodoWidget,
+    A2uiSubagentWidget,
+    A2uiDecisionAssist,
     ShowLabel,
     SearchEngine,
     WebSearchEnabled,
@@ -126,6 +132,12 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
         "ui.terminal_title_state",
         &["terminal_title_state"],
     ),
+    (ConfigKey::A2uiWidgets, "ui.a2ui_widgets", &["a2ui_widgets"]),
+    (ConfigKey::A2uiMaxAboveLines, "ui.a2ui.max_above_lines", &[]),
+    (ConfigKey::A2uiMaxBelowLines, "ui.a2ui.max_below_lines", &[]),
+    (ConfigKey::A2uiTodoWidget, "ui.a2ui.todo_widget", &[]),
+    (ConfigKey::A2uiSubagentWidget, "ui.a2ui.subagent_widget", &[]),
+    (ConfigKey::A2uiDecisionAssist, "ui.a2ui.decision_assist", &[]),
     (ConfigKey::ShowLabel, "show_label", &[]),
     (
         ConfigKey::SearchEngine,
@@ -177,7 +189,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 47] = [
+    const ALL_KEYS: [ConfigKey; 53] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -210,6 +222,12 @@ mod tests {
         ConfigKey::AutoTitle,
         ConfigKey::TerminalTitle,
         ConfigKey::TerminalTitleState,
+        ConfigKey::A2uiWidgets,
+        ConfigKey::A2uiMaxAboveLines,
+        ConfigKey::A2uiMaxBelowLines,
+        ConfigKey::A2uiTodoWidget,
+        ConfigKey::A2uiSubagentWidget,
+        ConfigKey::A2uiDecisionAssist,
         ConfigKey::ShowLabel,
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,

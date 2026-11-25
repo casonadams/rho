@@ -22,7 +22,7 @@ fn pop_and_cancel_interaction<B: TerminalBackend>(
     let was_bottom = controller.state().modal_depth() <= 1;
     controller.state_mut().pop_modal();
     if was_bottom && let Some(pending) = pending.take() {
-        let _ = pending.responder.respond(InteractionResponse::Cancelled);
+        pending.respond_interaction(InteractionResponse::Cancelled);
     }
 }
 
@@ -173,7 +173,7 @@ fn respond_selected<B: TerminalBackend>(
 ) {
     controller.state_mut().pop_modal();
     if let Some(pending) = pending.take() {
-        let _ = pending.responder.respond(InteractionResponse::Selected(selected));
+        pending.respond_interaction(InteractionResponse::Selected(selected));
     }
 }
 

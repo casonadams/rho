@@ -20,7 +20,7 @@ pub(crate) fn exit_input_or_pop_modal<B: TerminalBackend>(
     }
     controller.state_mut().pop_modal();
     if let Some(pending) = pending.take() {
-        let _ = pending.responder.respond(InteractionResponse::Cancelled);
+        pending.respond_interaction(InteractionResponse::Cancelled);
     }
 }
 
@@ -37,7 +37,7 @@ pub(crate) fn submit_enter<B: TerminalBackend>(
     controller.state_mut().pop_modal();
     if let Some(pending) = pending.take() {
         let response = build_enter_response(custom, input_option);
-        let _ = pending.responder.respond(response);
+        pending.respond_interaction(response);
     }
 }
 

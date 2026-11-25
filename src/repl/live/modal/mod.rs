@@ -10,12 +10,12 @@ pub mod tree;
 use crate::error::Result;
 use crate::ui::interactive::{EditorState, ModalMode, TerminalBackend, TerminalController, UiAction};
 use crossterm::event::KeyEvent;
-use rho_harness_core::config::ModelSlot;
+use rho_harness_core::config::ModelRole;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
     open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
-    open_models_selector, open_search_engine_selector, open_session_selector, open_slot_model_selector,
+    open_models_selector, open_role_model_selector, open_search_engine_selector, open_session_selector,
     open_tools_selector, refresh_open_model_selector, update_models_role_description, update_tools_search_engine,
 };
 pub use settings::{open_settings_selector, update_settings_model_description};
@@ -60,11 +60,11 @@ pub enum ModalKeyResult {
         save_as_default: bool,
     },
     OpenModelsMenu,
-    OpenSlotModelSelector {
-        slot: ModelSlot,
+    OpenRoleModelSelector {
+        role: ModelRole,
     },
-    SlotModelSelected {
-        slot: ModelSlot,
+    RoleModelSelected {
+        role: ModelRole,
         model: String,
         provider: String,
     },
@@ -320,6 +320,8 @@ pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalControlle
         if let Some(modal) = controller.state_mut().active_modal_mut() {
             apply_input_edit(&mut modal.input, UiAction::Paste(text.to_string()));
         }
+    } else if active.a2ui.is_some() {
+        return interaction::handle_a2ui_modal_paste(controller, text);
     } else if is_searchable {
         let mut query = filter_query;
         query.push_str(text);
@@ -359,12 +361,16 @@ pub fn handle_modal_key<B: TerminalBackend>(
         return Ok(ModalKeyResult::Handled);
     }
 
+    if active.a2ui.is_some() {
+        return interaction::handle_a2ui_modal_key(controller, key, pending);
+    }
+
     let title = active.title.clone();
     if title == "Select Model" {
         return selectors::handle_model_key(controller, key);
     }
-    if let Some(slot) = selectors::slot_of_title(&title) {
-        return selectors::handle_slot_model_key(controller, key, slot);
+    if let Some(role) = selectors::role_of_title(&title) {
+        return selectors::handle_role_model_key(controller, key, role);
     }
 
     match title.as_str() {

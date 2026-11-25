@@ -154,3 +154,39 @@ fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
         "bottom border must be preserved"
     );
 }
+
+#[test]
+fn below_widget_lines_render_between_bottom_divider_and_footer() {
+    let below = vec!["[hint: press Tab]".to_string()];
+    let ed = EditorState::default();
+    let ft = FooterState::default();
+    let l = layout(LayoutInput {
+        below_widget_lines: &below,
+        terminal_height: 24,
+        ..base_input(&ed, &ft)
+    });
+    assert_eq!(l.below_widget_lines, below);
+    let bot_idx = l.lines.iter().position(|line| line == &l.bottom_divider).unwrap();
+    let below_idx = l.lines.iter().position(|line| line == "[hint: press Tab]").unwrap();
+    let ft_idx = l
+        .lines
+        .iter()
+        .position(|line| line.contains(&l.footer_lines[0]))
+        .unwrap();
+    assert!(bot_idx < below_idx && below_idx < ft_idx);
+}
+
+#[test]
+fn below_widget_lines_yield_to_editor_dividers_and_footer_on_small_terminals() {
+    let below = vec!["line 1".to_string(), "line 2".to_string(), "line 3".to_string()];
+    let ed = EditorState::default();
+    let ft = FooterState::default();
+    let l = layout(LayoutInput {
+        below_widget_lines: &below,
+        terminal_height: 4,
+        ..base_input(&ed, &ft)
+    });
+    assert!(l.below_widget_lines.is_empty());
+    assert!(!l.editor_lines.is_empty());
+    assert!(!l.footer_lines.is_empty());
+}

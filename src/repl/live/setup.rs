@@ -14,17 +14,13 @@ pub(super) fn init_live_state(session: &ReplSession, engine: &AgentEngine) -> In
     if let Some(expanded) = session.config.ui.tools_expanded {
         state.set_tools_expanded(expanded);
     }
+    state.set_a2ui_widgets(session.config.ui.a2ui_widgets);
+    state.set_a2ui_config(session.config.ui.a2ui.clone());
     update_footer(&mut state, session, engine);
     state
 }
 
-pub(super) fn init_live_ui(
-    session: &mut ReplSession,
-    engine: &AgentEngine,
-) -> Result<(
-    TerminalController<CrosstermBackend>,
-    tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
-)> {
+pub(super) fn init_live_renderer(session: &mut ReplSession) -> tokio::sync::mpsc::UnboundedReceiver<UiEvent> {
     let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
     tokio::task::spawn_blocking(crate::ui::markdown::warmup_syntax_highlighter);
     session.renderer = TerminalRenderer::with_ui(ui);
@@ -32,6 +28,13 @@ pub(super) fn init_live_ui(
     if let Some(display) = &session.config.ui.display {
         session.renderer.set_display_config(display.clone());
     }
+    ui_events
+}
+
+pub(super) fn init_live_controller(
+    session: &mut ReplSession,
+    engine: &AgentEngine,
+) -> Result<TerminalController<CrosstermBackend>> {
     let state = init_live_state(session, engine);
     let mut controller = TerminalController::stdout(state)?;
     controller.set_approval_focus(session.config.subagents.approval_focus.unwrap_or_default());
@@ -41,7 +44,7 @@ pub(super) fn init_live_ui(
     );
     let _ = controller.set_theme(session.renderer.theme.clone());
     session.renderer.set_width(controller.width());
-    Ok((controller, ui_events))
+    Ok(controller)
 }
 
 pub(super) async fn build_completions(

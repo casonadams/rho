@@ -163,6 +163,7 @@ pub enum UiEvent {
     TurnStarted { prompt: String },
     TurnCompleted { status: String },
     Error { message: String },
+    A2ui { message: crate::a2ui::A2uiMessage },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

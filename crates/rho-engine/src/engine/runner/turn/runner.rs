@@ -144,6 +144,8 @@ pub struct AgentRunner {
     project: Option<Arc<crate::engine::context::ProjectContext>>,
     worktrees: Option<crate::worktree::WorktreeStore>,
     context_budget: Option<crate::engine::tracking::ContextBudget>,
+    a2ui_widgets: bool,
+    a2ui_config: rho_harness_core::config::A2uiConfig,
 }
 
 impl AgentRunner {
@@ -210,6 +212,8 @@ impl AgentRunner {
             project: None,
             worktrees: None,
             context_budget: None,
+            a2ui_widgets: false,
+            a2ui_config: rho_harness_core::config::A2uiConfig::default(),
         }
     }
 
@@ -316,6 +320,12 @@ impl AgentRunner {
         self
     }
 
+    pub fn a2ui_config(mut self, enabled: bool, config: rho_harness_core::config::A2uiConfig) -> Self {
+        self.a2ui_widgets = enabled;
+        self.a2ui_config = config;
+        self
+    }
+
     fn bind_tools(&mut self, history: &[ChatMessage]) {
         let turn_ctx = TurnToolContext {
             permission: self.permission.clone(),
@@ -328,6 +338,9 @@ impl AgentRunner {
             session: self.session_manager.clone(),
             inbox: self.inbox.clone(),
             steering: self.steering.clone(),
+            presenter: self.lifecycle.as_ref().map(|h| Arc::clone(h.presenter())),
+            a2ui_widgets: self.a2ui_widgets,
+            a2ui_config: self.a2ui_config.clone(),
         };
         self.tools = self
             .tools

@@ -26,6 +26,7 @@ pub struct AgentEngineBuilder {
     model_catalog: crate::provider::ModelCatalog,
     quota_endpoints: super::quota_refresh::QuotaEndpoints,
     lsp: Option<Option<Arc<crate::lsp::LspManager>>>,
+    presenter: Option<Arc<dyn rho_harness_core::presentation::Presenter>>,
 }
 
 struct EngineAssembly {
@@ -52,6 +53,7 @@ impl AgentEngineBuilder {
             model_catalog: crate::provider::ModelCatalog::default(),
             quota_endpoints: super::quota_refresh::QuotaEndpoints::default(),
             lsp: None,
+            presenter: None,
         }
     }
 
@@ -122,6 +124,11 @@ impl AgentEngineBuilder {
         self.quota_endpoints = endpoints;
         self
     }
+
+    pub fn presenter(mut self, presenter: Arc<dyn rho_harness_core::presentation::Presenter>) -> Self {
+        self.presenter = Some(presenter);
+        self
+    }
 }
 
 /// Subagent model roles; a spec without a provider uses the session's provider.
@@ -156,6 +163,8 @@ struct ToolSources {
     extra: Vec<Arc<dyn EngineTool>>,
     lsp: Option<Arc<crate::lsp::LspManager>>,
     relocate_slot: Arc<std::sync::Mutex<Option<PathBuf>>>,
+    presenter: Option<Arc<dyn rho_harness_core::presentation::Presenter>>,
+    ask_decision: Option<crate::decision::DecisionHandle>,
 }
 
 async fn build_engine_tools(
@@ -170,6 +179,8 @@ async fn build_engine_tools(
         extra: extra_tools,
         lsp,
         relocate_slot,
+        presenter,
+        ask_decision,
     } = sources;
     let mut mcp = crate::mcp::load_mcp(config, base_dir, history_tools).await;
     let mcp_tools = std::mem::take(&mut mcp.tools);
@@ -186,6 +197,8 @@ async fn build_engine_tools(
                     worktrees: Some(crate::worktree::WorktreeStore::default_location()),
                     lsp,
                     relocate_slot: Some(relocate_slot),
+                    presenter,
+                    ask_decision,
                 },
                 models.runtime,
             )?;
@@ -285,6 +298,7 @@ impl AgentEngineBuilder {
             pending_relocation: Arc::default(),
             mcp: super::EngineMcp::default(),
             ollama_host: crate::ollama::local::local_host(),
+            presenter: self.presenter,
         }
     }
 
@@ -306,6 +320,18 @@ impl AgentEngineBuilder {
             None => None,
         };
         let pending_relocation = Arc::new(std::sync::Mutex::new(None));
+        let ask_decision = if self.tools.is_none()
+            && self.config.ui.a2ui.decision_assist
+            && self.presenter.as_ref().is_some_and(|p| p.has_interactive_ui())
+        {
+            router
+                .build_role_decision(&self.config, &["widget", "judge", "guard"])
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
         let EngineTools { tools, subagents, mcp } = build_engine_tools(
             &base_dir,
             &self.config,
@@ -319,6 +345,8 @@ impl AgentEngineBuilder {
                 extra: std::mem::take(&mut self.extra_tools),
                 lsp,
                 relocate_slot: Arc::clone(&pending_relocation),
+                presenter: self.presenter.clone(),
+                ask_decision,
             },
             &history_tools,
         )

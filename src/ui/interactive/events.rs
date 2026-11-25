@@ -56,6 +56,13 @@ pub enum UiEvent {
         responder: InteractionResponder,
     },
     DismissInteraction,
+    A2ui {
+        message: rho_harness_core::a2ui::A2uiMessage,
+    },
+    A2uiModalRequest {
+        request: rho_harness_core::a2ui::A2uiModalRequest,
+        response_tx: oneshot::Sender<rho_harness_core::a2ui::A2uiModalResult>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +94,7 @@ pub struct PendingUiBatch {
     tool_end: bool,
     system_message: Option<Option<String>>,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
+    a2ui_messages: Vec<rho_harness_core::a2ui::A2uiMessage>,
     max_text_bytes: usize,
 }
 
@@ -100,6 +108,7 @@ pub struct PendingUiDrain {
     pub tool_end: bool,
     pub system_message: Option<Option<String>>,
     pub transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
+    pub a2ui_messages: Vec<rho_harness_core::a2ui::A2uiMessage>,
 }
 
 impl PendingUiDrain {
@@ -126,6 +135,7 @@ impl PendingUiBatch {
             tool_end: false,
             system_message: None,
             transcript_items: Vec::new(),
+            a2ui_messages: Vec::new(),
             max_text_bytes: max_text_bytes.max(1),
         }
     }
@@ -182,6 +192,10 @@ impl PendingUiBatch {
                 self.system_message = Some(m);
                 Self::flushes()
             }
+            UiEvent::A2ui { message } => {
+                self.a2ui_messages.push(message);
+                Self::flushes()
+            }
             _ => BatchDecision::Pending,
         }
     }
@@ -209,7 +223,9 @@ impl PendingUiBatch {
                 self.running_tool = Some(u);
                 BatchDecision::Pending
             }
-            event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
+            event @ UiEvent::Interaction { .. } | event @ UiEvent::A2uiModalRequest { .. } => {
+                BatchDecision::Barrier(FlushBarrier::Interaction, event)
+            }
             UiEvent::DismissInteraction => Self::flushes(),
             other => self.push_flushing(other),
         }
@@ -226,6 +242,7 @@ impl PendingUiBatch {
             tool_end: std::mem::replace(&mut self.tool_end, false),
             system_message: self.system_message.take(),
             transcript_items: std::mem::take(&mut self.transcript_items),
+            a2ui_messages: std::mem::take(&mut self.a2ui_messages),
         }
     }
 
@@ -238,6 +255,7 @@ impl PendingUiBatch {
             && !self.tool_end
             && self.system_message.is_none()
             && self.transcript_items.is_empty()
+            && self.a2ui_messages.is_empty()
     }
 }
 
@@ -313,5 +331,22 @@ impl InteractiveUi {
         self.sender
             .send(UiEvent::DismissInteraction)
             .map_err(|_| UiPortError::Closed)
+    }
+
+    pub fn emit_a2ui(&self, message: rho_harness_core::a2ui::A2uiMessage) -> Result<(), UiPortError> {
+        self.sender
+            .send(UiEvent::A2ui { message })
+            .map_err(|_| UiPortError::Closed)
+    }
+
+    pub async fn request_a2ui_modal(
+        &self,
+        request: rho_harness_core::a2ui::A2uiModalRequest,
+    ) -> Result<rho_harness_core::a2ui::A2uiModalResult, UiPortError> {
+        let (response_tx, receiver) = oneshot::channel();
+        self.sender
+            .send(UiEvent::A2uiModalRequest { request, response_tx })
+            .map_err(|_| UiPortError::Closed)?;
+        receiver.await.map_err(|_| UiPortError::Closed)
     }
 }

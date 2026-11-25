@@ -21,6 +21,7 @@
 //! See `ARCHITECTURE.md` at the repository root for the full map.
 
 pub mod a2a;
+pub mod a2ui;
 pub mod agents;
 pub mod args;
 pub mod auth;

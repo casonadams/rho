@@ -55,6 +55,7 @@ impl Backgrounding {
                 persona: Some("skeptic".into()),
                 ..ConversationSettings::default()
             },
+            presenter: None,
         };
         self.run(slot, task, progress, work).await
     }
@@ -461,6 +462,7 @@ async fn wait_returns_a_background_subagents_result_once() {
                 label: "subagent audit".into(),
                 cancellation: None,
                 settings: ConversationSettings::default(),
+                presenter: None,
             },
             &ToolStreamPort::default(),
             |_| async {
@@ -480,4 +482,50 @@ async fn wait_returns_a_background_subagents_result_once() {
     );
     assert!(waited.content.contains("found 3 issues"));
     assert_eq!(inbox.pending(), 0, "the result is not delivered again");
+}
+
+#[tokio::test(start_paused = true)]
+async fn background_round_emits_and_deletes_a2ui_subagent_surface() {
+    use rho_harness_core::a2ui::{A2uiMessage, SUBAGENT_SURFACE_ID};
+    use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
+
+    let recording = RecordingSink::default();
+    let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::new(Arc::new(recording.clone())));
+    let background = Backgrounding::new(JobManager::default(), Duration::from_secs(5));
+    let slot = background.reserve().unwrap();
+
+    let result = background
+        .run(
+            slot,
+            BackgroundTask {
+                id: "sa-1",
+                owner: "owner-1",
+                label: "subagent reviewer".into(),
+                cancellation: None,
+                settings: ConversationSettings {
+                    name: Some("reviewer".into()),
+                    agent: Some("review".into()),
+                    ..ConversationSettings::default()
+                },
+                presenter: Some(presenter),
+            },
+            &ToolStreamPort::default(),
+            |_| async { ToolResult::success("done") },
+        )
+        .await;
+    assert_eq!(result.content, "done");
+
+    let events = recording.events();
+    assert!(events.iter().any(|e| matches!(
+        e,
+        UiEvent::A2ui {
+            message: A2uiMessage::CreateSurface(c)
+        } if c.surface_id == SUBAGENT_SURFACE_ID
+    )));
+    assert!(matches!(
+        events.last(),
+        Some(UiEvent::A2ui {
+            message: A2uiMessage::DeleteSurface(d)
+        }) if d.surface_id == SUBAGENT_SURFACE_ID
+    ));
 }

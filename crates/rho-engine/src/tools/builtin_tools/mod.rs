@@ -25,7 +25,7 @@ use crate::tools::web::{
 };
 use crate::tools::write::WriteTool;
 use rho_harness_core::config::Config;
-use rho_harness_core::config::ModelSlot;
+use rho_harness_core::config::ModelRole;
 use rho_harness_core::error::Result;
 use std::path::Path;
 use std::sync::Arc;
@@ -105,6 +105,10 @@ pub struct ToolsetServices {
     pub lsp: Option<Arc<LspManager>>,
     /// Shared slot populated when `worktree(action="create")` requests live session relocation.
     pub relocate_slot: Option<Arc<std::sync::Mutex<Option<std::path::PathBuf>>>>,
+    /// Presenter for interactive tools like `ask` (registered only when `has_interactive_ui()` is true).
+    pub presenter: Option<Arc<dyn rho_harness_core::presentation::Presenter>>,
+    /// Optional decision model handle for `ask` tool's `decision_assist`.
+    pub ask_decision: Option<crate::decision::DecisionHandle>,
 }
 
 /// The built-in tools and the subagent tool.
@@ -173,8 +177,8 @@ pub fn build_builtin_toolset(
         ));
     if let Some(resolver) = model_resolver {
         subagent = subagent.with_model_resolver(resolver).with_model_roles(
-            config.slot_model(ModelSlot::Smol).map(str::to_string),
-            config.slot_model(ModelSlot::Slow).map(str::to_string),
+            config.role_model(ModelRole::SMOL.as_str()).map(str::to_string),
+            config.role_model(ModelRole::SLOW.as_str()).map(str::to_string),
         );
     }
     if has_lsp {
@@ -196,6 +200,15 @@ pub fn build_builtin_toolset(
     }
     if let Some(memory) = memory_tool(rho_harness_core::config::home_dir().as_deref(), base_dir, config) {
         tools.push(memory);
+    }
+    if let Some(presenter) = services.presenter
+        && presenter.has_interactive_ui()
+    {
+        let mut ask = crate::tools::AskTool::new(presenter);
+        if let Some(decision) = services.ask_decision {
+            ask = ask.with_decision(decision);
+        }
+        tools.push(Arc::new(ask) as Arc<dyn EngineTool>);
     }
     tools.push(Arc::new(subagent.clone()) as Arc<dyn EngineTool>);
     Ok((tools, subagent))
@@ -232,7 +245,7 @@ pub(crate) fn fresh_session_state(
         .iter()
         .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {
             Some(native) => Some(native.clone()),
-            None if tool.name() == "lsp" => None,
+            None if matches!(tool.name(), "lsp" | "ask") => None,
             None => Some(tool.clone()),
         })
         .collect();

@@ -57,6 +57,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         subagent_models: None,
         mcp: crate::engine::EngineMcp::default(),
         ollama_host: crate::ollama::local::local_host(),
+        presenter: None,
     }
 }
 

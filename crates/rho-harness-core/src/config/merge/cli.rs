@@ -1,4 +1,4 @@
-use super::super::{Config, ModelSlot};
+use super::super::{Config, ModelRole};
 use crate::config::cli::Cli;
 use crate::provider::{Connection, ModelRoute};
 use crate::thinking::ThinkingLevel;
@@ -27,11 +27,14 @@ fn apply_provider_flag_only(config: &mut Config, provider: &str) {
 }
 
 fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
-    let slot = (c.smol.then_some(ModelSlot::Smol)).or(c.slow.then_some(ModelSlot::Slow));
-    let slot_model = slot.and_then(|slot| config.slot_model(slot)).map(str::to_string);
-    if let Some(model) = c.model.as_deref().or(slot_model.as_deref()) {
+    let role = (c.smol.then_some(ModelRole::SMOL)).or(c.slow.then_some(ModelRole::SLOW));
+    let role_model = role
+        .as_ref()
+        .and_then(|role| config.role_model(role.as_str()))
+        .map(str::to_string);
+    if let Some(model) = c.model.as_deref().or(role_model.as_deref()) {
         resolve_model_with_provider(config, model.trim(), c.provider.as_deref());
-    } else if slot.is_none()
+    } else if role.is_none()
         && let Some(ref p) = c.provider
     {
         apply_provider_flag_only(config, p);
