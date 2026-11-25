@@ -162,6 +162,34 @@ fn prompt_show_version_false_omits_version_label() {
 }
 
 #[test]
+fn prompt_divider_label_renders_custom_unicode_glyph_with_exact_width() {
+    use rho_harness_core::config::PromptUiConfig;
+
+    let idle_footer = FooterState {
+        show_label: true,
+        prompt_config: Some(PromptUiConfig {
+            show_version: Some(false),
+            divider_label: Some("ϱ".to_string()),
+            ..PromptUiConfig::default()
+        }),
+        ..FooterState::default()
+    };
+    let idle = render(&EditorState::default(), &idle_footer, None, 40);
+    assert_eq!(visible_width(&idle.top_divider), 40);
+    assert!(idle.top_divider.contains(" ϱ ───"));
+    assert!(!idle.top_divider.contains("rho"));
+
+    let busy_footer = FooterState {
+        activity: Activity::Working,
+        ..idle_footer
+    };
+    let busy = render(&EditorState::default(), &busy_footer, None, 40);
+    assert_eq!(visible_width(&busy.top_divider), 40);
+    assert!(busy.top_divider.contains("working"));
+    assert!(busy.top_divider.contains(" ϱ ───"));
+}
+
+#[test]
 fn divider_style_dim_and_none_behave_cleanly() {
     use rho_harness_core::config::{DividerStyle, PromptUiConfig};
 

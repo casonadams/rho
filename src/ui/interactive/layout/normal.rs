@@ -44,33 +44,33 @@ fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str
     }
 }
 
+fn resolve_divider_label<'a>(input: &'a LayoutInput<'_>, width: usize, has_activity: bool) -> &'a str {
+    if !input.footer.show_label {
+        return "";
+    }
+    let prompt = input.footer.prompt_config.as_ref();
+    if let Some(custom) = prompt.and_then(|p| p.divider_label.as_deref()) {
+        return custom;
+    }
+    if !prompt.and_then(|p| p.show_version).unwrap_or(true) {
+        return "";
+    }
+    let full = rho_harness_core::build_info::divider_label();
+    let min_width = full.chars().count() + if has_activity { 19 } else { 6 };
+    if width >= min_width {
+        full
+    } else {
+        concat!("rho ", env!("CARGO_PKG_VERSION"))
+    }
+}
+
 fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset: &str) -> String {
     match input.modal {
         Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
         None if is_divider_none(input) => String::new(),
         None => {
             let activity = active_activity_status(input.footer, input.spinner_frame);
-            let show_version = input
-                .footer
-                .prompt_config
-                .as_ref()
-                .and_then(|p| p.show_version)
-                .unwrap_or(true);
-            let label = if !input.footer.show_label || !show_version {
-                ""
-            } else {
-                let full = rho_harness_core::build_info::divider_label();
-                let min_width = if activity.is_some() {
-                    full.chars().count() + 19
-                } else {
-                    full.chars().count() + 6
-                };
-                if width >= min_width {
-                    full
-                } else {
-                    concat!("rho ", env!("CARGO_PKG_VERSION"))
-                }
-            };
+            let label = resolve_divider_label(input, width, activity.is_some());
             top_divider(width, label, activity, style, reset)
         }
     }

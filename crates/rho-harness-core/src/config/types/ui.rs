@@ -125,6 +125,8 @@ pub struct PromptUiConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_version: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub divider_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub divider_style: Option<DividerStyle>,
 }
 
@@ -304,6 +306,7 @@ impl PromptUiConfig {
     pub fn merge(&mut self, other: &Self) {
         merge_opt(&mut self.prefix, &other.prefix);
         merge_opt(&mut self.show_version, &other.show_version);
+        merge_opt(&mut self.divider_label, &other.divider_label);
         merge_opt(&mut self.divider_style, &other.divider_style);
     }
 }
@@ -582,6 +585,7 @@ show_seconds = true
 [prompt]
 prefix = "> "
 show_version = false
+divider_label = "ϱ"
 divider_style = "dim"
 
 [display]
@@ -595,6 +599,7 @@ cache_miss_marker = true
             Some(PromptUiConfig {
                 prefix: Some("> ".to_string()),
                 show_version: Some(false),
+                divider_label: Some("ϱ".to_string()),
                 divider_style: Some(DividerStyle::Dim),
             })
         );
@@ -666,6 +671,7 @@ cache_miss_marker = true
             Some(PromptUiConfig {
                 prefix: Some("  ".to_string()),
                 show_version: Some(true),
+                divider_label: None,
                 divider_style: Some(DividerStyle::None),
             })
         );

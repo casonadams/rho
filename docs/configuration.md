@@ -640,6 +640,7 @@ bash_error_border = "red"      # Failed bash commands
 [ui.prompt]
 prefix = "❯ "                  # Custom prompt glyph (default: " ")
 show_version = true            # Show version label in top divider (default: true)
+divider_label = "ϱ"            # Optional custom top-divider label (overrides show_version)
 divider_style = "thinking"     # "thinking" (default) | "dim" | "none"
 
 # Optional segmented / powerline status bar (default: preset = "default" keeps the 2-line footer)

@@ -51,7 +51,8 @@ per-turn telemetry rows under `[ui.prompt]`, `[ui.status_bar]`, and `[ui.display
 in `~/.config/rho/config.toml` (or `.rho/config.toml`):
 
 - **`[ui.prompt]`**: Customize the prompt `prefix` glyph (e.g. `"❯ "`, `"» "`),
-  toggle `show_version`, and set `divider_style` (`"thinking"`, `"dim"`, or `"none"`).
+  toggle `show_version`, set a custom `divider_label` (e.g. `"ϱ"`), and set
+  `divider_style` (`"thinking"`, `"dim"`, or `"none"`).
 - **`[ui.status_bar]`**: Choose a `preset` (`"minimal"`, `"compact"`, `"full"`,
   `"nerd"`, `"ascii"`, `"custom"`), order `left` / `right` segments (`model`,
   `path`, `git` with `+staged *unstaged ?untracked` counts, `pr`, `context_pct`,

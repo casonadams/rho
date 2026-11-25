@@ -1,4 +1,5 @@
 use super::text::SPINNER_FRAMES as FRAMES;
+use crate::ui::block::visible_width;
 use crate::ui::interactive::footer::segments::context_threshold_color;
 use crate::ui::interactive::footer::{format_tokens, truncate_to_width};
 use crate::ui::interactive::{Activity, FooterState, QueueKind, QueuedMessage};
@@ -23,9 +24,9 @@ fn format_act_tag(act: Option<(&str, char)>) -> Option<String> {
 }
 
 fn tagged_top_divider(width: usize, label: &str, tag: &str, spinner: Option<char>, style: &str, reset: &str) -> String {
-    let tag_len = tag.chars().count();
+    let tag_len = visible_width(tag);
     let has_version = !label.is_empty();
-    let ver_len = if has_version { label.chars().count() + 5 } else { 0 };
+    let ver_len = if has_version { visible_width(label) + 5 } else { 0 };
 
     if has_version && width > tag_len + ver_len {
         let middle = width - tag_len - ver_len;
@@ -44,8 +45,9 @@ fn tagged_top_divider(width: usize, label: &str, tag: &str, spinner: Option<char
 }
 
 fn idle_top_divider(width: usize, label: &str, style: &str, reset: &str) -> String {
-    if !label.is_empty() && width >= label.len() + 6 {
-        let lead = width - label.len() - 5;
+    let label_width = visible_width(label);
+    if !label.is_empty() && width >= label_width + 6 {
+        let lead = width - label_width - 5;
         format!("{style}{} {label} ───{reset}", "─".repeat(lead))
     } else {
         format!("{style}{}{reset}", "─".repeat(width))

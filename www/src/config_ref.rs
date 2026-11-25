@@ -440,6 +440,12 @@ pub const GROUPS: &[Group] = &[
                 "Show the version in the top divider.",
             ),
             s(
+                "ui.prompt.divider_label",
+                None,
+                None,
+                "Optional custom label in the top divider (overrides show_version), for example \"ϱ\".",
+            ),
+            s(
                 "ui.prompt.divider_style",
                 Some("thinking"),
                 None,
