@@ -562,7 +562,7 @@ full_bash_command = false
 # Automatically summarize the session into a 3-6 word title using models.smol after turn 1 (default: false)
 auto_title = false
 
-# Publish the session title (or working directory name) to the terminal/tmux titlebar via OSC 2 (default: false)
+# Publish the session title (or working directory name) to the terminal/tmux titlebar via OSC 0 (default: false)
 terminal_title = false
 
 # Prefix the terminal titlebar with live run state (idle/working/attention; default: false)

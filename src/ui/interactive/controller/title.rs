@@ -1,4 +1,4 @@
-//! Terminal and tmux titlebar publishing via OSC 2 (`\x1b]2;...\x07`).
+//! Terminal and tmux titlebar publishing via OSC 0 (`\x1b]0;...\x07`).
 //!
 //! Pushes the host shell's title on startup (`\x1b[22;2t`) and pops it on clean
 //! exit or abort (`\x1b[23;2t`), latching `disposed` beforehand so late async
@@ -67,9 +67,9 @@ pub fn format_terminal_title(label: Option<&str>, state: Option<TitleRunState>) 
     }
 }
 
-pub fn format_osc2_title(title: &str) -> String {
+pub fn format_osc0_title(title: &str) -> String {
     let clean = sanitize_title_part(title);
-    format!("\x1b]2;{clean}\x07")
+    format!("\x1b]0;{clean}\x07")
 }
 
 pub fn run_state_from_interactive(state: &InteractiveState, attention: bool) -> TitleRunState {
@@ -130,7 +130,7 @@ impl TerminalTitleController {
         if self.last_title.as_deref() == Some(title.as_str()) {
             return Ok(());
         }
-        backend.write_text(&format_osc2_title(&title))?;
+        backend.write_text(&format_osc0_title(&title))?;
         backend.flush()?;
         self.last_title = Some(title);
         Ok(())
@@ -236,23 +236,23 @@ mod tests {
 
         let mut title = TerminalTitleController::default();
         title.configure(&mut backend, true, true, &state).unwrap();
-        assert_eq!(backend.written, format!("{PUSH_TERMINAL_TITLE}\x1b]2;ρ · rho\x07"));
+        assert_eq!(backend.written, format!("{PUSH_TERMINAL_TITLE}\x1b]0;ρ · rho\x07"));
 
         // Identical state is deduplicated.
         let before = backend.written.len();
         title.sync(&mut backend, &state).unwrap();
         assert_eq!(backend.written.len(), before);
 
-        // Activity and session name changes emit updated OSC 2.
+        // Activity and session name changes emit updated OSC 0.
         state.footer_mut().activity = Activity::Working;
         state.footer_mut().session_name = Some("Auto title".to_string());
         title.sync(&mut backend, &state).unwrap();
-        assert!(backend.written.ends_with("\x1b]2;ρ ⋯ Auto title\x07"));
+        assert!(backend.written.ends_with("\x1b]0;ρ ⋯ Auto title\x07"));
 
         // Attention state takes precedence over working.
         title.set_attention(true);
         title.sync(&mut backend, &state).unwrap();
-        assert!(backend.written.ends_with("\x1b]2;ρ ! Auto title\x07"));
+        assert!(backend.written.ends_with("\x1b]0;ρ ! Auto title\x07"));
 
         // Dispose pops saved title and blocks late writes.
         title.dispose(&mut backend);
