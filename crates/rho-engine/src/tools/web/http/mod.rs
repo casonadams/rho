@@ -3,7 +3,7 @@ mod dns;
 #[cfg(test)]
 mod tests;
 
-use body::{ReadLimitedParams, read_limited};
+use body::{ReadLimitedParams, read_limited, read_limited_until};
 use dns::PublicDns;
 use reqwest::Client;
 use rho_harness_core::error::{AppError, Result};
@@ -19,6 +19,29 @@ pub struct HttpResponse<T> {
     pub body: T,
     pub content_type: String,
     pub final_url: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct HttpPostResponse {
+    pub status: reqwest::StatusCode,
+    pub content_type: String,
+    pub body: String,
+}
+
+pub struct PostJsonRequest<'a> {
+    pub url: &'a str,
+    pub body: &'a serde_json::Value,
+    pub headers: &'a [(&'a str, &'a str)],
+    pub timeout_sec: u64,
+    pub max_bytes: usize,
+}
+
+fn sanitize_url_for_error(url: &Url) -> String {
+    let mut sanitized = url.clone();
+    sanitized.set_query(None);
+    sanitized.set_fragment(None);
+    let _ = sanitized.set_password(None);
+    sanitized.to_string()
 }
 
 static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
@@ -155,6 +178,50 @@ impl HttpClient {
             body: bytes,
             content_type,
             final_url,
+        })
+    }
+
+    async fn send_post_json(&self, request: &PostJsonRequest<'_>) -> Result<reqwest::Response> {
+        let valid_url = self.validate_url(request.url)?;
+        let safe_url = sanitize_url_for_error(&valid_url);
+        let mut req = self
+            .client
+            .post(valid_url.as_str())
+            .header("User-Agent", DEFAULT_USER_AGENT)
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(request.timeout_sec))
+            .json(request.body);
+        for &(name, value) in request.headers {
+            req = req.header(name, value);
+        }
+        req.send().await.map_err(|e| {
+            let clean = e.without_url();
+            AppError::Tool(format!("HTTP POST request failed for {safe_url}: {clean}"))
+        })
+    }
+
+    pub async fn post_json(&self, request: PostJsonRequest<'_>) -> Result<HttpPostResponse> {
+        self.post_json_until(request, |_, _| false).await
+    }
+
+    pub async fn post_json_until<F>(&self, request: PostJsonRequest<'_>, mut stop_when: F) -> Result<HttpPostResponse>
+    where
+        F: FnMut(&str, &[u8]) -> bool,
+    {
+        let resp = self.send_post_json(&request).await?;
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let bytes = read_limited_until(resp, request.max_bytes, |buf| stop_when(&content_type, buf)).await?;
+        let body = String::from_utf8_lossy(&bytes).to_string();
+        Ok(HttpPostResponse {
+            status,
+            content_type,
+            body,
         })
     }
 }

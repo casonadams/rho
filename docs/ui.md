@@ -354,7 +354,7 @@ Submenus and child pickers maintain a true modal stack: selecting an option upda
 
 Inside `/settings`, selecting **Tools & Permissions** opens an interactive submenu to manage tool availability and search providers:
 
-- **Search Engine**: Displays the current primary search provider (e.g. `brave`, `duckduckgo`). Pressing `Enter` opens the **Select Search Engine** modal listing all supported engines (`brave`, `duckduckgo`, `yahoo`) with aligned descriptions, API key requirements, and active checkmarks (`✓`). Selecting an engine updates runtime state and persists to `[tools.web.search] default`.
+- **Search Engine**: Displays the current primary search provider (e.g. `brave`, `duckduckgo`, `exa`). Pressing `Enter` opens the **Select Search Engine** modal listing all supported engines (`brave`, `duckduckgo`, `yahoo`, `exa`) with aligned descriptions, API key requirements, and active checkmarks (`✓`). Selecting an engine updates runtime state and persists to `[tools.web.search] default`.
 - **Web Search**: Interactive `On` / `Off` toggle for the built-in `web_search` tool (`[tools.web.search] enabled`). When disabled, `web_search` is excluded from registration and model prompts.
 - **Web Fetch**: Interactive `On` / `Off` toggle for the built-in `web_fetch` tool (`[tools.web.fetch] enabled`).
 - **MCP**: Interactive `On` / `Off` toggle for the Model Context Protocol subsystem (`[mcp] enabled`).

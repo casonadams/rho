@@ -80,6 +80,9 @@ async fn dispatch_cli_run(
     if let Some(export_path) = cli.export.as_deref() {
         return session::export_session(export_path, resume_target, &config).await;
     }
+    if let Some(ref session_id) = resume_target {
+        session::restore_session_cwd(&config.sessions_dir, session_id);
+    }
     if cli.mode == "rpc" {
         return rpc::run_rpc_daemon(config, auth_store).await.map_err(Into::into);
     }

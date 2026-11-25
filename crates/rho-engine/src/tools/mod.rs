@@ -52,3 +52,29 @@ pub use web::{
 pub use workflow::{WorkflowRun, WorkflowRunner};
 pub use worktree_tool::WorktreeTool;
 pub use write::{WriteArgs, WriteTool};
+
+/// Shared, dynamically-relocatable workspace root for a session's tools.
+///
+/// Built-in tools for a session share one `WorkspaceDir` handle so that
+/// `worktree(action="create")` takes effect immediately on the very next tool
+/// call within the same turn. Subagents always receive their own independent
+/// `WorkspaceDir::new(...)` so relocating the parent never moves a running subagent.
+#[derive(Clone, Debug)]
+pub struct WorkspaceDir(std::sync::Arc<std::sync::RwLock<std::path::PathBuf>>);
+
+impl WorkspaceDir {
+    #[must_use]
+    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
+        Self(std::sync::Arc::new(std::sync::RwLock::new(path.into())))
+    }
+
+    #[must_use]
+    pub fn get(&self) -> std::path::PathBuf {
+        self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    pub fn set(&self, path: impl Into<std::path::PathBuf>) {
+        let mut guard = self.0.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = path.into();
+    }
+}

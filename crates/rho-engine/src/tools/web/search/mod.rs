@@ -1,6 +1,7 @@
 pub mod brave;
 pub mod ddg_lite;
 pub mod engine;
+pub mod exa;
 pub mod format;
 pub mod query;
 pub mod result;
@@ -37,6 +38,7 @@ pub struct WebSearchConfig {
     pub region: String,
     pub timeout_sec: u64,
     pub engines: Vec<EngineKind>,
+    pub auth_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone)]
@@ -89,20 +91,35 @@ impl WebSearchTool {
         limit: usize,
         domains: Option<&[String]>,
         recency: Option<WebSearchRecency>,
-    ) -> Vec<SearchResult> {
-        let effective_query = build_search_query_with_filters(query, domains);
-        self.search(SearchQueryParams {
-            query: &effective_query,
+    ) -> engine::MultiEngineOutcome {
+        engine::search_multi_engine_outcome(MultiEngineParams {
+            http: &self.http,
+            rate_limiter: &self.rate_limiter,
+            region: &self.config.region,
+            timeout_sec: self.config.timeout_sec,
+            query,
             limit,
             recency,
             domains,
+            engines: &self.config.engines,
+            auth_file: self.config.auth_file.as_deref(),
         })
         .await
     }
 
-    async fn handle_empty_search(&self, query: &str, today: &str, limit: usize, no_filters: bool) -> ToolResult {
+    async fn handle_empty_search(
+        &self,
+        query: &str,
+        today: &str,
+        limit: usize,
+        no_filters: bool,
+        last_error: Option<AppError>,
+    ) -> ToolResult {
         if no_filters && let Some(res) = self.try_relaxed_search(query, limit, today).await {
             return res;
+        }
+        if let Some(err) = last_error {
+            return ToolResult::error(err.to_string());
         }
         ToolResult::success(format!(
             "No search results found for: \"{query}\" (searched on {today})"
@@ -117,19 +134,21 @@ impl WebSearchTool {
 
         let limit = args.limit.unwrap_or(5).clamp(1, 20);
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let results = self
+        let outcome = self
             .perform_search(query, limit, args.domains.as_deref(), args.recency)
             .await;
 
-        if results.is_empty() {
+        if outcome.results.is_empty() {
             let no_filters = args.domains.is_none() && args.recency.is_none();
-            let res = self.handle_empty_search(query, &today, limit, no_filters).await;
+            let res = self
+                .handle_empty_search(query, &today, limit, no_filters, outcome.last_error)
+                .await;
             return Ok(res);
         }
 
         Ok(ToolResult::success(format_search_results(FormatResultsParams {
             query,
-            results: &results,
+            results: &outcome.results,
             limit,
             today: &today,
         })))
@@ -146,6 +165,7 @@ impl WebSearchTool {
             recency: params.recency,
             domains: params.domains,
             engines: &self.config.engines,
+            auth_file: self.config.auth_file.as_deref(),
         })
         .await
     }

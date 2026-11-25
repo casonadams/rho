@@ -20,7 +20,7 @@ use regex::Regex;
 pub const MAX_FD_DEPTH: usize = 10;
 
 pub struct FdTool {
-    base_dir: PathBuf,
+    base_dir: crate::tools::WorkspaceDir,
 }
 
 fn build_fd_regex(pattern: Option<&str>) -> std::result::Result<Option<Regex>, ToolResult> {
@@ -79,17 +79,23 @@ async fn validate_fd_params(
 impl FdTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
         }
     }
 
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
+    }
+
     pub async fn execute(&self, args: FdArgs) -> Result<ToolResult, AppError> {
-        let (regex, types, search_root) = match validate_fd_params(&self.base_dir, &args).await {
+        let base_dir = self.base_dir.get();
+        let (regex, types, search_root) = match validate_fd_params(&base_dir, &args).await {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
         let request = PageRequest::new(args.offset, args.limit);
-        let workspace = Workspace::new(&self.base_dir);
+        let workspace = Workspace::new(&base_dir);
         let mut query = build_fd_query(&workspace, args, (regex, types, search_root));
         run_blocking_search("fd", move |cancellation, timeout| {
             query.timeout = Some(timeout);

@@ -139,6 +139,7 @@ mod tests {
             "GITHUB_TOKEN",
             "client_secret",
             "BRAVE_API_KEY",
+            "EXA_API_KEY",
             "API_KEY",
             "MYSQL_PASSWORD",
             "GPG_PASSPHRASE",

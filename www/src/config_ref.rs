@@ -172,7 +172,7 @@ pub const GROUPS: &[Group] = &[
                 "tools.web.search.default",
                 Some("brave"),
                 None,
-                "Primary engine: brave, duckduckgo (ddg, ddg_lite) or yahoo. None need an API key.",
+                "Primary engine: brave, duckduckgo (ddg, ddg_lite), yahoo, or exa (EXA_API_KEY / /login exa-search, or keyless MCP).",
             ),
             s(
                 "tools.web.search.fallback",
