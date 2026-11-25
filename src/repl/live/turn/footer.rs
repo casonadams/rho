@@ -118,6 +118,11 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
         footer.quota = quota;
         changed = true;
     }
+    let session_name = engine.session_manager.cached_session_name();
+    if footer.session_name != session_name {
+        footer.session_name = session_name;
+        changed = true;
+    }
     changed |= sync_turn_git_footer(footer);
     if footer.session_id.as_deref() != Some(engine.session_manager.session_id.as_str()) {
         footer.session_id = Some(engine.session_manager.session_id.clone());

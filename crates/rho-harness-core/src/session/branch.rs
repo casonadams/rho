@@ -1,6 +1,6 @@
 use super::SessionManager;
 use super::format::{SessionRecord, append_durable_record};
-use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
+use super::tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 use crate::error::{AppError, Result};
 use crate::model::ChatMessage;
 use chrono::Utc;
@@ -65,21 +65,37 @@ impl SessionManager {
     }
 
     pub async fn set_session_name(&self, name: &str) -> Result<()> {
+        self.set_session_name_with_source(name, TitleSource::User).await?;
+        Ok(())
+    }
+
+    pub async fn set_auto_session_name(&self, name: &str) -> Result<bool> {
+        self.set_session_name_with_source(name, TitleSource::Auto).await
+    }
+
+    async fn set_session_name_with_source(&self, name: &str, source: TitleSource) -> Result<bool> {
         let mut state = self.state.lock().await;
-        state.tree.set_session_name(name.to_string());
+        if !state.tree.set_session_name_with_source(name.to_string(), source) {
+            return Ok(false);
+        }
         let record = SessionRecord::SessionNamed {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
             name: name.to_string(),
+            source,
         };
         append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
-        Ok(())
+        Ok(true)
     }
 
     pub fn cached_session_name(&self) -> Option<String> {
         self.state.try_lock().ok().and_then(|s| s.tree.session_name.clone())
+    }
+
+    pub fn cached_session_name_source(&self) -> Option<TitleSource> {
+        self.state.try_lock().ok().and_then(|s| s.tree.session_name_source)
     }
 
     pub async fn append_branch_summary(&self, summary: &str, source_leaf_id: &str) -> Result<()> {

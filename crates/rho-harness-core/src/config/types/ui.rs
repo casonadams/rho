@@ -45,6 +45,12 @@ pub struct UiConfig {
     pub syntax_highlight_tools: Option<bool>,
     #[serde(default, alias = "full_bash_commands")]
     pub full_bash_command: Option<bool>,
+    #[serde(default)]
+    pub auto_title: Option<bool>,
+    #[serde(default)]
+    pub terminal_title: Option<bool>,
+    #[serde(default)]
+    pub terminal_title_state: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<PromptUiConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -320,6 +326,18 @@ impl DisplayUiConfig {
 }
 
 impl UiConfig {
+    pub fn auto_title_enabled(&self) -> bool {
+        self.auto_title.unwrap_or(false)
+    }
+
+    pub fn terminal_title_enabled(&self) -> bool {
+        self.terminal_title.unwrap_or(false)
+    }
+
+    pub fn terminal_title_state_enabled(&self) -> bool {
+        self.terminal_title_state.unwrap_or(false)
+    }
+
     pub fn merge(&mut self, other: &UiConfig) {
         merge_opt(&mut self.block_style, &other.block_style);
         merge_opt(&mut self.user_border, &other.user_border);
@@ -333,6 +351,9 @@ impl UiConfig {
         merge_opt(&mut self.cursor, &other.cursor);
         merge_opt(&mut self.syntax_highlight_tools, &other.syntax_highlight_tools);
         merge_opt(&mut self.full_bash_command, &other.full_bash_command);
+        merge_opt(&mut self.auto_title, &other.auto_title);
+        merge_opt(&mut self.terminal_title, &other.terminal_title);
+        merge_opt(&mut self.terminal_title_state, &other.terminal_title_state);
         merge_nested(&mut self.prompt, &other.prompt, PromptUiConfig::merge);
         merge_nested(&mut self.status_bar, &other.status_bar, StatusBarConfig::merge);
         merge_nested(&mut self.display, &other.display, DisplayUiConfig::merge);

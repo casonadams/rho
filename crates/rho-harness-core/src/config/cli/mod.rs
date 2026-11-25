@@ -62,6 +62,10 @@ pub struct Cli {
     #[arg(short = 'n', long = "name")]
     pub name: Option<String>,
 
+    /// Disable automatic session title generation and terminal titlebar updates
+    #[arg(long = "no-title", env = "RHO_NO_TITLE", default_value_t = false)]
+    pub no_title: bool,
+
     /// Additional directory to load lifecycle hooks from (repeatable, additive)
     #[arg(long = "hook-dir", env = "RHO_HOOK_DIR", value_delimiter = PATH_LIST_SEPARATOR)]
     pub hook_dir: Vec<PathBuf>,
