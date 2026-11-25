@@ -1397,7 +1397,8 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
 }
 
 .mobile-nav-drawer {
-  display: none;
+  display: block;
+  visibility: hidden;
   background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-lg);
@@ -1408,6 +1409,7 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
 }
 
 .mobile-nav-drawer.open {
+  visibility: visible;
   max-height: 400px;
   opacity: 1;
 }
@@ -1440,7 +1442,7 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
 
 /* Mobile Docs TOC */
 .docs-mobile-toc-bar {
-  display: none;
+  display: block;
   background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
   padding: 0.6rem 0;
@@ -1471,7 +1473,8 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
 }
 
 .docs-mobile-toc-drawer {
-  display: none;
+  display: block;
+  visibility: hidden;
   background-color: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
   max-height: 0;
@@ -1485,6 +1488,7 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
 }
 
 .docs-mobile-toc-drawer.open {
+  visibility: visible;
   max-height: 60vh;
   opacity: 1;
   padding: 1rem 0;
@@ -1645,5 +1649,189 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
   .docs-content {
     padding: 1rem 0.25rem 4rem;
     max-width: 100%;
+  }
+}
+
+/* =========================================================================
+   Configuration Reference
+   ========================================================================= */
+[hidden] {
+  display: none !important;
+}
+
+.config-search {
+  position: sticky;
+  top: 64px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  padding: 0.5rem 0;
+  background-color: var(--bg-base);
+}
+
+.config-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.7rem 0.9rem;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.config-search-input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+}
+
+.config-search-count {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.config-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.config-overview {
+  margin: 1.5rem 0 2rem;
+}
+
+.config-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  margin: 1.25rem 0 2.5rem;
+}
+
+.config-item {
+  padding: 0.85rem 1rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.config-item p {
+  margin: 0.45rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.config-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+}
+
+.config-key {
+  font-weight: 700;
+  color: var(--accent-green);
+  overflow-wrap: anywhere;
+}
+
+.config-default, .config-meta {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.config-default {
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  background-color: var(--accent-blue-dim);
+  color: var(--accent-blue);
+}
+
+.config-default::before {
+  content: "default ";
+}
+
+.config-meta code {
+  overflow-wrap: anywhere;
+}
+
+/* =========================================================================
+   Mobile polish
+   ========================================================================= */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.docs-content code {
+  overflow-wrap: anywhere;
+}
+
+.docs-content img, .doc-screenshot {
+  max-width: 100%;
+  height: auto;
+}
+
+.docs-mobile-toc-drawer.open {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.footer {
+  padding-bottom: max(3rem, env(safe-area-inset-bottom));
+}
+
+@media (pointer: coarse) {
+  .btn-icon {
+    width: 44px;
+    height: 44px;
+  }
+  .mobile-nav-link {
+    min-height: 48px;
+  }
+  .docs-nav-item a {
+    min-height: 44px;
+  }
+  .docs-mobile-toc-toggle {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 1023px) {
+  h1[id], h2[id], h3[id], section[id] {
+    scroll-margin-top: 140px;
+  }
+  .config-search {
+    top: 124px;
+  }
+}
+
+@media (max-width: 479px) {
+  .btn-sm span {
+    display: none;
+  }
+  .docs-content h1 {
+    font-size: 1.65rem;
+  }
+  .docs-content h2 {
+    font-size: 1.3rem;
+  }
+  .code-block-wrapper pre {
+    font-size: 0.8rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .config-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .config-search {
+    top: 64px;
   }
 }
