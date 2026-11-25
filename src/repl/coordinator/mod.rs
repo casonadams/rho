@@ -1,3 +1,1 @@
-mod types;
-
-pub use types::SharedSteeringQueue;
+pub use crate::steering::SharedSteeringQueue;

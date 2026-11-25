@@ -8,7 +8,7 @@ pub mod types;
 pub use activity::{ActivityToken, activity_token};
 pub use presenter::Presenter;
 pub use stream::{ToolStreamPort, ToolStreamSink};
-pub use structured::{RecordingSink, StdoutNdjsonSink, StructuredOutputSink, StructuredPresenter};
+pub use structured::{RecordingSink, StructuredOutputSink, StructuredPresenter};
 pub use summary::summarize_tool_output;
 pub use types::{
     BlockDisplay, FileChange, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse,

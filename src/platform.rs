@@ -1,6 +1,8 @@
 //! Host platform assembly: loads built-in tools and configured MCP servers.
 
 pub mod clipboard;
+pub mod git;
+#[cfg(feature = "ui")]
 pub mod suspend;
 pub mod terminal_session;
 

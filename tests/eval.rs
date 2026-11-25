@@ -27,7 +27,11 @@ fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<Arc<dyn EngineTool>>> 
     rho_engine::tools::build_builtin_tools(dir, &config, None).ok()
 }
 
-use rho::presentation::StructuredPresenter;
+use rho::presentation::{RecordingSink, StructuredPresenter};
+
+fn quiet_presenter() -> Arc<StructuredPresenter> {
+    Arc::new(StructuredPresenter::recording(RecordingSink::new()))
+}
 
 #[tokio::test]
 async fn agent_eval_harness_reports_success() {
@@ -155,7 +159,7 @@ async fn agent_eval_core_finish_metadata_usage() {
     let engine = eval_engine(&dir, 2, model);
 
     let output = engine
-        .run_turn(TurnRequest::new("generate"), Arc::new(StructuredPresenter::stdout()))
+        .run_turn(TurnRequest::new("generate"), quiet_presenter())
         .await
         .unwrap();
     assert_eq!(
@@ -178,7 +182,7 @@ async fn agent_eval_core_budget_exhaustion() {
     let engine = eval_engine(&dir, 1, model.clone());
 
     let error = engine
-        .run_turn(TurnRequest::new("loop"), Arc::new(StructuredPresenter::stdout()))
+        .run_turn(TurnRequest::new("loop"), quiet_presenter())
         .await
         .unwrap_err();
     assert!(matches!(error, AppError::ModelBudgetExhausted { max_turns: 1 }));
@@ -193,7 +197,7 @@ fn text_occurrences(req: &rho_engine::provider::adapter::ModelCompletionRequest,
 }
 
 async fn run_follow_up_turns(engine: &rho::engine::AgentEngine) {
-    let presenter = Arc::new(StructuredPresenter::stdout());
+    let presenter = quiet_presenter();
     engine
         .run_turn(TurnRequest::new("one"), presenter.clone())
         .await
@@ -217,7 +221,7 @@ async fn run_resumed_session(dir: &Path, sid: &str) -> usize {
         },
     );
     resumed
-        .run_turn(TurnRequest::new("three"), Arc::new(StructuredPresenter::stdout()))
+        .run_turn(TurnRequest::new("three"), quiet_presenter())
         .await
         .unwrap();
     text_occurrences(&resumed_model.requests()[0], "one")
@@ -261,10 +265,7 @@ async fn agent_eval_session_clear_starts_fresh() {
         },
     );
     cleared
-        .run_turn(
-            TurnRequest::new("fresh prompt"),
-            Arc::new(StructuredPresenter::stdout()),
-        )
+        .run_turn(TurnRequest::new("fresh prompt"), quiet_presenter())
         .await
         .unwrap();
     let msgs = &cleared_model.requests()[0].messages;

@@ -7,12 +7,21 @@ use rho_harness_core::session::SessionManager;
 use rho_harness_core::session::export::{ExportFormat, write_export};
 use std::path::PathBuf;
 
+#[cfg(feature = "ui")]
 fn resolve_picker_target(config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let theme = crate::ui::theme::detect_with_config(&config.ui);
     Ok(crate::ui::interactive::session_picker::prompt_session_picker(
         &config.sessions_dir,
         &theme,
     )?)
+}
+
+#[cfg(not(feature = "ui"))]
+fn resolve_picker_target(_config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    Err(Box::new(AppError::Session(
+        "the session picker is unavailable in headless mode (compiled without 'ui' feature); pass --resume <id> or --continue"
+            .to_string(),
+    )))
 }
 
 fn resolve_continue_target(sessions_dir: &std::path::Path) -> Result<Option<String>, Box<dyn std::error::Error>> {

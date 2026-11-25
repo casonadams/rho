@@ -5,6 +5,7 @@ pub mod auth;
 mod commands;
 mod exit;
 pub mod mcp;
+pub mod ndjson;
 pub mod rpc;
 mod runner;
 pub mod self_update;

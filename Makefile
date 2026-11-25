@@ -55,6 +55,10 @@ fmt-check: ## Check formatting of Rust source files
 clippy: ## Run Clippy with warnings treated as errors
 	$(Q)$(CARGO) clippy --workspace --all-targets -- -D warnings
 
+.PHONY: headless
+headless: ## Lint the headless build (no ui feature) so RPC and print mode never depend on the terminal UI
+	$(Q)$(CARGO) clippy --lib --bins --no-default-features -- -D warnings
+
 .PHONY: clippy-fix
 clippy-fix: ## Automatically fix Clippy suggestions where possible
 	$(CARGO) clippy --workspace --all-targets --fix --allow-dirty --allow-staged

@@ -8,7 +8,7 @@ use rho_harness_core::session::tree::SessionTree;
 use super::{ModalKeyResult, apply_input_edit};
 
 pub fn open_tree_selector<B: TerminalBackend>(tree: &SessionTree, controller: &mut TerminalController<B>) {
-    let entries = crate::ui::interactive::tree_view::build_tree_display(tree);
+    let entries = crate::tree_display::build_tree_display(tree);
     let mut options = Vec::new();
     let mut initial_selection = 0;
 

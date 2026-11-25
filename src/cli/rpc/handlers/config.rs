@@ -24,7 +24,7 @@ pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
 
     let raw_msgs = eng.session_manager.load_messages().await.unwrap_or_default();
     let messages = extract_chat_messages(&raw_msgs);
-    let active_branch = crate::ui::interactive::footer::path::get_git_branch_async(eng.base_dir.clone()).await;
+    let active_branch = crate::platform::git::get_git_branch_async(eng.base_dir.clone()).await;
 
     let data = serde_json::json!({
         "session_id": eng.session_manager.session_id,
@@ -82,7 +82,7 @@ pub(crate) async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
         eng.base_dir.clone()
     };
     let active_workspace = Some(base_dir.display().to_string());
-    let active_branch = crate::ui::interactive::footer::path::get_git_branch_async(base_dir).await;
+    let active_branch = crate::platform::git::get_git_branch_async(base_dir).await;
     let status = if ctx.active_turn.is_some() { "busy" } else { "idle" };
     let payload = serde_json::json!({
         "hostname": hostname,

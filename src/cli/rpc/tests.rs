@@ -7,11 +7,11 @@ use super::handlers::config::{handle_config_update_cmd, handle_node_info_cmd, ha
 use super::handlers::session::{extract_chat_messages, handle_create_session_cmd, handle_get_tree_cmd};
 use super::handlers::turn::{handle_tool_response_cmd, parse_tool_decision};
 use super::handlers::{handle_node_session_auth_cmd, handle_resume_or_fork_cmd};
+use super::presenter::RpcPresenter;
 use super::types::RpcDaemonContext;
 use crate::auth::AuthStore;
 use crate::config::Config;
-use crate::repl::coordinator::SharedSteeringQueue;
-use crate::ui::render::RpcPresenter;
+use crate::steering::SharedSteeringQueue;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::types::InteractionResponse;
 use rho_harness_core::presentation::{InteractionOption, InteractionPrompt, OptionLayout};

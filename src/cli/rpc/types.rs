@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
+use super::presenter::PendingApprovals;
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::Result;
-use crate::repl::coordinator::SharedSteeringQueue;
-use crate::ui::render::rpc_presenter::PendingApprovals;
+use crate::steering::SharedSteeringQueue;
 use rho_engine::engine::runner::TurnOutput;
 use rho_harness_core::rpc::protocol::{RpcEvent, RpcRequest};
 use rho_harness_core::rpc::transport::JsonLinesWriter;

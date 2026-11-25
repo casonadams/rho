@@ -1,38 +1,17 @@
 //! Structured presentation output sinks and headless presenter.
 
-use super::types::{SessionStatus, ToolLine, UiEnvelope, UiEvent, WelcomeDisplay};
+use super::types::{SessionStatus, ToolLine, UiEvent, WelcomeDisplay};
 use crate::presentation::activity::{ActivityToken, activity_token};
 use crate::presentation::presenter::Presenter;
 use crate::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 /// A thread-safe sink for presentation events.
 pub trait StructuredOutputSink: Send + Sync {
     fn emit(&self, event: UiEvent);
     fn flush(&self);
-}
-
-/// Sink emitting line-delimited JSON envelopes directly to stdout.
-#[derive(Default)]
-pub struct StdoutNdjsonSink;
-
-impl StructuredOutputSink for StdoutNdjsonSink {
-    fn emit(&self, event: UiEvent) {
-        let envelope = UiEnvelope::new(event);
-        if let Ok(line) = serde_json::to_string(&envelope) {
-            let mut out = std::io::stdout().lock();
-            let _ = writeln!(out, "{line}");
-            let _ = out.flush();
-        }
-    }
-
-    fn flush(&self) {
-        let mut out = std::io::stdout().lock();
-        let _ = out.flush();
-    }
 }
 
 /// In-memory sink recording all observed events in chronological order.
@@ -73,10 +52,6 @@ pub struct StructuredPresenter {
 impl StructuredPresenter {
     pub fn new(sink: Arc<dyn StructuredOutputSink>) -> Self {
         Self { sink }
-    }
-
-    pub fn stdout() -> Self {
-        Self::new(Arc::new(StdoutNdjsonSink))
     }
 
     pub fn recording(sink: RecordingSink) -> Self {

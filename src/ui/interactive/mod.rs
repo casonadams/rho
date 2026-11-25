@@ -8,7 +8,6 @@ pub mod session_picker;
 mod shift_tab_tests;
 mod state;
 mod transcript;
-pub mod tree_view;
 
 #[cfg(test)]
 pub(crate) use controller::NullBackend;

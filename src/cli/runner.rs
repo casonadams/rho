@@ -47,7 +47,7 @@ fn default_terminal_presenter() -> Arc<dyn rho_harness_core::presentation::Prese
     }
     #[cfg(not(feature = "ui"))]
     {
-        Arc::new(rho_harness_core::presentation::StructuredPresenter::stdout())
+        Arc::new(super::ndjson::stdout_presenter())
     }
 }
 
@@ -69,7 +69,7 @@ impl CliRunner {
     pub async fn run_json_turn(self, prompt: &str) -> Result<(), Box<dyn std::error::Error>> {
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
         let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
-            Arc::new(crate::ui::render::RpcPresenter::new(event_tx));
+            Arc::new(crate::cli::rpc::RpcPresenter::new(event_tx));
         let writer_task = spawn_rpc_writer(event_rx);
 
         let engine = self.build_engine().await?;

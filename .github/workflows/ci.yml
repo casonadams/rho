@@ -44,6 +44,9 @@ jobs:
       - name: Run clippy
         run: make clippy
 
+      - name: Lint the headless build
+        run: make headless
+
       - name: Install cccc
         run: cargo install cccc-cli --locked
 

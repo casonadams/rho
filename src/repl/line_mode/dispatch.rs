@@ -12,7 +12,7 @@ pub enum DispatchOutcome {
 
 pub async fn show_tree(session: &ReplSession, engine: &AgentEngine) -> Result<()> {
     let tree = engine.session_manager.load_tree().await?;
-    let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
+    let rendered = crate::tree_display::render_tree_ascii(&tree);
     session.renderer.print_notice(&format!(
         "\nConversation Tree (Session: {}):\n{rendered}\n",
         engine.session_manager.session_id
@@ -271,18 +271,30 @@ pub(crate) async fn handle_auth_actions(
     }
 }
 
+/// Switches the engine to `new_model` and records it in the session config only if that worked;
+/// both the line and live frontends use this so a failure is reported, never swallowed.
+pub(crate) async fn switch_session_model(
+    new_model: &str,
+    new_provider: Option<&str>,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) {
+    let provider = new_provider.map_or_else(|| session.config.provider.clone(), str::to_string);
+    let result = engine.switch_model(new_model, &provider).await;
+    if result.is_ok() {
+        session.config.model = new_model.to_string();
+        session.config.provider = provider;
+    }
+    crate::repl::live::navigation::report_model_update(session, engine, result, "Could not switch model");
+}
+
 pub(crate) async fn handle_model_change(
     new_model: &str,
     new_provider: Option<&str>,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
 ) {
-    session.config.model = new_model.to_string();
-    if let Some(prov) = new_provider {
-        session.config.provider = prov.to_string();
-    }
-    let prov = new_provider.unwrap_or(&session.config.provider);
-    let _ = engine.switch_model(new_model, prov).await;
+    switch_session_model(new_model, new_provider, session, engine).await;
 }
 
 pub(crate) async fn handle_config_auth_result(

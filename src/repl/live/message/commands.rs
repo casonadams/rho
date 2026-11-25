@@ -59,13 +59,7 @@ pub(crate) async fn handle_model_changed(
     new_model: &str,
     new_provider: Option<&str>,
 ) {
-    ctx.session.config.model = new_model.to_string();
-    if let Some(provider) = new_provider {
-        ctx.session.config.provider = provider.to_string();
-    }
-    let provider = ctx.session.config.provider.clone();
-    let result = ctx.engine.switch_model(new_model, &provider).await;
-    crate::repl::live::navigation::report_model_update(ctx.session, ctx.engine, result, "Could not switch model");
+    crate::repl::line_mode::dispatch::switch_session_model(new_model, new_provider, ctx.session, ctx.engine).await;
 }
 
 pub(crate) async fn handle_compact<B: TerminalBackend>(
@@ -264,7 +258,7 @@ fn print_tree_view(
     session_id: &str,
     tree: &rho_harness_core::session::tree::SessionTree,
 ) {
-    let rendered = crate::ui::interactive::tree_view::render_tree_ascii(tree);
+    let rendered = crate::tree_display::render_tree_ascii(tree);
     session
         .renderer
         .print_notice(&format!("\nConversation Tree (Session: {session_id}):\n{rendered}\n"));

@@ -23,7 +23,7 @@ pub(crate) async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<()> {
     let eng = ctx.engine.read().await;
     let result = eng.session_manager.load_tree().await.map(|tree| {
-        let entries = crate::ui::interactive::tree_view::build_tree_display(&tree);
+        let entries = crate::tree_display::build_tree_display(&tree);
         Some(serde_json::json!({
             "active_leaf_id": tree.active_leaf_id,
             "session_name": tree.session_name,
@@ -111,7 +111,7 @@ async fn build_engine_session_payload(
 ) -> serde_json::Value {
     let totals = eng.session_usage_totals();
     let base_dir = eng.base_dir.display().to_string();
-    let active_branch = crate::ui::interactive::footer::path::get_git_branch_async(eng.base_dir.clone()).await;
+    let active_branch = crate::platform::git::get_git_branch_async(eng.base_dir.clone()).await;
     let mut payload = serde_json::json!({
         "session_id": eng.session_manager.session_id,
         "workspace": base_dir,

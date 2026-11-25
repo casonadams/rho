@@ -1,5 +1,6 @@
 mod handlers;
 mod loop_runner;
+mod presenter;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -11,9 +12,9 @@ use tokio::sync::{RwLock, mpsc};
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::Result;
-use crate::repl::coordinator::SharedSteeringQueue;
-use crate::ui::render::RpcPresenter;
+use crate::steering::SharedSteeringQueue;
 use loop_runner::run_rpc_loop;
+pub(crate) use presenter::RpcPresenter;
 use rho_harness_core::rpc::protocol::RpcEvent;
 use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
 use types::RpcDaemonContext;

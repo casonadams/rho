@@ -22,6 +22,8 @@ pub use rho_harness_core::{
     args, config, error, net, presentation, provider, queue, session, skills, tokens, workspace,
 };
 pub mod platform;
+pub mod steering;
+pub mod tree_display;
 
 #[cfg(feature = "ui")]
 pub mod repl;

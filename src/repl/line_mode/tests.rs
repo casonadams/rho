@@ -170,6 +170,31 @@ async fn test_handle_session_branching_result_arms() {
 }
 
 #[tokio::test]
+async fn a_failed_model_switch_changes_neither_the_session_nor_the_engine() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let before = (session.config.model.clone(), session.config.provider.clone());
+    assert_eq!(before, (engine.config.model.clone(), engine.config.provider.clone()));
+
+    handle_model_change("some-model", Some("no-such-provider"), &mut session, &mut engine).await;
+
+    assert_eq!((session.config.model.clone(), session.config.provider.clone()), before);
+    assert_eq!((engine.config.model.clone(), engine.config.provider.clone()), before);
+}
+
+#[tokio::test]
+async fn a_successful_model_switch_updates_the_session_and_the_engine_together() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+
+    handle_model_change("new-model", Some("ollama"), &mut session, &mut engine).await;
+
+    assert_eq!(session.config.model, "new-model");
+    assert_eq!(engine.config.model, "new-model");
+    assert_eq!(session.config.provider, "ollama");
+}
+
+#[tokio::test]
 async fn test_handle_auth_and_config_results() {
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_test_session(temp.path()).await;

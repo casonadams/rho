@@ -17,7 +17,6 @@ pub(crate) mod notices;
 pub(crate) mod output_highlight;
 pub(crate) mod presenter;
 pub(crate) mod renderer;
-pub mod rpc_presenter;
 pub(crate) mod thinking;
 pub mod turn_stats;
 
@@ -32,7 +31,6 @@ pub use card::{
 pub use renderer::{NoticeKind, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
-pub use rpc_presenter::{PendingApprovals, RpcPresenter};
 pub(crate) use thinking::format_thinking_block;
 
 /// Formats a tool duration given in milliseconds.

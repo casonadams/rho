@@ -11,10 +11,17 @@ impl AgentEngine {
         self.router.build(config, &config.route()).await
     }
 
+    /// On failure the engine keeps its previous model and provider, so its config never names a
+    /// model that its handle is not using.
     pub async fn switch_model(&mut self, model: &str, provider: &str) -> Result<()> {
+        let previous = (self.config.model.clone(), self.config.provider.clone());
         self.config.model = model.to_string();
         self.config.provider = provider.to_string();
-        self.update_model().await
+        let result = self.update_model().await;
+        if result.is_err() {
+            (self.config.model, self.config.provider) = previous;
+        }
+        result
     }
 
     pub async fn update_model(&mut self) -> Result<()> {
@@ -174,6 +181,26 @@ mod tests {
 
     fn window(catalog: &ModelCatalog) -> Option<usize> {
         catalog.context_tokens("local", MODEL)
+    }
+
+    #[tokio::test]
+    async fn a_failed_switch_leaves_the_engine_on_its_previous_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = crate::engine::eval::mock::mock_engine(
+            std::sync::Arc::new(MockAdapter::text("unused")),
+            crate::engine::eval::mock::MockEngineConfig {
+                base_dir: dir.path(),
+                app_config: Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let before = (engine.config.model.clone(), engine.config.provider.clone());
+
+        let result = engine.switch_model("some-model", "no-such-provider").await;
+
+        assert!(result.is_err());
+        assert_eq!((engine.config.model.clone(), engine.config.provider.clone()), before);
     }
 
     #[tokio::test]
