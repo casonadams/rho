@@ -46,15 +46,15 @@ pub fn login_choices(config: &Config, auth_store: &AuthStore) -> Vec<LoginChoice
     let custom = config
         .providers
         .keys()
-        .filter(|name| ProviderId::from_str(name).is_err())
+        .filter(|name| ProviderId::from_str(name).is_err() && name.as_str() != "exa-search")
         .map(|name| LoginChoice {
             name: name.clone(),
             description: "Configured provider (API key)".to_string(),
             signed_in: signed_in(name),
         });
-    let exa_signed_in = signed_in("exa") || std::env::var("EXA_API_KEY").is_ok_and(|v| !v.trim().is_empty());
+    let exa_signed_in = signed_in("exa-search") || std::env::var("EXA_API_KEY").is_ok_and(|v| !v.trim().is_empty());
     let search_tools = [LoginChoice {
-        name: "exa".to_string(),
+        name: "exa-search".to_string(),
         description: "Exa Web Search (API key)".to_string(),
         signed_in: exa_signed_in,
     }];

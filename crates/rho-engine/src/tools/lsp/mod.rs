@@ -228,7 +228,14 @@ impl LspTool {
             .query
             .as_deref()
             .ok_or("symbols needs path (file outline) or query (workspace search)")?;
-        let clients = self.manager.workspace_clients().await;
+        let base_dir = self.base_dir.get();
+        let clients: Vec<_> = self
+            .manager
+            .workspace_clients()
+            .await
+            .into_iter()
+            .filter(|client| client.root.starts_with(&base_dir) || base_dir.starts_with(&client.root))
+            .collect();
         if clients.is_empty() {
             return Err("no language server is running for this workspace; pass path to start one".into());
         }
@@ -246,7 +253,6 @@ impl LspTool {
                 Err(error) => failures.push(format!("{}: {error}", client.name)),
             }
         }
-        let base_dir = self.base_dir.get();
         let mut out = render::format_workspace_symbols(&base_dir, &Value::Array(merged));
         if !failures.is_empty() {
             out.push_str(&format!("\n[symbol search failed: {}]", failures.join("; ")));

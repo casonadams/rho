@@ -55,16 +55,13 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
         let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree);
     }
     crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
-    if let Some(missing) = missing_workspace {
-        ctx.session.renderer.print_status(&format!(
-            "Resumed session {session_id} (previous workspace {} no longer exists)",
-            missing.display()
-        ));
-    } else {
-        ctx.session
-            .renderer
-            .print_status(&format!("Resumed session {session_id}"));
-    }
+    let suffix = missing_workspace
+        .as_ref()
+        .map(|p| format!(" (previous workspace {} no longer exists)", p.display()))
+        .unwrap_or_default();
+    ctx.session
+        .renderer
+        .print_status(&format!("Resumed session {session_id}{suffix}"));
     Ok(())
 }
 

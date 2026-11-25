@@ -3,7 +3,7 @@ mod dns;
 #[cfg(test)]
 mod tests;
 
-use body::{ReadLimitedParams, read_limited};
+use body::{ReadLimitedParams, read_limited, read_limited_until};
 use dns::PublicDns;
 use reqwest::Client;
 use rho_harness_core::error::{AppError, Result};
@@ -181,7 +181,7 @@ impl HttpClient {
         })
     }
 
-    pub async fn post_json(&self, request: PostJsonRequest<'_>) -> Result<HttpPostResponse> {
+    async fn send_post_json(&self, request: &PostJsonRequest<'_>) -> Result<reqwest::Response> {
         let valid_url = self.validate_url(request.url)?;
         let safe_url = sanitize_url_for_error(&valid_url);
         let mut req = self
@@ -194,10 +194,21 @@ impl HttpClient {
         for &(name, value) in request.headers {
             req = req.header(name, value);
         }
-        let resp = req.send().await.map_err(|e| {
+        req.send().await.map_err(|e| {
             let clean = e.without_url();
             AppError::Tool(format!("HTTP POST request failed for {safe_url}: {clean}"))
-        })?;
+        })
+    }
+
+    pub async fn post_json(&self, request: PostJsonRequest<'_>) -> Result<HttpPostResponse> {
+        self.post_json_until(request, |_, _| false).await
+    }
+
+    pub async fn post_json_until<F>(&self, request: PostJsonRequest<'_>, mut stop_when: F) -> Result<HttpPostResponse>
+    where
+        F: FnMut(&str, &[u8]) -> bool,
+    {
+        let resp = self.send_post_json(&request).await?;
         let status = resp.status();
         let content_type = resp
             .headers()
@@ -205,13 +216,7 @@ impl HttpClient {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_string();
-        let bytes = read_limited(ReadLimitedParams {
-            response: resp,
-            content_type: &content_type,
-            max_bytes: request.max_bytes,
-            pdf_max_bytes: None,
-        })
-        .await?;
+        let bytes = read_limited_until(resp, request.max_bytes, |buf| stop_when(&content_type, buf)).await?;
         let body = String::from_utf8_lossy(&bytes).to_string();
         Ok(HttpPostResponse {
             status,

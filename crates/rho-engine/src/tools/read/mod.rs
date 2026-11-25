@@ -17,7 +17,7 @@ use std::sync::Arc;
 pub struct ReadTool {
     pub base_dir: crate::tools::WorkspaceDir,
     pub artifact_dir: Option<PathBuf>,
-    custom_artifact_dir: bool,
+    initial_default_artifact_dir: PathBuf,
     pub lsp: Option<Arc<LspManager>>,
 }
 
@@ -85,8 +85,8 @@ impl ReadTool {
         let artifact_dir = default_artifact_dir(&base);
         Self {
             base_dir: crate::tools::WorkspaceDir::new(base),
-            artifact_dir: Some(artifact_dir),
-            custom_artifact_dir: false,
+            artifact_dir: Some(artifact_dir.clone()),
+            initial_default_artifact_dir: artifact_dir,
             lsp: None,
         }
     }
@@ -103,15 +103,13 @@ impl ReadTool {
 
     pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
         self.artifact_dir = artifact_dir;
-        self.custom_artifact_dir = true;
         self
     }
 
     fn effective_artifact_dir(&self, base_dir: &Path) -> Option<PathBuf> {
-        if self.custom_artifact_dir {
-            self.artifact_dir.clone()
-        } else {
-            Some(default_artifact_dir(base_dir))
+        match &self.artifact_dir {
+            Some(dir) if *dir == self.initial_default_artifact_dir => Some(default_artifact_dir(base_dir)),
+            other => other.clone(),
         }
     }
 

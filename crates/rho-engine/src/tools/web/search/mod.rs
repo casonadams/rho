@@ -115,11 +115,11 @@ impl WebSearchTool {
         no_filters: bool,
         last_error: Option<AppError>,
     ) -> ToolResult {
-        if let Some(err) = last_error {
-            return ToolResult::error(err.to_string());
-        }
         if no_filters && let Some(res) = self.try_relaxed_search(query, limit, today).await {
             return res;
+        }
+        if let Some(err) = last_error {
+            return ToolResult::error(err.to_string());
         }
         ToolResult::success(format!(
             "No search results found for: \"{query}\" (searched on {today})"

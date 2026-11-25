@@ -14,6 +14,8 @@ use rho_harness_core::error::AppError;
 
 const EXA_API_URL: &str = "https://api.exa.ai/search";
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_exa";
+const EXA_MCP_ADVANCED_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_advanced_exa";
+pub const EXA_AUTH_PROVIDER: &str = "exa-search";
 const EXA_MCP_SOURCE: &str = "rho";
 const EXA_MCP_REQUEST_ID: &str = "1";
 const MAX_EXA_SNIPPET_CHARS: usize = 500;
@@ -35,17 +37,20 @@ struct ExaRawResult {
 }
 
 pub async fn resolve_exa_api_key(auth_file: Option<&Path>) -> Option<String> {
-    let mut store = match auth_file {
-        Some(path) => AuthStore::load_async(path).await.unwrap_or_default(),
-        None => AuthStore::default(),
-    };
-    store
-        .get_key("exa")
-        .await
-        .ok()
-        .flatten()
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
+    resolve_exa_api_key_with_env(auth_file, std::env::var("EXA_API_KEY").ok()).await
+}
+
+async fn resolve_exa_api_key_with_env(auth_file: Option<&Path>, env_fallback: Option<String>) -> Option<String> {
+    if let Some(path) = auth_file {
+        let mut store = AuthStore::load_async(path).await.unwrap_or_default();
+        if let Ok(Some(key)) = store.get_key(EXA_AUTH_PROVIDER).await {
+            let trimmed = key.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    env_fallback.map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
 }
 
 pub fn recency_to_start_published_date(recency: WebSearchRecency, now: DateTime<Utc>) -> String {
@@ -81,29 +86,40 @@ pub fn build_exa_api_body(req: &EngineRequest<'_>, now: DateTime<Utc>) -> Value 
     Value::Object(body)
 }
 
+fn has_native_filters(req: &EngineRequest<'_>) -> bool {
+    !req.allowed_domains.is_empty() || !req.blocked_domains.is_empty() || req.recency.is_some()
+}
+
 pub fn build_exa_mcp_body(req: &EngineRequest<'_>, request_id: &str, now: DateTime<Utc>) -> Value {
-    let mut parts = vec![req.query.to_string()];
-    for domain in req.allowed_domains {
-        parts.push(format!("site:{domain}"));
-    }
-    for domain in req.blocked_domains {
-        parts.push(format!("-site:{domain}"));
-    }
-    if let Some(recency) = req.recency {
-        let start_date = recency_to_start_published_date(recency, now);
-        parts.push(format!("after:{start_date}"));
-    }
+    let mut arguments = Map::new();
+    arguments.insert("query".into(), json!(req.query));
+    arguments.insert("numResults".into(), json!(req.limit.clamp(1, 20)));
+
+    let tool_name = if has_native_filters(req) {
+        if !req.allowed_domains.is_empty() {
+            arguments.insert("includeDomains".into(), json!(req.allowed_domains));
+        }
+        if !req.blocked_domains.is_empty() {
+            arguments.insert("excludeDomains".into(), json!(req.blocked_domains));
+        }
+        if let Some(recency) = req.recency {
+            arguments.insert(
+                "startPublishedDate".into(),
+                json!(recency_to_start_published_date(recency, now)),
+            );
+        }
+        "web_search_advanced_exa"
+    } else {
+        "web_search_exa"
+    };
 
     json!({
         "jsonrpc": "2.0",
         "id": request_id,
         "method": "tools/call",
         "params": {
-            "name": "web_search_exa",
-            "arguments": {
-                "query": parts.join(" "),
-                "numResults": req.limit.clamp(1, 20),
-            }
+            "name": tool_name,
+            "arguments": Value::Object(arguments),
         }
     })
 }
@@ -112,7 +128,12 @@ pub async fn search_exa(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, Ap
     if let Some(api_key) = resolve_exa_api_key(req.auth_file).await {
         search_exa_api(req, &api_key, EXA_API_URL).await
     } else {
-        search_exa_mcp(req, EXA_MCP_URL).await
+        let endpoint = if has_native_filters(req) {
+            EXA_MCP_ADVANCED_URL
+        } else {
+            EXA_MCP_URL
+        };
+        search_exa_mcp(req, endpoint).await
     }
 }
 
@@ -146,21 +167,27 @@ async fn search_exa_mcp(req: &EngineRequest<'_>, endpoint: &str) -> Result<Vec<S
     let body = build_exa_mcp_body(req, EXA_MCP_REQUEST_ID, Utc::now());
     let resp = req
         .http
-        .post_json(PostJsonRequest {
-            url: endpoint,
-            body: &body,
-            headers: &[
-                ("Accept", "application/json, text/event-stream"),
-                ("x-exa-source", EXA_MCP_SOURCE),
-            ],
-            timeout_sec: req.timeout_sec,
-            max_bytes: MAX_EXA_RESPONSE_BYTES,
-        })
+        .post_json_until(
+            PostJsonRequest {
+                url: endpoint,
+                body: &body,
+                headers: &[
+                    ("Accept", "application/json, text/event-stream"),
+                    ("x-exa-source", EXA_MCP_SOURCE),
+                ],
+                timeout_sec: req.timeout_sec,
+                max_bytes: MAX_EXA_RESPONSE_BYTES,
+            },
+            |content_type, buf| {
+                let text = String::from_utf8_lossy(buf);
+                is_sse_payload(content_type, &text) && parse_sse_jsonrpc(&text, EXA_MCP_REQUEST_ID).is_ok()
+            },
+        )
         .await?;
 
     if resp.status == StatusCode::TOO_MANY_REQUESTS {
         return Err(AppError::Tool(
-            "Exa MCP rate limit reached (429). Configure EXA_API_KEY or run `/login exa` for higher limits."
+            "Exa MCP rate limit reached (429). Configure EXA_API_KEY or run `/login exa-search` for higher limits."
                 .to_string(),
         ));
     }
@@ -260,11 +287,22 @@ fn is_sse_payload(content_type: &str, body: &str) -> bool {
     trimmed.starts_with("event:") || trimmed.starts_with("data:")
 }
 
+fn is_matching_jsonrpc_response(msg: &Value, request_id: &str) -> bool {
+    matches_request_id(msg, request_id) && (msg.get("result").is_some() || msg.get("error").is_some())
+}
+
 fn extract_jsonrpc_message(content_type: &str, body: &str, request_id: &str) -> Result<Value, AppError> {
     if is_sse_payload(content_type, body) {
         parse_sse_jsonrpc(body, request_id)
     } else {
-        serde_json::from_str(body).map_err(|e| AppError::Tool(format!("Failed to parse Exa MCP JSON response: {e}")))
+        let parsed: Value = serde_json::from_str(body)
+            .map_err(|e| AppError::Tool(format!("Failed to parse Exa MCP JSON response: {e}")))?;
+        if !is_matching_jsonrpc_response(&parsed, request_id) {
+            return Err(AppError::Tool(
+                "Exa MCP JSON response did not match request ID".to_string(),
+            ));
+        }
+        Ok(parsed)
     }
 }
 
@@ -293,7 +331,6 @@ fn matches_request_id(msg: &Value, request_id: &str) -> bool {
 
 fn parse_sse_jsonrpc(body: &str, request_id: &str) -> Result<Value, AppError> {
     let normalized = body.replace("\r\n", "\n");
-    let mut fallback: Option<Value> = None;
 
     for block in normalized.split("\n\n") {
         let Some(data) = extract_sse_block_data(block) else {
@@ -302,15 +339,14 @@ fn parse_sse_jsonrpc(body: &str, request_id: &str) -> Result<Value, AppError> {
         let Ok(parsed) = serde_json::from_str::<Value>(&data) else {
             continue;
         };
-        if matches_request_id(&parsed, request_id) {
+        if is_matching_jsonrpc_response(&parsed, request_id) {
             return Ok(parsed);
-        }
-        if parsed.get("result").is_some() || parsed.get("error").is_some() {
-            fallback = Some(parsed);
         }
     }
 
-    fallback.ok_or_else(|| AppError::Tool("Exa MCP SSE response contained no JSON-RPC message".to_string()))
+    Err(AppError::Tool(
+        "Exa MCP SSE response contained no matching JSON-RPC response".to_string(),
+    ))
 }
 
 fn extract_mcp_error_text(result: &Value) -> String {
@@ -396,6 +432,7 @@ fn is_section_boundary(lines: &[&str], idx: usize) -> bool {
     next.starts_with("URL:")
         || next.starts_with("Author:")
         || next.starts_with("Published Date:")
+        || next.starts_with("Highlights:")
         || next.starts_with("Text:")
 }
 
@@ -437,7 +474,7 @@ fn parse_text_section(section: &str) -> Option<ExaRawResult> {
             title = Some(rest.trim().to_string());
         } else if let Some(rest) = line.strip_prefix("URL:") {
             url = Some(rest.trim().to_string());
-        } else if let Some(rest) = line.strip_prefix("Text:") {
+        } else if let Some(rest) = line.strip_prefix("Highlights:").or_else(|| line.strip_prefix("Text:")) {
             in_text = true;
             if !rest.trim().is_empty() {
                 text_lines.push(rest.trim());
@@ -473,6 +510,9 @@ fn parse_mcp_text_blocks(result: &Value) -> Option<Vec<SearchResult>> {
         .collect();
 
     if raw.is_empty() {
+        if combined.to_ascii_lowercase().contains("no search results found") {
+            return Some(Vec::new());
+        }
         return None;
     }
     Some(convert_raw_results(raw))
@@ -486,6 +526,39 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
+    async fn read_full_http_request(socket: &mut tokio::net::TcpStream) -> String {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let header_end = loop {
+            let n = socket.read(&mut chunk).await.unwrap();
+            if n == 0 {
+                return String::from_utf8_lossy(&buf).to_string();
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&buf[..header_end]);
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, val) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| val.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+        while buf.len() < header_end + content_length {
+            let n = socket.read(&mut chunk).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
     async fn spawn_mock_http_server(
         status: &'static str,
         content_type: &'static str,
@@ -497,9 +570,7 @@ mod tests {
 
         tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
-            let mut buf = vec![0u8; 16 * 1024];
-            let n = socket.read(&mut buf).await.unwrap();
-            let raw_req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let raw_req = read_full_http_request(&mut socket).await;
             let _ = tx.send(raw_req);
 
             let resp = format!(
@@ -718,28 +789,81 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("429"), "{msg}");
         assert!(msg.contains("EXA_API_KEY"), "{msg}");
-        assert!(msg.contains("/login exa"), "{msg}");
+        assert!(msg.contains("/login exa-search"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn mcp_fallback_parses_highlights_and_no_results_and_validates_id() {
+        let highlights_block = concat!(
+            "Title: Highlighted Article\n",
+            "URL: https://example.com/hl\n",
+            "Highlights: Key excerpt from highlights.\n",
+            "More highlight context."
+        );
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": {
+                "content": [{ "type": "text", "text": highlights_block }]
+            }
+        })
+        .to_string();
+        let results =
+            parse_mcp_response("text/event-stream", &format!("event: message\ndata: {msg}\n\n"), "1").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Highlighted Article");
+        assert!(results[0].abstract_text.contains("Key excerpt from highlights."));
+
+        let empty_msg = json!({
+            "jsonrpc": "2.0",
+            "id": "1",
+            "result": {
+                "content": [{ "type": "text", "text": "No search results found. Please try a different query." }]
+            }
+        })
+        .to_string();
+        let empty = parse_mcp_response("application/json", &empty_msg, "1").unwrap();
+        assert!(empty.is_empty());
+
+        let wrong_id = json!({
+            "jsonrpc": "2.0",
+            "id": "999",
+            "result": {
+                "content": [{ "type": "text", "text": highlights_block }]
+            }
+        })
+        .to_string();
+        assert!(parse_mcp_response("application/json", &wrong_id, "1").is_err());
+        assert!(parse_mcp_response("text/event-stream", &format!("data: {wrong_id}\n\n"), "1").is_err());
+    }
+
+    #[test]
+    fn build_exa_mcp_body_uses_advanced_tool_for_native_filters() {
+        let http = HttpClient::new(true).unwrap();
+        let allowed = vec!["rust-lang.org".to_string()];
+        let blocked = vec!["spam.example".to_string()];
+        let req = test_request(&http, "async", 5, Some(WebSearchRecency::Day), &allowed, &blocked);
+        let now = Utc.with_ymd_and_hms(2026, 11, 24, 12, 0, 0).unwrap();
+        let body = build_exa_mcp_body(&req, "1", now);
+        assert_eq!(body["params"]["name"], "web_search_advanced_exa");
+        assert_eq!(body["params"]["arguments"]["includeDomains"], json!(["rust-lang.org"]));
+        assert_eq!(body["params"]["arguments"]["excludeDomains"], json!(["spam.example"]));
+        assert_eq!(
+            body["params"]["arguments"]["startPublishedDate"],
+            "2026-11-23T12:00:00Z"
+        );
     }
 
     #[tokio::test]
     async fn resolve_exa_api_key_prefers_auth_store_and_falls_back_to_env() {
-        let prev = std::env::var_os("EXA_API_KEY");
-        // SAFETY: only this test mutates EXA_API_KEY in the test binary.
-        unsafe { std::env::set_var("EXA_API_KEY", "exa-env-key-456") };
-
         let dir = rho_test_support::TestDir::new();
         let auth_path = dir.join("auth.json");
-        let empty_resolved = resolve_exa_api_key(Some(&auth_path)).await;
+        let empty_resolved = resolve_exa_api_key_with_env(Some(&auth_path), Some("exa-env-key-456".to_string())).await;
         assert_eq!(empty_resolved.as_deref(), Some("exa-env-key-456"));
 
         let mut store = AuthStore::load(&auth_path).unwrap();
-        store.set_key("exa", "exa-stored-key-123").unwrap();
-        let stored_resolved = resolve_exa_api_key(Some(&auth_path)).await;
+        store.set_key(EXA_AUTH_PROVIDER, "exa-stored-key-123").unwrap();
+        let stored_resolved = resolve_exa_api_key_with_env(Some(&auth_path), Some("exa-env-key-456".to_string())).await;
         assert_eq!(stored_resolved.as_deref(), Some("exa-stored-key-123"));
-
-        match prev {
-            Some(val) => unsafe { std::env::set_var("EXA_API_KEY", val) },
-            None => unsafe { std::env::remove_var("EXA_API_KEY") },
-        }
     }
 }

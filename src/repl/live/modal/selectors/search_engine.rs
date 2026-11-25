@@ -9,7 +9,10 @@ const ENGINE_DEFS: &[(&str, &str)] = &[
     ("brave", "Brave Search (Free scraper, no API key)"),
     ("duckduckgo", "DuckDuckGo Lite (Free scraper, no API key)"),
     ("yahoo", "Yahoo Search (Free scraper, no API key)"),
-    ("exa", "Exa Neural Search (EXA_API_KEY / /login exa, or keyless MCP)"),
+    (
+        "exa",
+        "Exa Neural Search (EXA_API_KEY / /login exa-search, or keyless MCP)",
+    ),
 ];
 
 fn format_engine_option(id: &str, desc: &str, active_engine: &str) -> ModalOption {

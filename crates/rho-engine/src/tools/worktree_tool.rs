@@ -45,16 +45,20 @@ impl WorktreeTool {
         self.relocate_slot = relocate_slot;
         self
     }
-    async fn find(&self, id: Option<&str>) -> Result<Worktree, String> {
+    async fn find_in(&self, root: &std::path::Path, id: Option<&str>) -> Result<Worktree, String> {
         let id = id
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .ok_or("this action needs an `id`")?;
-        let root = self.root.get();
         self.store
-            .find(&root, id)
+            .find(root, id)
             .await
             .ok_or_else(|| format!("no worktree '{id}'; it may already be merged or discarded (see action list)"))
+    }
+
+    async fn find(&self, id: Option<&str>) -> Result<Worktree, String> {
+        let root = self.root.get();
+        self.find_in(&root, id).await
     }
 
     async fn list(&self) -> Result<String, String> {
@@ -83,10 +87,10 @@ impl WorktreeTool {
             WorktreeAction::List => self.list().await,
             WorktreeAction::Diff => self.find(id).await?.diff().await,
             WorktreeAction::Merge => {
-                let worktree = self.find(id).await?;
+                let root = self.root.get();
+                let worktree = self.find_in(&root, id).await?;
                 let head = worktree.commit().await?;
                 let review = worktree.review_head(&head).await?;
-                let root = self.root.get();
                 let outcome = worktree.merge_head_into(&head, &root).await?;
                 Ok(format!(
                     "{} Worktree `{}` was removed. Review the merged files and re-run your checks.\n\n{}",
@@ -114,12 +118,13 @@ impl WorktreeTool {
                 let root = self.root.get();
                 let created =
                     crate::worktree::create_session_worktree(&root, &base, &branch, self.clean_source).await?;
-                self.root.set(created.path.clone());
-                if let Some(slot) = &self.relocate_slot
-                    && let Ok(mut guard) = slot.lock()
-                {
+                if let Some(slot) = &self.relocate_slot {
+                    let mut guard = slot
+                        .lock()
+                        .map_err(|_| "failed to queue session relocation: relocation lock poisoned".to_string())?;
                     *guard = Some(created.path.clone());
                 }
+                self.root.set(created.path.clone());
                 Ok(created.summary())
             }
         }
