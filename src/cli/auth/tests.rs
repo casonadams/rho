@@ -40,6 +40,7 @@ fn login_choices_offer_every_builtin_login_then_custom_providers() {
         .map(ProviderId::as_str)
         .collect();
     expected.push("custom-llm");
+    expected.push("exa-search");
     assert_eq!(names, expected);
 
     let choice = |name: &str| choices.iter().find(|c| c.name == name).unwrap();
@@ -47,6 +48,11 @@ fn login_choices_offer_every_builtin_login_then_custom_providers() {
     assert!(choice("ollama-cloud").description.ends_with("(API key)"));
     assert!(choice("openrouter").description.ends_with("(OAuth or API key)"));
     assert!(!choice("custom-llm").signed_in);
+    assert_eq!(choice("exa-search").description, "Exa Web Search (API key)");
+
+    auth_store.set_key("exa-search", "exa-test-key").unwrap();
+    let updated = login_choices(&config, &auth_store);
+    assert!(updated.iter().find(|c| c.name == "exa-search").unwrap().signed_in);
 }
 
 #[test]

@@ -15,8 +15,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub struct ReadTool {
-    pub base_dir: PathBuf,
+    pub base_dir: crate::tools::WorkspaceDir,
     pub artifact_dir: Option<PathBuf>,
+    initial_default_artifact_dir: PathBuf,
     pub lsp: Option<Arc<LspManager>>,
 }
 
@@ -62,6 +63,14 @@ async fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<T
     None
 }
 
+fn default_artifact_dir(base: &Path) -> PathBuf {
+    if base.as_os_str().is_empty() {
+        std::env::temp_dir().join("rho/artifacts")
+    } else {
+        base.join(".rho/artifacts")
+    }
+}
+
 fn is_skill_first_read(clean_path: &str, base_dir: &Path, offset: Option<usize>) -> bool {
     if offset.unwrap_or(1) > 1 {
         return false;
@@ -73,16 +82,18 @@ fn is_skill_first_read(clean_path: &str, base_dir: &Path, offset: Option<usize>)
 impl ReadTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         let base = base_dir.as_ref().to_path_buf();
-        let artifact_dir = if base.as_os_str().is_empty() {
-            std::env::temp_dir().join("rho/artifacts")
-        } else {
-            base.join(".rho/artifacts")
-        };
+        let artifact_dir = default_artifact_dir(&base);
         Self {
-            base_dir: base,
-            artifact_dir: Some(artifact_dir),
+            base_dir: crate::tools::WorkspaceDir::new(base),
+            artifact_dir: Some(artifact_dir.clone()),
+            initial_default_artifact_dir: artifact_dir,
             lsp: None,
         }
+    }
+
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
@@ -93,6 +104,13 @@ impl ReadTool {
     pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
         self.artifact_dir = artifact_dir;
         self
+    }
+
+    fn effective_artifact_dir(&self, base_dir: &Path) -> Option<PathBuf> {
+        match &self.artifact_dir {
+            Some(dir) if *dir == self.initial_default_artifact_dir => Some(default_artifact_dir(base_dir)),
+            other => other.clone(),
+        }
     }
 
     pub async fn execute(&self, mut args: ReadArgs) -> Result<ToolResult, AppError> {
@@ -107,11 +125,12 @@ impl ReadTool {
             ));
         }
 
-        if is_skill_first_read(clean_path, &self.base_dir, args.offset) {
+        let base_dir = self.base_dir.get();
+        if is_skill_first_read(clean_path, &base_dir, args.offset) {
             args.limit = None;
         }
 
-        let (path, raw_bytes) = match resolve_and_read_bytes(&self.base_dir, clean_path).await {
+        let (path, raw_bytes) = match resolve_and_read_bytes(&base_dir, clean_path).await {
             Ok(read) => read,
             Err(e) => return Ok(e),
         };
@@ -136,7 +155,8 @@ impl ReadTool {
             lsp.warm(&path);
         }
 
-        Ok(format_content(&content, &args, self.artifact_dir.as_deref()))
+        let artifact_dir = self.effective_artifact_dir(&base_dir);
+        Ok(format_content(&content, &args, artifact_dir.as_deref()))
     }
 
     /// The 1-based line range of `symbol` in `path`, from the file's language server.

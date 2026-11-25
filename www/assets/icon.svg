@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1712"/>
+      <stop offset="1" stop-color="#0c0a09"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="0" y1="1" x2="0.3" y2="0">
+      <stop offset="0" stop-color="#ff3d1f"/>
+      <stop offset="0.55" stop-color="#ff7a1a"/>
+      <stop offset="1" stop-color="#ffc23d"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#ffb02e"/>
+      <stop offset="1" stop-color="#fff1b8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#tile)"/>
+  <!-- rho: the bowl and the descending stem -->
+  <g fill="none" stroke="url(#ember)" stroke-width="124" stroke-linecap="round">
+    <circle cx="552" cy="560" r="168"/>
+    <path d="M384 560 V 880"/>
+  </g>
+  <!-- the flame rising from the bowl -->
+  <path fill="url(#ember)" d="M552 392 C 452 392 410 310 446 236 C 470 186 516 168 520 96 C 600 140 626 214 610 268 C 640 250 656 218 654 178 C 716 240 722 330 676 380 C 646 408 604 392 552 392 Z"/>
+  <path fill="url(#core)" d="M556 380 C 506 380 486 336 504 298 C 518 270 540 262 544 226 C 582 252 592 292 584 318 C 600 310 608 292 608 272 C 636 306 636 350 612 370 C 596 382 578 380 556 380 Z"/>
+</svg>

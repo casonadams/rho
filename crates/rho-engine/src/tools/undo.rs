@@ -161,7 +161,7 @@ async fn remove_empty_dirs(dirs: &[PathBuf]) -> usize {
 }
 
 pub struct UndoTool {
-    base_dir: PathBuf,
+    base_dir: crate::tools::WorkspaceDir,
     history: EditHistory,
     lsp: Option<Arc<crate::lsp::LspManager>>,
 }
@@ -169,10 +169,15 @@ pub struct UndoTool {
 impl UndoTool {
     pub fn new(base_dir: impl AsRef<Path>, history: EditHistory) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
             history,
             lsp: None,
         }
+    }
+
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     /// Tells the language servers about files an undo restores or deletes.
@@ -185,7 +190,7 @@ impl UndoTool {
         let message = self.restore(clean_path).await?;
         if let (Some(lsp), Ok(path)) = (
             &self.lsp,
-            resolve_tool_path(&Workspace::new(&self.base_dir), clean_path, "undo"),
+            resolve_tool_path(&Workspace::new(self.base_dir.get()), clean_path, "undo"),
         ) {
             lsp.refresh_after_write(&[path]).await;
         }
@@ -193,7 +198,8 @@ impl UndoTool {
     }
 
     async fn restore(&self, clean_path: &str) -> Result<String, String> {
-        let path = resolve_tool_path(&Workspace::new(&self.base_dir), clean_path, "undo").map_err(|e| e.content)?;
+        let path =
+            resolve_tool_path(&Workspace::new(self.base_dir.get()), clean_path, "undo").map_err(|e| e.content)?;
         let current = tokio::fs::read(&path).await.ok();
         let Undoing {
             before,

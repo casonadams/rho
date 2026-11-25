@@ -1,0 +1,115 @@
+[tools]
+"github:nextest-rs/nextest" = { version = "0.9.149", version_prefix = "cargo-nextest-" }
+"cargo:cccc-cli" = "1.9.2"
+jq = "1.7.1"
+"github:longbridge/nsh" = "0.6.1"
+"aqua:linebender/resvg" = "0.50.0"
+
+# Output is quiet by default (no per-crate compile lines, no PASS line per test) so `mise run all`
+# stays readable and cheap in a coding agent's context; `V=1 mise run <task>` shows everything.
+[env]
+CARGO_TERM_QUIET = "{% if get_env(name='V', default='') == '1' %}false{% else %}true{% endif %}"
+
+[tasks.all]
+description = "Run every check: format, clippy, headless clippy, complexity, tests, and the website's checks"
+depends = ["fmt-check", "clippy", "headless", "complexity", "test", "www-check"]
+
+[tasks.build]
+description = "Build the project in debug mode"
+run = "cargo build"
+
+[tasks.build-release]
+description = "Build the project in release mode"
+run = "cargo build --release"
+
+[tasks.install]
+description = "Build the optimized local binary (target/local/) and install it to ~/.cargo/bin/rho"
+run = '''
+cargo build --profile local --bin rho
+mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+install -m 755 target/local/rho "${CARGO_HOME:-$HOME/.cargo}/bin/rho"
+'''
+
+[tasks.check]
+description = "Type check all targets"
+run = "cargo check --workspace --all-targets"
+
+[tasks.fmt]
+description = "Format all Rust source files"
+run = ["cargo fmt --all", "cargo fmt --manifest-path www/Cargo.toml"]
+
+[tasks.fmt-check]
+description = "Check formatting of Rust source files"
+run = ["cargo fmt --all -- --check", "cargo fmt --manifest-path www/Cargo.toml -- --check"]
+
+[tasks.clippy]
+description = "Run Clippy with warnings treated as errors"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.headless]
+description = "Lint the headless build (no ui feature) so RPC and print mode never depend on the terminal UI"
+run = "cargo clippy --lib --bins --no-default-features -- -D warnings"
+
+[tasks.clippy-fix]
+description = "Automatically fix Clippy suggestions where possible"
+run = "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged"
+
+[tasks.clean]
+description = "Clean cargo build artifacts"
+run = ["cargo clean", "rm -rf dist www/target www/.nsh"]
+
+[tasks.test]
+description = "Run the workspace tests with nextest, then the doc tests; V=1 prints every test"
+run = '''
+level=""
+[ "${V:-}" = 1 ] && level="--status-level pass"
+cargo nextest run --workspace --all-targets $level
+out=$(cargo test --workspace --doc 2>&1); status=$?
+if [ $status -ne 0 ] || [ "${V:-}" = 1 ]; then echo "$out"; fi
+exit $status
+'''
+
+[tasks.leak-check]
+description = "Run the tests with a private TMPDIR and fail if they leave files behind"
+run = '''
+dir=$(mktemp -d) || exit 1
+TMPDIR="$dir" mise run test; status=$?
+leaked=$(find "$dir" -mindepth 1 -maxdepth 1)
+if [ -n "$leaked" ]; then echo "Tests leaked into the temp dir ($dir):"; echo "$leaked"; exit 1; fi
+rm -rf "$dir"; exit $status
+'''
+
+[tasks.complexity]
+description = "Gate on the cognitive complexity limit set in cccc.toml"
+run = '''
+max=$(sed -n 's/^max-cognitive *= *\([0-9]*\).*/\1/p' cccc.toml)
+out=$(cccc .) || { echo "$out" | jq -c --argjson max "$max" '.files[]? | .path as $path | .functions[]? | select(.cognitive > $max) | {file: $path, line, function: .name, cognitive, cyclomatic}'; exit 1; }
+'''
+
+[tasks.www-check]
+description = "Clippy and the tests of the website (www/), built natively"
+dir = "www"
+run = ["cargo clippy --all-targets -- -D warnings", "cargo test --all-targets"]
+
+[tasks.www]
+description = "Package the website into dist/rho for GitHub Pages (needs a wasm-capable clang and llvm-ar)"
+dir = "www"
+run = '''
+set -e
+LLVM=/opt/homebrew/opt/llvm/bin
+if [ -x "$LLVM/clang" ]; then CLANG="$LLVM/clang"; AR="$LLVM/llvm-ar"; else CLANG=clang; AR=llvm-ar; fi
+CC_wasm32_unknown_unknown="${CC_wasm32_unknown_unknown:-$CLANG}" \
+AR_wasm32_unknown_unknown="${AR_wasm32_unknown_unknown:-$AR}" \
+  nsh package --target web --out ../dist
+site=../dist/rho
+touch "$site/.nojekyll"
+'''
+
+[tasks.www-serve]
+description = "Package the website and serve it at http://127.0.0.1:4173/rho/"
+depends = ["www"]
+run = "mkdir -p target/serve && ln -sfn ../../dist/rho target/serve/rho && cd target/serve && python3 -m http.server 4173 --bind 127.0.0.1"
+
+[tasks.icon]
+description = "Render the app icon (www/assets/icon.svg) to the 1024px PNG nsh packages favicons from"
+run = "resvg -w 1024 www/assets/icon.svg www/icon.png"

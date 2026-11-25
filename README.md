@@ -73,9 +73,9 @@ resume the exact session of each pane with `rho --resume <id>`.
 
   Interactive programs (vim, REPLs) can be driven from `bash` through mpx:
   start one with `mpx run --pty`, type with `send-keys`, read the screen with
-  `capture-pane -p -S -N`, and stop it with `kill`. When an allowed `.envrc` is
-  present above the workspace, `bash` automatically loads its environment via
-  `direnv export json` (disable with `tools.bash.direnv = false`).
+  `capture-pane -p -S -N`, and stop it with `kill`. With `tools.bash.direnv = true`,
+  `bash` loads the environment of an allowed `.envrc` above the workspace via
+  `direnv export json` before each command.
 - **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex
   matching. Entries are grouped under their parent directory (`dir/` header,
   indented names; directories end with `/`) after a total count. A directory
@@ -206,15 +206,16 @@ Comprehensive guides are organized in [`docs/`](docs/):
 
 ## Development
 
-Run the test suite, linter, and format checks:
+Tasks run through [mise](https://mise.jdx.dev), which also installs the pinned tools (nextest, cccc, jq). Run
+`mise install` once, then:
 
 ```sh
-make all          # fmt check, clippy, complexity, tests; quiet unless something fails
-make test V=1     # every test and compile line, for when you want the full output
-cargo test --workspace
-make clippy
-cargo fmt --all -- --check
-make leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
+mise run all          # fmt check, clippy, headless clippy, complexity, tests; quiet unless something fails
+V=1 mise run test     # every test and compile line, for when you want the full output
+mise run clippy
+mise run leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
+mise run www-serve    # build the website (www/, an nsh app) and serve it at http://127.0.0.1:4173/rho/
+mise tasks            # every task
 ```
 
 ---

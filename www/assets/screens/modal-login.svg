@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 385" width="100%" height="auto">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 385" width="900" height="385">
   <defs>
     <filter id="shadow" x="-3%" y="-3%" width="106%" height="108%" filterUnits="userSpaceOnUse">
       <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.45"/>
@@ -24,7 +24,7 @@
     <circle cx="52" cy="18.5" r="5" fill="#27c93f" stroke="#1aab29" stroke-width="0.5"/>
     
     <!-- Window Title -->
-    <text x="450" y="22.5" fill="#8b95a8" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho — /model selector</text>
+    <text x="450" y="22.5" fill="#8b95a8" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho login — provider selection</text>
   </g>
 
   <!-- Terminal Content Area -->
@@ -40,8 +40,8 @@
     <!-- Modal Top Divider (Full Width) -->
     <g transform="translate(0, 68)">
       <line x1="0" y1="0" x2="16" y2="0" stroke="#52e096" stroke-width="1.2"/>
-      <text x="22" y="4" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13.5" font-weight="bold" fill="#52e096">Select Model</text>
-      <line x1="126" y1="0" x2="848" y2="0" stroke="#52e096" stroke-width="1.2"/>
+      <text x="22" y="4" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13.5" font-weight="bold" fill="#52e096">Login Provider</text>
+      <line x1="140" y1="0" x2="848" y2="0" stroke="#52e096" stroke-width="1.2"/>
     </g>
 
     <!-- Search Prompt -->
@@ -50,14 +50,13 @@
 
     <!-- Options List -->
     <text font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13">
-      <tspan x="0" y="120"><tspan fill="#52e096">▸ </tspan><tspan fill="#f2f5fa" font-weight="bold">gemini-3.8-flash </tspan><tspan fill="#717c96">[antigravity] · default </tspan><tspan fill="#52e096" font-weight="bold">✓</tspan></tspan>
-      <tspan x="0" y="140" fill="#dce3f0">  ornith-1.5:35b    [local]</tspan>
-      <tspan x="0" y="160" fill="#dce3f0">  qwen3.8:27b-mlx   [local]</tspan>
-      <tspan x="0" y="180" fill="#dce3f0">  minimax-m3:cloud  [local]</tspan>
-      <tspan x="0" y="200" fill="#dce3f0">  claude-opus-4-6   [antigravity]</tspan>
-      <tspan x="0" y="220" fill="#dce3f0">  claude-sonnet-4-6 [antigravity]</tspan>
-      <tspan x="0" y="240" fill="#dce3f0">  gemini-3.7-flash  [antigravity]</tspan>
-      <tspan x="0" y="260" fill="#525d74">  (1/36)</tspan>
+      <tspan x="0" y="120"><tspan fill="#52e096">▸ </tspan><tspan fill="#f2f5fa" font-weight="bold">antigravity  </tspan><tspan fill="#717c96">Google Cloud Code Assist (OAuth)  </tspan><tspan fill="#52e096" font-weight="bold">✓</tspan></tspan>
+      <tspan x="0" y="140" fill="#dce3f0">  chatgpt      ChatGPT Plus/Pro subscription (OAuth)</tspan>
+      <tspan x="0" y="160" fill="#dce3f0">  claude       Claude Pro/Max subscription (OAuth)</tspan>
+      <tspan x="0" y="180" fill="#dce3f0">  openrouter   OpenRouter universal gateway (OAuth / Key)</tspan>
+      <tspan x="0" y="200" fill="#dce3f0">  anthropic    Anthropic Claude models (API Key)</tspan>
+      <tspan x="0" y="220" fill="#dce3f0">  openai       OpenAI GPT &amp; reasoning models (API Key)</tspan>
+      <tspan x="0" y="240" fill="#525d74">  (1/13)</tspan>
     </text>
 
     <!-- Modal Bottom Divider (Full Width) -->
@@ -65,7 +64,7 @@
 
     <!-- Bottom Keybinding Hint -->
     <text x="0" y="302" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12.5" fill="#717c96">
-      Enter to select • Ctrl+S to set as default • Esc to cancel
+      Enter to select • Esc to cancel
     </text>
   
   </g>

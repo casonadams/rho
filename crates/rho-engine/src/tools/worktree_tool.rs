@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 /// The main agent's view of worktrees: review/merge/discard agent worktrees, or create & enter a session worktree.
 pub struct WorktreeTool {
-    root: PathBuf,
+    root: crate::tools::WorkspaceDir,
     store: WorktreeStore,
     session_base: Option<PathBuf>,
     clean_source: bool,
@@ -19,12 +19,18 @@ impl WorktreeTool {
     #[must_use]
     pub fn new(root: impl Into<PathBuf>, store: WorktreeStore) -> Self {
         Self {
-            root: root.into(),
+            root: crate::tools::WorkspaceDir::new(root),
             store,
             session_base: None,
             clean_source: false,
             relocate_slot: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_workspace_dir(mut self, root: crate::tools::WorkspaceDir) -> Self {
+        self.root = root;
+        self
     }
 
     #[must_use]
@@ -39,19 +45,25 @@ impl WorktreeTool {
         self.relocate_slot = relocate_slot;
         self
     }
-    async fn find(&self, id: Option<&str>) -> Result<Worktree, String> {
+    async fn find_in(&self, root: &std::path::Path, id: Option<&str>) -> Result<Worktree, String> {
         let id = id
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .ok_or("this action needs an `id`")?;
         self.store
-            .find(&self.root, id)
+            .find(root, id)
             .await
             .ok_or_else(|| format!("no worktree '{id}'; it may already be merged or discarded (see action list)"))
     }
 
+    async fn find(&self, id: Option<&str>) -> Result<Worktree, String> {
+        let root = self.root.get();
+        self.find_in(&root, id).await
+    }
+
     async fn list(&self) -> Result<String, String> {
-        let worktrees = self.store.list(&self.root).await;
+        let root = self.root.get();
+        let worktrees = self.store.list(&root).await;
         if worktrees.is_empty() {
             return Ok("No agent worktrees are waiting to be merged.".to_string());
         }
@@ -75,10 +87,11 @@ impl WorktreeTool {
             WorktreeAction::List => self.list().await,
             WorktreeAction::Diff => self.find(id).await?.diff().await,
             WorktreeAction::Merge => {
-                let worktree = self.find(id).await?;
+                let root = self.root.get();
+                let worktree = self.find_in(&root, id).await?;
                 let head = worktree.commit().await?;
                 let review = worktree.review_head(&head).await?;
-                let outcome = worktree.merge_head_into(&head, &self.root).await?;
+                let outcome = worktree.merge_head_into(&head, &root).await?;
                 Ok(format!(
                     "{} Worktree `{}` was removed. Review the merged files and re-run your checks.\n\n{}",
                     outcome.summary(),
@@ -102,13 +115,16 @@ impl WorktreeTool {
                     .session_base
                     .clone()
                     .unwrap_or_else(|| rho_harness_core::config::default_config_dir().join("wt"));
+                let root = self.root.get();
                 let created =
-                    crate::worktree::create_session_worktree(&self.root, &base, &branch, self.clean_source).await?;
-                if let Some(slot) = &self.relocate_slot
-                    && let Ok(mut guard) = slot.lock()
-                {
+                    crate::worktree::create_session_worktree(&root, &base, &branch, self.clean_source).await?;
+                if let Some(slot) = &self.relocate_slot {
+                    let mut guard = slot
+                        .lock()
+                        .map_err(|_| "failed to queue session relocation: relocation lock poisoned".to_string())?;
                     *guard = Some(created.path.clone());
                 }
+                self.root.set(created.path.clone());
                 Ok(created.summary())
             }
         }
@@ -194,5 +210,67 @@ mod tests {
             "{}",
             gone.content
         );
+    }
+
+    #[tokio::test]
+    async fn create_immediately_relocates_shared_workspace_tools_and_isolates_subagents() {
+        let (dir, root) = create(&[("a.rs", "fn a() {}\n")]);
+        let store = WorktreeStore::new(dir.path().join("store"));
+        let session_base = dir.path().join("session-wt");
+        let relocate_slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+
+        let parent_ws = crate::tools::WorkspaceDir::new(&root);
+        let parent_wt = WorktreeTool::new(&root, store)
+            .with_workspace_dir(parent_ws.clone())
+            .with_session_worktree(session_base, false, Some(relocate_slot.clone()));
+        let parent_write = crate::tools::WriteTool::new(&root).with_workspace_dir(parent_ws.clone());
+        let parent_read = crate::tools::ReadTool::new(&root).with_workspace_dir(parent_ws.clone());
+
+        // Independent subagent tool keeps its own WorkspaceDir.
+        let subagent_read = crate::tools::ReadTool::new(&root);
+
+        let res = call(&parent_wt, json!({ "action": "create", "branch": "feat/immediate" })).await;
+        assert!(!res.is_error, "{}", res.content);
+
+        let new_path = relocate_slot.lock().unwrap().clone().expect("relocate slot populated");
+        assert_ne!(new_path, root);
+        assert_eq!(parent_ws.get(), new_path);
+
+        // Next tool call in the same turn writes into the new worktree, not the original repo.
+        let write_res = parent_write
+            .execute(crate::tools::WriteArgs {
+                path: "new_file.txt".to_string(),
+                content: "hello worktree\n".to_string(),
+            })
+            .await
+            .unwrap();
+        assert!(!write_res.is_error, "{}", write_res.content);
+        assert!(new_path.join("new_file.txt").exists());
+        assert!(!root.join("new_file.txt").exists());
+
+        let read_res = parent_read
+            .execute(crate::tools::ReadArgs {
+                path: "new_file.txt".to_string(),
+                offset: None,
+                limit: None,
+                symbol: None,
+            })
+            .await
+            .unwrap();
+        assert!(!read_res.is_error, "{}", read_res.content);
+        assert!(read_res.content.contains("hello worktree"));
+
+        // Subagent tool still sees the original root, unaffected by parent relocation.
+        assert_eq!(subagent_read.base_dir.get(), root);
+        let sub_read_res = subagent_read
+            .execute(crate::tools::ReadArgs {
+                path: "new_file.txt".to_string(),
+                offset: None,
+                limit: None,
+                symbol: None,
+            })
+            .await
+            .unwrap();
+        assert!(sub_read_res.is_error);
     }
 }

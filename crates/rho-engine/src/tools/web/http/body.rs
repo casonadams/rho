@@ -53,3 +53,23 @@ pub async fn read_limited(params: ReadLimitedParams<'_>) -> Result<Vec<u8>> {
     }
     Ok(body)
 }
+
+pub async fn read_limited_until<F>(response: reqwest::Response, max_bytes: usize, mut stop_when: F) -> Result<Vec<u8>>
+where
+    F: FnMut(&[u8]) -> bool,
+{
+    check_declared_length(&response, max_bytes)?;
+    let mut body: Vec<u8> = Vec::with_capacity(max_bytes.min(256 * 1024));
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| AppError::Tool(format!("Network read error: {e}")))?;
+        if body.len() + chunk.len() > max_bytes {
+            return Err(AppError::Tool(format!("Response exceeded the {max_bytes}-byte limit")));
+        }
+        body.extend_from_slice(&chunk);
+        if stop_when(&body) {
+            break;
+        }
+    }
+    Ok(body)
+}

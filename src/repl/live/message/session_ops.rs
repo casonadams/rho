@@ -37,15 +37,31 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     session_id: &str,
     io: &mut SessionCommandIo<'_, B>,
 ) -> Result<()> {
+    let mut missing_workspace: Option<std::path::PathBuf> = None;
+    if let Ok(Some(saved)) =
+        rho_harness_core::session::SessionManager::cwd_for_session_async(&ctx.session.config.sessions_dir, session_id)
+            .await
+    {
+        if saved.is_dir() {
+            let _ = std::env::set_current_dir(&saved);
+        } else {
+            missing_workspace = Some(saved);
+        }
+    }
     let next = ctx.session.new_engine(Some(session_id)).await?;
     ctx.engine.switch_to(next);
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
         let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree);
     }
+    crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
+    let suffix = missing_workspace
+        .as_ref()
+        .map(|p| format!(" (previous workspace {} no longer exists)", p.display()))
+        .unwrap_or_default();
     ctx.session
         .renderer
-        .print_status(&format!("Resumed session {session_id}"));
+        .print_status(&format!("Resumed session {session_id}{suffix}"));
     Ok(())
 }
 

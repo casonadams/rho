@@ -317,4 +317,15 @@ mod tests {
             assert_eq!(key.as_str(), KEY_NAMES[index].1);
         }
     }
+
+    #[test]
+    fn the_website_documents_every_key() {
+        let site = include_str!("../../../../../www/src/config_ref.rs");
+        for (_, name, aliases) in KEY_NAMES {
+            let listed = std::iter::once(name)
+                .chain(aliases.iter())
+                .any(|key| site.contains(&format!("\"{key}\"")));
+            assert!(listed, "{name} is missing from www/src/config_ref.rs");
+        }
+    }
 }

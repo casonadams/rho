@@ -749,6 +749,7 @@ Supported search engine identifiers:
 - `brave`: Scrapes Brave search results (no API key required).
 - `duckduckgo` (aliases: `ddg`, `ddg_lite`): Queries DuckDuckGo Lite (no API key required).
 - `yahoo`: Scrapes Yahoo search results (no API key required).
+- `exa`: Exa neural search. Uses the direct Exa Search API (`https://api.exa.ai/search`) when an API key is configured via `/login exa-search` (`auth.json`) or `EXA_API_KEY`, and automatically falls back to Exa's keyless public MCP endpoint (`https://mcp.exa.ai/mcp`) when no key is configured.
 Searches evaluate engines sequentially in order. Once an engine returns results, search terminates immediately. Subsequent engines in the fallback list are only queried if the earlier engine errors or returns zero results.
 
 To restrict searches to a single trusted engine and disable all fallbacks/scrapers:

@@ -149,6 +149,12 @@ fn build_provider_items(custom_providers: Vec<String>) -> Vec<ProviderItem> {
             });
         }
     }
+    if !providers.iter().any(|p| p.name == "exa-search") {
+        providers.push(ProviderItem {
+            name: "exa-search".to_string(),
+            auth_mode: "API key".to_string(),
+        });
+    }
     providers
 }
 

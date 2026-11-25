@@ -20,7 +20,7 @@ pub const READY_WAIT: Duration = Duration::from_secs(30);
 pub const INDEXING_WINDOW: Duration = Duration::from_secs(30);
 
 pub struct LspTool {
-    base_dir: PathBuf,
+    base_dir: crate::tools::WorkspaceDir,
     manager: Arc<LspManager>,
     history: Option<EditHistory>,
 }
@@ -99,10 +99,15 @@ fn location_method(action: LspAction) -> Option<(&'static str, &'static str, &'s
 impl LspTool {
     pub fn new(base_dir: impl AsRef<Path>, manager: Arc<LspManager>) -> Self {
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
             manager,
             history: None,
         }
+    }
+
+    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+        self.base_dir = base_dir;
+        self
     }
 
     pub fn with_history(mut self, history: Option<EditHistory>) -> Self {
@@ -112,7 +117,7 @@ impl LspTool {
 
     fn resolve(&self, path: Option<&str>) -> Result<PathBuf, String> {
         let path = path.ok_or("this action needs path")?;
-        resolve_tool_path(&Workspace::new(&self.base_dir), clean_path_arg(path), "lsp").map_err(|e| e.content)
+        resolve_tool_path(&Workspace::new(self.base_dir.get()), clean_path_arg(path), "lsp").map_err(|e| e.content)
     }
 
     async fn open(&self, path: Option<&str>) -> Result<OpenFile, String> {
@@ -181,7 +186,8 @@ impl LspTool {
             return Err(format!("{} does not support {noun}", file.client.name));
         }
         let found = render::locations(&response);
-        let text = render::format_locations(&self.base_dir, noun, &found);
+        let base_dir = self.base_dir.get();
+        let text = render::format_locations(&base_dir, noun, &found);
         Ok(file.answer(text, found.is_empty()))
     }
 
@@ -222,7 +228,14 @@ impl LspTool {
             .query
             .as_deref()
             .ok_or("symbols needs path (file outline) or query (workspace search)")?;
-        let clients = self.manager.workspace_clients().await;
+        let base_dir = self.base_dir.get();
+        let clients: Vec<_> = self
+            .manager
+            .workspace_clients()
+            .await
+            .into_iter()
+            .filter(|client| client.root.starts_with(&base_dir) || base_dir.starts_with(&client.root))
+            .collect();
         if clients.is_empty() {
             return Err("no language server is running for this workspace; pass path to start one".into());
         }
@@ -240,7 +253,7 @@ impl LspTool {
                 Err(error) => failures.push(format!("{}: {error}", client.name)),
             }
         }
-        let mut out = render::format_workspace_symbols(&self.base_dir, &Value::Array(merged));
+        let mut out = render::format_workspace_symbols(&base_dir, &Value::Array(merged));
         if !failures.is_empty() {
             out.push_str(&format!("\n[symbol search failed: {}]", failures.join("; ")));
         }
@@ -275,7 +288,7 @@ impl LspTool {
                 let path = crate::lsp::client::uri_path(&uri).unwrap_or_else(|| PathBuf::from(&uri));
                 sections.push(format!(
                     "{}\n{}",
-                    render::display_path(&self.base_dir, &path),
+                    render::display_path(&self.base_dir.get(), &path),
                     render::diagnostic_rows(&items)
                 ));
                 total.extend(items);

@@ -27,14 +27,14 @@
 - Do not add Clippy `allow`, `expect`, command-line exclusions, or crate-level
   lint suppressions. Refactor code to satisfy the configured lints instead.
 - Remove any existing Clippy suppression encountered in code being changed.
-- Verify with `make clippy`
+- Verify with `mise run clippy`
 
 ## Testing and performance
 
-- Use `make test` to run the workspace tests. Make output is quiet by default (failures,
+- Use `mise run test` to run the workspace tests. Task output is quiet by default (failures,
   slow tests and warnings print; passing tests and compile progress do not, so a green
-  `make all` is about five lines). Add `V=1` (`make test V=1`) to see every test.
-- Use `make leak-check` to run them with a private `TMPDIR` and fail if any test
+  `mise run all` stays short). Set `V=1` (`V=1 mise run test`) to see every test.
+- Use `mise run leak-check` to run them with a private `TMPDIR` and fail if any test
   leaves files behind. Tests must create scratch paths with
   `rho_test_support::TestDir` (removed on drop, even on panic), never with
   `std::env::temp_dir().join(..)`, `.keep()`, or `NamedTempFile` in the shared temp dir.
@@ -68,7 +68,7 @@
 - The repository enforces strict cognitive complexity limits via `cccc` (SonarSource Campbell standard). Functions must maintain a cognitive complexity score <= 15.
 - When modifying, extending, or fixing bugs in any function, ensure its cognitive complexity remains <= 15.
 - Never introduce new functions with cognitive complexity > 15.
-- All changes must pass `make all` (which executes format check, clippy, cognitive complexity <= 15 via cccc, and the workspace tests).
+- All changes must pass `mise run all` (which executes format check, clippy, headless clippy, cognitive complexity <= 15 via cccc, and the workspace tests).
 
 ## UX and modal guidelines
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
@@ -86,11 +86,12 @@
 
 ## Documentation, and website synchronization
 
-- When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
+- When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update the markdown documentation (`docs/`, `README.md`). The website (`www/`, an nsh app in Rust) compiles `README.md`, `docs/*.md` and `examples/hooks/` in, so it follows them; update its curated parts by hand: the home page (`www/src/ui/home.rs`) and the configuration reference (`www/src/config_ref.rs`, which a core test checks against every config key).
+- Build the site with `mise run www` and preview it with `mise run www-serve` (`http://127.0.0.1:4173/rho/`).
 
 ## Completion
 
-- Run `make all` and ensure all checks pass before finishing:
+- Run `mise run all` and ensure all checks pass before finishing:
   1. `fmt-check` (code formatting)
   2. `clippy` (lints treated as errors)
   3. `complexity` (cognitive complexity <= 15 via `cccc`)

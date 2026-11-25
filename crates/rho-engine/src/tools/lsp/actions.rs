@@ -190,7 +190,7 @@ impl LspTool {
         let options = json!({ "tabSize": indent.tab_size, "insertSpaces": indent.insert_spaces });
         let params = json!({ "textDocument": file.text_document(), "options": options });
         let response = file.client.request("textDocument/formatting", params).await?;
-        let shown = crate::lsp::render::display_path(&self.base_dir, &file.path);
+        let shown = crate::lsp::render::display_path(&self.base_dir.get(), &file.path);
         if response.as_array().is_none_or(Vec::is_empty) {
             return Ok(format!("{shown} is already formatted"));
         }

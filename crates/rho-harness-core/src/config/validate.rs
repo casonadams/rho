@@ -52,12 +52,12 @@ fn validate_providers(config: &super::Config) -> Result<()> {
     Ok(())
 }
 
-pub const SUPPORTED_SEARCH_ENGINES: &str = "brave, duckduckgo, yahoo";
+pub const SUPPORTED_SEARCH_ENGINES: &str = "brave, duckduckgo, yahoo, exa";
 
 pub(crate) fn is_valid_search_engine_name(name: &str) -> bool {
     matches!(
         name.trim().to_ascii_lowercase().as_str(),
-        "brave" | "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" | "yahoo"
+        "brave" | "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" | "yahoo" | "exa"
     )
 }
 

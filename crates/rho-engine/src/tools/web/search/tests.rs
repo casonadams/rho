@@ -122,6 +122,7 @@ async fn search_without_configured_engines_returns_no_results() {
             region: "us-en".to_string(),
             timeout_sec: 5,
             engines: Vec::new(),
+            auth_file: None,
         },
     };
     let results = tool
