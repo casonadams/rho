@@ -45,6 +45,44 @@ async fn forwards_events_and_propagates_input_errors() {
 }
 
 #[tokio::test]
+async fn a_burst_of_resizes_is_delivered_as_the_final_size_and_keeps_event_order() {
+    let (mut reader, source, _) = test_reader();
+    let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    for event in [
+        Event::Resize(80, 24),
+        Event::Resize(81, 24),
+        Event::Resize(95, 30),
+        key.clone(),
+        Event::Resize(100, 31),
+        Event::Resize(101, 31),
+    ] {
+        source.send(SourceCommand::Event(event)).unwrap();
+    }
+
+    assert_eq!(reader.recv().await.unwrap().unwrap(), Event::Resize(95, 30));
+    assert_eq!(reader.recv().await.unwrap().unwrap(), key);
+    assert_eq!(reader.recv().await.unwrap().unwrap(), Event::Resize(101, 31));
+    assert!(reader.events.try_recv().is_err(), "nothing else was delivered");
+    reader.stop_and_join().unwrap();
+}
+
+#[tokio::test]
+async fn a_single_resize_and_a_source_error_after_a_burst_are_both_delivered() {
+    let (mut reader, source, _) = test_reader();
+    source.send(SourceCommand::Event(Event::Resize(70, 20))).unwrap();
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    source.send(SourceCommand::Event(Event::Resize(71, 20))).unwrap();
+    source.send(SourceCommand::Event(Event::Resize(72, 20))).unwrap();
+    source.send(SourceCommand::Error).unwrap();
+
+    assert_eq!(reader.recv().await.unwrap().unwrap(), Event::Resize(70, 20));
+    assert_eq!(reader.recv().await.unwrap().unwrap(), Event::Resize(72, 20));
+    assert_eq!(reader.recv().await.unwrap().unwrap_err().kind(), io::ErrorKind::Other);
+    assert!(reader.recv().await.is_none());
+    reader.stop_and_join().unwrap();
+}
+
+#[tokio::test]
 async fn ignores_interrupted_errors_and_continues_reading() {
     let (mut reader, source, _) = test_reader();
     let event = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));

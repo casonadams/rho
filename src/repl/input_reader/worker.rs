@@ -9,6 +9,37 @@ use super::ReadNext;
 use super::paused::Control;
 
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
+/// A width change re-renders the whole transcript, so a burst of resize events (dragging the
+/// window) is delivered as its final size once no further resize arrives for this long.
+const RESIZE_SETTLE: Duration = Duration::from_millis(15);
+
+type Size = (u16, u16);
+
+fn settle_resize(read_next: &mut ReadNext, mut size: Size) -> (Size, io::Result<Option<crossterm::event::Event>>) {
+    loop {
+        match read_next(RESIZE_SETTLE) {
+            Ok(Some(crossterm::event::Event::Resize(cols, rows))) => size = (cols, rows),
+            other => return (size, other),
+        }
+    }
+}
+
+/// Returns false once the receiving side is gone or the source failed, which ends the read loop.
+fn deliver(
+    event_sender: &mpsc::UnboundedSender<InputEvent>,
+    read: io::Result<Option<crossterm::event::Event>>,
+) -> bool {
+    match read {
+        Ok(Some(crossterm::event::Event::Key(key))) if key.kind == crossterm::event::KeyEventKind::Release => true,
+        Ok(Some(event)) => event_sender.send(Ok(event)).is_ok(),
+        Ok(None) => true,
+        Err(error) if error.kind() == io::ErrorKind::Interrupted => true,
+        Err(error) => {
+            let _ = event_sender.send(Err(error));
+            false
+        }
+    }
+}
 
 pub(super) fn read_loop(
     mut read_next: ReadNext,
@@ -27,19 +58,16 @@ pub(super) fn read_loop(
             Ok(Control::Stop) | Err(std_mpsc::TryRecvError::Disconnected) => return,
         }
 
-        match read_next(CONTROL_POLL_INTERVAL) {
-            Ok(Some(crossterm::event::Event::Key(key))) if key.kind == crossterm::event::KeyEventKind::Release => {}
-            Ok(Some(event)) => {
-                if event_sender.send(Ok(event)).is_err() {
-                    return;
-                }
+        let keep_going = match read_next(CONTROL_POLL_INTERVAL) {
+            Ok(Some(crossterm::event::Event::Resize(cols, rows))) => {
+                let (size, follow_up) = settle_resize(&mut read_next, (cols, rows));
+                let resize = Ok(Some(crossterm::event::Event::Resize(size.0, size.1)));
+                deliver(&event_sender, resize) && deliver(&event_sender, follow_up)
             }
-            Ok(None) => {}
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => {
-                let _ = event_sender.send(Err(error));
-                return;
-            }
+            other => deliver(&event_sender, other),
+        };
+        if !keep_going {
+            return;
         }
     }
 }
