@@ -210,8 +210,9 @@ Tasks run through [mise](https://mise.jdx.dev), which also installs the pinned t
 `mise install` once, then:
 
 ```sh
-mise run all          # fmt check, clippy, headless clippy, complexity, tests; quiet unless something fails
-V=1 mise run test     # every test and compile line, for when you want the full output
+mise run all          # fmt check, clippy, headless clippy, complexity, tests, site checks
+V=1 mise run test     # every test and compile line, even where CI is set (agents, CI runners)
+Q=1 mise run build    # hide cargo's compile lines in a terminal too
 mise run clippy
 mise run leak-check   # runs the tests with a private TMPDIR and fails if any test leaves files behind
 mise run www-serve    # build the website (www/, an nsh app) and serve it at http://127.0.0.1:4173/rho/

@@ -31,9 +31,10 @@
 
 ## Testing and performance
 
-- Use `mise run test` to run the workspace tests. Task output is quiet by default (failures,
-  slow tests and warnings print; passing tests and compile progress do not, so a green
-  `mise run all` stays short). Set `V=1` (`V=1 mise run test`) to see every test.
+- Use `mise run test` to run the workspace tests. Failures, slow tests and warnings print;
+  passing tests do not. Cargo's compile progress is hidden when `CI` is set (rho's bash tool
+  sets it), so a green `mise run all` stays short. Set `V=1` (`V=1 mise run test`) to see
+  every test and compile line.
 - Use `mise run leak-check` to run them with a private `TMPDIR` and fail if any test
   leaves files behind. Tests must create scratch paths with
   `rho_test_support::TestDir` (removed on drop, even on panic), never with

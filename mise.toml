@@ -5,10 +5,10 @@ jq = "1.7.1"
 "github:longbridge/nsh" = "0.6.1"
 "aqua:linebender/resvg" = "0.50.0"
 
-# Output is quiet by default (no per-crate compile lines, no PASS line per test) so `mise run all`
-# stays readable and cheap in a coding agent's context; `V=1 mise run <task>` shows everything.
+# Cargo is quiet (no per-crate compile lines) when CI is set, as rho's bash tool and CI runners set
+# it, so agents get short output; a terminal gets cargo's usual output. Q=1 forces quiet, V=1 loud.
 [env]
-CARGO_TERM_QUIET = "{% if get_env(name='V', default='') == '1' %}false{% else %}true{% endif %}"
+CARGO_TERM_QUIET = "{% set ci = get_env(name='CI', default='') %}{% if get_env(name='V', default='') != '1' and (get_env(name='Q', default='') == '1' or (ci != '' and ci != 'false' and ci != '0')) %}true{% else %}false{% endif %}"
 
 [tasks.all]
 description = "Run every check: format, clippy, headless clippy, complexity, tests, and the website's checks"
