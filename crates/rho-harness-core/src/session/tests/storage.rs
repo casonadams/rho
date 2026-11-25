@@ -186,6 +186,49 @@ async fn last_session_lookup_reports_unreadable_or_corrupt_index() {
 }
 
 #[tokio::test]
+async fn every_write_path_rejects_secrets_without_echoing_or_persisting_them() {
+    use crate::a2a::{Task, TaskState};
+    use crate::session::SessionEventKind;
+
+    const SECRET: &str = "credential-sentinel-9f3a";
+    let dir = temp_dir();
+    let store = SessionManager::new_with_secrets(&dir, None, vec![SECRET.to_string()]).unwrap();
+    let id = store.session_id.clone();
+    let leaked = || ChatMessage::user(format!("token {SECRET}"));
+    let mut task = Task::new("t1", "c1", None);
+    task.set_status(TaskState::Working, None);
+
+    let history = store.append_messages(&id, vec![leaked()]).await;
+    let event = store
+        .append_event(SessionEventKind::UserMessage, serde_json::json!({ "text": SECRET }))
+        .await;
+    let subagent = store.record_subagent_task(&task, vec![leaked()]).await;
+    let replaced = store.replace_subagent_transcript(&task, vec![leaked()]).await;
+    let summary = store.append_branch_summary(&format!("notes {SECRET}"), "leaf").await;
+    let extended = store.extend_checkpoint(vec![leaked()]).await;
+    store.save_checkpoint(vec![ChatMessage::user("clean")]).await.unwrap();
+    let promoted = store.promote_checkpoint(vec![leaked()]).await;
+
+    let outcomes = [
+        ("append_messages", history),
+        ("append_event", event),
+        ("record_subagent_task", subagent),
+        ("replace_subagent_transcript", replaced),
+        ("append_branch_summary", summary),
+        ("extend_checkpoint", extended),
+        ("promote_checkpoint", promoted),
+    ];
+    for (api, outcome) in outcomes {
+        let error = outcome.expect_err(api).to_string();
+        assert!(!error.contains(SECRET), "{api} echoed the secret: {error}");
+    }
+    let on_disk = std::fs::read_to_string(&store.file_path).unwrap();
+    assert!(!on_disk.contains(SECRET));
+    assert!(store.subagent_contexts().await.is_empty());
+    assert_eq!(store.load_checkpoint().await.unwrap().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn two_managers_on_a_live_session_share_one_history_and_stay_loadable() {
     let dir = temp_dir();
     let first = SessionManager::new_async(&dir, None).await.unwrap();

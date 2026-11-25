@@ -192,12 +192,12 @@ impl SessionManager {
         summary::list_session_summaries(sessions_dir)
     }
 
-    pub fn spawn_auto_prune(&self, retention_days: u32) {
+    pub fn spawn_auto_prune(&self, retention_days: u32) -> tokio::task::JoinHandle<()> {
         let active_id = self.session_id.clone();
         let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
         tokio::spawn(async move {
             let _ = prune_expired_sessions_async(&sessions_dir, &active_id, retention_days).await;
-        });
+        })
     }
 
     pub(crate) fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {

@@ -141,3 +141,61 @@ async fn pruning_skips_sessions_held_open_by_a_manager() {
     assert_eq!(prune_empty_sessions_async(&dir, None).await.unwrap(), 1);
     assert!(!held_path.exists());
 }
+
+fn file_of_exact_size(dir: &Path, name: &str, size: usize, marker: &str) -> std::path::PathBuf {
+    let path = dir.join(format!("{name}.jsonl"));
+    let mut content = format!("{{\"type\":\"header\"}}\n{marker}");
+    assert!(content.len() <= size);
+    content.push_str(&" ".repeat(size - content.len()));
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+#[tokio::test]
+async fn empty_pruning_depends_on_size_and_on_tree_or_name_records() {
+    let dir = temp_dir();
+    let cases = [
+        ("at_limit", 300, "", false),
+        ("over_limit", 301, "", true),
+        ("small_with_tree_node", 100, "{\"type\":\"tree_node\"}", true),
+        ("small_with_name", 100, "{\"type\":\"session_named\"}", true),
+        ("small_with_other_record", 100, "{\"type\":\"audit_event\"}", false),
+    ];
+    for (name, size, marker, _) in cases {
+        file_of_exact_size(&dir, name, size, marker);
+    }
+
+    let removed = prune_empty_sessions_async(&dir, None).await.unwrap();
+
+    let expected_kept: Vec<&str> = cases.iter().filter(|c| c.3).map(|c| c.0).collect();
+    assert_eq!(removed, cases.len() - expected_kept.len());
+    for (name, _, _, kept) in cases {
+        assert_eq!(dir.join(format!("{name}.jsonl")).exists(), kept, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn pruning_never_touches_the_active_session_or_non_session_files() {
+    let dir = temp_dir();
+    let active = file_of_exact_size(&dir, "active", 50, "");
+    std::fs::write(dir.join("notes.txt"), "tiny").unwrap();
+
+    let removed = prune_empty_sessions_async(&dir, Some("active")).await.unwrap();
+
+    assert_eq!(removed, 0);
+    assert!(active.exists() && dir.join("notes.txt").exists());
+}
+
+#[tokio::test]
+async fn spawn_auto_prune_removes_only_expired_inactive_sessions_in_the_background() {
+    let dir = temp_dir();
+    let active = SessionManager::new_async(&dir, None).await.unwrap();
+    create_test_session_file(&dir, "old", 30, false);
+    create_test_session_file(&dir, "recent", 1, false);
+
+    active.spawn_auto_prune(7).await.unwrap();
+
+    assert!(!dir.join("old.jsonl").exists(), "expired session was pruned");
+    assert!(dir.join("recent.jsonl").exists());
+    assert!(active.file_path.exists());
+}
