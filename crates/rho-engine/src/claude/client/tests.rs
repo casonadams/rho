@@ -12,6 +12,7 @@ use tokio::net::TcpListener;
 fn sample_request() -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system instructions".to_string()),
+        preamble_blocks: Vec::new(),
         prompt: "hello world".to_string(),
         messages: Vec::new(),
         tools: Vec::new(),
@@ -116,6 +117,7 @@ fn request_with_tool_and_history() -> ModelCompletionRequest {
     );
     ModelCompletionRequest {
         preamble: Some("system instructions".to_string()),
+        preamble_blocks: Vec::new(),
         prompt: String::new(),
         messages: vec![
             ChatMessage::user("run tool"),

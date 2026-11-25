@@ -203,6 +203,7 @@ async fn generate_title_text(
     let model = resolve_title_model(config, router, fallback_model).await?;
     let request = ModelCompletionRequest {
         preamble: Some(TITLE_SYSTEM_PROMPT.to_string()),
+        preamble_blocks: Vec::new(),
         prompt: prompt.to_string(),
         messages: Vec::new(),
         tools: Vec::new(),

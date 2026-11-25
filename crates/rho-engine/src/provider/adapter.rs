@@ -30,6 +30,9 @@ pub struct ModelToolDefinition {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModelCompletionRequest {
     pub preamble: Option<String>,
+    /// Optional tiered system-prompt blocks (`stable`, `context`, `volatile`) for
+    /// providers that place cache breakpoints on individual system blocks.
+    pub preamble_blocks: Vec<String>,
     pub prompt: String,
     pub messages: Vec<ChatMessage>,
     pub tools: Vec<ModelToolDefinition>,
@@ -110,6 +113,12 @@ pub trait ModelAdapter: Send + Sync + std::fmt::Debug {
 
     /// Request settings besides the model that select a separate prompt cache, such as Claude's thinking.
     fn cache_settings(&self) -> Option<&str> {
+        None
+    }
+
+    /// Provider-specific prompt cache lifetime for warm/cold tracking, or `None` to use the
+    /// default `CacheRetention` policy.
+    fn cache_ttl(&self, _retention: rho_harness_core::config::CacheRetention) -> Option<std::time::Duration> {
         None
     }
 }

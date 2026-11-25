@@ -321,3 +321,27 @@ fn a_hand_edited_memory_file_is_capped_when_loaded() {
     assert!(!section.contains(&format!("- note {MAX_NOTES}\n")), "{section}");
     assert!(section.contains("[7 more Global notes omitted"), "{section}");
 }
+
+#[tokio::test]
+async fn system_prompt_parts_separate_tiers_and_freeze_date_across_refresh() {
+    let temp = rho_test_support::TestDir::new();
+    std::fs::write(temp.join("AGENTS.md"), "Repo guidance").unwrap();
+    let mut ctx = ProjectContext::discover_with_dirs(
+        &temp,
+        ContextDirs {
+            home_dir: Some(&temp.join("home")),
+            ..Default::default()
+        },
+    )
+    .await;
+    ctx.date_str = "2026-01-01".to_string();
+
+    let parts = ctx.build_system_prompt_parts();
+    assert!(parts.stable.contains("expert coding assistant"));
+    assert!(parts.context.contains("Repo guidance"));
+    assert!(parts.volatile.contains("Today's date is 2026-01-01"));
+    assert_eq!(parts.render(), ctx.build_system_prompt());
+
+    ctx.refresh_runtime_state().await;
+    assert_eq!(ctx.date_str, "2026-01-01");
+}

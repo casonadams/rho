@@ -17,6 +17,7 @@ fn dummy_tool(name: &str) -> ModelToolDefinition {
 fn sample_request_with_tools(tools: Vec<ModelToolDefinition>) -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system preamble".to_string()),
+        preamble_blocks: Vec::new(),
         prompt: "hello".to_string(),
         messages: Vec::new(),
         tools,
@@ -229,6 +230,7 @@ fn convert_messages_converts_user_and_assistant_images() {
     let req = ModelCompletionRequest {
         prompt: String::new(),
         preamble: None,
+        preamble_blocks: Vec::new(),
         messages: vec![user_msg],
         tools: Vec::new(),
         max_tokens: None,
@@ -295,6 +297,7 @@ fn convert_messages_replays_signed_and_redacted_thinking_and_drops_unsigned() {
     let req = ModelCompletionRequest {
         prompt: String::new(),
         preamble: None,
+        preamble_blocks: Vec::new(),
         messages: vec![asst_msg],
         tools: Vec::new(),
         max_tokens: None,
@@ -343,6 +346,7 @@ fn convert_messages_handles_tool_results() {
     let req = ModelCompletionRequest {
         prompt: String::new(),
         preamble: None,
+        preamble_blocks: Vec::new(),
         messages: vec![ChatMessage::User {
             content: vec![UserContent::ToolResult(rho_harness_core::model::ToolResult::new(
                 "call_json",
@@ -393,4 +397,28 @@ fn from_claude_tool_name_mapping() {
     for (input, expected) in cases {
         assert_eq!(from_claude_tool_name(input), expected);
     }
+}
+
+#[test]
+fn preamble_blocks_emit_separate_system_blocks() {
+    let req = ModelCompletionRequest {
+        preamble: Some("stable\n\ncontext\n\nvolatile".to_string()),
+        preamble_blocks: vec!["stable".to_string(), "context".to_string(), "volatile".to_string()],
+        prompt: "hi".to_string(),
+        ..Default::default()
+    };
+    let body = build_request_body(
+        "claude-sonnet-4-6",
+        None,
+        &req,
+        ClaudeAuth::ApiKey,
+        CacheRetention::Short,
+    )
+    .unwrap();
+    let system = body["system"].as_array().unwrap();
+    assert_eq!(system.len(), 3);
+    assert_eq!(system[0]["text"], "stable");
+    assert_eq!(system[1]["text"], "context");
+    assert_eq!(system[2]["text"], "volatile");
+    assert_eq!(system[2]["cache_control"]["type"], "ephemeral");
 }

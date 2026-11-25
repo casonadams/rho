@@ -136,6 +136,7 @@ impl DecisionModel for ChatDecisionAdapter {
             .model
             .complete(ModelCompletionRequest {
                 preamble: Some(CHAT_DECISION_PREAMBLE.to_string()),
+                preamble_blocks: Vec::new(),
                 prompt: render_prompt(&request),
                 messages: Vec::new(),
                 tools: Vec::new(),

@@ -143,6 +143,7 @@ impl AgentEngine {
 
         let completion_req = ModelCompletionRequest {
             preamble: (!preamble.is_empty()).then_some(preamble),
+            preamble_blocks: Vec::new(),
             prompt: String::new(),
             messages,
             tools,

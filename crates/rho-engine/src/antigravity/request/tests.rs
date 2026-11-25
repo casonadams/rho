@@ -10,6 +10,7 @@ use rho_harness_core::model::ChatMessage;
 fn minimal_request(history: Vec<ChatMessage>) -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system prompt".to_string()),
+        preamble_blocks: Vec::new(),
         prompt: String::new(),
         messages: history,
         tools: Vec::new(),

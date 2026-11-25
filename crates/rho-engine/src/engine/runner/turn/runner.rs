@@ -128,6 +128,7 @@ pub struct AgentRunner {
     session_manager: Option<SessionManager>,
     store: Arc<dyn super::store::TurnStore>,
     preamble: String,
+    preamble_blocks: Vec<String>,
     prompt: String,
     budget: usize,
     history: Vec<ChatMessage>,
@@ -197,6 +198,7 @@ impl AgentRunner {
             store,
             session_manager: None,
             preamble: String::new(),
+            preamble_blocks: Vec::new(),
             prompt: String::new(),
             budget: 10,
             history: Vec::new(),
@@ -222,6 +224,11 @@ impl AgentRunner {
 
     pub fn preamble(mut self, preamble: impl Into<String>) -> Self {
         self.preamble = preamble.into();
+        self
+    }
+
+    pub fn preamble_blocks(mut self, blocks: Vec<String>) -> Self {
+        self.preamble_blocks = blocks;
         self
     }
 
@@ -484,6 +491,7 @@ fn completion_request(
 ) -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: (!runner.preamble.is_empty()).then(|| runner.preamble.clone()),
+        preamble_blocks: runner.preamble_blocks.clone(),
         prompt: String::new(),
         messages: messages.to_vec(),
         tools: tools_def.to_vec(),
