@@ -98,7 +98,7 @@ fn test_pagination_byte_limit() {
 fn fetch_tool() -> WebFetchTool {
     WebFetchTool::new(
         HttpClient::new(true).unwrap(),
-        FetchCache::new(60, 4),
+        FetchCache::new(60, 4, 1024 * 1024),
         WebFetchConfig {
             timeout_sec: 1,
             max_bytes: 1024,

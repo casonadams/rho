@@ -144,7 +144,7 @@ pub fn build_builtin_toolset(
         if config.tools.web.fetch.enabled {
             let fetch = WebFetchTool::new(
                 http,
-                FetchCache::new(60, 64),
+                FetchCache::new(60, 64, 32 * 1024 * 1024),
                 WebFetchConfig {
                     timeout_sec: config.fetch_timeout_sec,
                     max_bytes: config.fetch_max_bytes,
