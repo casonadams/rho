@@ -108,7 +108,7 @@ fn highlight_fd_output(text: &str, theme: &Theme) -> String {
 
 fn highlight_fenced_blocks(text: &str, theme: &Theme) -> String {
     let dim = theme.dimmed;
-    let mut active: Option<CodeHighlighter<'_>> = None;
+    let mut active: Option<CodeHighlighter> = None;
     let mut out = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim_start();

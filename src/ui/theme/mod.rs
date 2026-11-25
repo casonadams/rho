@@ -30,7 +30,7 @@ pub enum CursorMode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
-    /// Detected terminal light/dark mode; selects syntect syntax colors.
+    /// Detected terminal light/dark mode.
     pub is_light: bool,
     pub prompt: Style,
     pub thinking: Style,
