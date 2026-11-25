@@ -131,7 +131,7 @@ impl ModelRouter {
         let provider = route.provider().to_ascii_lowercase();
         match provider.as_str() {
             "gemini" | "google" => {
-                let key = resolve_provider_key(ProviderId::Gemini, &connection, &auth_store)?;
+                let key = resolve_key_off_runtime(ProviderId::Gemini, connection, auth_store).await?;
                 Ok(Arc::new(crate::decision::GeminiDecisionClient::new(key, &route.model)))
             }
             "typesafe" => {
@@ -139,7 +139,7 @@ impl ModelRouter {
                 Ok(Arc::new(crate::decision::SystemOneClient::typesafe(key, &route.model)))
             }
             "openrouter" => {
-                let key = resolve_provider_key(ProviderId::OpenRouter, &connection, &auth_store)?;
+                let key = resolve_key_off_runtime(ProviderId::OpenRouter, connection, auth_store).await?;
                 Ok(Arc::new(crate::decision::SystemOneClient::openrouter(
                     key,
                     &route.model,
@@ -164,6 +164,13 @@ async fn resolve_typesafe_key(connection: &str, auth_store: &mut AuthStore) -> R
             "Missing API key for provider 'typesafe'. Set TYPESAFE_API_KEY or run 'rho login typesafe'.".to_string(),
         )
     })
+}
+
+/// Resolves a key on the blocking pool because `!command` secrets run a subprocess.
+async fn resolve_key_off_runtime(provider: ProviderId, connection: String, auth_store: AuthStore) -> Result<String> {
+    tokio::task::spawn_blocking(move || resolve_provider_key(provider, &connection, &auth_store))
+        .await
+        .map_err(|e| AppError::Provider(format!("Key resolution task failed: {e}")))?
 }
 
 pub fn guard_route(config: &Config) -> Option<ModelRoute> {
@@ -229,4 +236,34 @@ pub(crate) fn custom_key(name: &str, spec: &ProviderConfig, auth_store: &AuthSto
         }
     }
     auth_store.get_key_sync(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn native_decision_command_key_does_not_block_runtime() {
+        let (_dir, mut auth) = crate::test_support::temp_auth_store();
+        auth.set_key("gemini", "!echo native_decision_key").unwrap();
+        let router = ModelRouter::new(Arc::new(Mutex::new(auth)), ModelCatalog::default());
+        let route = ModelRoute::parse("gemini/gemini-decision-1", None, "local");
+        let done = Cell::new(false);
+        let ticks = Cell::new(0u32);
+        let build = async {
+            let built = router.build_decision(&Config::default(), &route).await;
+            done.set(true);
+            built
+        };
+        let ticker = async {
+            while !done.get() {
+                ticks.set(ticks.get() + 1);
+                tokio::task::yield_now().await;
+            }
+        };
+        let (built, ()) = tokio::join!(build, ticker);
+        assert!(built.is_ok());
+        assert!(ticks.get() > 0);
+    }
 }
