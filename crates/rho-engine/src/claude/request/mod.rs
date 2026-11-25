@@ -280,13 +280,7 @@ pub fn build_request_body(
             "text": "You are Claude Code, Anthropic's official CLI for Claude.",
         }));
     }
-    if let Some(system) = system_prompt(request) {
-        let sanitized = sanitize_system_prompt(&system) + &renamed_tools_note(request);
-        system_blocks.push(json!({
-            "type": "text",
-            "text": sanitized,
-        }));
-    }
+    append_system_blocks(&mut system_blocks, request);
     if !system_blocks.is_empty() {
         body["system"] = json!(system_blocks);
     }
@@ -403,8 +397,31 @@ pub fn mark_cache_breakpoints(body: &mut Value, retention: CacheRetention) {
     }
 }
 
-fn system_prompt(request: &ModelCompletionRequest) -> Option<String> {
-    request.preamble.clone()
+fn append_system_blocks(system_blocks: &mut Vec<Value>, request: &ModelCompletionRequest) {
+    let raw_blocks: Vec<&str> = if !request.preamble_blocks.is_empty() {
+        request
+            .preamble_blocks
+            .iter()
+            .map(String::as_str)
+            .filter(|b| !b.trim().is_empty())
+            .collect()
+    } else if let Some(system) = request.preamble.as_deref() {
+        vec![system]
+    } else {
+        return;
+    };
+    let last_idx = raw_blocks.len().saturating_sub(1);
+    let note = renamed_tools_note(request);
+    for (idx, block) in raw_blocks.into_iter().enumerate() {
+        let mut sanitized = sanitize_system_prompt(block);
+        if idx == last_idx {
+            sanitized.push_str(&note);
+        }
+        system_blocks.push(json!({
+            "type": "text",
+            "text": sanitized,
+        }));
+    }
 }
 
 fn renamed_tools_note(request: &ModelCompletionRequest) -> String {

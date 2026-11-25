@@ -72,6 +72,7 @@ async fn agent_eval_harness_reports_behavior_mismatch() {
 fn sample_sensitive_request() -> rho_engine::provider::adapter::ModelCompletionRequest {
     rho_engine::provider::adapter::ModelCompletionRequest {
         preamble: None,
+        preamble_blocks: Vec::new(),
         prompt: "credential-sentinel".to_string(),
         messages: vec![ChatMessage::Assistant {
             id: None,

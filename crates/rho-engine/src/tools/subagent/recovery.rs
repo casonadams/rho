@@ -19,6 +19,7 @@ pub(crate) async fn attempt_recovery_synthesis(
         preamble: Some(format!(
             "{instructions}\n\nYour tool exploration is complete. Synthesize a structured summary of your findings addressing the user's task. Do not call tools."
         )),
+        preamble_blocks: Vec::new(),
         prompt: "Please synthesize your final structured findings and summary based on the findings above.".to_string(),
         messages: prepare_history_for_recovery(history),
         tools: Vec::new(),

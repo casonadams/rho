@@ -151,14 +151,58 @@ pub fn format_turn_prompt(prompt: &str, git_status: Option<&str>) -> String {
     }
 }
 
+/// System prompt split into three stability tiers for prefix-caching providers.
+///
+/// Joining non-empty tiers in `stable -> context -> volatile` order preserves the
+/// longest reusable KV-cache prefix for implicit-caching providers (Gemini, OpenAI)
+/// while giving block-based providers (Anthropic) clean cache boundaries.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SystemPromptParts {
+    pub stable: String,
+    pub context: String,
+    pub volatile: String,
+}
+
+impl SystemPromptParts {
+    /// Non-empty tiers in `stable -> context -> volatile` order.
+    pub fn blocks(&self) -> Vec<String> {
+        [&self.stable, &self.context, &self.volatile]
+            .into_iter()
+            .map(|part| part.trim())
+            .filter(|part| !part.is_empty())
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    /// Join non-empty tiers with blank lines in `stable -> context -> volatile` order.
+    pub fn render(&self) -> String {
+        self.blocks().join("\n\n")
+    }
+}
+
+pub fn build_system_prompt_parts(ctx: &ProjectContext) -> SystemPromptParts {
+    let stable = ctx.base_system_prompt.trim().to_string();
+
+    let mut context = String::new();
+    append_instruction_files(&mut context, &ctx.instruction_files);
+    let context = context.trim_end().to_string();
+
+    let mut volatile = String::new();
+    volatile.push_str(&ctx.memory);
+    append_skills(&mut volatile, &ctx.skills, &ctx.active_tools);
+    append_agents(&mut volatile, &ctx.agents, &ctx.active_tools);
+    append_environment_info(&mut volatile, ctx);
+    let volatile = volatile.trim_end().to_string();
+
+    SystemPromptParts {
+        stable,
+        context,
+        volatile,
+    }
+}
+
 pub fn build_system_prompt(ctx: &ProjectContext) -> String {
-    let mut prompt = format!("{}\n\n", ctx.base_system_prompt.trim());
-    append_instruction_files(&mut prompt, &ctx.instruction_files);
-    prompt.push_str(&ctx.memory);
-    append_skills(&mut prompt, &ctx.skills, &ctx.active_tools);
-    append_agents(&mut prompt, &ctx.agents, &ctx.active_tools);
-    append_environment_info(&mut prompt, ctx);
-    prompt
+    build_system_prompt_parts(ctx).render()
 }
 
 pub fn build_agent_grounding(ctx: &ProjectContext, agent_tools: &[String]) -> String {

@@ -32,6 +32,7 @@ enum LlmCallError {
 async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(String, StructuralUsage), LlmCallError> {
     let req = crate::provider::adapter::ModelCompletionRequest {
         preamble: Some(SUMMARIZATION_SYSTEM_PROMPT.to_string()),
+        preamble_blocks: Vec::new(),
         prompt: prompt.to_string(),
         messages: Vec::new(),
         tools: Vec::new(),

@@ -384,6 +384,10 @@ impl ModelAdapter for OpenAiClient {
         &self.provider_name
     }
 
+    fn cache_ttl(&self, _retention: rho_harness_core::config::CacheRetention) -> Option<std::time::Duration> {
+        (self.provider_name == "openai").then(|| std::time::Duration::from_secs(30 * 60))
+    }
+
     async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
         use crate::provider::error::HttpFailure;
         let body = build_request_body(&req, &self.model, true);

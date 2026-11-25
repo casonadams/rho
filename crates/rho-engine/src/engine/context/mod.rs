@@ -15,7 +15,9 @@ pub use activation::{MAX_DYNAMIC_INSTRUCTION_BYTES, MAX_DYNAMIC_INSTRUCTION_FILE
 pub use instructions::{
     ContextDirs, discover_ancestry_instructions, discover_instructions, discover_instructions_with_seen, find_repo_root,
 };
-pub use prompt::{assemble_base_system_prompt, build_agent_grounding, escape_xml, format_turn_prompt};
+pub use prompt::{
+    SystemPromptParts, assemble_base_system_prompt, build_agent_grounding, escape_xml, format_turn_prompt,
+};
 pub use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
 pub use transclusion::expand_transclusions;
 
@@ -150,19 +152,25 @@ impl ProjectContext {
         activation::activate_path_instructions_async(self, path).await;
     }
 
-    /// Re-read only the per-turn volatile fields; files and skill metadata are
-    /// cached by the caller for the lifetime of the working directory.
+    /// Re-read only per-turn fields that live outside the system prompt.
+    ///
+    /// `date_str`, instruction files, memory, and skill metadata stay frozen for the
+    /// lifetime of the cached context (until compaction or a cwd change) so crossing
+    /// midnight never invalidates the provider KV cache prefix.
     pub async fn refresh_runtime_state(&mut self) {
         const GIT_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
         if self.last_git_check.is_none_or(|t| t.elapsed() >= GIT_REFRESH_INTERVAL) {
             self.git_status = get_git_summary(&self.current_dir).await;
             self.last_git_check = Some(std::time::Instant::now());
         }
-        self.date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
     }
 
     pub fn build_system_prompt(&self) -> String {
         prompt::build_system_prompt(self)
+    }
+
+    pub fn build_system_prompt_parts(&self) -> SystemPromptParts {
+        prompt::build_system_prompt_parts(self)
     }
 }
 

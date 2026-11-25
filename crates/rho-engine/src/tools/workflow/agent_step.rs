@@ -337,6 +337,7 @@ impl Executor<'_> {
     async fn repair_json(&self, runner: &SubagentRunner, text: &str) -> Option<Value> {
         let request = ModelCompletionRequest {
             preamble: Some(REPAIR_PREAMBLE.to_string()),
+            preamble_blocks: Vec::new(),
             prompt: text.to_string(),
             messages: Vec::new(),
             tools: Vec::new(),

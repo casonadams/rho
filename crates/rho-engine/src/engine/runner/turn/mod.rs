@@ -19,7 +19,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::engine::AgentEngine;
-use prepare::TurnLoopState;
 use rho_harness_core::error::Result;
 use rho_harness_core::presentation::presenter::Presenter;
 use stream::StreamRunResult;
@@ -88,20 +87,16 @@ impl AgentEngine {
 
     async fn execute_turn_step(
         &self,
-        sink: &Arc<TerminalApprovalSink>,
-        preamble: &str,
+        prep: &mut prepare::PreparedTurn,
         request: &TurnRequest<'_>,
         lifecycle: &Arc<crate::hook::LifecycleHook>,
-        loop_state: &mut TurnLoopState,
     ) -> Result<TurnOutput> {
         let presenter = lifecycle.presenter();
-        let runner = self
-            .prepare_step_runner(sink, preamble, request, lifecycle, loop_state)
-            .await?;
+        let runner = self.prepare_step_runner(prep, request, lifecycle).await?;
         let stream_res = self
-            .run_turn_stream(runner, sink, presenter.as_ref(), loop_state)
+            .run_turn_stream(runner, &prep.sink, presenter.as_ref(), &mut prep.loop_state)
             .await?;
-        self.handle_stream_run_result(stream_res, sink, lifecycle, loop_state.turn_started_at)
+        self.handle_stream_run_result(stream_res, &prep.sink, lifecycle, prep.loop_state.turn_started_at)
             .await
     }
 
@@ -116,7 +111,6 @@ impl AgentEngine {
         prep.loop_state.turn_started_at = turn_started_at;
         let lifecycle = self.lifecycle_hook(presenter.clone());
         let _in_flight_guard = self.usage.in_flight_guard();
-        self.execute_turn_step(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
-            .await
+        self.execute_turn_step(&mut prep, &request, &lifecycle).await
     }
 }

@@ -165,6 +165,7 @@ fn antigravity_headers_sets_expected_keys() {
 fn test_completion_request() -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system prompt".to_string()),
+        preamble_blocks: Vec::new(),
         prompt: "hello".to_string(),
         messages: Vec::new(),
         tools: Vec::new(),

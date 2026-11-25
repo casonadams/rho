@@ -95,13 +95,26 @@ impl ChatGptClient {
 
     fn build_request(&self, request: &ModelCompletionRequest) -> Result<serde_json::Value, AppError> {
         let mut input = Vec::new();
-        if let Some(preamble) = &request.preamble
+        let system_parts: Vec<Value> = if !request.preamble_blocks.is_empty() {
+            request
+                .preamble_blocks
+                .iter()
+                .map(|b| b.trim())
+                .filter(|b| !b.is_empty())
+                .map(|b| json!({"type": "input_text", "text": b}))
+                .collect()
+        } else if let Some(preamble) = &request.preamble
             && !preamble.trim().is_empty()
         {
+            vec![json!({"type": "input_text", "text": preamble.trim()})]
+        } else {
+            Vec::new()
+        };
+        if !system_parts.is_empty() {
             input.push(json!({
                 "type": "message",
                 "role": "system",
-                "content": [{"type": "input_text", "text": preamble.trim()}]
+                "content": system_parts
             }));
         }
         for m in &request.messages {
@@ -263,6 +276,10 @@ impl ModelAdapter for ChatGptClient {
             crate::chatgpt::stream::SseParser::new(),
         )
     }
+
+    fn cache_ttl(&self, _retention: rho_harness_core::config::CacheRetention) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30 * 60))
+    }
 }
 
 pub fn friendly_error(status: Option<u16>, body: &str) -> String {
@@ -321,6 +338,7 @@ mod tests {
         ModelCompletionRequest {
             prompt: "hi".to_string(),
             preamble: None,
+            preamble_blocks: Vec::new(),
             messages: Vec::new(),
             tools: Vec::new(),
             max_tokens: None,

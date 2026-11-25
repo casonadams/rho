@@ -28,6 +28,7 @@ pub(super) enum PreparedTurnOutcome {
 pub(super) struct TurnRunnerParams<'a> {
     pub prompt: &'a str,
     pub preamble: &'a str,
+    pub preamble_blocks: &'a [String],
     pub budget: usize,
     pub thinking_level: Option<ThinkingLevel>,
     pub checkpoint: Option<&'a [ChatMessage]>,
@@ -37,6 +38,7 @@ pub(super) struct TurnRunnerParams<'a> {
 
 pub(super) struct PreparedTurn {
     pub preamble: String,
+    pub preamble_blocks: Vec<String>,
     pub sink: Arc<TerminalApprovalSink>,
     pub loop_state: TurnLoopState,
 }
@@ -146,11 +148,12 @@ impl AgentEngine {
     fn live_prompt_cache(&self) -> Option<SentRequest> {
         let sent = self.run_tracker.last_request()?;
         let subscription = sent.cache_key.provider == ProviderId::ClaudeCode.as_str();
-        let lifetime = self
-            .config
-            .cache_retention
-            .ttl(subscription)
-            .saturating_sub(CACHE_EXPIRY_MARGIN);
+        let ttl = self
+            .model
+            .as_ref()
+            .and_then(|model| model.cache_ttl(self.config.cache_retention))
+            .unwrap_or_else(|| self.config.cache_retention.ttl(subscription));
+        let lifetime = ttl.saturating_sub(CACHE_EXPIRY_MARGIN);
         (sent.started.elapsed() < lifetime).then_some(sent)
     }
 
@@ -247,6 +250,7 @@ impl AgentEngine {
         };
         Ok(PreparedTurn {
             preamble,
+            preamble_blocks: Vec::new(),
             sink,
             loop_state,
         })
@@ -259,8 +263,10 @@ impl AgentEngine {
     ) -> Result<PreparedTurnOutcome> {
         self.require_model()?;
         let context = self.project_context().await?;
-        let mut preamble = context.build_system_prompt();
-        crate::mcp::append_server_instructions(&mut preamble, &self.mcp.instructions);
+        let mut prompt_parts = context.build_system_prompt_parts();
+        crate::mcp::append_server_instructions(&mut prompt_parts.volatile, &self.mcp.instructions);
+        let preamble = prompt_parts.render();
+        let preamble_blocks = prompt_parts.blocks();
         let notes = self.turn_notes.pending();
         let effective_prompt = crate::engine::context::format_turn_prompt(
             &crate::engine::notes::with_notes(&notes, prompt),
@@ -282,6 +288,7 @@ impl AgentEngine {
         let mut ready = self
             .build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
             .await?;
+        ready.preamble_blocks = preamble_blocks;
         ready.loop_state.thinking_level = self.resolve_turn_thinking_level(prompt).await;
         self.turn_notes.consume(notes.len());
         Ok(PreparedTurnOutcome::Ready(ready))
@@ -306,6 +313,7 @@ impl AgentEngine {
         let model = self.require_model()?;
         let mut runner = AgentRunner::new(model, tools, self.session_manager.clone(), sink)
             .preamble(params.preamble)
+            .preamble_blocks(params.preamble_blocks.to_vec())
             .prompt(params.prompt)
             .budget(params.budget)
             .thinking_level(params.thinking_level)
@@ -382,32 +390,31 @@ impl AgentEngine {
         Some(Arc::new(hook))
     }
 
-    pub(super) async fn prepare_step_runner<'a>(
+    pub(super) async fn prepare_step_runner(
         &self,
-        sink: &Arc<TerminalApprovalSink>,
-        preamble: &'a str,
+        prep: &PreparedTurn,
         request: &TurnRequest<'_>,
         lifecycle_hook: &Arc<crate::hook::LifecycleHook>,
-        loop_state: &'a TurnLoopState,
     ) -> Result<AgentRunner> {
         let presenter = lifecycle_hook.presenter();
         let cwd = self.base_dir.clone();
-        lifecycle_hook.notify_turn_start(&loop_state.current_prompt).await;
+        lifecycle_hook.notify_turn_start(&prep.loop_state.current_prompt).await;
 
         let permission_hook = self.permission_hook(cwd, presenter).await;
 
         let runner = self
             .build_turn_runner(
                 TurnRunnerParams {
-                    prompt: &loop_state.current_prompt,
-                    preamble,
-                    budget: loop_state.current_budget,
-                    thinking_level: loop_state.thinking_level,
-                    checkpoint: loop_state.checkpoint.as_deref(),
-                    history: &loop_state.visible_history,
+                    prompt: &prep.loop_state.current_prompt,
+                    preamble: &prep.preamble,
+                    preamble_blocks: &prep.preamble_blocks,
+                    budget: prep.loop_state.current_budget,
+                    thinking_level: prep.loop_state.thinking_level,
+                    checkpoint: prep.loop_state.checkpoint.as_deref(),
+                    history: &prep.loop_state.visible_history,
                     stream_port: presenter.stream_port(),
                 },
-                sink.clone(),
+                prep.sink.clone(),
                 request,
             )
             .await?

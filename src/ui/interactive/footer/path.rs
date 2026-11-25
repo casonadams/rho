@@ -213,7 +213,7 @@ fn fetch_git_pr(cwd: &Path, branch: &str) -> Option<GitPrInfo> {
 }
 
 const PR_HIT_TTL: Duration = Duration::from_secs(300);
-const PR_MISS_TTL: Duration = Duration::from_secs(60);
+const PR_MISS_TTL: Duration = Duration::from_secs(15);
 
 pub fn is_default_branch(branch: &str) -> bool {
     matches!(branch, "main" | "master")
@@ -236,6 +236,20 @@ fn pr_version_sender() -> &'static tokio::sync::watch::Sender<u64> {
 
 pub fn subscribe_git_pr() -> tokio::sync::watch::Receiver<u64> {
     pr_version_sender().subscribe()
+}
+
+/// Clears a cached `None` PR miss so the next footer sync re-checks immediately
+/// (for example after a turn that may have opened a PR).
+pub fn invalidate_git_pr_miss() {
+    let Some(cache) = PR_CACHE.get() else {
+        return;
+    };
+    if let Ok(mut guard) = cache.lock()
+        && guard.pr.is_none()
+        && !guard.in_flight
+    {
+        guard.fetched_at = None;
+    }
 }
 
 fn cache_entry_is_fresh(entry: &PrCacheEntry, key: &(PathBuf, String), now: Instant) -> bool {
@@ -429,12 +443,12 @@ mod tests {
         let miss = PrCacheEntry {
             key: Some(key.clone()),
             pr: None,
-            fetched_at: Some(now - Duration::from_secs(30)),
+            fetched_at: Some(now - Duration::from_secs(10)),
             in_flight: false,
         };
         assert!(cache_entry_is_fresh(&miss, &key, now));
         let stale_miss = PrCacheEntry {
-            fetched_at: Some(now - Duration::from_secs(61)),
+            fetched_at: Some(now - Duration::from_secs(16)),
             ..miss
         };
         assert!(!cache_entry_is_fresh(&stale_miss, &key, now));

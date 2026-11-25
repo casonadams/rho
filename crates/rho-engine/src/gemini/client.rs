@@ -121,6 +121,10 @@ impl ModelAdapter for GeminiClient {
     fn cache_settings(&self) -> Option<&str> {
         self.thinking_level.as_deref()
     }
+
+    fn cache_ttl(&self, _retention: rho_harness_core::config::CacheRetention) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(5 * 60))
+    }
 }
 
 #[cfg(test)]

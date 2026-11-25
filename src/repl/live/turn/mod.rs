@@ -197,6 +197,8 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     periodic_quota.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut quota_rx = engine.quota_subscribe();
     while !step_turn_select(&mut ctx, &mut run, &mut frame, &mut periodic_quota, &mut quota_rx).await? {}
+    crate::ui::interactive::footer::invalidate_git_pr_miss();
+    sync_turn_footer(ctx.loop_ctx.controller, ctx.loop_ctx.engine);
 
     Ok(())
 }

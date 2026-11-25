@@ -311,6 +311,7 @@ impl GuardEvaluator {
         );
         let req = crate::provider::adapter::ModelCompletionRequest {
             preamble: Some(GUARD_SYSTEM_PROMPT.to_string()),
+            preamble_blocks: Vec::new(),
             prompt: eval_prompt,
             messages: Vec::new(),
             tools: Vec::new(),
