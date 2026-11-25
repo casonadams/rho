@@ -60,6 +60,9 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.provider = session.config.provider.clone();
     footer.model = session.config.model.clone();
     footer.thinking_level = session.config.thinking_level.clone();
+    if !rho_harness_core::thinking::ThinkingLevel::from_setting(footer.thinking_level.as_deref()).is_auto() {
+        footer.resolved_thinking_level = None;
+    }
 
     let cwd = std::env::current_dir().unwrap_or_default();
     footer.cwd = Some(cwd.display().to_string());

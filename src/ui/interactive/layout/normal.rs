@@ -2,7 +2,7 @@ use super::autocomplete::render_autocomplete_dropdown;
 use super::budget::{NormalBudgetInput, NormalLayoutBudget, compute_normal_budget};
 use super::chrome::{
     active_activity_status, bottom_divider, modal_banner_title, modal_top_divider, queued_lines_text,
-    thinking_divider_style, top_divider, working_line_text,
+    thinking_divider_style_with_resolved, top_divider, working_line_text,
 };
 use super::editor::{render_editor_lines, window_editor, wrap_editor_with_prefix};
 use super::{CursorPosition, InteractiveLayout, LayoutInput};
@@ -40,7 +40,10 @@ fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str
     } else if is_divider_none(input) {
         ("", "")
     } else {
-        thinking_divider_style(input.footer.thinking_level.as_deref())
+        thinking_divider_style_with_resolved(
+            input.footer.thinking_level.as_deref(),
+            input.footer.resolved_thinking_level,
+        )
     }
 }
 
@@ -85,6 +88,26 @@ struct EditorLayoutPlan<'a> {
     theme: &'a crate::ui::theme::Theme,
 }
 
+fn append_hardware_ghost_text(ed_lines: &mut [String], cursor: CursorPosition, ghost: Option<&str>, width: usize) {
+    if cursor.row != ed_lines.len().saturating_sub(1) {
+        return;
+    }
+    let (Some(ghost_str), Some(last_line)) = (ghost, ed_lines.last_mut()) else {
+        return;
+    };
+    let line_width = crate::ui::block::visible_width(last_line);
+    if cursor.column != line_width {
+        return;
+    }
+    let remaining = width.saturating_sub(line_width);
+    let fitted = super::editor::fit_ghost_text(ghost_str, remaining);
+    if !fitted.is_empty() {
+        last_line.push_str("\x1b[2m");
+        last_line.push_str(&fitted);
+        last_line.push_str("\x1b[22m");
+    }
+}
+
 fn render_editor_area(input: &LayoutInput<'_>, plan: EditorLayoutPlan<'_>) -> (Vec<String>, CursorPosition, bool) {
     if let Some(modal) = input.modal {
         return super::modal::render_in_input_modal(super::modal::InInputModalInput {
@@ -101,20 +124,15 @@ fn render_editor_area(input: &LayoutInput<'_>, plan: EditorLayoutPlan<'_>) -> (V
     let unused_ac = plan.ac_budget.saturating_sub(ac_lines.len());
     let ed_max = plan.ed_budget + unused_ac.min(plan.wrapped_lines.len().saturating_sub(plan.ed_budget));
     let (mut ed_lines, ed_cursor) = window_editor(plan.wrapped_lines, plan.cursor, ed_max);
-    let ghost = if input.autocomplete.is_none() {
+    let ghost = if input.autocomplete.is_none_or(|ac| !ac.visible) {
         input.editor.ghost_text()
     } else {
         None
     };
     let mut ed_lines = if input.focused && plan.theme.cursor_mode == crate::ui::theme::CursorMode::Software {
-        render_editor_lines(ed_lines, ed_cursor, ghost)
+        render_editor_lines(ed_lines, ed_cursor, ghost, plan.width)
     } else {
-        let is_last_row = ed_cursor.row == ed_lines.len().saturating_sub(1);
-        if let (true, Some(ghost_str), Some(last_line)) = (is_last_row, ghost, ed_lines.last_mut()) {
-            last_line.push_str("\x1b[2m");
-            last_line.push_str(ghost_str);
-            last_line.push_str("\x1b[22m");
-        }
+        append_hardware_ghost_text(&mut ed_lines, ed_cursor, ghost, plan.width);
         ed_lines
     };
     if !ac_lines.is_empty() {

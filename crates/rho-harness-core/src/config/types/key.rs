@@ -36,6 +36,7 @@ pub(crate) enum ConfigKey {
     AutoTitle,
     TerminalTitle,
     TerminalTitleState,
+    UiPromptPrediction,
     A2uiWidgets,
     A2uiMaxAboveLines,
     A2uiMaxBelowLines,
@@ -147,6 +148,11 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
         "ui.terminal_title_state",
         &["terminal_title_state"],
     ),
+    (
+        ConfigKey::UiPromptPrediction,
+        "ui.prompt_prediction",
+        &["prompt_prediction"],
+    ),
     (ConfigKey::A2uiWidgets, "ui.a2ui_widgets", &["a2ui_widgets"]),
     (ConfigKey::A2uiMaxAboveLines, "ui.a2ui.max_above_lines", &[]),
     (ConfigKey::A2uiMaxBelowLines, "ui.a2ui.max_below_lines", &[]),
@@ -207,7 +213,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 58] = [
+    const ALL_KEYS: [ConfigKey; 59] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -242,6 +248,7 @@ mod tests {
         ConfigKey::AutoTitle,
         ConfigKey::TerminalTitle,
         ConfigKey::TerminalTitleState,
+        ConfigKey::UiPromptPrediction,
         ConfigKey::A2uiWidgets,
         ConfigKey::A2uiMaxAboveLines,
         ConfigKey::A2uiMaxBelowLines,

@@ -15,7 +15,8 @@ pub mod context;
 mod display;
 pub mod ephemeral;
 pub use ephemeral::{
-    EphemeralTurnRequest, EphemeralTurnResponse, PreparedEphemeralTurn, build_recap_prompt, format_recap_text,
+    EphemeralTurnRequest, EphemeralTurnResponse, PreparedEphemeralTurn, build_prompt_prediction_prompt,
+    build_recap_prompt, format_prompt_prediction, format_recap_text,
 };
 mod locking;
 pub mod metrics;

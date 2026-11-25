@@ -100,6 +100,7 @@ impl EditorState {
         self.cursor = 0;
         self.pastes.clear();
         self.preferred_column = None;
+        self.ghost_text = None;
         Some(QueuedMessage { text, kind })
     }
 
@@ -116,6 +117,7 @@ impl EditorState {
             self.cursor = prev.cursor.min(self.text.len());
             self.pastes = prev.pastes;
             self.preferred_column = None;
+            self.ghost_text = None;
         }
     }
 
@@ -161,6 +163,7 @@ impl EditorState {
             self.cursor += clean.len();
         }
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     pub fn insert(&mut self, value: char) {
@@ -173,10 +176,20 @@ impl EditorState {
         if s.is_empty() {
             return;
         }
+        let at_end = self.cursor == self.text.len();
         self.record_undo();
         self.text.insert_str(self.cursor, s);
         self.cursor += s.len();
         self.preferred_column = None;
+        self.ghost_text = if at_end {
+            self.ghost_text
+                .as_deref()
+                .and_then(|ghost| ghost.strip_prefix(s))
+                .filter(|rest| !rest.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        };
     }
 
     pub fn insert_newline(&mut self) {
@@ -192,6 +205,7 @@ impl EditorState {
             self.cursor = marker.start;
             self.pastes.remove_and_renumber(marker.id, &mut self.text);
             self.preferred_column = None;
+            self.ghost_text = None;
             return;
         }
         let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() else {
@@ -201,6 +215,7 @@ impl EditorState {
         self.text.drain(index..self.cursor);
         self.cursor = index;
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     pub fn delete(&mut self) {
@@ -211,6 +226,7 @@ impl EditorState {
             self.text.drain(marker.start..marker.end);
             self.pastes.remove_and_renumber(marker.id, &mut self.text);
             self.preferred_column = None;
+            self.ghost_text = None;
             return;
         }
         let Some(character) = self.text[self.cursor..].chars().next() else {
@@ -219,6 +235,7 @@ impl EditorState {
         self.record_undo();
         self.text.drain(self.cursor..self.cursor + character.len_utf8());
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     fn kill_range(&mut self, range: std::ops::Range<usize>) {
@@ -241,6 +258,7 @@ impl EditorState {
         self.cursor = new_cursor;
         self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     pub fn delete_word_forward(&mut self) {
@@ -255,6 +273,7 @@ impl EditorState {
         self.kill_range(old_cursor..new_cursor);
         self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     pub fn delete_to_line_start(&mut self) {
@@ -267,6 +286,7 @@ impl EditorState {
         self.cursor = line_start;
         self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     pub fn delete_to_line_end(&mut self) {
@@ -286,6 +306,7 @@ impl EditorState {
         self.kill_range(self.cursor..line_end);
         self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
+        self.ghost_text = None;
     }
 
     pub fn move_left(&mut self) {
@@ -393,5 +414,39 @@ impl EditorState {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EditorState;
+
+    #[test]
+    fn typing_prefix_of_ghost_text_slices_suffix_and_non_match_clears() {
+        let mut editor = EditorState::default();
+        editor.set_ghost_text(Some("Commit changes".to_string()));
+
+        editor.insert('C');
+        assert_eq!(editor.text(), "C");
+        assert_eq!(editor.ghost_text(), Some("ommit changes"));
+
+        editor.insert('o');
+        assert_eq!(editor.text(), "Co");
+        assert_eq!(editor.ghost_text(), Some("mmit changes"));
+
+        editor.insert('m');
+        assert_eq!(editor.text(), "Com");
+        assert_eq!(editor.ghost_text(), Some("mit changes"));
+
+        assert!(editor.accept_ghost_text());
+        assert_eq!(editor.text(), "Commit changes");
+        assert_eq!(editor.ghost_text(), None);
+
+        // Typing a non-matching character clears ghost_text
+        let mut editor2 = EditorState::default();
+        editor2.set_ghost_text(Some("Commit changes".to_string()));
+        editor2.insert('X');
+        assert_eq!(editor2.text(), "X");
+        assert_eq!(editor2.ghost_text(), None);
     }
 }

@@ -122,7 +122,7 @@ fn format_structured_widget_content(input: RunningToolWidgetInput<'_>, width: us
     );
     let elapsed = format_elapsed(input.tool.elapsed());
     let mut content = align_header_with_right(&left, Some(&elapsed), inner_width, input.theme.dimmed);
-    append_section(&mut content, "Input", &input_body, input.theme.dimmed);
+    append_section(&mut content, "Input", &input_body, inner_width, input.theme.dimmed);
 
     let mut output_parts = Vec::new();
     if let Some(preview) = &input.tool.preview {
@@ -138,11 +138,17 @@ fn format_structured_widget_content(input: RunningToolWidgetInput<'_>, width: us
         let formatted = if input.tools_expanded {
             rendered
         } else {
-            format_collapsed_output(&rendered, width, input.theme.dimmed)
+            format_collapsed_output(&rendered, inner_width, input.theme.dimmed)
         };
         output_parts.push(formatted);
     }
-    append_section(&mut content, "Output", &output_parts.join("\n\n"), input.theme.dimmed);
+    append_section(
+        &mut content,
+        "Output",
+        &output_parts.join("\n\n"),
+        inner_width,
+        input.theme.dimmed,
+    );
     content
 }
 

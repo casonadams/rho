@@ -111,6 +111,9 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
     }
     if footer.thinking_level != engine.config.thinking_level {
         footer.thinking_level = engine.config.thinking_level.clone();
+        if !rho_harness_core::thinking::ThinkingLevel::from_setting(footer.thinking_level.as_deref()).is_auto() {
+            footer.resolved_thinking_level = None;
+        }
         changed = true;
     }
     let quota = engine.quota_display();

@@ -222,32 +222,32 @@ fn software_cursor_rendering_cases() {
 
     // Case 1: Empty line
     let mut line = String::new();
-    apply_software_cursor(&mut line, 0, None);
+    apply_software_cursor(&mut line, 0, None, 80);
     assert_eq!(line, "\x1b[7m \x1b[27m");
 
     // Case 2: End of line
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 5, None);
+    apply_software_cursor(&mut line, 5, None, 80);
     assert_eq!(line, "hello\x1b[7m \x1b[27m");
 
     // Case 3: Start of line
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 0, None);
+    apply_software_cursor(&mut line, 0, None, 80);
     assert_eq!(line, "\x1b[7mh\x1b[27mello");
 
     // Case 4: Mid-line character
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 2, None);
+    apply_software_cursor(&mut line, 2, None, 80);
     assert_eq!(line, "he\x1b[7ml\x1b[27mlo");
 
     // Case 5: Wide Unicode character
     let mut line = "a界b".to_string();
-    apply_software_cursor(&mut line, 1, None);
+    apply_software_cursor(&mut line, 1, None, 80);
     assert_eq!(line, "a\x1b[7m界\x1b[27mb");
 
     // Case 6: Ghost text at end of line
     let mut line = "hello".to_string();
-    apply_software_cursor(&mut line, 5, Some(" world"));
+    apply_software_cursor(&mut line, 5, Some(" world"), 80);
     assert_eq!(line, "hello\x1b[7m \x1b[27m\x1b[2m world\x1b[22m");
 }
 
@@ -259,6 +259,39 @@ fn hardware_cursor_renders_ghost_text() {
     let layout = editor_layout(&editor, 80, 24);
 
     assert_eq!(layout.editor_lines, [" hello\x1b[2m world\x1b[22m"]);
+}
+
+#[test]
+fn ghost_text_renders_when_autocomplete_is_hidden_and_hides_when_visible() {
+    use crate::ui::interactive::AutocompleteState;
+
+    let mut editor = editor_with_text("");
+    editor.set_ghost_text(Some("Run tests".to_string()));
+    let footer = FooterState::default();
+
+    let hidden_ac = AutocompleteState {
+        visible: false,
+        ..Default::default()
+    };
+    let hidden_layout = layout(LayoutInput {
+        terminal_width: 80,
+        terminal_height: 24,
+        autocomplete: Some(&hidden_ac),
+        ..base_input(&editor, &footer)
+    });
+    assert_eq!(hidden_layout.editor_lines, [" \x1b[2mRun tests\x1b[22m"]);
+
+    let visible_ac = AutocompleteState {
+        visible: true,
+        ..Default::default()
+    };
+    let visible_layout = layout(LayoutInput {
+        terminal_width: 80,
+        terminal_height: 24,
+        autocomplete: Some(&visible_ac),
+        ..base_input(&editor, &footer)
+    });
+    assert_eq!(visible_layout.editor_lines, [" "]);
 }
 
 #[test]
@@ -350,4 +383,56 @@ fn custom_prompt_prefix_handles_narrow_widths_zero_one_and_two() {
     assert_eq!(lines_2, ["❯a", " b", " c", " d", " e", " "]);
     assert_eq!(cursor_2, CursorPosition { row: 5, column: 1 });
     assert!(lines_2.iter().all(|line| visible_width(line) <= 2));
+}
+
+#[test]
+fn long_ghost_text_is_truncated_to_terminal_width_in_both_cursor_modes() {
+    use crate::ui::block::visible_width;
+    use crate::ui::theme::CursorMode;
+
+    let width = 40;
+    let mut editor = editor_with_text("git ");
+    editor.set_ghost_text(Some("x".repeat(140)));
+
+    for mode in [CursorMode::Hardware, CursorMode::Software] {
+        let theme = Theme {
+            cursor_mode: mode,
+            ..Default::default()
+        };
+        let footer = FooterState::default();
+        let rendered = layout(LayoutInput {
+            terminal_width: width,
+            terminal_height: 24,
+            theme: Some(&theme),
+            ..base_input(&editor, &footer)
+        });
+        assert!(!rendered.editor_lines.is_empty());
+        for line in &rendered.editor_lines {
+            assert!(
+                !line.contains('\n') && !line.contains('\r'),
+                "line had newline: {line:?}"
+            );
+            assert!(
+                visible_width(line) <= width,
+                "mode {mode:?} exceeded width {width}: {}",
+                visible_width(line)
+            );
+        }
+    }
+}
+
+#[test]
+fn multiline_ghost_text_is_sanitized_to_single_line_within_width() {
+    use crate::ui::block::visible_width;
+
+    let width = 30;
+    let mut editor = editor_with_text("echo ");
+    editor.set_ghost_text(Some(format!("first line {}\nsecond line", "y".repeat(50))));
+
+    let rendered = editor_layout(&editor, width, 24);
+    assert_eq!(rendered.editor_lines.len(), 1);
+    let line = &rendered.editor_lines[0];
+    assert!(!line.contains('\n') && !line.contains('\r'));
+    assert!(!line.contains("second line"));
+    assert!(visible_width(line) <= width);
 }

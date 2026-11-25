@@ -5,6 +5,7 @@ use futures::StreamExt;
 use rho_harness_core::args::{TodoItem, TodoStatus};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::model::ChatMessage;
+use rho_harness_core::thinking::ThinkingLevel;
 use tokio::sync::mpsc;
 
 use super::AgentEngine;
@@ -15,7 +16,10 @@ use super::runner::turn::types::{CancellationSignal, unless_cancelled};
 use crate::provider::adapter::{ModelCompletionRequest, ModelEventStream, ModelHandle, ModelStreamEvent};
 
 const MAX_RECAP_CHARS: usize = 280;
-const RECAP_MAX_TOKENS: u64 = 160;
+const RECAP_MAX_TOKENS: u64 = 512;
+const MAX_PREDICTION_CHARS: usize = 140;
+const PREDICTION_MAX_TOKENS: u64 = 512;
+
 const EPHEMERAL_CANCELLED_MSG: &str = "ephemeral turn cancelled";
 
 /// Request parameters for a single non-mutating, cache-preserving ephemeral turn.
@@ -25,6 +29,7 @@ pub struct EphemeralTurnRequest {
     pub extra_messages: Vec<ChatMessage>,
     pub partial_assistant: Option<String>,
     pub max_tokens: Option<u64>,
+    pub thinking_level: Option<ThinkingLevel>,
     pub cancellation: CancellationSignal,
 }
 
@@ -81,6 +86,32 @@ impl AgentEngine {
                 EphemeralTurnRequest {
                     prompt,
                     max_tokens: Some(RECAP_MAX_TOKENS),
+                    thinking_level: Some(ThinkingLevel::Off),
+                    cancellation,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        Ok(Some(prepared))
+    }
+
+    /// Snapshots session history into a `'static` prompt prediction turn, or
+    /// `Ok(None)` when the session has no model-visible history yet.
+    pub async fn prepare_prompt_prediction(
+        &self,
+        cancellation: CancellationSignal,
+    ) -> Result<Option<PreparedEphemeralTurn>> {
+        let history = self.snapshot_history().await?;
+        if history.is_empty() {
+            return Ok(None);
+        }
+        let prepared = self
+            .prepare_ephemeral_with_history(
+                history,
+                EphemeralTurnRequest {
+                    prompt: build_prompt_prediction_prompt(),
+                    max_tokens: Some(PREDICTION_MAX_TOKENS),
+                    thinking_level: Some(ThinkingLevel::Off),
                     cancellation,
                     ..Default::default()
                 },
@@ -148,7 +179,7 @@ impl AgentEngine {
             tools,
             max_tokens: request.max_tokens,
             temperature: None,
-            thinking_level: None,
+            thinking_level: request.thinking_level,
         };
 
         Ok(PreparedEphemeralTurn {
@@ -276,6 +307,31 @@ pub fn format_recap_text(raw: &str) -> Option<String> {
         .nth(MAX_RECAP_CHARS - 1)
         .map_or(cleaned.len(), |(idx, _)| idx);
     Some(format!("{}…", cleaned[..cutoff].trim_end()))
+}
+
+/// Builds the prompt used to predict the user's next short follow-up message.
+pub fn build_prompt_prediction_prompt() -> String {
+    [
+        "<prediction>",
+        "Predict the single most likely short next user message or follow-up (under 15 words).",
+        "Output a single plain line with no markdown, no quotes, no explanation, and no tool calls.",
+        "Output nothing if there is no obvious follow-up.",
+        "</prediction>",
+    ]
+    .join("\n")
+}
+
+/// Sanitizes and bounds raw prompt prediction model output for inline ghost text.
+pub fn format_prompt_prediction(raw: &str) -> Option<String> {
+    let without_tags = raw.replace("<prediction>", "").replace("</prediction>", "");
+    let collapsed = without_tags.split_whitespace().collect::<Vec<_>>().join(" ");
+    let unquoted = strip_matching_quotes(collapsed.trim());
+    let without_prefix = unquoted.strip_prefix("> ").unwrap_or(unquoted).trim();
+    let cleaned = strip_matching_quotes(without_prefix);
+    if cleaned.is_empty() || cleaned.chars().count() > MAX_PREDICTION_CHARS {
+        return None;
+    }
+    Some(cleaned.to_string())
 }
 
 #[cfg(test)]
@@ -552,5 +608,54 @@ mod tests {
             recap,
             Some("Adding ephemeral turn support. Next: wire /btw.".to_string())
         );
+    }
+
+    #[test]
+    fn format_prompt_prediction_sanitizes_and_bounds() {
+        assert_eq!(format_prompt_prediction(""), None);
+        assert_eq!(format_prompt_prediction("  <prediction>\n  </prediction>  "), None);
+        assert_eq!(
+            format_prompt_prediction("  \"<prediction>>  Run   cargo test\nnow</prediction>\"  "),
+            Some("Run cargo test now".to_string())
+        );
+        assert_eq!(
+            format_prompt_prediction("> 'Check the logs'"),
+            Some("Check the logs".to_string())
+        );
+        let too_long = "a".repeat(MAX_PREDICTION_CHARS + 1);
+        assert_eq!(format_prompt_prediction(&too_long), None);
+        let exact = "a".repeat(MAX_PREDICTION_CHARS);
+        assert_eq!(format_prompt_prediction(&exact), Some(exact));
+    }
+
+    #[tokio::test]
+    async fn prepare_prompt_prediction_returns_none_on_empty_history_and_executes_when_non_empty() {
+        let model = Arc::new(MockAdapter::text("Run mise run test"));
+        let (engine, _dir) = test_engine_with_model("ephemeral-prediction", model.clone());
+
+        assert!(
+            engine
+                .prepare_prompt_prediction(CancellationSignal::default())
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        engine
+            .session_manager
+            .extend_checkpoint(vec![ChatMessage::user("fix bug"), ChatMessage::assistant("fixed")])
+            .await
+            .unwrap();
+        let prepared = engine
+            .prepare_prompt_prediction(CancellationSignal::default())
+            .await
+            .unwrap()
+            .expect("prepared prediction");
+        let resp = prepared.execute(None).await.unwrap();
+        assert_eq!(
+            format_prompt_prediction(&resp.text),
+            Some("Run mise run test".to_string())
+        );
+        assert_eq!(model.requests().last().unwrap().max_tokens, Some(PREDICTION_MAX_TOKENS));
     }
 }

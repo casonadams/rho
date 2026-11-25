@@ -655,3 +655,47 @@ fn segments_sanitize_newlines_retain_fitting_right_and_distinguish_powerline() {
     let pl_thin = super::format_footer_lines_with_theme(&footer, 80, None, Some(&themed));
     assert_ne!(pl, pl_thin);
 }
+
+#[test]
+fn auto_thinking_formats_resolved_level_in_full_and_segmented_footers() {
+    use crate::ui::block::strip_ansi;
+    use rho_harness_core::config::{StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId};
+    use rho_harness_core::thinking::ThinkingLevel;
+
+    let cases = [
+        (None, "gemini/gemini-2.5-flash/auto", "◐ auto"),
+        (Some(ThinkingLevel::Low), "gemini/gemini-2.5-flash/auto (low)", "◐ low"),
+        (
+            Some(ThinkingLevel::Medium),
+            "gemini/gemini-2.5-flash/auto (medium)",
+            "◐ med",
+        ),
+        (
+            Some(ThinkingLevel::High),
+            "gemini/gemini-2.5-flash/auto (high)",
+            "◐ high",
+        ),
+    ];
+
+    for (resolved, expected_full, expected_segment) in cases {
+        let mut footer = FooterState {
+            provider: "gemini".into(),
+            model: "gemini-2.5-flash".into(),
+            thinking_level: Some("auto".into()),
+            resolved_thinking_level: resolved,
+            ..FooterState::default()
+        };
+        assert_eq!(format_model_details(&footer), expected_full);
+
+        footer.status_bar_config = Some(StatusBarConfig {
+            preset: Some(StatusBarPreset::Custom),
+            icons: Some(StatusBarIconMode::Unicode),
+            left: Some(vec![StatusBarSegmentId::Model]),
+            right: Some(vec![]),
+            ..StatusBarConfig::default()
+        });
+        let lines = format_footer_lines(&footer, 80, None);
+        let plain = strip_ansi(&lines[0]);
+        assert!(plain.contains(expected_segment), "got: {plain}");
+    }
+}

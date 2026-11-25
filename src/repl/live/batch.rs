@@ -152,6 +152,9 @@ impl LiveBatch {
                 changed = true;
             }
         }
+        if let Some(level) = drained.resolved_thinking_level.take() {
+            changed |= apply_resolved_thinking_update(controller, level);
+        }
         if let Some(system_msg) = drained.system_message.take() {
             if let Some(msg) = system_msg {
                 controller.set_system_message(msg);
@@ -218,6 +221,23 @@ pub fn drain_ui_events<B: crate::ui::interactive::TerminalBackend>(
     let result = batch.drain_events(controller, events);
     *modal = batch.modal;
     result
+}
+
+fn apply_resolved_thinking_update<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    level: Option<rho_harness_core::thinking::ThinkingLevel>,
+) -> bool {
+    let footer = controller.state_mut().footer_mut();
+    let next = if rho_harness_core::thinking::ThinkingLevel::from_setting(footer.thinking_level.as_deref()).is_auto() {
+        level
+    } else {
+        None
+    };
+    if footer.resolved_thinking_level == next {
+        return false;
+    }
+    footer.resolved_thinking_level = next;
+    true
 }
 
 fn apply_a2ui_updates<B: crate::ui::interactive::TerminalBackend>(
@@ -542,5 +562,27 @@ mod tests {
         assert_eq!(data_model["name"], "R");
         assert!(modal.is_none());
         assert!(controller.state().active_modal().is_none());
+    }
+
+    #[test]
+    fn resolved_thinking_level_event_updates_footer_only_when_auto() {
+        use rho_harness_core::thinking::ThinkingLevel;
+
+        let (ui, mut rx) = crate::ui::interactive::InteractiveUi::channel();
+        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        controller.state_mut().footer_mut().thinking_level = Some("auto".into());
+        let mut modal = None;
+
+        ui.set_resolved_thinking_level(Some(ThinkingLevel::High)).unwrap();
+        drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
+        assert_eq!(
+            controller.state().footer().resolved_thinking_level,
+            Some(ThinkingLevel::High)
+        );
+
+        controller.state_mut().footer_mut().thinking_level = Some("medium".into());
+        ui.set_resolved_thinking_level(Some(ThinkingLevel::Low)).unwrap();
+        drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
+        assert_eq!(controller.state().footer().resolved_thinking_level, None);
     }
 }

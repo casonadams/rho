@@ -32,7 +32,7 @@ fn the_settings_search_keeps_only_matching_settings() {
     app.type_text("id:settings-search", "guard jsonl").unwrap();
     assert!(app.shows("permission.guard_audit_log"));
     assert!(!app.shows("max_output_tokens"));
-    assert!(app.shows("1 of 89 settings"));
+    assert!(app.shows("1 of 90 settings"));
 
     app.type_text("id:settings-search", " nothing-like-this").unwrap();
     assert!(app.shows("No settings match."));

@@ -2,6 +2,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::ui::interactive::Activity;
+use rho_harness_core::thinking::ThinkingLevel;
 
 pub use rho_harness_core::presentation::{
     InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout,
@@ -51,6 +52,7 @@ pub enum UiEvent {
     Transcript(crate::ui::interactive::TranscriptItem),
     Recap(String),
     RunningTool(Option<String>),
+    ResolvedThinkingLevel(Option<ThinkingLevel>),
     SystemMessage(Option<String>),
     Interaction {
         prompt: InteractionPrompt,
@@ -90,6 +92,7 @@ pub struct PendingUiBatch {
     total_output_bytes: usize,
     activity: Option<Activity>,
     running_tool: Option<Option<String>>,
+    resolved_thinking_level: Option<Option<ThinkingLevel>>,
     tool_start: Option<ToolStartRequest>,
     tool_chunks: Vec<String>,
     tool_end: bool,
@@ -105,6 +108,7 @@ pub struct PendingUiDrain {
     pub outputs: Vec<OutputEvent>,
     pub activity: Option<Activity>,
     pub running_tool: Option<Option<String>>,
+    pub resolved_thinking_level: Option<Option<ThinkingLevel>>,
     pub tool_start: Option<ToolStartRequest>,
     pub tool_chunks: Vec<String>,
     pub tool_end: bool,
@@ -133,6 +137,7 @@ impl PendingUiBatch {
             total_output_bytes: 0,
             activity: None,
             running_tool: None,
+            resolved_thinking_level: None,
             tool_start: None,
             tool_chunks: Vec::new(),
             tool_end: false,
@@ -200,6 +205,10 @@ impl PendingUiBatch {
                 self.system_message = Some(m);
                 Self::flushes()
             }
+            UiEvent::ResolvedThinkingLevel(level) => {
+                self.resolved_thinking_level = Some(level);
+                Self::flushes()
+            }
             UiEvent::A2ui { message } => {
                 self.a2ui_messages.push(message);
                 Self::flushes()
@@ -245,6 +254,7 @@ impl PendingUiBatch {
             outputs: std::mem::take(&mut self.outputs),
             activity: self.activity.take(),
             running_tool: self.running_tool.take(),
+            resolved_thinking_level: self.resolved_thinking_level.take(),
             tool_start: self.tool_start.take(),
             tool_chunks: std::mem::take(&mut self.tool_chunks),
             tool_end: std::mem::replace(&mut self.tool_end, false),
@@ -259,6 +269,7 @@ impl PendingUiBatch {
         self.outputs.is_empty()
             && self.activity.is_none()
             && self.running_tool.is_none()
+            && self.resolved_thinking_level.is_none()
             && self.tool_start.is_none()
             && self.tool_chunks.is_empty()
             && !self.tool_end
@@ -295,6 +306,12 @@ impl InteractiveUi {
     pub fn set_running_tool(&self, command: Option<String>) -> Result<(), UiPortError> {
         self.sender
             .send(UiEvent::RunningTool(command))
+            .map_err(|_| UiPortError::Closed)
+    }
+
+    pub fn set_resolved_thinking_level(&self, level: Option<ThinkingLevel>) -> Result<(), UiPortError> {
+        self.sender
+            .send(UiEvent::ResolvedThinkingLevel(level))
             .map_err(|_| UiPortError::Closed)
     }
 

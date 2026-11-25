@@ -218,16 +218,35 @@ fn resolve_status_bar(cfg: &StatusBarConfig) -> ResolvedStatusBar {
     }
 }
 
-fn compact_thinking_label(level: Option<&str>) -> (&'static str, &'static str) {
-    match ThinkingLevel::from_setting(level) {
-        ThinkingLevel::Off => ("○", "off"),
-        ThinkingLevel::Minimal => ("◔", "min"),
-        ThinkingLevel::Low => ("◑", "low"),
-        ThinkingLevel::Medium => ("◒", "med"),
-        ThinkingLevel::High => ("◕", "high"),
-        ThinkingLevel::XHigh => ("◉", "xhigh"),
-        ThinkingLevel::Max => ("◉", "max"),
-        ThinkingLevel::Auto => ("◐", "auto"),
+fn compact_level_icon(level: ThinkingLevel) -> &'static str {
+    match level {
+        ThinkingLevel::Off => "○",
+        ThinkingLevel::Minimal => "◔",
+        ThinkingLevel::Low => "◑",
+        ThinkingLevel::Medium => "◒",
+        ThinkingLevel::High => "◕",
+        ThinkingLevel::XHigh | ThinkingLevel::Max => "◉",
+        ThinkingLevel::Auto => "◐",
+    }
+}
+
+fn compact_level_name(level: ThinkingLevel) -> &'static str {
+    match level {
+        ThinkingLevel::Off => "off",
+        ThinkingLevel::Minimal => "min",
+        ThinkingLevel::Low => "low",
+        ThinkingLevel::Medium => "med",
+        ThinkingLevel::High => "high",
+        ThinkingLevel::XHigh => "xhigh",
+        ThinkingLevel::Max => "max",
+        ThinkingLevel::Auto => "auto",
+    }
+}
+
+fn compact_thinking_label(level: Option<&str>, resolved: Option<ThinkingLevel>) -> (&'static str, &'static str) {
+    match (ThinkingLevel::from_setting(level), resolved) {
+        (ThinkingLevel::Auto, Some(r)) => ("◐", compact_level_name(r)),
+        (l, _) => (compact_level_icon(l), compact_level_name(l)),
     }
 }
 
@@ -277,7 +296,7 @@ fn render_model_segment(
     if !show_thinking {
         return Some(format!("{prefix}{name}"));
     }
-    let (icon, level) = compact_thinking_label(footer.thinking_level.as_deref());
+    let (icon, level) = compact_thinking_label(footer.thinking_level.as_deref(), footer.resolved_thinking_level);
     if compact_thinking {
         Some(format!("{prefix}{name} {icon}"))
     } else if matches!(icons, StatusBarIconMode::Ascii) {

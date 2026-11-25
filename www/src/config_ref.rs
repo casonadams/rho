@@ -407,6 +407,12 @@ pub const GROUPS: &[Group] = &[
                 "Prefix the title with the run state: idle, working or attention.",
             ),
             s(
+                "ui.prompt_prediction",
+                Some("false"),
+                None,
+                "Predict the next likely user prompt as dim inline ghost text after each turn.",
+            ),
+            s(
                 "show_label",
                 Some("false"),
                 None,
