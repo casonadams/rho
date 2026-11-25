@@ -1,12 +1,13 @@
 use super::commands::handle_tree_commands;
 use super::types::{BranchSwitchContext, LiveCommandContext, SessionCommandIo};
 use crate::error::Result;
-use crate::repl::commands::CommandResult;
+use crate::repl::commands::{CommandResult, ForkTarget};
 use crate::ui::interactive::TerminalBackend;
 use rho_harness_core::session::TreeNodeKind;
 
 pub(crate) async fn handle_fork_session(
     ctx: &mut LiveCommandContext<'_, '_>,
+    target: Option<ForkTarget>,
     turn_or_node_id: &Option<String>,
 ) -> Result<()> {
     let forked = ctx
@@ -14,9 +15,22 @@ pub(crate) async fn handle_fork_session(
         .session_manager
         .fork_session(&ctx.session.config.sessions_dir, turn_or_node_id.as_deref())
         .await?;
-    ctx.session
-        .renderer
-        .print_status(&format!("Forked session: {}", forked.session_id));
+    let forked_id = forked.session_id.clone();
+    drop(forked);
+    if let Some(target) = target {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| ctx.engine.base_dir.clone());
+        match crate::repl::live::mux::spawn_forked_session(target, &forked_id, &cwd) {
+            Ok(label) => ctx
+                .session
+                .renderer
+                .print_status(&format!("Forked session {forked_id} in {label}")),
+            Err(err) => ctx.session.renderer.print_status(&err),
+        }
+    } else {
+        ctx.session
+            .renderer
+            .print_status(&format!("Forked session: {forked_id}"));
+    }
     Ok(())
 }
 
@@ -53,6 +67,9 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
         let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree);
+        if !tree.is_empty() && ctx.session.config.recap.on_resume {
+            ctx.session.pending_resume_recap = true;
+        }
     }
     crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
     let suffix = missing_workspace
@@ -67,14 +84,17 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SessionSwitchTarget<'a> {
-    Fork(&'a Option<String>),
+    Fork(Option<ForkTarget>, &'a Option<String>),
     Clone,
     Resume(&'a str),
 }
 
 pub(crate) fn parse_switch_target(result: &CommandResult) -> Option<SessionSwitchTarget<'_>> {
     match result {
-        CommandResult::ForkSession { turn_or_node_id } => Some(SessionSwitchTarget::Fork(turn_or_node_id)),
+        CommandResult::ForkSession {
+            target,
+            turn_or_node_id,
+        } => Some(SessionSwitchTarget::Fork(*target, turn_or_node_id)),
         CommandResult::CloneSession => Some(SessionSwitchTarget::Clone),
         CommandResult::ResumeSession { session_id } => Some(SessionSwitchTarget::Resume(session_id.as_str())),
         _ => None,
@@ -90,7 +110,7 @@ pub(crate) async fn switch_session_result<B: TerminalBackend>(
         return Ok(());
     };
     match target {
-        SessionSwitchTarget::Fork(id) => handle_fork_session(ctx, id).await,
+        SessionSwitchTarget::Fork(target, id) => handle_fork_session(ctx, target, id).await,
         SessionSwitchTarget::Clone => handle_clone_session(ctx).await,
         SessionSwitchTarget::Resume(id) => handle_resume_session(ctx, id, io).await,
     }
@@ -288,14 +308,24 @@ mod tests {
     #[test]
     fn test_parse_switch_target_mappings() {
         let fork_target = CommandResult::ForkSession {
+            target: Some(ForkTarget::Pane),
             turn_or_node_id: Some("turn-1".into()),
         };
         assert_eq!(
             parse_switch_target(&fork_target),
-            Some(SessionSwitchTarget::Fork(&Some("turn-1".into())))
+            Some(SessionSwitchTarget::Fork(
+                Some(ForkTarget::Pane),
+                &Some("turn-1".into())
+            ))
         );
-        let fork_none = CommandResult::ForkSession { turn_or_node_id: None };
-        assert_eq!(parse_switch_target(&fork_none), Some(SessionSwitchTarget::Fork(&None)));
+        let fork_none = CommandResult::ForkSession {
+            target: None,
+            turn_or_node_id: None,
+        };
+        assert_eq!(
+            parse_switch_target(&fork_none),
+            Some(SessionSwitchTarget::Fork(None, &None))
+        );
         assert_eq!(
             parse_switch_target(&CommandResult::CloneSession),
             Some(SessionSwitchTarget::Clone)
@@ -317,6 +347,7 @@ mod tests {
 
         assert!(is_session_switch_arm(&CommandResult::CloneSession));
         assert!(is_session_switch_arm(&CommandResult::ForkSession {
+            target: None,
             turn_or_node_id: None
         }));
         assert!(is_session_switch_arm(&CommandResult::ResumeSession {

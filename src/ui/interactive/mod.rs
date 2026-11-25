@@ -35,7 +35,8 @@ pub use state::{
     QueueKind, QueuedMessage, RunningTool, UiAction, UiEffect,
 };
 pub use transcript::{
-    ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_welcome_content, render_transcript_item,
+    ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_recap_notice, format_welcome_content,
+    render_transcript_item,
 };
 
 #[cfg(test)]

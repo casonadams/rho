@@ -57,6 +57,9 @@ pub(crate) enum ConfigKey {
     SlowModel,
     WorktreeBase,
     WorktreeCleanSource,
+    RecapEnabled,
+    RecapIdleSeconds,
+    RecapOnResume,
 }
 
 const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
@@ -177,6 +180,9 @@ const KEY_NAMES: &[(ConfigKey, &str, &[&str])] = &[
     (ConfigKey::SlowModel, "models.slow", &["slow_model", "slow"]),
     (ConfigKey::WorktreeBase, "worktree.base", &[]),
     (ConfigKey::WorktreeCleanSource, "worktree.clean_source", &[]),
+    (ConfigKey::RecapEnabled, "recap.enabled", &[]),
+    (ConfigKey::RecapIdleSeconds, "recap.idle_seconds", &[]),
+    (ConfigKey::RecapOnResume, "recap.on_resume", &[]),
 ];
 
 impl FromStr for ConfigKey {
@@ -201,7 +207,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 55] = [
+    const ALL_KEYS: [ConfigKey; 58] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -257,6 +263,9 @@ mod tests {
         ConfigKey::SlowModel,
         ConfigKey::WorktreeBase,
         ConfigKey::WorktreeCleanSource,
+        ConfigKey::RecapEnabled,
+        ConfigKey::RecapIdleSeconds,
+        ConfigKey::RecapOnResume,
     ];
 
     #[test]

@@ -145,8 +145,15 @@ pub(super) fn subagent_model_resolver(
 }
 
 fn short_lived_config(config: &Config) -> Config {
+    let thinking_level = config.thinking_level.as_deref().map(|raw| {
+        rho_harness_core::thinking::ThinkingLevel::from_setting(Some(raw))
+            .concrete_or_default()
+            .as_str()
+            .to_string()
+    });
     Config {
         cache_retention: config.cache_retention.for_short_lived_work(),
+        thinking_level,
         ..config.clone()
     }
 }

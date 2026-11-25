@@ -208,6 +208,7 @@ async fn generate_title_text(
         tools: Vec::new(),
         max_tokens: Some(TITLE_MAX_TOKENS),
         temperature: None,
+        thinking_level: None,
     };
     let response = model.complete(request).await.ok()?;
     sanitize_title(&response.content)

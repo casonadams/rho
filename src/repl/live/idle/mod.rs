@@ -5,6 +5,7 @@ pub(crate) mod shortcut;
 use dispatch::{IdleInputResult, process_raw_input};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use super::recap::{IdleRecapController, RecapEvent, has_transcript_history};
 use super::types::{FrameOrUi, next_frame_or_ui, wait_version_change};
 use super::{EditorResources, IdleContext, LiveIo};
 use crate::error::Result;
@@ -28,6 +29,7 @@ struct IdleUi {
     title_rx: tokio::sync::watch::Receiver<u64>,
     pr_rx: tokio::sync::watch::Receiver<u64>,
     mcp: Option<std::sync::Arc<rho_engine::mcp::McpRuntime>>,
+    recap: IdleRecapController,
 }
 
 impl IdleUi {
@@ -42,6 +44,7 @@ impl IdleUi {
             title_rx: engine.title_subscribe(),
             pr_rx: crate::ui::interactive::footer::subscribe_git_pr(),
             mcp: engine.mcp_runtime().cloned(),
+            recap: IdleRecapController::new(),
         }
     }
 }
@@ -69,6 +72,8 @@ enum IdleSource {
     Input(Option<std::io::Result<Event>>),
     Mail,
     McpProblems,
+    RecapTimer,
+    RecapReady(Option<String>),
 }
 
 async fn wait_mcp_problems(runtime: Option<&rho_engine::mcp::McpRuntime>) {
@@ -89,6 +94,10 @@ async fn next_idle_step(
         event = input.recv() => IdleSource::Input(event),
         () = inbox.wait() => IdleSource::Mail,
         () = wait_mcp_problems(ui.mcp.as_deref()) => IdleSource::McpProblems,
+        ev = ui.recap.next_event() => match ev {
+            RecapEvent::Timer => IdleSource::RecapTimer,
+            RecapEvent::Ready(res) => IdleSource::RecapReady(res),
+        },
         _ = wait_version_change(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         _ = wait_version_change(&mut ui.catalog_rx) => IdleSource::Tick(IdleTick::Catalog),
         _ = wait_version_change(&mut ui.title_rx) => IdleSource::Tick(IdleTick::Title),
@@ -188,7 +197,11 @@ fn handle_frame_tick<B: TerminalBackend>(
         controller.state_mut().footer_mut().session_name = name;
     }
     let agents = crate::repl::live::modal::agents::refresh_agent_modals(controller, engine.agent_monitor())?;
-    let should_redraw = expired || resized || quota_changed || name_changed || agents;
+    let btw = session
+        .btw
+        .as_mut()
+        .is_some_and(|b| crate::repl::live::modal::btw::refresh_btw_modal(controller, b));
+    let should_redraw = expired || resized || quota_changed || name_changed || agents || btw;
     if !batch.ui.is_empty() || should_redraw {
         batch.flush(controller, should_redraw)?;
     }
@@ -272,9 +285,67 @@ fn handle_mail(ctx: &mut LiveIdleContext<'_, '_>) -> Result<IdleStepOutcome> {
     }))
 }
 
+fn is_idle_recap_ready<B: TerminalBackend>(controller: &TerminalController<B>) -> bool {
+    controller.state().editor().is_empty() && controller.state().active_modal().is_none()
+}
+
+fn cancel_recap_if_typing(event: &Option<std::io::Result<Event>>, recap: &mut IdleRecapController) {
+    if let Some(Ok(ev)) = event
+        && matches!(
+            dispatch::classify_event(ev.clone()),
+            dispatch::RawInput::Key(_) | dispatch::RawInput::Paste(_)
+        )
+    {
+        recap.cancel_and_disarm();
+    }
+}
+
+async fn prepare_idle_recap<B: TerminalBackend>(
+    controller: &TerminalController<B>,
+    ctx: &mut LiveIdleContext<'_, '_>,
+    recap: &mut IdleRecapController,
+) {
+    let idle_ready = is_idle_recap_ready(controller);
+    if std::mem::take(&mut ctx.session.pending_resume_recap) && idle_ready {
+        recap.reset_idle();
+        let _ = recap.start_now(ctx.engine).await;
+        return;
+    }
+    let cfg = &ctx.session.config.recap;
+    let has_history = has_transcript_history(controller.transcript());
+    recap.arm_if_eligible(cfg.enabled, cfg.clamped_idle_seconds(), has_history, idle_ready, false);
+}
+
+async fn handle_recap_timer<B: TerminalBackend>(
+    controller: &TerminalController<B>,
+    ctx: &mut LiveIdleContext<'_, '_>,
+    recap: &mut IdleRecapController,
+) {
+    if ctx.session.config.recap.enabled
+        && is_idle_recap_ready(controller)
+        && has_transcript_history(controller.transcript())
+    {
+        let _ = recap.start_now(ctx.engine).await;
+    }
+}
+
+fn handle_recap_ready<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    recap: &mut IdleRecapController,
+    text: Option<String>,
+) -> Result<()> {
+    if let Some(text) = text
+        && is_idle_recap_ready(controller)
+    {
+        recap.mark_shown();
+        controller.upsert_trailing_recap(text)?;
+    }
+    Ok(())
+}
+
 async fn handle_idle_step_source<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    batch: &mut LiveBatch,
+    ui: &mut IdleUi,
     resources: &mut EditorResources<'_>,
     input: &mut super::TerminalInputReader,
     ctx: &mut LiveIdleContext<'_, '_>,
@@ -282,16 +353,28 @@ async fn handle_idle_step_source<B: TerminalBackend>(
 ) -> Result<IdleStepOutcome> {
     match source {
         IdleSource::Tick(tick) => {
-            handle_tick(controller, batch, tick, ctx).await?;
+            handle_tick(controller, &mut ui.batch, tick, ctx).await?;
             Ok(IdleStepOutcome::Continue)
         }
         IdleSource::Input(event) => {
-            let res = handle_input_source(controller, event, batch, resources, input, ctx).await?;
+            cancel_recap_if_typing(&event, &mut ui.recap);
+            let res = handle_input_source(controller, event, &mut ui.batch, resources, input, ctx).await?;
             Ok(map_input_result(res))
         }
-        IdleSource::Mail => handle_mail(ctx),
+        IdleSource::Mail => {
+            ui.recap.cancel_and_disarm();
+            handle_mail(ctx)
+        }
         IdleSource::McpProblems => {
             crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
+            Ok(IdleStepOutcome::Continue)
+        }
+        IdleSource::RecapTimer => {
+            handle_recap_timer(controller, ctx, &mut ui.recap).await;
+            Ok(IdleStepOutcome::Continue)
+        }
+        IdleSource::RecapReady(text) => {
+            handle_recap_ready(controller, &mut ui.recap, text)?;
             Ok(IdleStepOutcome::Continue)
         }
     }
@@ -310,10 +393,11 @@ async fn drive_idle_loop<B: TerminalBackend>(
         if ui.quota_rx.has_changed().is_err() {
             ui.quota_rx = ctx.engine.quota_subscribe();
         }
+        prepare_idle_recap(controller, ctx, &mut ui.recap).await;
         let inbox = ctx.engine.inbox();
         let step = next_idle_step(&mut ui, &inbox, input, ui_events).await;
         drop(inbox);
-        match handle_idle_step_source(controller, &mut ui.batch, resources, input, ctx, step).await? {
+        match handle_idle_step_source(controller, &mut ui, resources, input, ctx, step).await? {
             IdleStepOutcome::Message(msg) => return Ok(Some(msg)),
             IdleStepOutcome::Exit => return Ok(None),
             IdleStepOutcome::Continue => {}

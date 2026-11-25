@@ -97,9 +97,13 @@ impl ClaudeClient {
     }
 
     async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
+        let effective_thinking = request
+            .thinking_level
+            .map(|level| level.concrete_or_default().as_str())
+            .or(self.thinking_level.as_deref());
         let body = build_request_body(
             &self.model,
-            self.thinking_level.as_deref(),
+            effective_thinking,
             request,
             self.auth,
             self.cache_retention,

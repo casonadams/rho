@@ -11,6 +11,7 @@ use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionEventKind;
+use rho_harness_core::thinking::ThinkingLevel;
 
 use super::prune::PromptCache;
 use super::runner::AgentRunner;
@@ -28,6 +29,7 @@ pub(super) struct TurnRunnerParams<'a> {
     pub prompt: &'a str,
     pub preamble: &'a str,
     pub budget: usize,
+    pub thinking_level: Option<ThinkingLevel>,
     pub checkpoint: Option<&'a [ChatMessage]>,
     pub history: &'a [ChatMessage],
     pub stream_port: ToolStreamPort,
@@ -39,7 +41,7 @@ pub(super) struct PreparedTurn {
     pub loop_state: TurnLoopState,
 }
 
-pub(super) struct LoadedHistory {
+pub(in crate::engine) struct LoadedHistory {
     pub messages: Vec<ChatMessage>,
     pub pruned: bool,
     pub decision: PruneDecision,
@@ -50,6 +52,7 @@ pub(super) struct TurnLoopState {
     pub checkpoint: Option<Vec<ChatMessage>>,
     pub current_prompt: String,
     pub current_budget: usize,
+    pub thinking_level: Option<ThinkingLevel>,
     pub overflow_recovered: bool,
     pub turn_started_at: std::time::Instant,
 }
@@ -86,7 +89,7 @@ impl AgentEngine {
         )
     }
 
-    pub(super) async fn load_initial_history(&self) -> Result<LoadedHistory> {
+    pub(in crate::engine) async fn load_initial_history(&self) -> Result<LoadedHistory> {
         let raw = self
             .session_manager
             .active_messages()
@@ -238,6 +241,7 @@ impl AgentEngine {
             checkpoint,
             current_prompt: effective_prompt.to_string(),
             current_budget: self.config.max_turns,
+            thinking_level: None,
             overflow_recovered: false,
             turn_started_at: std::time::Instant::now(),
         };
@@ -275,14 +279,15 @@ impl AgentEngine {
         {
             return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
         }
-        let ready = self
+        let mut ready = self
             .build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
             .await?;
+        ready.loop_state.thinking_level = self.resolve_turn_thinking_level(prompt).await;
         self.turn_notes.consume(notes.len());
         Ok(PreparedTurnOutcome::Ready(ready))
     }
 
-    fn require_model(&self) -> Result<crate::engine::compactor::llm::ModelHandle> {
+    pub(in crate::engine) fn require_model(&self) -> Result<crate::engine::compactor::llm::ModelHandle> {
         self.model.clone().ok_or_else(|| {
             rho_harness_core::error::AppError::Config(
                 "No model selected. Pick one with /model, `rho --model <provider>/<model>`, or save a default with `rho config model <provider>/<model>`."
@@ -303,6 +308,7 @@ impl AgentEngine {
             .preamble(params.preamble)
             .prompt(params.prompt)
             .budget(params.budget)
+            .thinking_level(params.thinking_level)
             .stream_port(params.stream_port)
             .steering(request.steering.clone())
             .inbox(Some(self.inbox()))
@@ -396,6 +402,7 @@ impl AgentEngine {
                     prompt: &loop_state.current_prompt,
                     preamble,
                     budget: loop_state.current_budget,
+                    thinking_level: loop_state.thinking_level,
                     checkpoint: loop_state.checkpoint.as_deref(),
                     history: &loop_state.visible_history,
                     stream_port: presenter.stream_port(),

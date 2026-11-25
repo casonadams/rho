@@ -81,11 +81,11 @@ fn level_thinking_config(level: &str, include_thoughts: bool) -> Value {
 }
 
 fn budget_thinking_config(effort: ThinkingLevel) -> Value {
-    match effort {
+    match effort.concrete_or_default() {
         ThinkingLevel::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
         ThinkingLevel::Minimal => json!({ "includeThoughts": true, "thinkingBudget": 1_024 }),
         ThinkingLevel::Low => json!({ "includeThoughts": true, "thinkingBudget": 2_048 }),
-        ThinkingLevel::Medium => json!({ "includeThoughts": true, "thinkingBudget": 8_192 }),
+        ThinkingLevel::Medium | ThinkingLevel::Auto => json!({ "includeThoughts": true, "thinkingBudget": 8_192 }),
         ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => {
             json!({ "includeThoughts": true, "thinkingBudget": -1 })
         }
@@ -97,6 +97,7 @@ fn budget_thinking_config(effort: ThinkingLevel) -> Value {
 pub fn thinking_config(model: &str, thinking_level: Option<&str>) -> Value {
     let effort = thinking_level
         .and_then(ThinkingLevel::parse)
+        .map(ThinkingLevel::concrete_or_default)
         .unwrap_or(ThinkingLevel::Medium);
     let include = effort != ThinkingLevel::Off;
 
@@ -106,7 +107,7 @@ pub fn thinking_config(model: &str, thinking_level: Option<&str>) -> Value {
         ThinkingFamily::LevelNoMinimal => {
             let level = match effort {
                 ThinkingLevel::Off | ThinkingLevel::Minimal | ThinkingLevel::Low => "LOW",
-                ThinkingLevel::Medium => "MEDIUM",
+                ThinkingLevel::Medium | ThinkingLevel::Auto => "MEDIUM",
                 ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => "HIGH",
             };
             level_thinking_config(level, include)
@@ -114,7 +115,11 @@ pub fn thinking_config(model: &str, thinking_level: Option<&str>) -> Value {
         ThinkingFamily::LevelPro => {
             let level = match effort {
                 ThinkingLevel::Off | ThinkingLevel::Minimal | ThinkingLevel::Low => "LOW",
-                ThinkingLevel::Medium | ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => "HIGH",
+                ThinkingLevel::Medium
+                | ThinkingLevel::Auto
+                | ThinkingLevel::High
+                | ThinkingLevel::XHigh
+                | ThinkingLevel::Max => "HIGH",
             };
             level_thinking_config(level, include)
         }
@@ -122,7 +127,7 @@ pub fn thinking_config(model: &str, thinking_level: Option<&str>) -> Value {
             let level = match effort {
                 ThinkingLevel::Off | ThinkingLevel::Minimal => "MINIMAL",
                 ThinkingLevel::Low => "LOW",
-                ThinkingLevel::Medium => "MEDIUM",
+                ThinkingLevel::Medium | ThinkingLevel::Auto => "MEDIUM",
                 ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => "HIGH",
             };
             level_thinking_config(level, include)

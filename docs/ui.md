@@ -157,16 +157,18 @@ autocomplete):
 | `/help [command]`           | Open interactive command reference modal, or display detailed usage and subcommands for a command. Works mid-turn. |
 | `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly. Works mid-turn. |
 | `/models`                   | Open interactive role-model configuration modal (`default`, built-in roles like `smol`, `slow`, `guard`, `judge`, `widget`, and custom roles). Works mid-turn. |
-| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`). Default `medium`; subagents follow the current level. Works mid-turn. A change while the prompt cache is warm shows a notice that the next request rewrites the cache. |
+| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (`auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; alias: `/think`). Default `medium`; subagents follow the current level. Works mid-turn. A change while the prompt cache is warm shows a notice that the next request rewrites the cache. |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). Works mid-turn. |
 | `/tools`                    | Open interactive Tools & Permissions modal (alias: `/permissions`). Works mid-turn. |
 | `/agents`                   | Open the subagent monitor modal (same as pressing `Left` on an empty prompt). Works mid-turn. |
+| `/btw [question]`           | Open an ephemeral side-question overlay using the current session context without mutating history. Works mid-turn. |
+| `/recap`                    | Generate a concise one-line `※ recap: ...` summary of the current session without mutating history. Works mid-turn. |
 | `/resume [id]`              | Open session selector (rows show name or first message, age, turns, ID), or resume a session by ID. In the selector, `Ctrl+D` then `Ctrl+D` again deletes the highlighted session; any other key cancels the delete. |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |
 | `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                            |
 | `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                             |
-| `/fork [turn\|id]`          | Fork session from a turn or node into a new session branch.                                               |
+| `/fork [pane\|hsplit\|vsplit\|window\|tab] [turn\|id]` | Fork session from a turn or node; optional target opens it in a new multiplexer/terminal pane, window, or tab (safe mid-turn). |
 | `/clone`                    | Duplicate active branch into a new session.                                                               |
 | `/name [name]`              | Name the current session; the name titles it in `/resume`.                                                |
 | `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                           |
@@ -192,6 +194,33 @@ background work and drops its undelivered results, because nothing could deliver
 them. Pressing `Esc` to interrupt a turn also stops the session's running
 background work. Reloading (`/reload`, `/model`, `/login`) keeps the same session and its
 background work running.
+
+### Ephemeral Side Questions (`/btw`)
+
+Run `/btw [question]` at any time, including mid-turn, to open the `Side Question (/btw)` overlay modal without interrupting the active turn or adding to canonical conversation history.
+
+- **Context & streaming**: Answers use the current session context (including any partial assistant response when invoked mid-turn) and stream live into the modal.
+- **Follow-ups & navigation**: Type follow-up questions in the `btw> ` prompt (`Shift+Enter` or `Ctrl+J` inserts a newline; `Up`/`Down` and `PageUp`/`PageDown` scroll the response).
+- **Clipboard & dismiss**: Press `Ctrl+Y` to copy the latest `/btw` answer to the system clipboard, or `Esc` to dismiss the overlay and cancel any in-flight stream.
+
+### Idle & Resume Session Recap (`/recap`)
+
+Run `/recap` (works mid-turn) to generate a concise one-line `※ recap: ...` notice summarizing what the session was doing, without mutating conversation history. Running `/recap` again updates the trailing recap line in place rather than duplicating it.
+
+Opt-in automatic recaps can be enabled under `[recap]` in `~/.config/rho/config.toml` or `.rho/config.toml`:
+
+```toml
+[recap]
+enabled = false      # Trigger a recap after idle_seconds on an empty prompt (default: false)
+idle_seconds = 240   # Inactivity delay before idle recap runs, clamped to 1..=3600 (default: 240)
+on_resume = false    # Trigger a recap when resuming a non-empty session (default: false)
+```
+
+Idle recaps only arm when transcript history exists and the prompt editor is empty, and are cancelled immediately if you start typing. See [Configuration](configuration.md#session-recap) for `rho config` commands.
+
+### Adaptive Thinking Effort (`/thinking auto`)
+
+Selecting `/thinking auto` (or setting `thinking_level = "auto"` in `config.toml`) enables per-turn effort classification instead of a fixed reasoning level. Before each turn, `rho` classifies the prompt using `models.judge` (falling back to `models.guard` when `models.judge` is not configured) and selects the thinking effort for that turn.
 
 ---
 
@@ -371,7 +400,7 @@ The interactive `/settings` modal allows reviewing and tweaking runtime preferen
 
 - **Block Style**: Switch between `Border` (outline) and `Solid` (fill) container styling.
 - **Box Responses**: Toggle boxed frames for agent transcript responses (`On` / `Off`).
-- **Thinking Effort**: Cycle through reasoning effort tiers (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+- **Thinking Effort**: Cycle through reasoning effort tiers (`auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
 - **Thinking Output**: Toggle thinking trace visibility in the transcript (`Shown` / `Hidden`).
 - **Tool Output**: Toggle default tool card expansion (`Expanded` / `Collapsed`).
 - **Version Banner**: Toggle version banner visibility at the start of transcripts (`Shown` / `Hidden`).

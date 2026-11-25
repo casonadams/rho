@@ -12,6 +12,7 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::model::{AssistantContent, ChatMessage, Reasoning, ToolCall};
 use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::session::SessionManager;
+use rho_harness_core::thinking::ThinkingLevel;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -146,6 +147,7 @@ pub struct AgentRunner {
     context_budget: Option<crate::engine::tracking::ContextBudget>,
     a2ui_widgets: bool,
     a2ui_config: rho_harness_core::config::A2uiConfig,
+    thinking_level: Option<ThinkingLevel>,
 }
 
 impl AgentRunner {
@@ -214,6 +216,7 @@ impl AgentRunner {
             context_budget: None,
             a2ui_widgets: false,
             a2ui_config: rho_harness_core::config::A2uiConfig::default(),
+            thinking_level: None,
         }
     }
 
@@ -323,6 +326,11 @@ impl AgentRunner {
     pub fn a2ui_config(mut self, enabled: bool, config: rho_harness_core::config::A2uiConfig) -> Self {
         self.a2ui_widgets = enabled;
         self.a2ui_config = config;
+        self
+    }
+
+    pub fn thinking_level(mut self, thinking_level: Option<ThinkingLevel>) -> Self {
+        self.thinking_level = thinking_level;
         self
     }
 
@@ -481,10 +489,11 @@ fn completion_request(
         tools: tools_def.to_vec(),
         max_tokens: None,
         temperature: None,
+        thinking_level: runner.thinking_level,
     }
 }
 
-fn tool_definitions(tools: &[Arc<dyn EngineTool>]) -> Vec<ModelToolDefinition> {
+pub(in crate::engine) fn tool_definitions(tools: &[Arc<dyn EngineTool>]) -> Vec<ModelToolDefinition> {
     tools
         .iter()
         .map(|t| ModelToolDefinition {

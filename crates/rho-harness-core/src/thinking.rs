@@ -10,10 +10,11 @@ pub enum ThinkingLevel {
     High,
     XHigh,
     Max,
+    Auto,
 }
 
 impl ThinkingLevel {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Off,
         Self::Minimal,
         Self::Low,
@@ -21,6 +22,7 @@ impl ThinkingLevel {
         Self::High,
         Self::XHigh,
         Self::Max,
+        Self::Auto,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -32,6 +34,7 @@ impl ThinkingLevel {
             Self::High => "high",
             Self::XHigh => "xhigh",
             Self::Max => "max",
+            Self::Auto => "auto",
         }
     }
 
@@ -44,7 +47,17 @@ impl ThinkingLevel {
             Self::High => "Deep reasoning (~16k tokens)",
             Self::XHigh => "Extra-high reasoning (~32k tokens)",
             Self::Max => "Maximum reasoning",
+            Self::Auto => "Automatically choose effort per turn via judge model",
         }
+    }
+
+    pub fn is_auto(self) -> bool {
+        self == Self::Auto
+    }
+
+    /// Resolves `Auto` to `Medium` so provider request builders always get a concrete level.
+    pub fn concrete_or_default(self) -> Self {
+        if self == Self::Auto { Self::Medium } else { self }
     }
 
     pub fn parse(name: &str) -> Option<Self> {
@@ -76,13 +89,13 @@ impl ThinkingLevel {
         })
     }
 
-    /// The next level, wrapping from `Max` to `Off`.
+    /// The next level, wrapping from `Auto` to `Off`.
     #[must_use]
     pub fn next(self) -> Self {
         Self::ALL[(self.index() + 1) % Self::ALL.len()]
     }
 
-    /// The previous level, wrapping from `Off` to `Max`.
+    /// The previous level, wrapping from `Off` to `Auto`.
     #[must_use]
     pub fn prev(self) -> Self {
         Self::ALL[(self.index() + Self::ALL.len() - 1) % Self::ALL.len()]
@@ -109,13 +122,20 @@ mod tests {
         assert_eq!(ThinkingLevel::Off.setting().as_deref(), Some("off"));
         assert_eq!(ThinkingLevel::parse_setting(" High "), Ok(Some("high".to_string())));
         assert_eq!(ThinkingLevel::parse_setting("off"), Ok(Some("off".to_string())));
+        assert_eq!(ThinkingLevel::parse_setting("auto"), Ok(Some("auto".to_string())));
         assert!(ThinkingLevel::parse_setting("hgih").unwrap_err().contains("got 'hgih'"));
+        assert!(ThinkingLevel::Auto.is_auto());
+        assert!(!ThinkingLevel::Medium.is_auto());
+        assert_eq!(ThinkingLevel::Auto.concrete_or_default(), ThinkingLevel::Medium);
+        assert_eq!(ThinkingLevel::High.concrete_or_default(), ThinkingLevel::High);
     }
 
     #[test]
     fn cycling_wraps_in_both_directions() {
-        assert_eq!(ThinkingLevel::Max.next(), ThinkingLevel::Off);
-        assert_eq!(ThinkingLevel::Off.prev(), ThinkingLevel::Max);
+        assert_eq!(ThinkingLevel::Max.next(), ThinkingLevel::Auto);
+        assert_eq!(ThinkingLevel::Auto.next(), ThinkingLevel::Off);
+        assert_eq!(ThinkingLevel::Off.prev(), ThinkingLevel::Auto);
+        assert_eq!(ThinkingLevel::Auto.prev(), ThinkingLevel::Max);
         assert_eq!(ThinkingLevel::Low.next(), ThinkingLevel::Medium);
         assert_eq!(ThinkingLevel::Low.prev(), ThinkingLevel::Minimal);
     }

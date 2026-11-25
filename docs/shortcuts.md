@@ -113,14 +113,16 @@ commands:
 | `/settings` | **Runtime Settings**             | Interactive settings modal preserving stack hierarchy: switch role models (default, smol, slow, guard), configure thinking, styling, and tools in-place. Works mid-turn. |
 | `/models`   | **Role Models**                  | Configure role models (`default`, `smol`, `slow`, `guard`). Works mid-turn.   |
 | `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers. Works mid-turn. |
-| `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Works mid-turn. |
+| `/thinking` | **Thinking Level**               | Set reasoning effort (`auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Works mid-turn. |
 | `/tools`    | **Tools & Permissions**          | Configure web search, web fetch, MCP, and permission guards (alias: `/permissions`). Works mid-turn. |
 | `/agents`   | **Subagent Monitor**             | Inspect, focus, steer, or stop running/completed subagents. Works mid-turn.   |
+| `/btw [question]` | **Side Question**          | Opens an ephemeral side-chat overlay using current session context without mutating history. Works mid-turn. |
+| `/recap`    | **Session Recap**                | Generates a concise one-line `※ recap: ...` summary of the current session without mutating history. Works mid-turn. |
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |
 | `/tree`     | **Conversation Tree**            | Visualize turn DAG, switch branches, and label checkpoints.                   |
 | `/rewind`   | **Rewind Session**               | Rewind conversation history to an earlier checkpoint turn.                    |
-| `/fork`     | **Fork Session**                 | Forks session from a specific turn into an isolated conversation.             |
+| `/fork [target] [turn\|id]` | **Fork Session**   | Forks session from a turn or node; optional `pane`, `hsplit`, `vsplit`, `window`, or `tab` opens in a new mux/terminal (safe mid-turn). |
 | `/clone`    | **Clone Session**                | Duplicates active branch into a new session file.                             |
 | `/name`     | **Name Session**                 | Assigns a human-readable display name to the session.                         |
 | `/clear`    | **New Session**                  | Starts a fresh session while preserving past transcripts.                     |

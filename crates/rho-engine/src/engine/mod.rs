@@ -13,6 +13,10 @@ pub use builder::AgentEngineBuilder;
 pub mod compactor;
 pub mod context;
 mod display;
+pub mod ephemeral;
+pub use ephemeral::{
+    EphemeralTurnRequest, EphemeralTurnResponse, PreparedEphemeralTurn, build_recap_prompt, format_recap_text,
+};
 mod locking;
 pub mod metrics;
 mod model;

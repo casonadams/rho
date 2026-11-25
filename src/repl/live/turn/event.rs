@@ -141,7 +141,11 @@ async fn apply_turn_modal_result<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, r
             }
         }
         action => {
-            apply_shared_modal_action(lp.session, lp.engine, lp.controller, &action).await?;
+            if !crate::repl::live::modal::btw::handle_btw_modal_action(lp.session, lp.engine, lp.controller, &action)
+                .await
+            {
+                apply_shared_modal_action(lp.session, lp.engine, lp.controller, &action).await?;
+            }
         }
     }
     lp.batch.flush(lp.controller, true)

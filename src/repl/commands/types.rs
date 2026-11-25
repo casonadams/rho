@@ -30,6 +30,38 @@ impl WorkflowLaunch {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForkTarget {
+    Pane,
+    HSplit,
+    VSplit,
+    Window,
+    Tab,
+}
+
+impl ForkTarget {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "pane" => Some(Self::Pane),
+            "hsplit" => Some(Self::HSplit),
+            "vsplit" => Some(Self::VSplit),
+            "window" => Some(Self::Window),
+            "tab" => Some(Self::Tab),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pane => "pane",
+            Self::HSplit => "hsplit",
+            Self::VSplit => "vsplit",
+            Self::Window => "window",
+            Self::Tab => "tab",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandResult {
     Continue,
@@ -38,6 +70,9 @@ pub enum CommandResult {
     OpenModelsSelector,
     OpenToolsSelector,
     OpenAgentsSelector,
+    Btw {
+        question: Option<String>,
+    },
     ModelChanged {
         new_model: String,
         new_provider: Option<String>,
@@ -54,6 +89,7 @@ pub enum CommandResult {
         leaf_id: String,
     },
     ForkSession {
+        target: Option<ForkTarget>,
         turn_or_node_id: Option<String>,
     },
     CloneSession,
@@ -85,6 +121,7 @@ pub enum CommandResult {
     EnterWorktree {
         branch: Option<String>,
     },
+    Recap,
     Exit,
 }
 

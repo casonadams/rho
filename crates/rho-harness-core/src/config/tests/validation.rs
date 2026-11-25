@@ -77,7 +77,7 @@ type ZeroCase = (&'static str, fn(&mut Config));
 
 #[test]
 fn rejects_zero_in_every_limit_that_rho_config_rejects() {
-    let cases: [ZeroCase; 12] = [
+    let cases: [ZeroCase; 13] = [
         ("max_output_tokens", |c| c.max_output_tokens = Some(0)),
         ("max_turns", |c| c.max_turns = 0),
         ("context_limit", |c| c.context_limit = Some(0)),
@@ -90,6 +90,7 @@ fn rejects_zero_in_every_limit_that_rho_config_rejects() {
         ("fetch_limit", |c| c.fetch_limit = 0),
         ("fetch_max_bytes", |c| c.fetch_max_bytes = 0),
         ("output_max_bytes", |c| c.output_max_bytes = 0),
+        ("recap.idle_seconds", |c| c.recap.idle_seconds = 0),
     ];
     Config::default().validate().unwrap();
     for (name, zero) in cases {

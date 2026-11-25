@@ -24,7 +24,7 @@ use session::{
     handle_tree_command, handle_ui_modal_command, handle_worktree_command,
 };
 use skills::{handle_custom, handle_skill};
-pub use types::{CommandResult, SlashCommandContext};
+pub use types::{CommandResult, ForkTarget, SlashCommandContext};
 
 pub fn is_slash_command(trimmed: &str) -> bool {
     if !trimmed.starts_with('/') {
@@ -70,6 +70,9 @@ async fn dispatch_builtin(
             "  Agent monitor requires interactive TUI mode\n",
             ctx.renderer,
         ))),
+        BuiltinCommand::Btw => Ok(Some(CommandResult::Btw {
+            question: (!parts[1..].is_empty()).then(|| parts[1..].join(" ")),
+        })),
         BuiltinCommand::Resume => Ok(Some(handle_resume_command(parts, has_ui, ctx.renderer))),
         BuiltinCommand::Skill => handle_skill(ctx, parts).await,
         BuiltinCommand::Mcp => mcp::handle_mcp(ctx, parts).await,
@@ -77,11 +80,10 @@ async fn dispatch_builtin(
             handle_session(ctx);
             Ok(Some(CommandResult::Continue))
         }
+        BuiltinCommand::Recap => Ok(Some(CommandResult::Recap)),
         BuiltinCommand::Compact => Ok(Some(handle_compact_command(parts))),
         BuiltinCommand::Tree => Ok(Some(handle_tree_command(has_ui))),
-        BuiltinCommand::Fork => Ok(Some(CommandResult::ForkSession {
-            turn_or_node_id: parts.get(1).map(|s| (*s).to_string()),
-        })),
+        BuiltinCommand::Fork => Ok(Some(parse_fork_command(parts))),
         BuiltinCommand::Clone => Ok(Some(CommandResult::CloneSession)),
         BuiltinCommand::Name => Ok(Some(handle_name_command(parts, ctx.renderer))),
         BuiltinCommand::Rewind => Ok(Some(handle_rewind_command(parts, ctx.renderer))),
@@ -101,6 +103,25 @@ async fn dispatch_builtin(
             ctx.renderer.print_notice("  Bye!\n");
             Ok(Some(CommandResult::Exit))
         }
+    }
+}
+
+fn parse_fork_command(parts: &[&str]) -> CommandResult {
+    match parts.get(1).copied() {
+        Some(first) => match ForkTarget::parse(first) {
+            Some(target) => CommandResult::ForkSession {
+                target: Some(target),
+                turn_or_node_id: parts.get(2).map(|s| (*s).to_string()),
+            },
+            None => CommandResult::ForkSession {
+                target: None,
+                turn_or_node_id: Some(first.to_string()),
+            },
+        },
+        None => CommandResult::ForkSession {
+            target: None,
+            turn_or_node_id: None,
+        },
     }
 }
 
@@ -126,6 +147,11 @@ impl SlashCommandHandler {
         let cmd = first.to_lowercase();
 
         if let Some(spec) = lookup_builtin(&cmd) {
+            if spec.id == BuiltinCommand::Btw {
+                let rest = trimmed[1 + first.len()..].trim();
+                let question = (!rest.is_empty()).then(|| rest.to_string());
+                return Ok(Some(CommandResult::Btw { question }));
+            }
             return dispatch_builtin(spec.id, &parts, ctx).await;
         }
         handle_custom(ctx, &cmd, &parts).await

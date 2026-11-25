@@ -2,6 +2,7 @@ use crate::engine::metrics::StructuralUsage;
 use futures::Stream;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, Reasoning, ToolCall};
+use rho_harness_core::thinking::ThinkingLevel;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -34,6 +35,7 @@ pub struct ModelCompletionRequest {
     pub tools: Vec<ModelToolDefinition>,
     pub max_tokens: Option<u64>,
     pub temperature: Option<f64>,
+    pub thinking_level: Option<ThinkingLevel>,
 }
 
 /// Tool-call arguments as streamed by a provider: empty input means no arguments, and text that is not

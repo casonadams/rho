@@ -15,6 +15,7 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
         ThinkingLevel::High => "\x1b[35m",
         ThinkingLevel::XHigh => "\x1b[31m",
         ThinkingLevel::Max => "\x1b[1;31m",
+        ThinkingLevel::Auto => "\x1b[33m",
     };
     (style, "\x1b[0m")
 }

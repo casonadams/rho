@@ -83,6 +83,7 @@ fn sample_sensitive_request() -> rho_engine::provider::adapter::ModelCompletionR
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
+        thinking_level: None,
     }
 }
 

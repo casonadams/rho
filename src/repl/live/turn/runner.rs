@@ -50,9 +50,14 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         let footer = sync_turn_footer(self.controller, self.engine);
         let agents =
             crate::repl::live::modal::agents::refresh_agent_modals(self.controller, self.engine.agent_monitor())?;
+        let btw = self
+            .session
+            .btw
+            .as_mut()
+            .is_some_and(|b| crate::repl::live::modal::btw::refresh_btw_modal(self.controller, b));
         self.batch.flush(
             self.controller,
-            spinner || footer || expired || steering || resized || agents,
+            spinner || footer || expired || steering || resized || agents || btw,
         )?;
         self.promote_idle_activity();
         Ok(())

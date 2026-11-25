@@ -105,7 +105,7 @@ async fn test_fork_and_clone_session() {
     let temp = tempfile::tempdir().unwrap();
     let (session, engine) = setup_test_session(temp.path()).await;
 
-    assert!(fork_session(&session, &engine, None).await.is_ok());
+    assert!(fork_session(&session, &engine, None, None).await.is_ok());
     assert!(clone_session(&session, &engine).await.is_ok());
 }
 
@@ -155,7 +155,10 @@ async fn test_handle_session_branching_result_arms() {
     assert!(matches!(res, Ok(true)));
 
     let res = handle_session_branching_result(
-        &CommandResult::ForkSession { turn_or_node_id: None },
+        &CommandResult::ForkSession {
+            target: None,
+            turn_or_node_id: None,
+        },
         &mut session,
         &mut engine,
     )

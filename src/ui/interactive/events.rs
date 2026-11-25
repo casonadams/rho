@@ -49,6 +49,7 @@ pub enum UiEvent {
     },
     ToolEnd,
     Transcript(crate::ui::interactive::TranscriptItem),
+    Recap(String),
     RunningTool(Option<String>),
     SystemMessage(Option<String>),
     Interaction {
@@ -94,6 +95,7 @@ pub struct PendingUiBatch {
     tool_end: bool,
     system_message: Option<Option<String>>,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
+    trailing_recap: Option<String>,
     a2ui_messages: Vec<rho_harness_core::a2ui::A2uiMessage>,
     max_text_bytes: usize,
 }
@@ -108,6 +110,7 @@ pub struct PendingUiDrain {
     pub tool_end: bool,
     pub system_message: Option<Option<String>>,
     pub transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
+    pub trailing_recap: Option<String>,
     pub a2ui_messages: Vec<rho_harness_core::a2ui::A2uiMessage>,
 }
 
@@ -135,6 +138,7 @@ impl PendingUiBatch {
             tool_end: false,
             system_message: None,
             transcript_items: Vec::new(),
+            trailing_recap: None,
             a2ui_messages: Vec::new(),
             max_text_bytes: max_text_bytes.max(1),
         }
@@ -186,6 +190,10 @@ impl PendingUiBatch {
             }
             UiEvent::Transcript(item) => {
                 self.transcript_items.push(item);
+                Self::flushes()
+            }
+            UiEvent::Recap(text) => {
+                self.trailing_recap = Some(text);
                 Self::flushes()
             }
             UiEvent::SystemMessage(m) => {
@@ -242,6 +250,7 @@ impl PendingUiBatch {
             tool_end: std::mem::replace(&mut self.tool_end, false),
             system_message: self.system_message.take(),
             transcript_items: std::mem::take(&mut self.transcript_items),
+            trailing_recap: self.trailing_recap.take(),
             a2ui_messages: std::mem::take(&mut self.a2ui_messages),
         }
     }
@@ -255,6 +264,7 @@ impl PendingUiBatch {
             && !self.tool_end
             && self.system_message.is_none()
             && self.transcript_items.is_empty()
+            && self.trailing_recap.is_none()
             && self.a2ui_messages.is_empty()
     }
 }
@@ -314,6 +324,10 @@ impl InteractiveUi {
         self.sender
             .send(UiEvent::Transcript(item))
             .map_err(|_| UiPortError::Closed)
+    }
+
+    pub fn push_recap(&self, text: String) -> Result<(), UiPortError> {
+        self.sender.send(UiEvent::Recap(text)).map_err(|_| UiPortError::Closed)
     }
 
     pub async fn request(&self, prompt: InteractionPrompt) -> Result<InteractionResponse, UiPortError> {

@@ -82,7 +82,7 @@ pub const GROUPS: &[Group] = &[
                 "thinking_level",
                 Some("medium"),
                 Some("AI_THINKING_LEVEL, --thinking"),
-                "off, minimal, low, medium, high, xhigh or max. Subagents use the same level; changing it mid-session rewrites the prompt cache.",
+                "off, minimal, low, medium, high, xhigh, max, or auto (classifies per-turn effort via models.judge falling back to models.guard, defaulting to medium). Subagents use the same level (concrete medium when auto); changing it mid-session rewrites the prompt cache.",
             ),
             s(
                 "cache_retention",
@@ -553,6 +553,30 @@ pub const GROUPS: &[Group] = &[
                 Some("false"),
                 None,
                 "After /wt carries your changes into the new worktree, reset and clean the source checkout. This discards its uncommitted changes.",
+            ),
+        ],
+    },
+    Group {
+        title: "Session recap",
+        note: Some("Opt-in away-from-keyboard recap under the [recap] table."),
+        settings: &[
+            s(
+                "recap.enabled",
+                Some("false"),
+                None,
+                "Generate a brief recap when you return to an idle session.",
+            ),
+            s(
+                "recap.idle_seconds",
+                Some("240"),
+                None,
+                "Seconds of inactivity before an idle recap is triggered (clamped to 1..=3600).",
+            ),
+            s(
+                "recap.on_resume",
+                Some("false"),
+                None,
+                "Generate a recap when resuming a previous session.",
             ),
         ],
     },

@@ -34,7 +34,9 @@ pub struct ReplSession {
     pub cli: Option<crate::config::cli::Cli>,
     pub(crate) mcp_completions: crate::repl::interactive::McpServerList,
     pub catalog: rho_engine::provider::ModelCatalog,
+    pub(crate) btw: Option<crate::repl::live::modal::btw::BtwSession>,
     fetch_models: bool,
+    pub(crate) pending_resume_recap: bool,
 }
 
 impl ReplSession {
@@ -54,7 +56,9 @@ impl ReplSession {
             cli: None,
             mcp_completions,
             catalog: rho_engine::provider::ModelCatalog::default(),
+            btw: None,
             fetch_models: false,
+            pending_resume_recap: false,
         }
     }
 

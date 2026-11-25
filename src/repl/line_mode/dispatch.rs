@@ -89,14 +89,29 @@ async fn load_branch_context(engine: &AgentEngine) -> Result<(String, rho_harnes
     Ok((old_leaf, tree))
 }
 
-pub(crate) async fn fork_session(session: &ReplSession, engine: &AgentEngine, id: Option<&str>) -> Result<()> {
+pub(crate) async fn fork_session(
+    session: &ReplSession,
+    engine: &AgentEngine,
+    target: Option<crate::repl::commands::ForkTarget>,
+    id: Option<&str>,
+) -> Result<()> {
     let forked = engine
         .session_manager
         .fork_session(&session.config.sessions_dir, id)
         .await?;
-    session
-        .renderer
-        .print_status(&format!("Forked session: {}", forked.session_id));
+    let forked_id = forked.session_id.clone();
+    drop(forked);
+    if let Some(target) = target {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| engine.base_dir.clone());
+        match crate::repl::live::mux::spawn_forked_session(target, &forked_id, &cwd) {
+            Ok(label) => session
+                .renderer
+                .print_status(&format!("Forked session {forked_id} in {label}")),
+            Err(err) => session.renderer.print_status(&err),
+        }
+    } else {
+        session.renderer.print_status(&format!("Forked session: {forked_id}"));
+    }
     Ok(())
 }
 
@@ -119,8 +134,11 @@ pub(crate) async fn handle_session_branching_result(
     match cmd_res {
         CommandResult::Tree | CommandResult::OpenTreeSelector => show_tree(session, engine).await?,
         CommandResult::SwitchBranch { leaf_id } => switch_active_branch(leaf_id.clone(), session, engine).await?,
-        CommandResult::ForkSession { turn_or_node_id } => {
-            fork_session(session, engine, turn_or_node_id.as_deref()).await?;
+        CommandResult::ForkSession {
+            target,
+            turn_or_node_id,
+        } => {
+            fork_session(session, engine, *target, turn_or_node_id.as_deref()).await?;
         }
         CommandResult::CloneSession => {
             clone_session(session, engine).await?;
@@ -384,12 +402,47 @@ pub(crate) async fn handle_terminal_result(
             compact_context(session, engine, instructions.as_deref()).await;
             Ok(DispatchOutcome::Continue)
         }
+        CommandResult::Recap => {
+            run_line_mode_recap(session, engine).await;
+            Ok(DispatchOutcome::Continue)
+        }
         CommandResult::ExpandedPrompt { text } => Ok(handle_expanded_prompt(session, text)),
         CommandResult::RunWorkflow(launch) => {
             run_workflow_plain(session, engine, launch).await;
             Ok(DispatchOutcome::Continue)
         }
+        CommandResult::Btw { question } => {
+            handle_line_btw(session, engine, question).await;
+            Ok(DispatchOutcome::Continue)
+        }
         _ => Ok(DispatchOutcome::Continue),
+    }
+}
+
+async fn handle_line_btw(session: &ReplSession, engine: &AgentEngine, question: Option<String>) {
+    let Some(prompt) = question else {
+        session.renderer.print_notice("  Usage: /btw <question>\n");
+        return;
+    };
+    let req = rho_engine::engine::EphemeralTurnRequest {
+        prompt,
+        ..Default::default()
+    };
+    match engine.run_ephemeral_turn(req, None).await {
+        Ok(response) => session.renderer.print_notice(&format!("\n{}\n\n", response.text)),
+        Err(err) => session.renderer.print_notice(&format!("  /btw failed: {err}\n")),
+    }
+}
+
+async fn run_line_mode_recap(session: &ReplSession, engine: &AgentEngine) {
+    let cancel = crate::engine::runner::CancellationSignal::default();
+    match engine.generate_recap(cancel).await {
+        Ok(Some(text)) => {
+            let rendered = crate::ui::interactive::format_recap_notice(&text, 80, &session.renderer.theme);
+            session.renderer.print_notice(&rendered);
+        }
+        Ok(None) => session.renderer.print_status("Nothing to recap yet."),
+        Err(err) => session.renderer.print_status(&format!("Recap failed: {err}")),
     }
 }
 

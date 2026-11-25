@@ -227,6 +227,7 @@ fn compact_thinking_label(level: Option<&str>) -> (&'static str, &'static str) {
         ThinkingLevel::High => ("◕", "high"),
         ThinkingLevel::XHigh => ("◉", "xhigh"),
         ThinkingLevel::Max => ("◉", "max"),
+        ThinkingLevel::Auto => ("◐", "auto"),
     }
 }
 

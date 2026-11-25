@@ -310,3 +310,36 @@ fn model_role_validation_and_resolution() {
     assert_eq!(config.resolve_model_selector("@widget"), None);
     assert_eq!(config.resolve_model_selector("none"), None);
 }
+
+#[test]
+fn recap_defaults_clamping_and_toml_merging() {
+    let default_cfg = Config::default();
+    assert!(!default_cfg.recap.enabled);
+    assert_eq!(default_cfg.recap.idle_seconds, 240);
+    assert!(!default_cfg.recap.on_resume);
+    assert_eq!(default_cfg.recap.clamped_idle_seconds(), 240);
+
+    let clamped_low = crate::config::RecapConfig {
+        enabled: true,
+        idle_seconds: 0,
+        on_resume: false,
+    };
+    assert_eq!(clamped_low.clamped_idle_seconds(), 1);
+
+    let clamped_high = crate::config::RecapConfig {
+        enabled: true,
+        idle_seconds: 7200,
+        on_resume: false,
+    };
+    assert_eq!(clamped_high.clamped_idle_seconds(), 3600);
+
+    let user: FileConfig = toml::from_str("[recap]\nenabled = true\nidle_seconds = 120\n").unwrap();
+    let project: FileConfig = toml::from_str("[recap]\non_resume = true\nidle_seconds = 300\n").unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, user);
+    super::super::merge::merge_project_file(&mut config, &project);
+
+    assert!(config.recap.enabled);
+    assert_eq!(config.recap.idle_seconds, 300);
+    assert!(config.recap.on_resume);
+}

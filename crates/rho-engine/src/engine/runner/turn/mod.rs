@@ -2,9 +2,10 @@ mod completion;
 mod prepare;
 pub(crate) mod prune;
 pub mod runner;
-pub mod store;
+mod store;
 mod stream;
 mod streaming_tool;
+mod thinking;
 pub mod types;
 
 pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PruneMemory, PrunePolicy, prune_historical_tool_outputs_with_policy};

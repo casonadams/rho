@@ -120,6 +120,9 @@ async fn handle_session_selected(
     ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
         let _ = hydrate_session_transcript(ctx.controller, &tree);
+        if !tree.is_empty() && ctx.session.config.recap.on_resume {
+            ctx.session.pending_resume_recap = true;
+        }
     }
     ctx.session
         .renderer
@@ -312,6 +315,12 @@ async fn dispatch_modal_result(
         ModalKeyResult::Handled => Ok(true),
         ModalKeyResult::NotHandled => Ok(false),
         action => {
+            if crate::repl::live::modal::btw::handle_btw_modal_action(ctx.session, ctx.engine, ctx.controller, &action)
+                .await
+            {
+                batch.flush(ctx.controller, true)?;
+                return Ok(true);
+            }
             if apply_shared_modal_action(ctx.session, ctx.engine, ctx.controller, &action).await? {
                 ctx.session.sync_engine_settings(ctx.engine);
                 return Ok(true);

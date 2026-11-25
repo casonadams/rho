@@ -166,6 +166,8 @@ pub struct Config {
     #[serde(default)]
     pub worktree: WorktreeConfig,
     #[serde(default)]
+    pub recap: RecapConfig,
+    #[serde(default)]
     pub hook_dirs: Vec<PathBuf>,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
@@ -212,6 +214,7 @@ macro_rules! default_config_literal {
             tools: $crate::config::ToolsConfig::default(),
             subagents: SubagentsConfig::default(),
             worktree: WorktreeConfig::default(),
+            recap: RecapConfig::default(),
             hook_dirs: Vec::new(),
             sessions_dir: $base_dir.join("sessions"),
             auth_file: $base_dir.join("auth.json"),
@@ -244,6 +247,36 @@ impl WorktreeConfig {
 
     pub fn effective_base(&self, config_dir: &std::path::Path) -> PathBuf {
         self.base.clone().unwrap_or_else(|| config_dir.join("wt"))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecapConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_recap_idle_seconds")]
+    pub idle_seconds: u64,
+    #[serde(default)]
+    pub on_resume: bool,
+}
+
+fn default_recap_idle_seconds() -> u64 {
+    240
+}
+
+impl Default for RecapConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            idle_seconds: default_recap_idle_seconds(),
+            on_resume: false,
+        }
+    }
+}
+
+impl RecapConfig {
+    pub fn clamped_idle_seconds(&self) -> u64 {
+        self.idle_seconds.clamp(1, 3600)
     }
 }
 

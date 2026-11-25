@@ -406,4 +406,42 @@ mod redraw {
         assert_eq!(reverted, crate::ui::theme::BlockStyle::Border);
         assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
     }
+
+    #[test]
+    fn upsert_trailing_recap_replaces_in_place_without_duplicating() {
+        let (backend, operations, _) = FakeTerminal::new(80);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::UserMessage("hello".into()))
+            .unwrap();
+
+        controller.upsert_trailing_recap("first recap".into()).unwrap();
+        assert_eq!(
+            controller.transcript(),
+            [
+                TranscriptItem::UserMessage("hello".into()),
+                TranscriptItem::Recap("first recap".into()),
+            ]
+        );
+        let first_cached = controller.cache().entry(1).unwrap().standard.clone().unwrap();
+        assert!(first_cached.contains("※ recap: first recap"));
+
+        operations.borrow_mut().clear();
+        controller.upsert_trailing_recap("updated recap".into()).unwrap();
+        assert_eq!(
+            controller.transcript(),
+            [
+                TranscriptItem::UserMessage("hello".into()),
+                TranscriptItem::Recap("updated recap".into()),
+            ]
+        );
+        let updated_cached = controller.cache().entry(1).unwrap().standard.clone().unwrap();
+        assert!(updated_cached.contains("※ recap: updated recap"));
+        assert!(!updated_cached.contains("first recap"));
+        let ops = operations.borrow();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("updated recap")))
+        );
+    }
 }

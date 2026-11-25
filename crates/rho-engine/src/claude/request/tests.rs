@@ -22,6 +22,7 @@ fn sample_request_with_tools(tools: Vec<ModelToolDefinition>) -> ModelCompletion
         tools,
         max_tokens: None,
         temperature: None,
+        thinking_level: None,
     }
 }
 
@@ -232,6 +233,7 @@ fn convert_messages_converts_user_and_assistant_images() {
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
+        thinking_level: None,
     };
 
     let messages = contents::convert_messages(&req);
@@ -297,6 +299,7 @@ fn convert_messages_replays_signed_and_redacted_thinking_and_drops_unsigned() {
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
+        thinking_level: None,
     };
 
     let messages = contents::convert_messages(&req);
@@ -350,6 +353,7 @@ fn convert_messages_handles_tool_results() {
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
+        thinking_level: None,
     };
 
     let messages = contents::convert_messages(&req);

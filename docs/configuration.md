@@ -204,9 +204,11 @@ naming the setting.
 Configure model roles in `~/.config/rho/config.toml` or `.rho/config.toml` under the `[models]` table using the unified `<provider>/<model>` format:
 
 ```toml
-# off, minimal, low, medium (default), high, xhigh or max; other values are rejected.
-# Subagents use the same level. Changing the level or model mid-session makes the
-# next request rewrite the prompt cache; rho shows a notice when the cache is warm.
+# off, minimal, low, medium (default), high, xhigh, max, or auto; other values are rejected.
+# "auto" classifies per-turn effort (low/medium/high) using models.judge (falling back to
+# models.guard, or medium on timeout/unconfigured). Subagents use the same level (resolving
+# auto to medium). Changing the level or model mid-session makes the next request rewrite
+# the prompt cache; rho shows a notice when the cache is warm.
 thinking_level = "high"
 
 # Claude prompt-cache lifetime: auto (default: 1 hour on `claude` subscription
@@ -780,6 +782,22 @@ clean_source = false
 
 `clean_source = true` discards uncommitted changes in the source checkout, so enable it only when you want
 `/wt` to move work rather than copy it.
+
+## Session Recap
+
+Opt-in session recaps are configured under the `[recap]` table in `~/.config/rho/config.toml` or `.rho/config.toml`:
+
+```toml
+[recap]
+# Generate a brief recap when returning to an idle session (default: false)
+enabled = false
+# Seconds of inactivity before an idle recap is triggered; clamped to 1..=3600 (default: 240)
+idle_seconds = 240
+# Generate a recap when resuming a previous session (default: false)
+on_resume = false
+```
+
+You can also configure these keys with `rho config recap.enabled true`, `rho config recap.idle_seconds 240`, and `rho config recap.on_resume true`.
 
 ## Language Servers
 

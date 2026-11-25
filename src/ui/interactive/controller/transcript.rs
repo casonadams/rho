@@ -180,6 +180,25 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
     }
 
+    pub fn upsert_trailing_recap(&mut self, text: String) -> io::Result<bool> {
+        let item = TranscriptItem::Recap(text);
+        if matches!(self.transcript.last(), Some(TranscriptItem::Recap(_))) {
+            let idx = self.transcript.len() - 1;
+            let rendered = self.render_transcript_item(&item);
+            let mut entry = super::cache::CachedItemRender::default();
+            entry.set(
+                target_slot(&item, self.state.tools_expanded(), self.state.hide_thinking()),
+                rendered,
+            );
+            self.cache.set(idx, entry);
+            self.transcript[idx] = item;
+            self.full_redraw()?;
+            Ok(true)
+        } else {
+            self.push_transcript_item(item)
+        }
+    }
+
     pub(crate) fn write_transcript_card(&mut self, rendered: &str, needs_prefix_newline: bool) -> io::Result<()> {
         if needs_prefix_newline {
             let mut combined = String::with_capacity(rendered.len() + 1);

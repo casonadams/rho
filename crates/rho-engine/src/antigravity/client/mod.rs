@@ -187,6 +187,10 @@ impl AntigravityClient {
         refreshed: &mut bool,
         request: &ModelCompletionRequest,
     ) -> HttpResult {
+        let effort = request
+            .thinking_level
+            .map(Effort::from_thinking_level)
+            .unwrap_or(self.effort);
         let mut last = None;
         for candidate in candidates {
             for &base_url in endpoints {
@@ -194,7 +198,7 @@ impl AntigravityClient {
                     base_url,
                     project: &self.project_id,
                     runtime_model: &candidate,
-                    effort: self.effort,
+                    effort,
                 };
                 let res = try_post_stream_refresh(self, ep, request, token, refreshed).await;
                 if let Some(final_res) = classify_stream_error(res, &mut last) {
@@ -211,7 +215,11 @@ impl AntigravityClient {
             .token()
             .await
             .map_err(|e| HttpFailure::Local(format!("Failed to acquire Antigravity access token: {e}")))?;
-        let candidates = resolve_candidate_models(&self.model, self.effort);
+        let effort = request
+            .thinking_level
+            .map(Effort::from_thinking_level)
+            .unwrap_or(self.effort);
+        let candidates = resolve_candidate_models(&self.model, effort);
         let endpoints = resolve_endpoints(self.endpoint.as_deref());
         let endpoint_refs: Vec<&str> = endpoints.iter().map(|s| s.as_str()).collect();
         let mut refreshed = false;

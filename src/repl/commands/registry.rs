@@ -28,10 +28,12 @@ pub enum BuiltinCommand {
     Thinking,
     Tools,
     Agents,
+    Btw,
     Resume,
     Skill,
     Mcp,
     Session,
+    Recap,
     Compact,
     Tree,
     Fork,
@@ -151,6 +153,16 @@ pub const BUILTIN_COMMANDS: &[SlashCommandSpec] = &[
         mid_turn: MidTurnPolicy::Immediate,
     },
     SlashCommandSpec {
+        id: BuiltinCommand::Btw,
+        name: "btw",
+        aliases: &[],
+        usage: "/btw [question]",
+        summary: "Ask an ephemeral side question without polluting session history",
+        detail: "Opens a side-chat overlay (or answers inline in line mode) using the current session context without adding to canonical conversation history or interrupting an active turn. Works mid-turn.",
+        subcommands: &[],
+        mid_turn: MidTurnPolicy::Immediate,
+    },
+    SlashCommandSpec {
         id: BuiltinCommand::Resume,
         name: "resume",
         aliases: &[],
@@ -191,6 +203,16 @@ pub const BUILTIN_COMMANDS: &[SlashCommandSpec] = &[
         mid_turn: MidTurnPolicy::Immediate,
     },
     SlashCommandSpec {
+        id: BuiltinCommand::Recap,
+        name: "recap",
+        aliases: &[],
+        usage: "/recap",
+        summary: "Generate a brief summary of what this session was doing",
+        detail: "Generates a concise one-line recap of the current session history without mutating conversation state. Works mid-turn.",
+        subcommands: &[],
+        mid_turn: MidTurnPolicy::Immediate,
+    },
+    SlashCommandSpec {
         id: BuiltinCommand::Compact,
         name: "compact",
         aliases: &[],
@@ -214,9 +236,9 @@ pub const BUILTIN_COMMANDS: &[SlashCommandSpec] = &[
         id: BuiltinCommand::Fork,
         name: "fork",
         aliases: &[],
-        usage: "/fork [turn|node_id]",
-        summary: "Fork session from a turn or node into a new session",
-        detail: "Creates a new session branched from the specified turn number or node ID (or the current leaf if omitted) and switches to it.",
+        usage: "/fork [pane|hsplit|vsplit|window|tab] [turn|node_id]",
+        summary: "Fork session from a turn or node (optionally in a new pane/window/tab)",
+        detail: "Creates a new session branched from the specified turn number or node ID (or the current leaf if omitted). Without a target, creates the fork in the background; with pane, hsplit, vsplit, window, or tab, opens the forked session in a new multiplexer pane, window, or tab (tmux, Zellij, WezTerm, Kitty, or macOS Terminal/iTerm2). Targeted forks are safe mid-turn.",
         subcommands: &[],
         mid_turn: MidTurnPolicy::Queue,
     },
@@ -388,8 +410,19 @@ pub fn mid_turn_policy(input: &str) -> MidTurnPolicy {
     if !super::is_slash_command(trimmed) {
         return MidTurnPolicy::Queue;
     }
-    let Some(first) = trimmed[1..].split_whitespace().next() else {
+    let mut words = trimmed[1..].split_whitespace();
+    let Some(first) = words.next() else {
         return MidTurnPolicy::Queue;
     };
-    lookup_builtin(first).map_or(MidTurnPolicy::Queue, |spec| spec.mid_turn)
+    let Some(spec) = lookup_builtin(first) else {
+        return MidTurnPolicy::Queue;
+    };
+    if spec.id == BuiltinCommand::Fork
+        && words
+            .next()
+            .is_some_and(|arg| super::types::ForkTarget::parse(arg).is_some())
+    {
+        return MidTurnPolicy::Immediate;
+    }
+    spec.mid_turn
 }

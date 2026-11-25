@@ -125,6 +125,8 @@ pub(crate) struct FileConfig {
     pub subagents: SubagentsConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeConfigFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<RecapConfigFile>,
     /// Keys this version does not know (for example `model` and `provider` from v0.10), kept so
     /// saving a setting never deletes them.
     #[serde(flatten)]
@@ -197,4 +199,14 @@ pub struct WorktreeConfigFile {
     pub base: Option<std::path::PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clean_source: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct RecapConfigFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_resume: Option<bool>,
 }

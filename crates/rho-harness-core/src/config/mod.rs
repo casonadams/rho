@@ -18,11 +18,11 @@ pub use types::{
     A2uiConfig, ApprovalFocus, BashConfig, CacheRetention, Config, ContextLineMode, DEFAULT_MAX_TURNS, DisplayUiConfig,
     DividerStyle, GitSegmentOptions, LspConfig, McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode,
     McpOAuthConfig, McpServerConfig, McpTransportKind, ModelRole, ModelSegmentOptions, ModelsConfig,
-    PathSegmentOptions, PermissionConfig, ProjectMcpServers, PromptUiConfig, ProviderConfig, StatusBarConfig,
-    StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSegmentOptions, StatusBarSeparator,
-    SubagentsConfig, TimeFormat, TimeSegmentOptions, ToolsConfig, UiConfig, WebFetchConfig, WebSearchConfig,
-    WebToolsConfig, WorktreeConfig, config_dir, default_config_dir, default_idle_timeout_seconds, dirs_fallback,
-    home_dir,
+    PathSegmentOptions, PermissionConfig, ProjectMcpServers, PromptUiConfig, ProviderConfig, RecapConfig,
+    StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSegmentOptions,
+    StatusBarSeparator, SubagentsConfig, TimeFormat, TimeSegmentOptions, ToolsConfig, UiConfig, WebFetchConfig,
+    WebSearchConfig, WebToolsConfig, WorktreeConfig, config_dir, default_config_dir, default_idle_timeout_seconds,
+    dirs_fallback, home_dir,
 };
 
 use crate::error::{AppError, Result};

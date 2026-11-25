@@ -66,6 +66,10 @@ const TITLE_HINTS: &[(&str, &str)] = &[
         "Resume Session",
         "↑/↓ select • Enter resume • Ctrl+D delete • Esc cancel",
     ),
+    (
+        "Side Question (/btw)",
+        "Enter send • Up/Down scroll • Ctrl+Y copy • Esc close",
+    ),
 ];
 
 /// Digits jump to an option only when the modal does not treat typed characters as text.
@@ -110,6 +114,9 @@ pub fn modal_hint(modal: &ModalState) -> &'static str {
     match &modal.mode {
         crate::ui::interactive::ModalMode::Select => select_modal_hint(modal),
         crate::ui::interactive::ModalMode::Input { .. } if modal.options.is_empty() => {
+            if let Some((_, hint)) = TITLE_HINTS.iter().find(|(title, _)| modal.title == *title) {
+                return hint;
+            }
             "Enter submit • Shift+Enter newline • Esc cancel"
         }
         crate::ui::interactive::ModalMode::Input { .. } => "Enter submit • Shift+Enter newline • Esc back",

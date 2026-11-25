@@ -211,6 +211,10 @@ impl<B: TerminalBackend> TerminalController<B> {
             wrote_output |= self.push_transcript_item(item)?;
             changed = true;
         }
+        if let Some(recap) = drained.trailing_recap {
+            wrote_output |= self.upsert_trailing_recap(recap)?;
+            changed = true;
+        }
         Ok((changed, wrote_output))
     }
 

@@ -76,8 +76,10 @@ pub(super) async fn maybe_hydrate_transcript<B: TerminalBackend>(
     resumed: bool,
     engine: &AgentEngine,
     controller: &mut TerminalController<B>,
-) {
+) -> bool {
     if resumed && let Ok(tree) = engine.session_manager.load_tree().await {
         let _ = hydrate_session_transcript(controller, &tree);
+        return !tree.is_empty();
     }
+    false
 }

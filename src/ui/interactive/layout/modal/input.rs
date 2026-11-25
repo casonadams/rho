@@ -253,7 +253,7 @@ fn format_scroll_indicator(current_line: usize, total_lines: usize) -> String {
     format!("  \x1b[2m↑/↓ scroll (line {current_line}/{total_lines})\x1b[0m")
 }
 
-fn render_horizontal_body_lines(wrapped: Vec<String>, body_scroll: usize, space: usize) -> Vec<String> {
+fn render_scrollable_body_lines(wrapped: Vec<String>, body_scroll: usize, space: usize) -> Vec<String> {
     let total = wrapped.len();
     if space == 1 {
         return vec![format_scroll_indicator(1, total)];
@@ -295,8 +295,10 @@ fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) ->
     }
     if total <= space {
         wrapped.into_iter().map(|line| format!("  {line}")).collect()
-    } else if modal.option_layout == OptionLayout::Horizontal {
-        render_horizontal_body_lines(wrapped, modal.body_scroll, space)
+    } else if modal.option_layout == OptionLayout::Horizontal
+        || (matches!(modal.mode, ModalMode::Input { .. }) && modal.options.is_empty())
+    {
+        render_scrollable_body_lines(wrapped, modal.body_scroll, space)
     } else {
         render_vertical_omission_lines(wrapped, space)
     }

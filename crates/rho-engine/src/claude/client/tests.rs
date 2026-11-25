@@ -17,6 +17,7 @@ fn sample_request() -> ModelCompletionRequest {
         tools: Vec::new(),
         max_tokens: None,
         temperature: Some(0.7),
+        thinking_level: None,
     }
 }
 
@@ -135,6 +136,7 @@ fn request_with_tool_and_history() -> ModelCompletionRequest {
         }],
         max_tokens: None,
         temperature: Some(0.7),
+        thinking_level: None,
     }
 }
 
@@ -472,4 +474,41 @@ fn debug_output_names_model_and_thinking_level() {
     let debug = format!("{client:?}");
     assert!(debug.contains("model: \"claude-opus-4\""), "{debug}");
     assert!(debug.contains("thinking_level: Some(\"high\")"), "{debug}");
+}
+
+#[tokio::test]
+async fn request_thinking_level_overrides_client_and_maps_auto_to_medium() {
+    use rho_harness_core::thinking::ThinkingLevel;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let n = sock.read(&mut buf).await.unwrap();
+            bodies.push(String::from_utf8_lossy(&buf[..n]).to_string());
+            let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 10\r\nConnection: close\r\n\r\ndata: {}\n\n";
+            sock.write_all(resp.as_bytes()).await.unwrap();
+        }
+        bodies
+    });
+
+    let client = ClaudeClient::new("tok", "claude-sonnet-4-6")
+        .with_endpoint(format!("http://{addr}"))
+        .with_thinking_level(Some("auto"));
+
+    let mut req_high = sample_request();
+    req_high.thinking_level = Some(ThinkingLevel::High);
+    assert!(client.open_stream(&req_high).await.is_ok());
+
+    let mut req_auto = sample_request();
+    req_auto.thinking_level = Some(ThinkingLevel::Auto);
+    assert!(client.open_stream(&req_auto).await.is_ok());
+
+    let raw = server.await.unwrap();
+    assert!(raw[0].contains("\"effort\":\"high\""), "{}", raw[0]);
+    assert!(raw[1].contains("\"effort\":\"medium\""), "{}", raw[1]);
 }

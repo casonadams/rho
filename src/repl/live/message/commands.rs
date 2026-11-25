@@ -90,6 +90,25 @@ pub(crate) async fn clear_engine_context(ctx: &mut LiveCommandContext<'_, '_>) -
     Ok(())
 }
 
+async fn handle_live_recap<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+) -> Result<()> {
+    let cancel = crate::engine::runner::CancellationSignal::default();
+    match ctx.engine.generate_recap(cancel).await {
+        Ok(Some(text)) => {
+            io.controller.upsert_trailing_recap(text)?;
+        }
+        Ok(None) => {
+            ctx.session.renderer.print_status("Nothing to recap yet.");
+        }
+        Err(err) => {
+            ctx.session.renderer.print_status(&format!("Recap failed: {err}"));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn handle_model_or_thinking_command<B: TerminalBackend>(
     ctx: &mut LiveCommandContext<'_, '_>,
     io: &mut LiveIo<'_, B>,
@@ -126,6 +145,22 @@ pub(crate) async fn handle_engine_command_rest<B: TerminalBackend>(
         }
         CommandResult::Compact { instructions } => {
             handle_compact(ctx, io, instructions.as_deref()).await;
+            Ok(true)
+        }
+        CommandResult::Btw { question } => {
+            crate::repl::live::modal::btw::start_btw_overlay(
+                ctx.session,
+                ctx.engine,
+                io.controller,
+                question.clone(),
+                None,
+            )
+            .await;
+            let _ = io.controller.redraw();
+            Ok(true)
+        }
+        CommandResult::Recap => {
+            handle_live_recap(ctx, io).await?;
             Ok(true)
         }
         CommandResult::EnterWorktree { branch } => {

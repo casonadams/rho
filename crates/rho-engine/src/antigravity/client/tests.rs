@@ -170,6 +170,7 @@ fn test_completion_request() -> ModelCompletionRequest {
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
+        thinking_level: None,
     }
 }
 
@@ -470,4 +471,27 @@ async fn load_project_id_resolves_project() {
     let proj = super::discovery::load_project_id_from_endpoints(&endpoints, "test-token").await;
 
     assert_eq!(proj, Some("resolved-project-123".to_string()));
+}
+
+#[tokio::test]
+async fn request_thinking_level_overrides_client_effort_and_maps_auto_to_medium() {
+    use crate::antigravity::Effort;
+    use rho_harness_core::thinking::ThinkingLevel;
+
+    let sse = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {}\n\n";
+    let url = serve_raw_http(vec![sse.to_string(), sse.to_string()]).await;
+    let client = AntigravityClient::new("token-1", "test-project", "gemini-4-neon")
+        .with_endpoint(url)
+        .with_effort(Some("auto"));
+
+    let mut req_high = test_completion_request();
+    req_high.thinking_level = Some(ThinkingLevel::High);
+    assert!(client.open_stream(&req_high).await.is_ok());
+
+    let mut req_auto = test_completion_request();
+    req_auto.thinking_level = Some(ThinkingLevel::Auto);
+    assert!(client.open_stream(&req_auto).await.is_ok());
+
+    assert_eq!(Effort::parse(Some("auto")), Effort::Medium);
+    assert_eq!(Effort::from_thinking_level(ThinkingLevel::Auto), Effort::Medium);
 }

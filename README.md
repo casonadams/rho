@@ -167,6 +167,9 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Opt-in A2UI v1.0 persistent TUI widgets (`[ui] a2ui_widgets = true`, `rho:todo`, `rho:subagents`) and interactive A2UI modals (`ask` tool with optional `decision_assist`).
   - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background
     turns.
+  - Ephemeral mid-turn side questions (`/btw`), idle/resume session recaps
+    (`/recap`), multiplexer session forking (`/fork pane|window|tab`), and
+    adaptive per-turn reasoning (`thinking_level = "auto"`).
   - Universal native theme that adopts your terminal's 16-color palette, with
     SGR-dim secondary text, terminal-detected card fills, or configurable outline borders.
 

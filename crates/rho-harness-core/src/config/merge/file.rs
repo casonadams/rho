@@ -227,6 +227,20 @@ fn merge_worktree_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_recap_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(recap) = &file.recap {
+        if let Some(enabled) = recap.enabled {
+            config.recap.enabled = enabled;
+        }
+        if let Some(idle_seconds) = recap.idle_seconds {
+            config.recap.idle_seconds = idle_seconds;
+        }
+        if let Some(on_resume) = recap.on_resume {
+            config.recap.on_resume = on_resume;
+        }
+    }
+}
+
 /// Applies a workspace's `.rho/config.toml`: everything except the security-relevant keys
 /// (permission, providers, private-network access, MCP) and worktree placement, which are read
 /// from the user config alone so a cloned repo cannot set them.
@@ -242,6 +256,7 @@ pub(crate) fn merge_project_file(config: &mut Config, file: &FileConfig) {
     merge_ui_settings(config, file);
     merge_tools_settings(config, file);
     merge_subagent_settings(config, file);
+    merge_recap_settings(config, file);
 }
 
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {

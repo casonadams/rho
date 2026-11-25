@@ -6,7 +6,9 @@ pub mod idle;
 pub(crate) mod mcp_login;
 pub mod message;
 pub mod modal;
+pub mod mux;
 pub mod navigation;
+pub(crate) mod recap;
 mod setup;
 #[cfg(test)]
 mod tests;
@@ -124,7 +126,11 @@ async fn build_live_environment(
         .await
         .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
     let completions = build_completions(session, skills).await;
-    maybe_hydrate_transcript(session.resume_id.is_some(), engine, &mut controller).await;
+    if maybe_hydrate_transcript(session.resume_id.is_some(), engine, &mut controller).await
+        && session.config.recap.on_resume
+    {
+        session.pending_resume_recap = true;
+    }
     Ok((controller, history, completions))
 }
 

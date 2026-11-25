@@ -97,17 +97,17 @@ pub fn normalize_model_alias(model: &str) -> &str {
 }
 
 pub fn resolve_thinking_budget(level: Option<&str>) -> Option<u64> {
-    match ThinkingLevel::from_setting(level) {
+    match ThinkingLevel::from_setting(level).concrete_or_default() {
         ThinkingLevel::Off => None,
         ThinkingLevel::Minimal => Some(1024),
         ThinkingLevel::Low => Some(2048),
-        ThinkingLevel::Medium => Some(4096),
+        ThinkingLevel::Medium | ThinkingLevel::Auto => Some(4096),
         ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => Some(16384),
     }
 }
 
 pub fn resolve_effort(level: Option<&str>) -> Option<&'static str> {
-    match ThinkingLevel::from_setting(level) {
+    match ThinkingLevel::from_setting(level).concrete_or_default() {
         ThinkingLevel::Off => None,
         ThinkingLevel::Minimal | ThinkingLevel::Low => Some("low"),
         level => Some(level.as_str()),

@@ -49,6 +49,7 @@ pub enum TranscriptItem {
     Thinking(String),
     Tool(ToolItem),
     Notice(String),
+    Recap(String),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -75,7 +76,19 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
             input.theme,
         ),
         TranscriptItem::Notice(text) => text.clone(),
+        TranscriptItem::Recap(text) => format_recap_notice(text, input.width, input.theme),
     }
+}
+
+pub fn format_recap_notice(text: &str, width: usize, theme: &Theme) -> String {
+    let style = theme.dimmed.italic();
+    let wrapped = wrap_to_width(&format!("※ recap: {text}"), width.saturating_sub(2).max(16));
+    let body = wrapped
+        .into_iter()
+        .map(|line| format!("  {style}{line}{style:#}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("\n{body}\n")
 }
 
 fn render_assistant_text(text: &str, width: usize, theme: &Theme) -> String {

@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use super::scalar::{parse_bool, parse_positive};
 use super::types::{
-    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, ModelRole, UiConfig, WebFetchConfigFile,
-    WebSearchConfigFile,
+    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, ModelRole, RecapConfigFile, UiConfig,
+    WebFetchConfigFile, WebSearchConfigFile,
 };
 
 impl super::Config {
@@ -147,6 +147,10 @@ fn bash_section(file_config: &mut FileConfig) -> &mut BashConfigFile {
     tools.bash.get_or_insert_with(Default::default)
 }
 
+fn recap_section(file_config: &mut FileConfig) -> &mut RecapConfigFile {
+    file_config.recap.get_or_insert_with(Default::default)
+}
+
 /// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
     if let Some(raw_role) = key.strip_prefix("models.")
@@ -275,6 +279,15 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         }
         ConfigKey::WorktreeCleanSource => {
             file_config.worktree.get_or_insert_with(Default::default).clean_source = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::RecapEnabled => {
+            recap_section(file_config).enabled = Some(parse_bool(name, value)?);
+        }
+        ConfigKey::RecapIdleSeconds => {
+            recap_section(file_config).idle_seconds = Some(parse_positive(name, value)?);
+        }
+        ConfigKey::RecapOnResume => {
+            recap_section(file_config).on_resume = Some(parse_bool(name, value)?);
         }
     }
     Ok(())

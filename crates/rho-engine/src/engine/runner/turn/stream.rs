@@ -385,6 +385,7 @@ mod tests {
             checkpoint: None,
             current_prompt: String::new(),
             current_budget: 10,
+            thinking_level: None,
             overflow_recovered: false,
             turn_started_at: Instant::now(),
         };

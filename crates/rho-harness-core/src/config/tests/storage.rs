@@ -603,3 +603,21 @@ fn custom_and_builtin_model_roles_roundtrip_through_storage() {
     assert_eq!(cleared.role_model("my_custom"), Some("openrouter/qwen/qwen3-coder"));
     assert!(Config::set_file_value(&dir, "models.bad.role", "x/y").is_err());
 }
+
+#[test]
+fn recap_settings_roundtrip_through_storage() {
+    let dir = crate::test_support::temp_dir();
+
+    Config::set_file_value(&dir, "recap.enabled", "true").unwrap();
+    Config::set_file_value(&dir, "recap.idle_seconds", "180").unwrap();
+    Config::set_file_value(&dir, "recap.on_resume", "yes").unwrap();
+
+    let loaded = load_config_with_rho_home(&dir);
+    assert!(loaded.recap.enabled);
+    assert_eq!(loaded.recap.idle_seconds, 180);
+    assert!(loaded.recap.on_resume);
+
+    assert!(Config::set_file_value(&dir, "recap.idle_seconds", "0").is_err());
+    assert!(Config::set_file_value(&dir, "recap.enabled", "maybe").is_err());
+    assert!(Config::set_file_value(&dir, "recap.on_resume", "maybe").is_err());
+}

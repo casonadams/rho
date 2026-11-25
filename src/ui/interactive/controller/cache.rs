@@ -13,6 +13,7 @@ fn is_invariant(item: &TranscriptItem) -> bool {
             | TranscriptItem::UserMessage(_)
             | TranscriptItem::AssistantText(_)
             | TranscriptItem::Notice(_)
+            | TranscriptItem::Recap(_)
     )
 }
 

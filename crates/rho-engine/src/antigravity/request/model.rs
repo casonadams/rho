@@ -13,14 +13,18 @@ pub enum Effort {
 }
 
 impl Effort {
-    pub fn parse(level: Option<&str>) -> Self {
-        match ThinkingLevel::from_setting(level) {
+    pub fn from_thinking_level(level: ThinkingLevel) -> Self {
+        match level.concrete_or_default() {
             ThinkingLevel::Off => Self::Off,
             ThinkingLevel::Minimal => Self::Minimal,
             ThinkingLevel::Low => Self::Low,
-            ThinkingLevel::Medium => Self::Medium,
+            ThinkingLevel::Medium | ThinkingLevel::Auto => Self::Medium,
             ThinkingLevel::High | ThinkingLevel::XHigh | ThinkingLevel::Max => Self::High,
         }
+    }
+
+    pub fn parse(level: Option<&str>) -> Self {
+        Self::from_thinking_level(ThinkingLevel::from_setting(level))
     }
 }
 

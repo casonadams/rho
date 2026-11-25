@@ -49,6 +49,58 @@ fn queue_status_message<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, k
     }
 }
 
+async fn handle_mid_turn_fork<B: TerminalBackend>(
+    ctx: &mut TurnInputContext<'_, B>,
+    target: crate::repl::commands::ForkTarget,
+    turn_or_node_id: Option<String>,
+) -> Result<()> {
+    let Some(engine) = ctx.engine else {
+        return Ok(());
+    };
+    let forked = engine
+        .session_manager
+        .fork_session(&ctx.session.config.sessions_dir, turn_or_node_id.as_deref())
+        .await?;
+    let forked_id = forked.session_id.clone();
+    drop(forked);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| engine.base_dir.clone());
+    let msg = match crate::repl::live::mux::spawn_forked_session(target, &forked_id, &cwd) {
+        Ok(label) => format!("Forked session {forked_id} in {label}"),
+        Err(err) => err,
+    };
+    ctx.controller.set_system_message(msg);
+    Ok(())
+}
+
+async fn spawn_mid_turn_recap<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {
+    let Some(engine) = ctx.engine else {
+        return Ok(());
+    };
+    let cancel = crate::engine::runner::CancellationSignal::default();
+    match engine.prepare_recap(cancel).await {
+        Ok(Some(prepared)) => {
+            let renderer = ctx.session.renderer.clone();
+            tokio::spawn(async move {
+                match prepared.execute(None).await {
+                    Ok(response) => {
+                        if let Some(text) = rho_engine::engine::format_recap_text(&response.text) {
+                            if let Some(ui) = &renderer.ui {
+                                let _ = ui.push_recap(text);
+                            }
+                        } else {
+                            renderer.print_status("Nothing to recap yet.");
+                        }
+                    }
+                    Err(err) => renderer.print_status(&format!("Recap failed: {err}")),
+                }
+            });
+        }
+        Ok(None) => ctx.controller.set_system_message("Nothing to recap yet."),
+        Err(err) => ctx.controller.set_system_message(format!("Recap failed: {err}")),
+    }
+    Ok(())
+}
+
 async fn apply_mid_turn_command<B: TerminalBackend>(
     ctx: &mut TurnInputContext<'_, B>,
     result: crate::repl::commands::CommandResult,
@@ -65,6 +117,13 @@ async fn apply_mid_turn_command<B: TerminalBackend>(
         CommandResult::OpenAgentsSelector => {
             if let Some(engine) = ctx.engine {
                 crate::repl::live::modal::agents::open_agents_selector(ctx.controller, engine.agent_monitor())?;
+            }
+        }
+        CommandResult::Btw { question } => {
+            if let Some(engine) = ctx.engine {
+                crate::repl::live::modal::btw::start_btw_overlay(ctx.session, engine, ctx.controller, question, None)
+                    .await;
+                ctx.batch.flush(ctx.controller, true)?;
             }
         }
         CommandResult::ModelChanged {
@@ -89,6 +148,15 @@ async fn apply_mid_turn_command<B: TerminalBackend>(
             if let Some(engine) = ctx.engine {
                 crate::repl::live::navigation::update_footer(ctx.controller.state_mut(), ctx.session, engine);
             }
+        }
+        CommandResult::ForkSession {
+            target: Some(target),
+            turn_or_node_id,
+        } => {
+            handle_mid_turn_fork(ctx, target, turn_or_node_id).await?;
+        }
+        CommandResult::Recap => {
+            spawn_mid_turn_recap(ctx).await?;
         }
         _ => {}
     }

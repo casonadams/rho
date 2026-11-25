@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub mod agents;
+pub mod btw;
 pub mod interaction;
 pub mod selectors;
 pub mod settings;
@@ -103,6 +104,9 @@ pub enum ModalKeyResult {
     CursorToggled {
         cursor: String,
     },
+    BtwSubmit(String),
+    BtwCopy,
+    BtwClose,
 }
 
 fn apply_motion_action(input: &mut EditorState, action: &UiAction) -> bool {
@@ -383,6 +387,7 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
         "Login Provider" => selectors::handle_login_key(controller, key),
         "Models" => selectors::handle_models_key(controller, key),
+        btw::BTW_MODAL_TITLE => btw::handle_btw_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

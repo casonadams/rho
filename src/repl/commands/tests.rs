@@ -378,9 +378,32 @@ async fn test_new_and_thinking_commands() {
     assert_eq!(
         fork_res,
         Some(CommandResult::ForkSession {
+            target: None,
             turn_or_node_id: Some("node_123".to_string())
         })
     );
+
+    let fork_cases = [
+        ("/fork", None, None),
+        ("/fork 2", None, Some("2")),
+        ("/fork pane", Some(ForkTarget::Pane), None),
+        ("/fork PANE 2", Some(ForkTarget::Pane), Some("2")),
+        ("/fork hsplit", Some(ForkTarget::HSplit), None),
+        ("/fork vsplit abc", Some(ForkTarget::VSplit), Some("abc")),
+        ("/fork window", Some(ForkTarget::Window), None),
+        ("/fork tab 4", Some(ForkTarget::Tab), Some("4")),
+    ];
+    for (input, expected_target, expected_id) in fork_cases {
+        let res = SlashCommandHandler::handle(input, &mut context).await.unwrap();
+        assert_eq!(
+            res,
+            Some(CommandResult::ForkSession {
+                target: expected_target,
+                turn_or_node_id: expected_id.map(str::to_string),
+            }),
+            "{input}"
+        );
+    }
 
     let clone_res = SlashCommandHandler::handle("/clone", &mut context).await.unwrap();
     assert_eq!(clone_res, Some(CommandResult::CloneSession));
@@ -829,6 +852,13 @@ fn mid_turn_policy_classifies_immediate_vs_queued() {
         "/agents",
         "/session",
         "/tokens",
+        "/fork pane",
+        "/fork hsplit 2",
+        "/fork vsplit",
+        "/fork window",
+        "/fork TAB node_1",
+        "/btw",
+        "/btw foo",
     ] {
         assert_eq!(
             mid_turn_policy(cmd),
@@ -836,7 +866,17 @@ fn mid_turn_policy_classifies_immediate_vs_queued() {
             "expected immediate: {cmd}"
         );
     }
-    for cmd in ["/compact", "/clear", "/new", "/rewind 1", "/fork", "/wt", "/unknown"] {
+    for cmd in [
+        "/compact",
+        "/clear",
+        "/new",
+        "/rewind 1",
+        "/fork",
+        "/fork 2",
+        "/fork abc",
+        "/wt",
+        "/unknown",
+    ] {
         assert_eq!(mid_turn_policy(cmd), MidTurnPolicy::Queue, "expected queued: {cmd}");
     }
 }
@@ -846,4 +886,40 @@ fn help_arg_completion_completes_builtin_commands() {
     let completions = crate::repl::interactive::CompletionSet::from_sources(Default::default());
     let matches = completions.complete("/help set", "/help set".len());
     assert!(matches.iter().any(|c| c.value == "/help settings"));
+}
+
+#[tokio::test]
+async fn btw_command_parses_optional_question() {
+    let cases = [
+        ("/btw", None),
+        ("/btw   ", None),
+        ("/btw what changed?", Some("what changed?")),
+        ("/btw  keep   spacing\nline2 ", Some("keep   spacing\nline2")),
+    ];
+    for (line, expected) in cases {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let (renderer, _) = collecting_renderer();
+        let mut context = test_context(&mut config, &mut auth, &renderer);
+
+        let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+        assert_eq!(
+            result,
+            Some(CommandResult::Btw {
+                question: expected.map(str::to_string)
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn recap_command_parses_and_is_immediate_mid_turn() {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, _) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
+
+    let result = SlashCommandHandler::handle("/recap", &mut context).await.unwrap();
+    assert_eq!(result, Some(CommandResult::Recap));
+    assert_eq!(mid_turn_policy("/recap"), MidTurnPolicy::Immediate);
 }

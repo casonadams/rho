@@ -4,7 +4,7 @@ use std::str::FromStr;
 /// Keys that `rho config` and the environment overrides already reject at zero, because zero
 /// would disable the feature outright (a zero timeout, byte limit or context size).
 fn validate_limits(config: &super::Config) -> Result<()> {
-    let limits: [(&str, Option<u64>); 14] = [
+    let limits: [(&str, Option<u64>); 15] = [
         ("max_output_tokens", config.max_output_tokens),
         ("max_turns", Some(config.max_turns as u64)),
         ("context_limit", config.context_limit.map(|v| v as u64)),
@@ -19,6 +19,7 @@ fn validate_limits(config: &super::Config) -> Result<()> {
         ("output_max_bytes", Some(config.output_max_bytes as u64)),
         ("ui.a2ui.max_above_lines", Some(config.ui.a2ui.max_above_lines as u64)),
         ("ui.a2ui.max_below_lines", Some(config.ui.a2ui.max_below_lines as u64)),
+        ("recap.idle_seconds", Some(config.recap.idle_seconds)),
     ];
     match limits.iter().find(|(_, value)| *value == Some(0)) {
         Some((name, _)) => Err(AppError::Config(format!("{name} must be greater than zero"))),

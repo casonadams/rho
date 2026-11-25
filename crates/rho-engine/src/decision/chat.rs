@@ -141,6 +141,7 @@ impl DecisionModel for ChatDecisionAdapter {
                 tools: Vec::new(),
                 max_tokens: Some(256),
                 temperature: Some(0.0),
+                thinking_level: None,
             })
             .await?;
         let answers = parse_chat_answers(&completion.content, &request)?;

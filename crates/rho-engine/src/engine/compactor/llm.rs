@@ -37,6 +37,7 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
         tools: Vec::new(),
         max_tokens: None,
         temperature: Some(0.0),
+        thinking_level: None,
     };
     match tokio::time::timeout(Duration::from_secs(60), model.complete(req)).await {
         Ok(Ok(resp)) if !resp.content.trim().is_empty() => Ok((resp.content.trim().to_string(), resp.usage)),
