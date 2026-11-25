@@ -6,6 +6,8 @@ use crate::model::{AssistantContent, ChatMessage, ImageContent, ReasoningContent
 use super::{ContextTokenStats, estimate_message_tokens};
 
 pub const DEFAULT_CACHE_CAPACITY: usize = 2048;
+/// Hard ceiling when a scan over a long history grows the cache; entries are a `u64` and a `usize`.
+pub const MAX_CACHE_CAPACITY: usize = 262_144;
 
 fn hash_image_content(img: &ImageContent, hasher: &mut impl Hasher) {
     img.data.hash(hasher);
@@ -181,7 +183,19 @@ impl MessageTokenCache {
         }
     }
 
+    /// A sequential scan over more messages than fit evicts each entry just before it is needed
+    /// again (first in, first out), so a long history would be re-tokenized on every pass.
+    fn grow_to_fit(&mut self, messages: usize) {
+        self.capacity = self.capacity.max(messages.min(MAX_CACHE_CAPACITY));
+    }
+
+    pub fn estimate_each_message_tokens_memoized(&mut self, messages: &[ChatMessage], model: &str) -> Vec<usize> {
+        self.grow_to_fit(messages.len());
+        messages.iter().map(|msg| self.get_or_compute(msg, model)).collect()
+    }
+
     pub fn estimate_messages_tokens_memoized(&mut self, messages: &[ChatMessage], model: &str) -> usize {
+        self.grow_to_fit(messages.len());
         messages.iter().map(|msg| self.get_or_compute(msg, model)).sum()
     }
 

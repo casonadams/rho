@@ -470,6 +470,33 @@ fn test_message_token_cache_bounded() {
 }
 
 #[test]
+fn long_histories_hit_the_cache_on_every_later_pass() {
+    let history: Vec<ChatMessage> = (0..DEFAULT_CACHE_CAPACITY + 500)
+        .map(|i| ChatMessage::user(format!("message number {i}")))
+        .collect();
+    let mut cache = MessageTokenCache::new();
+    let first = cache.estimate_each_message_tokens_memoized(&history, "gpt-4o");
+    let misses = cache.misses();
+
+    let second = cache.estimate_each_message_tokens_memoized(&history, "gpt-4o");
+    let total = cache.estimate_messages_tokens_memoized(&history, "gpt-4o");
+
+    assert_eq!(second, first);
+    assert_eq!(total, first.iter().sum::<usize>());
+    assert_eq!(cache.misses(), misses, "later passes tokenize nothing");
+    assert_eq!(cache.hits(), history.len() * 2);
+}
+
+#[test]
+fn a_scan_grows_the_cache_to_fit_the_history() {
+    let history: Vec<ChatMessage> = (0..10).map(|i| ChatMessage::user(format!("m{i}"))).collect();
+    let mut cache = MessageTokenCache::with_capacity(4);
+    cache.estimate_messages_tokens_memoized(&history, "gpt-4o");
+    assert_eq!(cache.capacity(), 10);
+    assert_eq!(cache.len(), 10);
+}
+
+#[test]
 fn context_window_matches_model_id_tokens_not_substrings() {
     assert_eq!(context_window_size("terraform-plan"), 128_000);
     assert_eq!(context_window_size("console-mini"), 128_000);
