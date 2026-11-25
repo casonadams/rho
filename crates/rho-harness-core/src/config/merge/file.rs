@@ -229,9 +229,9 @@ fn merge_worktree_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
-/// Applies a workspace's `.rho/config.toml`: model and UI preferences only.
-/// Security-relevant keys (permission, providers, private-network access, MCP)
-/// are read from the user config alone, so a cloned repo cannot set them.
+/// Applies a workspace's `.rho/config.toml`: everything except the security-relevant keys
+/// (permission, providers, private-network access, MCP) and worktree placement, which are read
+/// from the user config alone so a cloned repo cannot set them.
 pub(crate) fn merge_project_file(config: &mut Config, file: &FileConfig) {
     merge_model_and_provider(config, file);
     merge_token_limits(config, file);

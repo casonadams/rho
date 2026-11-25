@@ -127,8 +127,10 @@ lowest):
 2. **Environment Variables** (`RHO_MODEL`, `RHO_PROVIDER`, `AI_MODEL`, `AI_PROVIDER`, `AI_THINKING_LEVEL`,
    `AI_MAX_OUTPUT_TOKENS`, `AI_MAX_TURNS`, `AI_CONTEXT_WINDOW_MESSAGES`,
    `AI_COMPACTION_MAX_BYTES`, `RHO_HOME`)
-3. **Project Configuration** (`.rho/config.toml`): model and UI preferences only. `permission`, `providers`,
-   `allow_private_network`, and MCP servers are read from the global file alone, so a cloned repository cannot change them.
+3. **Project Configuration** (`.rho/config.toml`): models, thinking level, token and context limits, search and
+   fetch settings, queue modes, session retention, UI, tool settings (`[tools]`), and subagent model pins.
+   `permission`, `providers`, `allow_private_network`, `[worktree]`, and MCP servers are read from the global file
+   alone, so a cloned repository cannot change them.
 4. **Global Configuration** (`~/.config/rho/config.toml`)
 
 ```text
@@ -160,6 +162,40 @@ history:
 ```text
 /reload
 ```
+
+---
+
+## Settings Reference
+
+Every setting below can be set in `config.toml` (global or project), with `rho config <key> <value>`, or
+through the environment variable shown. Numeric limits must be greater than zero; booleans accept
+`true`/`false`, `yes`/`no`, or `1`/`0` in the environment and in `rho config` alike.
+
+| Key | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `max_output_tokens` | `AI_MAX_OUTPUT_TOKENS` | provider default | Cap on tokens per model reply |
+| `max_turns` | `AI_MAX_TURNS` | 1000 | Model turns allowed in one run |
+| `context_limit` | `AI_CONTEXT_LIMIT` | model's window | Override the context window size in tokens |
+| `context_window_messages` | `AI_CONTEXT_WINDOW_MESSAGES` | 24 | Accepted and validated, but the engine does not currently read it |
+| `compaction_max_bytes` | `AI_COMPACTION_MAX_BYTES` | 8192 | Size cap for a compaction summary |
+| `reserve_tokens` | `AI_RESERVE_TOKENS` | 16384 | Compaction runs when the history passes the context limit minus this many tokens |
+| `keep_recent_tokens` | `AI_KEEP_RECENT_TOKENS` | 20000 | Recent tokens kept verbatim by compaction |
+| `context_injection_max_tokens` | `AI_CONTEXT_INJECTION_MAX_TOKENS` | 4000 | Accepted and validated, but the engine does not currently read it |
+| `steering_mode` | `AI_STEERING_MODE` | `one-at-a-time` | Queued steering messages: `one-at-a-time` or `all` |
+| `follow_up_mode` | `AI_FOLLOW_UP_MODE` | `one-at-a-time` | Queued follow-ups: `one-at-a-time` or `all` |
+| `session_retention_days` | `AI_SESSION_RETENTION_DAYS` or `RHO_SESSION_RETENTION_DAYS` | 5 | Days to keep unused sessions; `off` or `0` in the environment disables pruning |
+| `region` | `WEB_REGION` | `wt-wt` | Search region |
+| `search_min_interval_ms` | n/a | 2000 | Minimum gap between web searches (0 means no throttling) |
+| `search_timeout_sec` | n/a | 12 | Web search timeout |
+| `fetch_timeout_sec` | n/a | 8 | Web fetch timeout |
+| `fetch_limit` | n/a | 200 | Default number of lines `web_fetch` returns per page |
+| `fetch_max_bytes` | n/a | 5000000 | Largest page body downloaded |
+| `output_max_bytes` | n/a | 50000 | Largest MCP tool result returned inline; the rest is saved under `.rho/artifacts` |
+| `allow_private_network` | `WEB_ALLOW_PRIVATE_NETWORK` | `false` | Let web tools reach private addresses (global file only) |
+
+Terminal appearance can also be set with `RHO_CURSOR` (or `RHO_UI_CURSOR`) and `RHO_BLOCK_STYLE` (or
+`RHO_UI_BLOCK_STYLE`). A zero or negative value for any limit above is rejected at startup with a message
+naming the setting.
 
 ---
 

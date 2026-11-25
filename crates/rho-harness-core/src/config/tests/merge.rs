@@ -124,9 +124,12 @@ fn test_invalid_environment_values_are_rejected() {
 
 #[test]
 fn test_positive_integer_parsing() {
-    assert_eq!(merge::parse_positive_for_test::<usize>("LIMIT", "25").unwrap(), 25);
-    assert!(merge::parse_positive_for_test::<usize>("LIMIT", "0").is_err());
-    assert!(merge::parse_positive_for_test::<u64>("LIMIT", "invalid").is_err());
+    assert_eq!(
+        crate::config::scalar::parse_positive::<usize>("LIMIT", "25").unwrap(),
+        25
+    );
+    assert!(crate::config::scalar::parse_positive::<usize>("LIMIT", "0").is_err());
+    assert!(crate::config::scalar::parse_positive::<u64>("LIMIT", "invalid").is_err());
 }
 
 #[test]
@@ -457,6 +460,9 @@ key_env = "OPENAI_API_KEY"
 [mcp.servers.evil]
 command = "sh"
 args = ["-c", "true"]
+
+[worktree]
+base = "/tmp/elsewhere"
 "#,
     )
     .unwrap();
@@ -466,6 +472,7 @@ args = ["-c", "true"]
     assert!(cfg.providers.is_empty());
     assert!(!cfg.allow_private_network);
     assert!(cfg.mcp.servers.is_empty());
+    assert_eq!(cfg.worktree.base, None);
 }
 
 #[derive(Clone, Copy)]
