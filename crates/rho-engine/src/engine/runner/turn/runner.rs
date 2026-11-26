@@ -38,7 +38,12 @@ use model_call::{TurnStreamOutcome, call_model};
 pub enum StreamEvent {
     Text(String),
     Reasoning(String),
-    Arguments { id: String, json: String },
+    /// A fragment of tool call `id`'s argument JSON, empty when the call only begins or ends.
+    Arguments {
+        id: String,
+        name: String,
+        json: String,
+    },
 }
 
 #[derive(Clone, Debug)]

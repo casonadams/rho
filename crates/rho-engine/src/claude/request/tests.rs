@@ -46,6 +46,22 @@ fn tools_are_sorted_alphabetically_by_name() {
 }
 
 #[test]
+fn only_the_write_tool_streams_its_input_eagerly() {
+    let req = sample_request_with_tools(vec![dummy_tool("write"), dummy_tool("bash")]);
+    let body = login_body("claude-sonnet-4-6", None, &req);
+    let eager: Vec<(&str, bool)> = body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| {
+            let eager = tool["eager_input_streaming"].as_bool().unwrap_or(false);
+            (tool["name"].as_str().unwrap(), eager)
+        })
+        .collect();
+    assert_eq!(eager, [("Bash", false), ("Write", true)]);
+}
+
+#[test]
 fn single_user_turn_no_cache_control_on_user_message() {
     let req = sample_request_with_tools(vec![dummy_tool("bash")]);
     assert_eq!(message_marks(&login_body("claude-sonnet-4-6", None, &req)), [false]);

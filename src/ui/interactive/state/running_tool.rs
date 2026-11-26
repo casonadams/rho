@@ -10,6 +10,8 @@ pub struct RunningTool {
     pub started: Instant,
     pub output: String,
     pub preview: Option<String>,
+    /// Whether a `write` replaces an existing file, noted before it runs so the card header does not change when it finishes.
+    pub file_change: Option<rho_harness_core::presentation::FileChange>,
     pending_ansi: String,
 }
 
@@ -32,7 +34,7 @@ impl RunningTool {
     pub const MAX_RUNNING_BUFFER_BYTES: usize = MAX_RUNNING_BUFFER_BYTES;
 
     pub fn has_live_card(name: &str) -> bool {
-        matches!(name, "bash" | "subagent" | "workflow")
+        matches!(name, "bash" | "subagent" | "workflow" | "write")
     }
 
     pub fn has_transcript_card(name: &str) -> bool {
@@ -40,12 +42,22 @@ impl RunningTool {
     }
 
     pub fn new(name: impl Into<String>, args_summary: impl Into<String>, preview: Option<String>) -> Self {
+        let name = name.into();
+        let args_summary = args_summary.into();
+        let file_change = (name == "write")
+            .then(|| {
+                let path = args_summary.split(' ').next().unwrap_or_default();
+                crate::ui::render::file_change::capture(&name, &serde_json::json!({ "path": path }))
+            })
+            .flatten()
+            .map(|(_, change)| change);
         Self {
-            name: name.into(),
-            args_summary: args_summary.into(),
+            name,
+            args_summary,
             started: Instant::now(),
             output: String::new(),
             preview,
+            file_change,
             pending_ansi: String::new(),
         }
     }

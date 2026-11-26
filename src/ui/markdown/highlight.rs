@@ -159,7 +159,18 @@ fn resolve_style(stack: &ScopeStack) -> TokenStyle {
 fn resolve_syntax(lang: Option<&str>) -> &'static SyntaxReference {
     let ss = &*SYNTAX_SET;
     lang.and_then(|l| ss.find_syntax_by_token(l).or_else(|| ss.find_syntax_by_extension(l)))
+        .or_else(|| {
+            lang.filter(|l| is_typescript(l))
+                .and_then(|_| ss.find_syntax_by_extension("js"))
+        })
         .unwrap_or_else(|| ss.find_syntax_plain_text())
+}
+
+/// The bundled grammars have no TypeScript, so it borrows JavaScript's.
+fn is_typescript(lang: &str) -> bool {
+    ["ts", "tsx", "mts", "cts", "typescript"]
+        .iter()
+        .any(|t| lang.eq_ignore_ascii_case(t))
 }
 
 fn emit_segment(out: &mut String, text: &str, style: TokenStyle, theme: &Theme) {
@@ -348,6 +359,17 @@ mod tests {
         let line = r"\x1b[2Jclear";
         let rendered = highlight_code_line(line, Some("ansi"), &theme);
         assert_eq!(rendered, r"\x1b[2Jclear");
+    }
+
+    #[test]
+    fn typescript_extensions_are_highlighted_like_javascript() {
+        let theme = Theme::default();
+        let line = "const x = 1; // note";
+        let js = highlight_code_line(line, Some("js"), &theme);
+        assert!(js.contains("\x1b["));
+        for ext in ["ts", "tsx", "TS"] {
+            assert_eq!(highlight_code_line(line, Some(ext), &theme), js, "{ext}");
+        }
     }
 
     #[test]

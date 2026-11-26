@@ -299,7 +299,13 @@ pub struct WriteArgs {
     /// Path to the file to write (relative or absolute)
     pub path: String,
     /// Content to write to the file
+    #[serde(rename = "text", alias = "content")]
     pub content: String,
+}
+
+/// The file content in a `write` call's raw arguments; `content` is the name saved sessions use.
+pub fn write_text(args: &serde_json::Value) -> Option<&str> {
+    args.get("text").or_else(|| args.get("content"))?.as_str()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]

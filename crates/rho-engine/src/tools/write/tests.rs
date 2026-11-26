@@ -1,5 +1,20 @@
 use super::*;
 
+#[test]
+fn schema_lists_path_before_text_so_the_model_writes_the_path_first() {
+    let schema = crate::tools::types::generated_schema::<WriteArgs>();
+    let keys: Vec<&String> = schema["properties"].as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["path", "text"]);
+}
+
+#[test]
+fn arguments_accept_the_legacy_content_name() {
+    for key in ["text", "content"] {
+        let args: WriteArgs = serde_json::from_value(serde_json::json!({"path": "a.txt", key: "hi"})).unwrap();
+        assert_eq!(args.content, "hi", "{key}");
+    }
+}
+
 #[tokio::test]
 async fn writes_to_external_directory_successfully() {
     let temp_workspace = crate::test_support::TestDir::new();

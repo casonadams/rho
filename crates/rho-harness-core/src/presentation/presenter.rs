@@ -28,6 +28,8 @@ pub trait Presenter: Send + Sync {
     fn start_spinner(&self, message: &str) -> ActivityToken;
     fn start_tool_spinner(&self, name: &str, arguments: &Value) -> ActivityToken;
     fn start_tool_run(&self, name: &str, arguments: &Value);
+    /// Ends a tool run that produced no tool line, such as a call the user denied.
+    fn end_tool_run(&self) {}
     fn stream_port(&self) -> ToolStreamPort;
     /// Renders a generic modal on behalf of a caller (e.g. hook or permission gate).
     /// `None` means no interactive UI — callers treat that as cancellation.

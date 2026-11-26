@@ -39,6 +39,17 @@ struct PendingToolCall {
     arguments: String,
 }
 
+impl PendingToolCall {
+    fn input_delta(&self, key: &str, json: String) -> ModelStreamEvent {
+        let id = if self.call_id.is_empty() { key } else { &self.call_id };
+        ModelStreamEvent::ToolInputDelta {
+            id: id.to_string(),
+            name: self.name.clone(),
+            json,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type")]
 enum ResponsesWireEvent {
@@ -239,29 +250,35 @@ impl SseParser {
         events.push(Ok(ModelStreamEvent::Reasoning(delta)));
     }
 
-    fn handle_function_call_added(&mut self, call: FunctionCallPayload, index: u64) {
+    fn handle_function_call_added(&mut self, call: FunctionCallPayload, index: u64, events: &mut SseEvents) {
         let key = if !call.id.is_empty() {
             call.id.clone()
         } else {
             format!("output-{index}")
         };
-        self.pending_tool_calls.insert(
-            key,
-            PendingToolCall {
-                id: call.id,
-                call_id: call.call_id,
-                name: call.name,
-                arguments: call.arguments,
-            },
-        );
+        let tool = PendingToolCall {
+            id: call.id,
+            call_id: call.call_id,
+            name: call.name,
+            arguments: call.arguments,
+        };
+        events.push(Ok(tool.input_delta(&key, tool.arguments.clone())));
+        self.pending_tool_calls.insert(key, tool);
     }
 
-    fn handle_function_call_args_delta(&mut self, delta: String, item_id: Option<String>, output_index: Option<u64>) {
+    fn handle_function_call_args_delta(
+        &mut self,
+        delta: String,
+        item_id: Option<String>,
+        output_index: Option<u64>,
+        events: &mut SseEvents,
+    ) {
         let key = item_id.or_else(|| output_index.map(|i| format!("output-{i}")));
         if let Some(key) = key
             && let Some(tool) = self.pending_tool_calls.get_mut(&key)
         {
             tool.arguments.push_str(&delta);
+            events.push(Ok(tool.input_delta(&key, delta)));
         }
     }
 
@@ -350,7 +367,7 @@ impl SseParser {
                 self.current_output_index = Some(output_index);
                 self.active_summary_part = None;
                 if let OutputItemPayload::FunctionCall(call) = item {
-                    self.handle_function_call_added(call, output_index);
+                    self.handle_function_call_added(call, output_index, events);
                 }
             }
             ResponsesWireEvent::FunctionCallArgsDelta {
@@ -358,7 +375,7 @@ impl SseParser {
                 item_id,
                 output_index,
             } => {
-                self.handle_function_call_args_delta(delta, item_id, output_index);
+                self.handle_function_call_args_delta(delta, item_id, output_index, events);
             }
             ResponsesWireEvent::OutputItemDone { item, output_index } => {
                 if let OutputItemPayload::FunctionCall(call) = item {

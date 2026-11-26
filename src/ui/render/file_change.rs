@@ -153,7 +153,7 @@ pub(crate) fn header_details(tool: &ToolLine) -> Option<String> {
             Some(format!("{} \u{b7} +{added} -{removed}", plural(edits, "edit")))
         }
         "write" => {
-            let content = tool.arguments.get("content")?.as_str()?;
+            let content = rho_harness_core::args::write_text(&tool.arguments)?;
             let state = match tool.file_change.as_ref().map(|change| change.overwrote_existing) {
                 Some(true) => " \u{b7} overwrote",
                 Some(false) => " \u{b7} new file",

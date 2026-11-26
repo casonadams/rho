@@ -187,3 +187,22 @@ fn committed_tool_preserves_blank_line_separation_from_preceding_block() {
     start_bash(&mut controller, "echo 2");
     assert!(has_write(&operations, str::is_empty));
 }
+
+#[test]
+fn restarting_the_same_tool_keeps_its_start_time_but_a_new_tool_resets_it() {
+    let (mut controller, _) = new_controller();
+    start_bash(&mut controller, "first");
+    let first_started = controller.state().active_tool().unwrap().started;
+
+    start_bash(&mut controller, "first, with arguments");
+    assert_eq!(controller.state().active_tool().unwrap().started, first_started);
+
+    controller
+        .start_tool(ToolStartRequest {
+            name: "write".into(),
+            args_summary: "a.txt".into(),
+            preview: None,
+        })
+        .unwrap();
+    assert_ne!(controller.state().active_tool().unwrap().started, first_started);
+}

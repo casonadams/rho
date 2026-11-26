@@ -190,3 +190,35 @@ fn below_widget_lines_yield_to_editor_dividers_and_footer_on_small_terminals() {
     assert!(!l.editor_lines.is_empty());
     assert!(!l.footer_lines.is_empty());
 }
+
+#[test]
+fn running_write_card_highlights_content_by_the_path_extension() {
+    let code = "fn main() {\n    let x = 1;\n}\n";
+    let mut known = RunningTool::new("write", "demo.rs", None);
+    known.append_chunk(code);
+    let mut unknown = RunningTool::new("write", "", None);
+    unknown.append_chunk(code);
+
+    let render = |tool: &RunningTool, theme: &Theme| {
+        render_running_tool_widget(RunningToolWidgetInput {
+            tool,
+            theme,
+            width: 60,
+            tools_expanded: false,
+        })
+        .join("\n")
+    };
+    let structured = Theme {
+        structured_tool_cards: true,
+        ..Theme::default()
+    };
+    for theme in [Theme::default(), structured] {
+        assert_ne!(
+            render(&known, &theme),
+            render(&unknown, &theme),
+            "the extension decides the colors even with syntax_highlight_tools off"
+        );
+    }
+    let known_text = strip_ansi_escapes::strip_str(render_test_widget(&known, false));
+    assert!(known_text.contains("  2 │     let x = 1;"), "{known_text}");
+}

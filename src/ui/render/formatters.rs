@@ -49,16 +49,31 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
     Some(out)
 }
 
-fn format_preview_lines(lines: &[&str], lang: Option<&str>, gutter_width: usize, theme: &Theme) -> String {
+/// Highlights every line so highlighter state carries over, but emits only lines from `first` on.
+/// With `clip` set each line is cut to that many columns so it takes exactly one row.
+fn format_preview_lines(
+    lines: &[&str],
+    first: usize,
+    clip: Option<usize>,
+    lang: Option<&str>,
+    theme: &Theme,
+) -> String {
     let mut out = String::new();
     let d = theme.dimmed;
+    let gutter_width = lines.len().to_string().len().max(3);
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
     for (idx, line) in lines.iter().enumerate() {
-        let line_num = idx + 1;
         let no_tabs = super::diff::replace_tabs(line);
         let highlighted = highlighter.highlight_line(&no_tabs, theme);
-        let gutter = super::diff::format_gutter_prefix(line_num, gutter_width, d);
-        let _ = writeln!(out, "{gutter}{highlighted}");
+        if idx >= first {
+            let gutter = super::diff::format_gutter_prefix(idx + 1, gutter_width, d);
+            let row = format!("{gutter}{highlighted}");
+            let row = match clip {
+                Some(width) => crate::ui::interactive::footer::truncate_to_width(&row, width),
+                None => row,
+            };
+            let _ = writeln!(out, "{row}");
+        }
     }
     out
 }
@@ -166,22 +181,37 @@ fn parse_read_line(line: &str) -> Option<(usize, &str)> {
     Some((num, rest))
 }
 
-pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expanded: bool) -> Option<String> {
-    let content = args.get("content")?.as_str()?;
+/// The collapsed preview grows with the file up to `WRITE_PREVIEW_LINES` rows, then adds a status row; it never shrinks.
+pub(crate) fn format_write_preview(
+    args: &serde_json::Value,
+    theme: &Theme,
+    expanded: bool,
+    width: usize,
+) -> Option<String> {
+    let content = rho_harness_core::args::write_text(args)?;
     if content.trim().is_empty() {
         return None;
     }
     let lang = super::card::detect_language_from_args(args);
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len();
-    let max = if expanded { total } else { 8.min(total) };
-    let gutter_width = max.to_string().len().max(3);
-    let mut out = format_preview_lines(&lines[..max], lang, gutter_width, theme);
-    if !expanded && total > 8 {
-        out.push_str(&super::diff::more_lines_footer(total - 8, Some(total), theme.dimmed));
+    if expanded {
+        return Some(format_preview_lines(&lines, 0, None, lang, theme));
     }
+    let hidden = total.saturating_sub(WRITE_PREVIEW_LINES);
+    let dim = theme.dimmed;
+    let mut out = if hidden > 0 {
+        let notice = format!("... ({hidden} earlier lines, {total} total, Ctrl+O to expand)");
+        let notice = crate::ui::interactive::footer::truncate_to_width(&notice, width);
+        format!("{dim}{notice}{dim:#}\n")
+    } else {
+        String::new()
+    };
+    out.push_str(&format_preview_lines(&lines, hidden, Some(width), lang, theme));
     Some(out)
 }
+
+const WRITE_PREVIEW_LINES: usize = 10;
 
 pub(crate) fn format_relative_time(time: DateTime<Utc>) -> String {
     let now = Utc::now();

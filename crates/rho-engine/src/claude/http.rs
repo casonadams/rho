@@ -11,6 +11,9 @@ pub const MESSAGES_PATH: &str = "/v1/messages";
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
+/// Login requests ignore the per-tool `eager_input_streaming` flag unless this beta is also sent.
+const FINE_GRAINED_TOOL_STREAMING_BETA: &str = "fine-grained-tool-streaming-2025-05-14";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaudeAuth {
     Login,
@@ -36,7 +39,10 @@ pub fn claude_headers(auth: ClaudeAuth, token: &str) -> Result<HeaderMap, HttpFa
             headers.insert(AUTHORIZATION, bearer(token)?);
             headers.insert(
                 HeaderName::from_static("anthropic-beta"),
-                HeaderValue::from_static(ANTHROPIC_BETA),
+                header_value(
+                    &format!("{ANTHROPIC_BETA},{FINE_GRAINED_TOOL_STREAMING_BETA}"),
+                    "The beta list",
+                )?,
             );
             headers.insert(
                 HeaderName::from_static("anthropic-dangerous-direct-browser-access"),

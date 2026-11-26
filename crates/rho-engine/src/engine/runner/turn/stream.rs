@@ -142,14 +142,14 @@ fn handle_completion_stream_item(
             state.streaming_tool.reset();
             record_completion_call(&call, usage, run_tracker, state);
         }
-        MultiTurnStreamItem::ToolCall { tool_call } => {
+        MultiTurnStreamItem::ToolCall { .. } => {
             mark_first_token(&mut state.first_token_at, true);
             state.total_tool_calls += 1;
-            state.streaming_tool.handle_name(tool_call.function.name.to_string());
         }
         MultiTurnStreamItem::ModelTurnRetried(retry) => {
             state.total_tool_calls = state.total_tool_calls.saturating_sub(retry.discarded_tool_calls);
             state.streaming_tool.reset();
+            sink.cancel_tool_preview();
             sink.finish_spinner();
             sink.flush_display();
             sink.presenter.print_notice(&format_model_retry(&retry));
@@ -193,11 +193,11 @@ impl AgentEngine {
         state: &mut TurnStreamState,
     ) {
         match event {
-            StreamEvent::Arguments { ref json, .. } => {
+            StreamEvent::Arguments { id, name, json } => {
                 mark_first_token(&mut state.first_token_at, !json.is_empty());
                 sink.flush_reasoning();
                 sink.resume_model_spinner();
-                state.streaming_tool.handle_delta(json, sink);
+                state.streaming_tool.handle_delta(&id, &name, &json, sink);
             }
             StreamEvent::Text(t) => {
                 mark_first_token(&mut state.first_token_at, !t.is_empty());

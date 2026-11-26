@@ -59,12 +59,21 @@ async fn stream_single_event(
             outcome.content.push(AssistantContent::Reasoning(block));
             Ok(())
         }
+        ModelStreamEvent::ToolInputDelta { id, name, json } => {
+            emitter
+                .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments {
+                    id,
+                    name,
+                    json,
+                }))
+                .await
+        }
         ModelStreamEvent::ToolCall(tc) => {
-            let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
             emitter
                 .send(MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments {
                     id: tc.id.clone(),
-                    json: args_str,
+                    name: tc.function.name.clone(),
+                    json: String::new(),
                 }))
                 .await?;
             emitter

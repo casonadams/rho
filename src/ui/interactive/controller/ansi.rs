@@ -115,6 +115,11 @@ impl OutputTracker {
         }
     }
 
+    /// Whether the open line exactly fills its last row, so the restored cursor already sits on the next row.
+    pub fn ends_at_wrap_boundary(&self, width: usize) -> bool {
+        self.open && output_cursor(&self.line, width).1
+    }
+
     pub fn restore_cursor<B: TerminalBackend>(&self, backend: &mut B, width: usize) -> io::Result<()> {
         if !self.open {
             return Ok(());

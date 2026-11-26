@@ -256,7 +256,7 @@ pub(crate) fn append_failed_edit_attempt(content: &mut String, tool: &ToolLine, 
     }
 }
 
-fn append_edit_or_write(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) -> bool {
+fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> bool {
     if !tool.is_error && tool.name == "edit" {
         if let Some(diff) = edit_diff(tool, expanded, theme) {
             content.push_str("\n\n");
@@ -265,9 +265,10 @@ fn append_edit_or_write(content: &mut String, tool: &ToolLine, expanded: bool, t
         return true;
     }
     if !tool.is_error && tool.name == "write" {
-        if let Some(preview) = format_write_preview(&tool.arguments, theme, expanded) {
+        let inner_width = theme.tool_block(false, false, width).inner_width();
+        if let Some(preview) = format_write_preview(&tool.arguments, theme, expanded, inner_width) {
             content.push_str("\n\n");
-            content.push_str(&preview);
+            content.push_str(preview.trim_end_matches('\n'));
         }
         return true;
     }
@@ -294,7 +295,7 @@ pub fn append_tool_details(
         if show_read_expanded {
             append_read_expanded(content, tool, theme);
         }
-    } else if !append_edit_or_write(content, tool, expanded, theme)
+    } else if !append_edit_or_write(content, tool, width, expanded, theme)
         && (tool.name == "bash" || tool.is_error || expanded)
     {
         append_generic_output(content, tool, width, expanded, theme);

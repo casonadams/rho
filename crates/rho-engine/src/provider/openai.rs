@@ -279,15 +279,22 @@ impl OpenAiSseParser {
         if let Some(id) = tool_chunk.id {
             entry.id = id;
         }
+        let mut fragment = String::new();
         if let Some(func) = tool_chunk.function {
             if let Some(name) = func.name {
                 entry.name.push_str(&name);
             }
             if let Some(args) = func.arguments {
                 entry.arguments.push_str(&args);
+                fragment = args;
             }
         }
         if !entry.id.is_empty() && !entry.name.is_empty() {
+            events.push(Ok(ModelStreamEvent::ToolInputDelta {
+                id: entry.id.clone(),
+                name: entry.name.clone(),
+                json: fragment,
+            }));
             let parsed_args = serde_json::from_str::<Value>(&entry.arguments).ok();
             if let Some(args_val) = parsed_args {
                 let call = ToolCall::new(entry.id.clone(), ToolFunction::new(entry.name.clone(), args_val));
@@ -476,18 +483,24 @@ mod tests {
             events.extend(parser.feed(chunk.as_bytes()));
         }
 
-        assert_eq!(events.len(), 5);
+        let input_delta = |event: &Result<ModelStreamEvent, AppError>, fragment: &str| {
+            matches!(event, Ok(ModelStreamEvent::ToolInputDelta { id, name, json })
+                if id == "call_1" && name == "bash" && json == fragment)
+        };
+        assert_eq!(events.len(), 7);
         assert!(matches!(&events[0], Ok(ModelStreamEvent::Text(t)) if t == "Hello "));
         assert!(matches!(&events[1], Ok(ModelStreamEvent::Text(t)) if t == "world"));
+        assert!(input_delta(&events[2], "{\"cmd\": "));
+        assert!(input_delta(&events[3], "\"ls\"}"));
         assert!(
-            matches!(&events[2], Ok(ModelStreamEvent::ToolCall(call)) if call.id == "call_1" && call.function.name == "bash")
+            matches!(&events[4], Ok(ModelStreamEvent::ToolCall(call)) if call.id == "call_1" && call.function.name == "bash")
         );
         assert!(matches!(
-            &events[3],
+            &events[5],
             Ok(ModelStreamEvent::Finish(FinishReason::ToolCalls))
         ));
         assert!(
-            matches!(&events[4], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 15 && u.input_tokens == 8 && u.cached_input_tokens == Some(2))
+            matches!(&events[6], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 15 && u.input_tokens == 8 && u.cached_input_tokens == Some(2))
         );
     }
 

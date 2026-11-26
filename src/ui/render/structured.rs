@@ -196,7 +196,8 @@ fn structured_output_body(
         return edit_diff(tool, expanded, theme);
     }
     if !tool.is_error && tool.name == "write" {
-        return format_write_preview(&tool.arguments, theme, expanded);
+        let inner_width = theme.tool_block(false, false, width).inner_width();
+        return format_write_preview(&tool.arguments, theme, expanded, inner_width);
     }
     if tool.name == "bash" || tool.is_error || expanded {
         return structured_generic_output(tool, width, expanded, theme);

@@ -55,6 +55,14 @@ fn test_chunk_boundary_split_inside_json() {
 
 type ParsedEvent = Result<ModelStreamEvent, String>;
 
+fn input_delta(id: &str, name: &str, json: &str) -> ParsedEvent {
+    Ok(ModelStreamEvent::ToolInputDelta {
+        id: id.into(),
+        name: name.into(),
+        json: json.into(),
+    })
+}
+
 fn parse_payloads(payloads: &[&str]) -> Vec<ParsedEvent> {
     let body: String = payloads.iter().map(|payload| format!("data: {payload}\n\n")).collect();
     SseParser::new()
@@ -113,10 +121,15 @@ fn decode_cases() -> Vec<(&'static str, Vec<&'static str>, Vec<ParsedEvent>)> {
                 r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.rs\"}"}}"#,
                 r#"{"type":"content_block_stop","index":1}"#,
             ],
-            vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
-                "toolu_1",
-                ToolFunction::new("read", serde_json::json!({"path": "a.rs"})),
-            )))],
+            vec![
+                input_delta("toolu_1", "read", ""),
+                input_delta("toolu_1", "read", "{\"path\":"),
+                input_delta("toolu_1", "read", "\"a.rs\"}"),
+                Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+                    "toolu_1",
+                    ToolFunction::new("read", serde_json::json!({"path": "a.rs"})),
+                ))),
+            ],
         ),
         (
             "tool use with unparseable input keeps raw text and strips mcp prefix",
@@ -125,10 +138,14 @@ fn decode_cases() -> Vec<(&'static str, Vec<&'static str>, Vec<ParsedEvent>)> {
                 r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"x\":"}}"#,
                 r#"{"type":"content_block_stop","index":0}"#,
             ],
-            vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
-                "t1",
-                ToolFunction::new("custom_tool", serde_json::json!({"raw": "{\"x\":"})),
-            )))],
+            vec![
+                input_delta("t1", "custom_tool", ""),
+                input_delta("t1", "custom_tool", "{\"x\":"),
+                Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+                    "t1",
+                    ToolFunction::new("custom_tool", serde_json::json!({"raw": "{\"x\":"})),
+                ))),
+            ],
         ),
         (
             "input json for an unknown block index is dropped",

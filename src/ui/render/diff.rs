@@ -156,9 +156,8 @@ pub fn replace_tabs(text: &str) -> String {
     text.replace('\t', "    ")
 }
 
-pub(crate) fn more_lines_footer(hidden: usize, total: Option<usize>, dim: anstyle::Style) -> String {
-    let total = total.map_or_else(String::new, |total| format!(", {total} total"));
-    format!("{dim}... ({hidden} more lines{total}, Ctrl+O to expand){dim:#}\n")
+pub(crate) fn more_lines_footer(hidden: usize, dim: anstyle::Style) -> String {
+    format!("{dim}... ({hidden} more lines, Ctrl+O to expand){dim:#}\n")
 }
 
 fn split_leading_whitespace(token: &str) -> (&str, &str) {
@@ -292,7 +291,7 @@ fn push_diff_lines(out: &mut String, side: DiffSide<'_>, layout: DiffLayout, the
         }
     }
     if lines.len() > limit {
-        out.push_str(&more_lines_footer(lines.len() - limit, None, dim));
+        out.push_str(&more_lines_footer(lines.len() - limit, dim));
     }
 }
 

@@ -294,8 +294,17 @@ always matches your terminal emulator, in dark or light mode.
   line count, size, and whether the file was new or overwritten. Line numbers
   and the new/overwrite state are captured before the tool runs, so redraws
   never re-read the file. A failed edit also shows the change it attempted.
-- Long edit diffs, write previews, and tool output end with
-  `... (N more lines, Ctrl+O to expand)`; `Ctrl+O` shows everything. Tabs render
+- While the model is still writing a `write` call, its live card appears as
+  soon as the path is known and tails the file content as it streams, like
+  `bash` output. The reply text before any tool call is shown in full as soon
+  as the model starts the call (Claude, OpenAI-compatible, and ChatGPT
+  providers stream tool arguments; others show the call once it is complete).
+  On Claude, rho sets `eager_input_streaming` on the `write` tool so the API
+  sends file content as it is generated instead of all at once.
+- Long edit diffs and tool output end with
+  `... (N more lines, Ctrl+O to expand)`; write previews and `bash` output show
+  their last lines under `... (N earlier lines, Ctrl+O to expand)`, so a write
+  card keeps the tail it showed while streaming. `Ctrl+O` shows everything. Tabs render
   as four spaces.
 - Notices carry a bold `info`, `warning`, or `error` label.
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and

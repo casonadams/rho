@@ -7,13 +7,18 @@ use crate::ui::render::card::render_tool_block;
 
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn start_tool(&mut self, request: ToolStartRequest) -> io::Result<()> {
+        let started = self
+            .state
+            .active_tool()
+            .filter(|tool| tool.name == request.name)
+            .map(|tool| tool.started);
         self.state.footer_mut().running_tool = Some(request.name.clone());
         self.state.footer_mut().activity = Activity::Working;
-        self.state.set_active_tool(Some(RunningTool::new(
-            request.name,
-            request.args_summary,
-            request.preview,
-        )));
+        let mut tool = RunningTool::new(request.name, request.args_summary, request.preview);
+        if let Some(started) = started {
+            tool.started = started;
+        }
+        self.state.set_active_tool(Some(tool));
         self.redraw()
     }
 

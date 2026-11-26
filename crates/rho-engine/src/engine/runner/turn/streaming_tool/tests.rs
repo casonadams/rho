@@ -1,7 +1,63 @@
 use super::*;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
+use rho_harness_core::presentation::activity::ActivityToken;
+use rho_harness_core::presentation::presenter::Presenter;
+use rho_harness_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
+use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 use rho_harness_core::session::SessionManager;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+#[derive(Default)]
+struct CallLog(Mutex<Vec<String>>);
+
+impl CallLog {
+    fn push(&self, call: String) {
+        self.0.lock().unwrap().push(call);
+    }
+}
+
+impl ToolStreamSink for CallLog {
+    fn tool_chunk(&self, chunk: String) {
+        self.push(format!("chunk {chunk}"));
+    }
+}
+
+struct InteractivePresenter(Arc<CallLog>);
+
+#[async_trait::async_trait]
+impl Presenter for InteractivePresenter {
+    fn write_output(&self, _text: &str) {}
+    fn print_welcome(&self, _display: &WelcomeDisplay) {}
+    fn print_session_status(&self, _display: &SessionStatus) {}
+    fn print_notice(&self, _text: &str) {}
+    fn print_user_block(&self, _input: &str) {}
+    fn print_token(&self, token: &str) {
+        self.0.push(format!("token {token}"));
+    }
+    fn print_thinking_token(&self, _token: &str) {}
+    fn finish_tool_line(&self, _line: ToolLine) {}
+    fn flush(&self) {
+        self.0.push("flush".into());
+    }
+    fn has_interactive_ui(&self) -> bool {
+        true
+    }
+    fn start_spinner(&self, _message: &str) -> ActivityToken {
+        ActivityToken::default()
+    }
+    fn start_tool_spinner(&self, _name: &str, _arguments: &serde_json::Value) -> ActivityToken {
+        ActivityToken::default()
+    }
+    fn start_tool_run(&self, name: &str, arguments: &serde_json::Value) {
+        self.0.push(format!("start {name} {arguments}"));
+    }
+    fn end_tool_run(&self) {
+        self.0.push("end".into());
+    }
+    fn stream_port(&self) -> ToolStreamPort {
+        ToolStreamPort::new(Some(self.0.clone() as Arc<dyn ToolStreamSink>))
+    }
+}
 
 fn extract_json_streaming_content(json: &str) -> Option<String> {
     let mut decoder = ContentDecoder::default();
@@ -10,10 +66,14 @@ fn extract_json_streaming_content(json: &str) -> Option<String> {
 }
 
 fn mock_sink() -> (Arc<TerminalApprovalSink>, crate::test_support::TestDir) {
+    sink_for(crate::engine::eval::presenter::presenter())
+}
+
+fn sink_for(presenter: Arc<dyn Presenter>) -> (Arc<TerminalApprovalSink>, crate::test_support::TestDir) {
     let temp_dir = crate::test_support::TestDir::new();
     let session = SessionManager::new(&temp_dir, None).unwrap();
     let sink = TerminalApprovalSink::new(
-        &crate::engine::eval::presenter::presenter(),
+        &presenter,
         TerminalSinkConfig {
             model_label: "test-model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
@@ -114,60 +174,88 @@ fn streaming_tool_tracker_write_lifecycle() {
     let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
-    tracker.handle_tool_call_delta(
-        ToolCallDelta::Delta(r#"{"path": "foo.txt", "content": "hello "#.to_string()),
-        &sink,
-    );
-    assert!(tracker.path_started);
+    tracker.handle_delta("call-1", "write", r#"{"path": "foo.txt", "content": "hello "#, &sink);
+    assert!(tracker.preview_started);
     assert_eq!(tracker.streamed_content_len, 6);
 
-    // Second chunk with additional content
-    tracker.handle_tool_call_delta(ToolCallDelta::Delta(r#"world"}"#.to_string()), &sink);
+    tracker.handle_delta("call-1", "write", r#"world"}"#, &sink);
     assert_eq!(tracker.streamed_content_len, 11);
 
-    // Third chunk with no new content length
-    tracker.handle_tool_call_delta(ToolCallDelta::Delta("".to_string()), &sink);
+    tracker.handle_delta("call-1", "write", "", &sink);
     assert_eq!(tracker.streamed_content_len, 11);
 
-    // Reset clears state
-    tracker.reset();
-    assert!(!tracker.path_started);
-    assert_eq!(tracker.streamed_content_len, 0);
-    assert!(tracker.name.is_none());
+    tracker.handle_delta("call-2", "write", r#"{"path": "#, &sink);
+    assert_eq!(tracker.streamed_content_len, 0, "a new call id starts over");
 }
 
 #[test]
-fn streaming_tool_tracker_file_path_fallback() {
+fn streaming_tool_tracker_streams_content_written_before_the_path() {
     let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
-    tracker.handle_tool_call_delta(
-        ToolCallDelta::Delta(r#"{"file_path": "bar.txt", "content": "data"}"#.to_string()),
-        &sink,
-    );
-    assert!(tracker.path_started);
+    tracker.handle_delta("call-1", "write", r#"{"content": "data", "#, &sink);
+    assert!(tracker.preview_started);
+    assert!(!tracker.path_shown);
     assert_eq!(tracker.streamed_content_len, 4);
+
+    tracker.handle_delta("call-1", "write", r#""file_path": "bar.txt"}"#, &sink);
+    assert!(tracker.path_shown, "the card reopens with the path");
+    assert_eq!(tracker.streamed_content_len, 4, "and replays the content so far");
 }
 
 #[test]
-fn streaming_tool_tracker_non_write_tool_ignored() {
-    let (sink, _dir) = mock_sink();
+fn streaming_tool_tracker_opens_with_the_path_and_streams_text_when_the_path_comes_first() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_tool_call_delta(ToolCallDelta::Name("bash".to_string()), &sink);
-    tracker.handle_tool_call_delta(ToolCallDelta::Delta(r#"{"command": "echo hi"}"#.to_string()), &sink);
-    assert!(!tracker.path_started);
+    tracker.handle_delta("call-1", "write", r#"{"path": "a.rs", "text": "fn "#, &sink);
+    tracker.handle_delta("call-1", "write", r#"main"}"#, &sink);
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(
+        calls,
+        ["flush", r#"start write {"path":"a.rs"}"#, "chunk fn ", "chunk main"]
+    );
+}
+
+#[test]
+fn streaming_tool_tracker_only_previews_write_calls() {
+    let (sink, _dir) = mock_sink();
+    let mut tracker = StreamingToolTracker::default();
+    tracker.handle_delta("call-1", "bash", r#"{"command": "echo hi"}"#, &sink);
+    assert!(!tracker.preview_started);
     assert_eq!(tracker.streamed_content_len, 0);
 }
 
 #[test]
-fn streaming_tool_tracker_partial_without_path() {
-    let (sink, _dir) = mock_sink();
+fn a_tool_call_shows_the_reply_so_far_and_previews_write_content_as_it_streams() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
     let mut tracker = StreamingToolTracker::default();
 
-    tracker.handle_tool_call_delta(ToolCallDelta::Name("write".to_string()), &sink);
-    tracker.handle_tool_call_delta(ToolCallDelta::Delta(r#"{"no_path_key": 123}"#.to_string()), &sink);
-    assert!(!tracker.path_started);
+    sink.emit_text("Writing the notes now");
+    tracker.handle_delta("call-1", "write", "", &sink);
+    tracker.handle_delta("call-1", "write", r#"{"content": "alpha\n"#, &sink);
+    tracker.handle_delta("call-1", "write", r#"beta\n", "path": "notes.txt"}"#, &sink);
+    sink.cancel_tool_preview();
+    sink.cancel_tool_preview();
+
+    let calls = log.0.lock().unwrap().clone();
+    let after_flush: Vec<&str> = calls
+        .iter()
+        .skip_while(|call| *call != "flush")
+        .skip(1)
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        after_flush,
+        [
+            "start write {}",
+            "chunk alpha\n",
+            r#"start write {"path":"notes.txt"}"#,
+            "chunk alpha\nbeta\n",
+            "end",
+        ]
+    );
 }

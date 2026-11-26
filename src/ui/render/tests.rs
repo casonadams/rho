@@ -88,9 +88,40 @@ fn test_format_write_preview_syntax_highlighting() {
         "path": "test.py",
         "content": "def main():\n    print('hello')"
     });
-    let preview = format_write_preview(&args, &theme, false).unwrap();
+    let preview = format_write_preview(&args, &theme, false, 60).unwrap();
     assert!(!preview.contains("```diff") && !preview.contains("```") && !preview.contains("+ def main():"));
     assert_contains_all(&preview, &["def", "main", "print", "hello", "  1 │ ", "  2 │ "]);
+}
+
+#[test]
+fn write_card_has_one_blank_row_between_code_and_duration() {
+    let theme = Theme::default();
+    for lines in [3usize, 10, 11, 30] {
+        let text = (1..=lines).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let tool = rho_harness_core::presentation::ToolLine {
+            name: "write".into(),
+            arguments: serde_json::json!({"path": "a.txt", "text": text}),
+            is_error: false,
+            output: String::new(),
+            output_summary: String::new(),
+            duration_ms: Some(2000),
+            file_change: None,
+        };
+        let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
+            &tool, 60, false, false, &theme,
+        ));
+        let rows: Vec<&str> = card.lines().collect();
+        let took = rows.iter().position(|r| r.contains("Took ")).unwrap();
+        let blanks = rows[..took]
+            .iter()
+            .rev()
+            .take_while(|r| {
+                r.trim_matches(|c: char| c == '│' || c.is_whitespace() || c == '\u{a0}')
+                    .is_empty()
+            })
+            .count();
+        assert_eq!(blanks, 1, "{lines} lines:\n{card}");
+    }
 }
 
 #[test]
@@ -101,11 +132,37 @@ fn test_format_write_preview_expansion_and_collapse() {
         "path": "test.txt",
         "content": long_content
     });
-    let collapsed = format_write_preview(&long_args, &theme, false).unwrap();
-    assert!(collapsed.contains("... (4 more lines, 12 total, Ctrl+O to expand)") && !collapsed.contains("line 12"));
+    let collapsed = crate::ui::block::strip_ansi(&format_write_preview(&long_args, &theme, false, 60).unwrap());
+    let first = collapsed.lines().next().unwrap();
+    assert_eq!(first, "... (2 earlier lines, 12 total, Ctrl+O to expand)");
+    assert!(collapsed.contains("  3 │ line 3") && collapsed.contains(" 12 │ line 12"));
+    assert!(!collapsed.contains("line 2\n"), "{collapsed}");
 
-    let expanded = format_write_preview(&long_args, &theme, true).unwrap();
-    assert!(!expanded.contains("more lines") && expanded.contains("line 12"));
+    let expanded = crate::ui::block::strip_ansi(&format_write_preview(&long_args, &theme, true, 60).unwrap());
+    assert!(!expanded.contains("earlier lines"), "{expanded}");
+    assert!(expanded.contains("  1 │ line 1\n") && expanded.contains(" 12 │ line 12"));
+}
+
+#[test]
+fn collapsed_write_preview_grows_to_ten_rows_and_never_shrinks() {
+    let theme = Theme::default();
+    let long_line = "let value = compute_something_long(argument_one, argument_two, argument_three);";
+    let heights: Vec<usize> = (1..=40usize)
+        .map(|n| {
+            let text = (0..n).map(|_| long_line).collect::<Vec<_>>().join("\n");
+            let args = serde_json::json!({"path": "a.rs", "text": text});
+            let preview = format_write_preview(&args, &theme, false, 40).unwrap();
+            let plain = crate::ui::block::strip_ansi(&preview);
+            assert!(
+                plain.lines().all(|l| crate::ui::block::visible_width(l) <= 40),
+                "{plain}"
+            );
+            plain.lines().count()
+        })
+        .collect();
+    assert!(heights.windows(2).all(|w| w[0] <= w[1]), "{heights:?}");
+    assert_eq!(heights[..10], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert!(heights[10..].iter().all(|&h| h == 11), "{heights:?}");
 }
 
 #[test]
@@ -230,7 +287,7 @@ fn test_line_number_gutter_parity_across_read_edit_write() {
     let theme = Theme::default();
 
     let write_args = serde_json::json!({ "path": "example.rs", "content": "fn test() {}" });
-    let write_out = format_write_preview(&write_args, &theme, false).unwrap();
+    let write_out = format_write_preview(&write_args, &theme, false, 60).unwrap();
 
     let edit_args = serde_json::json!({
         "path": "example.rs",
@@ -424,12 +481,6 @@ fn fast_tools_emit_footer_status_without_live_widget_bounce() {
         &mut events,
         "edit",
         &serde_json::json!({"path": "src/main.rs"}),
-    );
-    assert_fast_tool_run(
-        &renderer,
-        &mut events,
-        "write",
-        &serde_json::json!({"path": "src/main.rs", "content": "..."}),
     );
     assert_fast_tool_run(
         &renderer,
@@ -1002,7 +1053,7 @@ fn tabs_expand_to_four_spaces_in_diffs_and_write_previews() {
     let diff = crate::ui::block::strip_ansi(&edit_diff(&args, &theme).unwrap());
     assert!(!diff.contains('\t') && diff.contains("-     x"), "{diff:?}");
     let write = serde_json::json!({"path": "a.txt", "content": "\tindented"});
-    let preview = crate::ui::block::strip_ansi(&format_write_preview(&write, &theme, true).unwrap());
+    let preview = crate::ui::block::strip_ansi(&format_write_preview(&write, &theme, true, 60).unwrap());
     assert!(preview.contains("\u{2502}     indented"), "{preview:?}");
 }
 

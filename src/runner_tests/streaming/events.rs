@@ -28,3 +28,58 @@ async fn final_text_streams_once_and_usage_can_be_unavailable() {
     assert!(!output.metrics.usage_available);
     assert_eq!(output.metrics.model_turns, 1);
 }
+
+#[tokio::test]
+async fn streamed_write_arguments_open_and_fill_the_live_card_before_the_write_runs() {
+    use crate::ui::interactive::{InteractiveUi, UiEvent};
+    use rho_engine::provider::adapter::ModelStreamEvent;
+    use rho_harness_core::model::{ToolCall, ToolFunction};
+
+    let delta = |json: &str| ModelStreamEvent::ToolInputDelta {
+        id: "call-1".into(),
+        name: "write".into(),
+        json: json.into(),
+    };
+    let model = Arc::new(MockAdapter::from_turns([
+        vec![
+            ModelStreamEvent::Text("Writing it now".into()),
+            delta(""),
+            delta(r#"{"content": "alpha\n"#),
+            delta(r#"beta\n", "path": "notes.txt"}"#),
+            ModelStreamEvent::ToolCall(ToolCall::new(
+                "call-1",
+                ToolFunction::new(
+                    "write",
+                    serde_json::json!({"path": "notes.txt", "content": "alpha\nbeta\n"}),
+                ),
+            )),
+        ],
+        vec![ModelStreamEvent::Text("done".into())],
+    ]));
+    let (ui, mut events) = InteractiveUi::channel();
+    let engine = test_engine(model, Config::default());
+    engine
+        .run_turn(request("write"), presenter(&TerminalRenderer::with_ui(ui)))
+        .await
+        .unwrap();
+
+    let mut log = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::ToolStart(r) => log.push(format!("start {}", r.args_summary)),
+            UiEvent::ToolChunk { chunk } => log.push(format!("chunk {chunk}")),
+            UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Tool(_)) => log.push("committed".into()),
+            _ => {}
+        }
+    }
+    assert_eq!(
+        log,
+        [
+            "start ",
+            "chunk alpha\n",
+            "start notes.txt",
+            "chunk alpha\nbeta\n",
+            "committed",
+        ]
+    );
+}

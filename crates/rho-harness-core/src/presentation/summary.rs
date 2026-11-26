@@ -119,12 +119,10 @@ fn format_file_mutation_summary(name: &str, args: &serde_json::Value) -> String 
     let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
     let rel = to_relative_path(raw);
     if name == "write" {
-        let bytes = args
-            .get("content")
-            .and_then(|c| c.as_str())
-            .map(|c| c.len())
-            .unwrap_or(0);
-        format!("{rel} ({bytes} bytes)")
+        match crate::args::write_text(args) {
+            Some(content) => format!("{rel} ({} bytes)", content.len()),
+            None => rel,
+        }
     } else {
         let edits_count = args
             .get("edits")

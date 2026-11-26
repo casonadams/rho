@@ -92,6 +92,8 @@ impl TerminalApprovalSink {
                 has_reasoning_content: false,
                 text_carry: String::new(),
                 reasoning_carry: String::new(),
+                tool_preview: None,
+                tool_preview_started: None,
             }),
         })
     }
@@ -291,6 +293,8 @@ impl TerminalApprovalSink {
         self.presenter.flush();
         let arguments = self.redact_arguments(arguments);
         if let Ok(mut state) = self.state.lock() {
+            let previewing = state.tool_preview.take().is_some();
+            let started = state.tool_preview_started.take().unwrap_or_else(Instant::now);
             disarm_spinner(&mut state);
             state
                 .pending
@@ -299,10 +303,12 @@ impl TerminalApprovalSink {
                 .push_back(PendingToolCall {
                     name: name.to_string(),
                     arguments: arguments.clone(),
-                    started: Some(Instant::now()),
+                    started: Some(started),
                 });
             state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
-            self.presenter.start_tool_run(name, &arguments);
+            if !previewing {
+                self.presenter.start_tool_run(name, &arguments);
+            }
         }
     }
 
@@ -356,8 +362,43 @@ impl TerminalApprovalSink {
         }
     }
 
-    pub fn tool_chunk(&self, chunk: &str) {
-        self.presenter.stream_port().stream_chunk(chunk);
+    /// Shows a card for a tool call whose arguments are still streaming; interactive UIs only.
+    pub fn preview_tool(&self, name: &str, arguments: &Value) {
+        if !self.presenter.has_interactive_ui() {
+            return;
+        }
+        let arguments = self.redact_arguments(arguments);
+        if let Ok(mut state) = self.state.lock() {
+            state.tool_preview = Some(String::new());
+            state.tool_preview_started.get_or_insert_with(Instant::now);
+        }
+        self.presenter.start_tool_run(name, &arguments);
+    }
+
+    pub fn preview_tool_chunk(&self, chunk: &str) {
+        let redacted = {
+            let Ok(mut state) = self.state.lock() else { return };
+            let Some(mut carry) = state.tool_preview.take() else {
+                return;
+            };
+            let redacted = self.redact_streamed(&mut carry, chunk);
+            state.tool_preview = Some(carry);
+            redacted
+        };
+        if !redacted.is_empty() {
+            self.presenter.stream_port().stream_chunk(&redacted);
+        }
+    }
+
+    /// Removes the preview card of a call that will not run.
+    pub fn cancel_tool_preview(&self) {
+        let previewing = self.state.lock().is_ok_and(|mut state| {
+            state.tool_preview_started = None;
+            state.tool_preview.take().is_some()
+        });
+        if previewing {
+            self.presenter.end_tool_run();
+        }
     }
 }
 

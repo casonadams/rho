@@ -159,13 +159,19 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     fn write_normalized_output(&mut self, output: &str) -> io::Result<()> {
         let prefix_newline = self.output.is_open() && output.trim_start_matches('\r').starts_with('╭');
+        let output = if prefix_newline {
+            std::borrow::Cow::Owned(format!("\r\n{output}"))
+        } else {
+            std::borrow::Cow::Borrowed(output)
+        };
+        let visible = if self.output.ends_at_wrap_boundary(self.width) {
+            output.strip_prefix("\r\n").unwrap_or(&output)
+        } else {
+            &output
+        };
         self.prepare_output_write()?;
-        if prefix_newline {
-            self.backend.write_text("\r\n")?;
-            self.output.update("\n");
-        }
-        self.backend.write_text(output)?;
-        self.output.update(output);
+        self.backend.write_text(visible)?;
+        self.output.update(&output);
         if self.output.is_open() {
             self.backend.write_text("\r\n")?;
         }

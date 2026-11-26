@@ -74,7 +74,7 @@ pub static PROMPT_WRITE: &str = "\
 Create a file or replace its entire content; parent directories are created.
 
 Usage:
-- content replaces the whole file, so include everything that should remain; change existing files with edit instead.
+- text replaces the whole file, so include everything that should remain; change existing files with edit instead.
 - When a language server handles the file, the result ends with its diagnostics.";
 
 pub static PROMPT_EDIT: &str = "\

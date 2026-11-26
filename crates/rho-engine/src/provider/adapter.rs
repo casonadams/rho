@@ -83,6 +83,13 @@ pub enum ModelStreamEvent {
     Reasoning(String),
     /// A finished reasoning block with the continuity data the provider requires on replay.
     ReasoningBlock(Reasoning),
+    /// A fragment of the argument JSON of tool call `id` while the model is still writing it;
+    /// the finished call follows as `ToolCall`.
+    ToolInputDelta {
+        id: String,
+        name: String,
+        json: String,
+    },
     ToolCall(ToolCall),
     Usage(StructuralUsage),
     Finish(FinishReason),

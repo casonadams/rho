@@ -489,6 +489,9 @@ mod regressions {
                     .append_tool_chunks(drained.tool_chunks.iter().map(String::as_str))
                     .unwrap();
             }
+            if drained.tool_end {
+                controller.end_tool().unwrap();
+            }
             let had_outputs = !drained.outputs.is_empty();
             for output in drained.outputs {
                 match output {
@@ -660,6 +663,119 @@ mod regressions {
                 !lines.iter().any(|l| l.trim() == "Com"),
                 "'Com' was split onto its own line:\n{lines:#?}"
             );
+        }
+
+        #[test]
+        fn streamed_word_ending_at_the_right_edge_wraps_without_a_blank_row() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript(40, 24);
+            renderer.set_width(40);
+            controller.state_mut().editor_mut().set_text("");
+
+            for token in "The quick brown fox jumps over the lazy dog again.".split_inclusive(' ') {
+                renderer.print_token(token);
+                drive_renderer_to_controller(&mut events, &mut controller);
+            }
+            renderer.flush();
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            let first = screen
+                .iter()
+                .position(|l| l == " The quick brown fox jumps over the lazy")
+                .unwrap_or_else(|| panic!("line filling all 40 columns:\n{}", controller.backend.dump()));
+            assert_eq!(
+                screen[first + 1],
+                " dog again.",
+                "the wrapped word must follow on the next row\n{}",
+                controller.backend.dump()
+            );
+        }
+
+        #[test]
+        fn write_card_tails_streamed_content_and_keeps_it_when_the_call_runs() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript(80, 24);
+            controller.state_mut().editor_mut().set_text("");
+            let content: String = (1..=12).map(|i| format!("line {i:02}\n")).collect();
+
+            renderer.start_tool_run("write", &serde_json::json!({"path": "notes.txt"}));
+            for line in content.split_inclusive('\n') {
+                renderer.tool_chunk(line);
+            }
+            drive_renderer_to_controller(&mut events, &mut controller);
+            let streamed = controller.backend.text();
+            assert!(
+                streamed.iter().any(|l| l.contains("line 12")),
+                "{}",
+                controller.backend.dump()
+            );
+            assert!(!streamed.iter().any(|l| l.contains("line 01")), "only the tail shows");
+
+            renderer.tool_chunk("stale chunk\n");
+            renderer.start_tool_run("write", &serde_json::json!({"path": "notes.txt", "content": content}));
+            drive_renderer_to_controller(&mut events, &mut controller);
+            let running = controller.backend.text();
+            assert_eq!(running.iter().filter(|l| l.contains("line 12")).count(), 1);
+            assert!(!running.iter().any(|l| l.contains("stale chunk")));
+
+            renderer.end_tool_run();
+            drive_renderer_to_controller(&mut events, &mut controller);
+            assert!(controller.state().active_tool().is_none());
+            assert!(!controller.backend.text().iter().any(|l| l.contains("line 12")));
+        }
+
+        #[test]
+        fn write_card_is_the_same_card_live_and_committed() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript(70, 30);
+            controller.state_mut().editor_mut().set_text("");
+            let content: String = (1..=14)
+                .map(|i| {
+                    format!("    let value_{i} = compute_something_long(argument_one, argument_two, argument_{i});\n")
+                })
+                .collect();
+            let args = serde_json::json!({"path": "/tmp/x/demo.rs", "text": content});
+
+            renderer.start_tool_run("write", &serde_json::json!({"path": "/tmp/x/demo.rs"}));
+            for line in content.split_inclusive('\n') {
+                renderer.tool_chunk(line);
+            }
+            drive_renderer_to_controller(&mut events, &mut controller);
+            let live = card_rows(&controller.backend.text());
+
+            renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
+                name: "write".into(),
+                arguments: args,
+                is_error: false,
+                output: "ok".into(),
+                output_summary: String::new(),
+                duration_ms: Some(4200),
+                file_change: None,
+            });
+            drive_renderer_to_controller(&mut events, &mut controller);
+            let committed = card_rows(&controller.backend.text());
+
+            assert_eq!(
+                live.len(),
+                committed.len(),
+                "card height changed\n{}",
+                controller.backend.dump()
+            );
+            for (live_row, committed_row) in live.iter().zip(&committed) {
+                if !live_row.contains("Took ") {
+                    assert_eq!(live_row, committed_row);
+                }
+            }
+        }
+
+        fn card_rows(screen: &[String]) -> Vec<String> {
+            let top = screen.iter().rposition(|l| l.contains('╭')).expect("card top");
+            let bottom = screen.iter().rposition(|l| l.contains('╰')).expect("card bottom");
+            screen[top..=bottom].to_vec()
         }
 
         #[test]

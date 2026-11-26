@@ -190,6 +190,7 @@ async fn collect_ephemeral_stream(
             }
             ModelStreamEvent::Reasoning(_)
             | ModelStreamEvent::ReasoningBlock(_)
+            | ModelStreamEvent::ToolInputDelta { .. }
             | ModelStreamEvent::ToolCall(_)
             | ModelStreamEvent::Finish(_) => {}
         }

@@ -182,6 +182,7 @@ impl PendingUiBatch {
         match event {
             UiEvent::ToolStart(r) => {
                 self.tool_start = Some(r);
+                self.tool_chunks.clear();
                 Self::flushes()
             }
             UiEvent::ToolChunk { chunk } => {

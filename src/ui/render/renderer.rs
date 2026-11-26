@@ -37,6 +37,14 @@ impl RenderActivity {
     }
 }
 
+/// The file content a `write` call shows in its live card, which tails it like command output.
+fn written_content<'a>(name: &str, args: &'a serde_json::Value) -> Option<&'a str> {
+    (name == "write")
+        .then(|| rho_harness_core::args::write_text(args))
+        .flatten()
+        .filter(|content| !content.is_empty())
+}
+
 #[derive(Clone)]
 pub struct TerminalRenderer {
     pub theme: Theme,
@@ -270,11 +278,20 @@ impl TerminalRenderer {
                     args_summary: summary,
                     preview: None,
                 });
+                if let Some(content) = written_content(name, args) {
+                    let _ = ui.tool_chunk(content.to_string());
+                }
             } else {
                 let _ = ui.set_running_tool(Some(name.to_string()));
             }
         } else if crate::ui::interactive::RunningTool::has_transcript_card(name) {
             self.print_tool_start(name, args);
+        }
+    }
+
+    pub fn end_tool_run(&self) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.tool_end();
         }
     }
 

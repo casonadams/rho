@@ -258,7 +258,7 @@ pub(crate) fn render_delta_diff(out: &mut String, req: DeltaDiffRequest<'_>) {
         }
     }
     if ctx.hidden > 0 {
-        out.push_str(&more_lines_footer(ctx.hidden, None, req.theme.dimmed));
+        out.push_str(&more_lines_footer(ctx.hidden, req.theme.dimmed));
     }
 }
 

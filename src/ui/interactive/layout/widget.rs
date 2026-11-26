@@ -1,11 +1,12 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::interactive::state::RunningTool;
-use crate::ui::render::card::style_tool_header_args;
+use crate::ui::render::card::{render_tool_block, style_tool_header_args};
 use crate::ui::render::structured::{
     align_header_with_right, append_section, format_structured_bash_input, format_structured_header_left,
 };
 use crate::ui::render::{format_bash_args_header, highlight_bash_args_header, normalize_tool_name, tool_title_style};
 use crate::ui::theme::Theme;
+use rho_harness_core::presentation::ToolLine;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RunningToolWidgetInput<'a> {
@@ -59,6 +60,28 @@ fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, wi
     }
 }
 
+/// A running `write` is drawn by the committed-card renderer, so finishing it changes nothing but the duration.
+fn running_write_block(input: &RunningToolWidgetInput<'_>, width: usize) -> String {
+    let path = input.tool.args_summary.split(' ').next().unwrap_or_default();
+    let line = ToolLine {
+        name: "write".into(),
+        arguments: serde_json::json!({ "path": path, "text": input.tool.output }),
+        is_error: false,
+        output: String::new(),
+        output_summary: String::new(),
+        duration_ms: Some(input.tool.elapsed().as_millis() as u64),
+        file_change: input.tool.file_change.clone(),
+    };
+    render_tool_block(&line, width, input.tools_expanded, false, input.theme)
+}
+
+fn highlight_live_output(tool: &RunningTool, raw_output: String, theme: &Theme) -> String {
+    if !theme.syntax_highlight_tools {
+        return raw_output;
+    }
+    crate::ui::render::output_highlight::highlight_tool_output(&tool.name, &raw_output, theme)
+}
+
 fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> String {
     let title = tool_title_style(false);
     let (accent, dim) = (input.theme.highlight, input.theme.dimmed);
@@ -84,11 +107,7 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
         content.push_str(preview);
     }
     let raw_output = input.tool.output.trim_end().replace('\t', "   ");
-    let rendered = if input.theme.syntax_highlight_tools {
-        crate::ui::render::output_highlight::highlight_tool_output(&input.tool.name, &raw_output, input.theme)
-    } else {
-        raw_output
-    };
+    let rendered = highlight_live_output(input.tool, raw_output, input.theme);
     append_tool_output(&mut content, &rendered, input.tools_expanded, width, dim);
     content.push_str(&format!(
         "\n\n{dim}Elapsed {}{dim:#}",
@@ -130,11 +149,7 @@ fn format_structured_widget_content(input: RunningToolWidgetInput<'_>, width: us
     }
     let raw_output = input.tool.output.trim_end().replace('\t', "   ");
     if !raw_output.is_empty() {
-        let rendered = if input.theme.syntax_highlight_tools {
-            crate::ui::render::output_highlight::highlight_tool_output(&input.tool.name, &raw_output, input.theme)
-        } else {
-            raw_output
-        };
+        let rendered = highlight_live_output(input.tool, raw_output, input.theme);
         let formatted = if input.tools_expanded {
             rendered
         } else {
@@ -151,16 +166,20 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         return Vec::new();
     }
     let width = input.width.max(20);
-    let content = if input.theme.structured_tool_cards {
-        format_structured_widget_content(input, width)
+    let block = if input.tool.name == "write" {
+        running_write_block(&input, width)
     } else {
-        format_widget_content(input, width)
+        let content = if input.theme.structured_tool_cards {
+            format_structured_widget_content(input, width)
+        } else {
+            format_widget_content(input, width)
+        };
+        input
+            .theme
+            .tool_block(input.tool.name == "bash", false, width)
+            .with_vertical_padding()
+            .render_styled(&content)
     };
-    let block = input
-        .theme
-        .tool_block(input.tool.name == "bash", false, width)
-        .with_vertical_padding()
-        .render_styled(&content);
     let mut lines = if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
         Vec::new()
     } else {

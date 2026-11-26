@@ -71,6 +71,12 @@ impl SseParser {
                 events.push(Ok(ModelStreamEvent::ReasoningBlock(block)));
             }
             ContentBlockStartPayload::ToolUse { id, name } => {
+                let name = crate::claude::request::from_claude_tool_name(&name).to_string();
+                events.push(Ok(ModelStreamEvent::ToolInputDelta {
+                    id: id.clone(),
+                    name: name.clone(),
+                    json: String::new(),
+                }));
                 self.tool_uses.insert(
                     index,
                     ToolUseState {
@@ -101,6 +107,11 @@ impl SseParser {
             ContentDeltaPayload::InputJsonDelta { partial_json } => {
                 if let Some(tool) = self.tool_uses.get_mut(&index) {
                     tool.input_json.push_str(&partial_json);
+                    events.push(Ok(ModelStreamEvent::ToolInputDelta {
+                        id: tool.id.clone(),
+                        name: tool.name.clone(),
+                        json: partial_json,
+                    }));
                 }
             }
             ContentDeltaPayload::Other => {}
@@ -193,9 +204,8 @@ impl SseParser {
         let Some(tool) = self.tool_uses.remove(&index) else {
             return;
         };
-        let canonical_name = crate::claude::request::from_claude_tool_name(&tool.name).to_string();
         let args = crate::provider::adapter::parse_tool_arguments(&tool.input_json);
-        let call = ToolCall::new(tool.id, ToolFunction::new(canonical_name, args));
+        let call = ToolCall::new(tool.id, ToolFunction::new(tool.name, args));
         events.push(Ok(ModelStreamEvent::ToolCall(call)));
     }
 

@@ -81,6 +81,10 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::start_tool_run(self, name, arguments);
     }
 
+    fn end_tool_run(&self) {
+        TerminalRenderer::end_tool_run(self);
+    }
+
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::new(
             self.ui

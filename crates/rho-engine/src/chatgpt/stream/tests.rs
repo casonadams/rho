@@ -70,10 +70,12 @@ fn text_and_tool_calls_stream_and_aggregate() {
     let mut has_text = false;
     let mut tool_call = None;
     let mut total_tokens = None;
+    let mut input = Vec::new();
 
     for event in events {
         match event.unwrap() {
             ModelStreamEvent::Text(t) if t == "Let me run that." => has_text = true,
+            ModelStreamEvent::ToolInputDelta { id, name, json } => input.push((id, name, json)),
             ModelStreamEvent::ToolCall(call) => {
                 tool_call = Some((call.id, call.function.name, call.function.arguments));
             }
@@ -88,6 +90,9 @@ fn text_and_tool_calls_stream_and_aggregate() {
     assert_eq!(id, "call_1");
     assert_eq!(name, "bash");
     assert_eq!(args, serde_json::json!({"command": "cargo check"}));
+    let fragments: Vec<&str> = input.iter().map(|(_, _, json)| json.as_str()).collect();
+    assert_eq!(fragments, ["", "{\"command\": \"", "cargo check\"}"]);
+    assert!(input.iter().all(|(id, name, _)| id == "call_1" && name == "bash"));
 }
 
 #[test]

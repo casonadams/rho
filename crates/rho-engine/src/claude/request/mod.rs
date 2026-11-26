@@ -434,11 +434,16 @@ fn convert_tools(request: &ModelCompletionRequest) -> Vec<Value> {
     tools
         .into_iter()
         .map(|t| {
-            json!({
+            let mut tool = json!({
                 "name": to_claude_tool_name(&t.name),
                 "description": t.description,
                 "input_schema": t.parameters,
-            })
+            });
+            // Without this the API buffers each parameter until complete, so `write` content cannot be previewed live.
+            if t.name == "write" {
+                tool["eager_input_streaming"] = json!(true);
+            }
+            tool
         })
         .collect()
 }

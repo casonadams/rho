@@ -168,7 +168,9 @@ pub fn aggregate_stream_events(events: SseEvents) -> Result<ModelCompletionRespo
     for event in events {
         match event? {
             ModelStreamEvent::Text(t) => content.push_str(&t),
-            ModelStreamEvent::Reasoning(_) | ModelStreamEvent::ReasoningBlock(_) => {}
+            ModelStreamEvent::Reasoning(_)
+            | ModelStreamEvent::ReasoningBlock(_)
+            | ModelStreamEvent::ToolInputDelta { .. } => {}
             ModelStreamEvent::ToolCall(call) => tool_calls.push(call),
             ModelStreamEvent::Usage(u) => usage = usage.merge(&u),
             ModelStreamEvent::Finish(f) => finish_reason = Some(f),

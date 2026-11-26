@@ -122,6 +122,7 @@ enum PlannedCall {
 
 async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> PlannedCall {
     if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
+        ctx.sink.cancel_tool_preview();
         return PlannedCall::Settled((tool_result_message(call, msg.to_string()), CallControl::Continue));
     }
     match evaluate_tool_dispatch(call, ctx.lifecycle, ctx.permission).await {
@@ -130,12 +131,16 @@ async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> 
             PlannedCall::Ready(args)
         }
         DispatchDecision::Deny(msg) => {
+            ctx.sink.cancel_tool_preview();
             if let Some(observer) = ctx.observer {
                 observer.denied(call, &message_text(&msg));
             }
             PlannedCall::Settled((msg, CallControl::Continue))
         }
-        DispatchDecision::Stop(msg, reason) => PlannedCall::Settled((msg, CallControl::Stop(reason))),
+        DispatchDecision::Stop(msg, reason) => {
+            ctx.sink.cancel_tool_preview();
+            PlannedCall::Settled((msg, CallControl::Stop(reason)))
+        }
     }
 }
 

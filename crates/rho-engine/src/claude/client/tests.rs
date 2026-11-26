@@ -209,7 +209,7 @@ fn test_claude_headers_contains_required_fields() {
     assert_eq!(headers.get("authorization").unwrap(), "Bearer test-token-xyz");
     assert_eq!(
         headers.get("anthropic-beta").unwrap(),
-        "claude-code-20250219,oauth-2025-04-20"
+        "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14"
     );
     assert_eq!(
         headers.get("anthropic-dangerous-direct-browser-access").unwrap(),

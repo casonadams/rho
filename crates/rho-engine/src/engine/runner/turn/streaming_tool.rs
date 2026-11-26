@@ -4,58 +4,70 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolCallDelta {
-    Name(String),
-    Delta(String),
-}
-
 #[derive(Default)]
 pub struct StreamingToolTracker {
-    name: Option<String>,
+    call_id: Option<String>,
     arguments_buf: String,
-    path_started: bool,
+    preview_started: bool,
+    path_shown: bool,
     streamed_content_len: usize,
     content: ContentDecoder,
 }
 
 impl StreamingToolTracker {
-    pub fn handle_name(&mut self, name: impl Into<String>) {
-        self.name = Some(name.into());
-    }
-
-    pub fn handle_delta(&mut self, chunk: &str, sink: &Arc<TerminalApprovalSink>) {
+    /// Feeds a fragment of tool call `id`'s argument JSON; a new `id` starts a new call.
+    pub fn handle_delta(&mut self, id: &str, name: &str, chunk: &str, sink: &Arc<TerminalApprovalSink>) {
+        if self.call_id.as_deref() != Some(id) {
+            *self = Self {
+                call_id: Some(id.to_string()),
+                ..Self::default()
+            };
+            sink.flush_display();
+        }
         self.arguments_buf.push_str(chunk);
-        if self.name.as_deref() == Some("write") {
-            self.maybe_start_path(sink);
+        if name == "write" {
+            self.maybe_start_preview(sink);
             self.maybe_stream_content(sink);
         }
     }
 
-    #[cfg(test)]
-    pub fn handle_tool_call_delta(&mut self, content: ToolCallDelta, sink: &Arc<TerminalApprovalSink>) {
-        match content {
-            ToolCallDelta::Name(name) => self.handle_name(name),
-            ToolCallDelta::Delta(chunk) => self.handle_delta(&chunk, sink),
-        }
-    }
-
-    fn maybe_start_path(&mut self, sink: &Arc<TerminalApprovalSink>) {
-        if self.path_started {
+    /// Opens the card on the first fragment, before the path is known.
+    fn maybe_start_preview(&mut self, sink: &Arc<TerminalApprovalSink>) {
+        if self.preview_started {
             return;
         }
-        if let Some(path) = self.extract_target_path() {
-            self.path_started = true;
-            sink.tool_start("write", &serde_json::json!({ "path": path }));
+        self.preview_started = true;
+        let path = self.extract_target_path();
+        self.path_shown = path.is_some();
+        let args = match path {
+            Some(path) => serde_json::json!({ "path": path }),
+            None => serde_json::json!({}),
+        };
+        sink.preview_tool("write", &args);
+    }
+
+    /// Reopens the card once the path arrives, replaying the content so far, so the header and language are right.
+    fn maybe_reopen_with_path(&mut self, sink: &Arc<TerminalApprovalSink>) {
+        if self.path_shown {
+            return;
         }
+        let Some(path) = self.extract_target_path() else {
+            return;
+        };
+        self.path_shown = true;
+        sink.preview_tool("write", &serde_json::json!({ "path": path }));
+        self.streamed_content_len = 0;
     }
 
     fn maybe_stream_content(&mut self, sink: &Arc<TerminalApprovalSink>) {
+        if !self.preview_started {
+            return;
+        }
         self.content.advance(&self.arguments_buf);
+        self.maybe_reopen_with_path(sink);
         let current_content = &self.content.decoded;
         if current_content.len() > self.streamed_content_len {
-            sink.tool_chunk(&current_content[self.streamed_content_len..]);
+            sink.preview_tool_chunk(&current_content[self.streamed_content_len..]);
             self.streamed_content_len = current_content.len();
         }
     }
@@ -100,7 +112,9 @@ impl ContentDecoder {
         let start = match self.body_start {
             Some(start) => start,
             None => {
-                let Some(start) = locate_string_body(json, "\"content\"") else {
+                let Some(start) =
+                    locate_string_body(json, "\"text\"").or_else(|| locate_string_body(json, "\"content\""))
+                else {
                     return;
                 };
                 self.body_start = Some(start);
