@@ -303,6 +303,14 @@ pub struct WriteArgs {
     pub content: String,
 }
 
+/// Argument names that carry the file a tool call targets; `file_path` is what some providers' tools call it.
+pub const TARGET_PATH_KEYS: [&str; 2] = ["path", "file_path"];
+
+/// The file a tool call targets, from the first of `TARGET_PATH_KEYS` present as a string.
+pub fn target_path(args: &serde_json::Value) -> Option<&str> {
+    TARGET_PATH_KEYS.iter().find_map(|key| args.get(key)?.as_str())
+}
+
 /// The file content in a `write` call's raw arguments; `content` is the name saved sessions use.
 pub fn write_text(args: &serde_json::Value) -> Option<&str> {
     args.get("text").or_else(|| args.get("content"))?.as_str()
@@ -566,6 +574,23 @@ pub mod worktree {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_path_and_write_text_read_current_and_legacy_argument_names() {
+        use serde_json::json;
+        let cases = [
+            (json!({"path": "a", "file_path": "b"}), Some("a")),
+            (json!({"file_path": "b"}), Some("b")),
+            (json!({"path": 3, "file_path": "b"}), Some("b")),
+            (json!({"other": "c"}), None),
+        ];
+        for (args, expected) in cases {
+            assert_eq!(target_path(&args), expected, "{args}");
+        }
+        assert_eq!(write_text(&json!({"text": "t", "content": "c"})), Some("t"));
+        assert_eq!(write_text(&json!({"content": "c"})), Some("c"));
+        assert_eq!(write_text(&json!({})), None);
+    }
 
     #[test]
     fn test_subagent_role_properties() {

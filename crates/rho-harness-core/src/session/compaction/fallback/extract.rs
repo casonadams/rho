@@ -160,10 +160,8 @@ fn is_error_text(text: &str) -> bool {
 
 fn extract_path(args: &Value) -> Option<String> {
     if let Some(obj) = args.as_object() {
-        obj.get("path")
-            .or_else(|| obj.get("file_path"))
-            .or_else(|| obj.get("file"))
-            .and_then(|v| v.as_str())
+        crate::args::target_path(args)
+            .or_else(|| obj.get("file").and_then(|v| v.as_str()))
             .map(|p| p.trim().strip_prefix("./").unwrap_or(p.trim()).to_string())
     } else if let Some(s) = args.as_str() {
         if let Ok(val) = serde_json::from_str::<Value>(s) {

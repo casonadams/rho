@@ -25,7 +25,7 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
         Some(change) => change.edit_start_lines.clone(),
         None => {
             let needs_file = edits.iter().any(|edit| file_change::explicit_edit_line(edit).is_none());
-            let content = file_change::target_path(request.args)
+            let content = rho_harness_core::args::target_path(request.args)
                 .filter(|_| needs_file)
                 .and_then(file_change::read_bounded);
             file_change::edit_start_lines(edits, content.as_deref())

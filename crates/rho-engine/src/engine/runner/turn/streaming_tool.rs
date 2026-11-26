@@ -73,8 +73,9 @@ impl StreamingToolTracker {
     }
 
     fn extract_target_path(&self) -> Option<String> {
-        extract_json_string_field(&self.arguments_buf, "path")
-            .or_else(|| extract_json_string_field(&self.arguments_buf, "file_path"))
+        rho_harness_core::args::TARGET_PATH_KEYS
+            .iter()
+            .find_map(|key| extract_json_string_field(&self.arguments_buf, key))
     }
 
     pub fn reset(&mut self) {

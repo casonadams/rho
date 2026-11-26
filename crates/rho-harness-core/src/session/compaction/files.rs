@@ -13,10 +13,8 @@ pub fn normalize_path(path: &str) -> String {
 
 fn extract_path(arguments: &Value) -> Option<String> {
     if let Some(obj) = arguments.as_object() {
-        obj.get("path")
-            .or_else(|| obj.get("file_path"))
-            .or_else(|| obj.get("file"))
-            .and_then(|v| v.as_str())
+        crate::args::target_path(arguments)
+            .or_else(|| obj.get("file").and_then(|v| v.as_str()))
             .map(str::to_string)
     } else if let Some(s) = arguments.as_str() {
         if let Ok(val) = serde_json::from_str::<Value>(s) {

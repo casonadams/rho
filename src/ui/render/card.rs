@@ -63,7 +63,7 @@ pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
 }
 
 pub fn detect_language_from_args(args: &serde_json::Value) -> Option<&str> {
-    let path = args.get("path").or_else(|| args.get("file_path"))?.as_str()?;
+    let path = rho_harness_core::args::target_path(args)?;
     detect_language_from_path(path)
 }
 

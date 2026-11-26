@@ -6,12 +6,6 @@ use serde_json::Value;
 
 const MAX_SNAPSHOT_BYTES: u64 = 10 * 1024 * 1024;
 
-pub(crate) fn target_path(args: &Value) -> Option<&str> {
-    args.get("path")
-        .or_else(|| args.get("file_path"))
-        .and_then(Value::as_str)
-}
-
 pub(crate) fn explicit_edit_line(edit: &Value) -> Option<usize> {
     edit.get("line")
         .or_else(|| edit.get("start_line"))
@@ -91,7 +85,7 @@ pub(crate) fn removed_text(edit: &Value, idx: usize, change: Option<&FileChange>
 }
 
 pub(crate) fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> {
-    let path = target_path(args)?;
+    let path = rho_harness_core::args::target_path(args)?;
     let change = match name {
         "write" => FileChange {
             overwrote_existing: std::path::Path::new(path).is_file(),

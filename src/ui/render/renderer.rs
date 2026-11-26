@@ -309,7 +309,7 @@ impl TerminalRenderer {
             return;
         }
         if line.file_change.is_none()
-            && let Some(path) = file_change::target_path(&line.arguments)
+            && let Some(path) = rho_harness_core::args::target_path(&line.arguments)
             && let Ok(mut pending) = self.pending_file_changes.lock()
         {
             line.file_change = pending.remove(path);

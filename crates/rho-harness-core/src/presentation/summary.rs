@@ -89,7 +89,7 @@ fn classify_doc_or_resource(clean: &str, file_name: &str) -> Option<ReadClassifi
 }
 
 pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification> {
-    let raw = args.get("path").and_then(|path| path.as_str())?;
+    let raw = crate::args::target_path(args)?;
     let clean = raw.trim().trim_matches('"').trim_matches('\'');
     let path = Path::new(clean);
     let file_name = path.file_name()?.to_str()?;
@@ -97,7 +97,7 @@ pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification
 }
 
 pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) {
-    let raw = args.get("path").and_then(|path| path.as_str()).unwrap_or("");
+    let raw = crate::args::target_path(args).unwrap_or("");
     let path = to_relative_path(raw);
     if args.get("offset").is_none() && args.get("limit").is_none() {
         return (path, None);
@@ -116,7 +116,7 @@ pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) 
 }
 
 fn format_file_mutation_summary(name: &str, args: &serde_json::Value) -> String {
-    let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
+    let raw = crate::args::target_path(args).unwrap_or("");
     let rel = to_relative_path(raw);
     if name == "write" {
         match crate::args::write_text(args) {
@@ -198,7 +198,7 @@ fn format_memory_summary(args: &serde_json::Value) -> String {
 
 fn format_rg_summary(args: &serde_json::Value) -> String {
     let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
-    let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+    let path = crate::args::target_path(args).unwrap_or(".");
     let rel = to_relative_path(path);
     let quoted_pat = quote_cli_arg(pattern);
     if rel == "." || rel.is_empty() {
@@ -218,7 +218,7 @@ fn format_search_summary(name: &str, args: &serde_json::Value) -> String {
 
 fn format_fd_summary(args: &serde_json::Value) -> String {
     let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
-    let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+    let path = crate::args::target_path(args).unwrap_or(".");
     let rel = to_relative_path(path);
     let has_path = rel != "." && !rel.is_empty();
     let has_pattern = !pattern.is_empty();
@@ -451,7 +451,7 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "web_search" => format!("\"{}\"", args.get("query").and_then(|q| q.as_str()).unwrap_or("")),
         "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
         "grep" | "rg" | "fd" => format_search_summary(name, args),
-        "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
+        "ls" => to_relative_path(crate::args::target_path(args).unwrap_or(".")),
         "mcp" => format_mcp_summary(args),
         "mcpScript" => format_mcp_script_summary(args),
         "todo" => format_todo_summary(args),
