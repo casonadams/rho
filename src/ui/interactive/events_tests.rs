@@ -259,13 +259,90 @@ fn burst_after_a_pause(base: Instant) -> PendingUiBatch {
 fn a_burst_of_tool_output_is_released_a_few_lines_per_frame() {
     let base = Instant::now();
     let mut batch = burst_after_a_pause(base);
-    let first = batch.drain_at(base + std::time::Duration::from_millis(416));
-    let shown: usize = first.tool_chunks.iter().map(|c| c.lines().count()).sum();
-    assert!((1..=2).contains(&shown), "showed {shown} of 20 lines at once");
+    let mut per_frame = Vec::new();
+    for frame in 1..=3u64 {
+        let drained = batch.drain_at(base + std::time::Duration::from_millis(400 + frame * 16));
+        per_frame.push(drained.tool_chunks.iter().map(|c| c.lines().count()).sum::<usize>());
+    }
+    assert!(per_frame.iter().all(|&n| n <= 2), "{per_frame:?}");
+    assert!(per_frame.iter().sum::<usize>() >= 1, "{per_frame:?}");
     assert!(
         !batch.is_empty(),
         "the rest is still pending so the next frame flushes it"
     );
+}
+
+fn text_at(batch: &mut PendingUiBatch, text: &str, ms: u64, base: Instant) {
+    batch.push_at(
+        UiEvent::Output(OutputEvent::StreamText(text.into())),
+        base + std::time::Duration::from_millis(ms),
+    );
+}
+
+fn streamed(drained: &PendingUiDrain) -> String {
+    drained.text()
+}
+
+#[test]
+fn a_burst_of_streamed_text_is_released_a_few_words_per_frame_in_order() {
+    let base = Instant::now();
+    let mut batch = PendingUiBatch::new(4096);
+    text_at(&mut batch, "Hello ", 0, base);
+    batch.drain_at(base);
+    let sentence = "the quick brown fox jumps over the lazy dog and keeps running far away from home ";
+    text_at(&mut batch, sentence, 400, base);
+
+    let mut shown = String::new();
+    let mut frames = 0;
+    while !batch.is_empty() && frames < 80 {
+        frames += 1;
+        let drained = batch.drain_at(base + std::time::Duration::from_millis(400 + frames * 16));
+        let piece = streamed(&drained);
+        assert!(piece.split_whitespace().count() <= 3, "{piece:?}");
+        shown.push_str(&piece);
+    }
+    assert_eq!(shown, sentence);
+    assert!(frames >= 15, "spread over only {frames} frames");
+}
+
+#[test]
+fn a_notice_never_overtakes_streamed_text_that_came_before_it() {
+    let base = Instant::now();
+    let mut batch = PendingUiBatch::new(4096);
+    text_at(&mut batch, "one ", 0, base);
+    batch.drain_at(base);
+    text_at(&mut batch, "two three four five ", 400, base);
+    batch.push_at(
+        UiEvent::Output(OutputEvent::Text("[notice]\n".into())),
+        base + std::time::Duration::from_millis(405),
+    );
+    text_at(&mut batch, "six ", 410, base);
+
+    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    let text = drained.text();
+    assert!(text.starts_with("two three four five [notice]\n"), "{text:?}");
+    assert!(!text.contains("six") || text.ends_with("six "), "{text:?}");
+}
+
+#[test]
+fn a_tool_card_shows_the_streamed_text_before_it_in_the_same_drain() {
+    let base = Instant::now();
+    let mut batch = PendingUiBatch::new(4096);
+    text_at(&mut batch, "one ", 0, base);
+    batch.drain_at(base);
+    text_at(&mut batch, "two three four five six seven ", 400, base);
+    let request = ToolStartRequest {
+        name: "write".into(),
+        args_summary: String::new(),
+        arguments: serde_json::json!({}),
+    };
+    batch.push_at(
+        UiEvent::ToolStart(request),
+        base + std::time::Duration::from_millis(405),
+    );
+    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    assert_eq!(drained.text(), "two three four five six seven ");
+    assert!(batch.is_empty());
 }
 
 #[test]

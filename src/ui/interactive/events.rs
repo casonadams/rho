@@ -3,7 +3,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::ui::interactive::Activity;
-use crate::ui::interactive::pacer::ChunkPacer;
+use crate::ui::interactive::pacer::{Pacer, Unit};
 
 pub use rho_harness_core::presentation::{
     InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout,
@@ -93,7 +93,8 @@ pub struct PendingUiBatch {
     activity: Option<Activity>,
     running_tool: Option<Option<String>>,
     tool_start: Option<ToolStartRequest>,
-    tool_chunks: ChunkPacer,
+    tool_chunks: Pacer,
+    stream_text: Pacer,
     tool_end: bool,
     system_message: Option<Option<String>>,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
@@ -136,7 +137,8 @@ impl PendingUiBatch {
             activity: None,
             running_tool: None,
             tool_start: None,
-            tool_chunks: ChunkPacer::default(),
+            tool_chunks: Pacer::new(Unit::Line),
+            stream_text: Pacer::new(Unit::Word),
             tool_end: false,
             system_message: None,
             transcript_items: Vec::new(),
@@ -146,23 +148,31 @@ impl PendingUiBatch {
         }
     }
 
-    fn push_output(&mut self, output: OutputEvent, len: usize) {
-        self.total_output_bytes += len;
+    fn push_output(&mut self, output: OutputEvent, now: Instant) {
+        self.total_output_bytes += match &output {
+            OutputEvent::Text(text) | OutputEvent::StreamText(text) => text.len(),
+        };
         match output {
             OutputEvent::Text(text) => {
-                if let Some(OutputEvent::Text(existing)) = self.outputs.last_mut() {
-                    existing.push_str(&text);
-                } else {
-                    self.outputs.push(OutputEvent::Text(text));
-                }
+                self.release_stream_text(Pacer::take_all);
+                self.append_output(OutputEvent::Text(text));
             }
-            OutputEvent::StreamText(text) => {
-                if let Some(OutputEvent::StreamText(existing)) = self.outputs.last_mut() {
-                    existing.push_str(&text);
-                } else {
-                    self.outputs.push(OutputEvent::StreamText(text));
-                }
-            }
+            OutputEvent::StreamText(text) => self.stream_text.push(&text, now),
+        }
+    }
+
+    fn release_stream_text(&mut self, release: impl FnOnce(&mut Pacer) -> String) {
+        let text = release(&mut self.stream_text);
+        if !text.is_empty() {
+            self.append_output(OutputEvent::StreamText(text));
+        }
+    }
+
+    fn append_output(&mut self, output: OutputEvent) {
+        match (self.outputs.last_mut(), output) {
+            (Some(OutputEvent::Text(existing)), OutputEvent::Text(text))
+            | (Some(OutputEvent::StreamText(existing)), OutputEvent::StreamText(text)) => existing.push_str(&text),
+            (_, output) => self.outputs.push(output),
         }
     }
 
@@ -222,7 +232,7 @@ impl PendingUiBatch {
                     OutputEvent::Text(text) | OutputEvent::StreamText(text) => (text.contains('\n'), text.len()),
                 };
                 if len > 0 {
-                    self.push_output(output, len);
+                    self.push_output(output, now);
                 }
                 self.flush_barrier_for_text(has_newline)
             }
@@ -250,16 +260,20 @@ impl PendingUiBatch {
         self.drain_at(Instant::now())
     }
 
-    /// Everything pending, except that tool output behind a burst is released a few lines per call
-    /// unless something else in the batch (a tool end, a commit, text) needs it shown first.
+    /// Everything pending, except that streamed text and tool output behind a burst are released a little
+    /// per call, unless something else in the batch (a tool end, a commit) needs them shown first.
     pub fn drain_at(&mut self, now: Instant) -> PendingUiDrain {
         self.total_output_bytes = 0;
-        let others_pending = !self.outputs.is_empty()
-            || self.tool_start.is_some()
+        let ordered_after = self.tool_start.is_some()
             || self.tool_end
             || !self.transcript_items.is_empty()
             || self.trailing_recap.is_some();
-        let chunk = if others_pending {
+        if ordered_after {
+            self.release_stream_text(Pacer::take_all);
+        } else {
+            self.release_stream_text(|pacer| pacer.release(now));
+        }
+        let chunk = if ordered_after || !self.outputs.is_empty() {
             self.tool_chunks.take_all()
         } else {
             self.tool_chunks.release(now)
@@ -280,6 +294,7 @@ impl PendingUiBatch {
 
     pub fn is_empty(&self) -> bool {
         self.outputs.is_empty()
+            && self.stream_text.is_empty()
             && self.activity.is_none()
             && self.running_tool.is_none()
             && self.tool_start.is_none()

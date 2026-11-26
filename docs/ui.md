@@ -283,6 +283,10 @@ always matches your terminal emulator, in dark or light mode.
   The input area uses the same one-column indent.
 - Every finished tool card ends with a dim `Took 6.054s` line on its own line.
   While a tool runs, its live card is the same card and counts `Took ...` up.
+  Streamed output (reply text, thinking and live tool output) that the API
+  delivers in bursts is spread over the pause before the next burst, a few
+  words or lines per frame and never longer than 600 ms behind; a steady stream
+  is shown as it arrives.
   `web_fetch` shows the content kind inline and dim, such as
   `web_fetch https://example.com (text)`. `todo` shows the list's progress and
   the item in progress, such as `todo 1/3 done · Add tests`; `Ctrl+O` shows the
