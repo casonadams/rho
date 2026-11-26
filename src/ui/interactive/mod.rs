@@ -4,6 +4,7 @@ mod events;
 pub mod footer;
 mod input;
 mod layout;
+mod pacer;
 pub mod session_picker;
 #[cfg(test)]
 mod shift_tab_tests;

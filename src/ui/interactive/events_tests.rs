@@ -241,3 +241,58 @@ fn tool_end_and_dismiss_interaction_report_a_closed_channel() {
     assert!(matches!(ui.tool_end(), Err(UiPortError::Closed)));
     assert!(matches!(ui.dismiss_interaction(), Err(UiPortError::Closed)));
 }
+
+fn chunk_at(batch: &mut PendingUiBatch, text: &str, at: Instant) {
+    batch.push_at(UiEvent::ToolChunk { chunk: text.into() }, at);
+}
+
+fn burst_after_a_pause(base: Instant) -> PendingUiBatch {
+    let mut batch = PendingUiBatch::new(1024);
+    chunk_at(&mut batch, "first\n", base);
+    batch.drain_at(base);
+    let burst: String = (1..=20).map(|i| format!("row {i}\n")).collect();
+    chunk_at(&mut batch, &burst, base + std::time::Duration::from_millis(400));
+    batch
+}
+
+#[test]
+fn a_burst_of_tool_output_is_released_a_few_lines_per_frame() {
+    let base = Instant::now();
+    let mut batch = burst_after_a_pause(base);
+    let first = batch.drain_at(base + std::time::Duration::from_millis(416));
+    let shown: usize = first.tool_chunks.iter().map(|c| c.lines().count()).sum();
+    assert!((1..=2).contains(&shown), "showed {shown} of 20 lines at once");
+    assert!(
+        !batch.is_empty(),
+        "the rest is still pending so the next frame flushes it"
+    );
+}
+
+#[test]
+fn a_tool_end_shows_the_whole_backlog_in_the_same_drain() {
+    let base = Instant::now();
+    let mut batch = burst_after_a_pause(base);
+    batch.push_at(UiEvent::ToolEnd, base + std::time::Duration::from_millis(416));
+    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    assert_eq!(drained.tool_chunks.concat().lines().count(), 20);
+    assert!(drained.tool_end);
+    assert!(batch.is_empty());
+}
+
+#[test]
+fn a_new_tool_card_drops_output_still_waiting_for_the_old_one() {
+    let base = Instant::now();
+    let mut batch = burst_after_a_pause(base);
+    let request = ToolStartRequest {
+        name: "write".into(),
+        args_summary: "a.txt".into(),
+        preview: None,
+    };
+    batch.push_at(
+        UiEvent::ToolStart(request),
+        base + std::time::Duration::from_millis(416),
+    );
+    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    assert!(drained.tool_chunks.is_empty());
+    assert!(drained.tool_start.is_some());
+}

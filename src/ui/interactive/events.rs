@@ -1,7 +1,9 @@
+use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::ui::interactive::Activity;
+use crate::ui::interactive::pacer::ChunkPacer;
 
 pub use rho_harness_core::presentation::{
     InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout,
@@ -91,7 +93,7 @@ pub struct PendingUiBatch {
     activity: Option<Activity>,
     running_tool: Option<Option<String>>,
     tool_start: Option<ToolStartRequest>,
-    tool_chunks: Vec<String>,
+    tool_chunks: ChunkPacer,
     tool_end: bool,
     system_message: Option<Option<String>>,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
@@ -134,7 +136,7 @@ impl PendingUiBatch {
             activity: None,
             running_tool: None,
             tool_start: None,
-            tool_chunks: Vec::new(),
+            tool_chunks: ChunkPacer::default(),
             tool_end: false,
             system_message: None,
             transcript_items: Vec::new(),
@@ -178,7 +180,7 @@ impl PendingUiBatch {
         BatchDecision::Flush(FlushBarrier::Newline)
     }
 
-    fn push_flushing(&mut self, event: UiEvent) -> BatchDecision {
+    fn push_flushing(&mut self, event: UiEvent, now: Instant) -> BatchDecision {
         match event {
             UiEvent::ToolStart(r) => {
                 self.tool_start = Some(r);
@@ -186,7 +188,7 @@ impl PendingUiBatch {
                 Self::flushes()
             }
             UiEvent::ToolChunk { chunk } => {
-                self.tool_chunks.push(chunk);
+                self.tool_chunks.push(&chunk, now);
                 Self::flushes()
             }
             UiEvent::Transcript(item) => {
@@ -210,6 +212,10 @@ impl PendingUiBatch {
     }
 
     pub fn push(&mut self, event: UiEvent) -> BatchDecision {
+        self.push_at(event, Instant::now())
+    }
+
+    pub fn push_at(&mut self, event: UiEvent, now: Instant) -> BatchDecision {
         match event {
             UiEvent::Output(output) => {
                 let (has_newline, len) = match &output {
@@ -236,18 +242,34 @@ impl PendingUiBatch {
                 BatchDecision::Barrier(FlushBarrier::Interaction, event)
             }
             UiEvent::DismissInteraction => Self::flushes(),
-            other => self.push_flushing(other),
+            other => self.push_flushing(other, now),
         }
     }
 
     pub fn drain(&mut self) -> PendingUiDrain {
+        self.drain_at(Instant::now())
+    }
+
+    /// Everything pending, except that tool output behind a burst is released a few lines per call
+    /// unless something else in the batch (a tool end, a commit, text) needs it shown first.
+    pub fn drain_at(&mut self, now: Instant) -> PendingUiDrain {
         self.total_output_bytes = 0;
+        let others_pending = !self.outputs.is_empty()
+            || self.tool_start.is_some()
+            || self.tool_end
+            || !self.transcript_items.is_empty()
+            || self.trailing_recap.is_some();
+        let chunk = if others_pending {
+            self.tool_chunks.take_all()
+        } else {
+            self.tool_chunks.release(now)
+        };
         PendingUiDrain {
             outputs: std::mem::take(&mut self.outputs),
             activity: self.activity.take(),
             running_tool: self.running_tool.take(),
             tool_start: self.tool_start.take(),
-            tool_chunks: std::mem::take(&mut self.tool_chunks),
+            tool_chunks: if chunk.is_empty() { Vec::new() } else { vec![chunk] },
             tool_end: std::mem::replace(&mut self.tool_end, false),
             system_message: self.system_message.take(),
             transcript_items: std::mem::take(&mut self.transcript_items),
