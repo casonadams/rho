@@ -5,7 +5,7 @@
 
 use super::card::{
     append_background_hint, append_failed_edit_attempt, edit_diff, fetch_content_kind, format_output_lines,
-    normalize_tool_name, raw_output, split_bash_timeout, style_tool_header_args,
+    normalize_tool_name, push_section, raw_output, split_bash_timeout, style_tool_header_args,
 };
 use super::diff::replace_tabs;
 use super::file_change;
@@ -104,7 +104,7 @@ pub fn format_structured_bash_input(summary: &str, theme: &Theme) -> (String, Op
 
 pub fn append_section(content: &mut String, label: &str, body: &str, dim: anstyle::Style) {
     if !body.is_empty() {
-        content.push_str(&format!("\n\n{dim}{label}{dim:#}\n{body}"));
+        push_section(content, &format!("{dim}{label}{dim:#}\n{body}"));
     }
 }
 

@@ -199,10 +199,24 @@ pub(crate) fn raw_output(tool: &ToolLine) -> &str {
     }
 }
 
+/// Adds `section` to the card body behind exactly one blank row, whatever newlines either side ends with.
+pub(crate) fn push_section(content: &mut String, section: &str) {
+    content.truncate(content.trim_end_matches('\n').len());
+    content.push_str("\n\n");
+    content.push_str(section.trim_end_matches('\n'));
+}
+
+/// Draws finished card content inside the tool block frame.
+pub(crate) fn frame_tool_card(content: &str, is_bash: bool, is_error: bool, width: usize, theme: &Theme) -> String {
+    theme
+        .tool_block(is_bash, is_error, width)
+        .with_vertical_padding()
+        .render_styled(content)
+}
+
 fn append_read_expanded(content: &mut String, tool: &ToolLine, theme: &Theme) {
     if let Some(formatted) = format_read_expanded(raw_output(tool), &tool.arguments, theme) {
-        content.push_str("\n\n");
-        content.push_str(&formatted);
+        push_section(content, &formatted);
     }
 }
 
@@ -224,8 +238,7 @@ pub(crate) fn format_output_lines(clean: &str, width: usize, expanded: bool, dim
 }
 
 fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
-    content.push_str("\n\n");
-    content.push_str(&format_output_lines(clean, width, expanded, dim));
+    push_section(content, &format_output_lines(clean, width, expanded, dim));
 }
 
 fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) {
@@ -252,23 +265,21 @@ pub(crate) fn edit_diff(tool: &ToolLine, expanded: bool, theme: &Theme) -> Optio
 pub(crate) fn append_failed_edit_attempt(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) {
     if let Some(diff) = edit_diff(tool, expanded, theme) {
         let dim = theme.dimmed;
-        content.push_str(&format!("\n\n{dim}Attempted change:{dim:#}\n{diff}"));
+        push_section(content, &format!("{dim}Attempted change:{dim:#}\n{diff}"));
     }
 }
 
 fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> bool {
     if !tool.is_error && tool.name == "edit" {
         if let Some(diff) = edit_diff(tool, expanded, theme) {
-            content.push_str("\n\n");
-            content.push_str(&diff);
+            push_section(content, &diff);
         }
         return true;
     }
     if !tool.is_error && tool.name == "write" {
         let inner_width = theme.tool_block(false, false, width).inner_width();
         if let Some(preview) = format_write_preview(&tool.arguments, theme, expanded, inner_width) {
-            content.push_str("\n\n");
-            content.push_str(&preview);
+            push_section(content, &preview);
         }
         return true;
     }
@@ -277,9 +288,10 @@ fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, exp
 
 pub(crate) fn append_background_hint(content: &mut String, tool: &ToolLine, dim: anstyle::Style) {
     if tool.name == "subagent" && !tool.is_error && raw_output(tool).starts_with(SUBAGENT_STARTED_MARKER) {
-        content.push_str(&format!(
-            "\n\n{dim}running in the background - press \u{2190} on an empty prompt to watch{dim:#}"
-        ));
+        push_section(
+            content,
+            &format!("{dim}running in the background - press \u{2190} on an empty prompt to watch{dim:#}"),
+        );
     }
 }
 
@@ -306,11 +318,10 @@ pub fn append_tool_details(
     append_background_hint(content, tool, theme.dimmed);
     if let Some(duration_ms) = tool.duration_ms {
         let dim = theme.dimmed;
-        content.truncate(content.trim_end_matches('\n').len());
-        content.push_str(&format!(
-            "\n\n{dim}Took {}{dim:#}",
-            super::format_duration_ms(duration_ms)
-        ));
+        push_section(
+            content,
+            &format!("{dim}Took {}{dim:#}", super::format_duration_ms(duration_ms)),
+        );
     }
 }
 
@@ -328,10 +339,7 @@ pub fn render_tool_block(
         append_tool_details(&mut content, tool, width, expanded, show_read_expanded, theme);
         content
     };
-    theme
-        .tool_block(tool.name == "bash", tool.is_error, width)
-        .with_vertical_padding()
-        .render_styled(&content)
+    frame_tool_card(&content, tool.name == "bash", tool.is_error, width, theme)
 }
 
 pub fn render_tool_transcript(

@@ -94,6 +94,17 @@ fn test_format_write_preview_syntax_highlighting() {
 }
 
 #[test]
+fn push_section_always_leaves_exactly_one_blank_row() {
+    use crate::ui::render::card::push_section;
+    for (body, section) in [("head", "a"), ("head\n", "a\n"), ("head\n\n\n", "a\n\n")] {
+        let mut content = body.to_string();
+        push_section(&mut content, section);
+        push_section(&mut content, "b\n");
+        assert_eq!(content, "head\n\na\n\nb", "{body:?} + {section:?}");
+    }
+}
+
+#[test]
 fn every_card_has_exactly_one_blank_row_before_the_duration() {
     let long = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
     let edit = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "let x = 1;", "newText": "let x = 2;"}]});

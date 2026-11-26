@@ -1,6 +1,6 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::interactive::state::RunningTool;
-use crate::ui::render::card::{render_tool_block, style_tool_header_args};
+use crate::ui::render::card::{frame_tool_card, render_tool_block, style_tool_header_args};
 use crate::ui::render::structured::{
     align_header_with_right, append_section, format_structured_bash_input, format_structured_header_left,
 };
@@ -174,11 +174,7 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         } else {
             format_widget_content(input, width)
         };
-        input
-            .theme
-            .tool_block(input.tool.name == "bash", false, width)
-            .with_vertical_padding()
-            .render_styled(&content)
+        frame_tool_card(&content, input.tool.name == "bash", false, width, input.theme)
     };
     let mut lines = if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
         Vec::new()
