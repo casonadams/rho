@@ -282,7 +282,7 @@ always matches your terminal emulator, in dark or light mode.
   committed block use the same renderer, so a redraw never changes its layout.
   The input area uses the same one-column indent.
 - Every finished tool card ends with a dim `Took 6.054s` line on its own line.
-  While a tool runs, its live card shows `Elapsed ...` in the same place.
+  While a tool runs, its live card is the same card and counts `Took ...` up.
   `web_fetch` shows the content kind inline and dim, such as
   `web_fetch https://example.com (text)`. `todo` shows the list's progress and
   the item in progress, such as `todo 1/3 done · Add tests`; `Ctrl+O` shows the

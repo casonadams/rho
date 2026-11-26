@@ -4,7 +4,8 @@ use crate::ui::interactive::state::RunningTool;
 use crate::ui::theme::Theme;
 
 fn tool_with_n_lines(n: usize) -> RunningTool {
-    let mut tool = RunningTool::new("bash", format!("seq 1 {n}"), None);
+    let command = format!("seq 1 {n}");
+    let mut tool = RunningTool::new("bash", &command, serde_json::json!({"command": command}));
     let out = (1..=n).map(|i| format!("line {i}\n")).collect::<String>();
     tool.append_chunk(&out);
     tool
@@ -25,7 +26,7 @@ fn running_tool_widget_large_output_collapsed() {
     let tool = tool_with_n_lines(120);
     let full = render_tool_widget(&tool, false);
 
-    assert!(full.contains("... (115 earlier lines)"));
+    assert!(full.contains("... (115 earlier lines, Ctrl+O to expand)"));
     assert!(full.contains("line 116") && full.contains("line 120"));
     assert!(!full.contains("line 1\n") && !full.contains("line 50\n") && !full.contains("line 100\n"));
 }
@@ -43,21 +44,21 @@ fn running_tool_widget_large_output_expanded() {
 fn running_tool_widget_boundary_50_lines() {
     let tool_50 = tool_with_n_lines(50);
     let full_50 = render_tool_widget(&tool_50, false);
-    assert!(full_50.contains("... (45 earlier lines)") && full_50.contains("line 50"));
+    assert!(full_50.contains("... (45 earlier lines, Ctrl+O to expand)") && full_50.contains("line 50"));
 }
 
 #[test]
 fn running_tool_widget_boundary_51_lines() {
     let tool_51 = tool_with_n_lines(51);
     let full_51 = render_tool_widget(&tool_51, false);
-    assert!(full_51.contains("... (46 earlier lines)"));
+    assert!(full_51.contains("... (46 earlier lines, Ctrl+O to expand)"));
     assert!(full_51.contains("line 47") && full_51.contains("line 51") && !full_51.contains("line 46\n"));
 }
 
 #[test]
 fn running_tool_widget_large_output_with_soft_wrapping() {
     let theme = Theme::default();
-    let mut tool = RunningTool::new("bash", "wrapped", None);
+    let mut tool = RunningTool::new("bash", "wrapped", serde_json::json!({"command": "wrapped"}));
     let mut output = String::new();
     for i in 1..=55 {
         output.push_str(&format!("line {i}\n"));
@@ -80,11 +81,46 @@ fn running_tool_widget_large_output_with_soft_wrapping() {
     assert!(full.contains("line 56"));
 }
 
+fn streamed_tool(name: &str) -> RunningTool {
+    let mut tool = RunningTool::new(name, "step", serde_json::json!({"prompt": "step"}));
+    tool.append_chunk(&(1..=8).map(|i| format!("step line {i}\n")).collect::<String>());
+    tool
+}
+
+#[test]
+fn running_subagent_and_workflow_cards_show_streamed_output_tail() {
+    let structured = Theme {
+        structured_tool_cards: true,
+        ..Theme::default()
+    };
+    for name in ["subagent", "workflow"] {
+        for theme in [Theme::default(), structured.clone()] {
+            let tool = streamed_tool(name);
+            let lines = render_running_tool_widget(RunningToolWidgetInput {
+                tool: &tool,
+                theme: &theme,
+                width: 60,
+                tools_expanded: false,
+            });
+            let text = strip_ansi_escapes::strip_str(lines.join("\n"));
+            assert!(
+                text.contains("... (3 earlier lines, Ctrl+O to expand)"),
+                "{name}: {text}"
+            );
+            assert!(
+                text.contains("step line 4") && text.contains("step line 8"),
+                "{name}: {text}"
+            );
+            assert!(!text.contains("step line 3"), "{name}: {text}");
+        }
+    }
+}
+
 #[test]
 fn running_tool_widget_starts_with_empty_line_pad() {
     let mut theme = Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Solid;
-    let tool = RunningTool::new("bash", "echo hello", None);
+    let tool = RunningTool::new("bash", "echo hello", serde_json::json!({"command": "echo hello"}));
     let lines = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool,
         theme: &theme,

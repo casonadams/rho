@@ -765,6 +765,58 @@ mod regressions {
             }
         }
 
+        fn assert_bash_live_card_matches_committed(line_count: usize) {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript(70, 30);
+            controller.state_mut().editor_mut().set_text("");
+            let output: String = (1..=line_count).map(|i| format!("test case_{i} ... ok\n")).collect();
+            let args = serde_json::json!({"command": "cargo test"});
+
+            renderer.start_tool_run("bash", &args);
+            for line in output.split_inclusive('\n') {
+                renderer.tool_chunk(line);
+            }
+            drive_renderer_to_controller(&mut events, &mut controller);
+            let live = card_rows(&controller.backend.text());
+
+            renderer.finish_tool_line(
+                rho_harness_core::presentation::ToolLine::new("bash", args)
+                    .with_output(output)
+                    .with_duration_ms(4200),
+            );
+            drive_renderer_to_controller(&mut events, &mut controller);
+            let committed = card_rows(&controller.backend.text());
+
+            assert!(
+                live.iter().any(|l| l.contains("Took ")),
+                "{}",
+                controller.backend.dump()
+            );
+            assert!(committed.iter().any(|l| l.contains("Took ")));
+            assert_eq!(
+                live.len(),
+                committed.len(),
+                "card height changed\n{}",
+                controller.backend.dump()
+            );
+            for (live_row, committed_row) in live.iter().zip(&committed) {
+                if !live_row.contains("Took ") {
+                    assert_eq!(live_row, committed_row);
+                }
+            }
+        }
+
+        #[test]
+        fn bash_card_is_the_same_card_live_and_committed() {
+            assert_bash_live_card_matches_committed(3);
+        }
+
+        #[test]
+        fn bash_card_with_more_than_five_output_lines_is_the_same_card_live_and_committed() {
+            assert_bash_live_card_matches_committed(8);
+        }
+
         fn card_rows(screen: &[String]) -> Vec<String> {
             let top = screen.iter().rposition(|l| l.contains('╭')).expect("card top");
             let bottom = screen.iter().rposition(|l| l.contains('╰')).expect("card bottom");

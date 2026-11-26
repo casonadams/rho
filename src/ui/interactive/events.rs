@@ -29,7 +29,7 @@ pub enum UiPortError {
 pub struct ToolStartRequest {
     pub name: String,
     pub args_summary: String,
-    pub preview: Option<String>,
+    pub arguments: serde_json::Value,
 }
 
 pub struct InteractionResponder {

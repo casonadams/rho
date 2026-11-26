@@ -4,6 +4,7 @@ use crate::ui::interactive::layout::{LayoutInput, layout, render_running_tool_wi
 use crate::ui::interactive::state::RunningTool;
 use crate::ui::interactive::{EditorState, FooterState};
 use crate::ui::theme::Theme;
+use serde_json::json;
 
 #[test]
 fn widget_lines_affect_height_and_cursor_row() {
@@ -34,18 +35,18 @@ fn render_test_widget(tool: &RunningTool, expanded: bool) -> String {
 
 #[test]
 fn running_tool_widget_collapsed_header_and_tail() {
-    let mut tool = RunningTool::new("bash", "cargo test", None);
+    let mut tool = RunningTool::new("bash", "cargo test", json!({"command": "cargo test"}));
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
     let full = strip_ansi_escapes::strip_str(render_test_widget(&tool, false));
 
     assert!(full.contains("bash") && full.contains("cargo test"));
-    assert!(full.contains("... (2 earlier lines)") && full.contains("line 7"));
-    assert!(!full.contains("line 1\n") && full.contains("Elapsed"));
+    assert!(full.contains("... (2 earlier lines, Ctrl+O to expand)") && full.contains("line 7"));
+    assert!(!full.contains("line 1\n") && full.contains("Took "));
 }
 
 #[test]
 fn running_tool_widget_expanded_shows_all() {
-    let mut tool = RunningTool::new("bash", "cargo test", None);
+    let mut tool = RunningTool::new("bash", "cargo test", json!({"command": "cargo test"}));
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
     let full = render_test_widget(&tool, true);
 
@@ -56,7 +57,11 @@ fn running_tool_widget_expanded_shows_all() {
 #[test]
 fn running_tool_widget_bash_with_timeout_styles_timeout_with_dimmed() {
     let theme = Theme::default();
-    let mut tool = RunningTool::new("bash", "cargo test (timeout 300s)", None);
+    let mut tool = RunningTool::new(
+        "bash",
+        "cargo test (timeout 300s)",
+        json!({"command": "cargo test", "timeout": 300}),
+    );
     tool.append_chunk("running...\n");
     let lines = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool,
@@ -67,24 +72,14 @@ fn running_tool_widget_bash_with_timeout_styles_timeout_with_dimmed() {
     let full = lines.join("\n");
     let dim = theme.dimmed;
     assert!(full.contains(&format!("{dim}(timeout 300s){dim:#}")));
-    assert!(full.contains(&format!("{dim}Elapsed")));
-}
-
-#[test]
-fn running_tool_widget_with_preview_renders_diff_card() {
-    let preview = Some("+ line added\n- line removed".to_string());
-    let tool = RunningTool::new("edit", "src/main.rs", preview);
-    let full = render_test_widget(&tool, false);
-    for token in ["edit", "src/main.rs", "+ line added", "- line removed", "Elapsed"] {
-        assert!(full.contains(token));
-    }
+    assert!(full.contains(&format!("{dim}Took")));
 }
 
 #[test]
 fn running_tool_widget_renders_subagent_before_any_output() {
-    let tool = RunningTool::new("subagent", "prompt=\"find callers\"", None);
+    let tool = RunningTool::new("subagent", "prompt=\"find callers\"", json!({"prompt": "find callers"}));
     let full = render_test_widget(&tool, false);
-    for token in ["subagent", "find callers", "Elapsed"] {
+    for token in ["subagent", "find callers", "Took"] {
         assert!(full.contains(token), "missing {token}");
     }
 }
@@ -92,7 +87,7 @@ fn running_tool_widget_renders_subagent_before_any_output() {
 #[test]
 fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
     let theme = Theme::default();
-    let tool_fd = RunningTool::new("fd", "pattern in .", None);
+    let tool_fd = RunningTool::new("fd", "pattern in .", json!({"pattern": "pattern"}));
     let lines_fd = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool_fd,
         theme: &theme,
@@ -101,7 +96,7 @@ fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
     });
     assert!(lines_fd.is_empty(), "fd should not render a running widget card");
 
-    let tool_rg = RunningTool::new("rg", "/pattern/ in .", None);
+    let tool_rg = RunningTool::new("rg", "/pattern/ in .", json!({"pattern": "pattern"}));
     let lines_rg = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool_rg,
         theme: &theme,
@@ -115,7 +110,7 @@ fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
 fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
     let mut theme = Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Border;
-    let mut tool = RunningTool::new("bash", "git log -n 50", None);
+    let mut tool = RunningTool::new("bash", "git log -n 50", json!({"command": "git log -n 50"}));
     for i in 1..=40 {
         tool.append_chunk(&format!("commit line {i}\n"));
     }
@@ -194,9 +189,9 @@ fn below_widget_lines_yield_to_editor_dividers_and_footer_on_small_terminals() {
 #[test]
 fn running_write_card_highlights_content_by_the_path_extension() {
     let code = "fn main() {\n    let x = 1;\n}\n";
-    let mut known = RunningTool::new("write", "demo.rs", None);
+    let mut known = RunningTool::new("write", "demo.rs", json!({"path": "demo.rs"}));
     known.append_chunk(code);
-    let mut unknown = RunningTool::new("write", "", None);
+    let mut unknown = RunningTool::new("write", "", json!({}));
     unknown.append_chunk(code);
 
     let render = |tool: &RunningTool, theme: &Theme| {

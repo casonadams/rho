@@ -14,7 +14,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             .map(|tool| tool.started);
         self.state.footer_mut().running_tool = Some(request.name.clone());
         self.state.footer_mut().activity = Activity::Working;
-        let mut tool = RunningTool::new(request.name, request.args_summary, request.preview);
+        let mut tool = RunningTool::new(request.name, request.args_summary, request.arguments);
         if let Some(started) = started {
             tool.started = started;
         }

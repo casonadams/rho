@@ -64,7 +64,7 @@ fn live_card(name: &str, args: &str) -> Option<ToolStartRequest> {
     Some(ToolStartRequest {
         name: name.to_string(),
         args_summary: format_tool_args_summary(name, &args),
-        preview: None,
+        arguments: args,
     })
 }
 

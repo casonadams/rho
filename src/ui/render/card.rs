@@ -16,16 +16,6 @@ pub fn normalize_tool_name(name: &str) -> &str {
     }
 }
 
-pub fn tool_title_style(is_error: bool) -> anstyle::Style {
-    if is_error {
-        anstyle::Style::new()
-            .bold()
-            .fg_color(Some(anstyle::AnsiColor::Red.into()))
-    } else {
-        anstyle::Style::new().bold()
-    }
-}
-
 fn kind_from_format(format: &str) -> &'static str {
     match format.to_ascii_lowercase().as_str() {
         "pdf" => "pdf",
@@ -295,25 +285,16 @@ pub(crate) fn append_background_hint(content: &mut String, tool: &ToolLine, dim:
     }
 }
 
-pub fn append_tool_details(
-    content: &mut String,
-    tool: &ToolLine,
-    width: usize,
-    expanded: bool,
-    show_read_expanded: bool,
-    theme: &Theme,
-) {
+pub(crate) fn append_tool_details(content: &mut String, tool: &ToolLine, width: usize, view: CardView, theme: &Theme) {
     if !tool.is_error && tool.name == "read" {
-        if show_read_expanded {
+        if view.show_read_expanded {
             append_read_expanded(content, tool, theme);
         }
-    } else if !append_edit_or_write(content, tool, width, expanded, theme)
-        && (tool.name == "bash" || tool.is_error || expanded)
-    {
-        append_generic_output(content, tool, width, expanded, theme);
+    } else if !append_edit_or_write(content, tool, width, view.expanded, theme) && shows_output_body(tool, view) {
+        append_generic_output(content, tool, width, view.expanded, theme);
     }
     if tool.is_error && tool.name == "edit" {
-        append_failed_edit_attempt(content, tool, expanded, theme);
+        append_failed_edit_attempt(content, tool, view.expanded, theme);
     }
     append_background_hint(content, tool, theme.dimmed);
     if let Some(duration_ms) = tool.duration_ms {
@@ -325,6 +306,23 @@ pub fn append_tool_details(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CardStatus {
+    Running,
+    Finished,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CardView {
+    pub status: CardStatus,
+    pub expanded: bool,
+    pub show_read_expanded: bool,
+}
+
+pub(crate) fn shows_output_body(tool: &ToolLine, view: CardView) -> bool {
+    tool.name == "bash" || tool.is_error || view.expanded || view.status == CardStatus::Running
+}
+
 pub fn render_tool_block(
     tool: &ToolLine,
     width: usize,
@@ -332,11 +330,30 @@ pub fn render_tool_block(
     show_read_expanded: bool,
     theme: &Theme,
 ) -> String {
+    let view = CardView {
+        status: CardStatus::Finished,
+        expanded,
+        show_read_expanded,
+    };
+    render_card(tool, view, width, theme)
+}
+
+/// The live card of a running tool: the committed card with `duration_ms` counting up.
+pub(crate) fn render_running_tool_block(tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> String {
+    let view = CardView {
+        status: CardStatus::Running,
+        expanded,
+        show_read_expanded: expanded,
+    };
+    render_card(tool, view, width, theme)
+}
+
+fn render_card(tool: &ToolLine, view: CardView, width: usize, theme: &Theme) -> String {
     let content = if theme.structured_tool_cards {
-        super::structured::render_structured_tool_content(tool, width, expanded, show_read_expanded, theme)
+        super::structured::render_structured_tool_content(tool, view, width, theme)
     } else {
-        let mut content = format_tool_header_with_expansion(tool, theme, expanded);
-        append_tool_details(&mut content, tool, width, expanded, show_read_expanded, theme);
+        let mut content = format_tool_header_with_expansion(tool, theme, view.expanded);
+        append_tool_details(&mut content, tool, width, view, theme);
         content
     };
     frame_tool_card(&content, tool.name == "bash", tool.is_error, width, theme)

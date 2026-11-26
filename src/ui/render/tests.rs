@@ -1,4 +1,4 @@
-use super::card::{fetch_content_kind, format_bash_args_header, tool_title_style};
+use super::card::{CardStatus, CardView, fetch_content_kind, format_bash_args_header};
 use super::diff::format_gutter_prefix;
 use super::formatters::{
     EditDiffRequest, format_edit_diff, format_read_expanded, format_relative_time, format_session_status,
@@ -10,6 +10,7 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, InteractiveUi, OutputEvent, TranscriptItem, TranscriptRenderInput, UiEvent, render_transcript_item,
 };
+use crate::ui::render::card::render_tool_block;
 use crate::ui::theme::Theme;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use rho_harness_core::presentation::summary::{
@@ -659,6 +660,33 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
     assert_eq!(output.matches("https://serde.rs/").count(), 1);
 }
 
+fn finished_view() -> CardView {
+    CardView {
+        status: CardStatus::Finished,
+        expanded: false,
+        show_read_expanded: false,
+    }
+}
+
+#[test]
+fn finished_subagent_and_workflow_cards_hide_streamed_output() {
+    let structured = Theme {
+        structured_tool_cards: true,
+        ..Theme::default()
+    };
+    for name in ["subagent", "workflow"] {
+        for theme in [Theme::default(), structured.clone()] {
+            let output: String = (1..=8).map(|i| format!("step line {i}\n")).collect();
+            let tool = ToolLine::new(name, serde_json::json!({"prompt": "step"}))
+                .with_output(output)
+                .with_duration_ms(10);
+            let text = crate::ui::block::strip_ansi(&render_tool_block(&tool, 60, false, false, &theme));
+            assert!(!text.contains("step line"), "{name}: {text}");
+            assert!(!text.contains("earlier lines"), "{name}: {text}");
+        }
+    }
+}
+
 #[test]
 fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
     let theme = Theme::default();
@@ -683,7 +711,7 @@ fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
     for (name, args, duration_ms, expected) in cases {
         let tool = ToolLine::new(name, args).with_duration_ms(duration_ms);
         let mut content = String::new();
-        crate::ui::render::card::append_tool_details(&mut content, &tool, 80, false, false, &theme);
+        crate::ui::render::card::append_tool_details(&mut content, &tool, 80, finished_view(), &theme);
         assert!(
             content.ends_with(&format!("\n\n{dim}{expected}{dim:#}")),
             "{name}: {content:?}"
@@ -692,7 +720,7 @@ fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
     }
     let untimed = ToolLine::new("rg", serde_json::json!({"pattern": "x"}));
     let mut content = String::new();
-    crate::ui::render::card::append_tool_details(&mut content, &untimed, 80, false, false, &theme);
+    crate::ui::render::card::append_tool_details(&mut content, &untimed, 80, finished_view(), &theme);
     assert!(!content.contains("Took"));
 }
 
@@ -846,12 +874,6 @@ fn print_block_without_ui_writes_output() {
         content: "Console output".to_string(),
         style: "info".to_string(),
     });
-}
-
-#[test]
-fn error_tool_titles_use_terminal_red_without_dimming() {
-    assert_eq!(tool_title_style(false).render().to_string(), "\x1b[1m");
-    assert_eq!(tool_title_style(true).render().to_string(), "\x1b[1m\x1b[31m");
 }
 
 #[test]

@@ -371,7 +371,7 @@ mod tests {
                 UiEvent::ToolStart(crate::ui::interactive::ToolStartRequest {
                     name: "bash".into(),
                     args_summary: "cargo test".into(),
-                    preview: None,
+                    arguments: serde_json::json!({"command": "cargo test"}),
                 }),
                 UiEvent::ToolChunk {
                     chunk: "line one".into(),
@@ -390,7 +390,7 @@ mod tests {
             .start_tool(crate::ui::interactive::ToolStartRequest {
                 name: "bash".into(),
                 args_summary: "cargo test".into(),
-                preview: None,
+                arguments: serde_json::json!({"command": "cargo test"}),
             })
             .unwrap();
         let mut batch = LiveBatch::new();

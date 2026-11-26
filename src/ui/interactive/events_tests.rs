@@ -286,7 +286,7 @@ fn a_new_tool_card_drops_output_still_waiting_for_the_old_one() {
     let request = ToolStartRequest {
         name: "write".into(),
         args_summary: "a.txt".into(),
-        preview: None,
+        arguments: serde_json::json!({"path": "a.txt"}),
     };
     batch.push_at(
         UiEvent::ToolStart(request),

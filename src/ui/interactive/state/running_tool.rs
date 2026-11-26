@@ -7,9 +7,9 @@ pub const MAX_RUNNING_BUFFER_BYTES: usize = 100 * 1024;
 pub struct RunningTool {
     pub name: String,
     pub args_summary: String,
+    pub arguments: serde_json::Value,
     pub started: Instant,
     pub output: String,
-    pub preview: Option<String>,
     /// Whether a `write` replaces an existing file, noted before it runs so the card header does not change when it finishes.
     pub file_change: Option<rho_harness_core::presentation::FileChange>,
     pending_ansi: String,
@@ -41,22 +41,18 @@ impl RunningTool {
         name != "wait"
     }
 
-    pub fn new(name: impl Into<String>, args_summary: impl Into<String>, preview: Option<String>) -> Self {
+    pub fn new(name: impl Into<String>, args_summary: impl Into<String>, arguments: serde_json::Value) -> Self {
         let name = name.into();
-        let args_summary = args_summary.into();
         let file_change = (name == "write")
-            .then(|| {
-                let path = args_summary.split(' ').next().unwrap_or_default();
-                crate::ui::render::file_change::capture(&name, &serde_json::json!({ "path": path }))
-            })
+            .then(|| crate::ui::render::file_change::capture(&name, &arguments))
             .flatten()
             .map(|(_, change)| change);
         Self {
             name,
-            args_summary,
+            args_summary: args_summary.into(),
+            arguments,
             started: Instant::now(),
             output: String::new(),
-            preview,
             file_change,
             pending_ansi: String::new(),
         }

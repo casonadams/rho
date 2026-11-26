@@ -4,8 +4,9 @@
 //! followed by explicit `Input` and `Output` sections.
 
 use super::card::{
-    append_background_hint, append_failed_edit_attempt, edit_diff, fetch_content_kind, format_output_lines,
-    normalize_tool_name, push_section, raw_output, split_bash_timeout, style_tool_header_args,
+    CardStatus, CardView, append_background_hint, append_failed_edit_attempt, edit_diff, fetch_content_kind,
+    format_output_lines, normalize_tool_name, push_section, raw_output, shows_output_body, split_bash_timeout,
+    style_tool_header_args,
 };
 use super::diff::replace_tabs;
 use super::file_change;
@@ -178,58 +179,46 @@ fn structured_generic_output(tool: &ToolLine, width: usize, expanded: bool, them
     Some(format_output_lines(&rendered, width, expanded, theme.dimmed))
 }
 
-fn structured_output_body(
-    tool: &ToolLine,
-    width: usize,
-    expanded: bool,
-    show_read_expanded: bool,
-    theme: &Theme,
-) -> Option<String> {
+fn structured_output_body(tool: &ToolLine, width: usize, view: CardView, theme: &Theme) -> Option<String> {
     if !tool.is_error && tool.name == "read" {
-        return if show_read_expanded {
+        return if view.show_read_expanded {
             format_read_expanded(raw_output(tool), &tool.arguments, theme)
         } else {
             None
         };
     }
     if !tool.is_error && tool.name == "edit" {
-        return edit_diff(tool, expanded, theme);
+        return edit_diff(tool, view.expanded, theme);
     }
     if !tool.is_error && tool.name == "write" {
         let inner_width = theme.tool_block(false, false, width).inner_width();
-        return format_write_preview(&tool.arguments, theme, expanded, inner_width);
+        return format_write_preview(&tool.arguments, theme, view.expanded, inner_width);
     }
-    if tool.name == "bash" || tool.is_error || expanded {
-        return structured_generic_output(tool, width, expanded, theme);
+    if shows_output_body(tool, view) {
+        return structured_generic_output(tool, width, view.expanded, theme);
     }
     None
 }
 
-pub fn render_structured_tool_content(
-    tool: &ToolLine,
-    width: usize,
-    expanded: bool,
-    show_read_expanded: bool,
-    theme: &Theme,
-) -> String {
+pub(crate) fn render_structured_tool_content(tool: &ToolLine, view: CardView, width: usize, theme: &Theme) -> String {
     let inner_width = theme
         .tool_block(tool.name == "bash", tool.is_error, width)
         .inner_width();
-    let (input_body, meta) = structured_tool_input_and_meta(tool, expanded, theme);
-    let (icon, icon_style) = if tool.is_error {
-        ("\u{2717}", theme.tool_err)
-    } else {
-        ("\u{2713}", theme.tool_ok)
+    let (input_body, meta) = structured_tool_input_and_meta(tool, view.expanded, theme);
+    let (icon, icon_style) = match (view.status, tool.is_error) {
+        (CardStatus::Running, _) => ("\u{25cf}", theme.dimmed),
+        (CardStatus::Finished, true) => ("\u{2717}", theme.tool_err),
+        (CardStatus::Finished, false) => ("\u{2713}", theme.tool_ok),
     };
     let left = format_structured_header_left(&tool.name, icon, icon_style, tool.is_error, meta.as_deref(), theme);
     let duration = tool.duration_ms.map(super::format_duration_ms);
     let mut content = align_header_with_right(&left, duration.as_deref(), inner_width, theme.dimmed);
     append_section(&mut content, "Input", &input_body, theme.dimmed);
-    if let Some(output_body) = structured_output_body(tool, width, expanded, show_read_expanded, theme) {
+    if let Some(output_body) = structured_output_body(tool, width, view, theme) {
         append_section(&mut content, "Output", &output_body, theme.dimmed);
     }
     if tool.is_error && tool.name == "edit" {
-        append_failed_edit_attempt(&mut content, tool, expanded, theme);
+        append_failed_edit_attempt(&mut content, tool, view.expanded, theme);
     }
     append_background_hint(&mut content, tool, theme.dimmed);
     content
@@ -239,7 +228,7 @@ pub fn render_structured_tool_content(
 mod tests {
     use super::*;
     use crate::ui::block::strip_ansi;
-    use crate::ui::render::card::render_tool_block;
+    use crate::ui::render::card::{render_running_tool_block, render_tool_block};
     use serde_json::json;
 
     fn structured_theme() -> Theme {
@@ -291,6 +280,15 @@ mod tests {
             !rendered.contains("Output"),
             "collapsed read has no output:\n{rendered}"
         );
+    }
+
+    #[test]
+    fn running_structured_card_shows_dot_icon_instead_of_check() {
+        let tool = ToolLine::new("bash", json!({"command": "cargo test"})).with_duration_ms(1500);
+        let rendered = strip_ansi(&render_running_tool_block(&tool, 60, false, &structured_theme()));
+        assert!(rendered.contains("\u{25cf} Bash"), "got:\n{rendered}");
+        assert!(!rendered.contains('\u{2713}'), "got:\n{rendered}");
+        assert!(rendered.contains("1.500s"), "got:\n{rendered}");
     }
 
     #[test]

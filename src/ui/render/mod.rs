@@ -28,7 +28,7 @@ mod tests;
 pub use card::{
     detect_language_from_args, detect_language_from_path, fetch_content_kind, format_bash_args_header,
     format_read_header, format_tool_header, highlight_bash_args_header, normalize_tool_name, render_tool_block,
-    render_tool_transcript, tool_title_style,
+    render_tool_transcript,
 };
 pub use renderer::{NoticeKind, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;

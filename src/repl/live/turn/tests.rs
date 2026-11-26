@@ -412,9 +412,11 @@ async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
     let mut h = ActiveTurnHarness::new().await;
     h.controller.state_mut().footer_mut().activity = Activity::Working;
     h.controller.state_mut().footer_mut().running_tool = Some("bash".to_string());
-    h.controller
-        .state_mut()
-        .set_active_tool(Some(RunningTool::new("bash".to_string(), "sleep 30".to_string(), None)));
+    h.controller.state_mut().set_active_tool(Some(RunningTool::new(
+        "bash".to_string(),
+        "sleep 30".to_string(),
+        serde_json::json!({"command": "sleep 30"}),
+    )));
 
     h.run_turn("sleep 30").await;
     let state = (

@@ -13,7 +13,7 @@ fn live_batch_flushes_tool_end_with_transcript_without_intermediate_redraw() {
         .start_tool(crate::ui::interactive::ToolStartRequest {
             name: "bash".into(),
             args_summary: "cargo test".into(),
-            preview: None,
+            arguments: serde_json::json!({"command": "cargo test"}),
         })
         .unwrap();
 
@@ -60,7 +60,7 @@ fn live_batch_coalesces_rapid_tool_activity_and_transcript() {
         .start_tool(crate::ui::interactive::ToolStartRequest {
             name: "read".into(),
             args_summary: "src/main.rs".into(),
-            preview: None,
+            arguments: serde_json::json!({"path": "src/main.rs"}),
         })
         .unwrap();
 

@@ -107,7 +107,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         let running = frame
             .running_tool
-            .map(|request| RunningTool::new(request.name, request.args_summary, request.preview));
+            .map(|request| RunningTool::new(request.name, request.args_summary, request.arguments));
         self.state.footer_mut().running_tool = running.as_ref().map(|tool| tool.name.clone());
         self.state.set_active_tool(running);
         self.replay_transcript()

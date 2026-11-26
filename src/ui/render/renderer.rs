@@ -276,7 +276,7 @@ impl TerminalRenderer {
                 let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
                     name: name.to_string(),
                     args_summary: summary,
-                    preview: None,
+                    arguments: args.clone(),
                 });
                 if let Some(content) = written_content(name, args) {
                     let _ = ui.tool_chunk(content.to_string());

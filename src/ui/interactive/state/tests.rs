@@ -441,7 +441,7 @@ fn thinking_toggle_state() {
 
 #[test]
 fn active_tool_chunk_accumulation() {
-    let mut tool = RunningTool::new("bash", "cargo test", None);
+    let mut tool = RunningTool::new("bash", "cargo test", serde_json::json!({"command": "cargo test"}));
     tool.append_chunk("compiling...\n");
     tool.append_chunk("running 5 tests\n");
     assert_eq!((tool.name.as_str(), tool.args_summary.as_str()), ("bash", "cargo test"));
@@ -453,7 +453,7 @@ fn active_tool_lifecycle() {
     let mut state = InteractiveState::default();
     assert!(state.active_tool().is_none());
 
-    let mut tool = RunningTool::new("bash", "cargo test", None);
+    let mut tool = RunningTool::new("bash", "cargo test", serde_json::json!({"command": "cargo test"}));
     tool.append_chunk("compiling...\n");
     state.set_active_tool(Some(tool));
     assert_eq!(state.active_tool().unwrap().output, "compiling...\n");
@@ -474,7 +474,7 @@ fn assert_tail_truncation(output: &str) {
 
 #[test]
 fn running_tool_rolling_tail_truncation_under_massive_chunks() {
-    let mut tool = RunningTool::new("bash", "seq 1 10000", None);
+    let mut tool = RunningTool::new("bash", "seq 1 10000", serde_json::json!({"command": "seq 1 10000"}));
     for i in 1..=5000 {
         tool.append_chunk(&format!("line {i:04}: detailed execution log output\n"));
     }
@@ -483,7 +483,11 @@ fn running_tool_rolling_tail_truncation_under_massive_chunks() {
 
 #[test]
 fn running_tool_preserves_utf8_char_and_newline_boundaries() {
-    let mut tool = RunningTool::new("bash", "unicode stream", None);
+    let mut tool = RunningTool::new(
+        "bash",
+        "unicode stream",
+        serde_json::json!({"command": "unicode stream"}),
+    );
     let line = "🦀 🚀 🔥 ✨ 这是一个很长的多字节测试行 🌟 💫\n";
     for _ in 0..2500 {
         tool.append_chunk(line);
@@ -499,7 +503,7 @@ fn running_tool_preserves_utf8_char_and_newline_boundaries() {
 
 #[test]
 fn running_tool_single_massive_chunk_bounded() {
-    let mut tool = RunningTool::new("bash", "massive chunk", None);
+    let mut tool = RunningTool::new("bash", "massive chunk", serde_json::json!({"command": "massive chunk"}));
     let massive_chunk = "alpha beta gamma delta epsilon\n".repeat(8000);
     tool.append_chunk(&massive_chunk);
 
@@ -510,7 +514,7 @@ fn running_tool_single_massive_chunk_bounded() {
 
 #[test]
 fn running_tool_massive_line_without_newlines_bounded_safely() {
-    let mut tool = RunningTool::new("bash", "one line", None);
+    let mut tool = RunningTool::new("bash", "one line", serde_json::json!({"command": "one line"}));
     let massive_line = "🔥abc🚀def".repeat(15000);
     tool.append_chunk(&massive_line);
 
@@ -520,7 +524,7 @@ fn running_tool_massive_line_without_newlines_bounded_safely() {
 
 #[test]
 fn running_tool_preserves_ansi_escapes_across_chunk_boundaries() {
-    let mut tool = RunningTool::new("bash", "test", None);
+    let mut tool = RunningTool::new("bash", "test", serde_json::json!({"command": "test"}));
     tool.append_chunk("compiling \x1b[4");
     tool.append_chunk("0mwith fill\x1b[0m done\n");
     assert_eq!(tool.output, "compiling \x1b[40mwith fill\x1b[0m done\n");
