@@ -373,3 +373,49 @@ fn a_new_tool_card_drops_output_still_waiting_for_the_old_one() {
     assert!(drained.tool_chunks.is_empty());
     assert!(drained.tool_start.is_some());
 }
+
+fn ends_inside_an_escape(text: &str) -> bool {
+    text.rfind('\x1b').is_some_and(|start| {
+        let tail = &text[start..];
+        !tail.chars().skip(1).any(|c| c.is_ascii_alphabetic() && c != '[')
+    })
+}
+
+#[test]
+fn styled_thinking_text_is_identical_when_paced_and_never_cut_inside_an_escape() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+    renderer.set_width(60);
+    let thinking = "## Plan\n\nI should read the **config** first, then check `parse_args` and the \
+        [docs](https://example.com/a/b) before changing anything.\n\n- first item with *emphasis*\n\
+        - second item\n\n```rust\nfn main() {}\n```\n\nThat covers it.\n";
+    for token in thinking.split_inclusive(' ') {
+        renderer.print_thinking_token(token);
+    }
+    renderer.flush();
+
+    let mut unpaced = String::new();
+    let mut batch = PendingUiBatch::new(1 << 20);
+    let base = Instant::now();
+    let mut ms = 0u64;
+    while let Ok(event) = events.try_recv() {
+        if let UiEvent::Output(OutputEvent::StreamText(text) | OutputEvent::Text(text)) = &event {
+            unpaced.push_str(text);
+            ms += 150;
+        }
+        batch.push_at(event, base + std::time::Duration::from_millis(ms));
+    }
+    assert!(unpaced.contains("\x1b["), "the thinking text is styled: {unpaced:?}");
+
+    let mut paced = String::new();
+    let mut frame = 0u64;
+    while !batch.is_empty() && frame < 4000 {
+        frame += 1;
+        let piece = batch
+            .drain_at(base + std::time::Duration::from_millis(ms + frame * 16))
+            .text();
+        assert!(!ends_inside_an_escape(&piece), "cut inside an escape: {piece:?}");
+        paced.push_str(&piece);
+    }
+    assert_eq!(paced, unpaced);
+}
