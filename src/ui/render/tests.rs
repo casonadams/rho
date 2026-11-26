@@ -94,6 +94,35 @@ fn test_format_write_preview_syntax_highlighting() {
 }
 
 #[test]
+fn file_card_headers_state_each_count_once() {
+    let theme = Theme::default();
+    let header = |name: &str, arguments: serde_json::Value| {
+        let tool = rho_harness_core::presentation::ToolLine {
+            name: name.into(),
+            arguments,
+            is_error: false,
+            output: String::new(),
+            output_summary: String::new(),
+            duration_ms: None,
+            file_change: None,
+        };
+        let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
+            &tool, 100, false, false, &theme,
+        ));
+        card.lines().nth(1).unwrap().to_string()
+    };
+    let edit = header(
+        "edit",
+        serde_json::json!({"path": "a.rs", "edits": [{"oldText": "a", "newText": "b"}, {"oldText": "c", "newText": "d"}]}),
+    );
+    assert_eq!(edit.matches("2 edits").count(), 1, "{edit}");
+    assert!(!edit.contains("(2 edits)"), "{edit}");
+    let write = header("write", serde_json::json!({"path": "a.txt", "text": "one\ntwo"}));
+    assert!(!write.contains("bytes)"), "{write}");
+    assert!(write.contains("2 lines"), "{write}");
+}
+
+#[test]
 fn push_section_always_leaves_exactly_one_blank_row() {
     use crate::ui::render::card::push_section;
     for (body, section) in [("head", "a"), ("head\n", "a\n"), ("head\n\n\n", "a\n\n")] {

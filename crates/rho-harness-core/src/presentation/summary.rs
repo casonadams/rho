@@ -115,22 +115,8 @@ pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) 
     (path, Some(format!(":{start}-{end}")))
 }
 
-fn format_file_mutation_summary(name: &str, args: &serde_json::Value) -> String {
-    let raw = crate::args::target_path(args).unwrap_or("");
-    let rel = to_relative_path(raw);
-    if name == "write" {
-        match crate::args::write_text(args) {
-            Some(content) => format!("{rel} ({} bytes)", content.len()),
-            None => rel,
-        }
-    } else {
-        let edits_count = args
-            .get("edits")
-            .and_then(|e| e.as_array())
-            .map(|e| e.len())
-            .unwrap_or(0);
-        format!("{rel} ({edits_count} edits)")
-    }
+fn format_file_mutation_summary(args: &serde_json::Value) -> String {
+    to_relative_path(crate::args::target_path(args).unwrap_or(""))
 }
 
 fn append_bash_timeout(cmd_str: String, args: &serde_json::Value) -> String {
@@ -446,7 +432,7 @@ fn format_todo_summary(args: &serde_json::Value) -> String {
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => format_read_summary(args),
-        "write" | "edit" => format_file_mutation_summary(name, args),
+        "write" | "edit" => format_file_mutation_summary(args),
         "bash" => format_bash_summary(args),
         "web_search" => format!("\"{}\"", args.get("query").and_then(|q| q.as_str()).unwrap_or("")),
         "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
