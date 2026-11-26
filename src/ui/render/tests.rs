@@ -94,33 +94,58 @@ fn test_format_write_preview_syntax_highlighting() {
 }
 
 #[test]
-fn write_card_has_one_blank_row_between_code_and_duration() {
-    let theme = Theme::default();
-    for lines in [3usize, 10, 11, 30] {
-        let text = (1..=lines).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
-        let tool = rho_harness_core::presentation::ToolLine {
-            name: "write".into(),
-            arguments: serde_json::json!({"path": "a.txt", "text": text}),
-            is_error: false,
-            output: String::new(),
-            output_summary: String::new(),
-            duration_ms: Some(2000),
-            file_change: None,
+fn every_card_has_exactly_one_blank_row_before_the_duration() {
+    let long = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let edit = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "let x = 1;", "newText": "let x = 2;"}]});
+    let cases = [
+        ("edit", edit.clone(), "", false),
+        ("edit", edit, "Error: no match", true),
+        ("write", serde_json::json!({"path": "a.txt", "text": "one"}), "", false),
+        ("write", serde_json::json!({"path": "a.txt", "text": long}), "", false),
+        ("bash", serde_json::json!({"command": "ls"}), "a\nb\n", false),
+        ("bash", serde_json::json!({"command": "ls"}), "a\nb\n\n\n", false),
+        ("bash", serde_json::json!({"command": "ls"}), "a\nb", false),
+        ("bash", serde_json::json!({"command": "false"}), "boom\n", true),
+        ("read", serde_json::json!({"path": "a.rs"}), "1\tfn main() {}\n", false),
+        ("grep", serde_json::json!({"pattern": "x"}), "a.rs:1:x\n", false),
+    ];
+    for structured_tool_cards in [false, true] {
+        let theme = Theme {
+            structured_tool_cards,
+            ..Theme::default()
         };
-        let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
-            &tool, 60, false, false, &theme,
-        ));
-        let rows: Vec<&str> = card.lines().collect();
-        let took = rows.iter().position(|r| r.contains("Took ")).unwrap();
-        let blanks = rows[..took]
-            .iter()
-            .rev()
-            .take_while(|r| {
-                r.trim_matches(|c: char| c == '│' || c.is_whitespace() || c == '\u{a0}')
-                    .is_empty()
-            })
-            .count();
-        assert_eq!(blanks, 1, "{lines} lines:\n{card}");
+        for (name, arguments, output, is_error) in &cases {
+            for expanded in [false, true] {
+                let tool = rho_harness_core::presentation::ToolLine {
+                    name: (*name).into(),
+                    arguments: arguments.clone(),
+                    is_error: *is_error,
+                    output: (*output).into(),
+                    output_summary: String::new(),
+                    duration_ms: Some(2000),
+                    file_change: None,
+                };
+                let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
+                    &tool, 60, expanded, false, &theme,
+                ));
+                let rows: Vec<&str> = card.lines().collect();
+                let Some(took) = rows.iter().position(|r| r.contains("Took ")) else {
+                    continue;
+                };
+                let blanks = rows[..took]
+                    .iter()
+                    .rev()
+                    .take_while(|r| {
+                        r.trim_matches(|c: char| c == '│' || c.is_whitespace() || c == '\u{a0}')
+                            .is_empty()
+                    })
+                    .count();
+                assert_eq!(
+                    blanks, 1,
+                    "{name} error={is_error} expanded={expanded} structured={structured_tool_cards}:\n{card}"
+                );
+            }
+        }
     }
 }
 

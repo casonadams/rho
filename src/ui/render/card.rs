@@ -268,7 +268,7 @@ fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, exp
         let inner_width = theme.tool_block(false, false, width).inner_width();
         if let Some(preview) = format_write_preview(&tool.arguments, theme, expanded, inner_width) {
             content.push_str("\n\n");
-            content.push_str(preview.trim_end_matches('\n'));
+            content.push_str(&preview);
         }
         return true;
     }
@@ -306,6 +306,7 @@ pub fn append_tool_details(
     append_background_hint(content, tool, theme.dimmed);
     if let Some(duration_ms) = tool.duration_ms {
         let dim = theme.dimmed;
+        content.truncate(content.trim_end_matches('\n').len());
         content.push_str(&format!(
             "\n\n{dim}Took {}{dim:#}",
             super::format_duration_ms(duration_ms)
