@@ -218,15 +218,14 @@ pub(crate) async fn run_user_workflow<B: TerminalBackend>(
         engine.hand_off_workflow_report(&name, &run.report);
     }
     let summary_text = run.summary.clone();
-    renderer.finish_tool_line(ToolLine {
-        name: "workflow".to_string(),
-        arguments,
-        is_error: !run.ok,
-        output_summary: summary(&run),
-        output: run.report,
-        duration_ms: Some(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
-        file_change: None,
-    });
+    let mut line = ToolLine::new("workflow", arguments)
+        .with_output_summary(summary(&run))
+        .with_output(run.report)
+        .with_duration_ms(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX));
+    if !run.ok {
+        line = line.failed();
+    }
+    renderer.finish_tool_line(line);
     if let Some(text) = summary_text {
         renderer.print_notice(&format!("\n{text}\n"));
     }

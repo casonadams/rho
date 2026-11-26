@@ -96,15 +96,12 @@ mod tests {
         presenter.print_thinking_token("hmm");
         presenter.print_token("Reading");
         presenter.start_tool_run("read", &args);
-        presenter.finish_tool_line(ToolLine {
-            name: "read".into(),
-            arguments: args.clone(),
-            is_error: false,
-            output: "fn a() {}".into(),
-            output_summary: "fn a() {}".into(),
-            duration_ms: Some(3),
-            file_change: None,
-        });
+        presenter.finish_tool_line(
+            ToolLine::new("read", args.clone())
+                .with_output("fn a() {}")
+                .with_output_summary("fn a() {}")
+                .with_duration_ms(3),
+        );
 
         let events = monitor.record(handle.id()).unwrap().events;
         assert_eq!(events.len(), 4, "{events:?}");

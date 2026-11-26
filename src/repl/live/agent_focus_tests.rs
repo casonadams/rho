@@ -20,18 +20,6 @@ fn running_agent(monitor: &AgentMonitor, label: &str) -> AgentHandle {
     handle
 }
 
-fn tool_line(name: &str) -> rho_harness_core::presentation::ToolLine {
-    rho_harness_core::presentation::ToolLine {
-        name: name.into(),
-        arguments: serde_json::json!({ "command": "make test" }),
-        is_error: false,
-        output: "ok".into(),
-        output_summary: "ok".into(),
-        duration_ms: Some(5),
-        file_change: None,
-    }
-}
-
 #[test]
 fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_agent() {
     let monitor = AgentMonitor::default();
@@ -49,7 +37,12 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
     assert_eq!(tool.name, "bash");
     assert!(tool.args_summary.contains("make test"), "{}", tool.args_summary);
 
-    handle.event(AgentEvent::Tool(tool_line("bash")));
+    handle.event(AgentEvent::Tool(
+        rho_harness_core::presentation::ToolLine::new("bash", serde_json::json!({ "command": "make test" }))
+            .with_output("ok")
+            .with_output_summary("ok")
+            .with_duration_ms(5),
+    ));
     handle.event(AgentEvent::Text("Tests pass".into()));
     let streaming = frame(&monitor.record(handle.id()).unwrap());
     assert_eq!(streaming.items.len(), 2, "{:?}", streaming.items);

@@ -169,15 +169,9 @@ mod tests {
     use serde_json::json;
 
     fn tool(name: &str, arguments: Value, file_change: Option<FileChange>) -> ToolLine {
-        ToolLine {
-            name: name.into(),
-            arguments,
-            is_error: false,
-            output: String::new(),
-            output_summary: String::new(),
-            duration_ms: None,
-            file_change,
-        }
+        let mut line = ToolLine::new(name, arguments);
+        line.file_change = file_change;
+        line
     }
 
     #[test]

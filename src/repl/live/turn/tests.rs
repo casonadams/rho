@@ -558,15 +558,12 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
     let mut f = LoopFixture::new("text").await;
     let mut ctx = f.context();
 
-    let tool_item = rho_harness_core::presentation::ToolLine {
-        name: "write".to_string(),
-        arguments: serde_json::json!({"path": "foo.txt", "content": "bar"}),
-        output: "ok".to_string(),
-        output_summary: "ok".to_string(),
-        is_error: false,
-        duration_ms: None,
-        file_change: None,
-    };
+    let tool_item = rho_harness_core::presentation::ToolLine::new(
+        "write",
+        serde_json::json!({"path": "foo.txt", "content": "bar"}),
+    )
+    .with_output("ok")
+    .with_output_summary("ok");
     let event = super::TurnEvent::Ui(crate::ui::interactive::UiEvent::Transcript(
         crate::ui::interactive::TranscriptItem::Tool(tool_item),
     ));

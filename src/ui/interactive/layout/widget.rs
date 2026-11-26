@@ -63,15 +63,9 @@ fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, wi
 /// A running `write` is drawn by the committed-card renderer, so finishing it changes nothing but the duration.
 fn running_write_block(input: &RunningToolWidgetInput<'_>, width: usize) -> String {
     let path = input.tool.args_summary.split(' ').next().unwrap_or_default();
-    let line = ToolLine {
-        name: "write".into(),
-        arguments: serde_json::json!({ "path": path, "text": input.tool.output }),
-        is_error: false,
-        output: String::new(),
-        output_summary: String::new(),
-        duration_ms: Some(input.tool.elapsed().as_millis() as u64),
-        file_change: input.tool.file_change.clone(),
-    };
+    let mut line = ToolLine::new("write", serde_json::json!({ "path": path, "text": input.tool.output }))
+        .with_duration_ms(input.tool.elapsed().as_millis() as u64);
+    line.file_change = input.tool.file_change.clone();
     render_tool_block(&line, width, input.tools_expanded, false, input.theme)
 }
 

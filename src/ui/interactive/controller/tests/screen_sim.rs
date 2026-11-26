@@ -519,15 +519,12 @@ mod regressions {
         ) {
             renderer.start_tool_run("bash", &serde_json::json!({"command": "cargo test"}));
             renderer.tool_chunk("test result: ok");
-            renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
-                name: "bash".into(),
-                arguments: serde_json::json!({"command": "cargo test"}),
-                is_error: false,
-                output: "test result: ok".into(),
-                output_summary: "1 line".into(),
-                duration_ms: Some(1500),
-                file_change: None,
-            });
+            renderer.finish_tool_line(
+                rho_harness_core::presentation::ToolLine::new("bash", serde_json::json!({"command": "cargo test"}))
+                    .with_output("test result: ok")
+                    .with_output_summary("1 line")
+                    .with_duration_ms(1500),
+            );
             drive_renderer_to_controller(events, controller);
             controller.redraw().unwrap();
         }
@@ -747,15 +744,11 @@ mod regressions {
             drive_renderer_to_controller(&mut events, &mut controller);
             let live = card_rows(&controller.backend.text());
 
-            renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
-                name: "write".into(),
-                arguments: args,
-                is_error: false,
-                output: "ok".into(),
-                output_summary: String::new(),
-                duration_ms: Some(4200),
-                file_change: None,
-            });
+            renderer.finish_tool_line(
+                rho_harness_core::presentation::ToolLine::new("write", args)
+                    .with_output("ok")
+                    .with_duration_ms(4200),
+            );
             drive_renderer_to_controller(&mut events, &mut controller);
             let committed = card_rows(&controller.backend.text());
 
@@ -937,15 +930,12 @@ mod regressions {
             renderer.write_output("\n");
             drive_renderer_to_controller(&mut events, &mut controller);
 
-            renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
-                name: "bash".into(),
-                arguments: serde_json::json!({"command": "rm -rf *"}),
-                is_error: true,
-                output: "destructive command".into(),
-                output_summary: "destructive command".into(),
-                duration_ms: None,
-                file_change: None,
-            });
+            renderer.finish_tool_line(
+                rho_harness_core::presentation::ToolLine::new("bash", serde_json::json!({"command": "rm -rf *"}))
+                    .with_output("destructive command")
+                    .with_output_summary("destructive command")
+                    .failed(),
+            );
             drive_renderer_to_controller(&mut events, &mut controller);
 
             let screen = controller.backend.text();

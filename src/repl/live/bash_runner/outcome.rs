@@ -38,16 +38,15 @@ pub fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, co
     } else {
         "completed".to_string()
     };
+    let mut line = ToolLine::new("bash", outcome.args_val)
+        .with_output(output.clone())
+        .with_output_summary(summary)
+        .with_duration_ms(outcome.duration_ms);
+    if is_error {
+        line = line.failed();
+    }
     (
-        ToolLine {
-            name: "bash".to_string(),
-            arguments: outcome.args_val,
-            is_error,
-            output: output.clone(),
-            output_summary: summary,
-            duration_ms: Some(outcome.duration_ms),
-            file_change: None,
-        },
+        line,
         UserBashResult {
             output,
             is_cancelled: false,
@@ -59,15 +58,11 @@ pub fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, co
 pub fn cancelled_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
     let output = cancelled_text(snapshot);
     (
-        ToolLine {
-            name: "bash".to_string(),
-            arguments: outcome.args_val,
-            is_error: true,
-            output: output.clone(),
-            output_summary: "(cancelled)".to_string(),
-            duration_ms: Some(outcome.duration_ms),
-            file_change: None,
-        },
+        ToolLine::new("bash", outcome.args_val)
+            .with_output(output.clone())
+            .with_output_summary("(cancelled)")
+            .with_duration_ms(outcome.duration_ms)
+            .failed(),
         UserBashResult {
             output,
             is_cancelled: true,

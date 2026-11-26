@@ -109,6 +109,51 @@ pub struct ToolLine {
     pub file_change: Option<FileChange>,
 }
 
+impl ToolLine {
+    /// A successful call with no output yet; chain the `with_*` methods for the rest.
+    pub fn new(name: impl Into<String>, arguments: serde_json::Value) -> Self {
+        Self {
+            name: name.into(),
+            arguments,
+            is_error: false,
+            output: String::new(),
+            output_summary: String::new(),
+            duration_ms: None,
+            file_change: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_output(mut self, output: impl Into<String>) -> Self {
+        self.output = output.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_output_summary(mut self, summary: impl Into<String>) -> Self {
+        self.output_summary = summary.into();
+        self
+    }
+
+    #[must_use]
+    pub fn failed(mut self) -> Self {
+        self.is_error = true;
+        self
+    }
+
+    #[must_use]
+    pub fn with_duration_ms(mut self, duration_ms: u64) -> Self {
+        self.duration_ms = Some(duration_ms);
+        self
+    }
+
+    #[must_use]
+    pub fn with_file_change(mut self, change: FileChange) -> Self {
+        self.file_change = Some(change);
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockDisplay {
     #[serde(default)]

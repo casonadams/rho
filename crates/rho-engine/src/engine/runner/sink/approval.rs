@@ -319,15 +319,14 @@ impl TerminalApprovalSink {
         output: &str,
         duration_ms: Option<u64>,
     ) {
-        self.presenter.finish_tool_line(ToolLine {
-            name: details.name.to_string(),
-            arguments: arguments.clone(),
-            is_error: details.is_error,
-            output: output.to_string(),
-            output_summary: summarize_tool_output(output),
-            duration_ms,
-            file_change: None,
-        });
+        let mut line = ToolLine::new(details.name, arguments.clone())
+            .with_output(output)
+            .with_output_summary(summarize_tool_output(output));
+        if details.is_error {
+            line = line.failed();
+        }
+        line.duration_ms = duration_ms;
+        self.presenter.finish_tool_line(line);
     }
 
     fn record_completed_tool(&self, state: &mut TerminalSinkState, details: ToolFinishDetails<'_>, status: &str) {

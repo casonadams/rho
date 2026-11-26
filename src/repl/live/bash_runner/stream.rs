@@ -281,15 +281,13 @@ async fn spawn_failure<B: TerminalBackend>(
         duration_ms: started.elapsed().as_millis() as u64,
     };
     let error_msg = format!("Failed to spawn command '{cmd}': {e}");
-    run.renderer.finish_tool_line(ToolLine {
-        name: "bash".to_string(),
-        arguments: outcome.args_val,
-        is_error: true,
-        output: error_msg.clone(),
-        output_summary: "spawn error".to_string(),
-        duration_ms: Some(outcome.duration_ms),
-        file_change: None,
-    });
+    run.renderer.finish_tool_line(
+        ToolLine::new("bash", outcome.args_val)
+            .with_output(error_msg.clone())
+            .with_output_summary("spawn error")
+            .with_duration_ms(outcome.duration_ms)
+            .failed(),
+    );
     run.drain_and_flush(false)?;
     Ok(UserBashResult {
         output: error_msg,

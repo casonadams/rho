@@ -10,15 +10,12 @@ fn emit_test_events(presenter: &StructuredPresenter) {
     spinner.finish_and_clear();
     presenter.start_tool_run("bash", &json!({"command": "ls"}));
     presenter.stream_port().stream_chunk("file.txt\n");
-    presenter.finish_tool_line(ToolLine {
-        name: "bash".to_string(),
-        arguments: json!({"command": "ls"}),
-        is_error: false,
-        output: "file.txt\n".to_string(),
-        output_summary: "file.txt".to_string(),
-        duration_ms: Some(10),
-        file_change: None,
-    });
+    presenter.finish_tool_line(
+        ToolLine::new("bash", json!({"command": "ls"}))
+            .with_output("file.txt\n")
+            .with_output_summary("file.txt")
+            .with_duration_ms(10),
+    );
     presenter.print_turn_completed("completed");
 }
 

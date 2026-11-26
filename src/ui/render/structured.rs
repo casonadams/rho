@@ -251,15 +251,10 @@ mod tests {
 
     #[test]
     fn structured_bash_card_renders_header_duration_input_and_output() {
-        let tool = ToolLine {
-            name: "bash".to_string(),
-            arguments: json!({"command": "echo hi", "timeout": 30}),
-            output: "hi\n".to_string(),
-            output_summary: "hi".to_string(),
-            is_error: false,
-            duration_ms: Some(3400),
-            file_change: None,
-        };
+        let tool = ToolLine::new("bash", json!({"command": "echo hi", "timeout": 30}))
+            .with_output("hi\n")
+            .with_output_summary("hi")
+            .with_duration_ms(3400);
         let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &structured_theme()));
         assert!(rendered.contains("✓ Bash · timeout 30s"), "got:\n{rendered}");
         assert!(rendered.contains("3.400s"), "got:\n{rendered}");
@@ -271,15 +266,11 @@ mod tests {
 
     #[test]
     fn structured_error_card_uses_cross_icon() {
-        let tool = ToolLine {
-            name: "bash".to_string(),
-            arguments: json!({"command": "false"}),
-            output: "exit 1".to_string(),
-            output_summary: "exit 1".to_string(),
-            is_error: true,
-            duration_ms: Some(12),
-            file_change: None,
-        };
+        let tool = ToolLine::new("bash", json!({"command": "false"}))
+            .with_output("exit 1")
+            .with_output_summary("exit 1")
+            .failed()
+            .with_duration_ms(12);
         let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &structured_theme()));
         assert!(rendered.contains("✗ Bash"), "got:\n{rendered}");
         assert!(rendered.contains("12ms"), "got:\n{rendered}");
@@ -287,15 +278,10 @@ mod tests {
 
     #[test]
     fn structured_read_card_places_path_under_input_and_omits_empty_output() {
-        let tool = ToolLine {
-            name: "read".to_string(),
-            arguments: json!({"path": "src/main.rs", "offset": 1, "limit": 20}),
-            output: "fn main() {}".to_string(),
-            output_summary: "1 line".to_string(),
-            is_error: false,
-            duration_ms: Some(5),
-            file_change: None,
-        };
+        let tool = ToolLine::new("read", json!({"path": "src/main.rs", "offset": 1, "limit": 20}))
+            .with_output("fn main() {}")
+            .with_output_summary("1 line")
+            .with_duration_ms(5);
         let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &structured_theme()));
         assert!(rendered.contains("✓ Read"), "got:\n{rendered}");
         assert!(rendered.contains("5ms"), "got:\n{rendered}");
@@ -309,15 +295,10 @@ mod tests {
 
     #[test]
     fn default_theme_keeps_legacy_tool_card_layout() {
-        let tool = ToolLine {
-            name: "bash".to_string(),
-            arguments: json!({"command": "echo hi"}),
-            output: "hi".to_string(),
-            output_summary: "hi".to_string(),
-            is_error: false,
-            duration_ms: Some(50),
-            file_change: None,
-        };
+        let tool = ToolLine::new("bash", json!({"command": "echo hi"}))
+            .with_output("hi")
+            .with_output_summary("hi")
+            .with_duration_ms(50);
         let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &Theme::default()));
         assert!(rendered.contains("bash echo hi"), "got:\n{rendered}");
         assert!(rendered.contains("Took 50ms"), "got:\n{rendered}");

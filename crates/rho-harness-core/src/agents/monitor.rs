@@ -471,15 +471,10 @@ mod tests {
     }
 
     fn line(name: &str, args: serde_json::Value, output: &str) -> ToolLine {
-        ToolLine {
-            name: name.into(),
-            arguments: args,
-            is_error: false,
-            output: output.into(),
-            output_summary: output.into(),
-            duration_ms: Some(5),
-            file_change: None,
-        }
+        ToolLine::new(name, args)
+            .with_output(output)
+            .with_output_summary(output)
+            .with_duration_ms(5)
     }
 
     #[test]

@@ -97,15 +97,7 @@ fn test_format_write_preview_syntax_highlighting() {
 fn file_card_headers_state_each_count_once() {
     let theme = Theme::default();
     let header = |name: &str, arguments: serde_json::Value| {
-        let tool = rho_harness_core::presentation::ToolLine {
-            name: name.into(),
-            arguments,
-            is_error: false,
-            output: String::new(),
-            output_summary: String::new(),
-            duration_ms: None,
-            file_change: None,
-        };
+        let tool = ToolLine::new(name, arguments);
         let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
             &tool, 100, false, false, &theme,
         ));
@@ -156,15 +148,10 @@ fn every_card_has_exactly_one_blank_row_before_the_duration() {
         };
         for (name, arguments, output, is_error) in &cases {
             for expanded in [false, true] {
-                let tool = rho_harness_core::presentation::ToolLine {
-                    name: (*name).into(),
-                    arguments: arguments.clone(),
-                    is_error: *is_error,
-                    output: (*output).into(),
-                    output_summary: String::new(),
-                    duration_ms: Some(2000),
-                    file_change: None,
-                };
+                let mut tool = ToolLine::new(*name, arguments.clone())
+                    .with_output(*output)
+                    .with_duration_ms(2000);
+                tool.is_error = *is_error;
                 let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
                     &tool, 60, expanded, false, &theme,
                 ));
@@ -488,15 +475,11 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     activity.finish_and_clear();
     renderer.print_token("answer");
     renderer.flush();
-    renderer.finish_tool_line(ToolLine {
-        name: "read".to_string(),
-        arguments: serde_json::json!({"path": "src/lib.rs"}),
-        is_error: false,
-        output: "contents".to_string(),
-        output_summary: "contents".to_string(),
-        duration_ms: None,
-        file_change: None,
-    });
+    renderer.finish_tool_line(
+        ToolLine::new("read", serde_json::json!({"path": "src/lib.rs"}))
+            .with_output("contents")
+            .with_output_summary("contents"),
+    );
 
     let (activity_events, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert_eq!(activity_events, [Activity::Thinking, Activity::Idle]);
@@ -585,15 +568,12 @@ fn finished_bash_block_includes_elapsed_duration() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
-    renderer.finish_tool_line(ToolLine {
-        name: "bash".to_string(),
-        arguments: serde_json::json!({"command": "cargo test --all-targets"}),
-        is_error: false,
-        output: "test result: ok".to_string(),
-        output_summary: "test result: ok".to_string(),
-        duration_ms: Some(5000),
-        file_change: None,
-    });
+    renderer.finish_tool_line(
+        ToolLine::new("bash", serde_json::json!({"command": "cargo test --all-targets"}))
+            .with_output("test result: ok")
+            .with_output_summary("test result: ok")
+            .with_duration_ms(5000),
+    );
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     let plain = strip_ansi_escapes::strip_str(&output);
@@ -606,15 +586,11 @@ fn a_subagent_started_in_the_background_shows_the_watch_hint_to_the_user_only() 
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
     let finish = |renderer: &TerminalRenderer, is_error: bool, output: &str| {
-        renderer.finish_tool_line(ToolLine {
-            name: "subagent".to_string(),
-            arguments: serde_json::json!({"prompt": "audit the parser"}),
-            is_error,
-            output: output.to_string(),
-            output_summary: output.to_string(),
-            duration_ms: None,
-            file_change: None,
-        });
+        let mut line = ToolLine::new("subagent", serde_json::json!({"prompt": "audit the parser"}))
+            .with_output(output)
+            .with_output_summary(output);
+        line.is_error = is_error;
+        renderer.finish_tool_line(line);
     };
     let hint = "running in the background - press \u{2190} on an empty prompt to watch";
 
@@ -638,15 +614,12 @@ fn finished_read_block_includes_elapsed_duration() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
-    renderer.finish_tool_line(ToolLine {
-        name: "read".to_string(),
-        arguments: serde_json::json!({"path": "src/main.rs"}),
-        is_error: false,
-        output: "hello world".to_string(),
-        output_summary: "hello world".to_string(),
-        duration_ms: Some(50),
-        file_change: None,
-    });
+    renderer.finish_tool_line(
+        ToolLine::new("read", serde_json::json!({"path": "src/main.rs"}))
+            .with_output("hello world")
+            .with_output_summary("hello world")
+            .with_duration_ms(50),
+    );
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("read") && output.contains("src/main.rs"));
@@ -658,15 +631,10 @@ fn finished_read_block_includes_line_range_styling() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
-    renderer.finish_tool_line(ToolLine {
-        name: "read".to_string(),
-        arguments: serde_json::json!({"path": "src/lib.rs", "offset": 10, "limit": 20}),
-        is_error: false,
-        output: "".to_string(),
-        output_summary: "".to_string(),
-        duration_ms: None,
-        file_change: None,
-    });
+    renderer.finish_tool_line(ToolLine::new(
+        "read",
+        serde_json::json!({"path": "src/lib.rs", "offset": 10, "limit": 20}),
+    ));
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("read") && output.contains("src/lib.rs") && output.contains(":10-29"));
@@ -677,15 +645,11 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
-    renderer.finish_tool_line(ToolLine {
-        name: "web_fetch".to_string(),
-        arguments: serde_json::json!({"url": "https://serde.rs/"}),
-        is_error: false,
-        output: "serde docs".to_string(),
-        output_summary: "serde docs".to_string(),
-        duration_ms: None,
-        file_change: None,
-    });
+    renderer.finish_tool_line(
+        ToolLine::new("web_fetch", serde_json::json!({"url": "https://serde.rs/"}))
+            .with_output("serde docs")
+            .with_output_summary("serde docs"),
+    );
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("web_fetch"));
@@ -717,8 +681,7 @@ fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
         ),
     ];
     for (name, args, duration_ms, expected) in cases {
-        let mut tool = tool_line(name, args, false, None);
-        tool.duration_ms = Some(duration_ms);
+        let tool = ToolLine::new(name, args).with_duration_ms(duration_ms);
         let mut content = String::new();
         crate::ui::render::card::append_tool_details(&mut content, &tool, 80, false, false, &theme);
         assert!(
@@ -727,8 +690,7 @@ fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
         );
         assert!(!format_tool_header(&tool, &theme).contains("Took"), "{name}");
     }
-    let mut untimed = tool_line("rg", serde_json::json!({"pattern": "x"}), false, None);
-    untimed.duration_ms = None;
+    let untimed = ToolLine::new("rg", serde_json::json!({"pattern": "x"}));
     let mut content = String::new();
     crate::ui::render::card::append_tool_details(&mut content, &untimed, 80, false, false, &theme);
     assert!(!content.contains("Took"));
@@ -739,15 +701,11 @@ fn search_tool_displays_cleanly() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
-    renderer.finish_tool_line(ToolLine {
-        name: "web_search".to_string(),
-        arguments: serde_json::json!({"query": "serde release"}),
-        is_error: false,
-        output: "results".to_string(),
-        output_summary: "results".to_string(),
-        duration_ms: None,
-        file_change: None,
-    });
+    renderer.finish_tool_line(
+        ToolLine::new("web_search", serde_json::json!({"query": "serde release"}))
+            .with_output("results")
+            .with_output_summary("results"),
+    );
 
     let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("web_search"));
@@ -1037,22 +995,6 @@ fn renderer_notice_is_emitted_as_a_transcript_notice() {
     assert!(crate::ui::block::strip_ansi(&text).contains("warning Could not switch model: boom"));
 }
 
-fn tool_line(name: &str, arguments: serde_json::Value, is_error: bool, change: Option<FileChange>) -> ToolLine {
-    ToolLine {
-        name: name.to_string(),
-        arguments,
-        is_error,
-        output: if is_error {
-            "no match".to_string()
-        } else {
-            String::new()
-        },
-        output_summary: String::new(),
-        duration_ms: None,
-        file_change: change,
-    }
-}
-
 fn numbered(prefix: &str, count: usize) -> String {
     (1..=count)
         .map(|n| format!("{prefix}{n}"))
@@ -1126,7 +1068,7 @@ fn tabs_expand_to_four_spaces_in_diffs_and_write_previews() {
 fn failed_edit_card_shows_the_attempted_change_after_the_error() {
     let theme = Theme::default();
     let args = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "missing", "newText": "present", "line": 7}]});
-    let failed = tool_line("edit", args.clone(), true, None);
+    let failed = ToolLine::new("edit", args.clone()).with_output("no match").failed();
     let card = crate::ui::block::strip_ansi(&render_tool_transcript(&failed, 80, false, false, &theme));
     let (error_at, attempt_at) = (card.find("no match").unwrap(), card.find("Attempted change:").unwrap());
     assert!(
@@ -1135,7 +1077,7 @@ fn failed_edit_card_shows_the_attempted_change_after_the_error() {
     );
 
     let ok = crate::ui::block::strip_ansi(&render_tool_transcript(
-        &tool_line("edit", args, false, None),
+        &ToolLine::new("edit", args),
         80,
         false,
         false,
@@ -1154,9 +1096,9 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
         edit_start_lines: vec![],
         replaced_regions: vec![],
     };
-    let edit_header = crate::ui::block::strip_ansi(&format_tool_header(&tool_line("edit", edit, false, None), &theme));
+    let edit_header = crate::ui::block::strip_ansi(&format_tool_header(&ToolLine::new("edit", edit), &theme));
     let write_header = crate::ui::block::strip_ansi(&format_tool_header(
-        &tool_line("write", write, false, Some(new_file)),
+        &ToolLine::new("write", write).with_file_change(new_file),
         &theme,
     ));
     assert!(edit_header.ends_with("\u{b7} 1 edit \u{b7} +1 -2"), "{edit_header}");
@@ -1172,7 +1114,7 @@ fn a_finished_wait_ends_the_running_tool_without_a_card() {
     let renderer = TerminalRenderer::with_ui(ui);
 
     renderer.start_tool_run("wait", &serde_json::json!({}));
-    renderer.finish_tool_line(tool_line("wait", serde_json::json!({}), false, None));
+    renderer.finish_tool_line(ToolLine::new("wait", serde_json::json!({})));
 
     let events: Vec<UiEvent> = std::iter::from_fn(|| events.try_recv().ok()).collect();
     assert!(
@@ -1194,7 +1136,7 @@ fn renderer_attaches_the_snapshot_taken_when_the_tool_started() {
 
     renderer.start_tool_run("edit", &args);
     std::fs::write(&file, "keep\nchanged\nextra\n").unwrap();
-    renderer.finish_tool_line(tool_line("edit", args, false, None));
+    renderer.finish_tool_line(ToolLine::new("edit", args));
 
     let change = std::iter::from_fn(|| events.try_recv().ok())
         .find_map(|event| match event {
