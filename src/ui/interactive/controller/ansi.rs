@@ -5,6 +5,7 @@ use super::backend::TerminalBackend;
 
 pub const CSI_BEGIN_SYNC_UPDATE: &str = "\x1b[?2026h";
 pub const CSI_END_SYNC_UPDATE: &str = "\x1b[?2026l";
+pub const SGR_RESET: &str = "\x1b[0m";
 pub const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H\x1b[0m";
 pub const CLEAR_SCREEN_AND_SCROLLBACK: &str = "\x1b[H\x1b[2J\x1b[3J\x1b[0m";
 
@@ -77,10 +78,22 @@ pub fn terminal_newlines(value: &str) -> String {
     result
 }
 
+fn read_csi(characters: &mut std::iter::Peekable<std::str::Chars<'_>>) -> (String, Option<char>) {
+    let mut parameters = String::new();
+    for character in characters.by_ref() {
+        if ('@'..='~').contains(&character) {
+            return (parameters, Some(character));
+        }
+        parameters.push(character);
+    }
+    (parameters, None)
+}
+
 #[derive(Debug, Default)]
 pub struct OutputTracker {
     line: String,
     open: bool,
+    style: String,
 }
 
 impl OutputTracker {
@@ -95,12 +108,52 @@ impl OutputTracker {
     pub fn clear(&mut self) {
         self.line.clear();
         self.open = false;
+        self.style.clear();
+    }
+
+    /// The text style the terminal holds after the output so far. Repainting the live region between
+    /// writes resets it, so the next write must start by restoring it.
+    pub fn style(&self) -> &str {
+        &self.style
+    }
+
+    fn track_style(&mut self, output: &str) {
+        let mut characters = output.chars().peekable();
+        while let Some(character) = characters.next() {
+            if character != '\u{1b}' {
+                continue;
+            }
+            if characters.next_if_eq(&'[').is_some() {
+                let (parameters, last) = read_csi(&mut characters);
+                if last == Some('m') {
+                    self.apply_sgr(&parameters);
+                }
+            } else {
+                skip_escape_sequence(&mut characters);
+            }
+        }
+    }
+
+    fn apply_sgr(&mut self, parameters: &str) {
+        let rest = match parameters.strip_prefix("0;") {
+            Some(rest) => rest,
+            None if parameters.is_empty() || parameters == "0" => "",
+            None => {
+                self.style.push_str(&format!("\x1b[{parameters}m"));
+                return;
+            }
+        };
+        self.style.clear();
+        if !rest.is_empty() {
+            self.style.push_str(&format!("\x1b[{rest}m"));
+        }
     }
 
     pub fn update(&mut self, output: &str) {
         if output.is_empty() {
             return;
         }
+        self.track_style(output);
         if let Some(newline) = output.rfind('\n') {
             self.line.clear();
             self.line.push_str(&output[newline + 1..]);

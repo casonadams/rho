@@ -117,3 +117,48 @@ fn push_transcript_item_with_open_output_executes_single_flush_transaction() {
     let ops = operations.borrow();
     assert_eq!(ops.iter().filter(|op| op == &&Operation::Flush).count(), 1);
 }
+
+fn writes(operations: &super::fake::SharedOperations) -> Vec<String> {
+    operations
+        .borrow()
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Write(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_style_opened_in_one_streamed_write_is_restored_for_the_next_and_closed_before_the_repaint() {
+    let (backend, operations, _) = FakeTerminal::new(40);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    operations.borrow_mut().clear();
+
+    controller.write_stream_output("\x1b[2mfirst \x1b[0m\x1b[2m ").unwrap();
+    controller.write_stream_output("second\x1b[0m\n").unwrap();
+
+    let written = writes(&operations);
+    let first = written.iter().position(|w| w.starts_with("\x1b[2mfirst")).unwrap();
+    assert_eq!(
+        written[first + 1],
+        "\x1b[0m",
+        "the style is closed before the live region repaints"
+    );
+    let second = written.iter().position(|w| w.starts_with("second")).unwrap();
+    assert_eq!(written[second - 1], "\x1b[2m", "the next write starts dim again");
+}
+
+#[test]
+fn balanced_streamed_output_adds_no_style_writes() {
+    let (backend, operations, _) = FakeTerminal::new(40);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    operations.borrow_mut().clear();
+
+    controller.write_stream_output("\x1b[2mone\x1b[0m ").unwrap();
+    controller.write_stream_output("\x1b[1mtwo\x1b[0m").unwrap();
+
+    let written = writes(&operations);
+    let resets = written.iter().filter(|w| w.as_str() == "\x1b[0m").count();
+    assert_eq!(resets, 0, "{written:?}");
+}

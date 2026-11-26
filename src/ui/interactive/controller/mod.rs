@@ -170,8 +170,14 @@ impl<B: TerminalBackend> TerminalController<B> {
             &output
         };
         self.prepare_output_write()?;
+        if !self.output.style().is_empty() {
+            self.backend.write_text(self.output.style())?;
+        }
         self.backend.write_text(visible)?;
         self.output.update(&output);
+        if !self.output.style().is_empty() {
+            self.backend.write_text(ansi::SGR_RESET)?;
+        }
         if self.output.is_open() {
             self.backend.write_text("\r\n")?;
         }
