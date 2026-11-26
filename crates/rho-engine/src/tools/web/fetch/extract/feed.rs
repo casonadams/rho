@@ -28,8 +28,9 @@ fn render_feed_entry(out: &mut String, idx: usize, entry: &feed_rs::model::Entry
     let link = resolve_relative_url(select_entry_link(entry), base_url);
     let date = entry
         .published
-        .or(entry.updated)
-        .map_or(String::new(), |d| d.to_rfc3339());
+        .as_ref()
+        .or(entry.updated.as_ref())
+        .map_or(String::new(), |d| d.timestamp().to_string());
     let summary = entry_summary(entry);
 
     out.push_str(&format!("## {idx}. {title}\n"));

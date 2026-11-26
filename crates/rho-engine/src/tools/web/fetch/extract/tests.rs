@@ -99,6 +99,17 @@ fn test_extract_json() {
 }
 
 #[test]
+fn test_extract_feed_entry_date_is_rfc3339_utc() {
+    let rss = r#"<?xml version="1.0"?>
+<rss version="2.0"><channel><title>T</title>
+  <item><title>Dated</title><link>https://example.com/a</link>
+  <pubDate>Mon, 23 Nov 2026 15:30:00 +0000</pubDate></item>
+</channel></rss>"#;
+    let res = extract_feed_or_xml(rss, "https://example.com");
+    assert!(res.contains("Date: 2026-11-23T15:30:00Z"), "{res}");
+}
+
+#[test]
 fn test_extract_feed_atom_alternate() {
     let atom = r#"<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
