@@ -6,6 +6,7 @@ pub(crate) mod fuzzy;
 pub mod interactive;
 pub mod markdown;
 pub mod render;
+pub(crate) mod terminal_stream;
 pub mod theme;
 pub(crate) mod wrap;
 

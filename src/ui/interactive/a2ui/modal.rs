@@ -1228,6 +1228,7 @@ fn adjust_cursor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::block::strip_ansi;
     use rho_harness_core::a2ui::{
         A2uiMessage, CreateSurface, RowJustify, SurfacePlacement, UpdateComponents, UpdateDataModel,
     };
@@ -1239,20 +1240,6 @@ mod tests {
 
     fn ctrl_c() -> KeyEvent {
         KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
-    }
-
-    fn strip_ansi(s: &str) -> String {
-        let mut out = String::new();
-        let mut rest = s;
-        while !rest.is_empty() {
-            if let Some((seq, _)) = crate::ui::block::leading_escape(rest) {
-                rest = &rest[seq.len()..];
-            } else if let Some(ch) = rest.chars().next() {
-                out.push(ch);
-                rest = &rest[ch.len_utf8()..];
-            }
-        }
-        out
     }
 
     fn single_select_request(allow_other: bool) -> A2uiModalRequest {

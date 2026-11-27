@@ -36,7 +36,6 @@ rho-harness-core = { version = "0.17.0", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.17.0", path = "crates/rho-engine" }
 rho-test-support = { path = "crates/rho-test-support" }
 similar = "3.2"
-strip-ansi-escapes = "0.2"
 rpassword = "7.5"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -72,7 +71,6 @@ ui = [
     "dep:syntect",
     "dep:terminal-colorsaurus",
     "dep:fuzzy-matcher",
-    "dep:strip-ansi-escapes",
 ]
 
 [lib]
@@ -126,7 +124,6 @@ regex = "1.11"
 unicode-width = "0.2"
 arboard = "3.4"
 similar.workspace = true
-strip-ansi-escapes = { workspace = true, optional = true }
 rpassword.workspace = true
 image.workspace = true
 

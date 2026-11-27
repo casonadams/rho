@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 
 use super::sgr::SgrStyle;
-use super::stream::{Cursor, Token, tokens};
+use crate::ui::terminal_stream::{Cursor, Token, tokens};
 
 /// Printed rows kept for repainting, which bounds the memory of a long session.
 const MAX_KEPT_ROWS: usize = 4000;

@@ -1,53 +1,41 @@
+use crate::ui::terminal_stream::{Token, is_sgr_reset, tokens};
 use crate::ui::wrap::WordWrap;
 use anstyle::Style;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub fn strip_ansi(content: &str) -> String {
-    strip_ansi_escapes::strip_str(content)
+    tokens(content)
+        .filter_map(|token| match token {
+            Token::Char(character) => Some(character),
+            Token::Escape { .. } => None,
+        })
+        .collect()
 }
 
 pub fn visible_width(content: &str) -> usize {
-    let clean = strip_ansi_escapes::strip_str(content);
+    let clean = strip_ansi(content);
     UnicodeWidthStr::width(clean.replace('\r', "").as_str())
 }
 
 pub fn apply_pending_ansi(pending_ansi: &mut String, active_ansi: &mut String) {
-    let mut rest = pending_ansi.as_str();
-    while let Some(start) = rest.find('\x1b') {
-        let Some(len) = leading_sgr_len(&rest[start..]) else {
-            rest = &rest[start + 1..];
-            continue;
-        };
-        let seq = &rest[start..start + len];
-        if seq == "\x1b[0m" || seq == "\x1b[m" {
-            active_ansi.clear();
-        } else {
-            active_ansi.push_str(seq);
+    for token in tokens(pending_ansi) {
+        if let Token::Escape { raw, sgr: Some(_) } = token {
+            if is_sgr_reset(raw) {
+                active_ansi.clear();
+            } else {
+                active_ansi.push_str(raw);
+            }
         }
-        rest = &rest[start + len..];
     }
     pending_ansi.clear();
 }
 
-fn leading_csi_len(text: &str) -> Option<usize> {
-    let body = text.strip_prefix("\x1b[")?.as_bytes();
-    let final_at = body.iter().position(|b| (0x40..=0x7e).contains(b))?;
-    body[..final_at]
-        .iter()
-        .all(|b| (0x20..=0x3f).contains(b))
-        .then_some(final_at + 3)
-}
-
-pub(crate) fn leading_sgr_len(text: &str) -> Option<usize> {
-    let body = text.strip_prefix("\x1b[")?.as_bytes();
-    let params = body.iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
-    (body.get(params) == Some(&b'm')).then_some(params + 3)
-}
-
+/// The escape sequence `text` starts with, and whether it is an SGR (style) sequence.
 pub(crate) fn leading_escape(text: &str) -> Option<(&str, bool)> {
-    let len = leading_csi_len(text)?;
-    let seq = &text[..len];
-    Some((seq, leading_sgr_len(seq) == Some(len)))
+    match tokens(text).next()? {
+        Token::Escape { raw, sgr } => Some((raw, sgr.is_some())),
+        Token::Char(_) => None,
+    }
 }
 
 fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>) {
@@ -138,7 +126,7 @@ impl WrapState<'_> {
 
     fn process_sgr(&mut self, matched: &str) {
         self.word.pending_word.push_str(matched);
-        if matched == "\x1b[0m" || matched == "\x1b[m" {
+        if is_sgr_reset(matched) {
             self.active_sgr.clear();
             if !self.bg_code.is_empty() {
                 self.word.pending_word.push_str(&self.bg_code);

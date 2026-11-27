@@ -102,7 +102,7 @@ fn running_subagent_and_workflow_cards_show_streamed_output_tail() {
                 width: 60,
                 tools_expanded: false,
             });
-            let text = strip_ansi_escapes::strip_str(lines.join("\n"));
+            let text = crate::ui::block::strip_ansi(&lines.join("\n"));
             assert!(
                 text.contains("... (3 earlier lines, Ctrl+O to expand)"),
                 "{name}: {text}"

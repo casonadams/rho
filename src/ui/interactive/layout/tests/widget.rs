@@ -37,7 +37,7 @@ fn render_test_widget(tool: &RunningTool, expanded: bool) -> String {
 fn running_tool_widget_collapsed_header_and_tail() {
     let mut tool = RunningTool::new("bash", "cargo test", json!({"command": "cargo test"}));
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
-    let full = strip_ansi_escapes::strip_str(render_test_widget(&tool, false));
+    let full = crate::ui::block::strip_ansi(&render_test_widget(&tool, false));
 
     assert!(full.contains("bash") && full.contains("cargo test"));
     assert!(full.contains("... (2 earlier lines, Ctrl+O to expand)") && full.contains("line 7"));
@@ -139,7 +139,7 @@ fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
         l.widget_lines.first().unwrap().contains('╭'),
         "top border must be preserved"
     );
-    let header_plain = strip_ansi_escapes::strip_str(&l.widget_lines[1]);
+    let header_plain = crate::ui::block::strip_ansi(&l.widget_lines[1]);
     assert!(
         header_plain.contains("bash") && header_plain.contains("git log"),
         "header must be preserved"
@@ -214,6 +214,6 @@ fn running_write_card_highlights_content_by_the_path_extension() {
             "the extension decides the colors even with syntax_highlight_tools off"
         );
     }
-    let known_text = strip_ansi_escapes::strip_str(render_test_widget(&known, false));
+    let known_text = crate::ui::block::strip_ansi(&render_test_widget(&known, false));
     assert!(known_text.contains("  2 │     let x = 1;"), "{known_text}");
 }

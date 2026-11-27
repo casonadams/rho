@@ -48,13 +48,13 @@ fn active_tool_status_updates_and_cleans_up_on_end() {
 
     start_bash(&mut controller, "cargo test");
     assert_eq!(controller.state().footer().running_tool.as_deref(), Some("bash"));
-    let writes = strip_ansi_escapes::strip_str(operations_writes(&operations.borrow()));
+    let writes = crate::ui::block::strip_ansi(&operations_writes(&operations.borrow()));
     assert!(writes.contains("working") && writes.contains("bash") && writes.contains("cargo test"));
 
     operations.borrow_mut().clear();
     controller.end_tool().unwrap();
     assert_eq!(controller.state().footer().running_tool, None);
-    let writes_after = strip_ansi_escapes::strip_str(operations_writes(&operations.borrow()));
+    let writes_after = crate::ui::block::strip_ansi(&operations_writes(&operations.borrow()));
     assert!(!writes_after.contains("bash") && !writes_after.contains("cargo test"));
 }
 

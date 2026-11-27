@@ -167,19 +167,19 @@ mod tests {
         let json = highlight_tool_output("mcp", "{\"status\": \"ok\", \"count\": 3}", &theme);
         assert!(json.contains("\x1b["));
         assert_eq!(
-            strip_ansi_escapes::strip_str(&json),
+            crate::ui::block::strip_ansi(&json),
             "{\"status\": \"ok\", \"count\": 3}"
         );
 
         let diff = highlight_tool_output("worktree", "diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new", &theme);
         assert!(diff.contains("\x1b["));
         assert_eq!(
-            strip_ansi_escapes::strip_str(&diff),
+            crate::ui::block::strip_ansi(&diff),
             "diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new"
         );
 
         let rg = highlight_tool_output("rg", "src/lib.rs\n12:pub fn run() {}", &theme);
         assert!(rg.contains("\x1b["));
-        assert_eq!(strip_ansi_escapes::strip_str(&rg), "src/lib.rs\n12:pub fn run() {}");
+        assert_eq!(crate::ui::block::strip_ansi(&rg), "src/lib.rs\n12:pub fn run() {}");
     }
 }

@@ -523,26 +523,13 @@ fn render_checkbox(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::block::strip_ansi;
     use rho_harness_core::a2ui::{
         A2uiMessage, BoundValue, CreateSurface, SurfacePlacement, SurfaceStore, UpdateComponents, UpdateDataModel,
         todo_surface_messages,
     };
     use rho_harness_core::todo::{TodoItem, TodoStatus};
     use serde_json::json;
-
-    fn strip_ansi(s: &str) -> String {
-        let mut out = String::new();
-        let mut rest = s;
-        while let Some(c) = rest.chars().next() {
-            if let Some((seq, _)) = crate::ui::block::leading_escape(rest) {
-                rest = &rest[seq.len()..];
-            } else {
-                out.push(c);
-                rest = &rest[c.len_utf8()..];
-            }
-        }
-        out
-    }
 
     fn build_surface(components: Vec<A2uiComponent>, data: serde_json::Value) -> A2uiSurface {
         let mut store = SurfaceStore::new();

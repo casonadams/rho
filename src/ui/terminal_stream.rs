@@ -1,14 +1,22 @@
-//! One reading of terminal output shared by everything that tracks what a stream leaves on screen:
-//! a tokenizer that separates printable characters from escape sequences, and the cursor a
-//! terminal advances as it prints them.
+//! One reading of terminal output shared by everything that handles styled text: a tokenizer
+//! that separates printable characters from escape sequences, and the cursor a terminal advances
+//! as it prints them.
 
 use unicode_width::UnicodeWidthChar;
 
 const ESC: char = '\u{1b}';
 const BEL: char = '\u{7}';
 
+/// Whether a whole `CSI parameters m` sequence resets every attribute.
+pub(crate) fn is_sgr_reset(sequence: &str) -> bool {
+    sequence
+        .strip_prefix("\u{1b}[")
+        .and_then(|body| body.strip_suffix('m'))
+        .is_some_and(|parameters| parameters.is_empty() || parameters.parse() == Ok(0u16))
+}
+
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Token<'a> {
+pub(crate) enum Token<'a> {
     Char(char),
     /// A whole escape sequence; `sgr` holds the parameters when it is `CSI parameters m`.
     Escape {
@@ -17,11 +25,11 @@ pub(super) enum Token<'a> {
     },
 }
 
-pub(super) fn tokens(text: &str) -> Tokens<'_> {
+pub(crate) fn tokens(text: &str) -> Tokens<'_> {
     Tokens { rest: text }
 }
 
-pub(super) struct Tokens<'a> {
+pub(crate) struct Tokens<'a> {
     rest: &'a str,
 }
 
@@ -83,14 +91,14 @@ impl<'a> Iterator for Tokens<'a> {
 
 /// Where a terminal `width` columns wide puts the next printed character.
 #[derive(Debug)]
-pub(super) struct Cursor {
+pub(crate) struct Cursor {
     width: usize,
     column: usize,
     wrap_pending: bool,
 }
 
 impl Cursor {
-    pub(super) fn new(width: usize) -> Self {
+    pub(crate) fn new(width: usize) -> Self {
         Self {
             width: width.max(1),
             column: 0,
@@ -99,32 +107,32 @@ impl Cursor {
     }
 
     /// Column of the next character, which is 0 while a full row waits to wrap.
-    pub(super) fn column(&self) -> usize {
+    pub(crate) fn column(&self) -> usize {
         if self.wrap_pending { 0 } else { self.column }
     }
 
     /// Whether the last row is exactly full and the next character starts a new one.
-    pub(super) fn wrap_pending(&self) -> bool {
+    pub(crate) fn wrap_pending(&self) -> bool {
         self.wrap_pending
     }
 
-    pub(super) fn is_at_line_start(&self) -> bool {
+    pub(crate) fn is_at_line_start(&self) -> bool {
         self.column == 0 && !self.wrap_pending
     }
 
-    pub(super) fn return_to_line_start(&mut self) {
+    pub(crate) fn return_to_line_start(&mut self) {
         self.column = 0;
         self.wrap_pending = false;
     }
 
     /// Whether printing `character` wraps onto a new row first; zero-width characters never do.
-    pub(super) fn wraps_before(&self, character: char) -> bool {
+    pub(crate) fn wraps_before(&self, character: char) -> bool {
         let width = character.width().unwrap_or(0);
         width > 0 && (self.wrap_pending || (self.column > 0 && self.column + width > self.width))
     }
 
     /// Moves past `character`, wrapping first when `wraps_before` says so.
-    pub(super) fn advance(&mut self, character: char) {
+    pub(crate) fn advance(&mut self, character: char) {
         let width = character.width().unwrap_or(0);
         if width == 0 {
             return;
@@ -206,6 +214,16 @@ mod tests {
         assert_eq!(escapes("\u{1b}[12"), [("\u{1b}[12", None)]);
         assert_eq!(escapes("\u{1b}]0;title"), [("\u{1b}]0;title", None)]);
         assert_eq!(escapes("x\u{1b}"), [("\u{1b}", None)]);
+    }
+
+    #[test]
+    fn only_sequences_with_no_or_zero_parameters_reset() {
+        for reset in ["\u{1b}[m", "\u{1b}[0m", "\u{1b}[00m"] {
+            assert!(is_sgr_reset(reset), "{reset:?}");
+        }
+        for other in ["\u{1b}[1m", "\u{1b}[0;1m", "\u{1b}[0K", "0m", ""] {
+            assert!(!is_sgr_reset(other), "{other:?}");
+        }
     }
 
     #[test]

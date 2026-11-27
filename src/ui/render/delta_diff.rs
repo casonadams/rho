@@ -6,6 +6,7 @@
 use super::diff::{DiffToken, compute_token_diff, format_gutter_prefix, more_lines_footer, replace_tabs, tokenize};
 use crate::ui::block::leading_escape;
 use crate::ui::markdown::CodeHighlighter;
+use crate::ui::terminal_stream::is_sgr_reset;
 use crate::ui::theme::Theme;
 use std::ops::Range;
 
@@ -40,10 +41,6 @@ fn is_emphasized(pos: usize, ranges: &[Range<usize>]) -> bool {
 
 fn bg_for_state<'a>(emph: bool, base_bg: &'a str, emph_bg: &'a str) -> &'a str {
     if emph { emph_bg } else { base_bg }
-}
-
-fn is_sgr_reset(seq: &str) -> bool {
-    seq == "\x1b[0m" || seq == "\x1b[m"
 }
 
 fn overlay_diff_background(highlighted: &str, base_bg: &str, emph_bg: &str, emph_ranges: &[Range<usize>]) -> String {

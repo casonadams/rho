@@ -2,7 +2,7 @@ use std::io;
 
 use super::backend::TerminalBackend;
 use super::sgr::SgrStyle;
-use super::stream::{Cursor, Token, tokens};
+use crate::ui::terminal_stream::{Cursor, Token, tokens};
 
 pub const CSI_BEGIN_SYNC_UPDATE: &str = "\x1b[?2026h";
 pub const CSI_END_SYNC_UPDATE: &str = "\x1b[?2026l";

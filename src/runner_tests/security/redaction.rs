@@ -57,7 +57,7 @@ fn assert_redacted(completed: &[rho_engine::engine::runner::CompletedTool], disp
     assert_eq!(completed.len(), 1);
     assert!(!completed[0].arguments.to_string().contains(secret) && !completed[0].output.contains(secret));
     assert!(completed[0].output.contains("[REDACTED]"));
-    let plain = strip_ansi_escapes::strip_str(displayed);
+    let plain = crate::ui::block::strip_ansi(displayed);
     assert!(!displayed.contains(secret) && !plain.contains(secret) && plain.contains("[REDACTED]"));
 }
 

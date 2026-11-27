@@ -43,7 +43,7 @@ fn style_header_line(line: &str, theme: &Theme) -> String {
 }
 
 fn highlight_code_block(code: &str, lang: Option<&str>, theme: &Theme) -> String {
-    let clean = strip_ansi_escapes::strip_str(code);
+    let clean = crate::ui::block::strip_ansi(code);
     let trimmed = clean.trim_end_matches('\n');
     let Some(lang) = lang else {
         return format!("{trimmed}\n");
@@ -76,7 +76,7 @@ pub(super) fn style_permission_body(title: &str, body: String, theme: &Theme) ->
         .map(|line| style_header_line(line, theme))
         .collect::<Vec<_>>()
         .join("\n");
-    let clean_code = strip_ansi_escapes::strip_str(code);
+    let clean_code = crate::ui::block::strip_ansi(code);
     let lang = detect_code_lang(tool, &clean_code);
     let styled_code = highlight_code_block(code, lang, theme);
     format!("{styled_header}\n\n{styled_code}")
@@ -95,7 +95,7 @@ mod tests {
         let raw = "Tool: bash\nNotice: Remote git push\nRisk: High risk\n\n\x1b[2mgit push origin main\x1b[0m\n";
         let styled = style_permission_body("Permission Required [Guard]", raw.to_string(), &theme);
         assert!(styled.contains("\x1b["), "expected ANSI highlighting: {styled}");
-        let plain = strip_ansi_escapes::strip_str(&styled);
+        let plain = crate::ui::block::strip_ansi(&styled);
         assert!(plain.contains("Tool: bash"));
         assert!(plain.contains("Notice: Remote git push"));
         assert!(plain.contains("Risk: High risk"));
@@ -111,7 +111,7 @@ mod tests {
         let raw = "Run this query?\n```sql\nSELECT * FROM users;\n```".to_string();
         let styled = style_permission_body("Confirm", raw, &theme);
         assert!(styled.contains("\x1b["));
-        assert!(strip_ansi_escapes::strip_str(&styled).contains("SELECT * FROM users;"));
+        assert!(crate::ui::block::strip_ansi(&styled).contains("SELECT * FROM users;"));
     }
 
     #[test]
