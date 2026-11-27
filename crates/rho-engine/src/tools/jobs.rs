@@ -23,8 +23,8 @@ pub enum JobStatus {
 #[derive(Debug, Clone)]
 pub struct BackgroundJobInfo {
     pub id: JobId,
-    /// The agent whose turns wait for this job and receive its notice; `None` for a job nobody owns.
-    pub owner: Option<AgentId>,
+    /// The agent whose turns wait for this job and receive its notice.
+    pub owner: AgentId,
     pub command: String,
     pub started_at: Instant,
     pub status: JobStatus,
@@ -34,7 +34,7 @@ pub struct BackgroundJobInfo {
 
 impl BackgroundJobInfo {
     fn runs_for(&self, owner: &AgentId) -> bool {
-        self.owner.as_ref() == Some(owner) && self.status == JobStatus::Running
+        &self.owner == owner && self.status == JobStatus::Running
     }
 }
 
@@ -65,8 +65,8 @@ impl Default for JobManager {
 pub struct JobCompletion {
     jobs: JobManager,
     id: JobId,
-    /// Where the owner's notice goes; `None` for a job nobody is told about.
-    owner: Option<NoticeTarget>,
+    /// Where the owner's notice goes.
+    owner: NoticeTarget,
     cancel: CancellationSignal,
     finished: bool,
 }
@@ -90,8 +90,8 @@ impl JobCompletion {
     /// is sent before the job stops counting as running, so a waiting turn cannot miss it.
     pub(crate) fn finish(mut self, status: JobStatus, notice: Option<String>) {
         self.finished = true;
-        if let (Some(owner), Some(notice)) = (&self.owner, notice.filter(|_| !self.cancel.is_cancelled()))
-            && let Err(error) = owner.send(notice)
+        if let Some(notice) = notice.filter(|_| !self.cancel.is_cancelled())
+            && let Err(error) = self.owner.send(notice)
         {
             tracing::warn!("delivering the notice for job {} failed: {error}", self.id);
         }
@@ -140,12 +140,7 @@ impl JobManager {
     }
 
     /// Registers a running job for the agent `owner`. The returned signal fires when the job must stop.
-    #[cfg(test)]
     pub(crate) fn register(&self, owner: &AgentId, id: JobId, command: String) -> CancellationSignal {
-        self.track(Some(owner.clone()), id, command)
-    }
-
-    fn track(&self, owner: Option<AgentId>, id: JobId, command: String) -> CancellationSignal {
         let cancel = CancellationSignal::default();
         let mut registry = self.lock();
         registry.finished.retain(|finished| *finished != id);
@@ -153,7 +148,7 @@ impl JobManager {
             id.clone(),
             BackgroundJobInfo {
                 id,
-                owner,
+                owner: owner.clone(),
                 command,
                 started_at: Instant::now(),
                 status: JobStatus::Running,
@@ -164,10 +159,10 @@ impl JobManager {
         cancel
     }
 
-    /// Registers a running job for the agent `owner` (none for a job nobody waits on) and returns the
-    /// handle that must finish it; its notice goes to `owner`.
-    pub(crate) fn start(&self, owner: Option<NoticeTarget>, id: JobId, command: String) -> JobCompletion {
-        let cancel = self.track(owner.as_ref().map(|target| target.agent().clone()), id.clone(), command);
+    /// Registers a running job for the agent `owner` and returns the handle that must finish it; its
+    /// notice goes to `owner`.
+    pub(crate) fn start(&self, owner: NoticeTarget, id: JobId, command: String) -> JobCompletion {
+        let cancel = self.register(owner.agent(), id.clone(), command);
         JobCompletion {
             jobs: self.clone(),
             id,
@@ -275,7 +270,7 @@ mod tests {
     async fn a_job_whose_task_dies_before_reporting_stops_blocking_its_session() {
         let mgr = JobManager::default();
         let completion = mgr.start(
-            Some(crate::mailbox::Mailboxes::default().notices_for(&id("panicking-owner"))),
+            crate::mailbox::Mailboxes::default().notices_for(&id("panicking-owner")),
             job("p1"),
             "cmd".into(),
         );
@@ -297,12 +292,12 @@ mod tests {
         let boxes = Mailboxes::default();
         let inbox = boxes.open(&id("o"), None);
         let mgr = JobManager::default();
-        mgr.start(Some(inbox.notices()), job("kept"), "cmd".into())
+        mgr.start(inbox.notices(), job("kept"), "cmd".into())
             .finish(done(0, "ok"), Some("kept notice".into()));
-        let stopped = mgr.start(Some(inbox.notices()), job("stopped"), "cmd".into());
+        let stopped = mgr.start(inbox.notices(), job("stopped"), "cmd".into());
         mgr.cancel_owner(&id("o"));
         stopped.finish(done(0, "ok"), Some("stale notice".into()));
-        mgr.start(Some(boxes.notices_for(&id("gone"))), job("orphan"), "cmd".into())
+        mgr.start(boxes.notices_for(&id("gone")), job("orphan"), "cmd".into())
             .finish(done(0, "ok"), Some("nobody listens".into()));
 
         let notices = inbox.take();
@@ -319,8 +314,8 @@ mod tests {
     fn an_earlier_run_finishing_late_leaves_the_rerun_under_its_id_running() {
         let mgr = JobManager::default();
         let boxes = Mailboxes::default();
-        let first = mgr.start(Some(boxes.notices_for(&id("o"))), job("task-1"), "subagent".into());
-        let _second = mgr.start(Some(boxes.notices_for(&id("o"))), job("task-1"), "subagent".into());
+        let first = mgr.start(boxes.notices_for(&id("o")), job("task-1"), "subagent".into());
+        let _second = mgr.start(boxes.notices_for(&id("o")), job("task-1"), "subagent".into());
 
         first.finish(done(0, "stale"), None);
 

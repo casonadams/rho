@@ -5,7 +5,7 @@ use super::normalize::{
 };
 use crate::mailbox::{Mailbox, framed_notice, neutralize_notice_tags};
 use crate::process::{StreamingCommand, configure_shell_command};
-use crate::tools::jobs::{JobCompletion, JobId, JobManager, JobStatus};
+use crate::tools::jobs::{JobCompletion, JobId, JobStatus};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
@@ -16,6 +16,8 @@ use tokio::sync::mpsc::Receiver;
 
 pub const DEFAULT_BASH_TIMEOUT_SEC: u64 = 30;
 const BACKGROUND_MAX_RUNTIME: Duration = Duration::from_secs(60 * 60);
+const NO_BACKGROUND_OWNER: &str =
+    "background commands are unavailable here: no agent could receive their output; run it in the foreground";
 
 async fn setup_command_child(
     base_dir: &Path,
@@ -37,25 +39,16 @@ fn format_background_notice(job_id: &str) -> String {
     format!("background job {job_id}; its output arrives as a follow-up, do not poll")
 }
 
-/// Starts tracking a background command for `owner`; a job without an owner is tracked by nobody,
-/// since no agent could wait for it.
-fn register_background_job(owner: Option<&Mailbox>, command: &str) -> JobCompletion {
-    let id = JobId::from(format!("bash-{}", uuid::Uuid::new_v4().simple()));
-    match owner {
-        Some(owner) => owner.start_job(id, command.to_string()),
-        None => JobManager::default().start(None, id, command.to_string()),
-    }
-}
-
 /// Hands a started command to a background job owned by `owner`, returning the footer naming it.
 fn continue_in_background(
-    owner: Option<&Mailbox>,
+    owner: &Mailbox,
     command: &str,
     cmd: StreamingCommand,
     rx: Receiver<String>,
     acc: OutputAccumulator,
 ) -> String {
-    let job = register_background_job(owner, command);
+    let id = JobId::from(format!("bash-{}", uuid::Uuid::new_v4().simple()));
+    let job = owner.start_job(id, command.to_string());
     let footer = format_background_notice(job.id().as_str());
     dispatch_background_task(cmd, rx, acc, job, BACKGROUND_MAX_RUNTIME);
     footer
@@ -283,7 +276,7 @@ struct TimeoutFallbackContext<'a, F: FnMut(&str)> {
 async fn handle_timeout_fallback<F: FnMut(&str)>(
     mut ctx: TimeoutFallbackContext<'_, F>,
 ) -> Result<ToolResult, AppError> {
-    if ctx.args.background == Some(false) {
+    let Some(owner) = ctx.owner.filter(|_| ctx.args.background != Some(false)) else {
         ctx.cmd.cancel().await;
         while let Ok(chunk) = ctx.rx.try_recv() {
             (ctx.on_chunk)(&chunk);
@@ -294,9 +287,9 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(
         let timeout_sec = ctx.timeout_sec;
         let text = shape_on_blocking_pool(move || timeout_text(&snapshot, timeout_sec)).await?;
         return Ok(ToolResult::error(text));
-    }
+    };
 
-    let footer = continue_in_background(ctx.owner, &ctx.args.command, ctx.cmd, ctx.rx, ctx.acc);
+    let footer = continue_in_background(owner, &ctx.args.command, ctx.cmd, ctx.rx, ctx.acc);
     Ok(ToolResult::error(format!("[timeout {}s; {footer}]", ctx.timeout_sec)))
 }
 
@@ -362,6 +355,9 @@ where
     F: FnMut(&str) + Send + 'static,
 {
     if args.background.unwrap_or(false) {
+        let Some(owner) = owner else {
+            return Ok(ToolResult::error(NO_BACKGROUND_OWNER));
+        };
         let (cmd, rx) = match setup_command_child(base_dir, &args.command, direnv, None).await {
             Ok(v) => v,
             Err(e) => return Ok(e),
@@ -396,7 +392,7 @@ mod tests {
         };
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"max-runtime-owner".into(), None);
-        let job = register_background_job(Some(&inbox), "sleep 1000");
+        let job = inbox.start_job("bash-max".into(), "sleep 1000".into());
         let job_id = job.id().clone();
         let handle = dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(5));
         handle.await.unwrap();
@@ -415,7 +411,7 @@ mod tests {
         };
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"ended-session-owner".into(), None);
-        let job = register_background_job(Some(&inbox), &command);
+        let job = inbox.start_job("bash-ended".into(), command.clone());
         let job_id = job.id().clone();
         let handle = dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(60));
         let mut pid = None;
@@ -455,7 +451,7 @@ mod tests {
         };
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"color-owner".into(), None);
-        let job = register_background_job(Some(&inbox), command);
+        let job = inbox.start_job("bash-color".into(), command.into());
         let job_id = job.id().clone();
         dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(10))
             .await
@@ -487,7 +483,7 @@ mod tests {
         };
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"long-output-owner".into(), None);
-        let job = register_background_job(Some(&inbox), command);
+        let job = inbox.start_job("bash-long".into(), command.into());
         let job_id = job.id().clone();
         let acc = OutputAccumulator::new().with_log_dir(logs.join("rho-bash"));
         dispatch_background_task(cmd, rx, acc, job, Duration::from_secs(10))

@@ -187,13 +187,7 @@ async fn a_round_without_its_own_mailbox_owns_its_background_jobs_under_its_pare
         .get(&"bg-job".into())
         .expect("the job is tracked by the engine");
     assert!(!round.is_finished(), "the round waits for the job it started");
-    assert!(
-        job.owner
-            .as_ref()
-            .is_some_and(|owner| owner.as_str().starts_with("subagent-")),
-        "{:?}",
-        job.owner
-    );
+    assert!(job.owner.as_str().starts_with("subagent-"), "{}", job.owner);
     assert!(!parent.has_running_jobs(), "the round, not its parent, owns the job");
     stop.cancel();
     tokio::time::timeout(std::time::Duration::from_secs(5), round)

@@ -184,7 +184,7 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         .expect("the result names the job")
         .into();
     let jobs = inbox.jobs();
-    assert_eq!(jobs.get(&job_id).unwrap().owner.as_ref(), Some(&owner));
+    assert_eq!(jobs.get(&job_id).unwrap().owner, owner);
     assert!(jobs.has_running(&owner));
 
     inbox.cancel_jobs();
@@ -201,6 +201,37 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         crate::tools::jobs::JobStatus::Failed { .. }
     ));
     assert!(inbox.take().is_empty(), "a stopped job reports nothing");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn without_an_agent_to_report_to_a_command_never_moves_to_the_background() {
+    let dir = tempfile::tempdir().unwrap();
+    let tool = BashTool::new(dir.path());
+
+    let refused = tool
+        .execute(BashArgs {
+            background: Some(true),
+            ..bash_args("sleep 30")
+        })
+        .await
+        .unwrap();
+    let timed_out = tool
+        .execute(BashArgs {
+            timeout: Some(1),
+            ..bash_args("echo started; sleep 30")
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        refused.is_error && refused.content.contains("run it in the foreground"),
+        "{}",
+        refused.content
+    );
+    assert!(timed_out.is_error, "{}", timed_out.content);
+    assert!(!timed_out.content.contains("background job"), "{}", timed_out.content);
+    assert!(timed_out.content.contains("started"), "{}", timed_out.content);
 }
 
 #[test]
@@ -434,14 +465,19 @@ async fn test_bash_nonzero_exit() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn test_bash_timeout() {
+async fn a_command_that_outlives_its_timeout_moves_to_its_agents_background_work() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "sleep 30".to_string(),
-            timeout: Some(1),
-            background: None,
+    let inbox = crate::mailbox::Mailboxes::default().open(&"timeout-owner".into(), None);
+    let bound = tool
+        .tool
+        .bind_turn(&TurnToolContext {
+            inbox: Some(inbox.clone()),
+            ..TurnToolContext::default()
         })
+        .expect("a tool with a mailbox binds to it");
+
+    let res = bound
+        .execute(serde_json::json!({ "command": "sleep 30", "timeout": 1 }))
         .await
         .unwrap();
 
@@ -451,6 +487,8 @@ async fn test_bash_timeout() {
         "{}",
         res.content
     );
+    assert!(inbox.has_running_jobs());
+    inbox.cancel_jobs();
 }
 
 #[cfg(unix)]

@@ -142,8 +142,7 @@ async fn test_wait_for_background_jobs_flow() {
     let emitter = acking_emitter();
 
     assert!(!wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
-    let notices = runner.inbox.as_ref().map(crate::mailbox::Mailbox::notices);
-    let job = jobs(&runner).start(notices, "bg-1".into(), "echo 1".into());
+    let job = runner.inbox.as_ref().unwrap().start_job("bg-1".into(), "echo 1".into());
     tokio::spawn(async move {
         job.finish(
             crate::tools::jobs::JobStatus::Completed {
@@ -169,7 +168,7 @@ async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
     let emitter = acking_emitter();
     let jobs = jobs(&runner);
     let job = jobs.start(
-        runner.inbox.as_ref().map(crate::mailbox::Mailbox::notices),
+        runner.inbox.as_ref().unwrap().notices(),
         "silent-5e3".into(),
         "sleep".into(),
     );
@@ -203,7 +202,7 @@ async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read()
     let child = parent.registry().open(&"asker-6a1".into(), Some(parent.id()));
     let request = child.ask_parent("which module?").unwrap();
     let _ = parent.take();
-    let job = jobs(&runner).start(Some(parent.notices()), "asker-job-6a1".into(), "subagent".into());
+    let job = parent.start_job("asker-job-6a1".into(), "subagent".into());
     let asker = tokio::spawn(async move {
         let reply = child.reply(&request).await;
         job.finish(crate::tools::jobs::JobStatus::Failed { error: "paused".into() }, None);
