@@ -396,7 +396,8 @@ impl SubagentTool {
         let runner = runner
             .with_context(self.ctx.clone())
             .with_worktree_lsp(self.worktree_lsp.clone())
-            .with_keep_recent_tokens(self.keep_recent_tokens);
+            .with_keep_recent_tokens(self.keep_recent_tokens)
+            .with_context_policy(source.context);
         let runner = match persona {
             Some(persona) => runner.with_persona(persona),
             None => runner,

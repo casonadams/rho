@@ -2,7 +2,7 @@ use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 
 use super::AgentEngine;
-use super::tracking::{ContextLimitSource, ContextTracker};
+use super::tracking::{ContextLimitSource, ContextPolicy, ContextTracker};
 use crate::provider::ModelCatalog;
 use rho_harness_core::provider::{ModelRoute, ProviderId};
 
@@ -32,10 +32,11 @@ impl AgentEngine {
             models.replace(
                 Some(model_handle.clone()),
                 super::builder::subagent_model_resolver(&self.router, &self.config),
+                self.context_policy(),
             );
         }
         self.model = Some(model_handle);
-        self.context = ContextTracker::new(self.config.context_limit);
+        self.context = ContextTracker::new();
 
         self.force_refresh_quota();
         Ok(())
@@ -54,7 +55,21 @@ impl AgentEngine {
     }
 
     fn resolve_context_limit(&self) -> (usize, ContextLimitSource) {
-        self.context.resolve_limit(self.model_catalog(), &self.config.route())
+        self.context_policy().window(&self.config.route())
+    }
+
+    /// How the window of the session's model, or a subagent's, is found and where it compacts.
+    pub(crate) fn context_policy(&self) -> ContextPolicy {
+        ContextPolicy::new(
+            self.model_catalog().clone(),
+            self.config.context_limit,
+            self.config.reserve_tokens,
+        )
+    }
+
+    /// The context size past which the session's model compacts.
+    pub(crate) fn compaction_at(&self) -> usize {
+        self.context_policy().compaction_at(self.context_limit())
     }
 
     /// Why rho could not read the local Ollama server's allocated window after the last turn.
@@ -259,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_reports_failures_until_the_next_success() {
-        let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new(None));
+        let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new());
         let host = serve_http(vec![
             ("500 Internal Server Error", "{}".to_string()),
             ("200 OK", ps_body(262_144)),
@@ -278,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn probe_keeps_current_window_when_model_is_not_loaded() {
-        let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new(None));
+        let (catalog, context) = (catalog_with_trained_window(), ContextTracker::new());
         let host = serve_http(vec![("200 OK", r#"{"models":[]}"#.to_string())]).await;
 
         probe(host, &catalog, &context).run().await;

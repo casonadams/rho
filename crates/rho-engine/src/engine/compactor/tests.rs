@@ -873,8 +873,10 @@ mod recovery {
 
     fn assert_recovery_presenter(presenter: &CapturingPresenter) {
         let notices = presenter.notices.lock().unwrap().clone();
-        assert!(notices.iter().any(|n| n.contains("Context overflow detected")));
-        assert!(notices.iter().any(|n| n.contains("Compacted context")));
+        assert!(
+            notices.iter().any(|n| n.contains("Auto-compacted context")),
+            "{notices:?}"
+        );
         assert!(
             presenter
                 .spinner_messages
@@ -886,11 +888,18 @@ mod recovery {
     }
 
     fn recovery_engine(dir: &std::path::Path, model: Arc<MockAdapter>) -> crate::engine::AgentEngine {
-        let app_config = Config {
-            keep_recent_tokens: 5,
-            auth_file: dir.join("auth.json"),
-            ..Config::default()
-        };
+        engine_with(
+            dir,
+            model,
+            Config {
+                keep_recent_tokens: 5,
+                auth_file: dir.join("auth.json"),
+                ..Config::default()
+            },
+        )
+    }
+
+    fn engine_with(dir: &std::path::Path, model: Arc<MockAdapter>, app_config: Config) -> crate::engine::AgentEngine {
         mock_engine(
             model,
             MockEngineConfig {
@@ -903,15 +912,17 @@ mod recovery {
     }
 
     #[tokio::test]
-    async fn test_context_overflow_auto_recovery_halts_after_compaction() {
+    async fn an_overflow_on_the_first_request_compacts_and_sends_the_prompt_again() {
         let dir = crate::test_support::TestDir::new();
         let model = Arc::new(MockAdapter::default());
         model.add_turn(vec![Err(AppError::ContextOverflow(
             "context_length_exceeded: maximum context length is 128000 tokens".to_string(),
         ))]);
-        model.add_turn(vec![Ok(ModelStreamEvent::Text("recovered from overflow".to_string()))]);
+        model.add_turn(vec![Ok(ModelStreamEvent::Text(
+            "answered after compacting".to_string(),
+        ))]);
 
-        let engine = recovery_engine(&dir, model);
+        let engine = recovery_engine(&dir, model.clone());
         let session_id = engine.session_manager.session_id.clone();
         populate_recovery_history(&engine.session_manager, &session_id).await;
 
@@ -923,9 +934,12 @@ mod recovery {
             )
             .await
             .unwrap();
-        assert_eq!(output.status, crate::engine::runner::RunStatus::Compacted);
-        assert_eq!(output.final_text, "");
+        assert_eq!(output.status, crate::engine::runner::RunStatus::Completed);
+        assert_eq!(output.final_text, "answered after compacting");
         assert_recovery_presenter(&presenter);
+        let last = model.requests().pop().unwrap();
+        let asked = format!("{:?}", last.messages.last());
+        assert!(asked.contains("New prompt that overflows initially"), "{asked}");
     }
 
     #[tokio::test]
@@ -946,6 +960,7 @@ mod recovery {
         model.add_turn(vec![Err(AppError::ContextOverflow(
             "context_length_exceeded".to_string(),
         ))]);
+        model.add_turn(vec![Ok(ModelStreamEvent::Text("finished the long task".to_string()))]);
 
         let engine = recovery_engine(dir.path(), model);
         let session_id = engine.session_manager.session_id.clone();
@@ -958,7 +973,11 @@ mod recovery {
         let notices = presenter.notices.lock().unwrap().clone();
         let output = output.unwrap_or_else(|e| panic!("{e}; notices: {notices:?}"));
 
-        assert_eq!(output.status, crate::engine::runner::RunStatus::CompactedMidTurn);
+        assert_eq!(output.final_text, "finished the long task");
+        assert_eq!(
+            output.requests, 2,
+            "the step before the overflow and the answer after it"
+        );
         assert_recovery_presenter(&presenter);
         let sm = &engine.session_manager;
         assert!(sm.load_checkpoint().await.unwrap().is_none());
@@ -975,8 +994,63 @@ mod recovery {
             everything.contains("This turn stopped before finishing"),
             "{everything}"
         );
-        let notices = presenter.notices.lock().unwrap().join("\n");
-        assert!(notices.contains("the turn's work so far was kept"), "{notices}");
+        assert!(
+            everything.contains("continue the task from where it stopped"),
+            "{everything}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_turn_compacts_once_its_context_passes_the_threshold_without_waiting_for_an_overflow() {
+        use rho_harness_core::model::{ToolCall, ToolFunction};
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(MockAdapter::default());
+        model.add_turn(vec![
+            Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+                "call-1",
+                ToolFunction::new("missing", serde_json::json!({})),
+            ))),
+            Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
+                input_tokens: 9_000,
+                ..Default::default()
+            })),
+        ]);
+        model.add_turn(vec![Ok(ModelStreamEvent::Text("done without overflowing".to_string()))]);
+        let config = Config {
+            keep_recent_tokens: 5,
+            context_limit: Some(10_000),
+            reserve_tokens: 2_000,
+            auth_file: dir.path().join("auth.json"),
+            ..Config::default()
+        };
+        let engine = engine_with(dir.path(), model.clone(), config);
+        let session_id = engine.session_manager.session_id.clone();
+        populate_recovery_history(&engine.session_manager, &session_id).await;
+
+        let presenter = Arc::new(CapturingPresenter::default());
+        let output = engine
+            .run_turn(TurnRequest::new("Long task"), presenter.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(output.final_text, "done without overflowing");
+        assert_recovery_presenter(&presenter);
+        let requests = model.requests();
+        assert_eq!(
+            requests.len(),
+            2,
+            "the step, then the answer from the compacted context"
+        );
+        let resumed = &requests[1];
+        assert!(
+            matches!(&resumed.messages[0], ChatMessage::System { .. }),
+            "{:?}",
+            resumed.messages[0]
+        );
+        assert!(
+            matches!(resumed.messages.last(), Some(ChatMessage::User { .. }))
+                && format!("{:?}", resumed.messages.last()).contains("continue the task")
+        );
     }
 
     #[tokio::test]
@@ -1005,31 +1079,24 @@ mod recovery {
     }
 
     #[tokio::test]
-    async fn test_context_overflow_fails_if_overflow_persists() {
+    async fn an_overflow_that_compaction_cannot_fix_fails_the_turn() {
         let dir = crate::test_support::TestDir::new();
         let model = Arc::new(MockAdapter::default());
-        model.add_turn(vec![Err(AppError::ContextOverflow(
-            "context_length_exceeded".to_string(),
-        ))]);
-        model.add_turn(vec![Err(AppError::ContextOverflow(
-            "context_length_exceeded".to_string(),
-        ))]);
+        for _ in 0..crate::engine::compactor::MAX_COMPACTIONS_PER_TURN + 1 {
+            model.add_turn(vec![Err(AppError::ContextOverflow(
+                "context_length_exceeded".to_string(),
+            ))]);
+        }
 
         let engine = recovery_engine(&dir, model);
         let session_id = engine.session_manager.session_id.clone();
         populate_recovery_history(&engine.session_manager, &session_id).await;
 
         let presenter = Arc::new(CapturingPresenter::default());
-        let first = engine
-            .run_turn(TurnRequest::new("Persistent overflow prompt"), presenter.clone())
-            .await
-            .unwrap();
-        assert_eq!(first.status, crate::engine::runner::RunStatus::Compacted);
-
-        let second = engine
+        let result = engine
             .run_turn(TurnRequest::new("Persistent overflow prompt"), presenter)
             .await;
-        assert!(second.is_err());
+        assert!(matches!(result, Err(AppError::ContextOverflow(_))), "{result:?}");
     }
 }
 

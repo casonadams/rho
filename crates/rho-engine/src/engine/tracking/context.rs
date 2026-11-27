@@ -15,7 +15,6 @@ pub enum ContextLimitSource {
 
 #[derive(Debug, Clone, Default)]
 pub struct ContextTracker {
-    configured_limit: Option<usize>,
     probe_error: Arc<Mutex<Option<String>>>,
     token_cache: Arc<Mutex<MessageTokenCache>>,
     notified_percent: Arc<Mutex<Option<u64>>>,
@@ -45,6 +44,7 @@ pub struct ContextBudget {
     limit: u64,
     compaction_at: u64,
     announce: bool,
+    stops_for_compaction: bool,
     notified_percent: Arc<Mutex<Option<u64>>>,
 }
 
@@ -60,7 +60,7 @@ impl ContextBudget {
             return;
         };
         let notice = format!(
-            "[context: {} of {} tokens used ({}%); compaction starts near {} at the next turn]",
+            "[context: {} of {} tokens used ({}%); compaction starts near {}]",
             format_tokens(used),
             format_tokens(self.limit),
             used.saturating_mul(100) / self.limit,
@@ -70,45 +70,95 @@ impl ContextBudget {
             *lock(&self.notified_percent) = Some(percent);
         }
     }
+
+    /// Whether a request whose prompt used `used` tokens leaves too little room for the next one.
+    pub fn compaction_due(&self, used: u64) -> bool {
+        self.stops_for_compaction && used > self.compaction_at
+    }
+
+    /// The budget, stopping for compaction only with `stops`; a turn whose context could not be
+    /// compacted keeps its notices and runs on until an overflow.
+    #[must_use]
+    pub fn with_compaction_stops(mut self, stops: bool) -> Self {
+        self.stops_for_compaction = stops;
+        self
+    }
 }
 
-impl ContextTracker {
-    pub fn new(configured_limit: Option<usize>) -> Self {
+/// Where a model's window comes from and how much of it compaction keeps free. The main agent and
+/// subagents share it, so each compacts at the same point of its own model's window.
+#[derive(Debug, Clone, Default)]
+pub struct ContextPolicy {
+    catalog: ModelCatalog,
+    configured_limit: Option<usize>,
+    reserve_tokens: usize,
+}
+
+impl ContextPolicy {
+    pub fn new(catalog: ModelCatalog, configured_limit: Option<usize>, reserve_tokens: usize) -> Self {
         Self {
+            catalog,
             configured_limit,
-            probe_error: Arc::default(),
-            token_cache: Arc::new(Mutex::new(MessageTokenCache::new())),
-            notified_percent: Arc::default(),
+            reserve_tokens,
         }
-    }
-
-    /// The budget for a turn against a `limit`-token window that auto-compacts above `compaction_at`.
-    pub fn budget(&self, limit: usize, source: ContextLimitSource, compaction_at: usize) -> ContextBudget {
-        ContextBudget {
-            limit: limit as u64,
-            compaction_at: compaction_at as u64,
-            announce: source != ContextLimitSource::Estimated,
-            notified_percent: Arc::clone(&self.notified_percent),
-        }
-    }
-
-    /// Starts the notices over for a freshly compacted or switched context.
-    pub fn reset_notices(&self) {
-        *lock(&self.notified_percent) = None;
     }
 
     /// The configured limit, else the provider's window for `route`, else an estimate from its name.
-    pub fn resolve_limit(&self, catalog: &ModelCatalog, route: &ModelRoute) -> (usize, ContextLimitSource) {
+    pub fn window(&self, route: &ModelRoute) -> (usize, ContextLimitSource) {
         if let Some(limit) = self.configured_limit {
             return (limit, ContextLimitSource::Configured);
         }
-        match catalog.context_tokens(route.provider(), &route.model) {
+        match self.catalog.context_tokens(route.provider(), &route.model) {
             Some(limit) => (limit, ContextLimitSource::Provider),
             None => (
                 rho_harness_core::tokens::context_window_size_for_provider(&route.model, route.provider()),
                 ContextLimitSource::Estimated,
             ),
         }
+    }
+
+    /// The context size past which a `limit`-token window is compacted.
+    pub fn compaction_at(&self, limit: usize) -> usize {
+        limit.saturating_sub(self.reserve_tokens)
+    }
+
+    /// The budget of an agent on `route` whose context is its own, with notices of its own.
+    pub fn budget(&self, route: &ModelRoute) -> ContextBudget {
+        let (limit, source) = self.window(route);
+        ContextBudget::new(limit, source, self.compaction_at(limit), Arc::default())
+    }
+}
+
+impl ContextBudget {
+    fn new(limit: usize, source: ContextLimitSource, compaction_at: usize, notified: Arc<Mutex<Option<u64>>>) -> Self {
+        Self {
+            limit: limit as u64,
+            compaction_at: compaction_at as u64,
+            announce: source != ContextLimitSource::Estimated,
+            stops_for_compaction: true,
+            notified_percent: notified,
+        }
+    }
+}
+
+impl ContextTracker {
+    pub fn new() -> Self {
+        Self {
+            probe_error: Arc::default(),
+            token_cache: Arc::new(Mutex::new(MessageTokenCache::new())),
+            notified_percent: Arc::default(),
+        }
+    }
+
+    /// The session's budget against a `limit`-token window that compacts above `compaction_at`;
+    /// its notices carry over between turns until the next compaction.
+    pub fn budget(&self, limit: usize, source: ContextLimitSource, compaction_at: usize) -> ContextBudget {
+        ContextBudget::new(limit, source, compaction_at, Arc::clone(&self.notified_percent))
+    }
+
+    /// Starts the notices over for a freshly compacted or switched context.
+    pub fn reset_notices(&self) {
+        *lock(&self.notified_percent) = None;
     }
 
     /// Why the last attempt to read the provider's live window failed; cleared by the next success.
@@ -141,7 +191,7 @@ impl ContextTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContextLimitSource, ContextTracker};
+    use super::{ContextLimitSource, ContextPolicy, ContextTracker};
     use crate::provider::{DiscoveredModel, ModelCatalog, ProviderModels};
     use rho_harness_core::provider::ModelRoute;
 
@@ -177,9 +227,9 @@ mod tests {
             (None, ModelCatalog::default(), (estimate, ContextLimitSource::Estimated)),
         ];
         for (configured, catalog, expected) in cases {
-            let tracker = ContextTracker::new(configured);
+            let policy = ContextPolicy::new(catalog, configured, 0);
             assert_eq!(
-                tracker.resolve_limit(&catalog, &ModelRoute::new("local", "m")),
+                policy.window(&ModelRoute::new("local", "m")),
                 expected,
                 "{configured:?}"
             );
@@ -188,9 +238,28 @@ mod tests {
 
     #[test]
     fn provider_aliases_share_one_catalog_entry() {
-        let tracker = ContextTracker::new(None);
-        let catalog = catalog_with("local", "m", 8192);
-        assert_eq!(tracker.resolve_limit(&catalog, &ModelRoute::new("ollama", "m")).0, 8192);
+        let policy = ContextPolicy::new(catalog_with("local", "m", 8192), None, 0);
+        assert_eq!(policy.window(&ModelRoute::new("ollama", "m")).0, 8192);
+    }
+
+    #[test]
+    fn each_model_compacts_once_its_context_passes_its_own_window_less_the_reserve() {
+        let catalog = catalog_with("local", "small", 32_000);
+        let policy = ContextPolicy::new(catalog, None, 4_000);
+        let budget = policy.budget(&ModelRoute::new("local", "small"));
+        assert!(!budget.compaction_due(28_000));
+        assert!(budget.compaction_due(28_001));
+        assert!(!budget.with_compaction_stops(false).compaction_due(28_001));
+    }
+
+    #[test]
+    fn an_agent_budget_keeps_its_notices_apart_from_the_session() {
+        let tracker = ContextTracker::new();
+        let session = tracker.budget(200_000, ContextLimitSource::Provider, 183_616);
+        assert!(delivered(&session, 120_000, true).is_some());
+        let policy = ContextPolicy::new(catalog_with("local", "m", 200_000), None, 16_384);
+        let agent = policy.budget(&ModelRoute::new("local", "m"));
+        assert!(delivered(&agent, 120_000, true).is_some());
     }
 
     #[test]
@@ -221,7 +290,7 @@ mod tests {
 
     #[test]
     fn budget_notices_each_crossing_once_until_compaction() {
-        let tracker = ContextTracker::new(None);
+        let tracker = ContextTracker::new();
         let budget = tracker.budget(200_000, ContextLimitSource::Provider, 183_616);
         let notices =
             |used: &[u64]| -> Vec<Option<String>> { used.iter().map(|&u| delivered(&budget, u, true)).collect() };
@@ -229,15 +298,9 @@ mod tests {
             notices(&[90_000, 142_000, 145_000, 160_000]),
             [
                 None,
-                Some(
-                    "[context: 142k of 200k tokens used (71%); compaction starts near 184k at the next turn]"
-                        .to_string()
-                ),
+                Some("[context: 142k of 200k tokens used (71%); compaction starts near 184k]".to_string()),
                 None,
-                Some(
-                    "[context: 160k of 200k tokens used (80%); compaction starts near 184k at the next turn]"
-                        .to_string()
-                ),
+                Some("[context: 160k of 200k tokens used (80%); compaction starts near 184k]".to_string()),
             ]
         );
         tracker.reset_notices();
@@ -248,13 +311,13 @@ mod tests {
                 true
             )
             .as_deref(),
-            Some("[context: 100k of 200k tokens used (50%); compaction starts near 184k at the next turn]")
+            Some("[context: 100k of 200k tokens used (50%); compaction starts near 184k]")
         );
     }
 
     #[test]
     fn a_notice_that_could_not_be_delivered_is_offered_again() {
-        let budget = ContextTracker::new(None).budget(200_000, ContextLimitSource::Provider, 183_616);
+        let budget = ContextTracker::new().budget(200_000, ContextLimitSource::Provider, 183_616);
         assert!(delivered(&budget, 120_000, false).is_some());
         assert!(delivered(&budget, 121_000, true).is_some());
         assert_eq!(delivered(&budget, 122_000, true), None);
@@ -262,13 +325,13 @@ mod tests {
 
     #[test]
     fn estimated_windows_give_no_notices() {
-        let budget = ContextTracker::new(None).budget(200_000, ContextLimitSource::Estimated, 183_616);
+        let budget = ContextTracker::new().budget(200_000, ContextLimitSource::Estimated, 183_616);
         assert_eq!(delivered(&budget, 190_000, true), None);
     }
 
     #[test]
     fn a_poisoned_lock_does_not_stop_notices_or_reset() {
-        let tracker = ContextTracker::new(None);
+        let tracker = ContextTracker::new();
         let poisoner = tracker.clone();
         let _ = std::thread::spawn(move || {
             let _guard = poisoner.notified_percent.lock().unwrap();
@@ -283,7 +346,7 @@ mod tests {
 
     #[test]
     fn the_lock_is_not_held_while_delivering() {
-        let budget = ContextTracker::new(None).budget(200_000, ContextLimitSource::Provider, 183_616);
+        let budget = ContextTracker::new().budget(200_000, ContextLimitSource::Provider, 183_616);
         let mut nested = None;
         budget.notice(120_000, |_| {
             nested = delivered(&budget, 130_000, true);
@@ -294,7 +357,7 @@ mod tests {
 
     #[test]
     fn probe_errors_reach_existing_trackers() {
-        let tracker = ContextTracker::new(None);
+        let tracker = ContextTracker::new();
         let clone = tracker.clone();
         clone.set_probe_error(Some("Ollama /api/ps request failed".to_string()));
         assert_eq!(tracker.probe_error().as_deref(), Some("Ollama /api/ps request failed"));

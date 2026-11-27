@@ -31,6 +31,7 @@ pub(super) struct TurnRunnerParams<'a> {
     pub thinking_level: Option<ThinkingLevel>,
     pub checkpoint: Option<&'a [ChatMessage]>,
     pub history: &'a [ChatMessage],
+    pub compact_early: bool,
 }
 
 pub(super) struct PreparedTurn {
@@ -51,7 +52,11 @@ pub(super) struct TurnLoopState {
     pub current_prompt: String,
     pub current_budget: usize,
     pub thinking_level: Option<ThinkingLevel>,
-    pub overflow_recovered: bool,
+    /// Times this turn has compacted its context and gone on.
+    pub compactions: usize,
+    /// Stops to compact once the context passes the threshold; off once that found nothing to
+    /// compact, so the turn runs on until an overflow instead.
+    pub compact_early: bool,
     pub turn_started_at: std::time::Instant,
 }
 
@@ -171,16 +176,11 @@ impl AgentEngine {
             .map(|u| self.consumed_context(&u) as usize)
             .unwrap_or_else(|| self.context.estimate_messages_tokens(history, &self.config.model));
         let total_tokens = history_tokens.saturating_add(additional_tokens);
-        let limit = self.context_limit();
-        let threshold = limit.saturating_sub(self.config.reserve_tokens);
-        if total_tokens > threshold {
+        if total_tokens > self.compaction_at() {
             let _spinner = presenter.start_spinner("Compacting...");
             let stats = self.compact_session(None).await?;
             *history = self.session_manager.active_messages().await?;
-            presenter.print_notice(&format!(
-                "[Auto-compacted context: {} -> {} tokens (saved {})]",
-                stats.tokens_before, stats.tokens_after, stats.saved_tokens
-            ));
+            presenter.print_notice(&stats.auto_notice());
             Ok(Some(stats))
         } else {
             Ok(None)
@@ -203,7 +203,7 @@ impl AgentEngine {
             .await?
             .is_some()
         {
-            return self.compacted_turn_output(super::RunStatus::Compacted).await.map(Some);
+            return self.compacted_turn_output().await.map(Some);
         }
         Ok(None)
     }
@@ -240,7 +240,8 @@ impl AgentEngine {
             current_prompt: effective_prompt.to_string(),
             current_budget: self.config.max_turns,
             thinking_level: None,
-            overflow_recovered: false,
+            compactions: 0,
+            compact_early: true,
             turn_started_at: std::time::Instant::now(),
         };
         Ok(PreparedTurn {
@@ -312,11 +313,11 @@ impl AgentEngine {
             .monitor(Some(self.agent_monitor.clone()))
             .project_context(self.project_context().await.ok().map(Arc::new))
             .worktrees(self.worktrees.clone())
-            .context_budget(Some(self.context.budget(
-                self.context_limit(),
-                self.context_limit_source(),
-                self.context_limit().saturating_sub(self.config.reserve_tokens),
-            )))
+            .context_budget(Some(
+                self.context
+                    .budget(self.context_limit(), self.context_limit_source(), self.compaction_at())
+                    .with_compaction_stops(params.compact_early),
+            ))
             .working_dir(self.base_dir.clone())
             .a2ui_config(self.config.ui.a2ui_widgets, self.config.ui.a2ui.clone());
 
@@ -389,8 +390,6 @@ impl AgentEngine {
     ) -> Result<AgentRunner> {
         let presenter = lifecycle_hook.presenter();
         let cwd = self.base_dir.clone();
-        lifecycle_hook.notify_turn_start(&loop_state.current_prompt).await;
-
         let permission_hook = self.permission_hook(cwd, presenter).await;
 
         let runner = self
@@ -402,6 +401,7 @@ impl AgentEngine {
                     thinking_level: loop_state.thinking_level,
                     checkpoint: loop_state.checkpoint.as_deref(),
                     history: &loop_state.visible_history,
+                    compact_early: loop_state.compact_early,
                 },
                 sink.clone(),
                 request,

@@ -24,7 +24,7 @@ use crate::engine::AgentEngine;
 use prepare::TurnLoopState;
 use rho_harness_core::error::Result;
 use rho_harness_core::presentation::presenter::Presenter;
-use stream::StreamRunResult;
+use stream::{RunEnd, StreamRunResult, TurnStreamState};
 
 use super::sink::TerminalApprovalSink;
 
@@ -38,7 +38,6 @@ impl AgentEngine {
     ) -> Result<TurnOutput> {
         sink.record_tool_events().await?;
         match res {
-            StreamRunResult::Compacted(status) => self.compacted_turn_output(status).await,
             StreamRunResult::Complete(state) => {
                 let elapsed = Self::elapsed_generation_ms(&state);
                 let ttft_ms = Self::ttft_ms(&state);
@@ -64,10 +63,10 @@ impl AgentEngine {
                 let ttft_ms = Self::ttft_ms(&state);
                 sink.finish_spinner();
                 sink.flush_display();
-                let prompt_response = crate::engine::metrics::types::PromptResponse::new(
+                let prompt_response = state.whole_turn(crate::engine::metrics::types::PromptResponse::new(
                     "",
                     crate::engine::metrics::types::StructuralUsage::default(),
-                );
+                ));
                 let mut out = self
                     .finish_turn(
                         crate::engine::runner::sink::TurnArtifacts {
@@ -88,6 +87,8 @@ impl AgentEngine {
         }
     }
 
+    /// Runs the turn loop until the turn is over, starting it again with the turns it has left
+    /// each time it stops to make room in its context.
     async fn execute_turn_step(
         &self,
         sink: &Arc<TerminalApprovalSink>,
@@ -97,14 +98,27 @@ impl AgentEngine {
         loop_state: &mut TurnLoopState,
     ) -> Result<TurnOutput> {
         let presenter = lifecycle.presenter();
-        let runner = self
-            .prepare_step_runner(sink, preamble, request, lifecycle, loop_state)
-            .await?;
-        let stream_res = self
-            .run_turn_stream(runner, sink, presenter.as_ref(), loop_state)
-            .await?;
-        self.handle_stream_run_result(stream_res, sink, lifecycle, loop_state.turn_started_at)
-            .await
+        lifecycle.notify_turn_start(&loop_state.current_prompt).await;
+        let mut state = TurnStreamState::new();
+        loop {
+            let runner = self
+                .prepare_step_runner(sink, preamble, request, lifecycle, loop_state)
+                .await?;
+            match self
+                .run_turn_stream(runner, sink, presenter.as_ref(), loop_state, state)
+                .await?
+            {
+                RunEnd::MadeRoom(paused) => {
+                    state = *paused;
+                    loop_state.current_budget = loop_state.current_budget.saturating_sub(state.next_run());
+                }
+                RunEnd::Finished(result) => {
+                    return self
+                        .handle_stream_run_result(result, sink, lifecycle, loop_state.turn_started_at)
+                        .await;
+                }
+            }
+        }
     }
 
     pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {

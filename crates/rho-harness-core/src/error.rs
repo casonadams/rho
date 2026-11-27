@@ -32,6 +32,8 @@ pub enum AppError {
     },
     #[error("Context window exceeded: {0}")]
     ContextOverflow(String),
+    #[error("Context reached {used} tokens, past where compaction starts")]
+    CompactionDue { used: u64 },
     #[error("The provider filtered the model response")]
     ContentFiltered,
     #[error("Operation cancelled: {0}")]
@@ -56,6 +58,11 @@ impl AppError {
             Self::RateLimited { retry_after, .. } | Self::ProviderUnavailable { retry_after, .. } => *retry_after,
             _ => None,
         }
+    }
+
+    /// The turn stopped because its context is full or nearly so, and continues once compacted.
+    pub fn needs_compaction(&self) -> bool {
+        matches!(self, Self::ContextOverflow(_) | Self::CompactionDue { .. })
     }
 
     pub fn is_transient(&self) -> bool {

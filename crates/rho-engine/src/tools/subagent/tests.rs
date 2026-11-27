@@ -149,6 +149,7 @@ async fn replacing_the_models_moves_every_copy_to_the_short_lived_session_model(
             ..TestModel::answering("from session model")
         })),
         Arc::new(|model| Err(format!("unexpected model {model}"))),
+        crate::engine::tracking::ContextPolicy::default(),
     );
     let result = copy.execute(json!({ "prompt": "survey" })).await.unwrap();
     assert!(

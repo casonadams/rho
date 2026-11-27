@@ -255,7 +255,13 @@ Selecting `/thinking auto` (or setting `thinking_level = "auto"` in `config.toml
   stubs it sent last time and prunes further only when the saving is at least
   a quarter of the history it would have to re-cache.
 - **Auto-compaction.** When the history approaches the context limit minus the
-  reserve (default 16,384 tokens), earlier turns are summarized. A `todo` list
+  reserve (default 16,384 tokens), earlier turns are summarized: before a turn
+  starts, and during a turn as soon as a request's prompt passes that point, so
+  the turn compacts and carries on with its saved work instead of waiting for
+  the provider to reject a request. A request rejected as too long is compacted
+  and retried the same way. A turn compacts at most three times; when an early
+  compaction finds nothing to fold, it runs on until the window is actually
+  full. Subagents follow the same rule against their own model's window. A `todo` list
   with unfinished items is copied into the summary as a `<todos>` block, so the
   agent keeps its plan. After pruning
   changes the history, the size check estimates the pruned history instead of
@@ -264,15 +270,15 @@ Selecting `/thinking auto` (or setting `thinking_level = "auto"` in `config.toml
 - **Context budget notices.** The first time a request's prompt passes 50%,
   75%, or 90% of the context window, the next tool results sent to the model
   end with one line such as
-  `[context: 142k of 200k tokens used (71%); compaction starts near 184k at the next turn]`, so it
+  `[context: 142k of 200k tokens used (71%); compaction starts near 184k]`, so it
   can delegate to subagents or read less. Each percentage is reported once
   until the next compaction, branch switch, or rewind, and no notice is sent
   while the window size is only an estimate. The line goes only on the newest tool results (a
   turn that ends without tool calls reports it on a later one), so the cached
   prompt prefix never changes, and it is saved with that tool result.
-  Subagents do not receive it.
+  Subagents receive their own notices against their model's window.
 - **Context window source.** `context_limit` (or `AI_CONTEXT_LIMIT`) always
-  wins. Otherwise rho uses the window the provider lists for the model in its
+  wins, for subagents' models too. Otherwise rho uses the window the provider lists for the model in its
   live model list (fetched each session, never cached on disk). For local
   Ollama, that is the window the server actually allocated (read from `/api/ps`
   after each turn), falling back to the model's `num_ctx` or trained maximum

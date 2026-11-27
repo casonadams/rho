@@ -46,6 +46,68 @@ async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round()
     );
 }
 
+/// A step that reads a file and reports `used` tokens of context.
+fn read_using(file: &str, used: u64) -> Vec<Result<ModelStreamEvent, AppError>> {
+    let mut turn: Vec<_> = tool_call_turn(&[("read", file)]).into_iter().map(Ok).collect();
+    turn.push(Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
+        input_tokens: used,
+        ..Default::default()
+    })));
+    turn
+}
+
+/// A window of 10k tokens that compacts past 8k.
+fn small_window() -> Option<crate::engine::tracking::ContextPolicy> {
+    Some(crate::engine::tracking::ContextPolicy::new(
+        crate::provider::ModelCatalog::default(),
+        Some(10_000),
+        2_000,
+    ))
+}
+
+#[tokio::test]
+async fn a_subagent_compacts_once_its_context_passes_the_threshold_without_waiting_for_an_overflow() {
+    let adapter = MockAdapter::from_result_turns([
+        read_using("big", 4_000),
+        read_using("bigger", 9_000),
+        vec![Ok(ModelStreamEvent::Text("Read big and bigger.".into()))],
+        vec![Ok(ModelStreamEvent::Text("Done after compacting.".into()))],
+    ]);
+    let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
+        .with_keep_recent_tokens(1)
+        .with_context_policy(small_window());
+
+    let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
+
+    assert_eq!(round.end, round::RoundEnd::Answered("Done after compacting.".into()));
+    assert!(round.compacted);
+    let requests = adapter.requests();
+    assert_eq!(requests.len(), 4, "two steps, the summary, then the answer");
+    assert!(
+        matches!(&requests[3].messages[0], ChatMessage::System { content } if content.contains("Read big and bigger"))
+    );
+}
+
+#[tokio::test]
+async fn a_subagent_with_nothing_to_compact_runs_on_instead_of_stopping_early() {
+    let adapter = MockAdapter::from_result_turns([
+        read_using("big", 9_000),
+        read_using("bigger", 9_500),
+        vec![Ok(ModelStreamEvent::Text("Done.".into()))],
+    ]);
+    let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".to_string())];
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
+        .with_keep_recent_tokens(1_000_000)
+        .with_context_policy(small_window());
+
+    let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
+
+    assert_eq!(round.end, round::RoundEnd::Answered("Done.".into()));
+    assert!(!round.compacted);
+    assert_eq!(adapter.requests().len(), 3, "no summary request, no failed request");
+}
+
 #[tokio::test]
 async fn a_failure_before_the_first_reply_keeps_the_instruction_in_the_transcript() {
     let adapter = MockAdapter::from_result_turns([vec![Err(AppError::Other(anyhow::anyhow!("boom")))]]);

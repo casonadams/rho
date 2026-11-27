@@ -112,13 +112,13 @@ pub const GROUPS: &[Group] = &[
                 "context_limit",
                 Some("model window"),
                 Some("AI_CONTEXT_LIMIT"),
-                "Override the context window size in tokens.",
+                "Override the context window size in tokens, for every model rho runs.",
             ),
             s(
                 "reserve_tokens",
                 Some("16384"),
                 Some("AI_RESERVE_TOKENS"),
-                "Compaction runs when the history passes the context limit minus this many tokens.",
+                "Compaction runs when the history passes the context limit minus this many tokens, before a turn or between its requests.",
             ),
             s(
                 "keep_recent_tokens",

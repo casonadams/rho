@@ -277,7 +277,7 @@ impl AgentEngineBuilder {
             tool_names,
             model,
         } = assembly;
-        let context = super::tracking::ContextTracker::new(self.config.context_limit);
+        let context = super::tracking::ContextTracker::new();
         let demotion_hook = self.demotion_hook.or_else(|| {
             Some(Arc::new(
                 crate::engine::compactor::artifact_spill::ArtifactDemotionHook::new(base_dir.join(".rho/artifacts")),
@@ -380,6 +380,9 @@ impl AgentEngineBuilder {
         };
         let mut engine = self.into_engine(base_dir, session_manager, router, assembly);
         engine.workflows = workflows;
+        if let Some(models) = &subagent_models {
+            models.set_context_policy(engine.context_policy());
+        }
         engine.subagent_models = subagent_models;
         engine.worktrees = worktrees;
         engine.pending_relocation = pending_relocation;

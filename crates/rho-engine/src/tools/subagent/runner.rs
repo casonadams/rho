@@ -12,8 +12,8 @@ use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::round::{Round, RoundEnd, RoundInput, build_subagent_prompt, ended_with_question};
 use super::snapshot::Snapshot;
-use crate::engine::compactor::compact_messages;
 use crate::engine::compactor::llm::ModelHandle;
+use crate::engine::compactor::{MAX_COMPACTIONS_PER_TURN, compact_messages};
 use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
@@ -23,6 +23,7 @@ use crate::engine::runner::turn::runner::{
 };
 use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
+use crate::engine::tracking::{ContextBudget, ContextPolicy};
 use crate::mailbox::{AgentId, Mailbox};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
@@ -32,6 +33,7 @@ use rho_harness_core::agents::{AgentEvent, AgentHandle, AgentStatus};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::Presenter;
+use rho_harness_core::provider::ModelRoute;
 use std::sync::Arc;
 
 pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
@@ -39,8 +41,6 @@ const DEFAULT_MONITOR_GROUP: &str = "subagents";
 pub(crate) const READ_ONLY_TOOLS: [&str; 6] = ["read", "fd", "rg", "lsp", "web_fetch", "web_search"];
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
 const REPLY_HEADING: &str = "Reply from the delegating agent";
-/// Times one round may compact its conversation after overflowing the model's context.
-const MAX_COMPACTIONS: usize = 3;
 
 pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) -> Vec<Arc<dyn EngineTool>> {
     let allowed = role.allowed_tools();
@@ -74,6 +74,8 @@ pub struct SubagentRunner {
     task_id: Option<String>,
     /// Recent conversation a compaction keeps word for word.
     keep_recent_tokens: usize,
+    /// Where its model's window compacts; without one it compacts only after an overflow.
+    context_policy: Option<ContextPolicy>,
     worktree_lsp: Option<WorktreeLsp>,
     /// The worktree whose language servers the round started.
     lsp_root: Option<std::path::PathBuf>,
@@ -115,6 +117,9 @@ struct RoundState {
     question_tool: Option<Arc<dyn EngineTool>>,
     report_tool: Arc<dyn EngineTool>,
     compacted: bool,
+    /// The round's context budget, its notices carried across runs until a compaction starts a
+    /// fresh one; its compaction stops are off once a stop found nothing to compact.
+    context: Option<ContextBudget>,
 }
 
 /// Where the next run of the turn loop starts: the conversation so far, the prompt to add (empty
@@ -138,6 +143,7 @@ struct AgentSetup<'a> {
     stop: &'a CancellationSignal,
     /// The agent's monitor record, which its permission prompts mark as waiting for approval.
     tracker: Option<&'a AgentHandle>,
+    context: Option<ContextBudget>,
 }
 
 /// The finished turn loop: how it ended, the conversation it left, its totals, and whether that
@@ -190,6 +196,7 @@ impl SubagentRunner {
             inbox: None,
             task_id: None,
             keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
+            context_policy: None,
             worktree_lsp: None,
             lsp_root: None,
         }
@@ -217,6 +224,18 @@ impl SubagentRunner {
     pub fn with_keep_recent_tokens(mut self, tokens: usize) -> Self {
         self.keep_recent_tokens = tokens;
         self
+    }
+
+    #[must_use]
+    pub fn with_context_policy(mut self, policy: Option<ContextPolicy>) -> Self {
+        self.context_policy = policy;
+        self
+    }
+
+    /// A fresh budget against this round's model.
+    fn context_budget(&self) -> Option<ContextBudget> {
+        let route = ModelRoute::new(self.model.provider_name(), self.model.model_name());
+        Some(self.context_policy.as_ref()?.budget(&route))
     }
 
     /// Lets the subagent pause with a question for the agent that started it (the `ask_parent` tool).
@@ -514,21 +533,17 @@ impl SubagentRunner {
             question_tool: self.parent_channel.then_some(question_tool),
             report_tool,
             compacted: false,
+            context: self.context_budget(),
         };
         let mut compactions = 0;
         let (finish, mut transcript) = loop {
             let (finish, messages) = self.run_once(&mut round, tracker, recorder, &stop).await;
-            if !matches!(finish, Finish::Failed(AppError::ContextOverflow(_))) || compactions == MAX_COMPACTIONS {
-                break (finish, messages);
+            if let Finish::Failed(error) = &finish
+                && self.make_room(error, &messages, &mut round, &mut compactions).await
+            {
+                continue;
             }
-            match self.compacted(&messages).await {
-                Some(compacted) => {
-                    compactions += 1;
-                    round.compacted = true;
-                    round.run.transcript = compacted;
-                }
-                None => break (finish, messages),
-            }
+            break (finish, messages);
         };
         if let Some(inbox) = &round.inbox {
             inbox.cancel_jobs();
@@ -612,6 +627,7 @@ impl SubagentRunner {
             report_tool: round.report_tool.clone(),
             stop,
             tracker,
+            context: round.context.clone(),
         });
         let finish = self.consume(agent, &sink, tracker, stop, &mut round.run.tally).await;
         let messages = store.messages();
@@ -619,6 +635,41 @@ impl SubagentRunner {
             round.run.prompt.clear();
         }
         (finish, messages)
+    }
+
+    /// Readies another run after `error` stopped one for a full context: compacted, or, when an
+    /// early stop finds nothing to compact, unchanged and without early stops. False when the run
+    /// cannot continue.
+    async fn make_room(
+        &self,
+        error: &AppError,
+        messages: &[ChatMessage],
+        round: &mut RoundState,
+        compactions: &mut usize,
+    ) -> bool {
+        if !error.needs_compaction() {
+            return false;
+        }
+        let compacted = if *compactions < MAX_COMPACTIONS_PER_TURN {
+            self.compacted(messages).await
+        } else {
+            None
+        };
+        match compacted {
+            Some(compacted) => {
+                *compactions += 1;
+                round.compacted = true;
+                round.run.transcript = compacted;
+                round.context = self.context_budget();
+                true
+            }
+            None if matches!(error, AppError::CompactionDue { .. }) => {
+                round.context = round.context.take().map(|budget| budget.with_compaction_stops(false));
+                round.run.transcript = messages.to_vec();
+                true
+            }
+            None => false,
+        }
     }
 
     /// `messages` compacted for another run, with the summary redacted like the session's.
@@ -671,6 +722,7 @@ impl SubagentRunner {
         .cancellation(Some(setup.stop.clone()))
         .monitor(self.ctx.monitor.clone())
         .project_context(self.ctx.project.clone())
+        .context_budget(setup.context)
         .observer(Some(observer))
     }
 

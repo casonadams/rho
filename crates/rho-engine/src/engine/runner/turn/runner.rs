@@ -434,6 +434,23 @@ async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>
     Ok((current_messages, new_turn_messages))
 }
 
+/// Stops the turn, its steps saved, once the latest request's context passed where compaction
+/// starts, so the caller compacts before the next request instead of after an overflow. After
+/// the last request the turn may make, no request follows, so it does not stop.
+fn stop_if_compaction_due(runner: &AgentRunner, turn: usize, calls: &[CompletionCall]) -> Result<(), AppError> {
+    let (Some(budget), Some(call)) = (&runner.context_budget, calls.last()) else {
+        return Ok(());
+    };
+    if turn >= runner.budget {
+        return Ok(());
+    }
+    let used = crate::engine::display::consumed_context_tokens(&call.usage);
+    if budget.compaction_due(used) {
+        return Err(AppError::CompactionDue { used });
+    }
+    Ok(())
+}
+
 async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
     let mut saved = TurnCheckpoint {
         exists: runner.store.has_checkpoint().await?,
@@ -488,6 +505,7 @@ async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Resul
                 if runner.store.keeps_tool_events() {
                     runner.sink.record_tool_events().await?;
                 }
+                stop_if_compaction_due(&runner, turn, &all_completion_calls)?;
             }
             StepExecutionResult::EmptyCompletion if !nudged => {
                 nudged = true;

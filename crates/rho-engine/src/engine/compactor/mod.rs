@@ -8,5 +8,8 @@ pub mod orchestrator;
 mod tests;
 
 pub use artifact_spill::{ArtifactDemotionHook, DemotionHook};
+
+/// Times one turn of an agent may compact its context and carry on before it gives up.
+pub(crate) const MAX_COMPACTIONS_PER_TURN: usize = 3;
 pub use llm::LlmCompactor;
 pub use orchestrator::{CompactionStats, SessionCompactor, compact_messages};

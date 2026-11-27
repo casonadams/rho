@@ -3,14 +3,14 @@ use std::time::Instant;
 
 use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
-use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
 
 use super::prepare::TurnLoopState;
 use super::runner::{AgentRunner, ModelRetry, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
-use super::types::RunStatus;
 use crate::engine::AgentEngine;
+use crate::engine::compactor::MAX_COMPACTIONS_PER_TURN;
+use crate::engine::metrics::StructuralUsage;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse};
 use crate::engine::runner::history::DisplayEvent;
 use crate::engine::runner::sink::TerminalApprovalSink;
@@ -25,10 +25,14 @@ pub(super) struct TurnStreamState {
     pub(super) streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
     pub(super) cache_miss_tokens: Option<u64>,
+    /// Requests of the turn's runs that ended to compact; the final response adds them.
+    earlier_calls: Vec<CompletionCall>,
+    /// Requests of the run in progress.
+    run_calls: Vec<CompletionCall>,
 }
 
 impl TurnStreamState {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             model_call_start: Some(Instant::now()),
             first_token_at: None,
@@ -38,6 +42,41 @@ impl TurnStreamState {
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
             cache_miss_tokens: None,
+            earlier_calls: Vec::new(),
+            run_calls: Vec::new(),
+        }
+    }
+
+    /// Ends the run in progress to start another after a compaction; returns its request count.
+    pub(super) fn next_run(&mut self) -> usize {
+        let requests = self.run_calls.len();
+        self.earlier_calls.append(&mut self.run_calls);
+        self.model_call_start = Some(Instant::now());
+        requests
+    }
+
+    /// `call` of the run in progress, numbered among all the turn's requests.
+    fn in_turn(&self, mut call: CompletionCall) -> CompletionCall {
+        call.call_index += self.earlier_calls.len();
+        call
+    }
+
+    /// The final response of the last run, with the requests of the runs before it.
+    pub(super) fn whole_turn(&self, last: PromptResponse) -> PromptResponse {
+        if self.earlier_calls.is_empty() {
+            return last;
+        }
+        let earlier = self
+            .earlier_calls
+            .iter()
+            .fold(StructuralUsage::default(), |sum, call| sum.merge(&call.usage));
+        let mut completion_calls = self.earlier_calls.clone();
+        completion_calls.extend(last.completion_calls.into_iter().map(|call| self.in_turn(call)));
+        PromptResponse {
+            output: last.output,
+            usage: earlier.merge(&last.usage),
+            requests: self.earlier_calls.len() + last.requests,
+            completion_calls,
         }
     }
 }
@@ -49,10 +88,19 @@ fn mark_first_token(first_token_at: &mut Option<Instant>, non_empty: bool) {
 }
 
 pub(super) enum StreamRunResult {
-    Compacted(RunStatus),
     Complete(Box<TurnStreamState>),
     ContentFiltered(Box<TurnStreamState>),
 }
+
+/// How one run of the turn loop ended: the turn is over, or it made room in its context and
+/// goes on with another run.
+pub(super) enum RunEnd {
+    Finished(StreamRunResult),
+    MadeRoom(Box<TurnStreamState>),
+}
+
+/// The prompt that resumes a turn whose saved work is already in its history.
+const RESUME_PROMPT: &str = "[The turn paused to make room in its context; continue the task from where it stopped.]";
 
 fn format_model_retry(retry: &ModelRetry) -> String {
     format!(
@@ -136,10 +184,12 @@ fn handle_completion_stream_item(
     state.streaming_tool.observe_boundary(&item, sink);
     match item {
         MultiTurnStreamItem::FinalResponse(resp) => {
-            state.final_response = Some(resp);
+            state.final_response = Some(state.whole_turn(resp));
         }
         MultiTurnStreamItem::CompletionCall(call) => {
+            let call = state.in_turn(call);
             record_completion_call(&call, usage, run_tracker, state);
+            state.run_calls.push(call);
         }
         MultiTurnStreamItem::ToolCall { .. } => {
             mark_first_token(&mut state.first_token_at, true);
@@ -161,24 +211,6 @@ fn handle_completion_stream_item(
         MultiTurnStreamItem::DisplayBarrier(drained) => drained.notify_one(),
         _ => {}
     }
-}
-
-fn print_overflow_compaction_notices(
-    presenter: &dyn Presenter,
-    stats: &crate::engine::CompactionStats,
-    status: RunStatus,
-) {
-    presenter.print_notice("[Context overflow detected]");
-    presenter.print_notice(&format!(
-        "[Compacted context: {} -> {} tokens (saved {})]",
-        stats.tokens_before, stats.tokens_after, stats.saved_tokens
-    ));
-    presenter.print_notice(match status {
-        RunStatus::CompactedMidTurn => {
-            "Context was compacted after overflow; the turn's work so far was kept. Send a follow-up to continue."
-        }
-        _ => "Context was compacted after overflow. Review context and re-submit prompt.",
-    });
 }
 
 impl AgentEngine {
@@ -233,55 +265,56 @@ impl AgentEngine {
         }
     }
 
-    async fn try_recover_overflow(
-        &self,
-        presenter: &dyn Presenter,
-        visible_history: &mut Vec<ChatMessage>,
-        checkpoint: &mut Option<Vec<ChatMessage>>,
-    ) -> Result<Option<RunStatus>> {
+    /// Compacts the session mid-turn; true when it folded something, so the turn goes on from
+    /// the compacted history (resuming its saved work, or sending its prompt again when none was
+    /// saved).
+    async fn compact_mid_turn(&self, presenter: &dyn Presenter, loop_state: &mut TurnLoopState) -> Result<bool> {
         let _spinner = presenter.start_spinner("Compacting...");
-        let started_with = checkpoint.as_ref().map_or(0, Vec::len);
+        let started_with = loop_state.checkpoint.as_ref().map_or(0, Vec::len);
         let saved_now = self.session_manager.load_checkpoint().await?.map_or(0, |c| c.len());
-        let status = if saved_now > started_with {
-            RunStatus::CompactedMidTurn
-        } else {
-            RunStatus::Compacted
-        };
         match self.compact_session(None).await {
             Ok(stats) if !stats.summary.is_empty() => {
-                *checkpoint = None;
-                *visible_history = self.session_manager.active_messages().await?;
-                print_overflow_compaction_notices(presenter, &stats, status);
-                Ok(Some(status))
+                loop_state.checkpoint = None;
+                loop_state.visible_history = self.session_manager.active_messages().await?;
+                if saved_now > started_with {
+                    loop_state.current_prompt = RESUME_PROMPT.to_string();
+                }
+                presenter.print_notice(&stats.auto_notice());
+                Ok(true)
             }
-            Ok(_) => Ok(None),
+            Ok(_) => Ok(false),
             Err(e) => {
                 presenter.print_notice(&format!("[Auto-compaction failed: {e}]"));
-                Ok(None)
+                Ok(false)
             }
         }
     }
 
-    async fn try_context_overflow(
+    /// Readies the turn to go on after `error` stopped it for a full context: compacted, or, when
+    /// an early stop finds nothing to compact, resumed without early stops. False when it cannot.
+    async fn make_room(
         &self,
         error: &AppError,
         presenter: &dyn Presenter,
-        visible_history: &mut Vec<ChatMessage>,
-        checkpoint: &mut Option<Vec<ChatMessage>>,
-        overflow_recovered: &mut bool,
-    ) -> Result<Option<RunStatus>> {
-        if !*overflow_recovered && matches!(error, AppError::ContextOverflow(_)) {
-            *overflow_recovered = true;
-            return self.try_recover_overflow(presenter, visible_history, checkpoint).await;
+        loop_state: &mut TurnLoopState,
+    ) -> Result<bool> {
+        if !error.needs_compaction() {
+            return Ok(false);
         }
-        Ok(None)
+        if loop_state.compactions < MAX_COMPACTIONS_PER_TURN && self.compact_mid_turn(presenter, loop_state).await? {
+            loop_state.compactions += 1;
+            return Ok(true);
+        }
+        if !matches!(error, AppError::CompactionDue { .. }) {
+            return Ok(false);
+        }
+        loop_state.compact_early = false;
+        loop_state.checkpoint = self.session_manager.load_checkpoint().await?;
+        loop_state.current_prompt = RESUME_PROMPT.to_string();
+        Ok(true)
     }
 
-    async fn handle_fatal_stream_error(
-        &self,
-        error: AppError,
-        sink: &Arc<TerminalApprovalSink>,
-    ) -> Result<StreamRunResult> {
+    async fn handle_fatal_stream_error(&self, error: AppError, sink: &Arc<TerminalApprovalSink>) -> Result<RunEnd> {
         if matches!(error, AppError::InvalidToolCall(_)) {
             self.run_tracker.invalid_tool();
         }
@@ -295,20 +328,12 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         sink: &Arc<TerminalApprovalSink>,
         loop_state: &mut TurnLoopState,
-    ) -> Result<StreamRunResult> {
+        state: TurnStreamState,
+    ) -> Result<RunEnd> {
         sink.finish_spinner();
         sink.flush_display();
-        if let Some(status) = self
-            .try_context_overflow(
-                &error,
-                presenter,
-                &mut loop_state.visible_history,
-                &mut loop_state.checkpoint,
-                &mut loop_state.overflow_recovered,
-            )
-            .await?
-        {
-            return Ok(StreamRunResult::Compacted(status));
+        if self.make_room(&error, presenter, loop_state).await? {
+            return Ok(RunEnd::MadeRoom(Box::new(state)));
         }
         self.handle_fatal_stream_error(error, sink).await
     }
@@ -319,22 +344,20 @@ impl AgentEngine {
         sink: &Arc<TerminalApprovalSink>,
         presenter: &dyn Presenter,
         loop_state: &mut TurnLoopState,
-    ) -> Result<StreamRunResult> {
-        let mut state = TurnStreamState::new();
+        mut state: TurnStreamState,
+    ) -> Result<RunEnd> {
         let mut stream = runner.stream();
         while let Some(item) = stream.next().await {
             match item {
                 Ok(item) => self.process_stream_item(item, sink, &mut state),
-                Err(err) => {
-                    if matches!(err, AppError::ContentFiltered) {
-                        return Ok(StreamRunResult::ContentFiltered(Box::new(state)));
-                    }
-                    return self.handle_stream_error(err, presenter, sink, loop_state).await;
+                Err(AppError::ContentFiltered) => {
+                    return Ok(RunEnd::Finished(StreamRunResult::ContentFiltered(Box::new(state))));
                 }
+                Err(err) => return self.handle_stream_error(err, presenter, sink, loop_state, state).await,
             }
             tokio::task::yield_now().await;
         }
-        Ok(StreamRunResult::Complete(Box::new(state)))
+        Ok(RunEnd::Finished(StreamRunResult::Complete(Box::new(state))))
     }
 
     pub(super) fn elapsed_generation_ms(state: &TurnStreamState) -> u64 {
@@ -382,13 +405,20 @@ mod tests {
             current_prompt: String::new(),
             current_budget: 10,
             thinking_level: None,
-            overflow_recovered: false,
+            compactions: 0,
+            compact_early: true,
             turn_started_at: Instant::now(),
         };
 
         let error = AppError::Network("provider stream went idle for 300s without sending data".into());
         let result = engine
-            .handle_stream_error(error, presenter.as_ref(), &sink, &mut loop_state)
+            .handle_stream_error(
+                error,
+                presenter.as_ref(),
+                &sink,
+                &mut loop_state,
+                TurnStreamState::new(),
+            )
             .await;
 
         assert!(matches!(result, Err(AppError::Network(_))));

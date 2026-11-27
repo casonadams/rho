@@ -175,10 +175,10 @@ through the environment variable shown. Numeric limits must be greater than zero
 | --- | --- | --- | --- |
 | `max_output_tokens` | `AI_MAX_OUTPUT_TOKENS` | provider default | Cap on tokens per model reply |
 | `max_turns` | `AI_MAX_TURNS` | 1000 | Model turns allowed in one run |
-| `context_limit` | `AI_CONTEXT_LIMIT` | model's window | Override the context window size in tokens |
+| `context_limit` | `AI_CONTEXT_LIMIT` | model's window | Override the context window size in tokens, for every model rho runs |
 | `context_window_messages` | `AI_CONTEXT_WINDOW_MESSAGES` | 24 | Accepted and validated, but the engine does not currently read it |
 | `compaction_max_bytes` | `AI_COMPACTION_MAX_BYTES` | 8192 | Size cap for a compaction summary |
-| `reserve_tokens` | `AI_RESERVE_TOKENS` | 16384 | Compaction runs when the history passes the context limit minus this many tokens |
+| `reserve_tokens` | `AI_RESERVE_TOKENS` | 16384 | Compaction runs when the history passes the context limit minus this many tokens, before a turn or between its requests |
 | `keep_recent_tokens` | `AI_KEEP_RECENT_TOKENS` | 20000 | Recent tokens kept verbatim by compaction |
 | `context_injection_max_tokens` | `AI_CONTEXT_INJECTION_MAX_TOKENS` | 4000 | Accepted and validated, but the engine does not currently read it |
 | `steering_mode` | `AI_STEERING_MODE` | `one-at-a-time` | Queued steering messages: `one-at-a-time` or `all` |
@@ -425,10 +425,12 @@ happen.
 - **Same loop as the main agent**: a subagent runs on the main agent's turn
   loop with its own tools, instructions, and turn limit. It gets the same
   request retries, repeated-call guard, "Please continue" nudge after an empty
-  reply, waiting for its own background `bash` jobs, and message delivery. When
-  a request overflows the model's context, its older conversation is compacted
-  into a summary (keeping `keep_recent_tokens` of recent conversation) and it
-  continues with the turns it has left, up to three times per round.
+  reply, waiting for its own background `bash` jobs, message delivery, and
+  context compaction: once a request's prompt passes its model's window minus
+  `reserve_tokens` (or a request overflows the window), its older conversation
+  is compacted into a summary (keeping `keep_recent_tokens` of recent
+  conversation) and it continues with the turns it has left, up to three times
+  per round.
 - **Incomplete runs**: when a subagent hits its turn limit or ends without a
   final answer, it is asked once more (without tools) to summarize its work so
   far; the result starts with `Incomplete:` and the task is `input-required`,

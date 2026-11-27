@@ -7,18 +7,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub enum RunStatus {
     Completed,
     ContentFiltered,
+    /// Compacted before running, so the prompt was not sent.
     Compacted,
-    /// Compacted after this turn saved progress, so its prompt and work so far are already in history.
-    CompactedMidTurn,
 }
 
 impl RunStatus {
     pub fn compaction_guidance(self) -> Option<&'static str> {
         match self {
             Self::Compacted => Some("Context was compacted. Submit your prompt to proceed with compacted context.\n"),
-            Self::CompactedMidTurn => Some(
-                "Context was compacted; the turn's work so far was kept. Send a follow-up (e.g. \"continue\") instead of resubmitting the prompt.\n",
-            ),
             Self::Completed | Self::ContentFiltered => None,
         }
     }

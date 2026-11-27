@@ -36,6 +36,14 @@ impl CompactionStats {
             summary: String::new(),
         }
     }
+
+    /// The notice shown when rho compacts the session on its own.
+    pub fn auto_notice(&self) -> String {
+        format!(
+            "[Auto-compacted context: {} -> {} tokens (saved {})]",
+            self.tokens_before, self.tokens_after, self.saved_tokens
+        )
+    }
 }
 
 struct FinalizeCompactionPlan<'a> {

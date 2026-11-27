@@ -467,6 +467,37 @@ fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
 }
 
 #[tokio::test]
+async fn a_full_context_stops_the_turn_for_compaction_unless_no_request_follows() {
+    for (budget, stops_for_compaction) in [(2, true), (1, false)] {
+        let model = Arc::new(MockAdapter::from_turns(vec![probe_then_usage(0, 190_000)]));
+        let (runner, _temp, _, _) = test_agent_env(model);
+        let context = crate::engine::tracking::ContextTracker::new().budget(
+            200_000,
+            crate::engine::tracking::ContextLimitSource::Provider,
+            183_616,
+        );
+        let runner = AgentRunner {
+            tools: vec![Arc::new(ScriptedTool {
+                name: "probe",
+                result: crate::tools::ToolResult::success("ok"),
+            })],
+            ..runner
+        }
+        .context_budget(Some(context))
+        .budget(budget)
+        .prompt("go");
+
+        let error = run_agent_loop(runner, &acking_emitter()).await.unwrap_err();
+
+        assert_eq!(
+            matches!(error, AppError::CompactionDue { used: 190_000 }),
+            stops_for_compaction,
+            "budget {budget}: {error:?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_percentage() {
     let model = Arc::new(MockAdapter::from_turns(vec![
         probe_then_usage(0, 90_000),
@@ -476,7 +507,7 @@ async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_
     ]));
     let (runner, _temp, _, _) = test_agent_env(model.clone());
     let store = crate::engine::runner::turn::MemoryStore::new("budgeted", Vec::new());
-    let budget = crate::engine::tracking::ContextTracker::new(None).budget(
+    let budget = crate::engine::tracking::ContextTracker::new().budget(
         200_000,
         crate::engine::tracking::ContextLimitSource::Provider,
         183_616,
@@ -494,7 +525,7 @@ async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_
 
     run_agent_loop(runner, &acking_emitter()).await.unwrap();
 
-    let notice = "ok\n\n[context: 142k of 200k tokens used (71%); compaction starts near 184k at the next turn]";
+    let notice = "ok\n\n[context: 142k of 200k tokens used (71%); compaction starts near 184k]";
     let requests = model.requests();
     let newest: Vec<String> = requests[1..]
         .iter()
