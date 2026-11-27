@@ -81,11 +81,9 @@ impl SubagentRuntime {
         &self.busy
     }
 
-    /// A slot for a new round, or the refusal to give the caller when all are taken.
-    pub(crate) fn reserve(&self) -> Result<RoundSlot, String> {
-        self.rounds.try_take().ok_or_else(|| {
-            format!("{MAX_ACTIVE_ROUNDS} subagents are already running; wait for their results before starting another")
-        })
+    /// A slot for a new round; [`RoundRefused::AllSlotsTaken`] when all are taken.
+    pub(crate) fn reserve(&self) -> Result<RoundSlot, RoundRefused> {
+        self.rounds.try_take().ok_or(RoundRefused::AllSlotsTaken)
     }
 
     /// Waits until a round slot is free; workflow steps queue here instead of failing.
@@ -244,6 +242,35 @@ impl Drop for RunningRound {
     }
 }
 
+/// Why a new subagent round cannot start now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RoundRefused {
+    /// [`MAX_ACTIVE_ROUNDS`] rounds are already running.
+    AllSlotsTaken,
+    /// The conversation already has a round in progress.
+    Busy,
+}
+
+impl std::fmt::Display for RoundRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AllSlotsTaken => write!(
+                f,
+                "{MAX_ACTIVE_ROUNDS} subagents are already running; wait for their results before starting another"
+            ),
+            Self::Busy => {
+                f.write_str("that subagent is still working; wait for its result before sending another message")
+            }
+        }
+    }
+}
+
+impl From<RoundRefused> for String {
+    fn from(refused: RoundRefused) -> Self {
+        refused.to_string()
+    }
+}
+
 /// Subagent conversations with a round in progress; a second message to one of them is refused.
 #[derive(Clone, Default)]
 pub(crate) struct BusyContexts(Arc<Mutex<HashSet<String>>>);
@@ -254,9 +281,9 @@ pub(crate) struct BusyClaim {
 }
 
 impl BusyContexts {
-    pub(crate) fn claim(&self, context_id: &str) -> Result<BusyClaim, String> {
+    pub(crate) fn claim(&self, context_id: &str) -> Result<BusyClaim, RoundRefused> {
         if !locked(&self.0).insert(context_id.to_string()) {
-            return Err("that subagent is still working; wait for its result before sending another message".into());
+            return Err(RoundRefused::Busy);
         }
         Ok(BusyClaim {
             contexts: self.clone(),
@@ -307,7 +334,7 @@ mod tests {
     fn a_busy_conversation_refuses_a_second_message_until_the_first_finishes() {
         let busy = BusyContexts::default();
         let claim = busy.claim("ctx").unwrap();
-        assert!(busy.claim("ctx").is_err());
+        assert_eq!(busy.claim("ctx").err(), Some(RoundRefused::Busy));
         assert!(busy.claim("other").is_ok());
         drop(claim);
         assert!(busy.claim("ctx").is_ok());

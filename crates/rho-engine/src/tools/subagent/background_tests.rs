@@ -1,4 +1,4 @@
-use super::super::runtime::MAX_ACTIVE_ROUNDS;
+use super::super::runtime::{MAX_ACTIVE_ROUNDS, RoundRefused};
 use super::*;
 use crate::mailbox::SendError;
 use std::sync::Mutex;
@@ -140,7 +140,7 @@ async fn a_caller_waiting_for_a_slot_gets_one_when_a_round_ends() {
     });
     tokio::time::sleep(Duration::from_secs(3600)).await;
     assert!(!waiter.is_finished(), "no slot is free");
-    assert!(background.runtime.reserve().is_err());
+    assert_eq!(background.runtime.reserve().err(), Some(RoundRefused::AllSlotsTaken));
 
     held.pop();
     let slot = tokio::time::timeout(Duration::from_secs(1), waiter)
