@@ -4,12 +4,9 @@
 //! the rows it uncovered back.
 
 use std::collections::VecDeque;
-use std::iter::Peekable;
-use std::str::Chars;
-
-use unicode_width::UnicodeWidthChar;
 
 use super::ansi::SgrStyle;
+use super::stream::{Cursor, Token, tokens};
 
 /// Printed rows kept for repainting, which bounds the memory of a long session.
 const MAX_KEPT_ROWS: usize = 4000;
@@ -18,34 +15,30 @@ const MAX_KEPT_ROWS: usize = 4000;
 /// lays them out, each repeatable on its own.
 #[derive(Debug)]
 struct PrintedRows {
-    width: usize,
+    cursor: Cursor,
     finished: VecDeque<String>,
     finished_total: usize,
     row: String,
     row_style: SgrStyle,
     style: SgrStyle,
-    column: usize,
-    wrap_pending: bool,
     overwrite: bool,
 }
 
 impl PrintedRows {
     fn new(width: usize) -> Self {
         Self {
-            width: width.max(1),
+            cursor: Cursor::new(width),
             finished: VecDeque::new(),
             finished_total: 0,
             row: String::new(),
             row_style: SgrStyle::default(),
             style: SgrStyle::default(),
-            column: 0,
-            wrap_pending: false,
             overwrite: false,
         }
     }
 
     fn is_open(&self) -> bool {
-        self.column > 0 || self.wrap_pending
+        !self.cursor.is_at_line_start()
     }
 
     /// Rows the printed output covers, counting a line still being written.
@@ -67,17 +60,20 @@ impl PrintedRows {
     }
 
     fn feed(&mut self, text: &str) {
-        let mut chars = text.chars().peekable();
-        while let Some(character) = chars.next() {
-            match character {
-                '\u{1b}' => self.escape(&mut chars),
-                '\r' => {
-                    self.column = 0;
-                    self.wrap_pending = false;
+        for token in tokens(text) {
+            match token {
+                Token::Escape { raw, sgr } => {
+                    self.row.push_str(raw);
+                    if let Some(parameters) = sgr {
+                        self.style.apply(parameters);
+                    }
+                }
+                Token::Char('\r') => {
+                    self.cursor.return_to_line_start();
                     self.overwrite = true;
                 }
-                '\n' => self.finish_row(),
-                _ => self.print(character),
+                Token::Char('\n') => self.finish_row(),
+                Token::Char(character) => self.print(character),
             }
         }
     }
@@ -86,17 +82,11 @@ impl PrintedRows {
         if std::mem::take(&mut self.overwrite) {
             self.row.clear();
         }
-        let width = character.width().unwrap_or(0);
-        if width == 0 {
-            self.row.push(character);
-            return;
-        }
-        if self.wrap_pending || (self.column > 0 && self.column + width > self.width) {
+        if self.cursor.wraps_before(character) {
             self.finish_row();
         }
         self.row.push(character);
-        self.column += width;
-        self.wrap_pending = self.column >= self.width;
+        self.cursor.advance(character);
     }
 
     fn finish_row(&mut self) {
@@ -108,48 +98,8 @@ impl PrintedRows {
         self.finished_total += 1;
         self.row.clear();
         self.row_style = self.style.clone();
-        self.column = 0;
-        self.wrap_pending = false;
+        self.cursor.return_to_line_start();
         self.overwrite = false;
-    }
-
-    fn escape(&mut self, chars: &mut Peekable<Chars<'_>>) {
-        self.row.push('\u{1b}');
-        match chars.next() {
-            Some('[') => self.control_sequence(chars),
-            Some(']') => self.operating_system_command(chars),
-            Some(other) => self.row.push(other),
-            None => {}
-        }
-    }
-
-    fn control_sequence(&mut self, chars: &mut Peekable<Chars<'_>>) {
-        self.row.push('[');
-        let mut parameters = String::new();
-        for character in chars.by_ref() {
-            self.row.push(character);
-            if ('@'..='~').contains(&character) {
-                if character == 'm' {
-                    self.style.apply(&parameters);
-                }
-                return;
-            }
-            parameters.push(character);
-        }
-    }
-
-    fn operating_system_command(&mut self, chars: &mut Peekable<Chars<'_>>) {
-        self.row.push(']');
-        for character in chars.by_ref() {
-            self.row.push(character);
-            if character == '\u{7}' {
-                return;
-            }
-            if character == '\u{1b}' {
-                self.row.extend(chars.next());
-                return;
-            }
-        }
     }
 }
 
