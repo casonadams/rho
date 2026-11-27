@@ -20,7 +20,7 @@ struct Fixture {
 
 fn fixture(cancellation: Option<CancellationSignal>, steering: Option<Arc<dyn SteeringQueueProvider>>) -> Fixture {
     let boxes = Mailboxes::default();
-    let inbox = boxes.open("owner", None);
+    let inbox = boxes.open(&"owner".into(), None);
     let tool = Arc::new(WaitTool {
         cap: Duration::from_secs(30),
         turn: Some(Turn {
@@ -97,7 +97,12 @@ async fn a_message_in_the_mailbox_ends_the_wait_and_stays_queued_for_delivery() 
     tokio::task::yield_now().await;
 
     f.boxes
-        .send(Envelope::new(Party::User, "owner", Kind::Command, "stop and report"))
+        .send(Envelope::new(
+            Party::User,
+            &"owner".into(),
+            Kind::Command,
+            "stop and report",
+        ))
         .unwrap();
     let result = waiting.await.unwrap();
 
@@ -138,7 +143,10 @@ async fn nothing_running_and_an_empty_mailbox_returns_at_once() {
 async fn the_safety_cap_reports_what_still_runs() {
     let f = fixture(None, None);
     let _job = f.start_job("j1", "sleep 100000");
-    let _other = f.inbox.jobs().register("someone-else", "j2".into(), "make".into());
+    let _other = f
+        .inbox
+        .jobs()
+        .register(&"someone-else".into(), "j2".into(), "make".into());
 
     let result = f.tool.execute(serde_json::json!({})).await.unwrap();
 
@@ -186,7 +194,7 @@ async fn binding_needs_the_agents_mailbox() {
     assert!(tool.bind_to_turn(&TurnToolContext::default()).is_none());
     let boxes = Mailboxes::default();
     let ctx = TurnToolContext {
-        inbox: Some(boxes.open("o", None)),
+        inbox: Some(boxes.open(&"o".into(), None)),
         ..TurnToolContext::default()
     };
     assert!(tool.bind_to_turn(&ctx).is_some());

@@ -75,7 +75,7 @@ async fn edited(manager: &Arc<LspManager>, inbox: Option<&crate::mailbox::Mailbo
 async fn diagnostics_that_miss_the_wait_arrive_later_as_an_untrusted_notice() {
     let (dir, lib) = project();
     let (manager, _) = fake_manager(dir.as_ref(), late_server());
-    let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
+    let inbox = crate::mailbox::Mailboxes::default().open(&"agent".into(), None);
 
     let content = edited(&manager, Some(&inbox), &lib).await;
     assert!(content.contains("LSP: no diagnostics yet"), "{content}");
@@ -115,7 +115,7 @@ async fn without_a_mailbox_the_report_still_tells_the_model_to_ask_again() {
 async fn a_file_edited_again_drops_the_late_notice() {
     let (dir, lib) = project();
     let (manager, _) = fake_manager(dir.as_ref(), late_server());
-    let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
+    let inbox = crate::mailbox::Mailboxes::default().open(&"agent".into(), None);
     edited(&manager, Some(&inbox), &lib).await;
 
     manager.files_changed(std::slice::from_ref(&lib));
@@ -132,7 +132,7 @@ async fn late_diagnostics_equal_to_the_reported_ones_are_not_repeated() {
         ..FakeOptions::default()
     };
     let (manager, _) = fake_manager(dir.as_ref(), busy);
-    let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
+    let inbox = crate::mailbox::Mailboxes::default().open(&"agent".into(), None);
 
     let content = edited(&manager, Some(&inbox), &lib).await;
     assert!(
@@ -152,7 +152,7 @@ async fn follow_up_waits_are_capped() {
         ..FakeOptions::default()
     };
     let (manager, _) = fake_manager(dir.as_ref(), options);
-    let inbox = crate::mailbox::Mailboxes::default().open("agent", None);
+    let inbox = crate::mailbox::Mailboxes::default().open(&"agent".into(), None);
     let running = || manager.epochs.follow_ups.load(std::sync::atomic::Ordering::SeqCst);
 
     futures::future::join_all((0..deferred::MAX_FOLLOW_UPS + 3).map(|_| edited(&manager, Some(&inbox), &lib))).await;

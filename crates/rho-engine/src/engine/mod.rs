@@ -4,6 +4,7 @@
 //! (instruction discovery), `compactor` (summarization), `tracking` (usage),
 //! `metrics`, `runtime`, and `eval` (deterministic mock harness).
 
+use crate::mailbox::{AgentId, Delivery, Mailbox, SendError};
 pub use crate::repeat;
 pub use crate::repeat::REPEATED_CALL_MESSAGE;
 use std::path::Path;
@@ -111,25 +112,21 @@ impl AgentEngine {
     }
 
     /// Sends `text` from the user to the running round of subagent task `task_id`, answering its
-    /// question if it is waiting on one; [`SendError::NoMailbox`](crate::mailbox::SendError::NoMailbox)
-    /// when that round has already ended.
-    pub fn message_running_subagent(
-        &self,
-        task_id: &str,
-        text: &str,
-    ) -> std::result::Result<crate::mailbox::Delivery, crate::mailbox::SendError> {
-        self.subagent_runtime.message_from_user(task_id, text)
+    /// question if it is waiting on one; [`SendError::NoMailbox`] when that round has already ended.
+    pub fn message_running_subagent(&self, task_id: &str, text: &str) -> std::result::Result<Delivery, SendError> {
+        self.subagent_runtime.message_from_user(&AgentId::from(task_id), text)
     }
 
     /// The top-level agent's mailbox: background notices and messages from its subagents wait here
     /// until a turn reads them, or the idle prompt hands them to the agent.
-    pub fn inbox(&self) -> crate::mailbox::Mailbox {
-        self.subagent_runtime.inbox(&self.session_manager.session_id)
+    pub fn inbox(&self) -> Mailbox {
+        self.subagent_runtime
+            .inbox(&AgentId::from(self.session_manager.session_id.as_str()))
     }
 
     /// Asks subagent task `task_id`'s running round to stop and save its work; `false` when none runs.
     pub fn stop_subagent(&self, task_id: &str) -> bool {
-        self.subagent_runtime.stop(task_id)
+        self.subagent_runtime.stop(&AgentId::from(task_id))
     }
 
     /// Replaces this engine with `next`. Leaving a different session stops its background work, since

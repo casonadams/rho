@@ -1,5 +1,6 @@
 use super::*;
 use crate::auth::AuthStore;
+use crate::mailbox::AgentId;
 use crate::mcp::load_mcp_tools;
 use crate::test_support::temp_dir;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
@@ -685,10 +686,10 @@ fn mock_engine_in(dir: &Path, session: Option<SessionManager>) -> AgentEngine {
 async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let engine = mock_engine_in(dir.path(), None);
-    let id = engine.session_manager.session_id.clone();
+    let id = AgentId::from(engine.session_manager.session_id.as_str());
     let jobs = engine.inbox().jobs().clone();
     let own = jobs.register(&id, format!("{id}-job"), "sleep".into());
-    let other = jobs.register("interrupt-other", "interrupt-other-job".into(), "sleep".into());
+    let other = jobs.register(&"interrupt-other".into(), "interrupt-other-job".into(), "sleep".into());
 
     engine.record_cancellation("operator interrupt").await.unwrap();
 
@@ -710,12 +711,12 @@ async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_
     let left_mail = left.registry().clone();
     left.notices().send("stale notice").unwrap();
     arrived.notices().send("fresh notice").unwrap();
-    let left_id = left.id().to_string();
+    let left_id = left.id().clone();
     drop((left, arrived));
 
     engine.switch_to(next);
 
-    assert_ne!(engine.session_manager.session_id, left_id);
+    assert_ne!(engine.session_manager.session_id, left_id.as_str());
     assert!(left_job.is_cancelled());
     assert!(!arrived_job.is_cancelled());
     assert!(
@@ -729,7 +730,7 @@ async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_
 async fn rebuilding_the_same_session_keeps_its_background_work() {
     let dir = tempfile::tempdir().unwrap();
     let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
-    let id = session.session_id.clone();
+    let id = AgentId::from(session.session_id.as_str());
     let mut engine = mock_engine_in(dir.path(), Some(session.clone()));
     let mut rebuilt = mock_engine_in(dir.path(), Some(session));
     rebuilt.subagent_runtime = engine.subagent_runtime.clone();

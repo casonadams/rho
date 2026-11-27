@@ -73,14 +73,14 @@ mod tests {
 
     #[test]
     fn polls_are_refused_only_while_the_owner_has_running_work() {
-        let inbox = Mailboxes::default().open("poll-owner", None);
+        let inbox = Mailboxes::default().open(&"poll-owner".into(), None);
         let jobs = inbox.jobs();
 
         assert!(
             refusal(Some(&inbox), &foreground("sleep 5")).is_none(),
             "nothing runs: sleeping is allowed"
         );
-        jobs.register("poll-owner", "poll-job".into(), "cargo test".into());
+        jobs.register(&"poll-owner".into(), "poll-job".into(), "cargo test".into());
 
         let refused = refusal(Some(&inbox), &foreground("sleep 5")).unwrap();
         assert!(refused.is_error);

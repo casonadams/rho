@@ -3,7 +3,7 @@
 
 use super::{RawSubagentArgs, RunnerSpec, SubagentRole, SubagentRunner, SubagentTool, round};
 use super::{background, conversation, inspect, types, workspace};
-use crate::mailbox::SendError;
+use crate::mailbox::{AgentId, SendError};
 use crate::tools::types::ToolResult;
 use rho_harness_core::agents::AgentMetadata;
 use rho_harness_core::workflow::ModelRole;
@@ -90,7 +90,8 @@ impl SubagentTool {
             .session
             .as_ref()
             .ok_or("continuing a subagent task needs a saved session")?;
-        if let Some(settings) = self.runtime().running_settings(task_id) {
+        let agent = AgentId::from(task_id);
+        if let Some(settings) = self.runtime().running_settings(&agent) {
             check_continuation(&settings, args, task_id)?;
             if args.model.is_some() || args.turns.is_some() {
                 return Err(format!(
@@ -98,7 +99,7 @@ impl SubagentTool {
                 ));
             }
             let message = round::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
-            match self.runtime().steer(task_id, &message) {
+            match self.runtime().steer(&agent, &message) {
                 Ok(queued) => return Ok(ToolResult::success(queued)),
                 Err(SendError::NoMailbox) => {}
                 Err(error) => return Err(format!("could not message subagent task '{task_id}': {error}")),
@@ -139,7 +140,7 @@ impl SubagentTool {
         let Some(session) = self.ctx.session.clone() else {
             return ToolResult::error("a subagent task needs a saved session");
         };
-        let task_id = exchange.task_id().to_string();
+        let task_id = AgentId::from(exchange.task_id());
         let settings = exchange.settings();
         let label = format!(
             "subagent {}",
@@ -150,7 +151,7 @@ impl SubagentTool {
                 .map_or(SubagentRole::default().as_str(), String::as_str)
         );
         let runner = runner.with_parent_channel();
-        let owner = session.session_id.clone();
+        let owner = AgentId::from(session.session_id.as_str());
         let task = background::BackgroundTask {
             id: &task_id,
             owner: &owner,

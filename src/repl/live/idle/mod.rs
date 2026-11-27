@@ -457,7 +457,7 @@ mod tests {
         use rho_engine::mailbox::{Envelope, Kind, Party};
         let (_controller, _width, _batch, mut session, mut engine, _temp) = test_harness().await;
         let inbox = engine.inbox();
-        let other = inbox.registry().open("idle-other-session", None);
+        let other = inbox.registry().open(&"idle-other-session".into(), None);
         for (to, body) in [
             (inbox.id(), "first job done"),
             (inbox.id(), "second job done"),

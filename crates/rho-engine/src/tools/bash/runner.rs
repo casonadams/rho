@@ -416,7 +416,7 @@ mod tests {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
-        let inbox = boxes.open("max-runtime-owner", None);
+        let inbox = boxes.open(&"max-runtime-owner".into(), None);
         let job = register_background_job(Some(&inbox), "sleep 1000");
         let job_id = job.id().to_string();
         let handle = dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(5));
@@ -435,7 +435,7 @@ mod tests {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
-        let inbox = boxes.open("ended-session-owner", None);
+        let inbox = boxes.open(&"ended-session-owner".into(), None);
         let job = register_background_job(Some(&inbox), &command);
         let job_id = job.id().to_string();
         let handle = dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(60));
@@ -475,7 +475,7 @@ mod tests {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
-        let inbox = boxes.open("color-owner", None);
+        let inbox = boxes.open(&"color-owner".into(), None);
         let job = register_background_job(Some(&inbox), command);
         let job_id = job.id().to_string();
         dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(10))
@@ -507,7 +507,7 @@ mod tests {
             panic!("failed to spawn test command");
         };
         let boxes = crate::mailbox::Mailboxes::default();
-        let inbox = boxes.open("long-output-owner", None);
+        let inbox = boxes.open(&"long-output-owner".into(), None);
         let job = register_background_job(Some(&inbox), command);
         let job_id = job.id().to_string();
         let acc = OutputAccumulator::new().with_log_dir(logs.join("rho-bash"));

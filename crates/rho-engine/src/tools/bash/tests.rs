@@ -163,7 +163,7 @@ async fn a_bound_tool_streams_its_output_to_the_turns_port_as_the_command_runs()
 #[tokio::test]
 async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is_abandoned() {
     let dir = tempfile::tempdir().unwrap();
-    let owner = "bash-owner-7c2".to_string();
+    let owner = crate::mailbox::AgentId::from("bash-owner-7c2");
     let inbox = crate::mailbox::Mailboxes::default().open(&owner, None);
     let unbound = BashTool::new(dir.path());
     let tool = unbound
@@ -184,7 +184,7 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         .expect("the result names the job")
         .to_string();
     let jobs = inbox.jobs();
-    assert_eq!(jobs.get(&job_id).unwrap().owner, owner);
+    assert_eq!(jobs.get(&job_id).unwrap().owner.as_ref(), Some(&owner));
     assert!(jobs.has_running(&owner));
 
     inbox.cancel_jobs();

@@ -23,7 +23,7 @@ use crate::engine::runner::turn::runner::{
 };
 use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
-use crate::mailbox::Mailbox;
+use crate::mailbox::{AgentId, Mailbox};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
@@ -635,7 +635,7 @@ impl SubagentRunner {
     fn round_inbox(&self) -> Option<Mailbox> {
         self.inbox.clone().or_else(|| {
             let parent = self.ctx.inbox.as_ref()?;
-            let id = format!("subagent-{}", uuid::Uuid::new_v4());
+            let id = AgentId::from(format!("subagent-{}", uuid::Uuid::new_v4()));
             Some(parent.registry().open(&id, Some(parent.id())))
         })
     }

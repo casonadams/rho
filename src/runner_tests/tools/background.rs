@@ -55,7 +55,7 @@ async fn a_turn_ends_while_another_sessions_background_job_runs_and_never_receiv
     let model = Arc::new(MockAdapter::default());
     model.add_turn(vec![Ok(ModelStreamEvent::Text("all done".to_string()))]);
     let engine = test_engine(model.clone(), Config::default());
-    let other = engine.inbox().registry().open("e2e-other-session", None);
+    let other = engine.inbox().registry().open(&"e2e-other-session".into(), None);
     let _job = other.start_job("e2e-other-job".into(), "sleep 1000".into());
     other.notices().send("e2e-other-secret-result").unwrap();
 

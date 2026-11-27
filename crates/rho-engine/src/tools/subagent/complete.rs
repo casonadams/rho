@@ -134,7 +134,7 @@ mod tests {
     #[tokio::test]
     async fn a_report_is_kept_once_and_ends_the_turn() {
         let boxes = Mailboxes::default();
-        let (tool, report) = bound(&boxes.open("task", None));
+        let (tool, report) = bound(&boxes.open(&"task".into(), None));
 
         let sent = complete(&tool, "  findings at a.rs:3  ").await;
 
@@ -150,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn structured_data_travels_with_the_report_and_must_be_an_object() {
         let boxes = Mailboxes::default();
-        let (tool, report) = bound(&boxes.open("task", None));
+        let (tool, report) = bound(&boxes.open(&"task".into(), None));
 
         let bad = tool
             .execute(serde_json::json!({ "result": "x", "data": [1] }))
@@ -170,15 +170,15 @@ mod tests {
     #[tokio::test]
     async fn completion_is_refused_while_the_report_is_empty_or_work_is_outstanding() {
         let boxes = Mailboxes::default();
-        let _boss = boxes.open("boss", None);
-        let inbox = boxes.open("task", Some("boss"));
+        let _boss = boxes.open(&"boss".into(), None);
+        let inbox = boxes.open(&"task".into(), Some(&"boss".into()));
         let (tool, report) = bound(&inbox);
 
         let empty = complete(&tool, "   ").await;
         boxes
             .send(Envelope::new(
                 Party::Agent("boss".into()),
-                "task",
+                &"task".into(),
                 Kind::Command,
                 "one more thing",
             ))

@@ -286,7 +286,7 @@ impl AskParentTool {
     /// The parent's reply to `question`, or `None` when the question could not be put, the parent
     /// declined, or the round is stopping.
     async fn ask(&self, inbox: &Mailbox, question: &str) -> Option<Envelope> {
-        let request = match inbox.ask_parent(&reply_hint(inbox.id(), question)) {
+        let request = match inbox.ask_parent(&reply_hint(inbox.id().as_str(), question)) {
             Ok(request) => request,
             Err(error) => {
                 tracing::warn!(
@@ -480,8 +480,8 @@ mod tests {
     #[tokio::test]
     async fn with_a_mailbox_the_parents_reply_is_the_result_and_a_decline_pauses_the_turn() {
         let boxes = crate::mailbox::Mailboxes::default();
-        let parent = boxes.open("boss", None);
-        let inbox = boxes.open("task", Some("boss"));
+        let parent = boxes.open(&"boss".into(), None);
+        let inbox = boxes.open(&"task".into(), Some(&"boss".into()));
         let (tool, questions) = AskParentTool::with_question_slot();
         let tool = tool
             .bind_turn(&TurnToolContext {
@@ -496,7 +496,9 @@ mod tests {
             async move {
                 parent.wait().await;
                 let asked = parent.take();
-                boxes.tell(Party::Agent("boss".into()), "task", "The parser.").unwrap();
+                boxes
+                    .tell(Party::Agent("boss".into()), &"task".into(), "The parser.")
+                    .unwrap();
                 asked
             }
         });

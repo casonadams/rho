@@ -4,7 +4,7 @@
 
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Delivery, Mailbox, Mailboxes, Party, SendError};
+use crate::mailbox::{AgentId, Delivery, Mailbox, Mailboxes, Party, SendError};
 use crate::tools::jobs::{JobCompletion, JobManager};
 use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
 use rho_harness_core::args::SubagentRole;
@@ -33,7 +33,7 @@ pub struct SubagentRuntime {
 
 impl SubagentRuntime {
     /// The mailbox of the top-level agent `owner` (its session id), opened on first use and kept.
-    pub fn inbox(&self, owner: &str) -> Mailbox {
+    pub fn inbox(&self, owner: &AgentId) -> Mailbox {
         let mut root = locked(&self.root);
         if let Some(inbox) = root.as_ref().filter(|inbox| inbox.id() == owner) {
             return inbox.clone();
@@ -45,19 +45,19 @@ impl SubagentRuntime {
 
     /// Sends a message the user typed to task `task_id`'s running round, answering its question if it
     /// is waiting on one.
-    pub fn message_from_user(&self, task_id: &str, text: &str) -> Result<Delivery, SendError> {
+    pub fn message_from_user(&self, task_id: &AgentId, text: &str) -> Result<Delivery, SendError> {
         self.mailboxes.tell(Party::User, task_id, text)
     }
 
     /// Asks task `task_id`'s running round to stop and save what it has; `false` if none is running.
-    pub fn stop(&self, task_id: &str) -> bool {
+    pub fn stop(&self, task_id: &AgentId) -> bool {
         self.open.with(task_id, |round| round.stop.cancel()).is_some()
     }
 
     /// Sends `message` from the delegating agent to task `task_id`'s running round, answering its
     /// question if it is waiting on one, and returns the confirmation; [`SendError::NoMailbox`] when
     /// no round of it runs.
-    pub(crate) fn steer(&self, task_id: &str, message: &str) -> Result<String, SendError> {
+    pub(crate) fn steer(&self, task_id: &AgentId, message: &str) -> Result<String, SendError> {
         let parent = self
             .open
             .with(task_id, |round| round.owner.clone())
@@ -73,7 +73,7 @@ impl SubagentRuntime {
     }
 
     /// What task `task_id` runs as while one of its rounds is running.
-    pub(crate) fn running_settings(&self, task_id: &str) -> Option<ConversationSettings> {
+    pub(crate) fn running_settings(&self, task_id: &AgentId) -> Option<ConversationSettings> {
         self.open.with(task_id, |round| round.settings.clone())
     }
 
@@ -96,8 +96,8 @@ impl SubagentRuntime {
     /// The round is forgotten when the returned registration closes or drops.
     pub(crate) fn open_round(
         &self,
-        task_id: &str,
-        owner: &str,
+        task_id: &AgentId,
+        owner: &AgentId,
         settings: ConversationSettings,
         presenter: Option<Arc<dyn Presenter>>,
         stop: CancellationSignal,
@@ -108,7 +108,7 @@ impl SubagentRuntime {
             task_id,
             OpenRound {
                 mailbox: mailbox.clone(),
-                owner: owner.to_string(),
+                owner: owner.clone(),
                 settings,
                 stop,
                 started_at: Instant::now(),
@@ -117,7 +117,7 @@ impl SubagentRuntime {
         );
         RunningRound {
             open: self.open.clone(),
-            task_id: task_id.to_string(),
+            task_id: task_id.clone(),
             mailbox,
             closed: false,
         }
@@ -129,7 +129,7 @@ impl SubagentRuntime {
     }
 
     /// Starts tracking background work agent `owner` owns; its notice goes to `owner`.
-    pub(crate) fn start_job(&self, owner: &str, id: String, label: String) -> JobCompletion {
+    pub(crate) fn start_job(&self, owner: &AgentId, id: String, label: String) -> JobCompletion {
         self.mailboxes.start_job(owner, id, label)
     }
 
@@ -147,7 +147,7 @@ impl SubagentRuntime {
 /// A running round: its mailbox, who delegated it, what it runs as, and the signal that stops it.
 struct OpenRound {
     mailbox: Mailbox,
-    owner: String,
+    owner: AgentId,
     settings: ConversationSettings,
     stop: CancellationSignal,
     started_at: Instant,
@@ -156,16 +156,16 @@ struct OpenRound {
 
 /// The running rounds by task id.
 #[derive(Clone, Default)]
-struct OpenRounds(Arc<Mutex<HashMap<String, OpenRound>>>);
+struct OpenRounds(Arc<Mutex<HashMap<AgentId, OpenRound>>>);
 
 impl OpenRounds {
-    fn with<T>(&self, task_id: &str, read: impl FnOnce(&OpenRound) -> T) -> Option<T> {
+    fn with<T>(&self, task_id: &AgentId, read: impl FnOnce(&OpenRound) -> T) -> Option<T> {
         locked(&self.0).get(task_id).map(read)
     }
 
-    fn insert(&self, task_id: &str, round: OpenRound) {
+    fn insert(&self, task_id: &AgentId, round: OpenRound) {
         let presenter = round.presenter.clone();
-        locked(&self.0).insert(task_id.to_string(), round);
+        locked(&self.0).insert(task_id.clone(), round);
         self.emit_surface(presenter.as_deref());
     }
 
@@ -173,8 +173,8 @@ impl OpenRounds {
         let mut rows: Vec<SubagentSurfaceRow> = locked(&self.0)
             .iter()
             .map(|(task_id, round)| SubagentSurfaceRow {
-                id: task_id.clone(),
-                name: round.settings.name.clone().unwrap_or_else(|| task_id.clone()),
+                id: task_id.to_string(),
+                name: round.settings.name.clone().unwrap_or_else(|| task_id.to_string()),
                 role: round
                     .settings
                     .agent
@@ -200,7 +200,7 @@ impl OpenRounds {
 
     /// Forgets `mailbox`'s round if it is still the task's open one, closes the mailbox, and returns
     /// the messages the round never read.
-    fn close(&self, task_id: &str, mailbox: Mailbox) -> Vec<String> {
+    fn close(&self, task_id: &AgentId, mailbox: Mailbox) -> Vec<String> {
         let mut rounds = locked(&self.0);
         let presenter = if rounds.get(task_id).is_some_and(|round| round.mailbox.same(&mailbox)) {
             rounds.remove(task_id).and_then(|round| round.presenter)
@@ -217,7 +217,7 @@ impl OpenRounds {
 /// forgets the round and closes its mailbox.
 pub(crate) struct RunningRound {
     open: OpenRounds,
-    task_id: String,
+    task_id: AgentId,
     mailbox: Mailbox,
     closed: bool,
 }
@@ -330,6 +330,10 @@ impl Drop for RoundSlot {
 mod tests {
     use super::*;
 
+    fn id(name: &str) -> AgentId {
+        AgentId::from(name)
+    }
+
     #[test]
     fn a_busy_conversation_refuses_a_second_message_until_the_first_finishes() {
         let busy = BusyContexts::default();
@@ -344,14 +348,20 @@ mod tests {
     fn a_round_is_reachable_while_registered_and_reports_unread_messages_when_it_ends() {
         let runtime = SubagentRuntime::default();
         let stop = CancellationSignal::default();
-        let mut round = runtime.open_round("t", "boss", ConversationSettings::default(), None, stop.clone());
+        let mut round = runtime.open_round(
+            &id("t"),
+            &id("boss"),
+            ConversationSettings::default(),
+            None,
+            stop.clone(),
+        );
 
-        runtime.steer("t", "check the tests").unwrap();
-        assert!(runtime.stop("t") && stop.is_cancelled());
+        runtime.steer(&id("t"), "check the tests").unwrap();
+        assert!(runtime.stop(&id("t")) && stop.is_cancelled());
         assert_eq!(round.close(), ["check the tests"]);
 
-        assert_eq!(runtime.steer("t", "late"), Err(SendError::NoMailbox));
-        assert!(!runtime.stop("t"));
-        assert!(runtime.running_settings("t").is_none());
+        assert_eq!(runtime.steer(&id("t"), "late"), Err(SendError::NoMailbox));
+        assert!(!runtime.stop(&id("t")));
+        assert!(runtime.running_settings(&id("t")).is_none());
     }
 }

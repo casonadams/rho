@@ -1,7 +1,7 @@
 //! System notices: reports of finished background work an agent reads like any other message,
 //! framed so the model treats what they carry as data rather than instructions.
 
-use super::{Envelope, Mailboxes, SendError};
+use super::{AgentId, Envelope, Mailboxes, SendError};
 use std::sync::LazyLock;
 
 static NOTICE_TAG: LazyLock<regex::Regex> =
@@ -31,19 +31,19 @@ pub(crate) fn framed_notice(heading: &str, output: Option<&str>) -> String {
 #[derive(Clone)]
 pub struct NoticeTarget {
     registry: Mailboxes,
-    agent: String,
+    agent: AgentId,
 }
 
 impl NoticeTarget {
-    pub(super) fn new(registry: Mailboxes, agent: &str) -> Self {
+    pub(super) fn new(registry: Mailboxes, agent: &AgentId) -> Self {
         Self {
             registry,
-            agent: agent.to_string(),
+            agent: agent.clone(),
         }
     }
 
     #[must_use]
-    pub fn agent(&self) -> &str {
+    pub fn agent(&self) -> &AgentId {
         &self.agent
     }
 
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn a_notice_reaches_the_agent_while_its_mailbox_is_open() {
         let boxes = Mailboxes::default();
-        let inbox = boxes.open("agent", None);
+        let inbox = boxes.open(&"agent".into(), None);
         let target = inbox.notices();
 
         target.send("done").unwrap();

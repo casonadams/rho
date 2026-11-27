@@ -1,4 +1,5 @@
 use super::*;
+use crate::mailbox::AgentId;
 use crate::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
 use futures::StreamExt;
 use rho_harness_core::model::ToolFunction;
@@ -42,7 +43,7 @@ fn test_agent_env_with(
         run_tracker: Default::default(),
     };
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
-    let inbox = crate::mailbox::Mailboxes::default().open(&sm.session_id, None);
+    let inbox = crate::mailbox::Mailboxes::default().open(&AgentId::from(sm.session_id.as_str()), None);
     let runner = AgentRunner::new(model, Vec::new(), sm, sink).inbox(Some(inbox));
     (
         runner,
@@ -64,7 +65,7 @@ fn notify(runner: &AgentRunner, to: &str, body: &str) {
         .registry()
         .send(crate::mailbox::Envelope::new(
             crate::mailbox::Party::System,
-            to,
+            &AgentId::from(to),
             crate::mailbox::Kind::Event,
             body,
         ))
@@ -136,7 +137,7 @@ async fn test_wait_for_background_jobs_flow() {
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let sig = CancellationSignal::default();
     let runner = runner.cancellation(Some(sig.clone()));
-    let owner = runner.session_file().session_id.clone();
+    let owner = AgentId::from(runner.session_file().session_id.clone());
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
 
@@ -199,7 +200,7 @@ async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read()
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
     let parent = runner.inbox.clone().unwrap();
-    let child = parent.registry().open("asker-6a1", Some(parent.id()));
+    let child = parent.registry().open(&"asker-6a1".into(), Some(parent.id()));
     let request = child.ask_parent("which module?").unwrap();
     let _ = parent.take();
     let job = jobs(&runner).start(Some(parent.notices()), "asker-job-6a1".into(), "subagent".into());
@@ -219,7 +220,7 @@ async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read()
 async fn a_turn_that_ends_without_answering_declines_the_question_it_read() {
     let (runner, _temp, _buf, _tracker) = test_agent_env(Arc::new(MockAdapter::text("no idea")));
     let parent = runner.inbox.clone().unwrap();
-    let child = parent.registry().open("asker-9c4", Some(parent.id()));
+    let child = parent.registry().open(&"asker-9c4".into(), Some(parent.id()));
     let request = child.ask_parent("which module?").unwrap();
 
     let mut stream = runner.prompt("go").stream();
@@ -253,7 +254,7 @@ async fn steering_typed_while_waiting_for_background_work_is_delivered_at_once()
     let steering = Arc::new(Queued(std::sync::Mutex::default(), tokio::sync::Notify::new()));
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let runner = runner.steering(Some(steering.clone()));
-    let owner = runner.session_file().session_id.clone();
+    let owner = AgentId::from(runner.session_file().session_id.clone());
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
     let jobs = jobs(&runner);
@@ -279,19 +280,19 @@ async fn steering_typed_while_waiting_for_background_work_is_delivered_at_once()
 #[tokio::test]
 async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work() {
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_file().session_id.clone();
+    let owner = AgentId::from(runner.session_file().session_id.clone());
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
     let jobs = jobs(&runner);
-    let elsewhere = jobs.register("other-session-3f1", "other-job-3f1".into(), "sleep".into());
+    let elsewhere = jobs.register(&"other-session-3f1".into(), "other-job-3f1".into(), "sleep".into());
     let other_inbox = runner
         .inbox
         .as_ref()
         .unwrap()
         .registry()
-        .open("other-session-3f1", None);
+        .open(&"other-session-3f1".into(), None);
     notify(&runner, "other-session-3f1", "other-notice-3f1");
-    notify(&runner, &owner, "own-notice-3f1");
+    notify(&runner, owner.as_str(), "own-notice-3f1");
 
     let delivered = tokio::time::timeout(
         std::time::Duration::from_secs(2),
@@ -306,7 +307,7 @@ async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work(
     assert!(messages.contains("own-notice-3f1"), "{messages}");
     assert!(!messages.contains("other-notice-3f1"), "{messages}");
     assert!(!elsewhere.is_cancelled(), "another session's work is left alone");
-    assert!(jobs.has_running("other-session-3f1"));
+    assert!(jobs.has_running(&"other-session-3f1".into()));
     assert_eq!(other_inbox.take()[0].body, "other-notice-3f1");
 }
 
@@ -1015,10 +1016,10 @@ async fn completing_after_checkpointed_steps_promotes_them_once() {
 async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_background_work() {
     let model = tool_turn_then(vec![vec![Ok(ModelStreamEvent::Text("done".into()))]]);
     let (runner, _temp, _, _) = test_agent_env(model.clone());
-    let session_id = runner.session_file().session_id.clone();
+    let session_id = AgentId::from(runner.session_file().session_id.clone());
     let store = crate::engine::runner::turn::MemoryStore::new("child-task-9", vec![ChatMessage::user("earlier")]);
     let parent = runner.inbox.clone().unwrap();
-    let child = parent.registry().open("child-task-9", Some(parent.id()));
+    let child = parent.registry().open(&"child-task-9".into(), Some(parent.id()));
     parent
         .jobs()
         .register(&session_id, "memstore-parent-job".into(), "sleep".into());
@@ -1053,14 +1054,14 @@ async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on
             vec![ModelStreamEvent::Text("revised answer".into())],
         ]));
         let (runner, _temp, _, _) = test_agent_env(model.clone());
-        let owner = runner.session_file().session_id.clone();
+        let owner = AgentId::from(runner.session_file().session_id.clone());
         let runner = runner.prompt("review").budget(budget);
         let inbox = runner.inbox.clone().unwrap();
         inbox
             .registry()
             .send(crate::mailbox::Envelope::new(
                 crate::mailbox::Party::User,
-                owner,
+                &owner,
                 crate::mailbox::Kind::Command,
                 "also check the tests",
             ))
@@ -1150,7 +1151,7 @@ async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
 #[tokio::test(start_paused = true)]
 async fn delivering_messages_to_an_interrupted_turn_reports_the_interrupt() {
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_file().session_id.clone();
+    let owner = AgentId::from(runner.session_file().session_id.clone());
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     runner
         .inbox
@@ -1159,7 +1160,7 @@ async fn delivering_messages_to_an_interrupted_turn_reports_the_interrupt() {
         .registry()
         .send(crate::mailbox::Envelope::new(
             crate::mailbox::Party::System,
-            owner,
+            &owner,
             crate::mailbox::Kind::Event,
             "late-notice",
         ))
@@ -1176,7 +1177,7 @@ async fn delivering_messages_to_an_interrupted_turn_reports_the_interrupt() {
 #[tokio::test(start_paused = true)]
 async fn background_notification_is_injected_once_when_woken() {
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_file().session_id.clone();
+    let owner = AgentId::from(runner.session_file().session_id.clone());
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let registry = runner.inbox.as_ref().unwrap().registry().clone();
     let enqueue = tokio::spawn(async move {
@@ -1184,7 +1185,7 @@ async fn background_notification_is_injected_once_when_woken() {
         registry
             .send(crate::mailbox::Envelope::new(
                 crate::mailbox::Party::System,
-                owner,
+                &owner,
                 crate::mailbox::Kind::Event,
                 "bg-once-7d1",
             ))

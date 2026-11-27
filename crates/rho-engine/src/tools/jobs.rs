@@ -1,5 +1,5 @@
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::NoticeTarget;
+use crate::mailbox::{AgentId, NoticeTarget};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -18,8 +18,8 @@ pub enum JobStatus {
 #[derive(Debug, Clone)]
 pub struct BackgroundJobInfo {
     pub id: String,
-    /// The session whose turns wait for this job and receive its notice.
-    pub owner: String,
+    /// The session whose turns wait for this job and receive its notice; `None` for a job nobody owns.
+    pub owner: Option<AgentId>,
     pub command: String,
     pub started_at: Instant,
     pub status: JobStatus,
@@ -129,7 +129,12 @@ impl JobManager {
     }
 
     /// Registers a running job for the session `owner`. The returned signal fires when the job must stop.
-    pub(crate) fn register(&self, owner: &str, id: String, command: String) -> CancellationSignal {
+    #[cfg(test)]
+    pub(crate) fn register(&self, owner: &AgentId, id: String, command: String) -> CancellationSignal {
+        self.track(Some(owner.clone()), id, command)
+    }
+
+    fn track(&self, owner: Option<AgentId>, id: String, command: String) -> CancellationSignal {
         let cancel = CancellationSignal::default();
         let mut registry = self.lock();
         registry.finished.retain(|finished| *finished != id);
@@ -137,7 +142,7 @@ impl JobManager {
             id.clone(),
             BackgroundJobInfo {
                 id,
-                owner: owner.to_string(),
+                owner,
                 command,
                 started_at: Instant::now(),
                 status: JobStatus::Running,
@@ -151,7 +156,7 @@ impl JobManager {
     /// Registers a running job for the agent `owner` (none for a job nobody waits on) and returns the
     /// handle that must finish it; its notice goes to `owner`.
     pub(crate) fn start(&self, owner: Option<NoticeTarget>, id: String, command: String) -> JobCompletion {
-        let cancel = self.register(owner.as_ref().map_or("", NoticeTarget::agent), id.clone(), command);
+        let cancel = self.track(owner.as_ref().map(|target| target.agent().clone()), id.clone(), command);
         JobCompletion {
             jobs: self.clone(),
             id,
@@ -197,24 +202,24 @@ impl JobManager {
     }
 
     /// `owner`'s running jobs, oldest first.
-    pub fn running(&self, owner: &str) -> Vec<BackgroundJobInfo> {
+    pub fn running(&self, owner: &AgentId) -> Vec<BackgroundJobInfo> {
         let mut running: Vec<BackgroundJobInfo> = self
             .lock()
             .jobs
             .values()
-            .filter(|j| j.owner == owner && j.status == JobStatus::Running)
+            .filter(|j| j.owner.as_ref() == Some(owner) && j.status == JobStatus::Running)
             .cloned()
             .collect();
         running.sort_by_key(|j| j.started_at);
         running
     }
 
-    pub fn has_running(&self, owner: &str) -> bool {
+    pub fn has_running(&self, owner: &AgentId) -> bool {
         !self.running(owner).is_empty()
     }
 
     /// Signals every running job of `owner` to stop; each job records its own failure when it does.
-    pub fn cancel_owner(&self, owner: &str) {
+    pub fn cancel_owner(&self, owner: &AgentId) {
         for job in self.running(owner) {
             job.cancel.cancel();
         }
@@ -226,6 +231,10 @@ mod tests {
     use super::*;
     use crate::mailbox::{Kind, Mailboxes, Party};
 
+    fn id(name: &str) -> AgentId {
+        AgentId::from(name)
+    }
+
     fn done(exit_code: i32, output: &str) -> JobStatus {
         JobStatus::Completed {
             exit_code,
@@ -236,22 +245,22 @@ mod tests {
     #[test]
     fn test_job_manager_lifecycle() {
         let mgr = JobManager::default();
-        mgr.register("me", "j1".into(), "echo 1".into());
+        mgr.register(&id("me"), "j1".into(), "echo 1".into());
         assert_eq!(mgr.get("j1").unwrap().status, JobStatus::Running);
-        assert!(mgr.has_running("me"));
-        assert_eq!(mgr.running("me").len(), 1);
+        assert!(mgr.has_running(&id("me")));
+        assert_eq!(mgr.running(&id("me")).len(), 1);
 
         mgr.update_status("j1", done(0, "ok"));
         assert_eq!(mgr.get("j1").unwrap().status, done(0, "ok"));
-        assert!(!mgr.has_running("me"));
-        assert!(mgr.running("me").is_empty());
+        assert!(!mgr.has_running(&id("me")));
+        assert!(mgr.running(&id("me")).is_empty());
     }
 
     #[tokio::test]
     async fn a_job_whose_task_dies_before_reporting_stops_blocking_its_session() {
         let mgr = JobManager::default();
         let job = mgr.start(
-            Some(crate::mailbox::Mailboxes::default().notices_for("panicking-owner")),
+            Some(crate::mailbox::Mailboxes::default().notices_for(&id("panicking-owner"))),
             "p1".into(),
             "cmd".into(),
         );
@@ -261,7 +270,7 @@ mod tests {
         });
         assert!(task.await.unwrap_err().is_panic());
 
-        assert!(!mgr.has_running("panicking-owner"));
+        assert!(!mgr.has_running(&id("panicking-owner")));
         assert!(matches!(
             mgr.get("p1").unwrap().status,
             JobStatus::Failed { error } if error.contains("stopped unexpectedly")
@@ -271,14 +280,14 @@ mod tests {
     #[test]
     fn a_finished_jobs_notice_reaches_its_owners_mailbox_unless_the_job_was_told_to_stop() {
         let boxes = Mailboxes::default();
-        let inbox = boxes.open("o", None);
+        let inbox = boxes.open(&id("o"), None);
         let mgr = JobManager::default();
         mgr.start(Some(inbox.notices()), "kept".into(), "cmd".into())
             .finish(done(0, "ok"), Some("kept notice".into()));
         let stopped = mgr.start(Some(inbox.notices()), "stopped".into(), "cmd".into());
-        mgr.cancel_owner("o");
+        mgr.cancel_owner(&id("o"));
         stopped.finish(done(0, "ok"), Some("stale notice".into()));
-        mgr.start(Some(boxes.notices_for("gone")), "orphan".into(), "cmd".into())
+        mgr.start(Some(boxes.notices_for(&id("gone"))), "orphan".into(), "cmd".into())
             .finish(done(0, "ok"), Some("nobody listens".into()));
 
         let notices = inbox.take();
@@ -288,46 +297,49 @@ mod tests {
             ("kept notice", Kind::Event)
         );
         assert_eq!(notices[0].from, Party::System);
-        assert!(!mgr.has_running("o") && !mgr.has_running("gone"));
+        assert!(!mgr.has_running(&id("o")) && !mgr.has_running(&id("gone")));
     }
 
     #[test]
     fn an_earlier_run_finishing_late_leaves_the_rerun_under_its_id_running() {
         let mgr = JobManager::default();
         let boxes = Mailboxes::default();
-        let first = mgr.start(Some(boxes.notices_for("o")), "task-1".into(), "subagent".into());
-        let _second = mgr.start(Some(boxes.notices_for("o")), "task-1".into(), "subagent".into());
+        let first = mgr.start(Some(boxes.notices_for(&id("o"))), "task-1".into(), "subagent".into());
+        let _second = mgr.start(Some(boxes.notices_for(&id("o"))), "task-1".into(), "subagent".into());
 
         first.finish(done(0, "stale"), None);
 
         assert_eq!(mgr.get("task-1").unwrap().status, JobStatus::Running);
-        assert!(mgr.has_running("o"));
+        assert!(mgr.has_running(&id("o")));
     }
 
     #[test]
     fn running_jobs_only_count_for_their_own_session() {
         let mgr = JobManager::default();
-        mgr.register("session-a", "a1".into(), "sleep".into());
-        mgr.register("session-a", "a2".into(), "sleep".into());
-        mgr.register("session-b", "b1".into(), "sleep".into());
+        mgr.register(&id("session-a"), "a1".into(), "sleep".into());
+        mgr.register(&id("session-a"), "a2".into(), "sleep".into());
+        mgr.register(&id("session-b"), "b1".into(), "sleep".into());
 
-        assert_eq!((mgr.running("session-a").len(), mgr.running("session-b").len()), (2, 1));
-        assert!(!mgr.has_running("session-c"));
+        assert_eq!(
+            (mgr.running(&id("session-a")).len(), mgr.running(&id("session-b")).len()),
+            (2, 1)
+        );
+        assert!(!mgr.has_running(&id("session-c")));
 
         mgr.update_status("b1", done(0, "ok"));
-        assert!(!mgr.has_running("session-b"));
-        assert!(mgr.has_running("session-a"));
+        assert!(!mgr.has_running(&id("session-b")));
+        assert!(mgr.has_running(&id("session-a")));
     }
 
     #[test]
     fn cancelling_a_session_signals_only_its_running_jobs() {
         let mgr = JobManager::default();
-        let a_running = mgr.register("session-a", "a1".into(), "sleep".into());
-        let a_finished = mgr.register("session-a", "a2".into(), "true".into());
-        let b_running = mgr.register("session-b", "b1".into(), "sleep".into());
+        let a_running = mgr.register(&id("session-a"), "a1".into(), "sleep".into());
+        let a_finished = mgr.register(&id("session-a"), "a2".into(), "true".into());
+        let b_running = mgr.register(&id("session-b"), "b1".into(), "sleep".into());
         mgr.update_status("a2", done(0, "ok"));
 
-        mgr.cancel_owner("session-a");
+        mgr.cancel_owner(&id("session-a"));
 
         assert!(a_running.is_cancelled());
         assert!(!a_finished.is_cancelled(), "a finished job has nothing to stop");
@@ -337,16 +349,16 @@ mod tests {
     #[test]
     fn a_reregistered_job_runs_again_and_is_not_evicted_as_finished() {
         let mgr = JobManager::default();
-        mgr.register("me", "task".into(), "subagent".into());
+        mgr.register(&id("me"), "task".into(), "subagent".into());
         mgr.update_status("task", done(0, "first round"));
-        mgr.register("me", "task".into(), "subagent".into());
+        mgr.register(&id("me"), "task".into(), "subagent".into());
         for i in 0..MAX_FINISHED_JOBS {
-            let id = format!("job-{i}");
-            mgr.register("me", id.clone(), "cmd".into());
-            mgr.update_status(&id, done(0, "ok"));
+            let job_id = format!("job-{i}");
+            mgr.register(&id("me"), job_id.clone(), "cmd".into());
+            mgr.update_status(&job_id, done(0, "ok"));
         }
         assert_eq!(mgr.get("task").unwrap().status, JobStatus::Running);
-        assert!(mgr.has_running("me"));
+        assert!(mgr.has_running(&id("me")));
     }
 
     #[test]
@@ -355,13 +367,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let first_log = dir.path().join("first.log");
         std::fs::write(&first_log, "output").unwrap();
-        mgr.register("me", "job-0".into(), "cmd".into());
+        mgr.register(&id("me"), "job-0".into(), "cmd".into());
         mgr.attach_log("job-0", first_log.clone());
         mgr.update_status("job-0", done(0, "ok"));
         for i in 1..=MAX_FINISHED_JOBS {
-            let id = format!("job-{i}");
-            mgr.register("me", id.clone(), "cmd".into());
-            mgr.update_status(&id, done(0, "ok"));
+            let job_id = format!("job-{i}");
+            mgr.register(&id("me"), job_id.clone(), "cmd".into());
+            mgr.update_status(&job_id, done(0, "ok"));
         }
         assert!(mgr.get("job-0").is_none());
         assert!(!first_log.exists());

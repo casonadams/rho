@@ -4,7 +4,7 @@
 use super::conversation::ConversationSettings;
 use super::runtime::{RoundSlot, SubagentRuntime};
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Mailbox, framed_notice, neutralize_notice_tags};
+use crate::mailbox::{AgentId, Mailbox, framed_notice, neutralize_notice_tags};
 use crate::tools::jobs::JobStatus;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::SubagentRole;
@@ -39,9 +39,9 @@ impl Default for Backgrounding {
 
 /// The subagent task a round belongs to.
 pub(crate) struct BackgroundTask<'a> {
-    pub id: &'a str,
+    pub id: &'a AgentId,
     /// The session whose turns wait for the task and receive its result.
-    pub owner: &'a str,
+    pub owner: &'a AgentId,
     /// Shown for the task in the job list.
     pub label: String,
     pub cancellation: Option<CancellationSignal>,
@@ -233,7 +233,7 @@ impl Backgrounding {
                 guard.0 = None;
                 foreground.store(false, Ordering::Relaxed);
                 self.detach(handle, &task, stop);
-                ToolResult::success(started_notice(task.id, &task.settings))
+                ToolResult::success(started_notice(task.id.as_str(), &task.settings))
             }
         }
     }

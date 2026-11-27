@@ -122,7 +122,7 @@ async fn a_question_is_answered_while_the_subagent_waits_with_its_work_in_progre
     let dir = tempfile::tempdir().unwrap();
     let session = SessionManager::new(dir.path(), None).unwrap();
     let runtime = SubagentRuntime::default();
-    let parent = runtime.inbox(&session.session_id);
+    let parent = runtime.inbox(&session.session_id.as_str().into());
     let adapter = ask_turns();
     let tool = tool_with_runtime(&adapter, &session, &runtime);
 
@@ -163,7 +163,7 @@ async fn a_declined_question_pauses_the_task_and_the_reply_resumes_it() {
     let dir = tempfile::tempdir().unwrap();
     let session = SessionManager::new(dir.path(), None).unwrap();
     let runtime = SubagentRuntime::default();
-    let parent = runtime.inbox(&session.session_id);
+    let parent = runtime.inbox(&session.session_id.as_str().into());
     let adapter = ask_turns();
     let tool = tool_with_runtime(&adapter, &session, &runtime);
     let (id, _) = start_asking(&tool, &parent).await;
@@ -209,7 +209,7 @@ async fn a_declined_question_pauses_the_task_and_the_reply_resumes_it() {
 async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_continues_afterwards() {
     let dir = tempfile::tempdir().unwrap();
     let session = SessionManager::new(dir.path(), None).unwrap();
-    let owner = session.session_id.clone();
+    let owner = crate::mailbox::AgentId::from(session.session_id.as_str());
     let release = Arc::new(tokio::sync::Notify::new());
     let gate = release.clone();
     let slow_read: Arc<dyn EngineTool> = Arc::new(GenericTool::new("read", "reads", json!({}), move |_| {

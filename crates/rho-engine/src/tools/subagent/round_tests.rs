@@ -105,10 +105,10 @@ async fn an_overflow_on_the_first_call_compacts_and_still_gives_the_model_the_in
 async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
     let adapter = MockAdapter::from_turns([text_turn("done")]);
     let boxes = crate::mailbox::Mailboxes::default();
-    let inbox = boxes.open("round-jobs-7a1", None);
+    let inbox = boxes.open(&"round-jobs-7a1".into(), None);
     let job = inbox
         .jobs()
-        .register("round-jobs-7a1", "round-jobs-7a1-job".into(), "sleep".into());
+        .register(&"round-jobs-7a1".into(), "round-jobs-7a1-job".into(), "sleep".into());
     let stop = CancellationSignal::default();
     let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5)
         .with_inbox(inbox)
@@ -166,7 +166,7 @@ impl EngineTool for StartsJob {
 async fn a_round_without_its_own_mailbox_owns_its_background_jobs_under_its_parent() {
     let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "x")]), text_turn("done")]);
     let boxes = crate::mailbox::Mailboxes::default();
-    let parent = boxes.open("workflow-parent", None);
+    let parent = boxes.open(&"workflow-parent".into(), None);
     let started = Arc::new(std::sync::Mutex::new(Vec::new()));
     let tool: Arc<dyn EngineTool> = Arc::new(StartsJob {
         inbox: None,
@@ -184,7 +184,13 @@ async fn a_round_without_its_own_mailbox_owns_its_background_jobs_under_its_pare
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let job = parent.jobs().get("bg-job").expect("the job is tracked by the engine");
     assert!(!round.is_finished(), "the round waits for the job it started");
-    assert!(job.owner.starts_with("subagent-"), "{}", job.owner);
+    assert!(
+        job.owner
+            .as_ref()
+            .is_some_and(|owner| owner.as_str().starts_with("subagent-")),
+        "{:?}",
+        job.owner
+    );
     assert!(!parent.has_running_jobs(), "the round, not its parent, owns the job");
     stop.cancel();
     tokio::time::timeout(std::time::Duration::from_secs(5), round)

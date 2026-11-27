@@ -367,7 +367,7 @@ async fn a_tool_bound_to_a_turn_delivers_late_diagnostics_to_the_turns_mailbox()
         ..FakeOptions::default()
     };
     let (manager, _) = fake_manager(&dir, options);
-    let inbox = crate::mailbox::Mailboxes::default().open("turn-agent", None);
+    let inbox = crate::mailbox::Mailboxes::default().open(&"turn-agent".into(), None);
     let context = TurnToolContext {
         inbox: Some(inbox.clone()),
         ..TurnToolContext::default()

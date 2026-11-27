@@ -419,8 +419,8 @@ fn round_mailbox() -> (
     crate::mailbox::Mailbox,
 ) {
     let boxes = crate::mailbox::Mailboxes::default();
-    let boss = boxes.open("boss", None);
-    let task = boxes.open("task", Some("boss"));
+    let boss = boxes.open(&"boss".into(), None);
+    let task = boxes.open(&"task".into(), Some(&"boss".into()));
     (boxes, boss, task)
 }
 
@@ -428,7 +428,7 @@ fn send(boxes: &crate::mailbox::Mailboxes, from: crate::mailbox::Party, body: &s
     boxes
         .send(crate::mailbox::Envelope::new(
             from,
-            "task",
+            &"task".into(),
             crate::mailbox::Kind::Command,
             body,
         ))
