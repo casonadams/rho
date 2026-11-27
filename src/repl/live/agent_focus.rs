@@ -194,6 +194,7 @@ pub fn route<B: TerminalBackend>(
         .viewed_agent()
         .and_then(|id| engine.agent_monitor().record(id));
     let Some(summary) = record.map(|record| record.summary) else {
+        controller.set_system_message("Not sent: the shown agent is no longer known; press \u{2190} to return");
         return Routed::Handled;
     };
     let Some(task_id) = summary.task_id else {
