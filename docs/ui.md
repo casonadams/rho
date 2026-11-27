@@ -327,11 +327,11 @@ always matches your terminal emulator, in dark or light mode.
   so the API sends their arguments as they are generated instead of all at once.
   Both tools list `path` first, so a live edit card numbers its lines while the
   edits stream.
-- Long tool output ends with `... (N more lines, Ctrl+O to expand)`. Edit
-  diffs, write previews and `bash` output show their last lines under
-  `... (N earlier lines, Ctrl+O to expand)`: an edit or write card grows to ten
-  rows, then keeps that height while streaming. `Ctrl+O` shows everything. Tabs render
-  as four spaces.
+- Collapsed cards show their last lines under a notice row: tool output keeps
+  five rows under `... (N earlier lines, Ctrl+O to expand)`, and edit diffs and
+  write previews grow to ten rows under
+  `... (N earlier lines, M total, Ctrl+O to expand)`, then keep that height while
+  streaming. `Ctrl+O` shows everything. Tabs render as four spaces.
 - Notices carry a bold `info`, `warning`, or `error` label.
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and
   table borders) uses the terminal's native dim (SGR 2) effect instead of a

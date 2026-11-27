@@ -1,6 +1,7 @@
 use super::super::process::McpChildHandle;
 use super::super::types::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
 use super::Inbound;
+use crate::locking::lock;
 use rho_harness_core::error::{AppError, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -32,7 +33,7 @@ fn handle_stdout_line(line: &str, pending: &Mutex<BTreeMap<i64, ResponseTx>>, in
     }
     if let Ok(resp) = serde_json::from_value::<JsonRpcResponse>(message)
         && let Some(id_num) = resp.id.as_i64()
-        && let Some(tx) = pending.lock().unwrap().remove(&id_num)
+        && let Some(tx) = lock(pending).remove(&id_num)
     {
         let res = resp
             .error
@@ -43,7 +44,7 @@ fn handle_stdout_line(line: &str, pending: &Mutex<BTreeMap<i64, ResponseTx>>, in
 }
 
 fn cancel_pending_on_close(pending: &Mutex<BTreeMap<i64, ResponseTx>>) {
-    pending.lock().unwrap().clear();
+    lock(pending).clear();
 }
 
 fn spawn_stdout_reader(stdout: ChildStdout, pending: Arc<Mutex<BTreeMap<i64, ResponseTx>>>, inbound: Inbound) {
@@ -109,12 +110,12 @@ impl StdioTransport {
     }
 
     pub(crate) fn forget(&self, id: i64) {
-        self.pending.lock().unwrap().remove(&id);
+        lock(&self.pending).remove(&id);
     }
 
     pub(crate) async fn send_request(&self, id: i64, method: &str, params: Option<Value>) -> Result<Value> {
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        lock(&self.pending).insert(id, tx);
 
         let req = JsonRpcRequest::new(id, method, params);
         let json = format!(

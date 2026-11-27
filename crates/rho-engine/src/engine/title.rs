@@ -65,7 +65,7 @@ impl TitleTracker {
     }
 
     pub(crate) fn cancel(&self) {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = crate::locking::lock(&self.state);
         if let Some(tx) = guard.cancel.take() {
             let _ = tx.send(true);
         }
@@ -73,7 +73,7 @@ impl TitleTracker {
     }
 
     fn try_begin(&self) -> Option<watch::Receiver<bool>> {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = crate::locking::lock(&self.state);
         if guard.in_flight || guard.attempts >= MAX_AUTO_TITLE_ATTEMPTS {
             return None;
         }
@@ -85,7 +85,7 @@ impl TitleTracker {
     }
 
     fn finish(&self) {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = crate::locking::lock(&self.state);
         guard.in_flight = false;
         guard.cancel = None;
     }

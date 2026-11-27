@@ -214,14 +214,9 @@ pub(crate) fn format_output_lines(clean: &str, width: usize, expanded: bool, dim
     if expanded {
         clean.to_string()
     } else {
-        let truncated = truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
-        let mut out = String::new();
-        if truncated.skipped_count > 0 {
-            out.push_str(&format!(
-                "{dim}... ({n} earlier lines, Ctrl+O to expand){dim:#}\n",
-                n = truncated.skipped_count
-            ));
-        }
+        let row_width = width.saturating_sub(4).max(1);
+        let truncated = truncate_to_visual_lines(clean, 5, row_width);
+        let mut out = super::formatters::earlier_lines_notice(truncated.skipped_count, None, row_width, dim);
         out.push_str(&truncated.visual_lines.join("\n"));
         out
     }

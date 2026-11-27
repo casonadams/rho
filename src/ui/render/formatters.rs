@@ -1,7 +1,4 @@
 //! Edit-diff, write-preview, session-status, and relative-time formatters.
-//!
-//! These are `pub(crate)` because they are only consumed by `renderer.rs`,
-//! but they remain exposed as module-private items so future tools can reuse them.
 
 use super::file_change;
 use crate::ui::theme::Theme;
@@ -53,51 +50,39 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
     Some(collapse_to_tail(&out, request.width, theme))
 }
 
+/// The newest `PREVIEW_LINES` rows of `rendered`, each clipped to `width`, under a notice
+/// counting the rows above them: the collapsed edit and write cards stop growing at that height.
 fn collapse_to_tail(rendered: &str, width: usize, theme: &Theme) -> String {
     let rows: Vec<&str> = rendered.lines().collect();
     let hidden = rows.len().saturating_sub(PREVIEW_LINES);
-    let mut out = earlier_lines_notice(hidden, rows.len(), width, theme);
+    let mut out = earlier_lines_notice(hidden, Some(rows.len()), width, theme.dimmed);
     for row in &rows[hidden..] {
         let _ = writeln!(out, "{}", crate::ui::interactive::footer::truncate_to_width(row, width));
     }
     out
 }
 
-fn earlier_lines_notice(hidden: usize, total: usize, width: usize, theme: &Theme) -> String {
+/// The dimmed row a collapsed card shows above its tail, clipped to `width` so it stays one row.
+pub(crate) fn earlier_lines_notice(hidden: usize, total: Option<usize>, width: usize, dim: anstyle::Style) -> String {
     if hidden == 0 {
         return String::new();
     }
-    let dim = theme.dimmed;
-    let notice = format!("... ({hidden} earlier lines, {total} total, Ctrl+O to expand)");
+    let notice = match total {
+        Some(total) => format!("... ({hidden} earlier lines, {total} total, Ctrl+O to expand)"),
+        None => format!("... ({hidden} earlier lines, Ctrl+O to expand)"),
+    };
     let notice = crate::ui::interactive::footer::truncate_to_width(&notice, width);
     format!("{dim}{notice}{dim:#}\n")
 }
 
-/// Highlights every line so highlighter state carries over, but emits only lines from `first` on.
-/// With `clip` set each line is cut to that many columns so it takes exactly one row.
-fn format_preview_lines(
-    lines: &[&str],
-    first: usize,
-    clip: Option<usize>,
-    lang: Option<&str>,
-    theme: &Theme,
-) -> String {
+fn format_preview_lines(lines: &[&str], lang: Option<&str>, theme: &Theme) -> String {
     let mut out = String::new();
-    let d = theme.dimmed;
     let gutter_width = lines.len().to_string().len().max(3);
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang);
     for (idx, line) in lines.iter().enumerate() {
-        let no_tabs = super::diff::replace_tabs(line);
-        let highlighted = highlighter.highlight_line(&no_tabs, theme);
-        if idx >= first {
-            let gutter = super::diff::format_gutter_prefix(idx + 1, gutter_width, d);
-            let row = format!("{gutter}{highlighted}");
-            let row = match clip {
-                Some(width) => crate::ui::interactive::footer::truncate_to_width(&row, width),
-                None => row,
-            };
-            let _ = writeln!(out, "{row}");
-        }
+        let highlighted = highlighter.highlight_line(&super::diff::replace_tabs(line), theme);
+        let gutter = super::diff::format_gutter_prefix(idx + 1, gutter_width, theme.dimmed);
+        let _ = writeln!(out, "{gutter}{highlighted}");
     }
     out
 }
@@ -218,14 +203,11 @@ pub(crate) fn format_write_preview(
     }
     let lang = super::card::detect_language_from_args(args);
     let lines: Vec<&str> = content.lines().collect();
-    let total = lines.len();
+    let preview = format_preview_lines(&lines, lang, theme);
     if expanded {
-        return Some(format_preview_lines(&lines, 0, None, lang, theme));
+        return Some(preview);
     }
-    let hidden = total.saturating_sub(PREVIEW_LINES);
-    let mut out = earlier_lines_notice(hidden, total, width, theme);
-    out.push_str(&format_preview_lines(&lines, hidden, Some(width), lang, theme));
-    Some(out)
+    Some(collapse_to_tail(&preview, width, theme))
 }
 
 const PREVIEW_LINES: usize = 10;

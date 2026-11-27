@@ -4,6 +4,7 @@ use super::manager::McpDiagnostic;
 use super::pool::McpServerPool;
 use super::result::{OutputLimits, resource_result, tool_result};
 use super::search::{McpToolEntry, ServerState, ToolSearchCatalog};
+use crate::locking::lock;
 use crate::tools::ToolResult;
 use rho_harness_core::config::{Config, McpLifecycleMode, McpServerConfig};
 use rho_harness_core::error::{AppError, Result};
@@ -154,7 +155,7 @@ impl McpRuntime {
     }
 
     pub fn take_problems(&self) -> Vec<McpDiagnostic> {
-        std::mem::take(&mut *self.problems.lock().unwrap())
+        std::mem::take(&mut *lock(&self.problems))
     }
 
     pub async fn problems_ready(&self) {
@@ -162,8 +163,8 @@ impl McpRuntime {
     }
 
     fn report(&self, diagnostic: McpDiagnostic) {
-        if self.reported.lock().unwrap().insert(diagnostic.clone()) {
-            self.problems.lock().unwrap().push(diagnostic);
+        if lock(&self.reported).insert(diagnostic.clone()) {
+            lock(&self.problems).push(diagnostic);
             self.problems_ready.notify_one();
         }
     }
@@ -178,7 +179,7 @@ impl McpRuntime {
 
     fn allow_reconnect(&self, server: &str) -> bool {
         let now = Instant::now();
-        let mut reconnects = self.reconnects.lock().unwrap();
+        let mut reconnects = lock(&self.reconnects);
         let recent = reconnects.entry(server.to_string()).or_default();
         recent.retain(|at| now.duration_since(*at) < RECONNECT_WINDOW);
         if recent.len() >= MAX_RECONNECTS {

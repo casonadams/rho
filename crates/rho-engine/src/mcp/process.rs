@@ -20,7 +20,7 @@ impl McpChildHandle {
     }
 
     pub fn last_stderr(&self) -> String {
-        self.stderr_buffer.lock().unwrap().clone()
+        crate::locking::lock(&self.stderr_buffer).clone()
     }
 }
 
@@ -51,7 +51,7 @@ fn spawn_stderr_reader(stderr: ChildStderr) -> Arc<Mutex<String>> {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let mut buf = buffer_clone.lock().unwrap();
+            let mut buf = crate::locking::lock(&buffer_clone);
             if buf.len() < MAX_STDERR_BYTES {
                 buf.push_str(&line);
                 buf.push('\n');

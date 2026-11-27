@@ -175,6 +175,15 @@ fn content_decoder_holds_escape_split_across_deltas() {
 }
 
 #[test]
+fn content_decoder_stops_at_an_invalid_escape_and_keeps_what_it_decoded() {
+    let mut decoder = ContentDecoder::default();
+    decoder.advance("{\"content\": \"ok");
+    decoder.advance("{\"content\": \"ok \\q more");
+    decoder.advance("{\"content\": \"ok \\q more and more\"}");
+    assert_eq!((decoder.decoded.as_str(), decoder.closed), ("ok", true));
+}
+
+#[test]
 fn extract_missing_or_malformed_fields() {
     assert_eq!(extract_json_string_field("{}", "path"), None);
     assert_eq!(extract_json_string_field("{\"path\"", "path"), None);

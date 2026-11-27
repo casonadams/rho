@@ -160,7 +160,7 @@ impl EditPreview {
             && let Some(object) = parsed.as_object_mut()
         {
             for key in rho_harness_core::args::TARGET_PATH_KEYS.iter() {
-                object.remove(*key);
+                object.shift_remove(*key);
             }
         }
         Some(parsed)

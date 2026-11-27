@@ -7,9 +7,9 @@ pub fn normalize_schema(value: &mut serde_json::Value) {
     inline_refs(value, &defs);
     clean_schema(value);
     if let serde_json::Value::Object(map) = value {
-        map.remove("$defs");
-        map.remove("definitions");
-        map.remove("$schema");
+        map.shift_remove("$defs");
+        map.shift_remove("definitions");
+        map.shift_remove("$schema");
     }
 }
 
@@ -120,7 +120,7 @@ fn try_clean_any_of(map: &mut serde_json::Map<String, serde_json::Value>) -> Opt
 
 fn clean_object_schema(map: &mut serde_json::Map<String, serde_json::Value>) {
     if map.get("default") == Some(&serde_json::Value::Null) {
-        map.remove("default");
+        map.shift_remove("default");
     }
     clean_array_type(map);
     for subval in map.values_mut() {

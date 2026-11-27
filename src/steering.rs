@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use rho_harness_core::locking::lock;
 use tokio::sync::Notify;
 
 use crate::engine::runner::{PendingMessageQueue, SteeringQueueProvider};
@@ -21,20 +22,20 @@ impl SharedSteeringQueue {
     }
 
     pub fn enqueue(&self, msg: String) {
-        self.queue.lock().unwrap().enqueue(msg);
+        lock(&self.queue).enqueue(msg);
         self.enqueued.notify_waiters();
     }
 
     pub fn clear(&self) {
-        self.queue.lock().unwrap().clear();
+        lock(&self.queue).clear();
     }
 
     pub fn consumed(&self) -> Vec<String> {
-        self.consumed.lock().unwrap().clone()
+        lock(&self.consumed).clone()
     }
 
     pub fn take_consumed(&self) -> Vec<String> {
-        let mut guard = self.consumed.lock().unwrap();
+        let mut guard = lock(&self.consumed);
         std::mem::take(&mut *guard)
     }
 }
@@ -42,15 +43,15 @@ impl SharedSteeringQueue {
 #[async_trait]
 impl SteeringQueueProvider for SharedSteeringQueue {
     async fn poll_steering(&self) -> Vec<String> {
-        let drained = self.queue.lock().unwrap().drain();
+        let drained = lock(&self.queue).drain();
         if !drained.is_empty() {
-            self.consumed.lock().unwrap().extend(drained.clone());
+            lock(&self.consumed).extend(drained.clone());
         }
         drained
     }
 
     fn has_steering(&self) -> bool {
-        !self.queue.lock().unwrap().is_empty()
+        !lock(&self.queue).is_empty()
     }
 
     async fn arrived(&self) {

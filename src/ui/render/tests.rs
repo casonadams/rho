@@ -1107,6 +1107,39 @@ fn tabs_expand_to_four_spaces_in_diffs_and_write_previews() {
 }
 
 #[test]
+fn every_edit_and_write_card_collapses_to_its_newest_rows_until_expanded() {
+    let body = numbered("row", 30);
+    let edit = serde_json::json!({"path": "a.rs", "edits": [{"oldText": body, "newText": "done", "line": 1}]});
+    let write = serde_json::json!({"path": "a.rs", "text": format!("{body}\ndone")});
+    let structured = Theme {
+        structured_tool_cards: true,
+        ..Theme::default()
+    };
+    let cards = [
+        ("edit", ToolLine::new("edit", edit.clone())),
+        (
+            "failed edit",
+            ToolLine::new("edit", edit).with_output("no match").failed(),
+        ),
+        ("write", ToolLine::new("write", write)),
+    ];
+    for theme in [Theme::default(), structured] {
+        for (label, tool) in &cards {
+            let collapsed = crate::ui::block::strip_ansi(&render_tool_block(tool, 80, false, false, &theme));
+            assert!(
+                collapsed.contains("earlier lines") && collapsed.contains("done") && !collapsed.contains("row1 "),
+                "{label}: {collapsed}"
+            );
+            let expanded = crate::ui::block::strip_ansi(&render_tool_block(tool, 80, true, false, &theme));
+            assert!(
+                !expanded.contains("earlier lines") && expanded.contains("row1 "),
+                "{label}: {expanded}"
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_edit_card_shows_the_attempted_change_after_the_error() {
     let theme = Theme::default();
     let args = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "missing", "newText": "present", "line": 7}]});
