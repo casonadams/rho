@@ -29,7 +29,7 @@ fn resolves_paths_from_fixed_root() {
 
 #[test]
 fn resolves_home_paths_when_env_present() {
-    let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
+    let root = crate::test_support::temp_dir();
     let workspace = Workspace::new(&root);
     if let Ok(home) = std::env::var("HOME") {
         assert_eq!(workspace.resolve("~"), Some(PathBuf::from(&home)));

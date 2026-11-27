@@ -593,6 +593,22 @@ mod tests {
     }
 
     #[test]
+    fn enum_names_match_their_serde_representation() {
+        for action in LspAction::ALL {
+            assert_eq!(
+                serde_json::to_value(action).unwrap(),
+                serde_json::json!(action.as_str())
+            );
+        }
+        for role in SubagentRole::ALL {
+            assert_eq!(serde_json::to_value(role).unwrap(), serde_json::json!(role.as_str()));
+        }
+        for scope in [MemoryScope::Project, MemoryScope::Global] {
+            assert_eq!(serde_json::to_value(scope).unwrap(), serde_json::json!(scope.as_str()));
+        }
+    }
+
+    #[test]
     fn test_subagent_role_properties() {
         assert_eq!(SubagentRole::default(), SubagentRole::Scout);
         assert_eq!(SubagentRole::Scout.as_str(), "scout");

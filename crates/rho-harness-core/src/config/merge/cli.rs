@@ -1,7 +1,6 @@
 use super::super::{Config, ModelRole};
 use crate::config::cli::Cli;
 use crate::provider::{Connection, ModelRoute};
-use crate::thinking::ThinkingLevel;
 
 pub(super) fn resolve_model_with_provider(config: &mut Config, model_spec: &str, provider_flag: Option<&str>) {
     let route = ModelRoute::parse(model_spec, provider_flag, "local");
@@ -40,7 +39,7 @@ fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
         apply_provider_flag_only(config, p);
     }
     if let Some(ref t) = c.thinking {
-        config.thinking_level = ThinkingLevel::from_setting(Some(t)).setting();
+        config.thinking_level = Some(t.clone());
     }
 }
 

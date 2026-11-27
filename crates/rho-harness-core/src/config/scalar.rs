@@ -24,6 +24,14 @@ where
     Ok(parsed)
 }
 
+/// `off` and `0` disable session retention, which the config file stores as `0`.
+pub(crate) fn parse_retention_days(name: &str, value: &str) -> Result<u32> {
+    match value {
+        "off" | "0" => Ok(0),
+        _ => parse_positive(name, value),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

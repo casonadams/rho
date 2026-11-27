@@ -2,6 +2,7 @@
 //! note in `~/.agents/memory/global.md` and `~/.agents/memory/<project key>.md`.
 
 use crate::args::MemoryScope;
+use crate::secrets::contains_credential;
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -257,89 +258,9 @@ pub fn numbered(notes: &[String]) -> String {
     out
 }
 
-const SECRET_KEYS: [&str; 9] = [
-    "password",
-    "passwd",
-    "secret",
-    "token",
-    "api_key",
-    "api-key",
-    "apikey",
-    "access_key",
-    "private_key",
-];
-
-/// Credential shapes: provider key prefixes, `key=value` and `key: value` assignments, PEM private
-/// key headers, bearer tokens, JWTs, URLs with a password, and long hex or base64 words.
+/// Credential shapes shared with session redaction, plus long encoded words that look like keys.
 fn looks_like_secret(note: &str) -> bool {
-    let lower = note.to_ascii_lowercase();
-    let alnum = |c: char| c.is_ascii_alphanumeric();
-    let dashed = |c: char| alnum(c) || matches!(c, '-' | '_');
-    assigns_secret(&lower)
-        || (lower.contains("-----begin") && lower.contains("private key-----"))
-        || has_token_after(note, "sk-", 20, dashed)
-        || has_token_after(note, "ghp_", 20, alnum)
-        || has_token_after(note, "github_pat_", 20, dashed)
-        || has_token_after(note, "glpat-", 20, dashed)
-        || has_token_after(note, "AKIA", 16, |c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        || has_token_after(note, "ASIA", 16, |c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        || has_token_after(note, "AIza", 35, dashed)
-        || ["xoxb-", "xoxa-", "xoxp-", "xoxr-", "xoxs-"]
-            .iter()
-            .any(|prefix| has_token_after(note, prefix, 10, dashed))
-        || has_token_after(&lower, "bearer ", 16, |c| {
-            alnum(c) || matches!(c, '-' | '.' | '_' | '~' | '+' | '/' | '=')
-        })
-        || has_url_password(note)
-        || note
-            .split_whitespace()
-            .any(|word| is_jwt(word) || is_long_encoded_word(word))
-}
-
-/// `password=`, `secret = x`, `token: x`: a credential name assigned a value. A bare `key:` with
-/// nothing after it is prose, not an assignment.
-fn assigns_secret(lower: &str) -> bool {
-    SECRET_KEYS.iter().any(|key| {
-        lower.match_indices(key).any(|(at, _)| {
-            let rest = lower[at + key.len()..].trim_start_matches([' ', '\t']);
-            rest.starts_with('=') || rest.strip_prefix(':').is_some_and(|value| !value.trim().is_empty())
-        })
-    })
-}
-
-/// `scheme://user:password@host`.
-fn has_url_password(note: &str) -> bool {
-    note.match_indices("://").any(|(at, _)| {
-        let authority = note[at + 3..].split(['/', ' ', '\t']).next().unwrap_or("");
-        authority
-            .split_once('@')
-            .and_then(|(userinfo, _)| userinfo.split_once(':'))
-            .is_some_and(|(_, password)| !password.is_empty())
-    })
-}
-
-fn is_jwt(word: &str) -> bool {
-    let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
-    let parts: Vec<&str> = word.split('.').collect();
-    word.starts_with("eyJ")
-        && parts.len() == 3
-        && parts.iter().all(|part| {
-            part.len() >= 8
-                && part
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-        })
-}
-
-/// Whether `prefix` starts a word in `text` and is followed by at least `min` characters `accept`s.
-fn has_token_after(text: &str, prefix: &str, min: usize, accept: impl Fn(char) -> bool) -> bool {
-    text.match_indices(prefix).any(|(at, _)| {
-        let starts_word = !text[..at]
-            .chars()
-            .next_back()
-            .is_some_and(|c| c.is_ascii_alphanumeric());
-        starts_word && text[at + prefix.len()..].chars().take_while(|&c| accept(c)).count() >= min
-    })
+    contains_credential(note) || note.split_whitespace().any(is_long_encoded_word)
 }
 
 /// A SHA-1 is 40 hex digits and notes mention commits; any other long hex word is a key.
@@ -387,13 +308,27 @@ fn checked_note(notes: &[String], text: &str) -> Result<String, MemoryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rho_test_support::TestDir;
     use std::sync::Arc;
-    use tempfile::TempDir;
 
-    fn store() -> (TempDir, MemoryStore) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = MemoryStore::new(dir.path().join("memory"), &dir.path().join("workspace"));
+    fn store() -> (TestDir, MemoryStore) {
+        let dir = TestDir::new();
+        let store = MemoryStore::new(dir.join("memory"), &dir.join("workspace"));
         (dir, store)
+    }
+
+    #[test]
+    fn credential_shapes_shared_with_session_redaction_are_refused() {
+        for note in [
+            "rotate sk-abcdefghijklmnop",
+            "rotate sk-abcdefghijklmnopqrs soon",
+            "secret_key=hunter2hunter2",
+        ] {
+            assert!(
+                matches!(checked_note(&[], note), Err(MemoryError::LooksLikeSecret)),
+                "{note:?}"
+            );
+        }
     }
 
     #[test]
@@ -418,10 +353,7 @@ mod tests {
         );
         assert_eq!(store.notes(MemoryScope::Project).unwrap(), ["src/vt is high risk"]);
         assert_eq!(store.notes(MemoryScope::Global).unwrap(), ["prefer rg"]);
-        assert_eq!(
-            store.path(MemoryScope::Global),
-            dir.path().join("memory").join("global.md")
-        );
+        assert_eq!(store.path(MemoryScope::Global), dir.join("memory").join("global.md"));
     }
 
     #[test]
@@ -448,7 +380,7 @@ mod tests {
     #[test]
     fn a_full_scope_asks_for_stale_notes_to_be_removed() {
         let (dir, store) = store();
-        std::fs::create_dir_all(dir.path().join("memory")).unwrap();
+        std::fs::create_dir_all(dir.join("memory")).unwrap();
         let many: Vec<String> = (1..=MAX_NOTES).map(|i| format!("note {i}")).collect();
         let big: Vec<String> = (0..27)
             .map(|i| format!("{i:02} {}", "y".repeat(MAX_NOTE_CHARS - 3)))
@@ -474,9 +406,9 @@ mod tests {
 
     #[test]
     fn project_keys_are_stable_readable_and_distinct() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("my repo");
-        let b = dir.path().join("my-repo");
+        let dir = TestDir::new();
+        let a = dir.join("my repo");
+        let b = dir.join("my-repo");
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();
 
@@ -489,7 +421,7 @@ mod tests {
             "{key}"
         );
         assert_ne!(key, project_key(&b));
-        assert!(project_key(&dir.path().join("x".repeat(200))).len() <= KEY_PATH_CHARS + 9);
+        assert!(project_key(&dir.join("x".repeat(200))).len() <= KEY_PATH_CHARS + 9);
         assert_eq!(project_key(Path::new("/")).len(), 8);
     }
 
@@ -609,6 +541,7 @@ mod tests {
             "edit crates/rho-engine/src/tools/undo/tests for coverage",
             "reset the password in the settings page",
             "Bearer of bad news: CI is red",
+            "use Bearer authentication for the API",
             "set sk-1 to 2",
             "the regression came in with commit 3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
             "see https://example.com/a:b@c and user@example.com",

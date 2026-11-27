@@ -3,7 +3,7 @@ use crate::error::{AppError, Result};
 use crate::rpc::protocol::RpcEvent;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Clone, Default)]
@@ -12,25 +12,25 @@ pub struct AuthInputResponse {
     pub selected_option: Option<String>,
 }
 
+type PendingInputs = Mutex<HashMap<String, oneshot::Sender<AuthInputResponse>>>;
+
+fn lock_pending(pending: &PendingInputs) -> MutexGuard<'_, HashMap<String, oneshot::Sender<AuthInputResponse>>> {
+    pending.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 #[derive(Clone, Default)]
 pub struct RpcAuthBridge {
-    pending_inputs: Arc<Mutex<HashMap<String, oneshot::Sender<AuthInputResponse>>>>,
+    pending_inputs: Arc<PendingInputs>,
 }
 
 impl RpcAuthBridge {
     pub fn new() -> Self {
-        Self {
-            pending_inputs: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self::default()
     }
 
     pub fn resolve_input(&self, interaction_id: &str, response: AuthInputResponse) -> bool {
-        let mut map = self.pending_inputs.lock().unwrap();
-        if let Some(tx) = map.remove(interaction_id) {
-            tx.send(response).is_ok()
-        } else {
-            false
-        }
+        let pending = lock_pending(&self.pending_inputs).remove(interaction_id);
+        pending.is_some_and(|tx| tx.send(response).is_ok())
     }
 
     pub fn callbacks(
@@ -49,15 +49,34 @@ impl RpcAuthBridge {
 pub struct RpcOAuthCallbacks {
     provider: String,
     event_tx: mpsc::UnboundedSender<RpcEvent>,
-    pending_inputs: Arc<Mutex<HashMap<String, oneshot::Sender<AuthInputResponse>>>>,
+    pending_inputs: Arc<PendingInputs>,
+}
+
+impl RpcOAuthCallbacks {
+    fn send(&self, event: RpcEvent) -> Result<()> {
+        self.event_tx
+            .send(event)
+            .map_err(|_| AppError::Auth(format!("{} login: the client is no longer listening", self.provider)))
+    }
+
+    /// Registers a reply slot before the request is sent, so a fast reply cannot be missed.
+    async fn ask(&self, request: impl FnOnce(String) -> RpcEvent, cancelled: &str) -> Result<AuthInputResponse> {
+        let interaction_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        lock_pending(&self.pending_inputs).insert(interaction_id.clone(), tx);
+        if let Err(error) = self.send(request(interaction_id.clone())) {
+            lock_pending(&self.pending_inputs).remove(&interaction_id);
+            return Err(error);
+        }
+        rx.await.map_err(|_| AppError::Auth(cancelled.to_string()))
+    }
 }
 
 #[async_trait]
 impl OAuthLoginCallbacks for RpcOAuthCallbacks {
     async fn on_auth_url(&self, url: &str, instructions: Option<&str>) -> Result<()> {
-        let interaction_id = uuid::Uuid::new_v4().to_string();
-        let _ = self.event_tx.send(RpcEvent::AuthRequest {
-            interaction_id,
+        self.send(RpcEvent::AuthRequest {
+            interaction_id: uuid::Uuid::new_v4().to_string(),
             provider: self.provider.clone(),
             auth_url: Some(url.to_string()),
             instructions: instructions.map(ToString::to_string),
@@ -65,14 +84,12 @@ impl OAuthLoginCallbacks for RpcOAuthCallbacks {
             prompt: None,
             is_secret: None,
             options: None,
-        });
-        Ok(())
+        })
     }
 
     async fn on_device_code(&self, info: &DeviceCodeInfo<'_>) -> Result<()> {
-        let interaction_id = uuid::Uuid::new_v4().to_string();
-        let _ = self.event_tx.send(RpcEvent::AuthRequest {
-            interaction_id,
+        self.send(RpcEvent::AuthRequest {
+            interaction_id: uuid::Uuid::new_v4().to_string(),
             provider: self.provider.clone(),
             auth_url: Some(info.verification_uri.to_string()),
             instructions: None,
@@ -80,54 +97,45 @@ impl OAuthLoginCallbacks for RpcOAuthCallbacks {
             prompt: None,
             is_secret: None,
             options: None,
-        });
-        Ok(())
+        })
     }
 
     async fn on_prompt(&self, message: &str, secret: bool) -> Result<String> {
-        let interaction_id = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut map = self.pending_inputs.lock().unwrap();
-            map.insert(interaction_id.clone(), tx);
-        }
-        let _ = self.event_tx.send(RpcEvent::AuthRequest {
-            interaction_id: interaction_id.clone(),
-            provider: self.provider.clone(),
-            auth_url: None,
-            instructions: None,
-            user_code: None,
-            prompt: Some(message.to_string()),
-            is_secret: Some(secret),
-            options: None,
-        });
-        match rx.await {
-            Ok(resp) => Ok(resp.secret_value.unwrap_or_default()),
-            Err(_) => Err(AppError::Auth("auth prompt cancelled or disconnected".to_string())),
-        }
+        let response = self
+            .ask(
+                |interaction_id| RpcEvent::AuthRequest {
+                    interaction_id,
+                    provider: self.provider.clone(),
+                    auth_url: None,
+                    instructions: None,
+                    user_code: None,
+                    prompt: Some(message.to_string()),
+                    is_secret: Some(secret),
+                    options: None,
+                },
+                "auth prompt cancelled or disconnected",
+            )
+            .await?;
+        Ok(response.secret_value.unwrap_or_default())
     }
 
     async fn on_select(&self, message: &str, options: &[SelectOption]) -> Result<Option<String>> {
-        let interaction_id = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut map = self.pending_inputs.lock().unwrap();
-            map.insert(interaction_id.clone(), tx);
-        }
-        let _ = self.event_tx.send(RpcEvent::AuthRequest {
-            interaction_id: interaction_id.clone(),
-            provider: self.provider.clone(),
-            auth_url: None,
-            instructions: None,
-            user_code: None,
-            prompt: Some(message.to_string()),
-            is_secret: None,
-            options: Some(options.to_vec()),
-        });
-        match rx.await {
-            Ok(resp) => Ok(resp.selected_option),
-            Err(_) => Err(AppError::Auth("auth selection cancelled or disconnected".to_string())),
-        }
+        let response = self
+            .ask(
+                |interaction_id| RpcEvent::AuthRequest {
+                    interaction_id,
+                    provider: self.provider.clone(),
+                    auth_url: None,
+                    instructions: None,
+                    user_code: None,
+                    prompt: Some(message.to_string()),
+                    is_secret: None,
+                    options: Some(options.to_vec()),
+                },
+                "auth selection cancelled or disconnected",
+            )
+            .await?;
+        Ok(response.selected_option)
     }
 
     async fn on_progress(&self, _message: &str) -> Result<()> {
@@ -138,6 +146,7 @@ impl OAuthLoginCallbacks for RpcOAuthCallbacks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_rpc_auth_bridge_prompt_roundtrip() {
@@ -212,5 +221,38 @@ mod tests {
 
         let result = select_task.await.unwrap().unwrap();
         assert_eq!(result, Some("opt1".to_string()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn prompt_with_a_dropped_client_fails_and_forgets_the_interaction() {
+        let bridge = RpcAuthBridge::new();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        drop(event_rx);
+        let callbacks = bridge.callbacks("test-prov", event_tx);
+
+        let result = tokio::time::timeout(Duration::from_secs(1), callbacks.on_prompt("Enter token", true))
+            .await
+            .expect("prompt must not wait for a reply nobody can send");
+
+        assert!(matches!(result, Err(AppError::Auth(_))));
+        assert!(bridge.pending_inputs.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn select_with_a_dropped_client_fails_instead_of_hanging() {
+        let bridge = RpcAuthBridge::new();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        drop(event_rx);
+        let callbacks = bridge.callbacks("test-prov", event_tx);
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            callbacks.on_select("Pick option", &[SelectOption::new("opt1", "Option 1")]),
+        )
+        .await
+        .expect("selection must not wait for a reply nobody can send");
+
+        assert!(matches!(result, Err(AppError::Auth(_))));
+        assert!(bridge.pending_inputs.lock().unwrap().is_empty());
     }
 }

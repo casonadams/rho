@@ -32,7 +32,7 @@ fn should_prune_empty_session(
 }
 
 pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
-    if !sessions_dir_exists(sessions_dir).await {
+    if !tokio::fs::try_exists(sessions_dir).await? {
         return Ok(0);
     }
     let mut entries = tokio::fs::read_dir(sessions_dir).await?;
@@ -52,10 +52,6 @@ fn calculate_prune_cutoff(retention_days: u32) -> Option<SystemTime> {
         return None;
     }
     SystemTime::now().checked_sub(Duration::from_secs(retention_days as u64 * 86_400))
-}
-
-async fn sessions_dir_exists(sessions_dir: &Path) -> bool {
-    tokio::fs::try_exists(sessions_dir).await.unwrap_or(false)
 }
 
 async fn prune_single_entry_async(ctx: &PruneContext<'_>, entry: tokio::fs::DirEntry) -> bool {
@@ -86,7 +82,7 @@ pub async fn prune_expired_sessions_async(
     let Some(cutoff) = calculate_prune_cutoff(retention_days) else {
         return Ok(0);
     };
-    if !sessions_dir_exists(sessions_dir).await {
+    if !tokio::fs::try_exists(sessions_dir).await? {
         return Ok(0);
     }
 

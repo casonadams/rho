@@ -1,5 +1,5 @@
 use super::super::Config;
-use super::super::scalar::{parse_bool, parse_positive};
+use super::super::scalar::{parse_bool, parse_positive, parse_retention_days};
 use super::cli::resolve_model_with_provider;
 use crate::error::{AppError, Result};
 
@@ -66,11 +66,8 @@ fn apply_retention_env_override(config: &mut Config, get: &dyn Fn(&str) -> Optio
     let Some(val) = get("AI_SESSION_RETENTION_DAYS").or_else(|| get("RHO_SESSION_RETENTION_DAYS")) else {
         return Ok(());
     };
-    config.session_retention_days = if val == "off" || val == "0" {
-        None
-    } else {
-        Some(parse_positive("AI_SESSION_RETENTION_DAYS", &val)?)
-    };
+    let days = parse_retention_days("AI_SESSION_RETENTION_DAYS", &val)?;
+    config.session_retention_days = (days != 0).then_some(days);
     Ok(())
 }
 

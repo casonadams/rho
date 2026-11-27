@@ -13,7 +13,7 @@ const BLOCK_OPEN: &str = "<todos>";
 const BLOCK_CLOSE: &str = "</todos>";
 
 impl TodoStatus {
-    fn marker(self) -> &'static str {
+    pub fn marker(self) -> &'static str {
         match self {
             Self::Completed => "[x]",
             Self::InProgress => "[>]",
@@ -68,9 +68,12 @@ pub fn validate_todos(todos: &[TodoItem]) -> Result<(), String> {
     Ok(())
 }
 
+pub fn done_count(todos: &[TodoItem]) -> usize {
+    todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count()
+}
+
 pub fn render_todos(todos: &[TodoItem]) -> String {
-    let done = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
-    let mut out = format!("{done}/{} done", todos.len());
+    let mut out = format!("{}/{} done", done_count(todos), todos.len());
     for todo in todos {
         let _ = write!(out, "\n{} {}", todo.status.marker(), todo.content.trim());
     }
@@ -90,8 +93,7 @@ pub fn parse_todos(text: &str) -> Option<Vec<TodoItem>> {
     let (done, total) = lines.next()?.strip_suffix(" done")?.split_once('/')?;
     let (done, total): (usize, usize) = (done.parse().ok()?, total.parse().ok()?);
     let todos: Vec<TodoItem> = lines.map_while(parse_item).collect();
-    let completed = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
-    (todos.len() == total && completed == done).then_some(todos)
+    (todos.len() == total && done_count(&todos) == done).then_some(todos)
 }
 
 fn summary_todos(summary: &str) -> Option<Vec<TodoItem>> {
@@ -164,6 +166,7 @@ mod tests {
             "1/3 done\n[x] Read the parser\n[>] Fix the off-by-one\n[ ] Add a regression test"
         );
         assert_eq!(parse_todos(&rendered), Some(plan()));
+        assert_eq!(done_count(&plan()), 1);
         assert_eq!(parse_todos(&render_todos(&[])), Some(Vec::new()));
         assert_eq!(parse_todos("Only one todo may be in_progress"), None);
         assert_eq!(parse_todos("2/3 done\n[x] a\n[ ] b\n[ ] c"), None);

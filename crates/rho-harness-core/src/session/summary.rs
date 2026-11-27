@@ -1,6 +1,7 @@
 use super::format::{StoreState, load_file, load_file_async};
 use crate::error::Result;
 use crate::model::{ChatMessage, UserContent};
+use crate::text::truncate_chars;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -82,7 +83,7 @@ async fn drain_summaries_async(entries: tokio::fs::ReadDir) -> Result<Vec<Sessio
 }
 
 pub async fn list_session_summaries_async(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
-    if !tokio::fs::try_exists(sessions_dir).await.unwrap_or(false) {
+    if !tokio::fs::try_exists(sessions_dir).await? {
         return Ok(Vec::new());
     }
     let entries = tokio::fs::read_dir(sessions_dir).await?;
@@ -107,8 +108,8 @@ fn extract_root_preview(state: &StoreState) -> String {
 }
 
 fn truncate_preview_text(preview: String) -> String {
-    if preview.chars().count() > 50 {
-        format!("{}...", preview.chars().take(47).collect::<String>())
+    if truncate_chars(&preview, 50).1 {
+        format!("{}...", truncate_chars(&preview, 47).0)
     } else {
         preview
     }
@@ -129,7 +130,7 @@ fn make_session_summary(stem: &str, state: StoreState, last_modified: DateTime<U
 
 pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Result<()> {
     let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
-    if tokio::fs::try_exists(&file_path).await.unwrap_or(false) {
+    if tokio::fs::try_exists(&file_path).await? {
         tokio::fs::remove_file(file_path).await?;
     }
     Ok(())
@@ -183,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_and_summarize_sessions() {
-        let dir = crate::test_support::created_temp_dir();
+        let dir = crate::test_support::temp_dir();
 
         let session_a = SessionManager::new(&dir, None).unwrap();
         let sid_a = session_a.session_id.clone();
@@ -243,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn summary_created_at_comes_from_the_session_header_not_the_file_mtime() {
-        let dir = crate::test_support::created_temp_dir();
+        let dir = crate::test_support::temp_dir();
         let session = SessionManager::new(&dir, None).unwrap();
         let sid = session.session_id.clone();
         session

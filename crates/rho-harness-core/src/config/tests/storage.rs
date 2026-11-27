@@ -1,22 +1,49 @@
 use super::super::{Config, FileConfig};
 use super::sample_cli;
 
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use rho_test_support::EnvVarGuard;
+
+#[test]
+fn unreadable_config_file_warns_while_a_missing_one_is_silent() {
+    let missing = crate::test_support::temp_dir();
+    assert!(
+        !load_config_with_rho_home(&missing)
+            .config_warnings
+            .iter()
+            .any(|w| w.contains("config.toml"))
+    );
+
+    let unreadable = crate::test_support::temp_dir();
+    std::fs::create_dir(unreadable.join("config.toml")).unwrap();
+    assert!(
+        load_config_with_rho_home(&unreadable)
+            .config_warnings
+            .iter()
+            .any(|w| w.starts_with("Ignoring ") && w.contains("config.toml"))
+    );
+}
+
+#[test]
+fn unreadable_project_config_warns_instead_of_being_skipped() {
+    let workspace = crate::test_support::temp_dir();
+    std::fs::create_dir_all(workspace.join(".rho").join("config.toml")).unwrap();
+    let mut config = Config::default();
+    super::super::merge_project_config(&mut config, &workspace);
+    assert!(
+        config
+            .config_warnings
+            .iter()
+            .any(|w| w.starts_with("Ignoring project config"))
+    );
+}
 
 fn load_config_with_rho_home(dir: &std::path::Path) -> Config {
-    let _guard = ENV_LOCK.lock().unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
-    let config = Config::load(None).unwrap();
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
-    config
+    let _env = EnvVarGuard::set("RHO_HOME", dir.to_str().unwrap());
+    Config::load(None).unwrap()
 }
 
 fn config_dir_with(entries: &[(&str, &str)]) -> crate::test_support::TestDir {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     for (key, value) in entries {
         Config::set_file_value(&dir, key, value).unwrap();
     }
@@ -96,6 +123,33 @@ fn rho_config_accepts_the_same_boolean_syntax_as_environment_overrides() {
     Config::set_file_value(&dir, "max_turns", " 12 ").unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn saved_config_file_is_private_to_the_owner() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = crate::test_support::temp_dir();
+
+    Config::set_file_value(&dir, "model", "gpt-test").unwrap();
+
+    let mode = std::fs::metadata(dir.join("config.toml")).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+}
+
+#[test]
+fn malformed_dotenv_file_is_reported_as_a_warning_and_loading_continues() {
+    let dir = crate::test_support::temp_dir();
+    std::fs::write(dir.join(".env"), "RHO_BROKEN_LINE\n").unwrap();
+
+    let config = load_config_with_rho_home(&dir);
+
+    assert_eq!(config.config_warnings.len(), 1, "{:?}", config.config_warnings);
+    assert!(
+        config.config_warnings[0].contains(".env"),
+        "{:?}",
+        config.config_warnings
+    );
+}
+
 #[test]
 fn test_set_file_value_persists_and_validates() {
     let dir = crate::test_support::temp_dir();
@@ -126,15 +180,9 @@ fn test_cli_overrides_config_file() {
     );
 
     let cli = sample_cli("cli-model", None);
-    let _guard = ENV_LOCK.lock().unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", dir.to_str().unwrap());
     let cli_config = Config::load(Some(&cli)).unwrap();
     assert_eq!(cli_config.model, "cli-model");
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
 }
 
 #[tokio::test]
@@ -179,36 +227,22 @@ async fn test_save_default_thinking_level_persists() {
         .unwrap();
 
     let thinking_level = {
-        let _guard = ENV_LOCK.lock().unwrap();
-        unsafe {
-            std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-        }
-        let config = Config::load(None).unwrap();
-        unsafe {
-            std::env::remove_var("RHO_HOME");
-        }
-        config.thinking_level
+        let _env = EnvVarGuard::set("RHO_HOME", dir.to_str().unwrap());
+        Config::load(None).unwrap().thinking_level
     };
     assert_eq!(thinking_level.as_deref(), Some("high"));
 }
 
 #[test]
 fn test_config_file_model_infers_provider_when_unspecified() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let dir = crate::test_support::temp_dir();
 
     Config::set_file_value(&dir, "model", "gemini-2.0-flash").unwrap();
 
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", dir.to_str().unwrap());
     let config = Config::load(None).unwrap();
     assert_eq!(config.model, "gemini-2.0-flash");
     assert_eq!(config.provider, "gemini");
-
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
 }
 
 #[tokio::test]
@@ -485,7 +519,7 @@ fn test_empty_tables_omitted() {
 
 #[test]
 fn mcp_server_added_to_config_dir_is_removed_exactly_once() {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     Config::add_mcp_server(&dir, "echo", crate::config::McpServerConfig::stdio("echo", vec![])).unwrap();
     let root: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("mcp.json")).unwrap()).unwrap();

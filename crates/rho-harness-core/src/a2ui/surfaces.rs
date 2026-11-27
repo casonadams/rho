@@ -1,7 +1,7 @@
 use super::binding::BoundString;
 use super::components::{A2uiComponent, A2uiComponentKind, RowJustify, SemanticTone, TextUsageHint};
 use super::protocol::{A2uiMessage, CreateSurface, DeleteSurface, SurfacePlacement, UpdateComponents, UpdateDataModel};
-use crate::todo::{TodoItem, TodoStatus};
+use crate::todo::{TodoItem, TodoStatus, done_count};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -33,7 +33,7 @@ pub fn todo_surface_messages(items: &[TodoItem]) -> Vec<A2uiMessage> {
         })];
     }
 
-    let done = items.iter().filter(|item| item.status == TodoStatus::Completed).count();
+    let done = done_count(items);
     let total = items.len();
     let badge_label = format!("{done}/{total}");
 
@@ -42,11 +42,11 @@ pub fn todo_surface_messages(items: &[TodoItem]) -> Vec<A2uiMessage> {
 
     for (idx, item) in visible_todo_items(items).into_iter().enumerate() {
         let row_id = format!("todo_item_{idx}");
-        let (prefix, tone, usage_hint) = todo_item_style(item.status);
+        let (tone, usage_hint) = todo_item_style(item.status);
         components.push(A2uiComponent::new(
             row_id.clone(),
             A2uiComponentKind::Text {
-                text: BoundString::literal(format!("{prefix} {}", item.content.trim())),
+                text: BoundString::literal(format!("{} {}", item.status.marker(), item.content.trim())),
                 usage_hint,
                 tone,
             },
@@ -136,11 +136,11 @@ fn visible_todo_items(items: &[TodoItem]) -> Vec<&TodoItem> {
     visible
 }
 
-fn todo_item_style(status: TodoStatus) -> (&'static str, Option<SemanticTone>, TextUsageHint) {
+fn todo_item_style(status: TodoStatus) -> (Option<SemanticTone>, TextUsageHint) {
     match status {
-        TodoStatus::InProgress => ("[>]", Some(SemanticTone::Accent), TextUsageHint::Body),
-        TodoStatus::Pending => ("[ ]", None, TextUsageHint::Muted),
-        TodoStatus::Completed => ("[x]", Some(SemanticTone::Success), TextUsageHint::Muted),
+        TodoStatus::InProgress => (Some(SemanticTone::Accent), TextUsageHint::Body),
+        TodoStatus::Pending => (None, TextUsageHint::Muted),
+        TodoStatus::Completed => (Some(SemanticTone::Success), TextUsageHint::Muted),
     }
 }
 

@@ -379,6 +379,14 @@ impl DisplayUiConfig {
     }
 }
 
+macro_rules! merge_opt_fields {
+    ($config:expr, $other:expr, $($field:ident),+ $(,)?) => {
+        $(
+            merge_opt(&mut $config.$field, &$other.$field);
+        )+
+    };
+}
+
 impl UiConfig {
     pub fn auto_title_enabled(&self) -> bool {
         self.auto_title.unwrap_or(false)
@@ -393,23 +401,27 @@ impl UiConfig {
     }
 
     pub fn merge(&mut self, other: &UiConfig) {
-        merge_opt(&mut self.block_style, &other.block_style);
-        merge_opt(&mut self.user_border, &other.user_border);
-        merge_opt(&mut self.agent_border, &other.agent_border);
-        merge_opt(&mut self.tool_border, &other.tool_border);
-        merge_opt(&mut self.bash_success_border, &other.bash_success_border);
-        merge_opt(&mut self.bash_error_border, &other.bash_error_border);
-        merge_opt(&mut self.agent_block_output, &other.agent_block_output);
-        merge_opt(&mut self.hide_thinking, &other.hide_thinking);
-        merge_opt(&mut self.tools_expanded, &other.tools_expanded);
-        merge_opt(&mut self.cursor, &other.cursor);
-        merge_opt(&mut self.syntax_highlight_tools, &other.syntax_highlight_tools);
-        merge_opt(&mut self.full_bash_command, &other.full_bash_command);
-        merge_opt(&mut self.structured_tool_cards, &other.structured_tool_cards);
-        merge_opt(&mut self.delta_diffs, &other.delta_diffs);
-        merge_opt(&mut self.auto_title, &other.auto_title);
-        merge_opt(&mut self.terminal_title, &other.terminal_title);
-        merge_opt(&mut self.terminal_title_state, &other.terminal_title_state);
+        merge_opt_fields!(
+            self,
+            other,
+            block_style,
+            user_border,
+            agent_border,
+            tool_border,
+            bash_success_border,
+            bash_error_border,
+            agent_block_output,
+            hide_thinking,
+            tools_expanded,
+            cursor,
+            syntax_highlight_tools,
+            full_bash_command,
+            structured_tool_cards,
+            delta_diffs,
+            auto_title,
+            terminal_title,
+            terminal_title_state,
+        );
         merge_nested(&mut self.prompt, &other.prompt, PromptUiConfig::merge);
         merge_nested(&mut self.status_bar, &other.status_bar, StatusBarConfig::merge);
         merge_nested(&mut self.display, &other.display, DisplayUiConfig::merge);

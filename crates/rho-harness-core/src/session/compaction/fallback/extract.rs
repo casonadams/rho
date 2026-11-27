@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolResult, ToolResultContent, UserContent};
+use crate::text::truncate_chars;
 use serde_json::Value;
 
 use super::SummaryState;
@@ -192,11 +193,9 @@ fn extract_command(args: &Value) -> Option<String> {
 
 fn truncate_str(s: &str, max_chars: usize) -> String {
     let s = s.trim();
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let prefix: String = s.chars().take(max_chars).collect();
-        format!("{prefix}...")
+    match truncate_chars(s, max_chars) {
+        (prefix, true) => format!("{prefix}..."),
+        (_, false) => s.to_string(),
     }
 }
 

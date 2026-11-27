@@ -18,7 +18,7 @@ pub use types::{
     A2uiConfig, ApprovalFocus, BashConfig, CacheRetention, Config, ContextLineMode, DEFAULT_MAX_TURNS, DisplayUiConfig,
     DividerStyle, GitSegmentOptions, LspConfig, McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode,
     McpOAuthConfig, McpServerConfig, McpTransportKind, ModelRole, ModelSegmentOptions, ModelsConfig,
-    PathSegmentOptions, PermissionConfig, ProjectMcpServers, PromptUiConfig, ProviderConfig, RecapConfig,
+    PathSegmentOptions, PermissionConfig, ProjectMcpServers, PromptUiConfig, ProviderConfig, RecapConfig, SearchEngine,
     StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId, StatusBarSegmentOptions,
     StatusBarSeparator, SubagentsConfig, TimeFormat, TimeSegmentOptions, ToolsConfig, UiConfig, WebFetchConfig,
     WebSearchConfig, WebToolsConfig, WorktreeConfig, config_dir, default_config_dir, default_idle_timeout_seconds,
@@ -32,15 +32,26 @@ use types::FileConfig;
 impl Config {
     pub fn load(cli: Option<&cli::Cli>) -> Result<Self> {
         let mut config = Config::default();
-        let _ = dotenvy::from_path(config.config_dir.join(".env"));
+        let env_file = config.config_dir.join(".env");
+        match dotenvy::from_path(&env_file) {
+            Ok(()) => {}
+            Err(e) if e.not_found() => {}
+            Err(e) => config
+                .config_warnings
+                .push(format!("Ignoring {}: {e}", env_file.display())),
+        }
 
         let config_file = config.config_dir.join("config.toml");
-        if config_file.exists() {
-            let content = std::fs::read_to_string(&config_file)
-                .map_err(|e| AppError::Config(format!("Failed to read config file {}: {e}", config_file.display())))?;
-            let file_cfg: FileConfig =
-                toml::from_str(&content).map_err(|e| AppError::Config(format!("Failed to parse config file: {e}")))?;
-            merge::merge_file(&mut config, file_cfg);
+        match std::fs::read_to_string(&config_file) {
+            Ok(content) => {
+                let file_cfg: FileConfig = toml::from_str(&content)
+                    .map_err(|e| AppError::Config(format!("Failed to parse config file: {e}")))?;
+                merge::merge_file(&mut config, file_cfg);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => config
+                .config_warnings
+                .push(format!("Ignoring {}: {e}", config_file.display())),
         }
 
         match mcp::load_global_mcp_config(&config.config_dir) {
@@ -77,12 +88,11 @@ impl Config {
 
 fn merge_project_config(config: &mut Config, workspace: &Path) {
     let path = workspace.join(".rho").join("config.toml");
-    if !path.exists() {
-        return;
-    }
-    let parsed = std::fs::read_to_string(&path)
-        .map_err(|e| e.to_string())
-        .and_then(|content| toml::from_str::<FileConfig>(&content).map_err(|e| e.to_string()));
+    let parsed = match std::fs::read_to_string(&path) {
+        Ok(content) => toml::from_str::<FileConfig>(&content).map_err(|e| e.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => Err(error.to_string()),
+    };
     match parsed {
         Ok(file) => merge::merge_project_file(config, &file),
         Err(e) => config

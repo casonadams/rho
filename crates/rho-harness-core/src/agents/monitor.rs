@@ -1,4 +1,5 @@
 use crate::presentation::ToolLine;
+use crate::text::truncate_chars;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -406,11 +407,10 @@ fn evict_finished(agents: &mut Vec<TrackedAgent>) {
 }
 
 fn clamp_text(text: String, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        return text;
+    match truncate_chars(&text, max_chars) {
+        (kept, true) => format!("{kept}\n[... truncated]"),
+        (_, false) => text,
     }
-    let kept: String = text.chars().take(max_chars).collect();
-    format!("{kept}\n[... truncated]")
 }
 
 fn clamp_event(event: AgentEvent) -> AgentEvent {

@@ -312,8 +312,8 @@ impl Default for BashConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LspConfig {
-    #[serde(default = "default_true")]
     pub enabled: bool,
 }
 
@@ -427,8 +427,8 @@ pub struct WebToolsConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WebFetchConfig {
-    #[serde(default = "default_true")]
     pub enabled: bool,
 }
 
@@ -463,6 +463,43 @@ impl Default for WebSearchConfig {
             default: default_search_provider(),
             fallback: default_search_fallback(),
         }
+    }
+}
+
+/// The search backends rho can call; aliases such as `ddg` name the same backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchEngine {
+    Brave,
+    DuckDuckGo,
+    Yahoo,
+    Exa,
+}
+
+impl std::str::FromStr for SearchEngine {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "brave" => Ok(Self::Brave),
+            "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" => Ok(Self::DuckDuckGo),
+            "yahoo" => Ok(Self::Yahoo),
+            "exa" => Ok(Self::Exa),
+            _ => Err(format!(
+                "Unknown search engine '{value}'. Supported engines: {}",
+                crate::config::SUPPORTED_SEARCH_ENGINES
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for SearchEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Brave => "brave",
+            Self::DuckDuckGo => "duckduckgo",
+            Self::Yahoo => "yahoo",
+            Self::Exa => "exa",
+        })
     }
 }
 

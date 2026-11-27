@@ -1,4 +1,5 @@
 use crate::model::{AssistantContent, ChatMessage, ToolResult, UserContent};
+use crate::text::truncate_chars;
 
 pub const MAX_TOOL_RESULT_CHARS: usize = 2000;
 pub const MAX_FULL_TOOL_RESULTS: usize = 3;
@@ -33,18 +34,17 @@ fn serialize_tool_result_content(result: &ToolResult) -> String {
 }
 
 fn truncate_arg_string(s: &str) -> String {
-    let char_count = s.chars().count();
-    if char_count > MAX_ARG_STRING_CHARS {
-        let line_count = s.lines().count();
-        let line_str = if line_count == 1 {
-            "1 line".to_string()
-        } else {
-            format!("{line_count} lines")
-        };
-        format!("[truncated: {line_str}, {char_count} chars]")
-    } else {
-        s.to_string()
+    if !truncate_chars(s, MAX_ARG_STRING_CHARS).1 {
+        return s.to_string();
     }
+    let char_count = s.chars().count();
+    let line_count = s.lines().count();
+    let line_str = if line_count == 1 {
+        "1 line".to_string()
+    } else {
+        format!("{line_count} lines")
+    };
+    format!("[truncated: {line_str}, {char_count} chars]")
 }
 
 fn sanitize_value_strings(val: &mut serde_json::Value, keys: &[&str]) {

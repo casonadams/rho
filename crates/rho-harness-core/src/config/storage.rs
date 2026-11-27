@@ -2,11 +2,12 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
-use super::scalar::{parse_bool, parse_positive};
+use super::scalar::{parse_bool, parse_positive, parse_retention_days};
 use super::types::{
-    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, ModelRole, RecapConfigFile, UiConfig,
-    WebFetchConfigFile, WebSearchConfigFile,
+    BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, ModelRole, PermissionConfig,
+    RecapConfigFile, UiConfig, WebFetchConfigFile, WebSearchConfigFile,
 };
+use super::validate::parse_search_engine;
 
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
@@ -151,6 +152,36 @@ fn recap_section(file_config: &mut FileConfig) -> &mut RecapConfigFile {
     file_config.recap.get_or_insert_with(Default::default)
 }
 
+fn permission_section(file_config: &mut FileConfig) -> &mut PermissionConfig {
+    file_config.permission.get_or_insert_with(Default::default)
+}
+
+fn set_bool(slot: &mut bool, name: &str, value: &str) -> Result<()> {
+    *slot = parse_bool(name, value)?;
+    Ok(())
+}
+
+fn set_opt_bool(slot: &mut Option<bool>, name: &str, value: &str) -> Result<()> {
+    *slot = Some(parse_bool(name, value)?);
+    Ok(())
+}
+
+fn set_positive<T>(slot: &mut T, name: &str, value: &str) -> Result<()>
+where
+    T: FromStr + Default + PartialEq,
+{
+    *slot = parse_positive(name, value)?;
+    Ok(())
+}
+
+fn set_opt_positive<T>(slot: &mut Option<T>, name: &str, value: &str) -> Result<()>
+where
+    T: FromStr + Default + PartialEq,
+{
+    *slot = Some(parse_positive(name, value)?);
+    Ok(())
+}
+
 /// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
     if let Some(raw_role) = key.strip_prefix("models.")
@@ -183,122 +214,85 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::CacheRetention => file_config.cache_retention = Some(value.parse().map_err(AppError::Config)?),
-        ConfigKey::ShowLabel => file_config.show_label = Some(parse_bool(name, value)?),
+        ConfigKey::ShowLabel => set_opt_bool(&mut file_config.show_label, name, value)?,
         ConfigKey::BlockStyle => ui_section(file_config).block_style = Some(value.to_string()),
-        ConfigKey::AgentBlockOutput => ui_section(file_config).agent_block_output = Some(parse_bool(name, value)?),
-        ConfigKey::HideThinking => ui_section(file_config).hide_thinking = Some(parse_bool(name, value)?),
-        ConfigKey::ToolsExpanded => ui_section(file_config).tools_expanded = Some(parse_bool(name, value)?),
+        ConfigKey::AgentBlockOutput => set_opt_bool(&mut ui_section(file_config).agent_block_output, name, value)?,
+        ConfigKey::HideThinking => set_opt_bool(&mut ui_section(file_config).hide_thinking, name, value)?,
+        ConfigKey::ToolsExpanded => set_opt_bool(&mut ui_section(file_config).tools_expanded, name, value)?,
         ConfigKey::Cursor => ui_section(file_config).cursor = Some(value.to_string()),
         ConfigKey::SyntaxHighlightTools => {
-            ui_section(file_config).syntax_highlight_tools = Some(parse_bool(name, value)?);
+            set_opt_bool(&mut ui_section(file_config).syntax_highlight_tools, name, value)?;
         }
-        ConfigKey::FullBashCommand => {
-            ui_section(file_config).full_bash_command = Some(parse_bool(name, value)?);
-        }
+        ConfigKey::FullBashCommand => set_opt_bool(&mut ui_section(file_config).full_bash_command, name, value)?,
         ConfigKey::StructuredToolCards => {
-            ui_section(file_config).structured_tool_cards = Some(parse_bool(name, value)?);
+            set_opt_bool(&mut ui_section(file_config).structured_tool_cards, name, value)?;
         }
-        ConfigKey::DeltaDiffs => {
-            ui_section(file_config).delta_diffs = Some(parse_bool(name, value)?);
-        }
-        ConfigKey::AutoTitle => {
-            ui_section(file_config).auto_title = Some(parse_bool(name, value)?);
-        }
-        ConfigKey::TerminalTitle => {
-            ui_section(file_config).terminal_title = Some(parse_bool(name, value)?);
-        }
+        ConfigKey::DeltaDiffs => set_opt_bool(&mut ui_section(file_config).delta_diffs, name, value)?,
+        ConfigKey::AutoTitle => set_opt_bool(&mut ui_section(file_config).auto_title, name, value)?,
+        ConfigKey::TerminalTitle => set_opt_bool(&mut ui_section(file_config).terminal_title, name, value)?,
         ConfigKey::TerminalTitleState => {
-            ui_section(file_config).terminal_title_state = Some(parse_bool(name, value)?);
+            set_opt_bool(&mut ui_section(file_config).terminal_title_state, name, value)?;
         }
-        ConfigKey::A2uiWidgets => {
-            ui_section(file_config).a2ui_widgets = parse_bool(name, value)?;
-        }
+        ConfigKey::A2uiWidgets => set_bool(&mut ui_section(file_config).a2ui_widgets, name, value)?,
         ConfigKey::A2uiMaxAboveLines => {
-            ui_section(file_config).a2ui.max_above_lines = parse_positive(name, value)?;
+            set_positive(&mut ui_section(file_config).a2ui.max_above_lines, name, value)?;
         }
         ConfigKey::A2uiMaxBelowLines => {
-            ui_section(file_config).a2ui.max_below_lines = parse_positive(name, value)?;
+            set_positive(&mut ui_section(file_config).a2ui.max_below_lines, name, value)?;
         }
-        ConfigKey::A2uiTodoWidget => {
-            ui_section(file_config).a2ui.todo_widget = parse_bool(name, value)?;
-        }
-        ConfigKey::A2uiSubagentWidget => {
-            ui_section(file_config).a2ui.subagent_widget = parse_bool(name, value)?;
-        }
-        ConfigKey::A2uiDecisionAssist => {
-            ui_section(file_config).a2ui.decision_assist = parse_bool(name, value)?;
-        }
+        ConfigKey::A2uiTodoWidget => set_bool(&mut ui_section(file_config).a2ui.todo_widget, name, value)?,
+        ConfigKey::A2uiSubagentWidget => set_bool(&mut ui_section(file_config).a2ui.subagent_widget, name, value)?,
+        ConfigKey::A2uiDecisionAssist => set_bool(&mut ui_section(file_config).a2ui.decision_assist, name, value)?,
         ConfigKey::SearchEngine => {
-            if !crate::config::validate::is_valid_search_engine_name(value) {
-                return Err(AppError::Config(format!(
-                    "Unknown search engine '{value}'. Supported engines: {}",
-                    crate::config::SUPPORTED_SEARCH_ENGINES
-                )));
-            }
+            parse_search_engine(value)?;
             web_search_section(file_config).default = Some(value.to_string());
         }
-        ConfigKey::WebSearchEnabled => web_search_section(file_config).enabled = Some(parse_bool(name, value)?),
-        ConfigKey::WebFetchEnabled => web_fetch_section(file_config).enabled = Some(parse_bool(name, value)?),
-        ConfigKey::LspEnabled => lsp_section(file_config).enabled = Some(parse_bool(name, value)?),
-        ConfigKey::BashDirenv => bash_section(file_config).direnv = Some(parse_bool(name, value)?),
+        ConfigKey::WebSearchEnabled => set_opt_bool(&mut web_search_section(file_config).enabled, name, value)?,
+        ConfigKey::WebFetchEnabled => set_opt_bool(&mut web_fetch_section(file_config).enabled, name, value)?,
+        ConfigKey::LspEnabled => set_opt_bool(&mut lsp_section(file_config).enabled, name, value)?,
+        ConfigKey::BashDirenv => set_opt_bool(&mut bash_section(file_config).direnv, name, value)?,
         ConfigKey::McpEnabled => {
-            file_config.mcp.get_or_insert_with(Default::default).enabled = Some(parse_bool(name, value)?);
+            set_opt_bool(
+                &mut file_config.mcp.get_or_insert_with(Default::default).enabled,
+                name,
+                value,
+            )?;
         }
-        ConfigKey::PermissionEnabled => {
-            file_config.permission.get_or_insert_with(Default::default).enabled = parse_bool(name, value)?;
+        ConfigKey::PermissionEnabled => set_bool(&mut permission_section(file_config).enabled, name, value)?,
+        ConfigKey::GuardAllTools => set_bool(&mut permission_section(file_config).guard_all_tools, name, value)?,
+        ConfigKey::GuardAuditLog => set_bool(&mut permission_section(file_config).guard_audit_log, name, value)?,
+        ConfigKey::MaxOutputTokens => set_opt_positive(&mut file_config.max_output_tokens, name, value)?,
+        ConfigKey::MaxTurns => set_opt_positive(&mut file_config.max_turns, name, value)?,
+        ConfigKey::ContextLimit => set_opt_positive(&mut file_config.context_limit, name, value)?,
+        ConfigKey::ContextWindowMessages => set_opt_positive(&mut file_config.context_window_messages, name, value)?,
+        ConfigKey::CompactionMaxBytes => set_opt_positive(&mut file_config.compaction_max_bytes, name, value)?,
+        ConfigKey::ReserveTokens => set_opt_positive(&mut file_config.reserve_tokens, name, value)?,
+        ConfigKey::KeepRecentTokens => set_opt_positive(&mut file_config.keep_recent_tokens, name, value)?,
+        ConfigKey::SearchMinIntervalMs => set_opt_positive(&mut file_config.search_min_interval_ms, name, value)?,
+        ConfigKey::SearchTimeoutSec => set_opt_positive(&mut file_config.search_timeout_sec, name, value)?,
+        ConfigKey::FetchTimeoutSec => set_opt_positive(&mut file_config.fetch_timeout_sec, name, value)?,
+        ConfigKey::FetchLimit => set_opt_positive(&mut file_config.fetch_limit, name, value)?,
+        ConfigKey::FetchMaxBytes => set_opt_positive(&mut file_config.fetch_max_bytes, name, value)?,
+        ConfigKey::OutputMaxBytes => set_opt_positive(&mut file_config.output_max_bytes, name, value)?,
+        ConfigKey::AllowPrivateNetwork => set_opt_bool(&mut file_config.allow_private_network, name, value)?,
+        ConfigKey::SessionRetentionDays => {
+            file_config.session_retention_days = Some(parse_retention_days(name, value)?);
         }
-        ConfigKey::GuardAllTools => {
-            file_config
-                .permission
-                .get_or_insert_with(Default::default)
-                .guard_all_tools = parse_bool(name, value)?;
-        }
-        ConfigKey::GuardAuditLog => {
-            file_config
-                .permission
-                .get_or_insert_with(Default::default)
-                .guard_audit_log = parse_bool(name, value)?;
-        }
-        ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(name, value)?),
-        ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(name, value)?),
-        ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(name, value)?),
-        ConfigKey::ContextWindowMessages => file_config.context_window_messages = Some(parse_positive(name, value)?),
-        ConfigKey::CompactionMaxBytes => file_config.compaction_max_bytes = Some(parse_positive(name, value)?),
-        ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(name, value)?),
-        ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(name, value)?),
-        ConfigKey::SearchMinIntervalMs => file_config.search_min_interval_ms = Some(parse_positive(name, value)?),
-        ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(name, value)?),
-        ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(name, value)?),
-        ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(name, value)?),
-        ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(name, value)?),
-        ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(name, value)?),
-        ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(name, value)?),
-        ConfigKey::SessionRetentionDays => file_config.session_retention_days = parse_retention(name, value)?,
         ConfigKey::WorktreeBase => {
             file_config.worktree.get_or_insert_with(Default::default).base = Some(std::path::PathBuf::from(value));
         }
         ConfigKey::WorktreeCleanSource => {
-            file_config.worktree.get_or_insert_with(Default::default).clean_source = Some(parse_bool(name, value)?);
+            set_opt_bool(
+                &mut file_config.worktree.get_or_insert_with(Default::default).clean_source,
+                name,
+                value,
+            )?;
         }
-        ConfigKey::RecapEnabled => {
-            recap_section(file_config).enabled = Some(parse_bool(name, value)?);
-        }
-        ConfigKey::RecapIdleSeconds => {
-            recap_section(file_config).idle_seconds = Some(parse_positive(name, value)?);
-        }
-        ConfigKey::RecapOnResume => {
-            recap_section(file_config).on_resume = Some(parse_bool(name, value)?);
-        }
+        ConfigKey::RecapEnabled => set_opt_bool(&mut recap_section(file_config).enabled, name, value)?,
+        ConfigKey::RecapIdleSeconds => set_opt_positive(&mut recap_section(file_config).idle_seconds, name, value)?,
+        ConfigKey::RecapOnResume => set_opt_bool(&mut recap_section(file_config).on_resume, name, value)?,
     }
     Ok(())
-}
-
-fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
-    if value == "off" || value == "0" {
-        Ok(Some(0))
-    } else {
-        Ok(Some(parse_positive(key, value)?))
-    }
 }
 
 fn parse_file_config(content: &str) -> Result<FileConfig> {
@@ -310,20 +304,19 @@ fn read_error(path: &Path, error: std::io::Error) -> AppError {
 }
 
 fn read_file_config(path: &Path) -> Result<FileConfig> {
-    if !path.exists() {
-        return Ok(FileConfig::default());
+    match std::fs::read_to_string(path) {
+        Ok(content) => parse_file_config(&content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileConfig::default()),
+        Err(error) => Err(read_error(path, error)),
     }
-    parse_file_config(&std::fs::read_to_string(path).map_err(|error| read_error(path, error))?)
 }
 
 async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
-    if !tokio::fs::try_exists(path).await.unwrap_or(false) {
-        return Ok(FileConfig::default());
+    match tokio::fs::read_to_string(path).await {
+        Ok(content) => parse_file_config(&content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileConfig::default()),
+        Err(error) => Err(read_error(path, error)),
     }
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|error| read_error(path, error))?;
-    parse_file_config(&content)
 }
 
 fn serialize_file_config(file_config: &FileConfig) -> Result<String> {
@@ -331,32 +324,15 @@ fn serialize_file_config(file_config: &FileConfig) -> Result<String> {
         .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))
 }
 
-fn temporary_path(path: &Path) -> std::path::PathBuf {
-    path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()))
-}
+const CONFIG_FILE_MODE: u32 = 0o600;
 
 fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let temporary = temporary_path(path);
-    std::fs::write(&temporary, serialize_file_config(file_config)?)?;
-    if let Err(error) = std::fs::rename(&temporary, path) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error.into());
-    }
+    crate::fs::write_atomic(path, serialize_file_config(file_config)?.as_bytes(), CONFIG_FILE_MODE)?;
     Ok(())
 }
 
 async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    let temporary = temporary_path(path);
-    tokio::fs::write(&temporary, serialize_file_config(file_config)?).await?;
-    if let Err(error) = tokio::fs::rename(&temporary, path).await {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(error.into());
-    }
+    let contents = serialize_file_config(file_config)?.into_bytes();
+    crate::fs::write_atomic_async(path, contents, CONFIG_FILE_MODE).await?;
     Ok(())
 }

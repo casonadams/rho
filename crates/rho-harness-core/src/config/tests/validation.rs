@@ -136,3 +136,20 @@ fn rejects_removed_search_engines() {
         );
     }
 }
+
+#[test]
+fn search_engine_aliases_name_one_backend_and_the_supported_list_names_each_backend() {
+    for (alias, canonical) in [(" Brave ", "brave"), ("ddg", "duckduckgo"), ("DDG_LITE", "duckduckgo")] {
+        let engine: crate::config::types::SearchEngine = alias.parse().unwrap();
+        assert_eq!(engine.to_string(), canonical, "{alias:?}");
+    }
+    for name in super::super::SUPPORTED_SEARCH_ENGINES.split(", ") {
+        let engine: crate::config::types::SearchEngine = name.parse().unwrap();
+        assert_eq!(engine.to_string(), name);
+    }
+    let error = "bing".parse::<crate::config::types::SearchEngine>().unwrap_err();
+    assert_eq!(
+        error,
+        "Unknown search engine 'bing'. Supported engines: brave, duckduckgo, yahoo, exa"
+    );
+}

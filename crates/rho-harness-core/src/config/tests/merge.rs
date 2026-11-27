@@ -548,7 +548,7 @@ fn malformed_project_config_is_reported_as_warning() {
 
 #[test]
 fn project_mcp_servers_are_recorded_with_their_workspace() {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     std::fs::write(
         dir.join(".mcp.json"),
         r#"{"mcpServers": {"shared": {"command": "project-shared"}, "local": {"command": "echo"}}}"#,
@@ -572,7 +572,7 @@ fn project_mcp_servers_are_recorded_with_their_workspace() {
 
 #[test]
 fn workspaces_without_project_mcp_record_no_project_servers() {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     let mut cfg = Config::default();
     super::super::merge_project_mcp(&mut cfg, &dir);
     assert!(cfg.mcp.project.is_none());

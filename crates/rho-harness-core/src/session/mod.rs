@@ -35,6 +35,7 @@ pub use cwd::{cwd_for_session, record_session_for_cwd};
 
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
+pub use crate::secrets::redact_credentials_text;
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use format::{create_session_file, load_file};
 pub(crate) use fs::{
@@ -42,7 +43,6 @@ pub(crate) use fs::{
     validate_session_id,
 };
 pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
-pub use secrets::redact_credentials_text;
 pub use subagents::{SubagentContext, SubagentContexts};
 pub use summary::{SessionSummary, delete_session_async, list_session_summaries, list_session_summaries_async};
 pub use tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};

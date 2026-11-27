@@ -37,10 +37,12 @@ pub mod prompts;
 pub mod provider;
 pub mod queue;
 pub mod rpc;
+mod secrets;
 pub mod session;
 pub mod skills;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod text;
 pub mod thinking;
 pub mod todo;
 pub mod tokens;

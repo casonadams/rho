@@ -2,6 +2,8 @@
 
 use crate::args::read::DEFAULT_READ_LIMIT;
 use crate::args::{TodoArgs, TodoStatus};
+use crate::text::truncate_chars;
+use crate::todo::done_count;
 use std::path::Path;
 
 pub fn to_relative_path(raw_path: &str) -> String {
@@ -133,7 +135,7 @@ fn append_bash_timeout(cmd_str: String, args: &serde_json::Value) -> String {
 fn format_bash_summary(args: &serde_json::Value) -> String {
     let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
     let clean = clean_command_paths(raw_cmd);
-    let (preview, was_truncated) = truncate_preview(&clean, 60);
+    let (preview, was_truncated) = truncate_chars(&clean, 60);
     let cmd_str = if was_truncated { format!("{preview}...") } else { clean };
     append_bash_timeout(cmd_str, args)
 }
@@ -242,7 +244,7 @@ fn format_kv_val(v: &serde_json::Value) -> String {
         serde_json::Value::Null => "null".to_string(),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
             let s = serde_json::to_string(v).unwrap_or_default();
-            let (preview, truncated) = truncate_preview(&s, 30);
+            let (preview, truncated) = truncate_chars(&s, 30);
             if truncated { format!("{preview}...") } else { s }
         }
     }
@@ -261,7 +263,7 @@ fn format_object_args(obj: &serde_json::Map<String, serde_json::Value>) -> Strin
             break;
         }
     }
-    let (preview, truncated) = truncate_preview(&joined, 60);
+    let (preview, truncated) = truncate_chars(&joined, 60);
     if truncated { format!("{preview}...") } else { joined }
 }
 
@@ -392,7 +394,7 @@ fn format_mcp_script_summary(args: &serde_json::Value) -> String {
                 })
                 .collect();
             let joined = targets.join(", ");
-            let (preview, truncated) = truncate_preview(&joined, 65);
+            let (preview, truncated) = truncate_chars(&joined, 65);
             if truncated {
                 format!("[{} calls] {preview}...", list.len())
             } else {
@@ -417,11 +419,10 @@ fn format_todo_summary(args: &serde_json::Value) -> String {
     let Ok(TodoArgs { todos: Some(todos) }) = serde_json::from_value(args.clone()) else {
         return String::new();
     };
-    let done = todos.iter().filter(|todo| todo.status == TodoStatus::Completed).count();
-    let progress = format!("{done}/{} done", todos.len());
+    let progress = format!("{}/{} done", done_count(&todos), todos.len());
     match todos.iter().find(|todo| todo.status == TodoStatus::InProgress) {
         Some(active) => {
-            let (preview, truncated) = truncate_preview(active.content.trim(), 60);
+            let (preview, truncated) = truncate_chars(active.content.trim(), 60);
             let ellipsis = if truncated { "..." } else { "" };
             format!("{progress} \u{b7} {preview}{ellipsis}")
         }
@@ -462,17 +463,9 @@ pub fn quote_cli_arg(arg: &str) -> String {
     }
 }
 
-fn truncate_preview(text: &str, limit: usize) -> (&str, bool) {
-    if let Some((idx, _)) = text.char_indices().nth(limit) {
-        (&text[..idx], true)
-    } else {
-        (text, false)
-    }
-}
-
 pub fn summarize_tool_output(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("").trim();
-    let (preview, was_truncated) = truncate_preview(first_line, 60);
+    let (preview, was_truncated) = truncate_chars(first_line, 60);
     if was_truncated {
         format!("{preview}...")
     } else if !first_line.is_empty() {

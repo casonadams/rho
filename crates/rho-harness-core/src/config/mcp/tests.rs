@@ -1,5 +1,6 @@
 use super::*;
 use crate::test_support::TestDir;
+use rho_test_support::EnvVarGuard;
 
 #[test]
 fn test_parse_mcp_servers_wrapper() {
@@ -119,9 +120,7 @@ fn test_parse_flat_mcp_json() {
 
 #[test]
 fn test_env_expansion() {
-    unsafe {
-        std::env::set_var("TEST_RHO_VAR", "expanded_value");
-    }
+    let _env = EnvVarGuard::set("TEST_RHO_VAR", "expanded_value");
 
     let json = r#"{
         "mcpServers": {
@@ -156,7 +155,7 @@ fn test_write_and_remove_mcp_server_json() {
 }
 
 fn temp_mcp_file(content: Option<&str>) -> (TestDir, PathBuf) {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     let path = dir.join("mcp.json");
     if let Some(content) = content {
         std::fs::write(&path, content).unwrap();
@@ -239,7 +238,7 @@ fn test_write_mcp_server_replaces_permissive_file_with_private_mode() {
 }
 
 fn project_with_mcp_files(files: &[(&str, &str)]) -> TestDir {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     for (relative, server) in files {
         let path = dir.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -379,7 +378,7 @@ fn server_edits_reject_invalid_files() {
 
 #[test]
 fn server_write_reports_unreadable_config_path() {
-    let dir = crate::test_support::created_temp_dir();
+    let dir = crate::test_support::temp_dir();
     let error = write_mcp_server_json(&dir, "new", &McpServerConfig::stdio("echo", vec![]))
         .unwrap_err()
         .to_string();

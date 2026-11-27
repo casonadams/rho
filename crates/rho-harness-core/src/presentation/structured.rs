@@ -6,7 +6,7 @@ use crate::presentation::presenter::Presenter;
 use crate::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// A thread-safe sink for presentation events.
 pub trait StructuredOutputSink: Send + Sync {
@@ -28,17 +28,21 @@ impl RecordingSink {
     }
 
     pub fn events(&self) -> Vec<UiEvent> {
-        self.events.lock().unwrap().clone()
+        self.locked().clone()
     }
 
     pub fn clear(&self) {
-        self.events.lock().unwrap().clear();
+        self.locked().clear();
+    }
+
+    fn locked(&self) -> MutexGuard<'_, Vec<UiEvent>> {
+        self.events.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 impl StructuredOutputSink for RecordingSink {
     fn emit(&self, event: UiEvent) {
-        self.events.lock().unwrap().push(event);
+        self.locked().push(event);
     }
 
     fn flush(&self) {}
