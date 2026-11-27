@@ -5,7 +5,7 @@
 
 use std::collections::VecDeque;
 
-use super::ansi::SgrStyle;
+use super::sgr::SgrStyle;
 use super::stream::{Cursor, Token, tokens};
 
 /// Printed rows kept for repainting, which bounds the memory of a long session.

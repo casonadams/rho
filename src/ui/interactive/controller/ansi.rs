@@ -1,6 +1,7 @@
 use std::io;
 
 use super::backend::TerminalBackend;
+use super::sgr::SgrStyle;
 use super::stream::{Cursor, Token, tokens};
 
 pub const CSI_BEGIN_SYNC_UPDATE: &str = "\x1b[?2026h";
@@ -35,36 +36,6 @@ pub fn terminal_newlines(value: &str) -> String {
         previous_was_carriage_return = character == '\r';
     }
     result
-}
-
-/// The SGR sequences that reproduce the text style a stream of output leaves the terminal in.
-#[derive(Debug, Default, Clone)]
-pub(super) struct SgrStyle(String);
-
-impl SgrStyle {
-    pub(super) fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub(super) fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    /// Folds in one `CSI parameters m` sequence.
-    pub(super) fn apply(&mut self, parameters: &str) {
-        let rest = match parameters.strip_prefix("0;") {
-            Some(rest) => rest,
-            None if parameters.is_empty() || parameters == "0" => "",
-            None => {
-                self.0.push_str(&format!("\x1b[{parameters}m"));
-                return;
-            }
-        };
-        self.0.clear();
-        if !rest.is_empty() {
-            self.0.push_str(&format!("\x1b[{rest}m"));
-        }
-    }
 }
 
 #[derive(Debug, Default)]

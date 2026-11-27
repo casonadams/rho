@@ -3,6 +3,7 @@ pub mod backend;
 pub mod cache;
 pub mod paint;
 mod pin;
+mod sgr;
 mod stream;
 #[cfg(test)]
 pub(crate) mod tests;
