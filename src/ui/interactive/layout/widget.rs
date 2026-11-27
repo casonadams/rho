@@ -23,9 +23,18 @@ fn live_arguments(tool: &RunningTool) -> serde_json::Value {
     arguments
 }
 
+/// The output the card is drawn from; a running `bash` shows it tidied like its finished card will.
+fn live_output(tool: &RunningTool) -> String {
+    if tool.name == "bash" {
+        rho_engine::tools::bash::normalize::tidy_output(&tool.output)
+    } else {
+        tool.output.clone()
+    }
+}
+
 fn running_tool_line(tool: &RunningTool) -> ToolLine {
     let mut line = ToolLine::new(tool.name.as_str(), live_arguments(tool))
-        .with_output(tool.output.clone())
+        .with_output(live_output(tool))
         .with_duration_ms(tool.elapsed().as_millis() as u64);
     line.file_change = tool.file_change.clone();
     line

@@ -759,7 +759,7 @@ mod regressions {
                 controller.backend.dump()
             );
             for (live_row, committed_row) in live.iter().zip(&committed) {
-                if !live_row.contains("Took ") {
+                if !live_row.contains("Elapsed ") {
                     assert_eq!(live_row, committed_row);
                 }
             }
@@ -789,7 +789,7 @@ mod regressions {
             let committed = card_rows(&controller.backend.text());
 
             assert!(
-                live.iter().any(|l| l.contains("Took ")),
+                live.iter().any(|l| l.contains("Elapsed ")),
                 "{}",
                 controller.backend.dump()
             );
@@ -801,7 +801,7 @@ mod regressions {
                 controller.backend.dump()
             );
             for (live_row, committed_row) in live.iter().zip(&committed) {
-                if !live_row.contains("Took ") {
+                if !live_row.contains("Elapsed ") {
                     assert_eq!(live_row, committed_row);
                 }
             }
@@ -821,6 +821,63 @@ mod regressions {
             let top = screen.iter().rposition(|l| l.contains('╭')).expect("card top");
             let bottom = screen.iter().rposition(|l| l.contains('╰')).expect("card bottom");
             screen[top..=bottom].to_vec()
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn a_bash_card_never_shrinks_while_it_streams_or_when_it_commits() {
+            let logs = rho_test_support::TestDir::new();
+            let tool =
+                rho_engine::tools::BashTool::new(std::env::current_dir().unwrap()).with_log_dir(logs.join("bash"));
+            let commands = [
+                "echo; seq 1 5",
+                "echo; echo; seq 1 4",
+                "for i in 1 2 3 4; do echo same; done",
+                "seq 1 4; echo; echo",
+                "echo hi; echo err >&2",
+            ];
+            for command in commands {
+                let streamed = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+                let sink = streamed.clone();
+                let result = tool
+                    .execute_streaming(
+                        rho_engine::tools::BashArgs {
+                            command: command.to_string(),
+                            timeout: Some(10),
+                            background: None,
+                        },
+                        move |chunk| sink.lock().unwrap().push_str(chunk),
+                    )
+                    .await
+                    .unwrap();
+                let streamed = streamed.lock().unwrap().clone();
+
+                let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+                let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+                let mut controller = controller_with_transcript(70, 30);
+                controller.state_mut().editor_mut().set_text("");
+                let args = serde_json::json!({ "command": command });
+                renderer.start_tool_run("bash", &args);
+                drive_renderer_to_controller(&mut events, &mut controller);
+                let mut heights = vec![card_rows(&controller.backend.text()).len()];
+                for line in streamed.split_inclusive('\n') {
+                    renderer.tool_chunk(line);
+                    drive_renderer_to_controller(&mut events, &mut controller);
+                    heights.push(card_rows(&controller.backend.text()).len());
+                }
+                renderer.finish_tool_line(
+                    rho_harness_core::presentation::ToolLine::new("bash", args)
+                        .with_output(result.display.clone().unwrap_or(result.content))
+                        .with_duration_ms(50),
+                );
+                drive_renderer_to_controller(&mut events, &mut controller);
+                heights.push(card_rows(&controller.backend.text()).len());
+
+                assert!(
+                    heights.windows(2).all(|pair| pair[0] <= pair[1]),
+                    "{command:?}: {heights:?}"
+                );
+            }
         }
 
         #[test]

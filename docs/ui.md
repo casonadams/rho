@@ -282,7 +282,10 @@ always matches your terminal emulator, in dark or light mode.
   committed block use the same renderer, so a redraw never changes its layout.
   The input area uses the same one-column indent.
 - Every finished tool card ends with a dim `Took 6.054s` line on its own line.
-  While a tool runs, its live card is the same card and counts `Took ...` up.
+  While a tool runs, its live card is the same card and counts `Elapsed ...` up.
+  A running `bash` card shows its output tidied like the finished one (surrounding
+  blank lines dropped, runs of identical lines folded), so it does not resize
+  when the command ends.
   Streamed output (reply text, thinking and live tool output) that the API
   delivers in bursts is spread over the pause before the next burst, a few
   words or lines per frame and never longer than 600 ms behind; a steady stream

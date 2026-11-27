@@ -27,6 +27,12 @@ pub fn collapse_consecutive_lines(text: &str) -> String {
     out
 }
 
+/// A command's output as its finished card shows it: surrounding blank lines dropped and runs of
+/// identical lines folded. The live card draws the same text so it does not resize when it commits.
+pub fn tidy_output(text: &str) -> String {
+    collapse_consecutive_lines(text.trim())
+}
+
 pub fn window_clean_output(text: &str, head_count: usize, tail_count: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() <= head_count + tail_count + 5 {
@@ -71,6 +77,15 @@ mod tests {
         let input = "start\nrepeat\nrepeat\nrepeat\nrepeat\nend";
         let expected = "start\nrepeat\n[... 3 identical lines collapsed]\nend";
         assert_eq!(collapse_consecutive_lines(input), expected);
+    }
+
+    #[test]
+    fn tidy_output_drops_surrounding_blank_lines_and_folds_runs() {
+        assert_eq!(
+            tidy_output("\n\nstart\nrepeat\nrepeat\nrepeat\nend\n\n"),
+            "start\nrepeat\n[... 2 identical lines collapsed]\nend"
+        );
+        assert_eq!(tidy_output("\n  \n"), "");
     }
 
     #[test]

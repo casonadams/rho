@@ -41,7 +41,7 @@ fn running_tool_widget_collapsed_header_and_tail() {
 
     assert!(full.contains("bash") && full.contains("cargo test"));
     assert!(full.contains("... (2 earlier lines, Ctrl+O to expand)") && full.contains("line 7"));
-    assert!(!full.contains("line 1\n") && full.contains("Took "));
+    assert!(!full.contains("line 1\n") && full.contains("Elapsed "));
 }
 
 #[test]
@@ -72,14 +72,14 @@ fn running_tool_widget_bash_with_timeout_styles_timeout_with_dimmed() {
     let full = lines.join("\n");
     let dim = theme.dimmed;
     assert!(full.contains(&format!("{dim}(timeout 300s){dim:#}")));
-    assert!(full.contains(&format!("{dim}Took")));
+    assert!(full.contains(&format!("{dim}Elapsed")));
 }
 
 #[test]
 fn running_tool_widget_renders_subagent_before_any_output() {
     let tool = RunningTool::new("subagent", "prompt=\"find callers\"", json!({"prompt": "find callers"}));
     let full = render_test_widget(&tool, false);
-    for token in ["subagent", "find callers", "Took"] {
+    for token in ["subagent", "find callers", "Elapsed"] {
         assert!(full.contains(token), "missing {token}");
     }
 }

@@ -299,9 +299,13 @@ pub(crate) fn append_tool_details(content: &mut String, tool: &ToolLine, width: 
     append_background_hint(content, tool, theme.dimmed);
     if let Some(duration_ms) = tool.duration_ms {
         let dim = theme.dimmed;
+        let label = match view.status {
+            CardStatus::Running => "Elapsed",
+            CardStatus::Finished => "Took",
+        };
         push_section(
             content,
-            &format!("{dim}Took {}{dim:#}", super::format_duration_ms(duration_ms)),
+            &format!("{dim}{label} {}{dim:#}", super::format_duration_ms(duration_ms)),
         );
     }
 }

@@ -204,6 +204,17 @@ impl TrackedAgent {
         self.push(AgentEvent::tool_call(name, args));
     }
 
+    /// Drops the latest unfinished call, which will not produce a tool line.
+    fn end_call(&mut self) {
+        if let Some(at) = self
+            .events
+            .iter()
+            .rposition(|e| matches!(e, AgentEvent::ToolCall { .. }))
+        {
+            self.events.remove(at);
+        }
+    }
+
     /// Adds output streamed to the card of the latest unfinished call.
     fn call_output(&mut self, chunk: &str) {
         let Some(AgentEvent::ToolCall { output, dropped, .. }) = self.events.back_mut() else {
@@ -331,6 +342,12 @@ impl AgentHandle {
     /// Adds output streamed to the card of the latest unfinished call.
     pub fn call_output(&self, chunk: &str) {
         self.monitor.update(self.id, |agent| agent.call_output(chunk));
+    }
+
+    /// Drops the latest unfinished call, which will not produce a tool line, such as a preview of
+    /// a call the model retried.
+    pub fn end_call(&self) {
+        self.monitor.update(self.id, TrackedAgent::end_call);
     }
 
     /// Adds a streamed piece of the model's reply, or of its reasoning, to the view.

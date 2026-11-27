@@ -1,7 +1,7 @@
 use super::accumulator::{OutputAccumulator, OutputSnapshot};
 use super::normalize::{
     BASH_CLEAN_HEAD_LINES, BASH_CLEAN_TAIL_LINES, BASH_CLEAN_WINDOW_LINE_THRESHOLD, BASH_FAILURE_TAIL_LINES,
-    collapse_consecutive_lines, window_clean_output, window_head_and_tail,
+    tidy_output, window_clean_output, window_head_and_tail,
 };
 use crate::mailbox::Mailbox;
 use crate::process::{StreamingCommand, configure_shell_command};
@@ -181,7 +181,7 @@ struct ShapedOutput {
 }
 
 fn shape_output(snapshot: &OutputSnapshot, failed: bool) -> ShapedOutput {
-    let output = collapse_consecutive_lines(snapshot.content.trim());
+    let output = tidy_output(&snapshot.content);
     let total_lines = snapshot.truncation.total_lines;
     if output.is_empty() {
         return ShapedOutput {
