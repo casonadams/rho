@@ -40,13 +40,10 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
                 dropped,
                 file_change,
             } if running => {
-                frame.running_tool = live_card(name, args, file_change.as_ref());
-                if frame.running_tool.is_some() {
+                if let Some(card) = live_card(name, args, file_change.as_ref()) {
+                    frame.running_tool = Some(card);
                     frame.running_output = output.clone();
                     frame.running_output_start = *dropped;
-                } else {
-                    frame.running_output = String::new();
-                    frame.running_output_start = 0;
                 }
             }
             AgentEvent::ToolCall { name, .. } => {

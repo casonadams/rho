@@ -374,6 +374,44 @@ impl EngineTool for ScriptedTool {
 }
 
 #[tokio::test]
+async fn a_call_runs_under_its_own_card_not_the_preview_of_a_call_streamed_after_it() {
+    use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
+    use crate::engine::runner::turn::streaming_tool::tests::{CallLog, InteractivePresenter};
+    let log = Arc::new(CallLog::default());
+    let (runner, _temp, _, mut tracker) = test_agent_env_with(
+        Arc::new(MockAdapter::default()),
+        Arc::new(InteractivePresenter(log.clone())),
+    );
+    let first = serde_json::json!({ "path": "a.txt", "text": "a" });
+    let mut streaming = StreamingToolTracker::default();
+    streaming.handle_delta("call-0", "write", &first.to_string(), &runner.sink);
+    streaming.handle_delta("call-1", "write", r#"{"path": "b.txt", "text": "b"}"#, &runner.sink);
+    log.0.lock().unwrap().clear();
+    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(ScriptedTool {
+        name: "write",
+        result: crate::tools::ToolResult::success("ok"),
+    })];
+    let mut ctx = ToolExecutionContext {
+        tools: &tools,
+        sink: &runner.sink,
+        repeat_tracker: &mut tracker,
+        lifecycle: None,
+        permission: None,
+        observer: None,
+    };
+
+    let call = ToolCall::new("call-0", ToolFunction::new("write", first.clone()));
+    execute_single_tool_call(&call, &mut ctx).await;
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(
+        calls[..3],
+        ["end".to_string(), "flush".into(), format!("start write {first}")],
+        "the other call's card is taken down before this one is planned"
+    );
+}
+
+#[tokio::test]
 async fn a_tool_can_end_the_turn_once_its_batch_is_answered() {
     let model = Arc::new(MockAdapter::from_turns(vec![
         vec![

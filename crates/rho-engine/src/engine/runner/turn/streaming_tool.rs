@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 mod partial_json;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Shows the card of a `write` or `edit` call while the model is still writing its arguments.
 #[derive(Default)]
@@ -36,11 +36,11 @@ impl StreamingToolTracker {
             (Some(Preview::Write(preview)), _) => preview.advance(buf, sink),
             (Some(Preview::Edit(preview)), _) => preview.advance(buf, chunk, sink),
             (None, "write") => {
-                let mut preview = WritePreview::open(buf, sink);
+                let mut preview = WritePreview::open(id, buf, sink);
                 preview.advance(buf, sink);
                 self.preview = Some(Preview::Write(preview));
             }
-            (None, "edit") => self.preview = Some(Preview::Edit(EditPreview::open(buf, sink))),
+            (None, "edit") => self.preview = Some(Preview::Edit(EditPreview::open(id, buf, sink))),
             (None, _) => {}
         }
     }
@@ -81,6 +81,7 @@ fn path_arguments(path: Option<&str>) -> Value {
 /// A `write` card: opened before the path is known, its content streamed in as the card's output.
 #[derive(Default)]
 struct WritePreview {
+    call_id: String,
     path_shown: bool,
     streamed_content_len: usize,
     content: ContentDecoder,
@@ -88,10 +89,11 @@ struct WritePreview {
 
 impl WritePreview {
     /// Opens the card on the first fragment, before the path is known.
-    fn open(arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
+    fn open(call_id: &str, arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
         let path = extract_target_path(arguments);
-        sink.preview_tool("write", &path_arguments(path.as_deref()));
+        sink.preview_tool(call_id, "write", &path_arguments(path.as_deref()));
         Self {
+            call_id: call_id.to_string(),
             path_shown: path.is_some(),
             ..Self::default()
         }
@@ -116,21 +118,25 @@ impl WritePreview {
             return;
         };
         self.path_shown = true;
-        sink.preview_tool("write", &path_arguments(Some(&path)));
+        sink.preview_tool(&self.call_id, "write", &path_arguments(Some(&path)));
         self.streamed_content_len = 0;
     }
 }
 
 /// An `edit` card, redrawn from the arguments streamed so far as they grow.
 struct EditPreview {
+    call_id: String,
     shown: Value,
 }
 
 impl EditPreview {
-    fn open(arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
+    fn open(call_id: &str, arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
         let shown = Self::read(arguments).unwrap_or_else(|| json!({}));
-        sink.preview_tool("edit", &shown);
-        Self { shown }
+        sink.preview_tool(call_id, "edit", &shown);
+        Self {
+            call_id: call_id.to_string(),
+            shown,
+        }
     }
 
     /// Rereads the arguments only when `chunk` may end a line or a field, not on every fragment.
@@ -142,7 +148,7 @@ impl EditPreview {
             return;
         };
         if parsed != self.shown {
-            sink.preview_tool("edit", &parsed);
+            sink.preview_tool(&self.call_id, "edit", &parsed);
             self.shown = parsed;
         }
     }

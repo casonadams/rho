@@ -99,6 +99,24 @@ fn tools_without_a_live_card_and_unfinished_calls_follow_the_main_agents_rules()
 }
 
 #[test]
+fn a_fast_tool_started_beside_a_running_bash_leaves_its_card_up_like_the_main_agent() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "scout");
+    handle.event(AgentEvent::tool_call(
+        "bash",
+        serde_json::json!({ "command": "make" }),
+        None,
+    ));
+    handle.call_output("building\n");
+    handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" }), None));
+
+    let shown = frame(&monitor.record(handle.id()).unwrap());
+
+    assert_eq!(shown.running_tool.map(|tool| tool.name).as_deref(), Some("bash"));
+    assert_eq!(shown.running_output, "building\n");
+}
+
+#[test]
 fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "writer");

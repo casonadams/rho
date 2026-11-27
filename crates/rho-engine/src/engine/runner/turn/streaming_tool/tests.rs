@@ -8,7 +8,7 @@ use rho_harness_core::session::SessionManager;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-struct CallLog(Mutex<Vec<String>>);
+pub(crate) struct CallLog(pub(crate) Mutex<Vec<String>>);
 
 impl CallLog {
     fn push(&self, call: String) {
@@ -22,7 +22,8 @@ impl ToolStreamSink for CallLog {
     }
 }
 
-struct InteractivePresenter(Arc<CallLog>);
+/// An interactive presenter that logs the tool cards it is asked to show.
+pub(crate) struct InteractivePresenter(pub(crate) Arc<CallLog>);
 
 #[async_trait::async_trait]
 impl Presenter for InteractivePresenter {
@@ -295,6 +296,39 @@ fn a_previewed_call_is_shown_with_its_final_arguments_when_it_starts() {
 
     let calls = log.0.lock().unwrap().clone();
     assert_eq!(calls.last(), Some(&format!("start edit {args}")));
+}
+
+#[test]
+fn a_call_is_planned_without_the_card_of_a_call_streamed_after_it() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+    tracker.handle_delta("call-1", "edit", r#"{"path": "a.rs", "edits": []}"#, &sink);
+    tracker.handle_delta("call-2", "edit", r#"{"path": "b.rs", "edits": []}"#, &sink);
+    log.0.lock().unwrap().clear();
+
+    let first = serde_json::json!({ "path": "a.rs", "edits": [] });
+    sink.focus_tool_preview("call-1");
+    sink.tool_start("edit", &first);
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(
+        calls,
+        ["end".to_string(), "flush".into(), format!("start edit {first}")]
+    );
+}
+
+#[test]
+fn the_card_of_the_call_being_planned_stays_up() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+    tracker.handle_delta("call-1", "edit", r#"{"path": "a.rs", "edits": []}"#, &sink);
+    log.0.lock().unwrap().clear();
+
+    sink.focus_tool_preview("call-1");
+
+    assert!(log.0.lock().unwrap().is_empty());
 }
 
 #[test]

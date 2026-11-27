@@ -1,57 +1,49 @@
 //! Another agent shown in place of the main agent reads exactly like the main agent: the same
-//! turn, streamed to the main agent's renderer or synced into the view frame by frame, leaves the
-//! same rows on the screen at every step.
+//! turn, driven through the turn's sink into the main agent's renderer or into an agent's record
+//! shown in the view, leaves the same rows on the screen at every step.
 
 use super::screen_sim::ScreenBackend;
+use crate::repl::live::agent_focus::{refresh, show_agent};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::controller::TerminalController;
-use crate::ui::interactive::{
-    InteractiveState, InteractiveUi, PendingUiBatch, StreamingText, ToolStartRequest, TranscriptItem, UiEvent,
-    ViewFrame,
-};
-use crate::ui::render::stream::StreamKind;
-use rho_harness_core::presentation::ToolLine;
+use crate::ui::interactive::{InteractiveState, InteractiveUi, PendingUiBatch, UiEvent};
+use rho_engine::engine::runner::{TerminalApprovalSink, TerminalSinkConfig, ToolFinishDetails};
+use rho_engine::tools::subagent::AgentPresenter;
+use rho_harness_core::agents::{AgentHandle, AgentMonitor, AgentStatus};
+use rho_harness_core::presentation::Presenter;
+use rho_harness_core::presentation::stream::ToolStreamSink;
+use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const TASK: &str = "Audit the parser";
-const THINKING: [&str; 3] = ["Checking the **parser** ", "before I `answer`, ", "line by line."];
-const REPLY: [&str; 5] = [
-    "The **parser** ",
-    "looks fine:\n\n",
-    "- tokens\n",
-    "- errors\n\n",
-    "Nothing to fix.",
-];
 
 fn screen() -> TerminalController<ScreenBackend> {
-    TerminalController::pinned_to_bottom(ScreenBackend::new(70, 60), InteractiveState::default()).unwrap()
+    TerminalController::pinned_to_bottom(ScreenBackend::new(70, 80), InteractiveState::default()).unwrap()
 }
 
-/// The rows above the live region, except the running card's elapsed time.
+/// The rows above the live region, without the durations, which each side times on its own.
 fn transcript_rows(controller: &TerminalController<ScreenBackend>) -> Vec<String> {
     let screen = controller.backend.text();
     let region = controller.rendered().expect("a drawn region").height();
     screen[..screen.len() - region]
         .iter()
-        .filter(|row| !row.contains("Elapsed "))
+        .filter(|row| !row.contains("Elapsed ") && !row.contains("Took "))
         .cloned()
         .collect()
 }
 
-fn bash_args() -> serde_json::Value {
-    serde_json::json!({ "command": "cargo test" })
-}
-
-fn bash_line() -> ToolLine {
-    ToolLine::new("bash", bash_args())
-        .with_output("ok\n")
-        .with_output_summary("ok")
-        .with_duration_ms(1200)
+fn sink(presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
+    let config = TerminalSinkConfig {
+        model_label: "acme/smol".into(),
+        run_tracker: rho_engine::engine::metrics::RunTracker::default(),
+    };
+    TerminalApprovalSink::with_session(presenter, config, None)
 }
 
 /// The main agent: its renderer's events applied the way the live loop applies them.
 struct Main {
-    renderer: TerminalRenderer,
+    presenter: Arc<dyn Presenter>,
+    sink: Arc<TerminalApprovalSink>,
     events: UnboundedReceiver<UiEvent>,
     controller: TerminalController<ScreenBackend>,
 }
@@ -60,19 +52,18 @@ impl Main {
     fn new() -> Self {
         let (ui, events) = InteractiveUi::channel();
         let renderer = TerminalRenderer::with_ui(ui);
-        let mut controller = screen();
+        let controller = screen();
         renderer.set_width(controller.width());
-        controller
-            .push_transcript_item(TranscriptItem::UserMessage(TASK.into()))
-            .unwrap();
+        let presenter: Arc<dyn Presenter> = Arc::new(renderer);
         Self {
-            renderer,
+            sink: sink(&presenter),
+            presenter,
             events,
             controller,
         }
     }
 
-    fn apply(&mut self) -> Vec<String> {
+    fn rows(&mut self) -> Vec<String> {
         let mut pending = PendingUiBatch::new(64 * 1024);
         while let Ok(event) = self.events.try_recv() {
             pending.push(event);
@@ -82,112 +73,103 @@ impl Main {
     }
 }
 
-/// The shown agent: the frames its record turns into as the same turn goes on.
+/// A subagent: its turn recorded on the monitor and shown in the main terminal's agent view.
 struct Shown {
+    presenter: Arc<dyn Presenter>,
+    sink: Arc<TerminalApprovalSink>,
+    monitor: AgentMonitor,
+    handle: AgentHandle,
     controller: TerminalController<ScreenBackend>,
-    items: Vec<TranscriptItem>,
 }
 
 impl Shown {
     fn new() -> Self {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("subagents", "audit", "acme/smol", 10);
+        let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(Some(handle.clone())));
         let mut controller = screen();
-        let items = vec![TranscriptItem::UserMessage(TASK.into())];
-        let frame = ViewFrame {
-            items: items.clone(),
-            ..ViewFrame::default()
-        };
-        controller.enter_agent_view(1, "audit".into(), frame).unwrap();
-        Self { controller, items }
+        show_agent(&mut controller, Some(&monitor), Some(handle.id())).unwrap();
+        Self {
+            sink: sink(&presenter),
+            presenter,
+            monitor,
+            handle,
+            controller,
+        }
     }
 
-    fn sync(&mut self, frame: ViewFrame) -> Vec<String> {
-        self.controller.sync_agent_view(frame).unwrap();
+    fn rows(&mut self) -> Vec<String> {
+        refresh(&mut self.controller, &self.monitor).unwrap();
         transcript_rows(&self.controller)
     }
+}
 
-    fn streaming(&mut self, kind: StreamKind, text: &str) -> Vec<String> {
-        let frame = ViewFrame {
-            items: self.items.clone(),
-            streaming: Some(StreamingText {
-                kind,
-                text: text.into(),
-            }),
-            ..ViewFrame::default()
-        };
-        self.sync(frame)
+struct Turn {
+    main: Main,
+    shown: Shown,
+}
+
+impl Turn {
+    /// Takes the same `step` on both agents and checks their screens still read the same.
+    fn step(&mut self, what: &str, step: impl Fn(&dyn Presenter, &TerminalApprovalSink)) -> Vec<String> {
+        step(self.main.presenter.as_ref(), &self.main.sink);
+        step(self.shown.presenter.as_ref(), &self.shown.sink);
+        let main = self.main.rows();
+        assert_eq!(self.shown.rows(), main, "{what}");
+        main
     }
 
-    fn settle(&mut self, item: TranscriptItem) {
-        self.items.push(item);
+    fn run_bash(&mut self, command: &str, output: &str) {
+        let args = serde_json::json!({ "command": command });
+        self.step("the tool starts", |_, sink| {
+            sink.tool_start("bash", &args);
+            sink.tool_chunk(output.to_string());
+        });
+        self.step("the tool finishes", |_, sink| {
+            sink.tool_finished(ToolFinishDetails {
+                name: "bash",
+                arguments: &args,
+                output,
+                is_error: false,
+            });
+        });
     }
 }
 
 #[test]
 fn a_shown_agents_turn_leaves_the_same_rows_as_the_main_agents_at_every_step() {
-    let mut main = Main::new();
-    let mut shown = Shown::new();
-    assert_eq!(
-        shown.sync(ViewFrame {
-            items: shown.items.clone(),
-            ..ViewFrame::default()
-        }),
-        main.apply()
-    );
-
-    main.renderer.write_output("\n");
-    let mut thinking = String::new();
-    for token in THINKING {
-        thinking.push_str(token);
-        main.renderer.print_thinking_token(token);
-        assert_eq!(
-            shown.streaming(StreamKind::Thinking, &thinking),
-            main.apply(),
-            "thinking {thinking:?}"
-        );
-    }
-
-    main.renderer.finish_thinking(&thinking);
-    main.renderer.write_output("\n");
-    main.renderer.write_output("\n");
-    shown.settle(TranscriptItem::Thinking(thinking));
-    let mut reply = String::new();
-    for token in REPLY {
-        reply.push_str(token);
-        main.renderer.print_token(token);
-        assert_eq!(
-            shown.streaming(StreamKind::Reply, &reply),
-            main.apply(),
-            "reply {reply:?}"
-        );
-    }
-
-    main.renderer.flush();
-    main.renderer.start_tool_run("bash", &bash_args());
-    main.renderer.tool_chunk("ok\n");
-    shown.settle(TranscriptItem::AssistantText(reply));
-    let running = ViewFrame {
-        items: shown.items.clone(),
-        running_tool: Some(ToolStartRequest {
-            name: "bash".into(),
-            args_summary: "cargo test".into(),
-            arguments: bash_args(),
-            file_change: None,
-        }),
-        running_output: "ok\n".into(),
-        ..ViewFrame::default()
+    let mut turn = Turn {
+        main: Main::new(),
+        shown: Shown::new(),
     };
-    assert_eq!(shown.sync(running), main.apply(), "the running tool");
+    turn.step("the task", |presenter, _| presenter.print_user_block(TASK));
+    for token in ["Checking the **parser** ", "before I `answer`, ", "line by line."] {
+        turn.step(&format!("thinking {token:?}"), |_, sink| sink.emit_reasoning(token));
+    }
+    for token in [
+        "The **parser** ",
+        "looks fine:\n\n",
+        "- tokens\n",
+        "- errors\n\n",
+        "Running it.",
+    ] {
+        turn.step(&format!("reply {token:?}"), |_, sink| sink.emit_text(token));
+    }
+    turn.run_bash("cargo test", "ok\n");
+    turn.step("thinking after the tool", |_, sink| {
+        sink.emit_reasoning("Now the **summary**.")
+    });
+    turn.step("the closing reply", |_, sink| sink.emit_text("All **good**.\n"));
 
-    main.renderer.finish_tool_line(bash_line());
-    shown.settle(TranscriptItem::Tool(bash_line()));
-    let done = ViewFrame {
-        items: shown.items.clone(),
-        ..ViewFrame::default()
-    };
-    let rows = shown.sync(done);
-    assert_eq!(rows, main.apply(), "the finished turn");
+    turn.main.sink.flush_display();
+    turn.shown.sink.flush_display();
+    turn.shown.handle.finish(AgentStatus::Done);
+    let rows = turn.main.rows();
+    assert_eq!(turn.shown.rows(), rows, "the finished turn");
+    let text = rows.join("\n");
     assert!(
-        rows.iter().any(|row| row.contains("The parser looks fine:")),
-        "{rows:#?}"
+        text.contains("The parser looks fine:") && text.contains("All good."),
+        "{text}"
     );
+    assert!(!text.contains("**"), "markdown is rendered: {text}");
 }
