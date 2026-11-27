@@ -15,6 +15,7 @@ fn start_bash(controller: &mut TerminalController<FakeTerminal>, cmd: &str) {
             name: "bash".into(),
             args_summary: cmd.into(),
             arguments: serde_json::json!({"command": cmd}),
+            file_change: None,
         })
         .unwrap();
 }
@@ -205,6 +206,7 @@ fn restarting_the_same_tool_keeps_its_start_time_but_a_new_tool_resets_it() {
             name: "write".into(),
             args_summary: "a.txt".into(),
             arguments: serde_json::json!({"path": "a.txt"}),
+            file_change: None,
         })
         .unwrap();
     assert_ne!(controller.state().active_tool().unwrap().started, first_started);

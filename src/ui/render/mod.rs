@@ -18,6 +18,7 @@ pub(crate) mod notices;
 pub(crate) mod output_highlight;
 pub(crate) mod presenter;
 pub(crate) mod renderer;
+pub(crate) mod stream;
 pub(crate) mod structured;
 pub(crate) mod thinking;
 pub mod turn_stats;

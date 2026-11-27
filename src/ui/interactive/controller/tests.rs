@@ -1,4 +1,5 @@
 mod activity;
+mod agent_view;
 mod cache;
 pub(crate) mod fake;
 mod lifecycle;

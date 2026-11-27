@@ -30,6 +30,8 @@ pub struct ToolStartRequest {
     pub name: String,
     pub args_summary: String,
     pub arguments: serde_json::Value,
+    /// The state of the file the tool changes, taken before it runs.
+    pub file_change: Option<rho_harness_core::presentation::FileChange>,
 }
 
 pub struct InteractionResponder {

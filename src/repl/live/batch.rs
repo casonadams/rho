@@ -372,6 +372,7 @@ mod tests {
                     name: "bash".into(),
                     args_summary: "cargo test".into(),
                     arguments: serde_json::json!({"command": "cargo test"}),
+                    file_change: None,
                 }),
                 UiEvent::ToolChunk {
                     chunk: "line one".into(),
@@ -391,6 +392,7 @@ mod tests {
                 name: "bash".into(),
                 args_summary: "cargo test".into(),
                 arguments: serde_json::json!({"command": "cargo test"}),
+                file_change: None,
             })
             .unwrap();
         let mut batch = LiveBatch::new();

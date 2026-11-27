@@ -335,6 +335,7 @@ fn a_tool_card_shows_the_streamed_text_before_it_in_the_same_drain() {
         name: "write".into(),
         args_summary: String::new(),
         arguments: serde_json::json!({}),
+        file_change: None,
     };
     batch.push_at(
         UiEvent::ToolStart(request),
@@ -364,6 +365,7 @@ fn a_new_tool_card_drops_output_still_waiting_for_the_old_one() {
         name: "write".into(),
         args_summary: "a.txt".into(),
         arguments: serde_json::json!({"path": "a.txt"}),
+        file_change: None,
     };
     batch.push_at(
         UiEvent::ToolStart(request),

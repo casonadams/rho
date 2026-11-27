@@ -1,42 +1,11 @@
 //! Thinking output: markdown rendered dim with a one-column margin, shared by
 //! live streaming and the committed transcript block.
 
-use super::margin::{Margin, margin_width};
-use crate::ui::markdown::MarkdownRenderer;
+use super::stream::{StreamKind, StreamRenderer};
 use crate::ui::theme::Theme;
 
-pub(crate) struct ThinkingRenderer {
-    markdown: MarkdownRenderer,
-    margin: Margin,
-}
-
-impl ThinkingRenderer {
-    pub(crate) fn new(theme: &Theme) -> Self {
-        Self {
-            markdown: MarkdownRenderer::new(),
-            margin: Margin::new(Some(theme.dimmed)),
-        }
-    }
-
-    pub(crate) fn push(&mut self, token: &str, width: usize, theme: &Theme) -> String {
-        self.markdown.set_width(margin_width(width));
-        let rendered = self.markdown.render_token(token, theme);
-        self.margin.apply(&rendered)
-    }
-
-    pub(crate) fn finish(&mut self, theme: &Theme) -> String {
-        let rendered = self.markdown.flush(theme);
-        let mut out = self.margin.apply(&rendered);
-        if out.ends_with('\n') {
-            out.pop();
-        }
-        *self = Self::new(theme);
-        out
-    }
-}
-
 pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: usize) -> String {
-    let mut renderer = ThinkingRenderer::new(theme);
+    let mut renderer = StreamRenderer::new(StreamKind::Thinking, theme);
     let mut out = String::from("\n");
     out.push_str(&renderer.push(&format!("{}\n", thinking_text.trim()), width, theme));
     out.push_str(&renderer.finish(theme));
@@ -52,7 +21,7 @@ mod tests {
     use crate::ui::block::strip_ansi;
 
     fn stream(tokens: &[&str], width: usize, theme: &Theme) -> String {
-        let mut renderer = ThinkingRenderer::new(theme);
+        let mut renderer = StreamRenderer::new(StreamKind::Thinking, theme);
         let mut out = String::new();
         for token in tokens {
             out.push_str(&renderer.push(token, width, theme));
@@ -116,31 +85,9 @@ mod tests {
     }
 
     #[test]
-    fn zz_probe() {
-        let theme = Theme::default();
-        let text = "I'm checking whether the docs describe how file completion works, especially the part about the @ completion ignoring certain paths. I'll search the docs for mentions of node_modules or gitignore in relation to completion.";
-        for split in [1usize, 3, 7, 16] {
-            let chars: Vec<char> = text.chars().collect();
-            let tokens: Vec<String> = chars.chunks(split).map(|c| c.iter().collect()).collect();
-            let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-            eprintln!("split {split}:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
-        }
-        let tokens: Vec<String> = text.split_inclusive(' ').map(String::from).collect();
-        let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-        eprintln!("words:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
-        let tokens: Vec<String> = text
-            .split(' ')
-            .enumerate()
-            .map(|(i, w)| if i == 0 { w.to_string() } else { format!(" {w}") })
-            .collect();
-        let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-        eprintln!("leading-space words:\n{}", strip_ansi(&stream(&refs, 77, &theme)));
-    }
-
-    #[test]
     fn finish_resets_state_for_the_next_block() {
         let theme = Theme::default();
-        let mut renderer = ThinkingRenderer::new(&theme);
+        let mut renderer = StreamRenderer::new(StreamKind::Thinking, &theme);
         renderer.push("one\n", 80, &theme);
         renderer.finish(&theme);
         let second = strip_ansi(&format!(

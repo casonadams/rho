@@ -19,7 +19,11 @@ fn monitor_with_two_agents() -> (AgentMonitor, AgentHandle, AgentHandle) {
     done.finish(AgentStatus::Done);
     let running = monitor.start("refine › round 1", "scan #2 · scout", "claude/claude-haiku-5-5", 12);
     running.event(AgentEvent::Task("Scan crates/".into()));
-    running.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "unwrap" })));
+    running.event(AgentEvent::tool_call(
+        "rg",
+        serde_json::json!({ "pattern": "unwrap" }),
+        None,
+    ));
     running.turn(1);
     (monitor, done, running)
 }

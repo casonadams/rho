@@ -142,6 +142,9 @@ impl Presenter for RpcPresenter {
         });
     }
 
+    /// Clients hear of a call once it starts, with its whole arguments, not while they stream.
+    fn preview_tool_run(&self, _name: &str, _arguments: &Value) {}
+
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::default()
     }

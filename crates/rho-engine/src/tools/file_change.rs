@@ -2,7 +2,7 @@
 //! renderer and the subagents' presenter so both cards read the same.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rho_harness_core::presentation::{FileChange, ToolLine};
 use serde_json::Value;
@@ -100,6 +100,15 @@ fn replaced_regions(edits: &[Value], content: Option<&str>) -> Vec<Option<String
 
 /// The file a `write` or `edit` call targets and its state before the call runs.
 pub fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> {
+    capture_from(name, args, |path| read_bounded(path).map(Arc::from))
+}
+
+/// Like `capture`, with an `edit` reading the file's content from `content`.
+fn capture_from(
+    name: &str,
+    args: &Value,
+    content: impl FnOnce(&str) -> Option<Arc<str>>,
+) -> Option<(String, FileChange)> {
     let path = rho_harness_core::args::target_path(args)?;
     let change = match name {
         "write" => FileChange {
@@ -109,7 +118,7 @@ pub fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> {
         },
         "edit" => {
             let edits = args.get("edits")?.as_array()?;
-            let content = read_bounded(path);
+            let content = content(path);
             FileChange {
                 overwrote_existing: true,
                 edit_start_lines: edit_start_lines(edits, content.as_deref()),
@@ -123,30 +132,65 @@ pub fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> {
 
 /// Snapshots taken when tools start, handed to their finished lines.
 #[derive(Debug, Default)]
-pub struct PendingFileChanges(Mutex<HashMap<String, FileChange>>);
+pub struct PendingFileChanges {
+    pending: Mutex<HashMap<String, FileChange>>,
+    /// The file a call whose arguments are still streaming changes, read once for all its updates.
+    previewed: Mutex<Option<(String, Option<Arc<str>>)>>,
+}
 
 impl PendingFileChanges {
-    /// Snapshots the file `name` is about to change, if it changes one.
-    pub fn note(&self, name: &str, args: &Value) {
-        if let Some((path, change)) = capture(name, args)
-            && let Ok(mut pending) = self.0.lock()
-        {
-            pending.insert(path, change);
+    /// Snapshots the file `name` is about to change, if it changes one, and returns the snapshot.
+    pub fn note(&self, name: &str, args: &Value) -> Option<FileChange> {
+        self.end_preview();
+        self.record(capture(name, args)?)
+    }
+
+    /// Like `note`, for a call whose arguments are still streaming: its file is read once, however
+    /// often the call is updated.
+    pub fn note_preview(&self, name: &str, args: &Value) -> Option<FileChange> {
+        self.record(capture_from(name, args, |path| self.previewed_content(path))?)
+    }
+
+    /// Forgets the file read for a streaming call.
+    pub fn end_preview(&self) {
+        if let Ok(mut previewed) = self.previewed.lock() {
+            *previewed = None;
         }
+    }
+
+    fn previewed_content(&self, path: &str) -> Option<Arc<str>> {
+        let mut previewed = self.previewed.lock().ok()?;
+        match &*previewed {
+            Some((previewed_path, content)) if previewed_path == path => content.clone(),
+            _ => {
+                let content = read_bounded(path).map(Arc::from);
+                *previewed = Some((path.to_string(), content.clone()));
+                content
+            }
+        }
+    }
+
+    fn record(&self, snapshot: (String, FileChange)) -> Option<FileChange> {
+        let (path, change) = snapshot;
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.insert(path, change.clone());
+        }
+        Some(change)
     }
 
     /// Gives `line` the snapshot taken for its file, unless it already has one.
     pub fn attach(&self, line: &mut ToolLine) {
+        self.end_preview();
         if line.file_change.is_none()
             && let Some(path) = rho_harness_core::args::target_path(&line.arguments)
-            && let Ok(mut pending) = self.0.lock()
+            && let Ok(mut pending) = self.pending.lock()
         {
             line.file_change = pending.remove(path);
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.lock().is_ok_and(|pending| pending.is_empty())
+        self.pending.lock().is_ok_and(|pending| pending.is_empty())
     }
 }
 
@@ -171,6 +215,21 @@ mod tests {
 
         assert!(line.file_change.is_some_and(|change| change.overwrote_existing));
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn a_streaming_call_reads_its_file_once_and_its_start_reads_it_afresh() {
+        let dir = TestDir::new();
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "a\nb\n").unwrap();
+        let args = json!({"path": file.to_str().unwrap(), "edits": [{"oldText": "b"}]});
+        let lines = |change: Option<FileChange>| change.map(|change| change.edit_start_lines);
+        let pending = PendingFileChanges::default();
+
+        assert_eq!(lines(pending.note_preview("edit", &args)), Some(vec![Some(2)]));
+        std::fs::write(&file, "x\na\nb\n").unwrap();
+        assert_eq!(lines(pending.note_preview("edit", &args)), Some(vec![Some(2)]));
+        assert_eq!(lines(pending.note("edit", &args)), Some(vec![Some(3)]));
     }
 
     #[test]

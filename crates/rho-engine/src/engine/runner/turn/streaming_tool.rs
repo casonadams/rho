@@ -1,18 +1,23 @@
 use super::runner::MultiTurnStreamItem;
 use crate::engine::runner::sink::TerminalApprovalSink;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
+mod partial_json;
 #[cfg(test)]
 mod tests;
 
+/// Shows the card of a `write` or `edit` call while the model is still writing its arguments.
 #[derive(Default)]
 pub struct StreamingToolTracker {
     call_id: Option<String>,
     arguments_buf: String,
-    preview_started: bool,
-    path_shown: bool,
-    streamed_content_len: usize,
-    content: ContentDecoder,
+    preview: Option<Preview>,
+}
+
+enum Preview {
+    Write(WritePreview),
+    Edit(EditPreview),
 }
 
 impl StreamingToolTracker {
@@ -26,57 +31,18 @@ impl StreamingToolTracker {
             sink.flush_display();
         }
         self.arguments_buf.push_str(chunk);
-        if name == "write" {
-            self.maybe_start_preview(sink);
-            self.maybe_stream_content(sink);
+        let buf = self.arguments_buf.as_str();
+        match (&mut self.preview, name) {
+            (Some(Preview::Write(preview)), _) => preview.advance(buf, sink),
+            (Some(Preview::Edit(preview)), _) => preview.advance(buf, chunk, sink),
+            (None, "write") => {
+                let mut preview = WritePreview::open(buf, sink);
+                preview.advance(buf, sink);
+                self.preview = Some(Preview::Write(preview));
+            }
+            (None, "edit") => self.preview = Some(Preview::Edit(EditPreview::open(buf, sink))),
+            (None, _) => {}
         }
-    }
-
-    /// Opens the card on the first fragment, before the path is known.
-    fn maybe_start_preview(&mut self, sink: &Arc<TerminalApprovalSink>) {
-        if self.preview_started {
-            return;
-        }
-        self.preview_started = true;
-        let path = self.extract_target_path();
-        self.path_shown = path.is_some();
-        let args = match path {
-            Some(path) => serde_json::json!({ "path": path }),
-            None => serde_json::json!({}),
-        };
-        sink.preview_tool("write", &args);
-    }
-
-    /// Reopens the card once the path arrives, replaying the content so far, so the header and language are right.
-    fn maybe_reopen_with_path(&mut self, sink: &Arc<TerminalApprovalSink>) {
-        if self.path_shown {
-            return;
-        }
-        let Some(path) = self.extract_target_path() else {
-            return;
-        };
-        self.path_shown = true;
-        sink.preview_tool("write", &serde_json::json!({ "path": path }));
-        self.streamed_content_len = 0;
-    }
-
-    fn maybe_stream_content(&mut self, sink: &Arc<TerminalApprovalSink>) {
-        if !self.preview_started {
-            return;
-        }
-        self.content.advance(&self.arguments_buf);
-        self.maybe_reopen_with_path(sink);
-        let current_content = &self.content.decoded;
-        if current_content.len() > self.streamed_content_len {
-            sink.preview_tool_chunk(&current_content[self.streamed_content_len..]);
-            self.streamed_content_len = current_content.len();
-        }
-    }
-
-    fn extract_target_path(&self) -> Option<String> {
-        rho_harness_core::args::TARGET_PATH_KEYS
-            .iter()
-            .find_map(|key| extract_json_string_field(&self.arguments_buf, key))
     }
 
     /// Ends the call being streamed when the stream moves past it: its model call finished or was
@@ -96,6 +62,102 @@ impl StreamingToolTracker {
 
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+}
+
+fn extract_target_path(arguments: &str) -> Option<String> {
+    rho_harness_core::args::TARGET_PATH_KEYS
+        .iter()
+        .find_map(|key| extract_json_string_field(arguments, key))
+}
+
+fn path_arguments(path: Option<&str>) -> Value {
+    match path {
+        Some(path) => json!({ "path": path }),
+        None => json!({}),
+    }
+}
+
+/// A `write` card: opened before the path is known, its content streamed in as the card's output.
+#[derive(Default)]
+struct WritePreview {
+    path_shown: bool,
+    streamed_content_len: usize,
+    content: ContentDecoder,
+}
+
+impl WritePreview {
+    /// Opens the card on the first fragment, before the path is known.
+    fn open(arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
+        let path = extract_target_path(arguments);
+        sink.preview_tool("write", &path_arguments(path.as_deref()));
+        Self {
+            path_shown: path.is_some(),
+            ..Self::default()
+        }
+    }
+
+    fn advance(&mut self, arguments: &str, sink: &Arc<TerminalApprovalSink>) {
+        self.content.advance(arguments);
+        self.reopen_with_path(arguments, sink);
+        let current_content = &self.content.decoded;
+        if current_content.len() > self.streamed_content_len {
+            sink.preview_tool_chunk(&current_content[self.streamed_content_len..]);
+            self.streamed_content_len = current_content.len();
+        }
+    }
+
+    /// Reopens the card once the path arrives, replaying the content so far, so the header and language are right.
+    fn reopen_with_path(&mut self, arguments: &str, sink: &Arc<TerminalApprovalSink>) {
+        if self.path_shown {
+            return;
+        }
+        let Some(path) = extract_target_path(arguments) else {
+            return;
+        };
+        self.path_shown = true;
+        sink.preview_tool("write", &path_arguments(Some(&path)));
+        self.streamed_content_len = 0;
+    }
+}
+
+/// An `edit` card, redrawn from the arguments streamed so far as they grow.
+struct EditPreview {
+    shown: Value,
+}
+
+impl EditPreview {
+    fn open(arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
+        let shown = Self::read(arguments).unwrap_or_else(|| json!({}));
+        sink.preview_tool("edit", &shown);
+        Self { shown }
+    }
+
+    /// Rereads the arguments only when `chunk` may end a line or a field, not on every fragment.
+    fn advance(&mut self, arguments: &str, chunk: &str, sink: &Arc<TerminalApprovalSink>) {
+        if !chunk.contains(['\\', '"', ']', '}']) {
+            return;
+        }
+        let Some(parsed) = Self::read(arguments) else {
+            return;
+        };
+        if parsed != self.shown {
+            sink.preview_tool("edit", &parsed);
+            self.shown = parsed;
+        }
+    }
+
+    /// The arguments streamed so far, without a path still being written, which names no file yet.
+    fn read(arguments: &str) -> Option<Value> {
+        let mut parsed = partial_json::parse_prefix(arguments)?;
+        if extract_target_path(arguments).is_none()
+            && let Some(object) = parsed.as_object_mut()
+        {
+            for key in rho_harness_core::args::TARGET_PATH_KEYS.iter() {
+                object.remove(*key);
+            }
+        }
+        Some(parsed)
     }
 }
 

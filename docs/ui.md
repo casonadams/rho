@@ -315,11 +315,14 @@ always matches your terminal emulator, in dark or light mode.
   never re-read the file. A failed edit also shows the change it attempted.
 - While the model is still writing a `write` call, its live card appears as
   soon as the path is known and tails the file content as it streams, like
-  `bash` output. The reply text before any tool call is shown in full as soon
+  `bash` output. An `edit` call's card opens as soon as the model starts it and
+  grows its diff a line at a time as the old and new text stream in; it stays
+  up while the edit runs, line numbers and all, until the finished card
+  replaces it. The reply text before any tool call is shown in full as soon
   as the model starts the call (Claude, OpenAI-compatible, and ChatGPT
   providers stream tool arguments; others show the call once it is complete).
-  On Claude, rho sets `eager_input_streaming` on the `write` tool so the API
-  sends file content as it is generated instead of all at once.
+  On Claude, rho sets `eager_input_streaming` on the `write` and `edit` tools
+  so the API sends their arguments as they are generated instead of all at once.
 - Long edit diffs and tool output end with
   `... (N more lines, Ctrl+O to expand)`; write previews and `bash` output show
   their last lines under `... (N earlier lines, Ctrl+O to expand)`, so a write

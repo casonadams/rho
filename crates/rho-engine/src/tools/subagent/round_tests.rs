@@ -316,10 +316,14 @@ async fn a_subagents_write_card_is_open_in_its_record_with_the_streamed_content_
         .unwrap();
 
     let seen = seen.lock().unwrap();
-    let Some(rho_harness_core::agents::AgentEvent::ToolCall { name, output, .. }) = seen.last() else {
+    let Some(rho_harness_core::agents::AgentEvent::ToolCall { name, args: shown, .. }) = seen.last() else {
         panic!("the write has a card while it runs: {seen:?}");
     };
-    assert_eq!((name.as_str(), output.as_str()), ("write", "hello"));
+    assert_eq!(
+        (name.as_str(), shown),
+        ("write", &args),
+        "the card shows the final content"
+    );
 }
 
 /// A tool that streams its output through the turn's port, as `bash` does, then reports what its

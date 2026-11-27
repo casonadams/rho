@@ -241,7 +241,9 @@ impl TerminalApprovalSink {
                     started: Some(started),
                 });
             state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
-            if !previewing {
+            if previewing {
+                self.presenter.preview_tool_run(name, &arguments);
+            } else {
                 self.presenter.start_tool_run(name, &arguments);
             }
         });

@@ -85,18 +85,19 @@ impl Presenter for AgentPresenter {
     }
 
     fn start_tool_run(&self, name: &str, arguments: &Value) {
-        self.file_changes.note(name, arguments);
-        self.event(AgentEvent::tool_call(name, arguments.clone()));
+        let file_change = self.file_changes.note(name, arguments);
+        self.event(AgentEvent::tool_call(name, arguments.clone(), file_change));
     }
 
     fn preview_tool_run(&self, name: &str, arguments: &Value) {
-        self.file_changes.note(name, arguments);
+        let file_change = self.file_changes.note_preview(name, arguments);
         if let Some(tracker) = &self.tracker {
-            tracker.preview_call(name, arguments.clone());
+            tracker.preview_call(name, arguments.clone(), file_change);
         }
     }
 
     fn end_tool_run(&self) {
+        self.file_changes.end_preview();
         if let Some(tracker) = &self.tracker {
             tracker.end_call();
         }
@@ -163,11 +164,18 @@ mod tests {
         sink.preview_tool_chunk("hello wor");
 
         let streaming = monitor.record(handle.id()).unwrap().events;
-        let mut shown = AgentEvent::tool_call("write", serde_json::json!({ "path": "a.txt" }));
-        if let AgentEvent::ToolCall { output, .. } = &mut shown {
-            output.push_str("hello wor");
-        }
-        assert_eq!(streaming, [shown]);
+        let [
+            AgentEvent::ToolCall {
+                args: shown, output, ..
+            },
+        ] = &streaming[..]
+        else {
+            panic!("the preview is one call: {streaming:?}");
+        };
+        assert_eq!(
+            (shown, output.as_str()),
+            (&serde_json::json!({ "path": "a.txt" }), "hello wor")
+        );
 
         sink.tool_start("write", &args);
         presenter.finish_tool_line(ToolLine::new("write", args.clone()));

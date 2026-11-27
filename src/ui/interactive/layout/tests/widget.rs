@@ -217,3 +217,27 @@ fn running_write_card_highlights_content_by_the_path_extension() {
     let known_text = crate::ui::block::strip_ansi(&render_test_widget(&known, false));
     assert!(known_text.contains("  2 │     let x = 1;"), "{known_text}");
 }
+
+#[test]
+fn running_edit_card_shows_its_diff_at_the_lines_noted_before_it_ran() {
+    let args = json!({"path": "/nonexistent/a.rs", "edits": [{"oldText": "old()", "newText": "new()"}]});
+    let tool = RunningTool::start(crate::ui::interactive::ToolStartRequest {
+        name: "edit".into(),
+        args_summary: "a.rs".into(),
+        arguments: args,
+        file_change: Some(rho_harness_core::presentation::FileChange {
+            overwrote_existing: true,
+            edit_start_lines: vec![Some(7)],
+            replaced_regions: vec![None],
+        }),
+    });
+
+    let text = crate::ui::block::strip_ansi(&render_test_widget(&tool, false));
+
+    assert!(text.contains("1 edit \u{b7} +1 -1"), "{text}");
+    assert!(
+        text.contains("7 \u{2502} - old()") && text.contains("7 \u{2502} + new()"),
+        "{text}"
+    );
+    assert!(text.contains("Elapsed"), "{text}");
+}

@@ -46,8 +46,8 @@ fn tools_are_sorted_alphabetically_by_name() {
 }
 
 #[test]
-fn only_the_write_tool_streams_its_input_eagerly() {
-    let req = sample_request_with_tools(vec![dummy_tool("write"), dummy_tool("bash")]);
+fn only_the_write_and_edit_tools_stream_their_input_eagerly() {
+    let req = sample_request_with_tools(vec![dummy_tool("write"), dummy_tool("bash"), dummy_tool("edit")]);
     let body = login_body("claude-sonnet-4-6", None, &req);
     let eager: Vec<(&str, bool)> = body["tools"]
         .as_array()
@@ -58,7 +58,7 @@ fn only_the_write_tool_streams_its_input_eagerly() {
             (tool["name"].as_str().unwrap(), eager)
         })
         .collect();
-    assert_eq!(eager, [("Bash", false), ("Write", true)]);
+    assert_eq!(eager, [("Bash", false), ("Edit", true), ("Write", true)]);
 }
 
 #[test]

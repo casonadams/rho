@@ -79,7 +79,9 @@ async fn streamed_write_arguments_open_and_fill_the_live_card_before_the_write_r
             "chunk alpha\n",
             "start notes.txt",
             "chunk alpha\nbeta\n",
+            "start notes.txt",
             "committed",
-        ]
+        ],
+        "the card is refreshed with the call's final arguments when it runs"
     );
 }
