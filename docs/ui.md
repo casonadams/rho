@@ -199,6 +199,8 @@ Background work (subagents, which start in the background unless
 `subagents.foreground_seconds` is set, and `bash`
 commands that move to the background) belongs to the session that started it.
 A turn waits for, and is told about, only its own session's background jobs.
+Likewise a subagent, including a workflow agent, owns the background commands
+it starts: its turn waits for them, and they stop when its round ends.
 Switching to another session with `/resume` or `/clear` stops the old session's
 background work and drops its undelivered results, because nothing could deliver
 them. Pressing `Esc` to interrupt a turn also stops the session's running

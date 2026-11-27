@@ -23,6 +23,7 @@ use crate::engine::runner::turn::runner::{
 };
 use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
+use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
@@ -68,7 +69,7 @@ pub struct SubagentRunner {
     parent_channel: bool,
     /// Runs in its own worktree, where nothing else writes.
     isolated: bool,
-    inbox: Option<crate::mailbox::Mailbox>,
+    inbox: Option<Mailbox>,
     /// The saved task the round belongs to, shown with it in the agent view.
     task_id: Option<String>,
     /// Recent conversation a compaction keeps word for word.
@@ -106,6 +107,9 @@ struct Tally {
 /// A round in progress across runs of the turn loop (one per compaction).
 struct RoundState {
     run: Run,
+    /// The round's own mailbox, which owns the background work it starts.
+    inbox: Option<Mailbox>,
+    /// Owns the round's conversation: its mailbox's id, or a one-off id without one.
     owner: String,
     presenter: Arc<dyn Presenter>,
     question_tool: Option<Arc<dyn EngineTool>>,
@@ -125,6 +129,7 @@ struct Run {
 struct AgentSetup<'a> {
     store: &'a MemoryStore,
     sink: &'a Arc<TerminalApprovalSink>,
+    inbox: Option<Mailbox>,
     prompt: String,
     turns_used: usize,
     recorder: &'a Arc<Recorder>,
@@ -274,7 +279,7 @@ impl SubagentRunner {
 
     /// Reads messages the delegating agent and the user send while the round runs.
     #[must_use]
-    pub(crate) fn with_inbox(mut self, inbox: crate::mailbox::Mailbox) -> Self {
+    pub(crate) fn with_inbox(mut self, inbox: Mailbox) -> Self {
         self.inbox = Some(inbox);
         self
     }
@@ -492,13 +497,19 @@ impl SubagentRunner {
         let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned()));
         let (question_tool, questions) = AskParentTool::with_question_slot();
         let (report_tool, report) = CompleteTaskTool::with_report_slot();
+        let inbox = self.round_inbox();
+        let owner = inbox.as_ref().map_or_else(
+            || format!("subagent-{}", uuid::Uuid::new_v4()),
+            |inbox| inbox.id().to_string(),
+        );
         let mut round = RoundState {
             run: Run {
                 transcript,
                 prompt,
                 tally: Tally::default(),
             },
-            owner: self.owner(),
+            inbox,
+            owner,
             presenter,
             question_tool: self.parent_channel.then_some(question_tool),
             report_tool,
@@ -519,7 +530,7 @@ impl SubagentRunner {
                 None => break (finish, messages),
             }
         };
-        if let Some(inbox) = &self.inbox {
+        if let Some(inbox) = &round.inbox {
             inbox.cancel_jobs();
         }
         if !round.run.prompt.is_empty() {
@@ -593,6 +604,7 @@ impl SubagentRunner {
         let agent = self.agent(AgentSetup {
             store: &store,
             sink: &sink,
+            inbox: round.inbox.clone(),
             prompt: round.run.prompt.clone(),
             turns_used: round.run.tally.turns,
             recorder,
@@ -618,12 +630,14 @@ impl SubagentRunner {
         Some(compacted)
     }
 
-    /// Owns the round's background work and messages: its mailbox, or a one-off id without one.
-    fn owner(&self) -> String {
-        self.inbox.as_ref().map_or_else(
-            || format!("subagent-{}", uuid::Uuid::new_v4()),
-            |inbox| inbox.id().to_string(),
-        )
+    /// The round's mailbox: the one it was given, or else a private one under the delegating agent's,
+    /// so the background work it starts has an owner that waits for it and stops it.
+    fn round_inbox(&self) -> Option<Mailbox> {
+        self.inbox.clone().or_else(|| {
+            let parent = self.ctx.inbox.as_ref()?;
+            let id = format!("subagent-{}", uuid::Uuid::new_v4());
+            Some(parent.registry().open(&id, Some(parent.id())))
+        })
     }
 
     /// The turn loop for this subagent: its tools recorded as evidence, its conversation in the setup's
@@ -653,7 +667,7 @@ impl SubagentRunner {
             Some(tracker) => Arc::new(hook.for_agent(tracker.clone())),
             None => hook.clone(),
         }))
-        .inbox(self.inbox.clone())
+        .inbox(setup.inbox)
         .cancellation(Some(setup.stop.clone()))
         .monitor(self.ctx.monitor.clone())
         .project_context(self.ctx.project.clone())

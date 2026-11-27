@@ -127,6 +127,74 @@ async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
     assert!(job.is_cancelled(), "the round's own job is stopped with it");
 }
 
+/// A tool that starts a background job owned by its agent and leaves it running, as `bash` does.
+struct StartsJob {
+    inbox: Option<crate::mailbox::Mailbox>,
+    started: Arc<std::sync::Mutex<Vec<crate::tools::jobs::JobCompletion>>>,
+}
+
+#[async_trait::async_trait]
+impl EngineTool for StartsJob {
+    fn name(&self) -> &str {
+        "bash"
+    }
+
+    fn description(&self) -> &str {
+        "starts a background job"
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({})
+    }
+
+    async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult, rho_harness_core::error::AppError> {
+        let inbox = self.inbox.as_ref().expect("the round's agent has a mailbox");
+        let job = inbox.start_job("bg-job".into(), "sleep".into());
+        self.started.lock().unwrap().push(job);
+        Ok(ToolResult::success("started"))
+    }
+
+    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        Some(Arc::new(Self {
+            inbox: ctx.inbox.clone(),
+            started: self.started.clone(),
+        }))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_round_without_its_own_mailbox_owns_its_background_jobs_under_its_parent() {
+    let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "x")]), text_turn("done")]);
+    let boxes = crate::mailbox::Mailboxes::default();
+    let parent = boxes.open("workflow-parent", None);
+    let started = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let tool: Arc<dyn EngineTool> = Arc::new(StartsJob {
+        inbox: None,
+        started: started.clone(),
+    });
+    let runner =
+        SubagentRunner::new(Arc::new(adapter), SubagentRole::General, &[tool], 5).with_context(TurnToolContext {
+            inbox: Some(parent.clone()),
+            ..Default::default()
+        });
+    let stop = CancellationSignal::default();
+    let runner = runner.with_cancellation(stop.clone());
+
+    let round = tokio::spawn(async move { runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await });
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let job = parent.jobs().get("bg-job").expect("the job is tracked by the engine");
+    assert!(!round.is_finished(), "the round waits for the job it started");
+    assert!(job.owner.starts_with("subagent-"), "{}", job.owner);
+    assert!(!parent.has_running_jobs(), "the round, not its parent, owns the job");
+    stop.cancel();
+    tokio::time::timeout(std::time::Duration::from_secs(5), round)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(job.cancel.is_cancelled(), "the round's job stops with it");
+}
+
 #[derive(Debug)]
 struct CrashingModel;
 

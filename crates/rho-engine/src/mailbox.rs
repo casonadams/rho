@@ -8,7 +8,7 @@
 //! missed wake-up never loses a message. The background work an agent owns is tracked with the
 //! mailboxes, so the agent reaches it through its own mailbox.
 
-use crate::tools::jobs::{JobCompletion, JobManager};
+use crate::tools::jobs::{BackgroundJobInfo, JobCompletion, JobManager};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
@@ -319,8 +319,14 @@ impl Mailbox {
     }
 
     /// Starts tracking background work this agent owns; its notice comes to this mailbox.
-    pub(crate) fn start_job(&self, id: String, command: String) -> JobCompletion {
+    pub fn start_job(&self, id: String, command: String) -> JobCompletion {
         self.0.registry.start_job(self.id(), id, command)
+    }
+
+    /// This agent's running jobs, oldest first.
+    #[must_use]
+    pub fn running_jobs(&self) -> Vec<BackgroundJobInfo> {
+        self.jobs().running(self.id())
     }
 
     #[must_use]

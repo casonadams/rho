@@ -94,7 +94,7 @@ impl<'a> Wakeups<'a> {
 
 /// A running job's handle. Finishing it records the outcome; dropping it unfinished (a panic or an
 /// aborted task) marks the job failed so no turn waits on it forever.
-pub(crate) struct JobCompletion {
+pub struct JobCompletion {
     jobs: JobManager,
     id: String,
     /// Where the owner's notice goes; `None` for a job nobody is told about.
@@ -167,7 +167,7 @@ impl JobManager {
     }
 
     /// Registers a running job for the session `owner`. The returned signal fires when the job must stop.
-    pub fn register(&self, owner: &str, id: String, command: String) -> CancellationSignal {
+    pub(crate) fn register(&self, owner: &str, id: String, command: String) -> CancellationSignal {
         let cancel = CancellationSignal::default();
         let mut registry = self.lock();
         registry.finished.retain(|finished| *finished != id);
@@ -199,13 +199,14 @@ impl JobManager {
         }
     }
 
-    pub fn attach_log(&self, id: &str, path: PathBuf) {
+    fn attach_log(&self, id: &str, path: PathBuf) {
         if let Some(job) = self.lock().jobs.get_mut(id) {
             job.log_path = Some(path);
         }
     }
 
-    pub fn update_status(&self, id: &str, status: JobStatus) {
+    #[cfg(test)]
+    pub(crate) fn update_status(&self, id: &str, status: JobStatus) {
         self.record(id, status, |_| true);
     }
 
@@ -233,42 +234,27 @@ impl JobManager {
         self.lock().jobs.get(id).cloned()
     }
 
-    pub fn list(&self) -> Vec<BackgroundJobInfo> {
-        let mut res: Vec<BackgroundJobInfo> = self.lock().jobs.values().cloned().collect();
-        res.sort_by_key(|j| j.started_at);
-        res
-    }
-
-    pub fn running_count(&self, owner: &str) -> usize {
-        self.lock()
+    /// `owner`'s running jobs, oldest first.
+    pub fn running(&self, owner: &str) -> Vec<BackgroundJobInfo> {
+        let mut running: Vec<BackgroundJobInfo> = self
+            .lock()
             .jobs
             .values()
-            .filter(|j| j.owner == owner && matches!(j.status, JobStatus::Running))
-            .count()
+            .filter(|j| j.owner == owner && j.status == JobStatus::Running)
+            .cloned()
+            .collect();
+        running.sort_by_key(|j| j.started_at);
+        running
     }
 
     pub fn has_running(&self, owner: &str) -> bool {
-        self.running_count(owner) > 0
-    }
-
-    /// `owner`'s running jobs, oldest first.
-    pub fn running(&self, owner: &str) -> Vec<BackgroundJobInfo> {
-        let mut running = self.list();
-        running.retain(|j| j.owner == owner && j.status == JobStatus::Running);
-        running
+        !self.running(owner).is_empty()
     }
 
     /// Signals every running job of `owner` to stop; each job records its own failure when it does.
     pub fn cancel_owner(&self, owner: &str) {
-        let running: Vec<CancellationSignal> = self
-            .lock()
-            .jobs
-            .values()
-            .filter(|j| j.owner == owner && matches!(j.status, JobStatus::Running))
-            .map(|j| j.cancel.clone())
-            .collect();
-        for cancel in running {
-            cancel.cancel();
+        for job in self.running(owner) {
+            job.cancel.cancel();
         }
     }
 }
@@ -291,14 +277,12 @@ mod tests {
         mgr.register("me", "j1".into(), "echo 1".into());
         assert_eq!(mgr.get("j1").unwrap().status, JobStatus::Running);
         assert!(mgr.has_running("me"));
-        assert_eq!(mgr.running_count("me"), 1);
+        assert_eq!(mgr.running("me").len(), 1);
 
         mgr.update_status("j1", done(0, "ok"));
         assert_eq!(mgr.get("j1").unwrap().status, done(0, "ok"));
         assert!(!mgr.has_running("me"));
-        assert_eq!(mgr.running_count("me"), 0);
-
-        assert!(!mgr.list().is_empty());
+        assert!(mgr.running("me").is_empty());
     }
 
     #[tokio::test]
@@ -365,7 +349,7 @@ mod tests {
         mgr.register("session-a", "a2".into(), "sleep".into());
         mgr.register("session-b", "b1".into(), "sleep".into());
 
-        assert_eq!((mgr.running_count("session-a"), mgr.running_count("session-b")), (2, 1));
+        assert_eq!((mgr.running("session-a").len(), mgr.running("session-b").len()), (2, 1));
         assert!(!mgr.has_running("session-c"));
 
         mgr.update_status("b1", done(0, "ok"));
@@ -419,6 +403,6 @@ mod tests {
         }
         assert!(mgr.get("job-0").is_none());
         assert!(!first_log.exists());
-        assert_eq!(mgr.list().len(), MAX_FINISHED_JOBS);
+        assert_eq!(mgr.lock().jobs.len(), MAX_FINISHED_JOBS);
     }
 }

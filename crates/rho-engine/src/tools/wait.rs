@@ -54,9 +54,7 @@ impl WaitTool {
     /// finished (its notice is sent before it stops running) cannot be missed.
     fn ready(&self, turn: &Turn, waited: bool) -> Option<ToolResult> {
         if turn.interrupted() {
-            return Some(ToolResult::error(
-                "Wait interrupted; background work keeps running and its result still arrives as a follow-up message.",
-            ));
+            return Some(ToolResult::error("Wait interrupted."));
         }
         let running = turn.inbox.has_running_jobs();
         let notices = turn.inbox.read_notices();
@@ -78,7 +76,7 @@ impl WaitTool {
     }
 
     fn still_running(inbox: &Mailbox) -> ToolResult {
-        let entries: Vec<String> = inbox.jobs().running(inbox.id()).iter().map(describe).collect();
+        let entries: Vec<String> = inbox.running_jobs().iter().map(describe).collect();
         ToolResult::success(format!(
             "Still running: {}. Call wait again to keep waiting, or end your turn.",
             entries.join("; ")

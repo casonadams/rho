@@ -56,9 +56,7 @@ async fn a_turn_ends_while_another_sessions_background_job_runs_and_never_receiv
     model.add_turn(vec![Ok(ModelStreamEvent::Text("all done".to_string()))]);
     let engine = test_engine(model.clone(), Config::default());
     let other = engine.inbox().registry().open("e2e-other-session", None);
-    let elsewhere = other
-        .jobs()
-        .register(other.id(), "e2e-other-job".into(), "sleep 1000".into());
+    let _job = other.start_job("e2e-other-job".into(), "sleep 1000".into());
     other.notices().send("e2e-other-secret-result").unwrap();
 
     tokio::time::timeout(
@@ -71,6 +69,6 @@ async fn a_turn_ends_while_another_sessions_background_job_runs_and_never_receiv
 
     let sent_to_model = serde_json::to_string(&model.requests()[0].messages).unwrap();
     assert!(!sent_to_model.contains("e2e-other-secret-result"), "{sent_to_model}");
-    assert!(!elsewhere.is_cancelled());
+    assert!(other.has_running_jobs(), "another session's work is left alone");
     assert_eq!(other.take()[0].body, "e2e-other-secret-result");
 }
