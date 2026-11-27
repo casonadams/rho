@@ -15,11 +15,11 @@ async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-schemars = "1.0"
-url = "2.5"
+schemars.workspace = true
+url.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
-clap = { version = "4.5", features = ["derive", "env"] }
+clap.workspace = true
 dotenvy = "0.15"
 toml.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"] }
@@ -32,5 +32,5 @@ skip-fsync = []
 [dev-dependencies]
 serde_json.workspace = true
 rho-test-support.workspace = true
-tempfile = "3.17"
 futures.workspace = true
+tokio = { workspace = true, features = ["time", "test-util"] }

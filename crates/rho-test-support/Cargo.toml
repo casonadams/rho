@@ -12,4 +12,4 @@ publish = false
 workspace = true
 
 [dependencies]
-tempfile = "3.17"
+tempfile.workspace = true
