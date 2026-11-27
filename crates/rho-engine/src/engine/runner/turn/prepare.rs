@@ -435,16 +435,14 @@ mod tests {
     ) -> AgentEngine {
         mock_engine(
             Arc::new(MockAdapter::new("mock-model", provider)),
-            MockEngineConfig {
-                base_dir: dir,
-                app_config: Config {
+            MockEngineConfig::new(
+                dir,
+                Config {
                     cache_retention: retention,
                     auth_file: dir.join("auth.json"),
                     ..Config::default()
                 },
-                session_manager: None,
-                built_in_tools: None,
-            },
+            ),
         )
     }
 
@@ -554,12 +552,7 @@ mod tests {
             .insert("guard".to_string(), "mystery/model".to_string());
         let engine = mock_engine(
             Arc::new(MockAdapter::new("mock-model", "claude")),
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config,
-                session_manager: None,
-                built_in_tools: None,
-            },
+            MockEngineConfig::new(&dir, app_config),
         );
         let capturing = Arc::new(CapturingPresenter::default());
         let presenter: Arc<dyn Presenter> = capturing.clone();
@@ -585,12 +578,7 @@ mod tests {
         };
         let engine = mock_engine(
             Arc::new(MockAdapter::text("response")),
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config,
-                session_manager: None,
-                built_in_tools: None,
-            },
+            MockEngineConfig::new(&dir, app_config),
         );
         let stale = StructuralUsage {
             input_tokens: 120_000,

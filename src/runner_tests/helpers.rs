@@ -65,13 +65,15 @@ pub fn test_engine_with_session(
     let engine = rho_engine::engine::eval::mock::mock_engine(
         model as Arc<dyn ModelAdapter>,
         rho_engine::engine::eval::mock::MockEngineConfig {
-            base_dir: &base_dir,
-            app_config: Config {
-                sessions_dir: base_dir.join("sessions"),
-                ..app_config
-            },
             session_manager,
             built_in_tools: Some(builtin_tools_for(&base_dir)),
+            ..rho_engine::engine::eval::mock::MockEngineConfig::new(
+                &base_dir,
+                Config {
+                    sessions_dir: base_dir.join("sessions"),
+                    ..app_config
+                },
+            )
         },
     );
     TestEngine { engine, dir: scratch }

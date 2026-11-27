@@ -335,12 +335,7 @@ mod tests {
         let temp_dir = crate::test_support::TestDir::new();
         let engine = mock_engine(
             Arc::new(MockAdapter::default()),
-            MockEngineConfig {
-                base_dir: &temp_dir,
-                app_config: rho_harness_core::config::Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
+            MockEngineConfig::new(&temp_dir, rho_harness_core::config::Config::default()),
         );
         let presenter: Arc<dyn Presenter> = Arc::new(NoopPresenter);
         let sink = engine.create_approval_sink(&presenter);

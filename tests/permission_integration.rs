@@ -20,10 +20,8 @@ fn make_perm_engine(workspace: &std::path::Path, model: Arc<MockAdapter>, config
     let engine = mock_engine(
         model,
         MockEngineConfig {
-            base_dir: workspace,
-            app_config: config,
-            session_manager: None,
             built_in_tools,
+            ..MockEngineConfig::new(workspace, config)
         },
     );
     let recording = rho::presentation::RecordingSink::default();

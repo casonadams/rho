@@ -19,17 +19,18 @@ fn build_harness_engine(
     mock_engine(
         model,
         super::mock::MockEngineConfig {
-            base_dir,
-            app_config: rho_harness_core::config::Config {
-                max_turns: scenario.max_turns,
-                permission: rho_harness_core::config::PermissionConfig {
-                    enabled: false,
-                    ..Default::default()
-                },
-                ..rho_harness_core::config::Config::default()
-            },
-            session_manager: None,
             built_in_tools: scenario.built_in_tools.clone(),
+            ..super::mock::MockEngineConfig::new(
+                base_dir,
+                rho_harness_core::config::Config {
+                    max_turns: scenario.max_turns,
+                    permission: rho_harness_core::config::PermissionConfig {
+                        enabled: false,
+                        ..Default::default()
+                    },
+                    ..rho_harness_core::config::Config::default()
+                },
+            )
         },
     )
 }

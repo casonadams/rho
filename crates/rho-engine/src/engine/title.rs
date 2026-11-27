@@ -370,18 +370,16 @@ mod tests {
         let adapter = Arc::new(MockAdapter::text("<title>Fix login redirect loop</title>"));
         let engine = mock_engine(
             adapter,
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config: Config {
+            MockEngineConfig::new(
+                &dir,
+                Config {
                     ui: UiConfig {
                         auto_title: Some(true),
                         ..Default::default()
                     },
                     ..Default::default()
                 },
-                session_manager: None,
-                built_in_tools: None,
-            },
+            ),
         );
 
         let mut rx = engine.title_subscribe();
@@ -405,15 +403,7 @@ mod tests {
     async fn maybe_spawn_auto_title_skips_when_disabled_or_user_named() {
         let dir = TestDir::new();
         let adapter = Arc::new(MockAdapter::text("<title>Should not run</title>"));
-        let engine = mock_engine(
-            adapter,
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config: Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
+        let engine = mock_engine(adapter, MockEngineConfig::new(&dir, Config::default()));
         engine.maybe_spawn_auto_title("Do something", None);
         tokio::task::yield_now().await;
         assert_eq!(engine.session_manager.cached_session_name(), None);

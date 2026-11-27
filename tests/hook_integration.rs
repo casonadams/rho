@@ -32,10 +32,8 @@ async fn run_read_turn(
     let engine = mock_engine(
         model,
         MockEngineConfig {
-            base_dir: workspace,
-            app_config: config,
-            session_manager: None,
             built_in_tools,
+            ..MockEngineConfig::new(workspace, config)
         },
     );
 

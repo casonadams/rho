@@ -266,12 +266,7 @@ mod tests {
         let dir = rho_test_support::TestDir::new();
         let engine = mock_engine(
             Arc::new(MockAdapter::default()),
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config: rho_harness_core::config::Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
+            MockEngineConfig::new(&dir, rho_harness_core::config::Config::default()),
         );
         let presenter = Arc::new(TelemetryCapturingPresenter::default());
         let presenter_dyn: Arc<dyn Presenter> = presenter.clone();

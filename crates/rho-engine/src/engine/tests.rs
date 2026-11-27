@@ -349,12 +349,7 @@ async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
     };
     let engine = crate::engine::eval::mock::mock_engine(
         Arc::new(crate::provider::adapter::MockAdapter::default()),
-        crate::engine::eval::mock::MockEngineConfig {
-            base_dir: &dir,
-            app_config: config,
-            session_manager: None,
-            built_in_tools: None,
-        },
+        crate::engine::eval::mock::MockEngineConfig::new(&dir, config),
     );
 
     engine.refresh_quota().await;
@@ -371,12 +366,7 @@ async fn refresh_quota_gemini_populates_billing_window_cost() {
     };
     let engine = crate::engine::eval::mock::mock_engine(
         Arc::new(crate::provider::adapter::MockAdapter::default()),
-        crate::engine::eval::mock::MockEngineConfig {
-            base_dir: &dir,
-            app_config: config,
-            session_manager: None,
-            built_in_tools: None,
-        },
+        crate::engine::eval::mock::MockEngineConfig::new(&dir, config),
     );
 
     assert_eq!(engine.quota_display(), None);
@@ -387,16 +377,14 @@ async fn refresh_quota_gemini_populates_billing_window_cost() {
 fn mock_quota_engine(dir: &std::path::Path, provider: &str, model: &str) -> crate::engine::AgentEngine {
     crate::engine::eval::mock::mock_engine(
         Arc::new(crate::provider::adapter::MockAdapter::default()),
-        crate::engine::eval::mock::MockEngineConfig {
-            base_dir: dir,
-            app_config: Config {
+        crate::engine::eval::mock::MockEngineConfig::new(
+            dir,
+            Config {
                 provider: provider.to_string(),
                 model: model.to_string(),
                 ..Config::default()
             },
-            session_manager: None,
-            built_in_tools: None,
-        },
+        ),
     )
 }
 
@@ -624,22 +612,20 @@ async fn rate_limited_model_request_retries_and_succeeds() {
 async fn a_handed_off_workflow_report_precedes_only_the_next_prompt() {
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let model = Arc::new(MockAdapter::default());
     for reply in ["reviewed", "next"] {
         model.add_turn(vec![Ok(ModelStreamEvent::Text(reply.to_string()))]);
     }
     let engine = mock_engine(
         model.clone(),
-        MockEngineConfig {
-            base_dir: dir.path(),
-            app_config: Config {
-                auth_file: dir.path().join("auth.json"),
+        MockEngineConfig::new(
+            &dir,
+            Config {
+                auth_file: dir.join("auth.json"),
                 ..Config::default()
             },
-            session_manager: None,
-            built_in_tools: None,
-        },
+        ),
     );
     engine.hand_off_workflow_report("refine", "Workflow `refine` stopped.\n\nAgent tasks ...");
     let presenter = Arc::new(crate::engine::eval::presenter::NoopPresenter);
@@ -674,18 +660,16 @@ fn mock_engine_in(dir: &Path, session: Option<SessionManager>) -> AgentEngine {
     crate::engine::eval::mock::mock_engine(
         Arc::new(crate::provider::adapter::MockAdapter::default()),
         crate::engine::eval::mock::MockEngineConfig {
-            base_dir: dir,
-            app_config: Config::default(),
             session_manager: session,
-            built_in_tools: None,
+            ..crate::engine::eval::mock::MockEngineConfig::new(dir, Config::default())
         },
     )
 }
 
 #[tokio::test]
 async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessions() {
-    let dir = tempfile::tempdir().unwrap();
-    let engine = mock_engine_in(dir.path(), None);
+    let dir = crate::test_support::TestDir::new();
+    let engine = mock_engine_in(&dir, None);
     let id = AgentId::from(engine.session_manager.session_id.as_str());
     let jobs = engine.inbox().jobs().clone();
     let own = jobs.register(&id, format!("{id}-job").into(), "sleep".into());
@@ -699,9 +683,9 @@ async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessio
 
 #[tokio::test]
 async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_new_ones() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut engine = mock_engine_in(&dir.path().join("a"), None);
-    let next = mock_engine_in(&dir.path().join("b"), None);
+    let dir = crate::test_support::TestDir::new();
+    let mut engine = mock_engine_in(&dir.join("a"), None);
+    let next = mock_engine_in(&dir.join("b"), None);
     let (left, arrived) = (engine.inbox(), next.inbox());
     assert_ne!(left.id(), arrived.id());
     let left_job = left.jobs().register(left.id(), "left-job".into(), "sleep".into());
@@ -728,11 +712,11 @@ async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_
 
 #[tokio::test]
 async fn rebuilding_the_same_session_keeps_its_background_work() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir.join("sessions"), None).unwrap();
     let id = AgentId::from(session.session_id.as_str());
-    let mut engine = mock_engine_in(dir.path(), Some(session.clone()));
-    let mut rebuilt = mock_engine_in(dir.path(), Some(session));
+    let mut engine = mock_engine_in(&dir, Some(session.clone()));
+    let mut rebuilt = mock_engine_in(&dir, Some(session));
     rebuilt.subagent_runtime = engine.subagent_runtime.clone();
     let job = engine
         .inbox()

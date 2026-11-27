@@ -103,13 +103,14 @@ fn eval_engine(dir: &Path, max_turns: usize, model: Arc<MockAdapter>) -> rho::en
     mock_engine(
         model,
         MockEngineConfig {
-            base_dir: dir,
-            session_manager: None,
             built_in_tools: builtin_tools_for(dir),
-            app_config: rho::config::Config {
-                max_turns,
-                ..Default::default()
-            },
+            ..MockEngineConfig::new(
+                dir,
+                rho::config::Config {
+                    max_turns,
+                    ..Default::default()
+                },
+            )
         },
     )
 }
@@ -211,13 +212,15 @@ async fn run_resumed_session(dir: &Path, sid: &str) -> usize {
     let resumed = mock_engine(
         resumed_model.clone(),
         MockEngineConfig {
-            base_dir: dir,
             session_manager: Some(resumed_store),
             built_in_tools: builtin_tools_for(dir),
-            app_config: rho::config::Config {
-                max_turns: 3,
-                ..Default::default()
-            },
+            ..MockEngineConfig::new(
+                dir,
+                rho::config::Config {
+                    max_turns: 3,
+                    ..Default::default()
+                },
+            )
         },
     );
     resumed
@@ -255,13 +258,14 @@ async fn agent_eval_session_clear_starts_fresh() {
     let cleared = mock_engine(
         cleared_model.clone(),
         MockEngineConfig {
-            base_dir: &dir.join("clear"),
-            session_manager: None,
             built_in_tools: builtin_tools_for(&dir.join("clear")),
-            app_config: rho::config::Config {
-                max_turns: 2,
-                ..Default::default()
-            },
+            ..MockEngineConfig::new(
+                &dir.join("clear"),
+                rho::config::Config {
+                    max_turns: 2,
+                    ..Default::default()
+                },
+            )
         },
     );
     cleared
@@ -304,10 +308,8 @@ async fn agent_eval_context_cli_flags_override_and_suppress() {
     let engine = mock_engine(
         model,
         MockEngineConfig {
-            base_dir: &dir,
-            session_manager: None,
             built_in_tools: builtin_tools_for(&dir),
-            app_config: suppressed_context_config(dir.join("sessions")),
+            ..MockEngineConfig::new(&dir, suppressed_context_config(dir.join("sessions")))
         },
     );
 

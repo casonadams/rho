@@ -509,12 +509,12 @@ mod tests {
 
     #[tokio::test]
     async fn do_refresh_gemini_quota_branches() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let quota = QuotaTracker::default();
         let key = QuotaKey::new("gemini", Some("gemini-2.5-flash"));
         quota.begin_fetch(&key);
         do_refresh_gemini_quota(
-            temp.path(),
+            &temp,
             None,
             crate::engine::SessionUsageTotals::default(),
             key,
@@ -526,19 +526,17 @@ mod tests {
 
     #[tokio::test]
     async fn engine_quota_lifecycle_and_invalidation() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let engine = crate::engine::eval::mock::mock_engine(
             std::sync::Arc::new(crate::provider::adapter::MockAdapter::default()),
-            crate::engine::eval::mock::MockEngineConfig {
-                base_dir: temp.path(),
-                app_config: rho_harness_core::config::Config {
+            crate::engine::eval::mock::MockEngineConfig::new(
+                &temp,
+                rho_harness_core::config::Config {
                     provider: "antigravity".into(),
                     model: "gemini-2.5-flash".into(),
                     ..Default::default()
                 },
-                session_manager: None,
-                built_in_tools: None,
-            },
+            ),
         );
 
         assert!(engine.should_refresh_quota());
@@ -553,20 +551,18 @@ mod tests {
 
     #[tokio::test]
     async fn engine_refresh_quota_all_providers() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         for provider in &["chatgpt", "claude", "gemini", "ollama-cloud", "unknown"] {
             let engine = crate::engine::eval::mock::mock_engine(
                 std::sync::Arc::new(crate::provider::adapter::MockAdapter::default()),
-                crate::engine::eval::mock::MockEngineConfig {
-                    base_dir: temp.path(),
-                    app_config: rho_harness_core::config::Config {
+                crate::engine::eval::mock::MockEngineConfig::new(
+                    &temp,
+                    rho_harness_core::config::Config {
                         provider: (*provider).into(),
                         model: "test-model".into(),
                         ..Default::default()
                     },
-                    session_manager: None,
-                    built_in_tools: None,
-                },
+                ),
             );
             engine.refresh_quota().await;
             engine.spawn_refresh_quota();

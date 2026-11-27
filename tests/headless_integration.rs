@@ -44,10 +44,8 @@ async fn headless_presentation_records_deterministic_event_sequence() {
     let engine = mock_engine(
         model,
         MockEngineConfig {
-            base_dir: &workspace,
-            app_config: config,
-            session_manager: None,
             built_in_tools,
+            ..MockEngineConfig::new(&workspace, config)
         },
     );
 
@@ -90,15 +88,7 @@ fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engin
         sessions_dir: workspace.join("sessions"),
         ..Config::default()
     };
-    mock_engine(
-        model,
-        MockEngineConfig {
-            base_dir: workspace,
-            app_config: config,
-            session_manager: None,
-            built_in_tools: None,
-        },
-    )
+    mock_engine(model, MockEngineConfig::new(workspace, config))
 }
 
 #[tokio::test]

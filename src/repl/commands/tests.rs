@@ -126,10 +126,8 @@ async fn setup_compact_env(
             "## Goal\nAnalyze queries\n\n## Progress\nCompleted analyses",
         )),
         MockEngineConfig {
-            base_dir: temp,
-            app_config: config.clone(),
             session_manager: Some(sm),
-            built_in_tools: None,
+            ..MockEngineConfig::new(temp, config.clone())
         },
     );
     let (renderer, events) = collecting_renderer();
@@ -276,10 +274,8 @@ async fn model_command_keeps_the_selected_provider_that_lists_the_model() {
     let engine = mock_engine(
         Arc::new(MockAdapter::default()),
         MockEngineConfig {
-            base_dir: &temp,
-            app_config: config.clone(),
             session_manager: Some(session_manager),
-            built_in_tools: None,
+            ..MockEngineConfig::new(&temp, config.clone())
         },
     );
     engine.model_catalog().set(
@@ -540,10 +536,8 @@ async fn setup_engine_session(temp: &std::path::Path, config: Config) -> (crate:
     let engine = mock_engine(
         Arc::new(MockAdapter::default()),
         MockEngineConfig {
-            base_dir: temp,
-            app_config: config,
             session_manager: Some(sm),
-            built_in_tools: None,
+            ..MockEngineConfig::new(temp, config)
         },
     );
     (engine, sid)
@@ -656,12 +650,7 @@ fn usage_engine(
 ) -> crate::engine::AgentEngine {
     let engine = mock_engine(
         Arc::new(MockAdapter::text("test response")),
-        MockEngineConfig {
-            base_dir,
-            app_config: config.clone(),
-            session_manager: None,
-            built_in_tools: None,
-        },
+        MockEngineConfig::new(base_dir, config.clone()),
     );
     engine
         .usage()
