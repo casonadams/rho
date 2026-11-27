@@ -2,7 +2,7 @@
 //! dispatch → completion), usage tracking, and auto-compaction. Submodules:
 //! `builder` (construction), `runner` (turn/sink execution), `context`
 //! (instruction discovery), `compactor` (summarization), `tracking` (usage),
-//! `metrics`, `runtime`, and `eval` (deterministic mock harness).
+//! `metrics`, `ephemeral` (side requests), and `eval` (deterministic mock harness).
 
 use crate::mailbox::{AgentId, Delivery, Mailbox, SendError};
 pub use crate::repeat;
@@ -18,7 +18,6 @@ pub mod ephemeral;
 pub use ephemeral::{
     EphemeralTurnRequest, EphemeralTurnResponse, PreparedEphemeralTurn, build_recap_prompt, format_recap_text,
 };
-mod locking;
 pub mod metrics;
 mod model;
 mod notes;

@@ -9,7 +9,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 /// How long after an edit the servers are still waited for.
-pub const FOLLOW_UP_WAIT: Duration = Duration::from_secs(12);
+const FOLLOW_UP_WAIT: Duration = Duration::from_secs(12);
 /// Waits running at once across all files; further edits only report what the short wait found.
 pub const MAX_FOLLOW_UPS: usize = 8;
 

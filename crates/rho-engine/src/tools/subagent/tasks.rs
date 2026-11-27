@@ -1,7 +1,7 @@
 //! A subagent task's lifecycle: starting one, continuing or steering it, inspecting saved tasks,
 //! and running each round in the foreground or background.
 
-use super::{RawSubagentArgs, RunnerSpec, SubagentRole, SubagentRunner, SubagentTool, round};
+use super::{RawSubagentArgs, RunnerSpec, SubagentRunner, SubagentTool, round};
 use super::{background, conversation, inspect, types, workspace};
 use crate::mailbox::{AgentId, SendError};
 use crate::tools::types::ToolResult;
@@ -144,11 +144,7 @@ impl SubagentTool {
         let settings = exchange.settings();
         let label = format!(
             "subagent {}",
-            settings
-                .name
-                .as_ref()
-                .or(settings.agent.as_ref())
-                .map_or(SubagentRole::default().as_str(), String::as_str)
+            settings.name.as_deref().unwrap_or(settings.agent_or_role())
         );
         let runner = runner.with_parent_channel();
         let owner = AgentId::from(session.session_id.as_str());
@@ -181,7 +177,7 @@ fn check_continuation(
     task_id: &str,
 ) -> Result<(), String> {
     let differs = |requested: &str, current: Option<&str>| !current.is_some_and(|c| c.eq_ignore_ascii_case(requested));
-    let agent = settings.agent.as_deref().unwrap_or(SubagentRole::default().as_str());
+    let agent = settings.agent_or_role();
     if let Some(requested) = args
         .agent
         .as_deref()

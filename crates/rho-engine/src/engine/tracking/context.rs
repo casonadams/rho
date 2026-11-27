@@ -1,5 +1,5 @@
-use crate::engine::locking::lock;
 use crate::engine::metrics::format_tokens;
+use crate::locking::lock;
 use crate::provider::ModelCatalog;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::provider::ModelRoute;

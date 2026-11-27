@@ -4,22 +4,18 @@
 
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
+use crate::locking::lock;
 use crate::mailbox::{AgentId, Delivery, Mailbox, Mailboxes, Party, SendError};
 use crate::tools::jobs::{JobCompletion, JobId, JobManager};
 use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
-use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::Presenter;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Subagent rounds that may run at once, in the foreground or the background.
 pub(super) const MAX_ACTIVE_ROUNDS: usize = 8;
-
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 #[derive(Clone, Default)]
 pub struct SubagentRuntime {
@@ -34,7 +30,7 @@ pub struct SubagentRuntime {
 impl SubagentRuntime {
     /// The mailbox of the top-level agent `owner` (its session id), opened on first use and kept.
     pub fn inbox(&self, owner: &AgentId) -> Mailbox {
-        let mut root = locked(&self.root);
+        let mut root = lock(&self.root);
         if let Some(inbox) = root.as_ref().filter(|inbox| inbox.id() == owner) {
             return inbox.clone();
         }
@@ -160,26 +156,22 @@ struct OpenRounds(Arc<Mutex<HashMap<AgentId, OpenRound>>>);
 
 impl OpenRounds {
     fn with<T>(&self, task_id: &AgentId, read: impl FnOnce(&OpenRound) -> T) -> Option<T> {
-        locked(&self.0).get(task_id).map(read)
+        lock(&self.0).get(task_id).map(read)
     }
 
     fn insert(&self, task_id: &AgentId, round: OpenRound) {
         let presenter = round.presenter.clone();
-        locked(&self.0).insert(task_id.clone(), round);
+        lock(&self.0).insert(task_id.clone(), round);
         self.emit_surface(presenter.as_deref());
     }
 
     fn snapshot_rows(&self) -> Vec<SubagentSurfaceRow> {
-        let mut rows: Vec<SubagentSurfaceRow> = locked(&self.0)
+        let mut rows: Vec<SubagentSurfaceRow> = lock(&self.0)
             .iter()
             .map(|(task_id, round)| SubagentSurfaceRow {
                 id: task_id.to_string(),
                 name: round.settings.name.clone().unwrap_or_else(|| task_id.to_string()),
-                role: round
-                    .settings
-                    .agent
-                    .clone()
-                    .or_else(|| Some(SubagentRole::default().as_str().to_string())),
+                role: Some(round.settings.agent_or_role().to_string()),
                 status: "running".to_string(),
                 tone: SemanticTone::Accent,
                 elapsed_ms: Some(round.started_at.elapsed().as_millis() as u64),
@@ -201,7 +193,7 @@ impl OpenRounds {
     /// Forgets `mailbox`'s round if it is still the task's open one, closes the mailbox, and returns
     /// the messages the round never read.
     fn close(&self, task_id: &AgentId, mailbox: Mailbox) -> Vec<String> {
-        let mut rounds = locked(&self.0);
+        let mut rounds = lock(&self.0);
         let presenter = if rounds.get(task_id).is_some_and(|round| round.mailbox.same(&mailbox)) {
             rounds.remove(task_id).and_then(|round| round.presenter)
         } else {
@@ -282,7 +274,7 @@ pub(crate) struct BusyClaim {
 
 impl BusyContexts {
     pub(crate) fn claim(&self, context_id: &str) -> Result<BusyClaim, RoundRefused> {
-        if !locked(&self.0).insert(context_id.to_string()) {
+        if !lock(&self.0).insert(context_id.to_string()) {
             return Err(RoundRefused::Busy);
         }
         Ok(BusyClaim {
@@ -294,7 +286,7 @@ impl BusyContexts {
 
 impl Drop for BusyClaim {
     fn drop(&mut self) {
-        locked(&self.contexts.0).remove(&self.context_id);
+        lock(&self.contexts.0).remove(&self.context_id);
     }
 }
 

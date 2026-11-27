@@ -80,7 +80,7 @@ impl MemoryStore {
     }
 
     fn lock(&self) -> MutexGuard<'_, Memory> {
-        crate::engine::locking::lock(&self.memory)
+        crate::locking::lock(&self.memory)
     }
 
     /// The whole conversation: committed messages, then any checkpointed steps of an unfinished turn.

@@ -1,4 +1,4 @@
-use crate::engine::locking::lock;
+use crate::locking::lock;
 use std::sync::{Arc, Mutex};
 
 /// Text for the main agent that arrived between turns, such as a workflow report; it precedes the next prompt.

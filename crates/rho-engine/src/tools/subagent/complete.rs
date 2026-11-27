@@ -3,12 +3,13 @@
 
 use crate::engine::runner::SteeringQueueProvider;
 use crate::engine::runner::turn::wakeups::message_waiting;
+use crate::locking::lock;
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::ToolResult;
 use rho_harness_core::error::AppError;
 use serde_json::Value;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 pub(crate) const COMPLETE_TASK_TOOL: &str = "complete_task";
 const DESCRIPTION: &str = "Finish the task and send your report to the delegating agent. The `result` is the only thing it receives: text you write outside this call is not passed on. Unless your task asks for a specific format, include a one-paragraph summary, findings with file:line references, files changed (if any), and open questions. Call it once, when the work is done. When the task asks for structured output, put that one JSON object in `data` (and a short summary in `result`) instead of writing JSON in text.";
@@ -58,7 +59,7 @@ impl CompleteTaskTool {
 
 /// The report, taken once.
 pub(crate) fn take_report(slot: &ReportSlot) -> Option<Report> {
-    slot.lock().unwrap_or_else(PoisonError::into_inner).take()
+    lock(slot).take()
 }
 
 #[async_trait::async_trait]
@@ -94,7 +95,7 @@ impl EngineTool for CompleteTaskTool {
         if let Some(refusal) = self.outstanding() {
             return Ok(ToolResult::error(refusal));
         }
-        *self.report.lock().unwrap_or_else(PoisonError::into_inner) = Some(Report {
+        *lock(&self.report) = Some(Report {
             text: result.to_string(),
             data: data.cloned(),
         });

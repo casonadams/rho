@@ -3,8 +3,8 @@ use super::reasoning::{ReasoningStreamPlan, update_reasoning_state};
 use super::types::{
     CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
 };
-use crate::engine::locking::lock;
 use crate::engine::metrics::{RunTracker, ToolOutcome};
+use crate::locking::lock;
 use rho_harness_core::presentation::{Presenter, ToolLine, ToolStreamSink, summarize_tool_output};
 use rho_harness_core::session::SessionManager;
 use serde_json::Value;

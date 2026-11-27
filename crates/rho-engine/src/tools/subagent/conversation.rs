@@ -92,6 +92,15 @@ pub(crate) struct ConversationSettings {
     pub turns: Option<usize>,
 }
 
+impl ConversationSettings {
+    /// The agent or role the conversation runs as, defaulting to the default role.
+    pub(crate) fn agent_or_role(&self) -> &str {
+        self.agent
+            .as_deref()
+            .unwrap_or(rho_harness_core::args::SubagentRole::default().as_str())
+    }
+}
+
 fn short_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
 }

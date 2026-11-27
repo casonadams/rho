@@ -2,7 +2,7 @@ use super::types::{
     CompletionCall, CompletionOutcome, ModelCallMetrics, ObservationMetricsInput, PruneDecision, RunMetrics,
     StructuralUsage, TerminalStatus, metrics_from_observation,
 };
-use crate::engine::locking::lock;
+use crate::locking::lock;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 

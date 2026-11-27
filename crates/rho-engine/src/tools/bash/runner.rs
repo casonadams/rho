@@ -33,7 +33,7 @@ async fn setup_command_child(
 }
 
 /// Footer of a command moved to a background job, whose output arrives as a follow-up.
-pub fn format_background_notice(job_id: &str) -> String {
+fn format_background_notice(job_id: &str) -> String {
     format!("background job {job_id}; its output arrives as a follow-up, do not poll")
 }
 
@@ -348,27 +348,6 @@ where
             handle_timeout_fallback(timeout_ctx).await
         }
     }
-}
-
-pub async fn run_command_streaming<F>(
-    base_dir: &Path,
-    log_dir: &Path,
-    owner: Option<&Mailbox>,
-    args: &BashArgs,
-    on_chunk: F,
-) -> Result<ToolResult, AppError>
-where
-    F: FnMut(&str) + Send + 'static,
-{
-    run_command_streaming_with_direnv(
-        base_dir,
-        log_dir,
-        owner,
-        args,
-        super::direnv::DirenvOptions::default(),
-        on_chunk,
-    )
-    .await
 }
 
 pub async fn run_command_streaming_with_direnv<F>(

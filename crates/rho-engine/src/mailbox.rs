@@ -10,7 +10,7 @@
 
 use crate::tools::jobs::{BackgroundJobInfo, JobCompletion, JobId, JobManager};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::Notify;
 
 mod notice;
@@ -231,7 +231,7 @@ pub struct Mailboxes {
 
 impl Mailboxes {
     fn lock(&self) -> MutexGuard<'_, Registry> {
-        self.registry.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::locking::lock(&self.registry)
     }
 
     /// The background work of this engine's agents.
@@ -394,11 +394,12 @@ impl Mailbox {
 
     /// Returns once at least one message is waiting; never returns once the mailbox is closed.
     pub async fn wait(&self) {
-        if self
-            .until(|slot| (!slot.queue.is_empty()).then_some(()))
-            .await
-            .is_none()
-        {
+        self.until_ready(|slot| !slot.queue.is_empty()).await;
+    }
+
+    /// Returns once `ready` holds for this agent's slot; never returns once the mailbox is closed.
+    async fn until_ready(&self, ready: impl Fn(&Slot) -> bool) {
+        if self.until(|slot| ready(slot).then_some(())).await.is_none() {
             std::future::pending::<()>().await;
         }
     }

@@ -265,15 +265,15 @@ fn mail_follow_up(inbox: &rho_engine::mailbox::Mailbox) -> Option<String> {
     (!messages.is_empty()).then(|| messages.join("\n\n"))
 }
 
-fn handle_mail(ctx: &mut LiveIdleContext<'_, '_>) -> Result<IdleStepOutcome> {
+fn handle_mail(ctx: &mut LiveIdleContext<'_, '_>) -> IdleStepOutcome {
     let Some(text) = mail_follow_up(&ctx.engine.inbox()) else {
-        return Ok(IdleStepOutcome::Continue);
+        return IdleStepOutcome::Continue;
     };
-    ctx.session.renderer.print_notice("\n● Background work reported\n");
-    Ok(IdleStepOutcome::Message(QueuedMessage {
+    ctx.session.renderer.print_notice("\n● New messages for the agent\n");
+    IdleStepOutcome::Message(QueuedMessage {
         text,
         kind: crate::ui::interactive::QueueKind::FollowUp,
-    }))
+    })
 }
 
 fn is_idle_recap_ready<B: TerminalBackend>(controller: &TerminalController<B>) -> bool {
@@ -354,7 +354,7 @@ async fn handle_idle_step_source<B: TerminalBackend>(
         }
         IdleSource::Mail => {
             ui.recap.cancel_and_disarm();
-            handle_mail(ctx)
+            Ok(handle_mail(ctx))
         }
         IdleSource::McpProblems => {
             crate::repl::report_late_mcp_problems(ctx.session, ctx.engine);
@@ -475,12 +475,12 @@ mod tests {
             last_escape_time: &mut last_escape_time,
         };
 
-        let IdleStepOutcome::Message(message) = handle_mail(&mut ctx).unwrap() else {
+        let IdleStepOutcome::Message(message) = handle_mail(&mut ctx) else {
             panic!("expected a follow-up message");
         };
         assert_eq!(message.text, "first job done\n\nsecond job done");
         assert!(
-            matches!(handle_mail(&mut ctx).unwrap(), IdleStepOutcome::Continue),
+            matches!(handle_mail(&mut ctx), IdleStepOutcome::Continue),
             "results already handed over are not sent again"
         );
         assert_eq!(other.take().len(), 1, "another agent's mail stays with it");

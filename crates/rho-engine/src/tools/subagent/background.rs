@@ -7,7 +7,6 @@ use crate::engine::runner::turn::types::CancellationSignal;
 use crate::mailbox::{AgentId, Mailbox, framed_notice, neutralize_notice_tags};
 use crate::tools::jobs::{JobId, JobStatus};
 use crate::tools::types::ToolResult;
-use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::{Presenter, SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
 use std::future::Future;
 use std::sync::Arc;
@@ -130,7 +129,7 @@ async fn stopped_with_turn<T>(
 }
 
 fn started_notice(task_id: &str, settings: &ConversationSettings) -> String {
-    let agent = settings.agent.as_deref().unwrap_or(SubagentRole::default().as_str());
+    let agent = settings.agent_or_role();
     format!(
         "{SUBAGENT_STARTED_MARKER}{task_id}' ({agent}). Its result arrives as a follow-up message when it finishes; call wait if you need it now, or continue other work or end your turn. To redirect it, call subagent with this task_id and a prompt."
     )

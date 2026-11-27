@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 use tokio::sync::watch;
 
-pub const MAX_FINISHED_JOBS: usize = 32;
+const MAX_FINISHED_JOBS: usize = 32;
 
 crate::id::string_id!(
     /// Names one background job; a subagent's job is named by its task id.
@@ -23,13 +23,19 @@ pub enum JobStatus {
 #[derive(Debug, Clone)]
 pub struct BackgroundJobInfo {
     pub id: JobId,
-    /// The session whose turns wait for this job and receive its notice; `None` for a job nobody owns.
+    /// The agent whose turns wait for this job and receive its notice; `None` for a job nobody owns.
     pub owner: Option<AgentId>,
     pub command: String,
     pub started_at: Instant,
     pub status: JobStatus,
     pub log_path: Option<PathBuf>,
     pub cancel: CancellationSignal,
+}
+
+impl BackgroundJobInfo {
+    fn runs_for(&self, owner: &AgentId) -> bool {
+        self.owner.as_ref() == Some(owner) && self.status == JobStatus::Running
+    }
 }
 
 #[derive(Default)]
@@ -125,7 +131,7 @@ fn evict_finished(registry: &mut Registry) {
 
 impl JobManager {
     fn lock(&self) -> MutexGuard<'_, Registry> {
-        self.registry.lock().unwrap_or_else(|p| p.into_inner())
+        crate::locking::lock(&self.registry)
     }
 
     /// Changes each time one of these jobs stops running.
@@ -133,7 +139,7 @@ impl JobManager {
         self.ended.subscribe()
     }
 
-    /// Registers a running job for the session `owner`. The returned signal fires when the job must stop.
+    /// Registers a running job for the agent `owner`. The returned signal fires when the job must stop.
     #[cfg(test)]
     pub(crate) fn register(&self, owner: &AgentId, id: JobId, command: String) -> CancellationSignal {
         self.track(Some(owner.clone()), id, command)
@@ -212,7 +218,7 @@ impl JobManager {
             .lock()
             .jobs
             .values()
-            .filter(|j| j.owner.as_ref() == Some(owner) && j.status == JobStatus::Running)
+            .filter(|j| j.runs_for(owner))
             .cloned()
             .collect();
         running.sort_by_key(|j| j.started_at);
@@ -220,7 +226,7 @@ impl JobManager {
     }
 
     pub fn has_running(&self, owner: &AgentId) -> bool {
-        !self.running(owner).is_empty()
+        self.lock().jobs.values().any(|j| j.runs_for(owner))
     }
 
     /// Signals every running job of `owner` to stop; each job records its own failure when it does.

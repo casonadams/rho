@@ -16,7 +16,7 @@ pub use direnv::DirenvOptions;
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::presentation::ToolStreamPort;
-pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming, run_command_streaming_with_direnv};
+pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming_with_direnv};
 pub use sanitize::{sanitize_binary_output, split_at_incomplete_ansi};
 pub use shell::resolve_shell_command;
 use std::path::{Path, PathBuf};

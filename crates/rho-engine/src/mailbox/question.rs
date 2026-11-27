@@ -86,9 +86,7 @@ impl Mailbox {
 
     /// Returns once this agent is waiting on the reply to a question it asked.
     pub async fn asked(&self) {
-        if self.until(|slot| slot.awaiting.is_some().then_some(())).await.is_none() {
-            std::future::pending::<()>().await;
-        }
+        self.until_ready(|slot| slot.awaiting.is_some()).await;
     }
 
     /// Declines the questions this agent's subagents asked that it has read but not answered: it is

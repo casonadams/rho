@@ -7,6 +7,7 @@ use super::snapshot::Snapshot;
 use super::workspace::{WorkspaceChange, bash_file_arguments, normalize};
 use crate::engine::runner::turn::runner::ToolObserver;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
+use crate::locking::lock;
 use crate::mailbox::{Envelope, Mailbox, Party};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::ToolResult;
@@ -15,7 +16,7 @@ use rho_harness_core::model::ToolCall;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
 const FILE_CHANGING_TOOLS: [&str; 2] = ["write", "edit"];
@@ -70,7 +71,7 @@ impl Recorder {
     }
 
     fn lock(&self) -> MutexGuard<'_, Evidence> {
-        self.evidence.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.evidence)
     }
 
     pub(crate) fn take(&self) -> Evidence {
@@ -78,18 +79,14 @@ impl Recorder {
     }
 
     fn hold(&self, name: &str, args: &Value, bash: BashEffects) {
-        self.pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.pending)
             .entry(call_key(name, args))
             .or_default()
             .push_back(bash);
     }
 
     fn release(&self, name: &str, args: &Value) -> BashEffects {
-        self.pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.pending)
             .get_mut(&call_key(name, args))
             .and_then(VecDeque::pop_front)
             .unwrap_or_default()
@@ -273,10 +270,7 @@ impl AskParentTool {
 
     /// Ends the turn with `question` kept for the round's result.
     fn pause(&self, question: String) -> ToolResult {
-        self.questions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(question);
+        lock(&self.questions).push(question);
         ToolResult {
             ends_turn: true,
             ..ToolResult::success(QUESTION_SENT)
@@ -315,7 +309,7 @@ fn reply_hint(task_id: &str, question: &str) -> String {
 
 /// The questions asked this turn as one: blank asks only count when nothing real was asked.
 pub(crate) fn take_question(slot: &Mutex<Vec<String>>) -> Option<String> {
-    let asked = std::mem::take(&mut *slot.lock().unwrap_or_else(PoisonError::into_inner));
+    let asked = std::mem::take(&mut *lock(slot));
     if asked.is_empty() {
         return None;
     }
