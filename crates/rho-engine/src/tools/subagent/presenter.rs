@@ -20,13 +20,14 @@ impl ToolStreamSink for CallOutput {
     }
 }
 
-pub(crate) struct AgentPresenter {
+/// Presents a turn into an agent's monitor record instead of the terminal.
+pub struct AgentPresenter {
     tracker: Option<AgentHandle>,
     file_changes: PendingFileChanges,
 }
 
 impl AgentPresenter {
-    pub(crate) fn new(tracker: Option<AgentHandle>) -> Self {
+    pub fn new(tracker: Option<AgentHandle>) -> Self {
         Self {
             tracker,
             file_changes: PendingFileChanges::default(),
@@ -85,18 +86,19 @@ impl Presenter for AgentPresenter {
     }
 
     fn start_tool_run(&self, name: &str, arguments: &Value) {
-        self.file_changes.note(name, arguments);
-        self.event(AgentEvent::tool_call(name, arguments.clone()));
+        let file_change = self.file_changes.note(name, arguments);
+        self.event(AgentEvent::tool_call(name, arguments.clone(), file_change));
     }
 
     fn preview_tool_run(&self, name: &str, arguments: &Value) {
-        self.file_changes.note(name, arguments);
+        let file_change = self.file_changes.note_preview(name, arguments);
         if let Some(tracker) = &self.tracker {
-            tracker.preview_call(name, arguments.clone());
+            tracker.preview_call(name, arguments.clone(), file_change);
         }
     }
 
     fn end_tool_run(&self) {
+        self.file_changes.end_preview();
         if let Some(tracker) = &self.tracker {
             tracker.end_call();
         }
@@ -143,10 +145,14 @@ mod tests {
         assert!(matches!(&events[3], AgentEvent::Tool(line) if line.output == "fn a() {}"));
     }
 
-    #[test]
-    fn a_write_streams_into_the_agents_record_and_is_replaced_by_its_finished_line() {
-        let monitor = AgentMonitor::default();
-        let handle = monitor.start("g", "a", "m", 3);
+    /// A turn's sink presenting to `handle`'s record, as a subagent round builds it.
+    fn agent_sink(
+        handle: &rho_harness_core::agents::AgentHandle,
+    ) -> (
+        Arc<dyn Presenter>,
+        Arc<crate::engine::runner::sink::TerminalApprovalSink>,
+        crate::test_support::TestDir,
+    ) {
         let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(Some(handle.clone())));
         let dir = crate::test_support::TestDir::new();
         let session = rho_harness_core::session::SessionManager::new(&dir, None).unwrap();
@@ -155,19 +161,34 @@ mod tests {
             run_tracker: crate::engine::metrics::RunTracker::default(),
         };
         let sink = crate::engine::runner::sink::TerminalApprovalSink::new(&presenter, config, session);
+        (presenter, sink, dir)
+    }
+
+    #[test]
+    fn a_write_streams_into_the_agents_record_and_is_replaced_by_its_finished_line() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 3);
+        let (presenter, sink, _dir) = agent_sink(&handle);
         let args = serde_json::json!({ "path": "a.txt", "text": "hello world" });
 
-        sink.preview_tool("write", &serde_json::json!({}));
+        sink.preview_tool("call-1", "write", &serde_json::json!({}));
         sink.preview_tool_chunk("hello");
-        sink.preview_tool("write", &serde_json::json!({ "path": "a.txt" }));
+        sink.preview_tool("call-1", "write", &serde_json::json!({ "path": "a.txt" }));
         sink.preview_tool_chunk("hello wor");
 
         let streaming = monitor.record(handle.id()).unwrap().events;
-        let mut shown = AgentEvent::tool_call("write", serde_json::json!({ "path": "a.txt" }));
-        if let AgentEvent::ToolCall { output, .. } = &mut shown {
-            output.push_str("hello wor");
-        }
-        assert_eq!(streaming, [shown]);
+        let [
+            AgentEvent::ToolCall {
+                args: shown, output, ..
+            },
+        ] = &streaming[..]
+        else {
+            panic!("the preview is one call: {streaming:?}");
+        };
+        assert_eq!(
+            (shown, output.as_str()),
+            (&serde_json::json!({ "path": "a.txt" }), "hello wor")
+        );
 
         sink.tool_start("write", &args);
         presenter.finish_tool_line(ToolLine::new("write", args.clone()));
@@ -182,20 +203,13 @@ mod tests {
     fn a_cancelled_preview_leaves_no_pending_call_behind() {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 3);
-        let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(Some(handle.clone())));
-        let dir = crate::test_support::TestDir::new();
-        let session = rho_harness_core::session::SessionManager::new(&dir, None).unwrap();
-        let config = crate::engine::runner::sink::TerminalSinkConfig {
-            model_label: "test-model".to_string(),
-            run_tracker: crate::engine::metrics::RunTracker::default(),
-        };
-        let sink = crate::engine::runner::sink::TerminalApprovalSink::new(&presenter, config, session);
+        let (presenter, sink, _dir) = agent_sink(&handle);
 
-        sink.preview_tool("write", &serde_json::json!({ "path": "a.txt" }));
+        sink.preview_tool("call-1", "write", &serde_json::json!({ "path": "a.txt" }));
         handle.stream(rho_harness_core::agents::Streamed::Text, "retrying");
         sink.cancel_tool_preview();
         let args = serde_json::json!({ "path": "a.txt", "text": "hi" });
-        sink.preview_tool("write", &serde_json::json!({ "path": "a.txt" }));
+        sink.preview_tool("call-2", "write", &serde_json::json!({ "path": "a.txt" }));
         sink.tool_start("write", &args);
         presenter.finish_tool_line(ToolLine::new("write", args.clone()));
 

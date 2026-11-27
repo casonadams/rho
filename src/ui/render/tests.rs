@@ -525,18 +525,14 @@ fn fast_tools_emit_footer_status_without_live_widget_bounce() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
-    assert_fast_tool_run(
-        &renderer,
-        &mut events,
-        "edit",
-        &serde_json::json!({"path": "src/main.rs"}),
-    );
-    assert_fast_tool_run(
-        &renderer,
-        &mut events,
-        "read",
-        &serde_json::json!({"path": "src/main.rs"}),
-    );
+    for tool in ["read", "rg"] {
+        assert_fast_tool_run(
+            &renderer,
+            &mut events,
+            tool,
+            &serde_json::json!({"path": "src/main.rs"}),
+        );
+    }
 }
 
 #[test]
@@ -545,6 +541,11 @@ fn long_running_tools_open_live_card() {
     let renderer = TerminalRenderer::with_ui(ui);
     let cases = [
         ("bash", serde_json::json!({"command": "cargo test"}), "cargo test"),
+        (
+            "edit",
+            serde_json::json!({"path": "src/main.rs", "edits": []}),
+            "src/main.rs",
+        ),
         (
             "subagent",
             serde_json::json!({"prompt": "find callers"}),
@@ -1147,9 +1148,9 @@ fn a_finished_wait_ends_the_running_tool_without_a_card() {
 }
 
 #[test]
-fn renderer_attaches_the_snapshot_taken_when_the_tool_started() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("f.txt");
+fn renderer_gives_the_live_card_and_the_finished_line_the_snapshot_taken_when_the_tool_started() {
+    let dir = rho_test_support::TestDir::new();
+    let file = dir.join("f.txt");
     std::fs::write(&file, "keep\nchange me\n").unwrap();
     let path = file.to_str().unwrap();
     let (ui, mut events) = InteractiveUi::channel();
@@ -1160,12 +1161,19 @@ fn renderer_attaches_the_snapshot_taken_when_the_tool_started() {
     std::fs::write(&file, "keep\nchanged\nextra\n").unwrap();
     renderer.finish_tool_line(ToolLine::new("edit", args));
 
-    let change = std::iter::from_fn(|| events.try_recv().ok())
-        .find_map(|event| match event {
-            UiEvent::Transcript(TranscriptItem::Tool(line)) => line.file_change,
-            _ => None,
-        })
-        .expect("tool line should carry the pre-run snapshot");
+    let events: Vec<UiEvent> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    let [
+        UiEvent::ToolStart(start),
+        UiEvent::Transcript(TranscriptItem::Tool(line)),
+    ] = &events[..]
+    else {
+        panic!("an edit opens a live card, then finishes into the transcript");
+    };
+    let change = line
+        .file_change
+        .as_ref()
+        .expect("the line carries the pre-run snapshot");
     assert_eq!(change.edit_start_lines, [Some(2)]);
+    assert_eq!(start.file_change.as_ref(), Some(change), "the live card reads the same");
     assert!(renderer.pending_file_changes.is_empty());
 }

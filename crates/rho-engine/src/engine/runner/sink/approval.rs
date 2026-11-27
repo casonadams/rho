@@ -1,7 +1,7 @@
 use super::super::helpers::{clear_spinner, disarm_spinner, redact_value};
 use super::reasoning::{ReasoningStreamPlan, update_reasoning_state};
 use super::types::{
-    CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
+    CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails, ToolPreview,
 };
 use crate::engine::metrics::{RunTracker, ToolOutcome};
 use crate::locking::lock;
@@ -53,7 +53,6 @@ impl TerminalApprovalSink {
                 text_carry: String::new(),
                 reasoning_carry: String::new(),
                 tool_preview: None,
-                tool_preview_started: None,
                 tool_output_carry: String::new(),
             }),
         })
@@ -228,8 +227,9 @@ impl TerminalApprovalSink {
         );
         self.with_state(|state| {
             state.tool_output_carry.clear();
-            let previewing = state.tool_preview.take().is_some();
-            let started = state.tool_preview_started.take().unwrap_or_else(Instant::now);
+            let preview = state.tool_preview.take();
+            let previewing = preview.is_some();
+            let started = preview.map_or_else(Instant::now, |preview| preview.started);
             disarm_spinner(state);
             state
                 .pending
@@ -241,7 +241,9 @@ impl TerminalApprovalSink {
                     started: Some(started),
                 });
             state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
-            if !previewing {
+            if previewing {
+                self.presenter.preview_tool_run(name, &arguments);
+            } else {
                 self.presenter.start_tool_run(name, &arguments);
             }
         });
@@ -316,8 +318,8 @@ impl TerminalApprovalSink {
         self.run_tracker.tool_finished(ToolOutcome::Denied);
     }
 
-    /// Shows a card for a tool call whose arguments are still streaming; interactive UIs only.
-    pub fn preview_tool(&self, name: &str, arguments: &Value) {
+    /// Shows the card of tool call `call_id` while its arguments are still streaming; interactive UIs only.
+    pub fn preview_tool(&self, call_id: &str, name: &str, arguments: &Value) {
         if !self.presenter.has_interactive_ui() {
             return;
         }
@@ -327,22 +329,28 @@ impl TerminalApprovalSink {
             || arguments.clone(),
         );
         self.with_state(|state| {
-            state.tool_preview = Some(String::new());
-            state.tool_preview_started.get_or_insert_with(Instant::now);
+            let started = state
+                .tool_preview
+                .take()
+                .filter(|preview| preview.call_id == call_id)
+                .map_or_else(Instant::now, |preview| preview.started);
+            state.tool_preview = Some(ToolPreview {
+                call_id: call_id.to_string(),
+                carry: String::new(),
+                started,
+            });
         });
         self.presenter.preview_tool_run(name, &arguments);
     }
 
     pub fn preview_tool_chunk(&self, chunk: &str) {
         let redacted = self.with_state(|state| {
-            let mut carry = state.tool_preview.take()?;
-            let redacted = redact(
+            let preview = state.tool_preview.as_mut()?;
+            Some(redact(
                 self.session_manager.as_ref(),
-                |session| session.redact_credentials_streamed(&mut carry, chunk),
+                |session| session.redact_credentials_streamed(&mut preview.carry, chunk),
                 || chunk.to_string(),
-            );
-            state.tool_preview = Some(carry);
-            Some(redacted)
+            ))
         });
         let Some(redacted) = redacted else { return };
         if !redacted.is_empty() {
@@ -350,13 +358,23 @@ impl TerminalApprovalSink {
         }
     }
 
+    /// Removes the preview card unless it belongs to `call_id`, so a call is never planned, and its
+    /// permission asked, under the card of another call streamed after it.
+    pub fn focus_tool_preview(&self, call_id: &str) {
+        let shows_other_call = self.with_state(|state| {
+            state
+                .tool_preview
+                .as_ref()
+                .is_some_and(|preview| preview.call_id != call_id)
+        });
+        if shows_other_call {
+            self.cancel_tool_preview();
+        }
+    }
+
     /// Removes the preview card of a call that will not run.
     pub fn cancel_tool_preview(&self) {
-        let previewing = self.with_state(|state| {
-            state.tool_preview_started = None;
-            state.tool_preview.take().is_some()
-        });
-        if previewing {
+        if self.with_state(|state| state.tool_preview.take().is_some()) {
             self.presenter.end_tool_run();
         }
     }

@@ -9,10 +9,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::ui::best_effort;
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
-use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_tool_transcript;
-use crate::ui::render::margin::{Margin, margin_width};
-use crate::ui::render::thinking::ThinkingRenderer;
+use crate::ui::render::stream::{StreamKind, StreamRenderer};
 use crate::ui::theme::Theme;
 use rho_engine::tools::file_change::PendingFileChanges;
 use rho_harness_core::config::DisplayUiConfig;
@@ -41,27 +39,26 @@ impl RenderActivity {
 pub struct TerminalRenderer {
     pub theme: Theme,
     pub display: DisplayUiConfig,
-    pub(crate) markdown: Arc<Mutex<MarkdownRenderer>>,
     pub(crate) ui: Option<InteractiveUi>,
     pub(crate) assistant_turn_buffer: Arc<Mutex<String>>,
     pub(crate) width: Arc<AtomicUsize>,
-    pub(crate) assistant_margin: Arc<Mutex<Margin>>,
-    pub(crate) thinking_stream: Arc<Mutex<ThinkingRenderer>>,
+    pub(crate) reply_stream: Arc<Mutex<StreamRenderer>>,
+    pub(crate) thinking_stream: Arc<Mutex<StreamRenderer>>,
     pub(crate) pending_file_changes: Arc<PendingFileChanges>,
 }
 
 impl Default for TerminalRenderer {
     fn default() -> Self {
+        let theme = Theme::default();
         Self {
-            theme: Theme::default(),
             display: DisplayUiConfig::default(),
-            markdown: Arc::new(Mutex::new(MarkdownRenderer::new())),
             ui: None,
             assistant_turn_buffer: Arc::new(Mutex::new(String::new())),
             width: Arc::new(AtomicUsize::new(0)),
-            assistant_margin: Arc::new(Mutex::new(Margin::new(None))),
-            thinking_stream: Arc::new(Mutex::new(ThinkingRenderer::new(&Theme::default()))),
+            reply_stream: Arc::new(Mutex::new(StreamRenderer::new(StreamKind::Reply, &theme))),
+            thinking_stream: Arc::new(Mutex::new(StreamRenderer::new(StreamKind::Thinking, &theme))),
             pending_file_changes: Arc::new(PendingFileChanges::default()),
+            theme,
         }
     }
 }
@@ -103,9 +100,6 @@ impl TerminalRenderer {
 
     pub fn set_width(&self, width: usize) {
         self.width.store(width, Ordering::Relaxed);
-        if let Ok(mut md) = self.markdown.lock() {
-            md.set_width(margin_width(width));
-        }
     }
 
     pub fn width(&self) -> usize {
@@ -129,29 +123,13 @@ impl TerminalRenderer {
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             buf.push_str(token);
         }
-        let width = margin_width(self.width.load(Ordering::Relaxed));
+        let width = self.width.load(Ordering::Relaxed);
         let rendered = self
-            .markdown
+            .reply_stream
             .lock()
-            .map(|mut markdown| {
-                if markdown.width() == 0 && width > 0 {
-                    markdown.set_width(width);
-                }
-                markdown.render_token(token, &self.theme)
-            })
+            .map(|mut stream| stream.push(token, width, &self.theme))
             .unwrap_or_else(|_| token.to_string());
-        self.stream_assistant(&rendered);
-    }
-
-    fn stream_assistant(&self, rendered: &str) {
-        let indented = self
-            .assistant_margin
-            .lock()
-            .map(|mut margin| margin.apply(rendered))
-            .unwrap_or_else(|_| rendered.to_string());
-        if !indented.is_empty() {
-            self.stream_output(indented);
-        }
+        self.stream_rendered(rendered);
     }
 
     pub fn print_thinking_token(&self, token: &str) {
@@ -159,49 +137,31 @@ impl TerminalRenderer {
         let rendered = self
             .thinking_stream
             .lock()
-            .map(|mut renderer| renderer.push(token, width, &self.theme))
+            .map(|mut stream| stream.push(token, width, &self.theme))
             .unwrap_or_else(|_| {
                 let dim = self.theme.dimmed;
                 format!("{dim}{token}{dim:#}")
             });
+        self.stream_rendered(rendered);
+    }
+
+    fn stream_rendered(&self, rendered: String) {
         if !rendered.is_empty() {
             self.stream_output(rendered);
         }
     }
 
-    fn flush_thinking_stream(&self) {
-        if let Ok(mut renderer) = self.thinking_stream.lock() {
-            let remaining = renderer.finish(&self.theme);
-            if !remaining.is_empty() {
-                self.stream_output(remaining);
-            }
-        }
-    }
-
-    fn flush_markdown_stream(&self) {
-        let remaining = self
-            .markdown
+    fn finish_stream(&self, stream: &Mutex<StreamRenderer>) {
+        let remaining = stream
             .lock()
-            .map(|mut markdown| {
-                let out = markdown.flush(&self.theme);
-                let w = markdown.width();
-                let mut new_md = MarkdownRenderer::new();
-                if w > 0 {
-                    new_md.set_width(w);
-                }
-                *markdown = new_md;
-                out
-            })
+            .map(|mut stream| stream.finish(&self.theme))
             .unwrap_or_default();
-        self.stream_assistant(&remaining);
-        if let Ok(mut margin) = self.assistant_margin.lock() {
-            margin.reset();
-        }
+        self.stream_rendered(remaining);
     }
 
     pub fn flush(&self) {
-        self.flush_thinking_stream();
-        self.flush_markdown_stream();
+        self.finish_stream(&self.thinking_stream);
+        self.finish_stream(&self.reply_stream);
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             let full_text = std::mem::take(&mut *buf);
             if !full_text.is_empty()
@@ -213,7 +173,7 @@ impl TerminalRenderer {
     }
 
     pub fn finish_thinking(&self, thinking_text: &str) {
-        self.flush_thinking_stream();
+        self.finish_stream(&self.thinking_stream);
         let trimmed = thinking_text.trim();
         if trimmed.is_empty() {
             return;
@@ -253,7 +213,22 @@ impl TerminalRenderer {
     }
 
     pub fn start_tool_run(&self, name: &str, args: &serde_json::Value) {
-        self.pending_file_changes.note(name, args);
+        let file_change = self.pending_file_changes.note(name, args);
+        self.open_tool_card(name, args, file_change);
+    }
+
+    /// Opens or updates the card of a call whose arguments are still streaming.
+    pub fn preview_tool_run(&self, name: &str, args: &serde_json::Value) {
+        let file_change = self.pending_file_changes.note_preview(name, args);
+        self.open_tool_card(name, args, file_change);
+    }
+
+    fn open_tool_card(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+        file_change: Option<rho_harness_core::presentation::FileChange>,
+    ) {
         let summary = if name == "bash" && self.theme.full_bash_command {
             rho_harness_core::presentation::summary::format_bash_full_summary(args)
         } else {
@@ -265,6 +240,7 @@ impl TerminalRenderer {
                     name: name.to_string(),
                     args_summary: summary,
                     arguments: args.clone(),
+                    file_change,
                 }));
             } else {
                 best_effort(ui.set_running_tool(Some(name.to_string())));
@@ -275,6 +251,7 @@ impl TerminalRenderer {
     }
 
     pub fn end_tool_run(&self) {
+        self.pending_file_changes.end_preview();
         if let Some(ui) = &self.ui {
             best_effort(ui.tool_end());
         }

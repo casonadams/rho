@@ -523,8 +523,10 @@ You fix validated findings...
 | `Esc` | agent shown | Stop the agent if it is running (it saves its work first), otherwise return to the main agent |
 | `Left` | agent shown, empty prompt | Return to the main agent |
 
-A shown agent looks like the main agent: its prompts, streamed reply, thinking,
-and tool cards with live output, and the footer names it and its model
+A shown agent looks like the main agent: its prompts, its reply and thinking
+streamed as rendered markdown through the same renderer the main agent uses,
+and tool cards with live output (including `write` and `edit` cards that fill
+in while the model writes them), and the footer names it and its model
 (`◉ audit · claude/claude-haiku-5-5 · turn 3/20`). The main agent keeps working
 unseen; its output appears when you return. Slash commands act on the main
 session, so they wait until you return. The view follows the agent into the

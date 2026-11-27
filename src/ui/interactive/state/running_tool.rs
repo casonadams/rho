@@ -10,7 +10,8 @@ pub struct RunningTool {
     pub arguments: serde_json::Value,
     pub started: Instant,
     pub output: String,
-    /// Whether a `write` replaces an existing file, noted before it runs so the card header does not change when it finishes.
+    /// The state of the file a `write` or `edit` changes, taken before it runs, so the card reads the
+    /// same while it runs as when it finishes.
     pub file_change: Option<rho_harness_core::presentation::FileChange>,
     pending_ansi: String,
 }
@@ -34,7 +35,7 @@ impl RunningTool {
     pub const MAX_RUNNING_BUFFER_BYTES: usize = MAX_RUNNING_BUFFER_BYTES;
 
     pub fn has_live_card(name: &str) -> bool {
-        matches!(name, "bash" | "subagent" | "workflow" | "write")
+        matches!(name, "bash" | "edit" | "subagent" | "workflow" | "write")
     }
 
     pub fn has_transcript_card(name: &str) -> bool {
@@ -44,18 +45,13 @@ impl RunningTool {
     /// A card for a tool that has just started. A `write` shows the file it is writing as its
     /// output, so its live card tails the content like command output.
     pub fn new(name: impl Into<String>, args_summary: impl Into<String>, arguments: serde_json::Value) -> Self {
-        let name = name.into();
-        let file_change = (name == "write")
-            .then(|| crate::ui::render::file_change::capture(&name, &arguments))
-            .flatten()
-            .map(|(_, change)| change);
         let mut tool = Self {
-            name,
+            name: name.into(),
             args_summary: args_summary.into(),
             arguments,
             started: Instant::now(),
             output: String::new(),
-            file_change,
+            file_change: None,
             pending_ansi: String::new(),
         };
         if tool.name == "write"
@@ -63,6 +59,13 @@ impl RunningTool {
         {
             tool.append_chunk(&content);
         }
+        tool
+    }
+
+    /// The card a start request opens.
+    pub fn start(request: crate::ui::interactive::ToolStartRequest) -> Self {
+        let mut tool = Self::new(request.name, request.args_summary, request.arguments);
+        tool.file_change = request.file_change;
         tool
     }
 

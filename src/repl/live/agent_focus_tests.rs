@@ -27,6 +27,7 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
     handle.event(AgentEvent::tool_call(
         "bash",
         serde_json::json!({ "command": "make test" }),
+        None,
     ));
     let with_tool = frame(&monitor.record(handle.id()).unwrap());
     assert_eq!(
@@ -46,7 +47,13 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
     handle.event(AgentEvent::Text("Tests pass".into()));
     let streaming = frame(&monitor.record(handle.id()).unwrap());
     assert_eq!(streaming.items.len(), 2, "{:?}", streaming.items);
-    assert_eq!(streaming.streaming.as_deref(), Some("Tests pass"));
+    assert_eq!(
+        streaming.streaming,
+        Some(StreamingText {
+            kind: StreamKind::Reply,
+            text: "Tests pass".into()
+        })
+    );
     assert_eq!(streaming.running_tool, None);
 
     handle.finish(AgentStatus::Done);
@@ -59,10 +66,28 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
 }
 
 #[test]
+fn a_running_agents_thinking_streams_like_its_reply() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "audit");
+    handle.stream(rho_harness_core::agents::Streamed::Thinking, "Checking the parser");
+
+    let thinking = frame(&monitor.record(handle.id()).unwrap());
+
+    assert_eq!(thinking.items, [TranscriptItem::UserMessage("Audit the parser".into())]);
+    assert_eq!(
+        thinking.streaming,
+        Some(StreamingText {
+            kind: StreamKind::Thinking,
+            text: "Checking the parser".into()
+        })
+    );
+}
+
+#[test]
 fn tools_without_a_live_card_and_unfinished_calls_follow_the_main_agents_rules() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "scout");
-    handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" })));
+    handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" }), None));
     assert_eq!(frame(&monitor.record(handle.id()).unwrap()).running_tool, None);
 
     handle.finish(AgentStatus::Cancelled);
@@ -74,6 +99,24 @@ fn tools_without_a_live_card_and_unfinished_calls_follow_the_main_agents_rules()
 }
 
 #[test]
+fn a_fast_tool_started_beside_a_running_bash_leaves_its_card_up_like_the_main_agent() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "scout");
+    handle.event(AgentEvent::tool_call(
+        "bash",
+        serde_json::json!({ "command": "make" }),
+        None,
+    ));
+    handle.call_output("building\n");
+    handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" }), None));
+
+    let shown = frame(&monitor.record(handle.id()).unwrap());
+
+    assert_eq!(shown.running_tool.map(|tool| tool.name).as_deref(), Some("bash"));
+    assert_eq!(shown.running_output, "building\n");
+}
+
+#[test]
 fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "writer");
@@ -81,7 +124,7 @@ fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
     show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
     let tail = |c: &TerminalController<NullBackend>| c.state().active_tool().map(|tool| tool.output.clone());
 
-    handle.preview_call("write", serde_json::json!({}));
+    handle.preview_call("write", serde_json::json!({}), None);
     handle.call_output("alpha\n");
     assert!(refresh(&mut c, &monitor).unwrap());
     assert_eq!(tail(&c).as_deref(), Some("alpha\n"));
@@ -90,7 +133,7 @@ fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
     assert!(refresh(&mut c, &monitor).unwrap());
     assert_eq!(tail(&c).as_deref(), Some("alpha\nbeta\n"));
 
-    handle.preview_call("write", serde_json::json!({ "path": "a.txt" }));
+    handle.preview_call("write", serde_json::json!({ "path": "a.txt" }), None);
     handle.call_output("alpha\n");
     assert!(refresh(&mut c, &monitor).unwrap());
     let tool = c.state().active_tool().expect("the write keeps its card");
@@ -106,12 +149,31 @@ fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
 }
 
 #[test]
+fn the_shown_agents_edit_card_follows_its_arguments_as_they_stream() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "fixer");
+    let mut c = controller();
+    show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
+    let shown = |c: &TerminalController<NullBackend>| c.state().active_tool().map(|tool| tool.arguments.clone());
+
+    let partial = serde_json::json!({ "path": "a.rs", "edits": [{ "oldText": "fn a" }] });
+    handle.preview_call("edit", partial.clone(), None);
+    assert!(refresh(&mut c, &monitor).unwrap());
+    assert_eq!(shown(&c), Some(partial));
+
+    let full = serde_json::json!({ "path": "a.rs", "edits": [{ "oldText": "fn a", "newText": "fn b" }] });
+    handle.preview_call("edit", full.clone(), None);
+    assert!(refresh(&mut c, &monitor).unwrap());
+    assert_eq!(shown(&c), Some(full));
+}
+
+#[test]
 fn a_long_outputs_card_keeps_tailing_after_the_record_starts_cutting_its_front() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "builder");
     let mut c = controller();
     show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
-    handle.preview_call("bash", serde_json::json!({ "command": "make" }));
+    handle.preview_call("bash", serde_json::json!({ "command": "make" }), None);
 
     for round in 0..6 {
         handle.call_output(&format!("{}round {round}\n", "x".repeat(99_000)));

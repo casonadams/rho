@@ -54,12 +54,18 @@ pub struct TerminalSinkState {
     pub has_reasoning_content: bool,
     pub text_carry: String,
     pub reasoning_carry: String,
-    /// The secret-redaction carry of a tool card shown while the model still writes the call's arguments.
-    pub tool_preview: Option<String>,
-    /// When the first preview fragment of the call arrived, so its duration includes the model writing it.
-    pub tool_preview_started: Option<Instant>,
+    pub tool_preview: Option<ToolPreview>,
     /// The secret-redaction carry of the output a running tool streams to its card.
     pub tool_output_carry: String,
+}
+
+/// The card of a tool call shown while the model still writes its arguments.
+pub struct ToolPreview {
+    pub call_id: String,
+    /// The secret-redaction carry of the content streamed to the card.
+    pub carry: String,
+    /// When the call's first fragment arrived, so its duration includes the model writing it.
+    pub started: Instant,
 }
 
 pub struct ToolFinishDetails<'a> {

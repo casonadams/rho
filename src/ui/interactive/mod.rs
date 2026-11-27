@@ -14,7 +14,7 @@ mod transcript;
 #[cfg(test)]
 pub(crate) use controller::NullBackend;
 pub use controller::cache;
-pub use controller::view::ViewFrame;
+pub use controller::view::{StreamingText, ViewFrame};
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
     BatchDecision, FlushBarrier, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder,

@@ -25,6 +25,7 @@ pub(crate) mod workspace;
 
 pub use background::DEFAULT_FOREGROUND_SECONDS;
 pub use models::{SubagentModelResolver, SubagentModels};
+pub use presenter::AgentPresenter;
 pub use runner::SubagentRunner;
 pub(crate) use runtime::RoundSlot;
 pub use runtime::SubagentRuntime;

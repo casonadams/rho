@@ -1,4 +1,4 @@
-use crate::presentation::ToolLine;
+use crate::presentation::{FileChange, ToolLine};
 use crate::text::truncate_chars;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -47,6 +47,8 @@ pub enum AgentEvent {
         output: String,
         /// Bytes of streamed output cut from the front of `output` to keep it bounded.
         dropped: usize,
+        /// The state of the file the call changes, taken before it runs.
+        file_change: Option<FileChange>,
     },
     /// A finished tool call; it replaces the matching pending `ToolCall`.
     Tool(ToolLine),
@@ -54,12 +56,13 @@ pub enum AgentEvent {
 
 impl AgentEvent {
     /// A tool call that has just started, with nothing streamed to its card yet.
-    pub fn tool_call(name: impl Into<String>, args: serde_json::Value) -> Self {
+    pub fn tool_call(name: impl Into<String>, args: serde_json::Value, file_change: Option<FileChange>) -> Self {
         Self::ToolCall {
             name: name.into(),
             args,
             output: String::new(),
             dropped: 0,
+            file_change,
         }
     }
 }
@@ -196,13 +199,13 @@ impl TrackedAgent {
     }
 
     /// Starts or updates the call `name` whose arguments are still streaming: it replaces an
-    /// unfinished call just before it, which is the earlier state of the same preview.
-    fn preview_call(&mut self, name: &str, args: serde_json::Value) {
-        let replaces = matches!(self.events.back(), Some(AgentEvent::ToolCall { name: last, .. }) if last == name);
-        if replaces {
+    /// unfinished call just before it, the earlier state of this preview or the preview of a call
+    /// streamed before it in the same reply, which is shown again when that call starts.
+    fn preview_call(&mut self, name: &str, args: serde_json::Value, file_change: Option<FileChange>) {
+        if matches!(self.events.back(), Some(AgentEvent::ToolCall { .. })) {
             self.events.pop_back();
         }
-        self.push(AgentEvent::tool_call(name, args));
+        self.push(AgentEvent::tool_call(name, args, file_change));
     }
 
     /// Drops the latest unfinished call, which will not produce a tool line.
@@ -336,8 +339,9 @@ impl AgentHandle {
     }
 
     /// Starts or updates the call `name` whose arguments are still streaming, replacing its earlier state.
-    pub fn preview_call(&self, name: &str, args: serde_json::Value) {
-        self.monitor.update(self.id, |agent| agent.preview_call(name, args));
+    pub fn preview_call(&self, name: &str, args: serde_json::Value, file_change: Option<FileChange>) {
+        self.monitor
+            .update(self.id, |agent| agent.preview_call(name, args, file_change));
     }
 
     /// Adds output streamed to the card of the latest unfinished call.
@@ -506,7 +510,7 @@ mod tests {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
         handle.stream(Streamed::Text, "before");
-        handle.event(AgentEvent::tool_call("rg", serde_json::json!({})));
+        handle.event(AgentEvent::tool_call("rg", serde_json::json!({}), None));
         handle.stream(Streamed::Text, "after");
         assert_eq!(monitor.record(handle.id()).unwrap().events.len(), 3);
     }
@@ -547,9 +551,9 @@ mod tests {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
         let args = serde_json::json!({ "path": "a.rs", "text": "x".repeat(MAX_EVENT_CHARS * 3) });
-        handle.event(AgentEvent::tool_call("write", args.clone()));
+        handle.event(AgentEvent::tool_call("write", args.clone(), None));
         let pending = monitor.record(handle.id()).unwrap().events;
-        assert_eq!(pending, [AgentEvent::tool_call("write", args.clone())]);
+        assert_eq!(pending, [AgentEvent::tool_call("write", args.clone(), None)]);
         handle.event(AgentEvent::Tool(line("write", args.clone(), "ok")));
         assert_eq!(
             monitor.record(handle.id()).unwrap().events,
@@ -561,9 +565,9 @@ mod tests {
     fn a_previewed_call_is_updated_in_place_streams_output_and_is_finished_by_its_line() {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
-        handle.preview_call("write", serde_json::json!({}));
+        handle.preview_call("write", serde_json::json!({}), None);
         handle.call_output("one\n");
-        handle.preview_call("write", serde_json::json!({ "path": "a.rs" }));
+        handle.preview_call("write", serde_json::json!({ "path": "a.rs" }), None);
         handle.call_output("one\ntwo\n");
         let [AgentEvent::ToolCall { args, output, .. }] = &monitor.record(handle.id()).unwrap().events[..] else {
             panic!("the preview is one call");
@@ -582,10 +586,33 @@ mod tests {
     }
 
     #[test]
+    fn calls_previewed_one_after_another_leave_no_stale_card_once_they_run() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        let write = serde_json::json!({ "path": "a.rs", "text": "x" });
+        let edit = serde_json::json!({ "path": "b.rs", "edits": [] });
+        handle.preview_call("write", serde_json::json!({ "path": "a.rs" }), None);
+        handle.preview_call("edit", serde_json::json!({ "path": "b.rs" }), None);
+
+        handle.preview_call("write", write.clone(), None);
+        handle.event(AgentEvent::Tool(line("write", write.clone(), "ok")));
+        handle.event(AgentEvent::tool_call("edit", edit.clone(), None));
+        handle.event(AgentEvent::Tool(line("edit", edit.clone(), "ok")));
+
+        assert_eq!(
+            monitor.record(handle.id()).unwrap().events,
+            [
+                AgentEvent::Tool(line("write", write, "ok")),
+                AgentEvent::Tool(line("edit", edit, "ok")),
+            ]
+        );
+    }
+
+    #[test]
     fn a_calls_streamed_output_keeps_the_latest_and_counts_what_it_cut() {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
-        handle.preview_call("bash", serde_json::json!({}));
+        handle.preview_call("bash", serde_json::json!({}), None);
         let piece = "héllo woréd\n".repeat(1000);
         let pieces = 2 * MAX_CALL_OUTPUT_BYTES / piece.len() + 3;
         for _ in 0..pieces {
@@ -609,7 +636,7 @@ mod tests {
             serde_json::json!({ "path": "b.rs" }),
         );
         for args in [&a, &b] {
-            handle.event(AgentEvent::tool_call("read", args.clone()));
+            handle.event(AgentEvent::tool_call("read", args.clone(), None));
         }
         handle.event(AgentEvent::Tool(line("read", b.clone(), "B")));
         handle.event(AgentEvent::Text("after".into()));

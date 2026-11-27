@@ -82,6 +82,10 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::start_tool_run(self, name, arguments);
     }
 
+    fn preview_tool_run(&self, name: &str, arguments: &Value) {
+        TerminalRenderer::preview_tool_run(self, name, arguments);
+    }
+
     fn end_tool_run(&self) {
         TerminalRenderer::end_tool_run(self);
     }

@@ -439,8 +439,9 @@ fn convert_tools(request: &ModelCompletionRequest) -> Vec<Value> {
                 "description": t.description,
                 "input_schema": t.parameters,
             });
-            // Without this the API buffers each parameter until complete, so `write` content cannot be previewed live.
-            if t.name == "write" {
+            // Without this the API buffers each parameter until complete, so `write` content and `edit`
+            // diffs cannot be previewed live.
+            if matches!(t.name.as_str(), "edit" | "write") {
                 tool["eager_input_streaming"] = json!(true);
             }
             tool

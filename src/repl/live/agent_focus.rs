@@ -9,11 +9,12 @@ use rho_harness_core::presentation::summary::format_tool_args_summary;
 use crate::error::Result;
 use crate::repl::live::modal::agents::progress;
 use crate::ui::interactive::{
-    RunningTool, TerminalBackend, TerminalController, ToolStartRequest, TranscriptItem, ViewFrame,
+    RunningTool, StreamingText, TerminalBackend, TerminalController, ToolStartRequest, TranscriptItem, ViewFrame,
 };
+use crate::ui::render::stream::StreamKind;
 
-/// The agent's record as the main terminal shows it: settled items, the reply it is still
-/// writing, and the tool it is running (as a live card, like the main agent's).
+/// The agent's record as the main terminal shows it: settled items, the reply or thinking it is
+/// still writing, and the tool it is running (as a live card, like the main agent's).
 pub fn frame(record: &AgentRecord) -> ViewFrame {
     let running = record.summary.status == AgentStatus::Running;
     let mut frame = ViewFrame::default();
@@ -37,14 +38,12 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
                 args,
                 output,
                 dropped,
+                file_change,
             } if running => {
-                frame.running_tool = live_card(name, args);
-                if frame.running_tool.is_some() {
+                if let Some(card) = live_card(name, args, file_change.as_ref()) {
+                    frame.running_tool = Some(card);
                     frame.running_output = output.clone();
                     frame.running_output_start = *dropped;
-                } else {
-                    frame.running_output = String::new();
-                    frame.running_output_start = 0;
                 }
             }
             AgentEvent::ToolCall { name, .. } => {
@@ -55,22 +54,32 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
         }
     }
     if running {
-        match record.events.last() {
-            Some(AgentEvent::Text(text)) => {
-                frame.items.pop();
-                frame.streaming = Some(text.clone());
-            }
-            Some(AgentEvent::Thinking(_)) => {
-                frame.items.pop();
-            }
-            _ => {}
+        frame.streaming = record.events.last().and_then(streaming_text);
+        if frame.streaming.is_some() {
+            frame.items.pop();
         }
     }
     frame
 }
 
+fn streaming_text(event: &AgentEvent) -> Option<StreamingText> {
+    let (kind, text) = match event {
+        AgentEvent::Text(text) => (StreamKind::Reply, text),
+        AgentEvent::Thinking(text) => (StreamKind::Thinking, text),
+        _ => return None,
+    };
+    Some(StreamingText {
+        kind,
+        text: text.clone(),
+    })
+}
+
 /// A running tool's card, for the tools the main agent shows one for.
-fn live_card(name: &str, args: &serde_json::Value) -> Option<ToolStartRequest> {
+fn live_card(
+    name: &str,
+    args: &serde_json::Value,
+    file_change: Option<&rho_harness_core::presentation::FileChange>,
+) -> Option<ToolStartRequest> {
     if !RunningTool::has_live_card(name) {
         return None;
     }
@@ -78,6 +87,7 @@ fn live_card(name: &str, args: &serde_json::Value) -> Option<ToolStartRequest> {
         name: name.to_string(),
         args_summary: format_tool_args_summary(name, args),
         arguments: args.clone(),
+        file_change: file_change.cloned(),
     })
 }
 

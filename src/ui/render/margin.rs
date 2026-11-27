@@ -23,10 +23,6 @@ impl Margin {
         }
     }
 
-    pub(crate) fn reset(&mut self) {
-        self.at_line_start = true;
-    }
-
     pub(crate) fn apply(&mut self, text: &str) -> String {
         let mut out = String::with_capacity(text.len() + 8);
         for (idx, segment) in text.split('\n').enumerate() {
@@ -75,14 +71,6 @@ mod tests {
         let mut margin = Margin::new(Some(dim));
         let out = margin.apply("a\x1b[0m b");
         assert_eq!(out, format!(" {dim}a\x1b[0m{dim} b{dim:#}"));
-    }
-
-    #[test]
-    fn reset_restores_line_start() {
-        let mut margin = Margin::new(None);
-        margin.apply("x");
-        margin.reset();
-        assert_eq!(margin.apply("y"), " y");
     }
 
     #[test]

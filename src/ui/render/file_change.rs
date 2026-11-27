@@ -1,6 +1,6 @@
 //! Pre-run file snapshots and header stats for edit and write tool cards.
 
-pub(crate) use rho_engine::tools::file_change::{capture, edit_start_lines, explicit_edit_line, read_bounded};
+pub(crate) use rho_engine::tools::file_change::{edit_start_lines, explicit_edit_line, read_bounded};
 use rho_harness_core::presentation::{FileChange, ToolLine};
 use rho_harness_core::text::format_size;
 use serde_json::Value;
@@ -74,6 +74,7 @@ pub(crate) fn header_details(tool: &ToolLine) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rho_engine::tools::file_change::capture;
     use serde_json::json;
 
     fn tool(name: &str, arguments: Value, file_change: Option<FileChange>) -> ToolLine {

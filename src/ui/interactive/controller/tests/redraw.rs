@@ -33,6 +33,7 @@ mod resize {
                 name: "bash".into(),
                 args_summary: "cargo test".into(),
                 arguments: serde_json::json!({"command": "cargo test"}),
+                file_change: None,
             })
             .unwrap();
         operations.borrow_mut().clear();

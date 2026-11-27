@@ -8,7 +8,7 @@ use rho_harness_core::session::SessionManager;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-struct CallLog(Mutex<Vec<String>>);
+pub(crate) struct CallLog(pub(crate) Mutex<Vec<String>>);
 
 impl CallLog {
     fn push(&self, call: String) {
@@ -22,7 +22,8 @@ impl ToolStreamSink for CallLog {
     }
 }
 
-struct InteractivePresenter(Arc<CallLog>);
+/// An interactive presenter that logs the tool cards it is asked to show.
+pub(crate) struct InteractivePresenter(pub(crate) Arc<CallLog>);
 
 #[async_trait::async_trait]
 impl Presenter for InteractivePresenter {
@@ -63,6 +64,14 @@ fn extract_json_streaming_content(json: &str) -> Option<String> {
     let mut decoder = ContentDecoder::default();
     decoder.advance(json);
     decoder.body_start.map(|_| decoder.decoded)
+}
+
+/// Whether the write card shows its path yet, and how much content it has streamed.
+fn write_preview(tracker: &StreamingToolTracker) -> Option<(bool, usize)> {
+    match &tracker.preview {
+        Some(Preview::Write(preview)) => Some((preview.path_shown, preview.streamed_content_len)),
+        _ => None,
+    }
 }
 
 fn mock_sink() -> (Arc<TerminalApprovalSink>, crate::test_support::TestDir) {
@@ -175,17 +184,16 @@ fn streaming_tool_tracker_write_lifecycle() {
     let mut tracker = StreamingToolTracker::default();
 
     tracker.handle_delta("call-1", "write", r#"{"path": "foo.txt", "content": "hello "#, &sink);
-    assert!(tracker.preview_started);
-    assert_eq!(tracker.streamed_content_len, 6);
+    assert_eq!(write_preview(&tracker), Some((true, 6)));
 
     tracker.handle_delta("call-1", "write", r#"world"}"#, &sink);
-    assert_eq!(tracker.streamed_content_len, 11);
+    assert_eq!(write_preview(&tracker), Some((true, 11)));
 
     tracker.handle_delta("call-1", "write", "", &sink);
-    assert_eq!(tracker.streamed_content_len, 11);
+    assert_eq!(write_preview(&tracker), Some((true, 11)));
 
     tracker.handle_delta("call-2", "write", r#"{"path": "#, &sink);
-    assert_eq!(tracker.streamed_content_len, 0, "a new call id starts over");
+    assert_eq!(write_preview(&tracker), Some((false, 0)), "a new call id starts over");
 }
 
 #[test]
@@ -194,13 +202,14 @@ fn streaming_tool_tracker_streams_content_written_before_the_path() {
     let mut tracker = StreamingToolTracker::default();
 
     tracker.handle_delta("call-1", "write", r#"{"content": "data", "#, &sink);
-    assert!(tracker.preview_started);
-    assert!(!tracker.path_shown);
-    assert_eq!(tracker.streamed_content_len, 4);
+    assert_eq!(write_preview(&tracker), Some((false, 4)));
 
     tracker.handle_delta("call-1", "write", r#""file_path": "bar.txt"}"#, &sink);
-    assert!(tracker.path_shown, "the card reopens with the path");
-    assert_eq!(tracker.streamed_content_len, 4, "and replays the content so far");
+    assert_eq!(
+        write_preview(&tracker),
+        Some((true, 4)),
+        "the card reopens with the path and replays the content so far"
+    );
 }
 
 #[test]
@@ -220,12 +229,106 @@ fn streaming_tool_tracker_opens_with_the_path_and_streams_text_when_the_path_com
 }
 
 #[test]
-fn streaming_tool_tracker_only_previews_write_calls() {
+fn streaming_tool_tracker_only_previews_write_and_edit_calls() {
     let (sink, _dir) = mock_sink();
     let mut tracker = StreamingToolTracker::default();
     tracker.handle_delta("call-1", "bash", r#"{"command": "echo hi"}"#, &sink);
-    assert!(!tracker.preview_started);
-    assert_eq!(tracker.streamed_content_len, 0);
+    assert!(tracker.preview.is_none());
+}
+
+#[test]
+fn an_edit_card_opens_at_once_and_grows_line_by_line_as_its_arguments_stream() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+
+    for chunk in [
+        "",
+        r#"{"path": "a.rs", "edits": [{"oldText": "fn a() {\n"#,
+        "    old",
+        r#"();\n}", "newText": "fn a() {}"}]}"#,
+    ] {
+        tracker.handle_delta("call-1", "edit", chunk, &sink);
+    }
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(
+        calls,
+        [
+            "flush",
+            "start edit {}",
+            r#"start edit {"edits":[{"oldText":"fn a() {\n"}],"path":"a.rs"}"#,
+            r#"start edit {"edits":[{"newText":"fn a() {}","oldText":"fn a() {\n    old();\n}"}],"path":"a.rs"}"#,
+        ],
+        "the fragment without a line end waits for one"
+    );
+}
+
+#[test]
+fn an_edit_card_names_its_file_only_once_the_whole_path_has_streamed() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+
+    tracker.handle_delta("call-1", "edit", r#"{"edits": [], "path": "src/ma"#, &sink);
+    tracker.handle_delta("call-1", "edit", r#"in.rs"}"#, &sink);
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(
+        calls,
+        [
+            "flush",
+            r#"start edit {"edits":[]}"#,
+            r#"start edit {"edits":[],"path":"src/main.rs"}"#
+        ]
+    );
+}
+
+#[test]
+fn a_previewed_call_is_shown_with_its_final_arguments_when_it_starts() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+    tracker.handle_delta("call-1", "edit", r#"{"path": "a.rs", "edits": [{"oldText": "x"#, &sink);
+
+    let args = serde_json::json!({ "path": "a.rs", "edits": [{ "oldText": "x", "newText": "y" }] });
+    sink.tool_start("edit", &args);
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(calls.last(), Some(&format!("start edit {args}")));
+}
+
+#[test]
+fn a_call_is_planned_without_the_card_of_a_call_streamed_after_it() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+    tracker.handle_delta("call-1", "edit", r#"{"path": "a.rs", "edits": []}"#, &sink);
+    tracker.handle_delta("call-2", "edit", r#"{"path": "b.rs", "edits": []}"#, &sink);
+    log.0.lock().unwrap().clear();
+
+    let first = serde_json::json!({ "path": "a.rs", "edits": [] });
+    sink.focus_tool_preview("call-1");
+    sink.tool_start("edit", &first);
+
+    let calls = log.0.lock().unwrap().clone();
+    assert_eq!(
+        calls,
+        ["end".to_string(), "flush".into(), format!("start edit {first}")]
+    );
+}
+
+#[test]
+fn the_card_of_the_call_being_planned_stays_up() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+    tracker.handle_delta("call-1", "edit", r#"{"path": "a.rs", "edits": []}"#, &sink);
+    log.0.lock().unwrap().clear();
+
+    sink.focus_tool_preview("call-1");
+
+    assert!(log.0.lock().unwrap().is_empty());
 }
 
 #[test]

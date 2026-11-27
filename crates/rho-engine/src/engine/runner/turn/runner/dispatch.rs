@@ -121,6 +121,7 @@ enum PlannedCall {
 }
 
 async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> PlannedCall {
+    ctx.sink.focus_tool_preview(&call.id);
     if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
         ctx.sink.cancel_tool_preview();
         return PlannedCall::Settled((tool_result_message(call, msg.to_string()), CallControl::Continue));
