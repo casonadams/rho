@@ -1,12 +1,11 @@
 //! Running tool widget lifecycle and transcript commit tests.
 
-use super::fake::{FakeTerminal, Operation, SharedOperations};
+use super::fake::{FakeTerminal, Operation, SharedOperations, controller};
 use crate::ui::interactive::controller::TerminalController;
-use crate::ui::interactive::{InteractiveState, ToolItem, ToolStartRequest, TranscriptItem, tool_fixture};
+use crate::ui::interactive::{ToolItem, ToolStartRequest, TranscriptItem, tool_fixture};
 
 fn new_controller() -> (TerminalController<FakeTerminal>, SharedOperations) {
-    let (backend, operations, _) = FakeTerminal::new(60);
-    let controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (controller, operations, _) = controller(60);
     (controller, operations)
 }
 

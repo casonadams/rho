@@ -1,5 +1,6 @@
 use super::formatters::format_session_status;
 use super::renderer::TerminalRenderer;
+use crate::ui::best_effort;
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::summary::to_relative_path;
@@ -91,7 +92,7 @@ impl TerminalRenderer {
             mcp: display.mcp.clone(),
         };
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(item));
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(item)));
         } else {
             let text = crate::ui::interactive::format_welcome_content(&item, terminal_width(), &self.theme);
             self.write_output(&text);
@@ -100,7 +101,7 @@ impl TerminalRenderer {
 
     fn emit_notice_output(&self, text: &str) {
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text.to_string()));
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text.to_string())));
         } else {
             self.write_output(text);
         }
@@ -128,7 +129,7 @@ impl TerminalRenderer {
 
     pub fn print_status(&self, message: &str) {
         if let Some(ui) = &self.ui {
-            let _ = ui.set_system_message(Some(message.to_string()));
+            best_effort(ui.set_system_message(Some(message.to_string())));
         } else {
             let dim = self.theme.dimmed;
             let text = format!("{dim}{message}{dim:#}\n");
@@ -138,7 +139,7 @@ impl TerminalRenderer {
 
     pub fn print_user_block(&self, input: &str) {
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::UserMessage(input.to_string()));
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::UserMessage(input.to_string())));
         } else {
             let user = self.theme.prompt;
             self.write_output(&format!("{user}>{user:#} {input}\n\n"));

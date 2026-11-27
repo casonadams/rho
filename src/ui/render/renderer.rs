@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::ui::best_effort;
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_tool_transcript;
@@ -30,7 +31,7 @@ impl RenderActivity {
         match self {
             Self::Progress(progress) => progress.finish_and_clear(),
             Self::Interactive(ui) => {
-                let _ = ui.set_activity(Activity::Idle);
+                best_effort(ui.set_activity(Activity::Idle));
             }
         }
     }
@@ -79,11 +80,11 @@ impl TerminalRenderer {
 
     pub fn write_output(&self, text: &str) {
         if let Some(ui) = &self.ui {
-            let _ = ui.output(OutputEvent::Text(text.to_string()));
+            best_effort(ui.output(OutputEvent::Text(text.to_string())));
         } else {
             let mut stdout = io::stdout().lock();
-            let _ = stdout.write_all(text.as_bytes());
-            let _ = stdout.flush();
+            best_effort(stdout.write_all(text.as_bytes()));
+            best_effort(stdout.flush());
         }
     }
 
@@ -118,7 +119,7 @@ impl TerminalRenderer {
 
     pub fn stream_output(&self, text: String) {
         if let Some(ui) = &self.ui {
-            let _ = ui.output(OutputEvent::StreamText(text));
+            best_effort(ui.output(OutputEvent::StreamText(text)));
         } else {
             self.write_output(&text);
         }
@@ -206,7 +207,7 @@ impl TerminalRenderer {
             if !full_text.is_empty()
                 && let Some(ui) = &self.ui
             {
-                let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::AssistantText(full_text));
+                best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::AssistantText(full_text)));
             }
         }
     }
@@ -218,7 +219,7 @@ impl TerminalRenderer {
             return;
         }
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string()));
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string())));
         }
     }
 
@@ -231,7 +232,7 @@ impl TerminalRenderer {
             } else {
                 Activity::Working
             };
-            let _ = ui.set_activity(activity);
+            best_effort(ui.set_activity(activity));
             return RenderActivity::Interactive(ui.clone());
         }
         let pb = ProgressBar::new_spinner();
@@ -260,13 +261,13 @@ impl TerminalRenderer {
         };
         if let Some(ui) = &self.ui {
             if crate::ui::interactive::RunningTool::has_live_card(name) {
-                let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
+                best_effort(ui.tool_start(crate::ui::interactive::ToolStartRequest {
                     name: name.to_string(),
                     args_summary: summary,
                     arguments: args.clone(),
-                });
+                }));
             } else {
-                let _ = ui.set_running_tool(Some(name.to_string()));
+                best_effort(ui.set_running_tool(Some(name.to_string())));
             }
         } else if crate::ui::interactive::RunningTool::has_transcript_card(name) {
             self.print_tool_start(name, args);
@@ -275,26 +276,26 @@ impl TerminalRenderer {
 
     pub fn end_tool_run(&self) {
         if let Some(ui) = &self.ui {
-            let _ = ui.tool_end();
+            best_effort(ui.tool_end());
         }
     }
 
     pub fn tool_chunk(&self, chunk: &str) {
         if let Some(ui) = &self.ui {
-            let _ = ui.tool_chunk(chunk.to_string());
+            best_effort(ui.tool_chunk(chunk.to_string()));
         }
     }
 
     pub fn finish_tool_line(&self, mut line: ToolLine) {
         if !crate::ui::interactive::RunningTool::has_transcript_card(&line.name) {
             if let Some(ui) = &self.ui {
-                let _ = ui.tool_end();
+                best_effort(ui.tool_end());
             }
             return;
         }
         self.pending_file_changes.attach(&mut line);
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line));
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line)));
             return;
         }
         let card = render_tool_transcript(&line, crate::ui::block::terminal_width(), true, false, &self.theme);

@@ -274,7 +274,7 @@ mod tests {
     #[tokio::test]
     async fn typing_during_a_workflow_edits_the_draft_and_enter_queues_it() {
         use crossterm::event::{KeyCode, KeyModifiers};
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
         let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
         let renderer = TerminalRenderer::with_ui(ui);

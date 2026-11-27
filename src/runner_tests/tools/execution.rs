@@ -42,14 +42,7 @@ async fn mutating_tools_execute_sequentially() {
     let dir = rho_test_support::TestDir::new();
     let marker = dir.join("sequential_marker");
     let model = sequential_mutation_model(&marker);
-    let config = Config {
-        permission: crate::config::PermissionConfig {
-            enabled: false,
-            ..Default::default()
-        },
-        ..Config::default()
-    };
-    let engine = test_engine(model, config);
+    let engine = test_engine(model, Config::default());
     engine
         .run_turn(request("run"), presenter(&TerminalRenderer::default()))
         .await
@@ -93,14 +86,7 @@ async fn cancelled_tool_does_not_persist_result() {
             serde_json::json!({"command": format!("touch {}; sleep 30", started.display())}),
         ),
     )))]);
-    let config = Config {
-        permission: crate::config::PermissionConfig {
-            enabled: false,
-            ..Default::default()
-        },
-        ..Config::default()
-    };
-    let engine = test_engine(model, config);
+    let engine = test_engine(model, Config::default());
     let signal = CancellationSignal::default();
     let turn_request = TurnRequest {
         prompt: "run the slow tool",

@@ -1,4 +1,5 @@
 use crate::ui::terminal_stream::{Token, is_sgr_reset, tokens};
+use crate::ui::theme::SGR_RESET;
 use crate::ui::wrap::WordWrap;
 use anstyle::Style;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -355,7 +356,7 @@ impl BlockFormat {
             let visible = visible_width(text);
             let trailing = inner.saturating_sub(visible);
             return format!(
-                "{style}│{style:#}{text}\x1b[0m{}{style}│{style:#}\n",
+                "{style}│{style:#}{text}{SGR_RESET}{}{style}│{style:#}\n",
                 " ".repeat(trailing)
             );
         }
@@ -363,7 +364,7 @@ impl BlockFormat {
         let visible = visible_width(content);
         let trailing = inner_width.saturating_sub(visible);
         format!(
-            "{style}│{style:#} {content}\x1b[0m{}{style} │{style:#}\n",
+            "{style}│{style:#} {content}{SGR_RESET}{}{style} │{style:#}\n",
             " ".repeat(trailing)
         )
     }
@@ -383,7 +384,7 @@ impl BlockFormat {
         let reset_str = if bg_str.is_empty() {
             String::new()
         } else {
-            "\x1b[0m".to_string()
+            SGR_RESET.to_string()
         };
         format!(
             "{style}{}{content}{style}{}{reset_str}\n",

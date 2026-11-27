@@ -153,7 +153,7 @@ pub fn update_autocomplete_state_generic<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use crate::repl::interactive::CompletionSet;
-    use crate::ui::interactive::{InteractiveState, NullBackend, TerminalController};
+    use crate::ui::interactive::{NullBackend, TerminalController};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rho_harness_core::skills::{ResolvedSkill, SkillMetadata, SkillOrigin};
 
@@ -176,7 +176,7 @@ mod tests {
     }
 
     fn init_autocomplete_controller(text: &str, completions: &CompletionSet) -> TerminalController<NullBackend> {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         controller.state_mut().editor_mut().set_text(text);
         update_autocomplete_state_generic(&mut controller, completions);
         controller
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_autocomplete_ignores_key_release_events() {
         let completions = sample_skill_completions(&[("lean", "Lean"), ("spec", "Spec")]);
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
 
         controller.state_mut().editor_mut().set_text("/skill ");
         update_autocomplete_state_generic(&mut controller, &completions);
@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn test_autocomplete_midprompt_skill_and_range_replacement() {
         let completions = sample_skill_completions(&[("plan", "Plan"), ("spec", "Spec")]);
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         controller
             .state_mut()
             .editor_mut()
@@ -347,7 +347,7 @@ mod tests {
     fn test_autocomplete_chains_directory_completion() {
         let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new())
             .with_files(vec!["src/repl/".to_string(), "src/main.rs".to_string()]);
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         controller.state_mut().editor_mut().set_text_with_cursor("@src", 4);
         update_autocomplete_state_generic(&mut controller, &completions);
         assert!(controller.state().autocomplete.visible);

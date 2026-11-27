@@ -7,7 +7,7 @@ use crate::repl::live::idle::dispatch::{
 };
 use crate::repl::live::types::EditorResources;
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{InputAction, InteractiveState, QueueKind, QueuedMessage, TerminalController};
+use crate::ui::interactive::{InputAction, QueueKind, QueuedMessage, TerminalController};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -24,7 +24,7 @@ async fn setup_idle_dispatch_harness(
     crate::repl::input_reader::TerminalInputReader,
     Option<std::time::Instant>,
 ) {
-    let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let controller = crate::repl::test_controller();
     let history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
     let completions = CompletionSet::from_sources(Default::default());
     let batch = LiveBatch::new();

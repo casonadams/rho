@@ -1,4 +1,4 @@
-use super::super::helpers::{presenter, request, test_engine};
+use super::super::helpers::{drain_ui_events, presenter, request, test_engine};
 use crate::config::Config;
 use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig, redact_text};
 use crate::session::SessionManager;
@@ -31,26 +31,21 @@ fn collect_displayed_events(
     events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
     renderer: &TerminalRenderer,
 ) -> String {
-    let mut displayed = String::new();
-    while let Ok(event) = events.try_recv() {
-        match event {
-            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => displayed.push_str(&text),
-            UiEvent::Transcript(item) => {
-                displayed.push_str(&crate::ui::interactive::render_transcript_item(
-                    crate::ui::interactive::TranscriptRenderInput {
-                        item: &item,
-                        theme: &renderer.theme,
-                        width: 80,
-                        tools_expanded: false,
-                        hide_thinking: false,
-                    },
-                ));
-            }
-            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
-            _ => {}
-        }
-    }
-    displayed
+    drain_ui_events(events, |event| match event {
+        UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => Some(text),
+        UiEvent::Transcript(item) => Some(crate::ui::interactive::render_transcript_item(
+            crate::ui::interactive::TranscriptRenderInput {
+                item: &item,
+                theme: &renderer.theme,
+                width: 80,
+                tools_expanded: false,
+                hide_thinking: false,
+            },
+        )),
+        UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+        _ => None,
+    })
+    .concat()
 }
 
 fn assert_redacted(completed: &[rho_engine::engine::runner::CompletedTool], displayed: &str, secret: &str) {

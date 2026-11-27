@@ -12,4 +12,7 @@ pub use path::{
     abbreviate_home, cached_git_pr, get_git_branch, get_git_status_counts, get_git_status_counts_async,
     subscribe_git_pr,
 };
-pub use text::{fit_right_aligned, format_tokens, sanitize_status_text, truncate_to_width, truncate_with_ellipsis};
+pub use text::{
+    fit_right_aligned, format_tokens, sanitize_status_text, truncate_to_width, truncate_with_ellipsis,
+    truncate_with_marker,
+};

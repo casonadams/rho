@@ -32,8 +32,8 @@ pub use layout::{
 };
 pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, GitPrInfo, GitStatusCounts,
-    InteractiveState, MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalMode, ModalOption, ModalState,
-    QueueKind, QueuedMessage, RunningTool, UiAction, UiEffect,
+    InteractiveState, MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalKind, ModalMode, ModalOption,
+    ModalState, QueueKind, QueuedMessage, RunningTool, UiAction, UiEffect,
 };
 pub use transcript::{
     ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_recap_notice, format_welcome_content,

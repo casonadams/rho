@@ -1,6 +1,6 @@
 use super::*;
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{EditorState, InteractiveState, ModalOption, ModalState};
+use crate::ui::interactive::{EditorState, ModalOption, ModalState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[test]
@@ -36,7 +36,7 @@ fn test_apply_input_edit() {
 }
 
 fn paste_into_modal(modal: Option<ModalState>, text: &str) -> (bool, TerminalController<NullBackend>) {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     if let Some(modal) = modal {
         controller.state_mut().push_modal(modal);
     }
@@ -63,7 +63,7 @@ fn test_handle_modal_paste_input_and_searchable_modes() {
 
 #[test]
 fn test_handle_modal_paste_select_mode_with_input_option() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let options = vec![
         ModalOption {
             label: "Allow".into(),
@@ -92,7 +92,7 @@ fn test_handle_modal_paste_select_mode_with_input_option() {
 }
 
 fn selector_with_options(labels: &[&str]) -> TerminalController<NullBackend> {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let options = labels
         .iter()
         .map(|label| ModalOption {
@@ -153,7 +153,7 @@ fn test_handle_selector_nav_digits_and_unhandled() {
 
 #[test]
 fn test_handle_selector_nav_searchable_and_filter() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let modal = ModalState::new("Search Modal", "", vec![]).with_search(true);
     controller.state_mut().push_modal(modal);
 

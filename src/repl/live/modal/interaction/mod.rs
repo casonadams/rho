@@ -11,8 +11,10 @@ pub(super) use types::prompt_label_for;
 use super::ModalKeyResult;
 use crate::error::Result;
 use crate::ui::interactive::{
-    InteractionPrompt, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController, UiEvent,
+    InteractionPrompt, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController, TranscriptItem, UiEvent,
 };
+use crate::ui::render::NoticeKind;
+use crate::ui::render::notices::format_notice;
 use select_mode::handle_select_mode_key;
 
 fn build_interaction_state(prompt: InteractionPrompt, theme: &crate::ui::theme::Theme) -> ModalState {
@@ -45,7 +47,7 @@ pub fn install_interaction<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     event: UiEvent,
     modal: &mut Option<PendingModal>,
-) {
+) -> Result<()> {
     match event {
         UiEvent::Interaction { prompt, responder } => {
             let state = build_interaction_state(prompt, controller.theme());
@@ -53,15 +55,26 @@ pub fn install_interaction<B: TerminalBackend>(
             *modal = Some(PendingModal::Interaction(responder));
         }
         UiEvent::A2uiModalRequest { request, response_tx } => {
-            if let Some(a2ui) = crate::ui::interactive::a2ui::A2uiModalState::from_request(request) {
-                controller.state_mut().push_modal(ModalState::from_a2ui(a2ui));
-                *modal = Some(PendingModal::A2ui(response_tx));
-            } else {
-                let _ = response_tx.send(rho_harness_core::a2ui::A2uiModalResult::Cancelled);
+            match crate::ui::interactive::a2ui::A2uiModalState::from_request(request) {
+                Ok(a2ui) => {
+                    controller.state_mut().push_modal(ModalState::from_a2ui(a2ui));
+                    *modal = Some(PendingModal::A2ui(response_tx));
+                }
+                Err(err) => {
+                    let _ = response_tx.send(rho_harness_core::a2ui::A2uiModalResult::Cancelled);
+                    push_warning(controller, &format!("A2UI request failed: {err}"))?;
+                }
             }
         }
         _ => unreachable!("only interaction events create ordered barriers"),
     }
+    Ok(())
+}
+
+fn push_warning<B: TerminalBackend>(controller: &mut TerminalController<B>, text: &str) -> Result<()> {
+    let notice = format_notice(controller.theme(), NoticeKind::Warn, text);
+    controller.push_transcript_item(TranscriptItem::Notice(notice))?;
+    Ok(())
 }
 
 pub fn handle_a2ui_modal_key<B: TerminalBackend>(
@@ -69,15 +82,18 @@ pub fn handle_a2ui_modal_key<B: TerminalBackend>(
     key: KeyEvent,
     pending: &mut Option<PendingModal>,
 ) -> Result<ModalKeyResult> {
-    let outcome = {
+    let (outcome, warnings) = {
         let Some(modal) = controller.state_mut().active_modal_mut() else {
             return Ok(ModalKeyResult::NotHandled);
         };
         let Some(a2ui) = modal.a2ui.as_mut() else {
             return Ok(ModalKeyResult::NotHandled);
         };
-        a2ui.handle_key(key)
+        (a2ui.handle_key(key), a2ui.take_warnings())
     };
+    for warning in warnings {
+        push_warning(controller, &warning)?;
+    }
     if let crate::ui::interactive::a2ui::A2uiKeyOutcome::Completed(result) = outcome {
         controller.state_mut().pop_modal();
         if let Some(pending) = pending.take() {

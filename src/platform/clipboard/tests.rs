@@ -41,3 +41,16 @@ async fn test_save_image_to_temp_png_async() {
 async fn test_clipboard_basic_async() {
     let _ = get_text_or_image_path_async().await;
 }
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn pipe_to_command_reports_failed_exit() {
+    assert!(pipe_to_command(&mut std::process::Command::new("false"), "text").is_err());
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn pipe_to_command_reports_missing_program() {
+    let mut cmd = std::process::Command::new("rho-no-such-clipboard-tool");
+    assert!(pipe_to_command(&mut cmd, "text").is_err());
+}

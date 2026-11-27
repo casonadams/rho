@@ -9,6 +9,7 @@ use rho_harness_core::a2ui::{
 use crate::ui::block::visible_width;
 use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::wrap_to_width;
+use crate::ui::theme::SGR_RESET;
 use crate::ui::theme::Theme;
 
 struct RenderCtx<'a, 'b> {
@@ -65,10 +66,14 @@ fn truncate_lines(mut lines: Vec<String>, max_lines: usize, width: usize, theme:
     let keep = max_lines.saturating_sub(1);
     let hidden = lines.len() - keep;
     lines.truncate(keep);
-    let dim = theme.dimmed;
-    let notice = format!("{dim}... (+{hidden} lines){dim:#}");
+    let notice = more_lines_notice(hidden, theme);
     lines.push(clamp_line(&notice, width));
     lines
+}
+
+pub(super) fn more_lines_notice(hidden: usize, theme: &Theme) -> String {
+    let dim = theme.dimmed;
+    format!("{dim}... (+{hidden} lines){dim:#}")
 }
 
 pub(super) fn clamp_line(line: &str, width: usize) -> String {
@@ -77,7 +82,7 @@ pub(super) fn clamp_line(line: &str, width: usize) -> String {
     }
     let truncated = truncate_to_width(line, width);
     if truncated.contains('\x1b') {
-        format!("{truncated}\x1b[0m")
+        format!("{truncated}{SGR_RESET}")
     } else {
         truncated
     }
@@ -241,12 +246,26 @@ fn render_card<'a>(
         let mut child_ctx = ctx.child(width);
         return render_node(&mut child_ctx, child);
     }
-    let inner_width = width.saturating_sub(4).max(1);
-    let mut child_ctx = ctx.child(inner_width);
+    let mut child_ctx = ctx.child(card_inner_width(width));
     let child_lines = render_node(&mut child_ctx, child);
     let border = card_border_style(tone, ctx.theme);
+    card_frame(ctx.surface, title, width, border, child_lines)
+}
+
+pub(super) fn card_inner_width(width: usize) -> usize {
+    width.saturating_sub(4).max(1)
+}
+
+pub(super) fn card_frame(
+    surface: &A2uiSurface,
+    title: Option<&BoundString>,
+    width: usize,
+    border: Style,
+    child_lines: Vec<String>,
+) -> Vec<String> {
+    let inner_width = card_inner_width(width);
     let mut out = Vec::with_capacity(child_lines.len() + 2);
-    out.push(card_top_border(ctx.surface, title, width, border));
+    out.push(card_top_border(surface, title, width, border));
     for line in child_lines {
         let clamped = clamp_line(&line, inner_width);
         let pad = inner_width.saturating_sub(visible_width(&clamped));
@@ -461,6 +480,17 @@ fn render_button(
     vec![clamp_line(&style_line(&format!("[ {resolved} ]"), style), width)]
 }
 
+pub(super) fn render_optional_label(
+    surface: &A2uiSurface,
+    label: Option<&BoundString>,
+    width: usize,
+    theme: &Theme,
+) -> Vec<String> {
+    label
+        .map(|lbl| render_text(surface, lbl, TextUsageHint::Body, None, width, theme))
+        .unwrap_or_default()
+}
+
 fn render_choice_picker(
     surface: &A2uiSurface,
     label: Option<&BoundString>,
@@ -468,10 +498,7 @@ fn render_choice_picker(
     width: usize,
     theme: &Theme,
 ) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(lbl) = label {
-        out.extend(render_text(surface, lbl, TextUsageHint::Body, None, width, theme));
-    }
+    let mut out = render_optional_label(surface, label, width, theme);
     for opt in options {
         let opt_label = surface.resolve_string(&opt.label);
         out.push(clamp_line(&format!("  ○ {opt_label}"), width));
@@ -524,9 +551,9 @@ fn render_checkbox(
 mod tests {
     use super::*;
     use crate::ui::block::strip_ansi;
+    use crate::ui::interactive::a2ui::test_support::create_surface;
     use rho_harness_core::a2ui::{
-        A2uiMessage, BoundValue, CreateSurface, SurfacePlacement, SurfaceStore, UpdateComponents, UpdateDataModel,
-        todo_surface_messages,
+        A2uiMessage, BoundValue, SurfaceStore, UpdateComponents, UpdateDataModel, todo_surface_messages,
     };
     use rho_harness_core::todo::{TodoItem, TodoStatus};
     use serde_json::json;
@@ -535,14 +562,7 @@ mod tests {
         let mut store = SurfaceStore::new();
         store
             .apply_all([
-                A2uiMessage::CreateSurface(CreateSurface {
-                    surface_id: "test".to_string(),
-                    catalog_id: None,
-                    placement: SurfacePlacement::AboveEditor,
-                    title: None,
-                    priority: 0,
-                    root_id: "root".to_string(),
-                }),
+                create_surface("test", "root", None),
                 A2uiMessage::UpdateComponents(UpdateComponents {
                     surface_id: "test".to_string(),
                     components,

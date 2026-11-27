@@ -1,8 +1,8 @@
-use super::super::ModalKeyResult;
+use super::super::{ModalKeyResult, handle_selector_key};
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
+use crossterm::event::KeyEvent;
 use rho_harness_core::config::{Config, ModelRole};
 
 pub fn visible_model_roles(config: &Config) -> Vec<ModelRole> {
@@ -26,13 +26,14 @@ pub fn build_models_options(session: &ReplSession) -> Vec<ModalOption> {
             format!("{:20}", format!("{} Model", role.title())),
             Some(model.to_string()),
         )
+        .with_value(role.as_str())
     });
     std::iter::once(default).chain(roles).collect()
 }
 
 pub fn open_models_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
     let options = build_models_options(session);
-    let modal = ModalState::new("Models", "", options);
+    let modal = ModalState::new("Models", "", options).with_kind(ModalKind::Models);
     controller.state_mut().push_modal(modal);
 }
 
@@ -46,8 +47,7 @@ fn open_role_from_selection<B: TerminalBackend>(
     }
     let modal = controller.state().active_modal()?;
     let option = modal.options.get(selected)?;
-    let raw = option.label.trim().strip_suffix(" Model")?;
-    let role = ModelRole::parse(raw).ok()?;
+    let role = ModelRole::parse(option.value.as_deref()?).ok()?;
     Some(ModalKeyResult::OpenRoleModelSelector { role })
 }
 
@@ -57,13 +57,15 @@ pub fn update_models_role_description<B: TerminalBackend>(
     role: Option<&ModelRole>,
     model_name: &str,
 ) {
-    let Some(modal) = controller.state_mut().find_modal_mut("Models") else {
+    let Some(modal) = controller.state_mut().find_modal_mut(&ModalKind::Models) else {
         return;
     };
-    let target_label = role.map(|r| format!("{} Model", r.title()));
-    let idx = match target_label.as_deref() {
+    let idx = match role {
         None => Some(0),
-        Some(label) => modal.options.iter().position(|opt| opt.label.trim() == label),
+        Some(role) => modal
+            .options
+            .iter()
+            .position(|opt| opt.value.as_deref() == Some(role.as_str())),
     };
     if let Some(idx) = idx
         && let Some(opt) = modal.options.get_mut(idx)
@@ -76,23 +78,10 @@ pub fn handle_models_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => {
-            let selected = controller.state().active_modal().map_or(0, |m| m.selected);
-            if let Some(res) = open_role_from_selection(controller, selected) {
-                return Ok(res);
-            }
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Esc => {
-            crate::repl::live::modal::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            crate::repl::live::modal::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    handle_selector_key(controller, key, |controller| {
+        let selected = controller.state().active_modal().map_or(0, |m| m.selected);
+        Ok(open_role_from_selection(controller, selected).unwrap_or(ModalKeyResult::Handled))
+    })
 }
 
 #[cfg(test)]

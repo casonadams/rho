@@ -1,5 +1,3 @@
-use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{InteractiveState, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::config::Config;
 
@@ -29,7 +27,7 @@ fn setup_default_model_session(config_dir: std::path::PathBuf) -> crate::repl::R
 fn model_selector_marks_default_model_separately_from_active() {
     let temp = tempfile::tempdir().unwrap();
     let session = setup_default_model_session(temp.path().to_path_buf());
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     super::super::modal::open_model_selector(&session, &mut controller);
     let modal = controller.state().active_modal().unwrap();
 
@@ -55,7 +53,7 @@ fn model_selector_marks_default_model_separately_from_active() {
 fn ctrl_s_key_saves_selected_model_as_default() {
     let temp = tempfile::tempdir().unwrap();
     let session = setup_default_model_session(temp.path().to_path_buf());
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
 
     super::super::modal::open_model_selector(&session, &mut controller);
 

@@ -1,5 +1,6 @@
 //! Session resolution and export utilities for the CLI.
 
+use super::CliResult;
 use crate::config::Config;
 use crate::config::cli::Cli;
 use rho_harness_core::error::AppError;
@@ -8,7 +9,7 @@ use rho_harness_core::session::export::{ExportFormat, write_export};
 use std::path::PathBuf;
 
 #[cfg(feature = "ui")]
-fn resolve_picker_target(config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
+fn resolve_picker_target(config: &Config) -> CliResult<Option<String>> {
     let theme = crate::ui::theme::detect_with_config(&config.ui);
     Ok(crate::ui::interactive::session_picker::prompt_session_picker(
         &config.sessions_dir,
@@ -17,14 +18,14 @@ fn resolve_picker_target(config: &Config) -> Result<Option<String>, Box<dyn std:
 }
 
 #[cfg(not(feature = "ui"))]
-fn resolve_picker_target(_config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
+fn resolve_picker_target(_config: &Config) -> CliResult<Option<String>> {
     Err(Box::new(AppError::Session(
         "the session picker is unavailable in headless mode (compiled without 'ui' feature); pass --resume <id> or --continue"
             .to_string(),
     )))
 }
 
-fn resolve_continue_target(sessions_dir: &std::path::Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
+fn resolve_continue_target(sessions_dir: &std::path::Path) -> CliResult<Option<String>> {
     let cwd = std::env::current_dir()?;
     Ok(SessionManager::last_session_for_cwd(sessions_dir, &cwd)?)
 }
@@ -64,7 +65,7 @@ pub fn restore_session_cwd(sessions_dir: &std::path::Path, session_id: &str) {
     }
 }
 
-pub fn resolve_resume_target(cli: &Cli, config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
+pub fn resolve_resume_target(cli: &Cli, config: &Config) -> CliResult<Option<String>> {
     if cli.resume_picker {
         resolve_picker_target(config)
     } else if cli.r#continue {
@@ -74,10 +75,7 @@ pub fn resolve_resume_target(cli: &Cli, config: &Config) -> Result<Option<String
     }
 }
 
-async fn resolve_export_target_id(
-    resume_target: Option<String>,
-    sessions_dir: &std::path::Path,
-) -> Result<String, Box<dyn std::error::Error>> {
+async fn resolve_export_target_id(resume_target: Option<String>, sessions_dir: &std::path::Path) -> CliResult<String> {
     if let Some(id) = resume_target {
         return Ok(id);
     }
@@ -87,11 +85,7 @@ async fn resolve_export_target_id(
         .ok_or_else(|| AppError::Session("no session found to export".to_string()).into())
 }
 
-pub async fn export_session(
-    export_path: &str,
-    resume_target: Option<String>,
-    config: &Config,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn export_session(export_path: &str, resume_target: Option<String>, config: &Config) -> CliResult {
     let target_id = resolve_export_target_id(resume_target, &config.sessions_dir).await?;
     let session_manager = SessionManager::new_async(&config.sessions_dir, Some(&target_id)).await?;
     let tree = session_manager.load_tree().await?;

@@ -11,6 +11,7 @@ pub mod tools;
 pub mod transcript;
 pub mod view;
 
+use crate::ui::theme::SGR_RESET;
 pub use ansi::OutputTracker;
 use ansi::terminal_newlines;
 #[cfg(test)]
@@ -206,7 +207,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.backend.write_text(ansi::CLEAR_SCREEN)?;
         for row in &rows {
             self.backend.write_text(row)?;
-            self.backend.write_text(ansi::SGR_RESET)?;
+            self.backend.write_text(SGR_RESET)?;
             self.backend.write_text("\r\n")?;
         }
         self.draw_region(region, pad)
@@ -267,7 +268,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             pin.print(&output);
         }
         if !self.output.style().is_empty() {
-            self.backend.write_text(ansi::SGR_RESET)?;
+            self.backend.write_text(SGR_RESET)?;
         }
         if self.output.is_open() {
             self.backend.write_text("\r\n")?;

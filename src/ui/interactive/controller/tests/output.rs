@@ -1,7 +1,6 @@
-use super::fake::{FakeTerminal, Operation};
-use crate::ui::interactive::controller::TerminalController;
+use super::fake::{Operation, controller};
 use crate::ui::interactive::controller::ansi::output_cursor;
-use crate::ui::interactive::{InteractiveState, OutputEvent, PendingUiBatch, UiEvent};
+use crate::ui::interactive::{OutputEvent, PendingUiBatch, UiEvent};
 
 #[test]
 fn output_cursor_tracks_wrap_boundaries_styles_and_wide_text() {
@@ -34,8 +33,7 @@ fn assert_operation_order(operations: &[Operation]) {
 
 #[test]
 fn output_erases_then_writes_then_redraws_with_one_flush() {
-    let (backend, operations, _) = FakeTerminal::new(10);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(10);
     operations.borrow_mut().clear();
 
     controller.write_output("answer\nnext").unwrap();
@@ -49,8 +47,7 @@ fn output_erases_then_writes_then_redraws_with_one_flush() {
 
 #[test]
 fn many_stream_fragments_are_written_with_one_controller_flush() {
-    let (backend, operations, _) = FakeTerminal::new(40);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(40);
     operations.borrow_mut().clear();
     let mut pending = PendingUiBatch::new(16 * 1024);
     for _ in 0..1_000 {
@@ -78,8 +75,7 @@ fn many_stream_fragments_are_written_with_one_controller_flush() {
 
 #[test]
 fn streamed_output_resumes_at_the_previous_line_end() {
-    let (backend, operations, _) = FakeTerminal::new(10);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(10);
     operations.borrow_mut().clear();
 
     controller.write_output("streamed ").unwrap();
@@ -105,8 +101,7 @@ fn streamed_output_resumes_at_the_previous_line_end() {
 
 #[test]
 fn push_transcript_item_with_open_output_executes_single_flush_transaction() {
-    let (backend, operations, _) = FakeTerminal::new(40);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(40);
 
     controller.write_stream_output("in-progress text").unwrap();
     operations.borrow_mut().clear();
@@ -131,8 +126,7 @@ fn writes(operations: &super::fake::SharedOperations) -> Vec<String> {
 
 #[test]
 fn a_style_opened_in_one_streamed_write_is_restored_for_the_next_and_closed_before_the_repaint() {
-    let (backend, operations, _) = FakeTerminal::new(40);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(40);
     operations.borrow_mut().clear();
 
     controller.write_stream_output("\x1b[2mfirst \x1b[0m\x1b[2m ").unwrap();
@@ -151,8 +145,7 @@ fn a_style_opened_in_one_streamed_write_is_restored_for_the_next_and_closed_befo
 
 #[test]
 fn balanced_streamed_output_adds_no_style_writes() {
-    let (backend, operations, _) = FakeTerminal::new(40);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(40);
     operations.borrow_mut().clear();
 
     controller.write_stream_output("\x1b[2mone\x1b[0m ").unwrap();

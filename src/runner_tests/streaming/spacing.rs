@@ -1,16 +1,14 @@
-use super::super::helpers::{presenter, terminal_session};
+use super::super::helpers::{drain_ui_events, presenter, terminal_session};
 use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 
 fn collect_output_events(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> String {
-    let mut out = String::new();
-    while let Ok(event) = events.try_recv() {
-        if let UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) = event {
-            out.push_str(&text);
-        }
-    }
-    out
+    drain_ui_events(events, |event| match event {
+        UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => Some(text),
+        _ => None,
+    })
+    .concat()
 }
 
 #[test]

@@ -2,7 +2,7 @@ use crate::repl::live::batch::LiveBatch;
 use crate::repl::live::idle::modal_action::{ModalActionContext, apply_modal_key_result};
 use crate::repl::live::modal::ModalKeyResult;
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{InteractiveState, TerminalController};
+use crate::ui::interactive::TerminalController;
 use rho_harness_core::config::ModelRole;
 
 pub(super) async fn setup_modal_action_harness(
@@ -14,7 +14,7 @@ pub(super) async fn setup_modal_action_harness(
     crate::engine::AgentEngine,
     crate::repl::input_reader::TerminalInputReader,
 ) {
-    let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let controller = crate::repl::test_controller();
     let batch = LiveBatch::new();
     let config = rho_harness_core::config::Config {
         config_dir: temp.to_path_buf(),

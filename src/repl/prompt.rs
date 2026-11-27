@@ -1,6 +1,18 @@
 use reedline::{Prompt, PromptEditMode, PromptHistorySearch};
 use std::borrow::Cow;
 
+pub(crate) fn read_answer<R: std::io::BufRead, W: std::io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+    prompt: &str,
+) -> Option<String> {
+    write!(writer, "{prompt}").ok()?;
+    writer.flush().ok()?;
+    let mut input = String::new();
+    reader.read_line(&mut input).ok()?;
+    Some(input)
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SimplePrompt;
 

@@ -1,7 +1,7 @@
 use crate::repl::interactive::{CompletionSet, CompletionSources, InteractiveHistory};
 use crate::repl::live::types::{EditorResources, IdleContext, LiveIo, LiveMessage};
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{InteractiveState, QueueKind, QueuedMessage, TerminalController};
+use crate::ui::interactive::{QueueKind, QueuedMessage, TerminalController};
 
 async fn setup_live_session_and_engine(
     dir: &std::path::Path,
@@ -36,7 +36,7 @@ impl LiveFixture {
         let (session, engine) = setup_live_session_and_engine(temp.path()).await;
         let (ui, events) = crate::ui::interactive::InteractiveUi::channel();
         Self {
-            controller: TerminalController::new(NullBackend, InteractiveState::default()).unwrap(),
+            controller: crate::repl::test_controller(),
             _ui: ui,
             events,
             input,

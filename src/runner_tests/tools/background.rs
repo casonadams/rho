@@ -1,4 +1,4 @@
-use super::super::helpers::{presenter, request, test_engine};
+use super::super::helpers::{drain_ui_events, presenter, request, test_engine};
 use crate::config::Config;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, TranscriptItem, UiEvent};
@@ -7,13 +7,10 @@ use rho_harness_core::model::{ToolCall, ToolFunction};
 use std::sync::Arc;
 
 fn shown_tool_outputs(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Vec<String> {
-    let mut outputs = Vec::new();
-    while let Ok(event) = events.try_recv() {
-        if let UiEvent::Transcript(TranscriptItem::Tool(line)) = event {
-            outputs.push(line.output);
-        }
-    }
-    outputs
+    drain_ui_events(events, |event| match event {
+        UiEvent::Transcript(TranscriptItem::Tool(line)) => Some(line.output),
+        _ => None,
+    })
 }
 
 #[cfg(unix)]

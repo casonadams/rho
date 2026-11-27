@@ -6,7 +6,7 @@
 //! Unstyled text, identifiers, and punctuation emit no color escapes so they
 //! inherit the terminal's native foreground transparently.
 
-use crate::ui::theme::Theme;
+use crate::ui::theme::{SGR_RESET, Theme};
 use anstyle::{AnsiColor, Color, Style};
 use std::borrow::Cow;
 use std::fmt::Write as _;
@@ -276,8 +276,8 @@ fn render_ansi_code_line(line: &str) -> String {
         out.push(ch);
         rest = &rest[ch.len_utf8()..];
     }
-    if emitted_sgr && !out.ends_with("\x1b[0m") && !out.ends_with("\x1b[m") {
-        out.push_str("\x1b[0m");
+    if emitted_sgr && !out.ends_with(SGR_RESET) && !out.ends_with("\x1b[m") {
+        out.push_str(SGR_RESET);
     }
     out
 }

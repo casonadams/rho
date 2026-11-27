@@ -2,6 +2,7 @@
 //! transcript), `line_mode` (readline fallback), and the shared command,
 //! completion, and coordination plumbing used by both.
 
+mod branch_summary;
 pub mod commands;
 pub mod completer;
 pub mod coordinator;
@@ -17,6 +18,15 @@ pub use completer::RhoCompleter;
 #[cfg(test)]
 pub(crate) use line_mode::submitted_input_rows;
 pub use prompt::SimplePrompt;
+
+#[cfg(test)]
+pub(crate) fn test_controller() -> crate::ui::interactive::TerminalController<crate::ui::interactive::NullBackend> {
+    crate::ui::interactive::TerminalController::new(
+        crate::ui::interactive::NullBackend,
+        crate::ui::interactive::InteractiveState::default(),
+    )
+    .unwrap()
+}
 
 use crate::auth::AuthStore;
 use crate::config::Config;

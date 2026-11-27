@@ -3,7 +3,7 @@ use crossterm::event::KeyEvent;
 use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
 
 const LOGIN_ACTION: &str = "login";
 
@@ -62,7 +62,9 @@ fn build_mcp_options(session: &ReplSession) -> (Vec<ModalOption>, usize) {
 
 pub fn open_mcp_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
     let (options, initial_selection) = build_mcp_options(session);
-    let mut modal = ModalState::new("Model Context Protocol", "", options).with_search(true);
+    let mut modal = ModalState::new("Model Context Protocol", "", options)
+        .with_search(true)
+        .with_kind(ModalKind::Mcp);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }

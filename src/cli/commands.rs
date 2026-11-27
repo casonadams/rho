@@ -1,54 +1,27 @@
 //! CLI subcommand execution (config, models, mcp, login, logout).
 
+use super::CliResult;
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::config::cli::Commands;
 
-async fn handle_update_command(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_update_command(config: &Config) -> CliResult {
     super::self_update::handle_self_update(config).await?;
     Ok(())
 }
 
-async fn handle_basic_commands(
-    cmd: &Commands,
-    config: &Config,
-    auth_store: &mut AuthStore,
-) -> Result<bool, Box<dyn std::error::Error>> {
+pub async fn handle_command(cmd: Commands, config: &Config, auth_store: &mut AuthStore) -> CliResult {
     match cmd {
         Commands::Login { provider, key_stdin } => {
-            super::auth::login_provider(provider.as_deref(), *key_stdin, config, auth_store).await?;
-            Ok(true)
+            super::auth::login_provider(provider.as_deref(), key_stdin, config, auth_store).await?
         }
-        Commands::Logout { provider } => {
-            super::auth::logout_provider(provider.as_deref(), config, auth_store)?;
-            Ok(true)
-        }
-        Commands::Config { key, value } => {
-            handle_config(key.clone(), value.clone(), config).await?;
-            Ok(true)
-        }
-        Commands::Models => {
-            handle_models(config, auth_store).await?;
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
-}
-
-pub async fn handle_command(
-    cmd: Commands,
-    config: &Config,
-    auth_store: &mut AuthStore,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if handle_basic_commands(&cmd, config, auth_store).await? {
-        return Ok(());
-    }
-    match cmd {
+        Commands::Logout { provider } => super::auth::logout_provider(provider.as_deref(), config, auth_store)?,
+        Commands::Config { key, value } => handle_config(key, value, config).await?,
+        Commands::Models => handle_models(config, auth_store).await?,
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config).await?,
         Commands::Update => handle_update_command(config).await?,
         Commands::Stats { last } => super::stats::handle_stats(last, &config.sessions_dir)?,
         Commands::Worktree { action } => super::worktree::handle_worktree(action, config).await?,
-        _ => {}
     }
     Ok(())
 }
@@ -74,11 +47,7 @@ fn print_config_summary(config: &Config) {
     }
 }
 
-async fn handle_config(
-    key: Option<String>,
-    value: Option<String>,
-    config: &Config,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_config(key: Option<String>, value: Option<String>, config: &Config) -> CliResult {
     match (key, value) {
         (Some(k), Some(v)) => {
             Config::set_file_value_async(&config.config_dir, &k, &v).await?;

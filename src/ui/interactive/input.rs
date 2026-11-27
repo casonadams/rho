@@ -203,8 +203,12 @@ static BINDINGS: &[(KeyCode, KeyModifiers, InputAction)] = &[
     (KeyCode::Tab, KeyModifiers::NONE, InputAction::Complete),
 ];
 
-fn is_shift_tab(event: &KeyEvent) -> bool {
+pub(crate) fn is_shift_tab(event: &KeyEvent) -> bool {
     event.code == KeyCode::BackTab || (event.code == KeyCode::Tab && event.modifiers.contains(KeyModifiers::SHIFT))
+}
+
+pub(crate) fn is_ctrl_c(event: &KeyEvent) -> bool {
+    event.code == KeyCode::Char('c') && event.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 fn bound_action(key: KeyCode, mods: KeyModifiers) -> Option<InputAction> {

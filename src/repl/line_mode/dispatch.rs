@@ -1,6 +1,7 @@
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
+use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::CommandResult;
 use crate::repl::commands::types::WorkflowLaunch;
 
@@ -20,23 +21,10 @@ pub async fn show_tree(session: &ReplSession, engine: &AgentEngine) -> Result<()
     Ok(())
 }
 
-pub(crate) fn has_assistant_turn(abandoned: &[&rho_harness_core::session::tree::TreeNodeData]) -> bool {
-    abandoned
-        .iter()
-        .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn)
-}
-
-pub(crate) fn should_summarize_branch(input: &str) -> bool {
-    let trimmed = input.trim().to_lowercase();
-    trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
-}
-
 fn prompt_abandoned_summary_confirmation() -> Option<bool> {
-    use std::io::Write;
-    print!("Summarize discoveries from abandoned branch before switching? [Y/n]: ");
-    std::io::stdout().flush().ok()?;
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).ok()?;
+    let mut stdin = std::io::stdin().lock();
+    let mut stdout = std::io::stdout();
+    let input = crate::repl::prompt::read_answer(&mut stdin, &mut stdout, SUMMARY_PROMPT)?;
     Some(should_summarize_branch(&input))
 }
 
@@ -51,7 +39,7 @@ pub(crate) async fn maybe_summarize_abandoned(
     if !prompt_abandoned_summary_confirmation().unwrap_or(false) {
         return None;
     }
-    let messages: Vec<_> = abandoned.iter().flat_map(|n| n.messages.clone()).collect();
+    let messages = abandoned_messages(abandoned);
     Some(engine.summarize_branch(&messages).await)
 }
 
@@ -60,10 +48,13 @@ async fn apply_branch_switch(
     summary: Option<&str>,
     old_leaf: &str,
     engine: &mut AgentEngine,
+    renderer: &crate::ui::TerminalRenderer,
 ) -> Result<()> {
     let _ = engine.switch_branch(Some(leaf_id.to_string())).await?;
-    if let Some(s) = summary {
-        let _ = engine.session_manager.append_branch_summary(s, old_leaf).await;
+    if let Some(s) = summary
+        && let Err(err) = engine.session_manager.append_branch_summary(s, old_leaf).await
+    {
+        renderer.print_notice(&format!("  [Warning: branch summary was not saved: {err}]\n"));
     }
     Ok(())
 }
@@ -73,7 +64,7 @@ pub async fn switch_active_branch(leaf_id: String, session: &mut ReplSession, en
     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
     let summary = maybe_summarize_abandoned(&abandoned, engine, session.renderer.has_interactive_ui()).await;
 
-    apply_branch_switch(&leaf_id, summary.as_deref(), &old_leaf, engine).await?;
+    apply_branch_switch(&leaf_id, summary.as_deref(), &old_leaf, engine, &session.renderer).await?;
     *engine = engine
         .rebuild(session.config.clone(), session.auth_store.clone())
         .await?;

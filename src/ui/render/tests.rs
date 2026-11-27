@@ -1125,7 +1125,7 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
     ));
     assert!(edit_header.ends_with("\u{b7} 1 edit \u{b7} +1 -2"), "{edit_header}");
     assert!(
-        write_header.ends_with("\u{b7} 2 lines \u{b7} 3 B \u{b7} new file"),
+        write_header.ends_with("\u{b7} 2 lines \u{b7} 3B \u{b7} new file"),
         "{write_header}"
     );
 }

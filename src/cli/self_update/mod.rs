@@ -101,7 +101,10 @@ impl GitHubClient {
             return Err(GitHubError::RateLimited);
         }
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = resp
+                .text()
+                .await
+                .map_err(|e| GitHubError::Api(format!("status {status}, unreadable body: {e}")))?;
             return Err(GitHubError::Api(format!("status {status}: {error_text}")));
         }
         resp.json::<Release>()
@@ -208,20 +211,18 @@ async fn download_and_install_self_binary(client: &GitHubClient, release: &Relea
         ))
     })?;
     let asset_names: Vec<String> = release.assets.iter().map(|a| a.name.clone()).collect();
-    let matched_name =
-        match_platform_asset(&platform, &asset_names).map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
+    let matched_name = match_platform_asset(&platform, &asset_names).map_err(|e| AppError::Other(e.into()))?;
     let asset = release
         .assets
         .iter()
         .find(|a| a.name == matched_name)
-        .expect("matched asset must exist in release");
+        .ok_or_else(|| AppError::Other(anyhow::anyhow!("matched asset {matched_name} missing from release")))?;
     let downloaded = client
         .download_asset(&asset.browser_download_url)
         .await
-        .map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
-    let binary =
-        extract_binary(&asset.name, &downloaded, "rho").map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
-    write_binary_atomically(current_exe, &binary).map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
+        .map_err(|e| AppError::Other(e.into()))?;
+    let binary = extract_binary(&asset.name, &downloaded, "rho").map_err(|e| AppError::Other(e.into()))?;
+    write_binary_atomically(current_exe, &binary).map_err(|e| AppError::Other(e.into()))?;
     Ok(())
 }
 
@@ -231,7 +232,7 @@ pub async fn self_update(ctx: SelfUpdateContext<'_>) -> Result<SelfUpdateStatus>
     let release = client
         .fetch_release(RHO_GITHUB_REPO, None)
         .await
-        .map_err(|e| AppError::Other(anyhow::anyhow!(e.to_string())))?;
+        .map_err(|e| AppError::Other(e.into()))?;
 
     if !is_update_available(ctx.current_version, &release.tag_name) {
         return Ok(SelfUpdateStatus::AlreadyUpToDate {

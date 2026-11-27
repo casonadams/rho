@@ -7,7 +7,7 @@ use super::{ModalKeyResult, apply_input_edit};
 use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::ui::interactive::{
-    InputAction, ModalState, TerminalBackend, TerminalController, UiAction, map_key, modal_body_max_scroll,
+    InputAction, ModalKind, ModalState, TerminalBackend, TerminalController, UiAction, map_key, modal_body_max_scroll,
 };
 
 pub const BTW_MODAL_TITLE: &str = "Side Question (/btw)";
@@ -229,7 +229,7 @@ fn scroll_modal_to_bottom<B: TerminalBackend>(modal: &mut ModalState, controller
 }
 
 pub fn open_btw_modal<B: TerminalBackend>(controller: &mut TerminalController<B>, body: String) {
-    let mut modal = ModalState::new(BTW_MODAL_TITLE, body, Vec::new());
+    let mut modal = ModalState::new(BTW_MODAL_TITLE, body, Vec::new()).with_kind(ModalKind::Btw);
     modal.enter_input_mode("btw> ");
     scroll_modal_to_bottom(&mut modal, controller);
     controller.state_mut().push_modal(modal);
@@ -239,7 +239,7 @@ fn sync_btw_modal_body<B: TerminalBackend>(controller: &mut TerminalController<B
     let is_open = controller
         .state()
         .active_modal()
-        .is_some_and(|m| m.title == BTW_MODAL_TITLE);
+        .is_some_and(|m| m.kind == ModalKind::Btw);
     if !is_open {
         return;
     }
@@ -259,7 +259,7 @@ pub fn refresh_btw_modal<B: TerminalBackend>(controller: &mut TerminalController
     let is_open = controller
         .state()
         .active_modal()
-        .is_some_and(|m| m.title == BTW_MODAL_TITLE);
+        .is_some_and(|m| m.kind == ModalKind::Btw);
     if !is_open {
         return false;
     }
@@ -423,10 +423,10 @@ fn submit_btw_enter<B: TerminalBackend>(controller: &mut TerminalController<B>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::interactive::{InteractiveState, NullBackend};
+    use crate::ui::interactive::NullBackend;
 
     fn test_controller() -> TerminalController<NullBackend> {
-        TerminalController::new(NullBackend, InteractiveState::default()).unwrap()
+        crate::repl::test_controller()
     }
 
     #[test]

@@ -1,12 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::super::ModalKeyResult;
+use super::super::{ModalKeyResult, handle_selector_key};
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
 use rho_harness_core::config::ModelRole;
-
-pub const MODEL_SELECTOR_TITLE: &str = "Select Model";
 
 fn is_default_model(session: &ReplSession, canonical_id: &str) -> bool {
     session.config.default_model.as_deref() == Some(canonical_id)
@@ -59,9 +57,10 @@ pub fn open_model_selector_with_default<B: TerminalBackend>(
     save_as_default: bool,
 ) {
     let (options, selected) = model_selector_options(session);
-    let mut modal = ModalState::new(MODEL_SELECTOR_TITLE, catalog_status(session), options)
+    let mut modal = ModalState::new("Select Model", catalog_status(session), options)
         .with_search(true)
-        .with_save_as_default(save_as_default);
+        .with_save_as_default(save_as_default)
+        .with_kind(ModalKind::Model);
     modal.selected = selected;
     controller.state_mut().push_modal(modal);
 }
@@ -96,34 +95,28 @@ fn role_selector_title(role: &ModelRole) -> String {
     format!("Select {} Model", role.title())
 }
 
-/// The role whose model selector carries `title`.
-pub fn role_of_title(title: &str) -> Option<ModelRole> {
-    let raw = title.strip_prefix("Select ")?.strip_suffix(" Model")?;
-    ModelRole::parse(raw).ok()
-}
-
 pub fn open_role_model_selector<B: TerminalBackend>(
     session: &ReplSession,
     controller: &mut TerminalController<B>,
     role: &ModelRole,
 ) {
     let (options, selected) = role_selector_options(session, role);
-    let mut modal = ModalState::new(role_selector_title(role), catalog_status(session), options).with_search(true);
+    let mut modal = ModalState::new(role_selector_title(role), catalog_status(session), options)
+        .with_search(true)
+        .with_kind(ModalKind::RoleModel(role.clone()));
     modal.selected = selected;
     controller.state_mut().push_modal(modal);
 }
 
 /// Rebuilds an open model selector from the current catalog, keeping the search and selection.
 pub fn refresh_open_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
-    let Some(title) = controller.state().active_modal().map(|m| m.title.clone()) else {
+    let Some(kind) = controller.state().active_modal().map(|m| m.kind.clone()) else {
         return;
     };
-    let options = if title == MODEL_SELECTOR_TITLE {
-        model_selector_options(session).0
-    } else if let Some(role) = role_of_title(&title) {
-        role_selector_options(session, &role).0
-    } else {
-        return;
+    let options = match kind {
+        ModalKind::Model => model_selector_options(session).0,
+        ModalKind::RoleModel(role) => role_selector_options(session, &role).0,
+        _ => return,
     };
     let body = catalog_status(session);
     if let Some(modal) = controller.state_mut().active_modal_mut() {
@@ -152,24 +145,6 @@ fn pop_and_select<B: TerminalBackend>(
     controller.state_mut().pop_modal();
     controller.redraw()?;
     Ok(choice.map_or(ModalKeyResult::Handled, |(model, provider)| selected(model, provider)))
-}
-
-fn handle_selector_key<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    key: KeyEvent,
-    select: impl FnOnce(&mut TerminalController<B>) -> Result<ModalKeyResult>,
-) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => select(controller),
-        KeyCode::Esc => {
-            crate::repl::live::modal::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            crate::repl::live::modal::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
 }
 
 pub fn handle_model_key<B: TerminalBackend>(

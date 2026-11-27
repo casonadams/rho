@@ -91,13 +91,12 @@ impl LiveBatch {
         let asker = self.asking_agent();
         let target = asker.as_ref().map(|s| s.id);
         if target == controller.viewed_agent() {
-            install_interaction(controller, event, &mut self.modal);
-            return Ok(());
+            return install_interaction(controller, event, &mut self.modal);
         }
         match controller.approval_focus() {
             ApprovalFocus::Switch => {
                 show_agent(controller, self.monitor.as_ref(), target)?;
-                install_interaction(controller, event, &mut self.modal);
+                install_interaction(controller, event, &mut self.modal)?;
             }
             ApprovalFocus::Indicate => {
                 let label = asker.map_or_else(|| "main agent".to_string(), |s| s.label);
@@ -112,16 +111,16 @@ impl LiveBatch {
     fn release_held_interaction<B: crate::ui::interactive::TerminalBackend>(
         &mut self,
         controller: &mut TerminalController<B>,
-    ) -> bool {
+    ) -> Result<bool> {
         if !matches!(&self.held_interaction, Some((_, target)) if *target == controller.viewed_agent()) {
-            return false;
+            return Ok(false);
         }
         let Some((event, _)) = self.held_interaction.take() else {
-            return false;
+            return Ok(false);
         };
         controller.state_mut().footer_mut().awaiting_approval = None;
-        install_interaction(controller, event, &mut self.modal);
-        true
+        install_interaction(controller, event, &mut self.modal)?;
+        Ok(true)
     }
 
     pub fn enqueue<B: crate::ui::interactive::TerminalBackend>(
@@ -169,7 +168,7 @@ impl LiveBatch {
         controller: &mut TerminalController<B>,
         redraw: bool,
     ) -> Result<()> {
-        let released = self.release_held_interaction(controller);
+        let released = self.release_held_interaction(controller)?;
         controller.set_attention(self.modal.is_some() || self.held_interaction.is_some());
         if self.ui.is_empty() && !redraw && !released {
             return Ok(());
@@ -250,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_drain_ui_events_empty() {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let (_tx, mut rx) = mpsc::unbounded_channel();
         let mut modal = None;
         drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
@@ -259,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_drain_ui_events_flushes_activity_and_output() {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let (tx, mut rx) = mpsc::unbounded_channel();
         tx.send(UiEvent::Activity(Activity::Working)).unwrap();
         tx.send(UiEvent::RunningTool(Some("read".into()))).unwrap();
@@ -271,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_drain_ui_events_dismiss_interaction_clears_modal() {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let (oneshot_tx, _oneshot_rx) = oneshot::channel();
         let mut modal = None;
         install_interaction(
@@ -293,7 +292,8 @@ mod tests {
                 responder: InteractionResponder { responder: oneshot_tx },
             },
             &mut modal,
-        );
+        )
+        .unwrap();
         assert!(modal.is_some());
         assert!(controller.state().active_modal().is_some());
 
@@ -311,7 +311,7 @@ mod tests {
     }
 
     fn flush_events(events: Vec<UiEvent>, redraw: bool) -> (TerminalController<NullBackend>, LiveBatch) {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let mut batch = LiveBatch::new();
         queue(&mut batch, events);
         batch.flush(&mut controller, redraw).unwrap();
@@ -321,7 +321,7 @@ mod tests {
     #[test]
     fn flush_without_pending_work_keeps_activity_idle() {
         for redraw in [false, true] {
-            let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+            let mut controller = crate::repl::test_controller();
             let mut batch = LiveBatch::new();
             batch.flush(&mut controller, redraw).unwrap();
             assert_eq!(controller.state().footer().activity, Activity::Idle);
@@ -342,7 +342,7 @@ mod tests {
             ),
         ];
         for (turn, steps) in cases {
-            let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+            let mut controller = crate::repl::test_controller();
             let mut batch = if turn { LiveBatch::turn() } else { LiveBatch::new() };
             for (event, expected) in steps {
                 queue(&mut batch, vec![UiEvent::Activity(event)]);
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn flush_sets_and_clears_system_message() {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let mut batch = LiveBatch::new();
         queue(&mut batch, vec![UiEvent::SystemMessage(Some("syncing".into()))]);
         batch.flush(&mut controller, false).unwrap();
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn flush_drains_tool_end_alongside_tool_transcript() {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         controller
             .start_tool(crate::ui::interactive::ToolStartRequest {
                 name: "bash".into(),
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn flush_applies_running_tool_update_with_redraw_request() {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let mut batch = LiveBatch::new();
         queue(&mut batch, vec![UiEvent::RunningTool(Some("grep".into()))]);
         batch.flush(&mut controller, true).unwrap();
@@ -444,7 +444,7 @@ mod tests {
             renderer.emit_a2ui(msg);
         }
 
-        let mut disabled_ctrl = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut disabled_ctrl = crate::repl::test_controller();
         let mut modal = None;
         drain_ui_events(&mut disabled_ctrl, &mut rx, &mut modal).unwrap();
         assert!(disabled_ctrl.state().a2ui_store().is_empty());
@@ -516,7 +516,7 @@ mod tests {
         let task = tokio::spawn(async move { renderer.request_a2ui_modal(req).await });
         tokio::task::yield_now().await;
 
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let mut modal = None;
         drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
         assert!(modal.is_some());

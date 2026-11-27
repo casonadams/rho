@@ -2,6 +2,7 @@
 
 pub(crate) use rho_engine::tools::file_change::{capture, edit_start_lines, explicit_edit_line, read_bounded};
 use rho_harness_core::presentation::{FileChange, ToolLine};
+use rho_harness_core::text::format_size;
 use serde_json::Value;
 
 pub(crate) fn removed_text(edit: &Value, idx: usize, change: Option<&FileChange>) -> String {
@@ -34,14 +35,6 @@ pub(crate) fn edit_line_stats(args: &Value, change: Option<&FileChange>) -> Opti
         .map(|edit| edit.get("newText").and_then(Value::as_str).map_or(0, lines))
         .sum();
     Some((edits.len(), added, removed))
-}
-
-pub(crate) fn format_size(bytes: usize) -> String {
-    match bytes {
-        0..=1023 => format!("{bytes} B"),
-        1024..=1_048_575 => format!("{:.1} KB", bytes as f64 / 1024.0),
-        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
-    }
 }
 
 fn plural(count: usize, noun: &str) -> String {
@@ -108,14 +101,14 @@ mod tests {
     fn write_header_reports_lines_size_and_overwrite_state() {
         let args = json!({"path": "a.txt", "content": "one\ntwo\nthree\n"});
         let cases = [
-            (None, "3 lines \u{b7} 14 B"),
+            (None, "3 lines \u{b7} 14B"),
             (
                 Some(FileChange {
                     overwrote_existing: false,
                     edit_start_lines: vec![],
                     replaced_regions: vec![],
                 }),
-                "3 lines \u{b7} 14 B \u{b7} new file",
+                "3 lines \u{b7} 14B \u{b7} new file",
             ),
             (
                 Some(FileChange {
@@ -123,7 +116,7 @@ mod tests {
                     edit_start_lines: vec![],
                     replaced_regions: vec![],
                 }),
-                "3 lines \u{b7} 14 B \u{b7} overwrote",
+                "3 lines \u{b7} 14B \u{b7} overwrote",
             ),
         ];
         for (change, expected) in cases {
@@ -137,13 +130,6 @@ mod tests {
         failed.is_error = true;
         assert!(header_details(&failed).is_none());
         assert!(header_details(&tool("rg", json!({}), None)).is_none());
-    }
-
-    #[test]
-    fn format_size_uses_binary_units() {
-        let sizes = [0, 1023, 1024, 1536, 1_048_576, 5 * 1_048_576];
-        let shown: Vec<String> = sizes.into_iter().map(format_size).collect();
-        assert_eq!(shown, ["0 B", "1023 B", "1.0 KB", "1.5 KB", "1.0 MB", "5.0 MB"]);
     }
 
     #[test]

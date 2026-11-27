@@ -1,15 +1,13 @@
 //! CLI handler for `rho worktree [list|add|clear]`.
 
+use super::CliResult;
 use crate::config::Config;
 use crate::config::cli::WorktreeCommands;
 use rho_engine::worktree::{
     clear_managed_worktrees, create_session_worktree, default_session_branch, list_managed_worktrees,
 };
 
-pub async fn handle_worktree(
-    action: Option<WorktreeCommands>,
-    config: &Config,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_worktree(action: Option<WorktreeCommands>, config: &Config) -> CliResult {
     let cwd = std::env::current_dir()?;
     let base_dir = config.worktree.effective_base(&config.config_dir);
 

@@ -1,3 +1,4 @@
+use super::CliResult;
 use crate::config::Config;
 use crate::config::cli::McpCommands;
 use rho_engine::mcp::oauth::{LoginRequest, McpTokenStore};
@@ -9,7 +10,7 @@ use rho_harness_core::config::{McpExposureMode, McpServerConfig, McpTransportKin
 use std::sync::Arc;
 use std::time::Instant;
 
-pub async fn handle_mcp(action: Option<McpCommands>, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_mcp(action: Option<McpCommands>, config: &Config) -> CliResult {
     match action.unwrap_or(McpCommands::List) {
         McpCommands::List => {
             list_servers(config);
@@ -248,7 +249,7 @@ async fn build_mcp_transport(
     name: &str,
     server_cfg: &McpServerConfig,
     config: &Config,
-) -> Result<Arc<McpTransport>, Box<dyn std::error::Error>> {
+) -> CliResult<Arc<McpTransport>> {
     let working_dir = std::env::current_dir()?;
     Ok(build_transport(name, server_cfg, &working_dir, Some(&token_store(config))).await?)
 }
@@ -295,7 +296,7 @@ async fn probe_prompts(client: &McpClient) {
     }
 }
 
-async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_server(name: &str, config: &Config) -> CliResult {
     let Some(server_cfg) = config.mcp.servers.get(name) else {
         return Err(format!("MCP server '{name}' not found in configuration.").into());
     };
@@ -334,14 +335,14 @@ fn build_server_config(target: &str, args: &[String]) -> McpServerConfig {
     }
 }
 
-fn add_server(name: &str, target: &str, args: &[String], config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+fn add_server(name: &str, target: &str, args: &[String], config: &Config) -> CliResult {
     let server = build_server_config(target, args);
     Config::add_mcp_server(&config.config_dir, name, server)?;
     println!("✓ Added MCP server '{name}' to config.");
     Ok(())
 }
 
-fn remove_server(name: &str, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+fn remove_server(name: &str, config: &Config) -> CliResult {
     Config::remove_mcp_server(&config.config_dir, name)?;
     println!("✓ Removed MCP server '{name}' from config.");
     Ok(())

@@ -1,143 +1,141 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
-use super::super::ModalKeyResult;
+use super::super::{ModalKeyResult, handle_selector_key};
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
+
+const ON: &str = "On";
+const OFF: &str = "Off";
+
+/// Rows of the tools modal in display order; a row's position is its option index.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Row {
+    SearchEngine,
+    WebSearch,
+    WebFetch,
+    Mcp,
+    Permissions,
+}
+
+impl Row {
+    const ALL: [Row; 5] = [
+        Row::SearchEngine,
+        Row::WebSearch,
+        Row::WebFetch,
+        Row::Mcp,
+        Row::Permissions,
+    ];
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|row| *row == self).unwrap_or_default()
+    }
+
+    fn from_index(index: usize) -> Option<Row> {
+        Self::ALL.get(index).copied()
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Row::SearchEngine => "Search Engine     ",
+            Row::WebSearch => "Web Search        ",
+            Row::WebFetch => "Web Fetch         ",
+            Row::Mcp => "MCP               ",
+            Row::Permissions => "Permissions       ",
+        }
+    }
+
+    fn status(self, session: &ReplSession) -> String {
+        let config = &session.config;
+        match self {
+            Row::SearchEngine => config.tools.web.search.default.to_string(),
+            Row::WebSearch => on_off(config.tools.web.search.enabled).to_string(),
+            Row::WebFetch => on_off(config.tools.web.fetch.enabled).to_string(),
+            Row::Mcp => on_off(config.mcp.enabled).to_string(),
+            Row::Permissions => on_off(config.permission.enabled).to_string(),
+        }
+    }
+}
+
+fn on_off(on: bool) -> &'static str {
+    if on { ON } else { OFF }
+}
 
 pub fn build_tools_options(session: &ReplSession) -> Vec<ModalOption> {
-    let search_engine = &session.config.tools.web.search.default;
-    let web_search = if session.config.tools.web.search.enabled {
-        "On"
-    } else {
-        "Off"
-    };
-    let web_fetch = if session.config.tools.web.fetch.enabled {
-        "On"
-    } else {
-        "Off"
-    };
-    let mcp = if session.config.mcp.enabled { "On" } else { "Off" };
-    let permission = if session.config.permission.enabled { "On" } else { "Off" };
-
-    vec![
-        ModalOption::new("Search Engine     ", Some(search_engine.to_string())),
-        ModalOption::new("Web Search        ", Some(web_search.to_string())),
-        ModalOption::new("Web Fetch         ", Some(web_fetch.to_string())),
-        ModalOption::new("MCP               ", Some(mcp.to_string())),
-        ModalOption::new("Permissions       ", Some(permission.to_string())),
-    ]
+    Row::ALL
+        .iter()
+        .map(|row| ModalOption::new(row.label(), Some(row.status(session))))
+        .collect()
 }
 
 pub fn open_tools_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
     let options = build_tools_options(session);
-    let modal = ModalState::new("Tools & Permissions", "", options);
+    let modal = ModalState::new("Tools & Permissions", "", options).with_kind(ModalKind::Tools);
     controller.state_mut().push_modal(modal);
-}
-
-fn update_tools_option_description<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    status: &str,
-    index: usize,
-) {
-    controller
-        .state_mut()
-        .update_modal_option_desc("Tools & Permissions", index, status);
 }
 
 pub fn update_tools_search_engine<B: TerminalBackend>(controller: &mut TerminalController<B>, engine: &str) {
     controller
         .state_mut()
-        .update_modal_option_desc("Tools & Permissions", 0, engine);
+        .update_modal_option_desc(&ModalKind::Tools, Row::SearchEngine.index(), engine);
 }
 
-fn toggle_tool_state_description<B: TerminalBackend>(controller: &mut TerminalController<B>, index: usize) {
-    let current = controller
+/// Flips the on/off status of `row` and returns the new state.
+fn toggle_row<B: TerminalBackend>(controller: &mut TerminalController<B>, row: Row) -> bool {
+    let enabled = controller
         .state()
         .active_modal()
-        .and_then(|m| m.options.get(index))
+        .and_then(|m| m.options.get(row.index()))
         .and_then(|o| o.description.as_deref())
-        .unwrap_or("Off");
-    let next = if current == "On" { "Off" } else { "On" };
-    update_tools_option_description(controller, next, index);
+        == Some(ON);
+    let next = !enabled;
+    controller
+        .state_mut()
+        .update_modal_option_desc(&ModalKind::Tools, row.index(), on_off(next));
+    next
 }
 
-fn toggle_tools_setting<B: TerminalBackend>(controller: &mut TerminalController<B>, selected: usize) -> ModalKeyResult {
-    match selected {
-        0 => ModalKeyResult::OpenSearchEngineSelector,
-        1 => {
-            toggle_tool_state_description(controller, 1);
-            let enabled = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.options.get(1))
-                .and_then(|o| o.description.as_deref())
-                == Some("On");
-            ModalKeyResult::WebSearchToggled { enabled }
-        }
-        2 => {
-            toggle_tool_state_description(controller, 2);
-            let enabled = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.options.get(2))
-                .and_then(|o| o.description.as_deref())
-                == Some("On");
-            ModalKeyResult::WebFetchToggled { enabled }
-        }
-        3 => {
-            toggle_tool_state_description(controller, 3);
-            let enabled = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.options.get(3))
-                .and_then(|o| o.description.as_deref())
-                == Some("On");
-            ModalKeyResult::McpToggled { enabled }
-        }
-        4 => {
-            toggle_tool_state_description(controller, 4);
-            let enabled = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.options.get(4))
-                .and_then(|o| o.description.as_deref())
-                == Some("On");
-            ModalKeyResult::PermissionToggled { enabled }
-        }
-        _ => ModalKeyResult::Handled,
+fn activate_row<B: TerminalBackend>(controller: &mut TerminalController<B>, row: Row) -> ModalKeyResult {
+    match row {
+        Row::SearchEngine => ModalKeyResult::OpenSearchEngineSelector,
+        Row::WebSearch => ModalKeyResult::WebSearchToggled {
+            enabled: toggle_row(controller, row),
+        },
+        Row::WebFetch => ModalKeyResult::WebFetchToggled {
+            enabled: toggle_row(controller, row),
+        },
+        Row::Mcp => ModalKeyResult::McpToggled {
+            enabled: toggle_row(controller, row),
+        },
+        Row::Permissions => ModalKeyResult::PermissionToggled {
+            enabled: toggle_row(controller, row),
+        },
     }
+}
+
+fn activate_selected<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
+    let selected = controller.state().active_modal().map_or(0, |m| m.selected);
+    let res = Row::from_index(selected).map_or(ModalKeyResult::Handled, |row| activate_row(controller, row));
+    controller.redraw()?;
+    Ok(res)
 }
 
 pub fn handle_tools_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter | KeyCode::Char(' ') => {
-            let selected = controller.state().active_modal().map_or(0, |m| m.selected);
-            let res = toggle_tools_setting(controller, selected);
-            controller.redraw()?;
-            Ok(res)
-        }
-        KeyCode::Esc => {
-            crate::repl::live::modal::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            crate::repl::live::modal::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
+    if key.code == KeyCode::Char(' ') {
+        return activate_selected(controller);
     }
+    handle_selector_key(controller, key, activate_selected)
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::test_support::create_test_session;
     use super::*;
-    use crate::ui::interactive::NullBackend;
-    use crate::ui::interactive::{InteractiveState, TerminalController};
-    use crossterm::event::{KeyCode, KeyModifiers};
+    use crate::repl::test_controller;
+    use crossterm::event::KeyModifiers;
 
     #[test]
     fn build_tools_options_has_all_entries() {
@@ -159,7 +157,7 @@ mod tests {
     #[test]
     fn open_tools_modal_and_toggle_options() {
         let session = create_test_session();
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = test_controller();
 
         open_tools_selector(&session, &mut controller);
         assert_eq!(controller.state().active_modal().unwrap().title, "Tools & Permissions");
@@ -207,7 +205,7 @@ mod tests {
     #[test]
     fn update_tools_search_engine_updates_description_in_active_modal() {
         let session = create_test_session();
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = test_controller();
 
         open_tools_selector(&session, &mut controller);
         assert_eq!(

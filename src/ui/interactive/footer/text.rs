@@ -46,15 +46,19 @@ pub fn truncate_to_width(value: &str, width: usize) -> String {
 }
 
 pub fn truncate_with_ellipsis(value: &str, width: usize) -> String {
+    truncate_with_marker(value, width, "...")
+}
+
+pub fn truncate_with_marker(value: &str, width: usize, marker: &str) -> String {
     if visible_width(value) <= width {
         return value.to_string();
     }
-    if width <= 3 {
+    let marker_width = visible_width(marker);
+    if width <= marker_width {
         return truncate_to_width(value, width);
     }
-    let target = width - 3;
-    let truncated = truncate_to_width(value, target);
-    format!("{truncated}...")
+    let truncated = truncate_to_width(value, width - marker_width);
+    format!("{truncated}{marker}")
 }
 
 pub fn fit_right_aligned(left: &str, right: &str, width: usize) -> String {

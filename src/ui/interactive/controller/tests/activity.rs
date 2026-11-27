@@ -1,4 +1,4 @@
-use super::fake::{FakeTerminal, Operation};
+use super::fake::{FakeTerminal, Operation, controller};
 use crate::ui::interactive::controller::TerminalController;
 use crate::ui::interactive::{Activity, InteractiveState};
 
@@ -92,8 +92,7 @@ fn unfocused_controller_preserves_working_line_and_suppresses_software_cursor() 
 
 #[test]
 fn idle_footer_is_rendered_dimmed() {
-    let (backend, operations, _) = FakeTerminal::new(20);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(20);
     operations.borrow_mut().clear();
 
     controller.tick().unwrap();

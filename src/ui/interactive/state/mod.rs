@@ -9,7 +9,7 @@ pub mod types;
 
 pub use autocomplete::{AutocompleteItem, AutocompleteState};
 pub use editor::EditorState;
-pub use modal::{ModalMode, ModalOption, ModalState};
+pub use modal::{ModalKind, ModalMode, ModalOption, ModalState};
 pub use running_tool::{MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, RunningTool};
 pub use types::{Activity, FooterState, GitPrInfo, GitStatusCounts, QueueKind, QueuedMessage, UiAction, UiEffect};
 
@@ -182,16 +182,16 @@ impl InteractiveState {
         self.modals.len()
     }
 
-    pub fn find_modal_mut(&mut self, title: &str) -> Option<&mut ModalState> {
+    pub fn find_modal_mut(&mut self, kind: &ModalKind) -> Option<&mut ModalState> {
         self.modals
             .iter_mut()
             .map(|frame| &mut frame.modal)
-            .find(|m| m.title == title)
+            .find(|m| m.kind == *kind)
     }
 
-    pub fn update_modal_option_desc(&mut self, title: &str, index: usize, desc: &str) {
+    pub fn update_modal_option_desc(&mut self, kind: &ModalKind, index: usize, desc: &str) {
         for frame in &mut self.modals {
-            if frame.modal.title == title {
+            if frame.modal.kind == *kind {
                 if let Some(opt) = frame.modal.options.get_mut(index) {
                     opt.description = Some(desc.to_string());
                 }

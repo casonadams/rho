@@ -5,6 +5,7 @@ use rho_harness_core::config::DisplayUiConfig;
 use rho_harness_core::presentation::TurnTelemetry;
 
 use crate::ui::interactive::footer::{fit_right_aligned, format_tokens, truncate_with_ellipsis};
+use crate::ui::theme::SGR_RESET;
 
 fn format_local_timestamp(timestamp_unix_ms: u64) -> Option<String> {
     if timestamp_unix_ms == 0 {
@@ -66,7 +67,7 @@ pub fn format_turn_stats_row(telemetry: &TurnTelemetry, display: &DisplayUiConfi
     } else {
         fit_right_aligned(&left, &right, inner_width)
     };
-    Some(format!("\x1b[2m {body}\x1b[0m"))
+    Some(format!("\x1b[2m {body}{SGR_RESET}"))
 }
 
 pub fn format_cache_miss_marker(telemetry: &TurnTelemetry, display: &DisplayUiConfig, width: usize) -> Option<String> {
@@ -83,7 +84,7 @@ pub fn format_cache_miss_marker(telemetry: &TurnTelemetry, display: &DisplayUiCo
     } else {
         truncate_with_ellipsis(&msg, width)
     };
-    Some(format!("\x1b[2m{body}\x1b[0m"))
+    Some(format!("\x1b[2m{body}{SGR_RESET}"))
 }
 
 #[cfg(test)]

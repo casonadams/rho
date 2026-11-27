@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::ui::interactive::{
-    InputAction, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController, map_key,
+    InputAction, ModalKind, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController, map_key,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::session::tree::SessionTree;
@@ -27,7 +27,8 @@ pub fn open_tree_selector<B: TerminalBackend>(tree: &SessionTree, controller: &m
         options.push(ModalOption::new(label, Some(desc)));
     }
 
-    let mut modal = ModalState::new("Conversation Tree", "Select a checkpoint to navigate to:", options);
+    let mut modal =
+        ModalState::new("Conversation Tree", "Select a checkpoint to navigate to:", options).with_kind(ModalKind::Tree);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }

@@ -69,7 +69,7 @@ async fn handle_list_sessions_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let cfg = ctx.config.read().await;
-    let summaries = rho_harness_core::session::list_session_summaries(&cfg.sessions_dir).unwrap_or_default();
+    let summaries = rho_harness_core::session::list_session_summaries(&cfg.sessions_dir)?;
     ctx.writer
         .write_message(&RpcResponse::success(
             req_id,
@@ -255,14 +255,16 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
         (engine.base_dir.clone(), engine.model_catalog().clone())
     };
     let result = match crate::platform::agent_engine_in_dir(cfg, auth, catalog, base_dir, Some(session_id)).await {
-        Ok(new_eng) => {
-            let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
-            let messages = extract_chat_messages(&raw_msgs);
-            new_eng.spawn_refresh_quota();
-            let payload = build_engine_session_payload(&new_eng, Some(messages)).await;
-            ctx.engine.write().await.switch_to(new_eng);
-            Ok(Some(payload))
-        }
+        Ok(new_eng) => match new_eng.session_manager.load_messages().await {
+            Ok(raw_msgs) => {
+                let messages = extract_chat_messages(&raw_msgs);
+                new_eng.spawn_refresh_quota();
+                let payload = build_engine_session_payload(&new_eng, Some(messages)).await;
+                ctx.engine.write().await.switch_to(new_eng);
+                Ok(Some(payload))
+            }
+            Err(e) => Err(e),
+        },
         Err(e) => Err(e),
     };
     write_command_result(ctx.writer, req_id, "resume_session", result).await

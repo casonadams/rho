@@ -5,6 +5,7 @@ use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::editor::{render_editor_lines, window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::wrap_to_width;
 use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
+use crate::ui::theme::SGR_RESET;
 
 fn input_prompt_width(modal: &ModalState) -> usize {
     let ModalMode::Input { prompt_label } = &modal.mode else {
@@ -109,9 +110,9 @@ pub(crate) fn push_search_row(
         column: (visible_width("  > ") + visible_width(&query)).min(width),
     };
     if focused && cursor_mode == crate::ui::theme::CursorMode::Software {
-        lines.push(format!("  \x1b[1m>\x1b[0m {query}\x1b[7m \x1b[27m"));
+        lines.push(format!("  \x1b[1m>{SGR_RESET} {query}\x1b[7m \x1b[27m"));
     } else {
-        lines.push(format!("  \x1b[1m>\x1b[0m {query}"));
+        lines.push(format!("  \x1b[1m>{SGR_RESET} {query}"));
     }
     (cursor, focused)
 }
@@ -250,7 +251,7 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
 }
 
 fn format_scroll_indicator(current_line: usize, total_lines: usize) -> String {
-    format!("  \x1b[2m↑/↓ scroll (line {current_line}/{total_lines})\x1b[0m")
+    format!("  \x1b[2m↑/↓ scroll (line {current_line}/{total_lines}){SGR_RESET}")
 }
 
 fn render_scrollable_body_lines(wrapped: Vec<String>, body_scroll: usize, space: usize) -> Vec<String> {
@@ -305,5 +306,5 @@ fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) ->
 }
 
 fn format_omission_line(omitted: usize) -> String {
-    format!("  \x1b[2m[... {omitted} lines omitted ...]\x1b[0m")
+    format!("  \x1b[2m[... {omitted} lines omitted ...]{SGR_RESET}")
 }

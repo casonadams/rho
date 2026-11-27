@@ -1,6 +1,7 @@
 use super::editor::EditorState;
 use crate::ui::fuzzy::fuzzy_score;
 use crate::ui::interactive::{InteractionInput, InteractionOption, OptionLayout};
+use rho_harness_core::config::ModelRole;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalOption {
@@ -70,9 +71,29 @@ pub enum ModalMode {
     },
 }
 
+/// Identity of a modal, which routes its keys and locates it; the title is display text only.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ModalKind {
+    #[default]
+    Generic,
+    Help,
+    Settings,
+    Session,
+    Tree,
+    SearchEngine,
+    Tools,
+    Mcp,
+    Login,
+    Models,
+    Model,
+    RoleModel(ModelRole),
+    Btw,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalState {
     pub title: String,
+    pub kind: ModalKind,
     pub body: String,
     pub options: Vec<ModalOption>,
     pub all_options: Vec<ModalOption>,
@@ -99,6 +120,7 @@ impl ModalState {
         let all_options = options.clone();
         Self {
             title: title.into(),
+            kind: ModalKind::Generic,
             body: body.into(),
             options,
             all_options,
@@ -121,6 +143,11 @@ impl ModalState {
         let mut state = Self::new(a2ui.title().to_string(), "", Vec::new());
         state.a2ui = Some(a2ui);
         state
+    }
+
+    pub fn with_kind(mut self, kind: ModalKind) -> Self {
+        self.kind = kind;
+        self
     }
 
     pub fn with_save_as_default(mut self, save: bool) -> Self {
@@ -180,6 +207,18 @@ impl ModalState {
         self.mode = ModalMode::Select;
         self.input_option = None;
         self.input.set_text("");
+    }
+
+    pub fn push_filter_char(&mut self, c: char) {
+        let mut query = self.filter_query.clone();
+        query.push(c);
+        self.set_filter(&query);
+    }
+
+    pub fn pop_filter_char(&mut self) {
+        let mut query = self.filter_query.clone();
+        query.pop();
+        self.set_filter(&query);
     }
 
     pub fn set_filter(&mut self, query: &str) {

@@ -1,12 +1,10 @@
-use super::fake::{FakeTerminal, Operation};
+use super::fake::{FakeTerminal, Operation, controller};
 use crate::ui::interactive::InteractiveState;
 use crate::ui::interactive::controller::TerminalController;
 
 #[test]
 fn construction_positions_and_shows_the_hardware_cursor() {
-    let (backend, operations, _) = FakeTerminal::new(10);
-
-    let _controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (_controller, operations, _) = controller(10);
 
     let operations = operations.borrow();
     let flush_index = operations
@@ -20,8 +18,7 @@ fn construction_positions_and_shows_the_hardware_cursor() {
 
 #[test]
 fn software_cursor_mode_hides_the_hardware_cursor_on_redraw() {
-    let (backend, operations, _) = FakeTerminal::new(10);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(10);
     operations.borrow_mut().clear();
 
     controller
@@ -49,8 +46,7 @@ fn construction_error_restores_cursor_and_raw_mode() {
 
 #[test]
 fn suspend_and_resume_restore_terminal_modes_around_legacy_prompts() {
-    let (backend, operations, _) = FakeTerminal::new(8);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, operations, _) = controller(8);
     operations.borrow_mut().clear();
 
     controller.suspend().unwrap();
@@ -71,8 +67,7 @@ fn suspend_and_resume_restore_terminal_modes_around_legacy_prompts() {
 
 #[test]
 fn drop_erases_region_and_restores_terminal() {
-    let (backend, operations, _) = FakeTerminal::new(8);
-    let controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (controller, operations, _) = controller(8);
     operations.borrow_mut().clear();
 
     drop(controller);

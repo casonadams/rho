@@ -1,13 +1,13 @@
 use super::*;
 use crate::repl::live::batch::LiveBatch;
 use crate::ui::interactive::{
-    InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, NullBackend, OptionLayout, UiEvent,
+    InteractionOption, InteractionPrompt, InteractionResponder, NullBackend, OptionLayout, UiEvent,
 };
 use rho_harness_core::agents::AgentHandle;
 use rho_harness_core::config::ApprovalFocus;
 
 fn controller() -> TerminalController<NullBackend> {
-    TerminalController::new(NullBackend, InteractiveState::default()).unwrap()
+    crate::repl::test_controller()
 }
 
 fn key(code: KeyCode) -> KeyEvent {

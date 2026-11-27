@@ -1,11 +1,8 @@
-use super::fake::FakeTerminal;
-use crate::ui::interactive::controller::TerminalController;
-use crate::ui::interactive::state::InteractiveState;
+use super::fake::controller;
 
 #[test]
 fn system_message_sets_and_clears_on_controller() {
-    let (backend, _, _) = FakeTerminal::new(80);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, _, _) = controller(80);
 
     assert_eq!(controller.state().system_message(), None);
 
@@ -18,8 +15,7 @@ fn system_message_sets_and_clears_on_controller() {
 
 #[test]
 fn system_message_check_expiration_returns_false_when_not_expired() {
-    let (backend, _, _) = FakeTerminal::new(80);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (mut controller, _, _) = controller(80);
 
     controller.set_system_message("Tool output: expanded");
     assert!(!controller.check_system_message_expiration());

@@ -4,7 +4,8 @@ use std::{
     rc::Rc,
 };
 
-use crate::ui::interactive::controller::TerminalBackend;
+use crate::ui::interactive::InteractiveState;
+use crate::ui::interactive::controller::{TerminalBackend, TerminalController};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
@@ -53,6 +54,28 @@ impl FakeTerminal {
             height,
         )
     }
+}
+
+pub fn controller(width: u16) -> (TerminalController<FakeTerminal>, SharedOperations, SharedWidth) {
+    let (backend, operations, width) = FakeTerminal::new(width);
+    (controller_for(backend), operations, width)
+}
+
+pub fn controller_with_size(
+    width: u16,
+    height: u16,
+) -> (
+    TerminalController<FakeTerminal>,
+    SharedOperations,
+    SharedWidth,
+    SharedHeight,
+) {
+    let (backend, operations, width, height) = FakeTerminal::with_size(width, height);
+    (controller_for(backend), operations, width, height)
+}
+
+fn controller_for(backend: FakeTerminal) -> TerminalController<FakeTerminal> {
+    TerminalController::new(backend, InteractiveState::default()).unwrap()
 }
 
 impl TerminalBackend for FakeTerminal {

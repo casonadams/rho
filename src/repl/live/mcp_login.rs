@@ -32,7 +32,7 @@ struct TranscriptCallbacks {
 impl OAuthLoginCallbacks for TranscriptCallbacks {
     async fn on_auth_url(&self, url: &str, instructions: Option<&str>) -> Result<()> {
         let heading = instructions.unwrap_or("Authorize in your browser");
-        let _ = self.notices.send(format!("{heading}:\n{url}\nPress Esc to cancel."));
+        crate::ui::best_effort(self.notices.send(format!("{heading}:\n{url}\nPress Esc to cancel.")));
         (self.open_url)(url);
         Ok(())
     }
@@ -50,7 +50,7 @@ impl OAuthLoginCallbacks for TranscriptCallbacks {
     }
 
     async fn on_progress(&self, message: &str) -> Result<()> {
-        let _ = self.notices.send(message.to_string());
+        crate::ui::best_effort(self.notices.send(message.to_string()));
         Ok(())
     }
 }
@@ -124,7 +124,7 @@ pub(crate) async fn run_mcp_login<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::interactive::{InteractiveState, NullBackend};
+    use crate::ui::interactive::NullBackend;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn remote_config(url: &str) -> (Config, rho_test_support::TestDir) {
@@ -197,7 +197,7 @@ mod tests {
     #[tokio::test]
     async fn esc_cancels_a_pending_sign_in_and_reports_it_in_the_transcript() {
         let (config, _dir) = remote_config(&oauth_server().await);
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let url_shown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let mut input = TerminalInputReader::spawn_gated(esc, std::sync::Arc::clone(&url_shown));
@@ -221,7 +221,7 @@ mod tests {
     #[tokio::test]
     async fn failures_are_reported_without_leaving_the_tui() {
         let (config, _dir) = remote_config("http://127.0.0.1:9/mcp");
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let mut input = TerminalInputReader::spawn_dummy();
         let theme = Theme::default();
         let mut ui = McpLoginUi {

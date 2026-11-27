@@ -1,17 +1,21 @@
+use std::io;
+
 #[cfg(unix)]
-pub fn suspend_process() {
-    let _ = crossterm::terminal::disable_raw_mode();
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::cursor::Show);
-    unsafe {
-        libc::raise(libc::SIGTSTP);
+pub fn suspend_process() -> io::Result<()> {
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(io::stdout(), crossterm::cursor::Show)?;
+    if unsafe { libc::raise(libc::SIGTSTP) } != 0 {
+        return Err(io::Error::last_os_error());
     }
-    let _ = crossterm::terminal::enable_raw_mode();
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::cursor::Hide);
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(io::stdout(), crossterm::cursor::Hide)?;
+    Ok(())
 }
 
 #[cfg(not(unix))]
-pub fn suspend_process() {
+pub fn suspend_process() -> io::Result<()> {
     // Windows terminals do not support Unix job control signals
+    Ok(())
 }
 
 #[cfg(test)]

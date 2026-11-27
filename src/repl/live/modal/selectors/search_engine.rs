@@ -3,7 +3,7 @@ use crossterm::event::KeyEvent;
 use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
 
 const ENGINE_DEFS: &[(&str, &str)] = &[
     ("brave", "Brave Search (Free scraper, no API key)"),
@@ -31,7 +31,9 @@ pub fn open_search_engine_selector<B: TerminalBackend>(session: &ReplSession, co
         options.push(format_engine_option(id, desc, active_engine));
     }
 
-    let mut modal = ModalState::new("Select Search Engine", "", options).with_search(false);
+    let mut modal = ModalState::new("Select Search Engine", "", options)
+        .with_search(false)
+        .with_kind(ModalKind::SearchEngine);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }
@@ -51,8 +53,6 @@ pub fn handle_search_engine_key<B: TerminalBackend>(
 mod tests {
     use super::super::test_support::{assert_selector_opens_and_selects, create_test_session};
     use super::*;
-    use crate::ui::interactive::NullBackend;
-    use crate::ui::interactive::{InteractiveState, TerminalController};
     use crossterm::event::{KeyCode, KeyModifiers};
 
     #[test]
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn search_engine_selector_handles_esc() {
         let session = create_test_session();
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
 
         open_search_engine_selector(&session, &mut controller);
         let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);

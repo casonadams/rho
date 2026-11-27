@@ -39,6 +39,7 @@ pub fn is_slash_command(trimmed: &str) -> bool {
 async fn dispatch_builtin(
     id: BuiltinCommand,
     parts: &[&str],
+    raw_rest: &str,
     ctx: &mut SlashCommandContext<'_>,
 ) -> Result<Option<CommandResult>> {
     let has_ui = ctx.renderer.has_interactive_ui();
@@ -71,7 +72,7 @@ async fn dispatch_builtin(
             ctx.renderer,
         ))),
         BuiltinCommand::Btw => Ok(Some(CommandResult::Btw {
-            question: (!parts[1..].is_empty()).then(|| parts[1..].join(" ")),
+            question: (!raw_rest.is_empty()).then(|| raw_rest.to_string()),
         })),
         BuiltinCommand::Resume => Ok(Some(handle_resume_command(parts, has_ui, ctx.renderer))),
         BuiltinCommand::Skill => handle_skill(ctx, parts).await,
@@ -147,12 +148,8 @@ impl SlashCommandHandler {
         let cmd = first.to_lowercase();
 
         if let Some(spec) = lookup_builtin(&cmd) {
-            if spec.id == BuiltinCommand::Btw {
-                let rest = trimmed[1 + first.len()..].trim();
-                let question = (!rest.is_empty()).then(|| rest.to_string());
-                return Ok(Some(CommandResult::Btw { question }));
-            }
-            return dispatch_builtin(spec.id, &parts, ctx).await;
+            let rest = trimmed[1 + first.len()..].trim();
+            return dispatch_builtin(spec.id, &parts, rest, ctx).await;
         }
         handle_custom(ctx, &cmd, &parts).await
     }

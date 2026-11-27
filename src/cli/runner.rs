@@ -1,5 +1,6 @@
 //! Single-turn execution runners for headless, JSON, and terminal output.
 
+use super::CliResult;
 use crate::auth::AuthStore;
 use crate::config::Config;
 use std::sync::Arc;
@@ -10,9 +11,7 @@ pub struct CliRunner {
     pub resume_target: Option<String>,
 }
 
-fn handle_turn_result(
-    res: rho_harness_core::error::Result<crate::engine::runner::TurnOutput>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_turn_result(res: rho_harness_core::error::Result<crate::engine::runner::TurnOutput>) -> CliResult {
     match res {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -29,7 +28,10 @@ fn spawn_rpc_writer(
     tokio::spawn(async move {
         let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
         while let Some(event) = event_rx.recv().await {
-            let _ = writer.write_message(&event).await;
+            if let Err(err) = writer.write_message(&event).await {
+                eprintln!("Error: failed to write RPC event: {err}");
+                break;
+            }
         }
     })
 }
@@ -60,13 +62,13 @@ impl CliRunner {
         }
     }
 
-    async fn build_engine(self) -> Result<crate::engine::AgentEngine, Box<dyn std::error::Error>> {
+    async fn build_engine(self) -> CliResult<crate::engine::AgentEngine> {
         let catalog = rho_engine::provider::ModelCatalog::default();
         catalog.spawn_refresh(&self.config.provider, &self.config, &self.auth_store);
         Ok(crate::platform::agent_engine(self.config, self.auth_store, catalog, self.resume_target.as_deref()).await?)
     }
 
-    pub async fn run_json_turn(self, prompt: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run_json_turn(self, prompt: &str) -> CliResult {
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
         let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
             Arc::new(crate::cli::rpc::RpcPresenter::new(event_tx));
@@ -82,15 +84,11 @@ impl CliRunner {
         handle_turn_result(res)
     }
 
-    pub async fn run_prompt_turn(
-        self,
-        prompt: &str,
-        session_name: Option<&str>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run_prompt_turn(self, prompt: &str, session_name: Option<&str>) -> CliResult {
         let engine = self.build_engine().await?;
         crate::cli::mcp::eprint_mcp_diagnostics(&engine);
         if let Some(name) = session_name {
-            let _ = engine.session_manager.set_session_name(name).await;
+            engine.session_manager.set_session_name(name).await?;
         }
         let presenter = default_terminal_presenter();
         let res = engine

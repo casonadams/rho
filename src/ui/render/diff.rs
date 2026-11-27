@@ -1,7 +1,7 @@
 //! Diff presentation for tool invocations and interactive edits: line-number
 //! resolution, token-level LCS diffs, and terminal rendering.
 
-use crate::ui::theme::Theme;
+use crate::ui::theme::{SGR_RESET, Theme};
 
 // ---------------------------------------------------------------------------
 // Tokenizer and LCS diff computation for inline word diffs
@@ -163,8 +163,8 @@ pub fn render_single_line_word_diff(old_line: &str, new_line: &str, theme: &Them
     for token in diff {
         append_diff_token(token, &mut removed_buf, &mut added_buf);
     }
-    removed_buf.push_str("\x1b[0m\n");
-    added_buf.push_str("\x1b[0m\n");
+    removed_buf.push_str(&format!("{SGR_RESET}\n"));
+    added_buf.push_str(&format!("{SGR_RESET}\n"));
     (removed_buf, added_buf)
 }
 

@@ -1,9 +1,9 @@
 use super::commands::handle_tree_commands;
 use super::types::{BranchSwitchContext, LiveCommandContext, SessionCommandIo};
 use crate::error::Result;
+use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::{CommandResult, ForkTarget};
 use crate::ui::interactive::TerminalBackend;
-use rho_harness_core::session::TreeNodeKind;
 
 pub(crate) async fn handle_fork_session(
     ctx: &mut LiveCommandContext<'_, '_>,
@@ -214,15 +214,12 @@ pub(crate) async fn handle_session_command<B: TerminalBackend>(
 
 fn confirm_branch_summary() -> bool {
     use std::io::Write;
-    print!("Summarize discoveries from abandoned branch before switching? [Y/n]: ");
+    print!("{SUMMARY_PROMPT}");
     std::io::stdout().flush().ok();
     let mut input = String::new();
-    if std::io::stdin().read_line(&mut input).is_ok() {
-        let trimmed = input.trim().to_lowercase();
-        trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
-    } else {
-        false
-    }
+    std::io::stdin()
+        .read_line(&mut input)
+        .is_ok_and(|_| should_summarize_branch(&input))
 }
 
 async fn summarize_if_confirmed(ctx: &mut BranchSwitchContext<'_, '_, '_, impl TerminalBackend>) -> Option<()> {
@@ -238,18 +235,11 @@ async fn summarize_if_confirmed(ctx: &mut BranchSwitchContext<'_, '_, '_, impl T
     confirmed.then_some(())
 }
 
-fn abandoned_messages(
-    abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
-) -> Vec<rho_harness_core::model::ChatMessage> {
-    abandoned.iter().flat_map(|n| n.messages.clone()).collect()
-}
-
 async fn maybe_summarize_abandoned(
     ctx: &mut BranchSwitchContext<'_, '_, '_, impl TerminalBackend>,
     abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
 ) -> Option<String> {
-    let has_assistant = abandoned.iter().any(|n| n.kind == TreeNodeKind::AssistantTurn);
-    if !has_assistant || !ctx.session.renderer.has_interactive_ui() {
+    if !has_assistant_turn(abandoned) || !ctx.session.renderer.has_interactive_ui() {
         return None;
     }
     summarize_if_confirmed(ctx).await?;
@@ -280,12 +270,15 @@ async fn switch_and_hydrate(
     old_leaf: &str,
 ) -> Result<()> {
     ctx.engine.switch_branch(Some(leaf_id.to_string())).await?;
-    if let Some(summary) = summary.as_deref() {
-        let _ = ctx
+    if let Some(summary) = summary.as_deref()
+        && let Err(err) = ctx
             .engine
             .session_manager
             .append_branch_summary(summary, old_leaf)
-            .await;
+            .await
+    {
+        ctx.controller
+            .set_system_message(format!("Warning: branch summary was not saved: {err}"));
     }
     rebuild_and_hydrate(ctx, leaf_id).await
 }

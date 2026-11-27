@@ -99,7 +99,16 @@ async fn seed_long_turns(session_mgr: &SessionManager, sid: &str) {
     }
 }
 
-fn setup_compact_env(
+async fn seed_session(config: &Config, messages: Vec<rho_harness_core::model::ChatMessage>) -> SessionManager {
+    std::fs::create_dir_all(&config.sessions_dir).unwrap();
+    let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
+    if !messages.is_empty() {
+        sm.append_messages(&sm.session_id, messages).await.unwrap();
+    }
+    sm
+}
+
+async fn setup_compact_env(
     temp: &std::path::Path,
 ) -> (
     ReplSession,
@@ -111,8 +120,7 @@ fn setup_compact_env(
         keep_recent_tokens: 10,
         ..Config::default()
     };
-    std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
+    let sm = seed_session(&config, Vec::new()).await;
     let engine = mock_engine(
         Arc::new(MockAdapter::text(
             "## Goal\nAnalyze queries\n\n## Progress\nCompleted analyses",
@@ -133,7 +141,7 @@ fn setup_compact_env(
 #[tokio::test]
 async fn compact_context_executes_and_prints_token_savings() {
     let temp = rho_test_support::TestDir::new();
-    let (session, engine, mut events) = setup_compact_env(&temp);
+    let (session, engine, mut events) = setup_compact_env(&temp).await;
     seed_long_turns(&engine.session_manager, &engine.session_manager.session_id).await;
 
     compact_context(&session, &engine, Some("preserve key decisions")).await;
@@ -263,8 +271,7 @@ async fn model_command_keeps_the_selected_provider_that_lists_the_model() {
         sessions_dir: temp.join("sessions"),
         ..Config::default()
     };
-    std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let session_manager = SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_manager = seed_session(&config, Vec::new()).await;
     let session_id = session_manager.session_id.clone();
     let engine = mock_engine(
         Arc::new(MockAdapter::default()),
@@ -419,13 +426,15 @@ fn is_slash_command_recognizes_root_commands_and_excludes_file_paths() {
     );
 }
 
-async fn setup_export_session(workspace: &std::path::Path) -> (Config, SessionManager, String) {
+async fn setup_export_session(
+    workspace: &std::path::Path,
+    messages: Vec<rho_harness_core::model::ChatMessage>,
+) -> (Config, SessionManager, String) {
     let config = Config {
         sessions_dir: workspace.join("sessions"),
         ..Config::default()
     };
-    std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
+    let sm = seed_session(&config, messages).await;
     let sid = sm.session_id.clone();
     (config, sm, sid)
 }
@@ -433,12 +442,11 @@ async fn setup_export_session(workspace: &std::path::Path) -> (Config, SessionMa
 #[tokio::test]
 async fn export_command_writes_markdown_default_path() {
     let workspace = rho_test_support::TestDir::new();
-    let (mut config, session_manager, session_id) = setup_export_session(&workspace).await;
     let msgs = vec![
         rho_harness_core::model::ChatMessage::user("hello for export"),
         rho_harness_core::model::ChatMessage::assistant("hello from the transcript"),
     ];
-    session_manager.append_messages(&session_id, msgs).await.unwrap();
+    let (mut config, session_manager, session_id) = setup_export_session(&workspace, msgs).await;
 
     let (mut auth, (renderer, mut events)) = (AuthStore::default(), collecting_renderer());
     let mut context = SlashCommandContext {
@@ -464,7 +472,7 @@ async fn export_command_writes_markdown_default_path() {
 async fn export_command_writes_html_to_override_path() {
     let workspace = rho_test_support::TestDir::new();
     let override_path = workspace.join("out/transcript.html");
-    let (mut config, session_manager, session_id) = setup_export_session(&workspace).await;
+    let (mut config, session_manager, session_id) = setup_export_session(&workspace, Vec::new()).await;
 
     let (mut auth, (renderer, _)) = (AuthStore::default(), collecting_renderer());
     let mut context = SlashCommandContext {
@@ -494,8 +502,7 @@ async fn export_command_rejects_unknown_format_with_usage() {
         sessions_dir: workspace.join("sessions"),
         ..Config::default()
     };
-    std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let session_manager = SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_manager = seed_session(&config, Vec::new()).await;
     let session_id = session_manager.session_id.clone();
 
     let mut auth = AuthStore::default();
@@ -528,8 +535,7 @@ async fn session_command_prints_diagnostics() {
 }
 
 async fn setup_engine_session(temp: &std::path::Path, config: Config) -> (crate::engine::AgentEngine, String) {
-    std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let sm = SessionManager::new(&config.sessions_dir, None).unwrap();
+    let sm = seed_session(&config, Vec::new()).await;
     let sid = sm.session_id.clone();
     let engine = mock_engine(
         Arc::new(MockAdapter::default()),

@@ -1,4 +1,5 @@
 use crate::ui::block::{apply_pending_ansi, leading_escape, visible_width};
+use crate::ui::theme::SGR_RESET;
 use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Default)]
@@ -69,7 +70,7 @@ pub(crate) struct AnsiWordWrap {
 
 fn styled_break(line: &mut String, active_ansi: &str, end_line: &mut impl FnMut(&mut String)) {
     if !active_ansi.is_empty() {
-        line.push_str("\x1b[0m");
+        line.push_str(SGR_RESET);
     }
     end_line(line);
     if !active_ansi.is_empty() {

@@ -1,15 +1,14 @@
 //! Transcript expansion toggles and full-redraw behavior tests.
 
 mod expansion {
-    use super::super::fake::{FakeTerminal, Operation};
+    use super::super::fake::{FakeTerminal, Operation, controller};
     use crate::ui::interactive::controller::TerminalController;
     use crate::ui::interactive::controller::ansi::CLEAR_SCREEN;
-    use crate::ui::interactive::{InteractiveState, ToolItem, TranscriptItem};
+    use crate::ui::interactive::{ToolItem, TranscriptItem};
 
     #[test]
     fn assistant_transcript_item_is_recorded_without_duplicate_write_output() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         operations.borrow_mut().clear();
 
         controller
@@ -27,8 +26,7 @@ mod expansion {
 
     #[test]
     fn thinking_transcript_item_is_recorded_without_duplicate_write_output() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         operations.borrow_mut().clear();
 
         controller
@@ -52,8 +50,7 @@ mod expansion {
 
     #[test]
     fn full_redraw_reuses_cached_rendered_items_across_expansion_toggles() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         let tool = TranscriptItem::Tool(ToolItem {
             name: "read".into(),
             arguments: serde_json::json!({"path": "src/main.rs"}),
@@ -83,8 +80,7 @@ mod expansion {
 
     #[test]
     fn set_tools_expanded_no_ops_when_already_in_target_state() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         assert!(!controller.tools_expanded());
 
         operations.borrow_mut().clear();
@@ -98,8 +94,7 @@ mod expansion {
 
     #[test]
     fn set_hide_thinking_no_ops_when_already_in_target_state() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         assert!(!controller.hide_thinking());
 
         operations.borrow_mut().clear();
@@ -113,8 +108,7 @@ mod expansion {
 
     #[test]
     fn toggle_tools_expanded_delegates_to_setter() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
 
         operations.borrow_mut().clear();
         assert!(controller.toggle_tools_expanded().unwrap());
@@ -127,8 +121,7 @@ mod expansion {
 
     #[test]
     fn toggle_thinking_delegates_to_setter() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
 
         operations.borrow_mut().clear();
         assert!(controller.toggle_thinking().unwrap());
@@ -141,8 +134,7 @@ mod expansion {
 
     #[test]
     fn toggle_tools_expanded_preserves_scrollback_without_esc_3j() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("hello".into()))
             .unwrap();
@@ -160,8 +152,7 @@ mod expansion {
 
     #[test]
     fn toggle_tools_expanded_repeated_cycles_preserve_cursor_and_layout() {
-        let (backend, _, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, _, _) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("first".into()))
             .unwrap();
@@ -182,17 +173,15 @@ mod expansion {
 }
 
 mod redraw {
-    use super::super::fake::{FakeTerminal, Operation};
-    use crate::ui::interactive::controller::TerminalController;
+    use super::super::fake::{Operation, controller, controller_with_size};
+    use crate::ui::interactive::TranscriptItem;
     use crate::ui::interactive::controller::ansi::{
         CLEAR_SCREEN, CLEAR_SCREEN_AND_SCROLLBACK, CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE,
     };
-    use crate::ui::interactive::{InteractiveState, TranscriptItem};
 
     #[test]
     fn resize_replays_in_flight_streamed_output() {
-        let (backend, operations, width) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("explain this".into()))
             .unwrap();
@@ -212,8 +201,7 @@ mod redraw {
 
     #[test]
     fn committed_assistant_output_is_not_replayed_after_resize() {
-        let (backend, operations, width) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("explain this".into()))
             .unwrap();
@@ -236,8 +224,7 @@ mod redraw {
 
     #[test]
     fn committed_thinking_output_is_not_replayed_after_resize() {
-        let (backend, operations, width) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(60);
         controller.write_stream_output("considering").unwrap();
         controller
             .push_transcript_item(TranscriptItem::Thinking("considering".into()))
@@ -257,8 +244,7 @@ mod redraw {
 
     #[test]
     fn full_redraw_rerenders_all_transcript_items_on_resize() {
-        let (backend, operations, width) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("hello world message".into()))
             .unwrap();
@@ -298,8 +284,7 @@ mod redraw {
 
     #[test]
     fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("first line message".into()))
             .unwrap();
@@ -326,8 +311,7 @@ mod redraw {
 
     #[test]
     fn width_resize_invalidates_cache_while_height_resize_preserves_cache() {
-        let (backend, _, width, height) = FakeTerminal::with_size(60, 24);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, _, width, height) = controller_with_size(60, 24);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("test message".into()))
             .unwrap();
@@ -362,8 +346,7 @@ mod redraw {
 
     #[test]
     fn set_theme_invalidates_cache_and_repaints_with_new_theme() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("theme test message".into()))
             .unwrap();
@@ -381,8 +364,7 @@ mod redraw {
 
     #[test]
     fn set_block_style_switches_style_and_invalidates_cache() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(60);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("hello world".into()))
             .unwrap();
@@ -409,8 +391,7 @@ mod redraw {
 
     #[test]
     fn upsert_trailing_recap_replaces_in_place_without_duplicating() {
-        let (backend, operations, _) = FakeTerminal::new(80);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(80);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("hello".into()))
             .unwrap();

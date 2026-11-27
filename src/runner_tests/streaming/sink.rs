@@ -1,4 +1,4 @@
-use super::super::helpers::{presenter, terminal_session};
+use super::super::helpers::{drain_ui_events, presenter, terminal_session};
 use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveUi, UiEvent};
@@ -17,12 +17,10 @@ fn sample_test_sink(renderer: &TerminalRenderer) -> (std::sync::Arc<TerminalAppr
 }
 
 fn collect_activities(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Vec<Activity> {
-    std::iter::from_fn(|| events.try_recv().ok())
-        .filter_map(|e| match e {
-            UiEvent::Activity(a) => Some(a),
-            _ => None,
-        })
-        .collect()
+    drain_ui_events(events, |event| match event {
+        UiEvent::Activity(a) => Some(a),
+        _ => None,
+    })
 }
 
 #[test]
@@ -108,12 +106,10 @@ fn reasoning_flush_emits_transcript_thinking_item() {
     sink.emit_reasoning("analyzing the architecture");
     sink.emit_text("Here is the answer");
 
-    let items = std::iter::from_fn(|| events.try_recv().ok())
-        .filter_map(|e| match e {
-            UiEvent::Transcript(item) => Some(item),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let items = drain_ui_events(&mut events, |event| match event {
+        UiEvent::Transcript(item) => Some(item),
+        _ => None,
+    });
 
     assert_eq!(
         items,

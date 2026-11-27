@@ -53,10 +53,7 @@ pub(crate) fn prompt_model_choice_from<R: std::io::BufRead, W: std::io::Write>(
     for (i, m) in models.iter().enumerate() {
         writeln!(writer, "  {}. {m}", i + 1).ok()?;
     }
-    write!(writer, "Enter choice [1-{}]: ", models.len()).ok()?;
-    writer.flush().ok()?;
-    let mut input = String::new();
-    reader.read_line(&mut input).ok()?;
+    let input = crate::repl::prompt::read_answer(reader, writer, &format!("Enter choice [1-{}]: ", models.len()))?;
     let (model, provider) = parse_model_selection(&input, models)?;
     Some((model.to_string(), provider.to_string()))
 }

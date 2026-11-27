@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::io::Write;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -58,12 +58,8 @@ fn get_os_clipboard_text() -> Option<String> {
 
 static TEST_CLIPBOARD_TEXT: Mutex<Option<String>> = Mutex::new(None);
 
-fn is_test_mode() -> bool {
-    cfg!(test) || std::env::var_os("RUST_TEST_THREADS").is_some() || std::env::var_os("NEXTEST_RUN_ID").is_some()
-}
-
 pub fn get_text() -> Result<Option<String>> {
-    if is_test_mode() {
+    if cfg!(test) {
         return Ok(TEST_CLIPBOARD_TEXT.lock().unwrap_or_else(|p| p.into_inner()).clone());
     }
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -96,34 +92,43 @@ pub async fn get_text_or_image_path_async() -> Option<String> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn pipe_to_command(cmd: &mut Command, text: &str) -> bool {
-    if let Ok(mut child) = cmd.stdin(Stdio::piped()).spawn() {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-        return child.wait().is_ok();
+fn pipe_to_command(cmd: &mut Command, text: &str) -> Result<()> {
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to start {program}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(text.as_bytes())
+            .with_context(|| format!("failed to write clipboard text to {program}"))?;
     }
-    false
+    let status = child.wait().with_context(|| format!("failed to wait for {program}"))?;
+    anyhow::ensure!(status.success(), "{program} exited with {status}");
+    Ok(())
 }
 
-fn set_os_clipboard_text(text: &str) {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = pipe_to_command(&mut Command::new("pbcopy"), text);
-    }
+#[cfg(target_os = "macos")]
+fn set_os_clipboard_text(text: &str) -> Result<()> {
+    pipe_to_command(&mut Command::new("pbcopy"), text)
+}
 
-    #[cfg(target_os = "linux")]
-    {
-        if !pipe_to_command(&mut Command::new("wl-copy"), text) {
-            let mut cmd = Command::new("xclip");
-            cmd.args(["-selection", "clipboard"]);
-            let _ = pipe_to_command(&mut cmd, text);
-        }
-    }
+#[cfg(target_os = "linux")]
+fn set_os_clipboard_text(text: &str) -> Result<()> {
+    pipe_to_command(&mut Command::new("wl-copy"), text).or_else(|wl_err| {
+        let mut xclip = Command::new("xclip");
+        xclip.args(["-selection", "clipboard"]);
+        pipe_to_command(&mut xclip, text).with_context(|| format!("wl-copy also failed: {wl_err:#}"))
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn set_os_clipboard_text(_text: &str) -> Result<()> {
+    anyhow::bail!("no OS clipboard command is available on this platform")
 }
 
 pub fn set_text(text: &str) -> Result<()> {
-    if is_test_mode() {
+    if cfg!(test) {
         *TEST_CLIPBOARD_TEXT.lock().unwrap_or_else(|p| p.into_inner()) = Some(text.to_string());
         return Ok(());
     }
@@ -134,12 +139,11 @@ pub fn set_text(text: &str) -> Result<()> {
         return Ok(());
     }
 
-    set_os_clipboard_text(text);
-    Ok(())
+    set_os_clipboard_text(text)
 }
 
 pub fn get_image() -> Result<Option<ClipboardImage>> {
-    if is_test_mode() {
+    if cfg!(test) {
         return Ok(None);
     }
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

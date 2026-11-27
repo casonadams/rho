@@ -1,7 +1,6 @@
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{
-    InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveState, OptionLayout, TerminalController,
-    UiEvent,
+    InteractionPrompt, InteractionResponder, InteractionResponse, OptionLayout, TerminalController, UiEvent,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_engine::permission::prompt::build_permission_prompt;
@@ -16,7 +15,7 @@ struct PermDriver {
 
 impl PermDriver {
     fn new(prompt: InteractionPrompt) -> Self {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let (tx, rx) = oneshot::channel();
         let mut pending = None;
         super::super::modal::install_interaction(
@@ -26,7 +25,8 @@ impl PermDriver {
                 responder: InteractionResponder { responder: tx },
             },
             &mut pending,
-        );
+        )
+        .unwrap();
         controller.redraw().unwrap();
         Self {
             controller,

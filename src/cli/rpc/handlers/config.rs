@@ -22,7 +22,7 @@ pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
         "idle"
     };
 
-    let raw_msgs = eng.session_manager.load_messages().await.unwrap_or_default();
+    let raw_msgs = eng.session_manager.load_messages().await?;
     let messages = extract_chat_messages(&raw_msgs);
     let active_branch = crate::platform::git::get_git_branch_async(eng.base_dir.clone()).await;
 

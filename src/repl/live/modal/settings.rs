@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
 use crate::ui::theme::{BlockStyle, CursorMode};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::thinking::ThinkingLevel;
@@ -120,7 +120,9 @@ pub fn open_settings_selector<B: TerminalBackend>(
         })
         .collect();
 
-    controller.state_mut().push_modal(ModalState::new(TITLE, "", options));
+    controller
+        .state_mut()
+        .push_modal(ModalState::new(TITLE, "", options).with_kind(ModalKind::Settings));
 }
 
 pub fn update_settings_model_description<B: TerminalBackend>(controller: &mut TerminalController<B>, model_name: &str) {
@@ -130,7 +132,7 @@ pub fn update_settings_model_description<B: TerminalBackend>(controller: &mut Te
 fn update_setting_description<B: TerminalBackend>(controller: &mut TerminalController<B>, status: &str, row: Row) {
     controller
         .state_mut()
-        .update_modal_option_desc(TITLE, row.index(), status);
+        .update_modal_option_desc(&ModalKind::Settings, row.index(), status);
 }
 
 fn current_thinking_from_modal<B: TerminalBackend>(controller: &TerminalController<B>) -> ThinkingLevel {

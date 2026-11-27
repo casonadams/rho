@@ -1,6 +1,7 @@
 //! `rho stats`: tool-usage health from recorded sessions (call and error rates, recurring errors, and
 //! file edits made through bash instead of the edit and write tools).
 
+use super::CliResult;
 use rho_engine::permission::bash::{Token, TokenKind, tokenize};
 use rho_harness_core::session::{SessionEvent, SessionEventKind, SessionRecord};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -458,12 +459,13 @@ fn read_events(path: &Path) -> std::io::Result<Vec<SessionEvent>> {
 }
 
 fn session_files(dir: &Path, last: Option<usize>) -> std::io::Result<Vec<PathBuf>> {
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(dir)?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
-        .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
-        .collect();
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|ext| ext == "jsonl") {
+            files.push((std::fs::metadata(&path)?.modified()?, path));
+        }
+    }
     files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     Ok(files
         .into_iter()
@@ -486,7 +488,7 @@ pub fn collect_stats(sessions_dir: &Path, last: Option<usize>) -> std::io::Resul
     Ok(stats)
 }
 
-pub fn handle_stats(last: Option<usize>, sessions_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn handle_stats(last: Option<usize>, sessions_dir: &Path) -> CliResult {
     print!("{}", collect_stats(sessions_dir, last)?.render());
     Ok(())
 }

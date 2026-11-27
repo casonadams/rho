@@ -1,5 +1,6 @@
 //! One-column left margin shared by streamed and committed agent output.
 
+use crate::ui::theme::SGR_RESET;
 use anstyle::Style;
 
 pub(crate) fn margin_width(width: usize) -> usize {
@@ -42,7 +43,7 @@ impl Margin {
             }
             match self.style {
                 Some(style) => {
-                    let restyled = segment.replace("\x1b[0m", &format!("\x1b[0m{style}"));
+                    let restyled = segment.replace(SGR_RESET, &format!("{SGR_RESET}{style}"));
                     out.push_str(&format!("{style}{restyled}{style:#}"));
                 }
                 None => out.push_str(segment),

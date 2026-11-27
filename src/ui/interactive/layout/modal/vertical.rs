@@ -2,6 +2,7 @@ use super::horizontal::render_horizontal_options;
 use super::types::{ModalOptionsLayout, OptionFormat};
 use crate::ui::interactive::layout::text::wrap_to_width;
 use crate::ui::interactive::{ModalOption, ModalState, OptionLayout};
+use crate::ui::theme::SGR_RESET;
 
 fn format_selector_tab_desc(desc: &str, theme: &crate::ui::theme::Theme) -> String {
     let mut p = desc.split('\t');
@@ -29,7 +30,7 @@ pub fn format_option_line(opt: &ModalOption, fmt: OptionFormat<'_>) -> String {
     let (prefix, label) = if fmt.is_selected {
         (
             format!("{highlight}▸{highlight:#} "),
-            format!("\x1b[1m{}\x1b[0m", opt.label),
+            format!("\x1b[1m{}{SGR_RESET}", opt.label),
         )
     } else {
         ("  ".to_string(), opt.label.clone())

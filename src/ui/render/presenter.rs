@@ -1,6 +1,7 @@
 //! `Presenter` implementation bridging `TerminalRenderer` to harness core.
 
 use super::renderer::TerminalRenderer;
+use crate::ui::best_effort;
 use crate::ui::interactive::InteractiveUi;
 use async_trait::async_trait;
 use rho_harness_core::presentation::presenter::Presenter;
@@ -16,7 +17,7 @@ pub struct InteractiveStreamSink(pub Option<InteractiveUi>);
 impl ToolStreamSink for InteractiveStreamSink {
     fn tool_chunk(&self, chunk: String) {
         if let Some(ui) = &self.0 {
-            let _ = ui.tool_chunk(chunk);
+            best_effort(ui.tool_chunk(chunk));
         }
     }
 }
@@ -99,7 +100,7 @@ impl Presenter for TerminalRenderer {
 
     fn dismiss_interaction(&self) {
         if let Some(ui) = &self.ui {
-            let _ = ui.dismiss_interaction();
+            best_effort(ui.dismiss_interaction());
         }
     }
 
@@ -113,7 +114,7 @@ impl Presenter for TerminalRenderer {
 
     fn emit_a2ui(&self, message: rho_harness_core::a2ui::A2uiMessage) {
         if let Some(ui) = &self.ui {
-            let _ = ui.emit_a2ui(message);
+            best_effort(ui.emit_a2ui(message));
         }
     }
 

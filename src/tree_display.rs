@@ -1,5 +1,6 @@
 use rho_harness_core::model::{AssistantContent, ChatMessage, UserContent};
 use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
+use rho_harness_core::text::truncate_chars;
 use std::fmt::Write as _;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,11 +156,11 @@ impl<'a> TreeDisplayBuilder<'a> {
 }
 
 fn truncate_preview(text: &str, limit: usize) -> String {
-    let text = text.replace('\n', " ").trim().to_string();
-    if text.chars().count() > limit {
-        format!("{}...", text.chars().take(limit.saturating_sub(3)).collect::<String>())
-    } else {
-        text
+    let text = text.replace('\n', " ");
+    let text = text.trim();
+    match truncate_chars(text, limit) {
+        (_, false) => text.to_string(),
+        (_, true) => format!("{}...", truncate_chars(text, limit.saturating_sub(3)).0),
     }
 }
 

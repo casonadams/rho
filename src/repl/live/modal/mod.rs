@@ -9,8 +9,8 @@ mod tests;
 pub mod tree;
 
 use crate::error::Result;
-use crate::ui::interactive::{EditorState, ModalMode, TerminalBackend, TerminalController, UiAction};
-use crossterm::event::KeyEvent;
+use crate::ui::interactive::{EditorState, ModalKind, ModalMode, TerminalBackend, TerminalController, UiAction};
+use crossterm::event::{KeyCode, KeyEvent};
 use rho_harness_core::config::ModelRole;
 
 pub use interaction::{PendingModal, install_interaction};
@@ -277,26 +277,13 @@ pub(crate) fn handle_selector_nav<B: TerminalBackend>(
     Ok(false)
 }
 
-pub(crate) fn dispatch_simple_selector<B: TerminalBackend, F>(
+pub(crate) fn handle_selector_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
-    on_enter: F,
-) -> Result<ModalKeyResult>
-where
-    F: FnOnce(&crate::ui::interactive::ModalOption) -> Option<ModalKeyResult>,
-{
-    use crossterm::event::KeyCode;
-
+    select: impl FnOnce(&mut TerminalController<B>) -> Result<ModalKeyResult>,
+) -> Result<ModalKeyResult> {
     match key.code {
-        KeyCode::Enter => {
-            let selected = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.selected_option())
-                .cloned();
-            pop_and_cancel(controller)?;
-            Ok(selected.as_ref().and_then(on_enter).unwrap_or(ModalKeyResult::Handled))
-        }
+        KeyCode::Enter => select(controller),
         KeyCode::Esc => {
             pop_and_cancel(controller)?;
             Ok(ModalKeyResult::Handled)
@@ -306,6 +293,25 @@ where
             Ok(ModalKeyResult::Handled)
         }
     }
+}
+
+pub(crate) fn dispatch_simple_selector<B: TerminalBackend, F>(
+    controller: &mut TerminalController<B>,
+    key: KeyEvent,
+    on_enter: F,
+) -> Result<ModalKeyResult>
+where
+    F: FnOnce(&crate::ui::interactive::ModalOption) -> Option<ModalKeyResult>,
+{
+    handle_selector_key(controller, key, |controller| {
+        let selected = controller
+            .state()
+            .active_modal()
+            .and_then(|m| m.selected_option())
+            .cloned();
+        pop_and_cancel(controller)?;
+        Ok(selected.as_ref().and_then(on_enter).unwrap_or(ModalKeyResult::Handled))
+    })
 }
 
 pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalController<B>, text: &str) -> bool {
@@ -369,25 +375,19 @@ pub fn handle_modal_key<B: TerminalBackend>(
         return interaction::handle_a2ui_modal_key(controller, key, pending);
     }
 
-    let title = active.title.clone();
-    if title == "Select Model" {
-        return selectors::handle_model_key(controller, key);
-    }
-    if let Some(role) = selectors::role_of_title(&title) {
-        return selectors::handle_role_model_key(controller, key, role);
-    }
-
-    match title.as_str() {
-        "Help" => selectors::handle_help_key(controller, key),
-        "Settings" => settings::handle_settings_key(controller, key),
-        "Resume Session" => selectors::handle_session_key(controller, key),
-        "Conversation Tree" => tree::handle_tree_key(controller, key),
-        "Select Search Engine" => selectors::handle_search_engine_key(controller, key),
-        "Tools & Permissions" => selectors::handle_tools_key(controller, key),
-        "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
-        "Login Provider" => selectors::handle_login_key(controller, key),
-        "Models" => selectors::handle_models_key(controller, key),
-        btw::BTW_MODAL_TITLE => btw::handle_btw_key(controller, key),
-        _ => interaction::handle_interaction_key(controller, key, pending),
+    match active.kind.clone() {
+        ModalKind::Model => selectors::handle_model_key(controller, key),
+        ModalKind::RoleModel(role) => selectors::handle_role_model_key(controller, key, role),
+        ModalKind::Help => selectors::handle_help_key(controller, key),
+        ModalKind::Settings => settings::handle_settings_key(controller, key),
+        ModalKind::Session => selectors::handle_session_key(controller, key),
+        ModalKind::Tree => tree::handle_tree_key(controller, key),
+        ModalKind::SearchEngine => selectors::handle_search_engine_key(controller, key),
+        ModalKind::Tools => selectors::handle_tools_key(controller, key),
+        ModalKind::Mcp => selectors::handle_mcp_key(controller, key),
+        ModalKind::Login => selectors::handle_login_key(controller, key),
+        ModalKind::Models => selectors::handle_models_key(controller, key),
+        ModalKind::Btw => btw::handle_btw_key(controller, key),
+        ModalKind::Generic => interaction::handle_interaction_key(controller, key, pending),
     }
 }

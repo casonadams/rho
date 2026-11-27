@@ -1,23 +1,41 @@
 use super::text::SPINNER_FRAMES as FRAMES;
 use crate::ui::block::visible_width;
-use crate::ui::interactive::footer::segments::context_threshold_color;
+use crate::ui::interactive::footer::segments::{context_threshold_color, thinking_display};
 use crate::ui::interactive::footer::{format_tokens, truncate_to_width};
 use crate::ui::interactive::{Activity, FooterState, QueueKind, QueuedMessage};
+use crate::ui::theme::SGR_RESET;
 use rho_harness_core::config::ContextLineMode;
-use rho_harness_core::thinking::ThinkingLevel;
 
-pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'static str) {
-    let style = match ThinkingLevel::from_setting(thinking_level) {
-        ThinkingLevel::Off => "\x1b[2m",
-        ThinkingLevel::Minimal => "\x1b[90m",
-        ThinkingLevel::Low => "\x1b[34m",
-        ThinkingLevel::Medium => "\x1b[36m",
-        ThinkingLevel::High => "\x1b[35m",
-        ThinkingLevel::XHigh => "\x1b[31m",
-        ThinkingLevel::Max => "\x1b[1;31m",
-        ThinkingLevel::Auto => "\x1b[33m",
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DividerPaint {
+    pub style: &'static str,
+    pub reset: &'static str,
+    pub dim: bool,
+}
+
+impl DividerPaint {
+    pub const NONE: Self = Self {
+        style: "",
+        reset: "",
+        dim: false,
     };
-    (style, "\x1b[0m")
+
+    pub const fn colored(style: &'static str) -> Self {
+        Self {
+            style,
+            reset: SGR_RESET,
+            dim: false,
+        }
+    }
+}
+
+pub fn thinking_divider_style(thinking_level: Option<&str>) -> DividerPaint {
+    let display = thinking_display(thinking_level);
+    DividerPaint {
+        style: display.sgr,
+        reset: SGR_RESET,
+        dim: display.dim,
+    }
 }
 
 fn format_act_tag(act: Option<(&str, char)>) -> Option<String> {
@@ -106,7 +124,7 @@ pub fn queued_lines_text(queued: &[QueuedMessage], width: usize) -> Vec<String> 
         return Vec::new();
     }
     let dim = "\x1b[2m";
-    let reset = "\x1b[0m";
+    let reset = SGR_RESET;
     let accent = "\x1b[36m";
     let mut lines = Vec::new();
     for item in queued {
@@ -131,7 +149,7 @@ pub fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usiz
     }
     let spinner = FRAMES[spinner_frame % FRAMES.len()];
     let accent = "\x1b[36m";
-    let reset = "\x1b[0m";
+    let reset = SGR_RESET;
     let dim = "\x1b[2m";
     let label = match activity {
         Activity::Compacting => "compacting",
@@ -159,7 +177,8 @@ fn context_line_label(mode: ContextLineMode, pct: f64, context_window: usize) ->
     }
 }
 
-pub fn bottom_divider(width: usize, style: &str, reset: &str, footer: &FooterState) -> String {
+pub fn bottom_divider(width: usize, paint: DividerPaint, footer: &FooterState) -> String {
+    let DividerPaint { style, reset, dim } = paint;
     let mode = footer
         .status_bar_config
         .as_ref()
@@ -183,10 +202,10 @@ pub fn bottom_divider(width: usize, style: &str, reset: &str, footer: &FooterSta
 
     let used_part: String = chars[..used_cols].iter().collect();
     let rest_part: String = chars[used_cols..].iter().collect();
-    let used_color = if pct >= 50.0 || style == "\x1b[2m" {
+    let used_color = if pct >= 50.0 || dim {
         context_threshold_color(pct)
     } else {
         style
     };
-    format!("{used_color}{used_part}\x1b[2m{rest_part}\x1b[0m")
+    format!("{used_color}{used_part}\x1b[2m{rest_part}{SGR_RESET}")
 }

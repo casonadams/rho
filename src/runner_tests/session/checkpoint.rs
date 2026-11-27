@@ -25,10 +25,6 @@ async fn setup_budget_exhausted_checkpoint() -> (String, TestDir) {
         budget_exhausted_model(),
         Config {
             max_turns: 2,
-            permission: crate::config::PermissionConfig {
-                enabled: false,
-                ..Default::default()
-            },
             ..Config::default()
         },
     );
@@ -101,10 +97,6 @@ async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String,
         model,
         Config {
             max_turns: 1,
-            permission: crate::config::PermissionConfig {
-                enabled: false,
-                ..Default::default()
-            },
             ..Config::default()
         },
     );

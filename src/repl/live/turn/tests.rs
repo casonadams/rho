@@ -2,7 +2,7 @@ use super::input::{TurnInputContext, TurnKeyResult, handle_turn_key};
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InteractiveState, NullBackend, QueueKind, RunningTool, TerminalController};
+use crate::ui::interactive::{Activity, NullBackend, QueueKind, RunningTool, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
 
 fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
@@ -27,7 +27,7 @@ struct TurnTestFixture {
 impl TurnTestFixture {
     fn new(initial_text: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         controller.state_mut().editor_mut().set_text(initial_text);
         let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
         let completions = CompletionSet::from_sources(Default::default());
@@ -245,7 +245,7 @@ fn model_switch_fixture() -> (
     crate::auth::AuthStore,
 ) {
     (
-        TerminalController::new(NullBackend, InteractiveState::default()).unwrap(),
+        crate::repl::test_controller(),
         super::LiveBatch::new(),
         rho_harness_core::config::Config::default(),
         crate::auth::AuthStore::default(),
@@ -371,7 +371,7 @@ impl ActiveTurnHarness {
         let mut session = crate::repl::ReplSession::new(config, auth, None);
         let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
         session.renderer = TerminalRenderer::with_ui(ui);
-        let controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let controller = crate::repl::test_controller();
         let cancel = crossterm::event::Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
         let input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel]);
         let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
@@ -454,9 +454,10 @@ async fn test_turn_cancellation_during_thinking_preserves_partial_thinking_in_tr
 async fn test_turn_with_active_modal_advances_spinner() {
     let mut h = ActiveTurnHarness::new().await;
     h.controller.state_mut().footer_mut().activity = Activity::Working;
-    h.controller
-        .state_mut()
-        .push_modal(crate::ui::interactive::ModalState::new("Select Model", "", vec![]));
+    h.controller.state_mut().push_modal(
+        crate::ui::interactive::ModalState::new("Select Model", "", vec![])
+            .with_kind(crate::ui::interactive::ModalKind::Model),
+    );
 
     h.run_turn("test").await;
 }

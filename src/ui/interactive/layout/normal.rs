@@ -1,11 +1,12 @@
 use super::autocomplete::render_autocomplete_dropdown;
 use super::budget::{NormalBudgetInput, NormalLayoutBudget, compute_normal_budget};
 use super::chrome::{
-    active_activity_status, bottom_divider, modal_banner_title, modal_top_divider, queued_lines_text,
+    DividerPaint, active_activity_status, bottom_divider, modal_banner_title, modal_top_divider, queued_lines_text,
     thinking_divider_style, top_divider, working_line_text,
 };
 use super::editor::{render_editor_lines, window_editor, wrap_editor_with_prefix};
 use super::{CursorPosition, InteractiveLayout, LayoutInput};
+use crate::ui::theme::SGR_RESET;
 use rho_harness_core::config::{ContextLineMode, DividerStyle};
 
 fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
@@ -30,15 +31,19 @@ fn is_divider_none(input: &LayoutInput<'_>) -> bool {
         )
 }
 
-fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str) {
+fn resolve_divider_style(input: &LayoutInput<'_>) -> DividerPaint {
     if input.modal.is_some() {
-        ("\x1b[1;36m", "\x1b[0m")
+        DividerPaint::colored("\x1b[1;36m")
     } else if input.editor.text().trim_start().starts_with('!') {
-        ("\x1b[33m", "\x1b[0m")
+        DividerPaint::colored("\x1b[33m")
     } else if let Some(DividerStyle::Dim) = input.footer.prompt_config.as_ref().and_then(|p| p.divider_style) {
-        ("\x1b[2m", "\x1b[0m")
+        DividerPaint {
+            style: "\x1b[2m",
+            reset: SGR_RESET,
+            dim: true,
+        }
     } else if is_divider_none(input) {
-        ("", "")
+        DividerPaint::NONE
     } else {
         thinking_divider_style(input.footer.thinking_level.as_deref())
     }
@@ -64,14 +69,14 @@ fn resolve_divider_label<'a>(input: &'a LayoutInput<'_>, width: usize, has_activ
     }
 }
 
-fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset: &str) -> String {
+fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, paint: DividerPaint) -> String {
     match input.modal {
-        Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
+        Some(modal) => modal_top_divider(width, modal_banner_title(modal), paint.style, paint.reset),
         None if is_divider_none(input) => String::new(),
         None => {
             let activity = active_activity_status(input.footer, input.spinner_frame);
             let label = resolve_divider_label(input, width, activity.is_some());
-            top_divider(width, label, activity, style, reset)
+            top_divider(width, label, activity, paint.style, paint.reset)
         }
     }
 }
@@ -264,8 +269,8 @@ fn push_footer_lines(
 }
 
 fn resolve_chrome_dividers(input: &LayoutInput<'_>, width: usize) -> (String, String) {
-    let (style, reset) = resolve_divider_style(input);
-    let top = resolve_top_divider(input, width, style, reset);
+    let paint = resolve_divider_style(input);
+    let top = resolve_top_divider(input, width, paint);
     let has_context_line = input
         .footer
         .status_bar_config
@@ -275,9 +280,9 @@ fn resolve_chrome_dividers(input: &LayoutInput<'_>, width: usize) -> (String, St
     let bot = if is_divider_none(input) && !has_context_line {
         String::new()
     } else if input.modal.is_some() {
-        format!("{style}{}{reset}", "─".repeat(width))
+        format!("{}{}{}", paint.style, "─".repeat(width), paint.reset)
     } else {
-        bottom_divider(width, style, reset, input.footer)
+        bottom_divider(width, paint, input.footer)
     };
     (top, bot)
 }

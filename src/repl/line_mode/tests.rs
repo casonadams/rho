@@ -14,9 +14,10 @@ async fn plain_input_is_passthrough() {
 use super::dispatch::{
     DispatchOutcome, clone_session, compact_context, fork_session, handle_auth_actions, handle_command_group,
     handle_command_result, handle_config_auth_result, handle_model_change, handle_session_branching_result,
-    handle_session_manage_result, handle_terminal_result, has_assistant_turn, name_session, resume_session,
-    rewind_session, should_summarize_branch, show_session_summaries, show_tree,
+    handle_session_manage_result, handle_terminal_result, name_session, resume_session, rewind_session,
+    show_session_summaries, show_tree,
 };
+use crate::repl::branch_summary::{has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::CommandResult;
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 

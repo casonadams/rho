@@ -12,7 +12,7 @@ pub use help::{handle_help_key, open_help_selector};
 pub use mcp::{handle_mcp_key, open_mcp_selector};
 pub use model::{
     handle_model_key, handle_role_model_key, open_model_selector, open_model_selector_with_default,
-    open_role_model_selector, refresh_open_model_selector, role_of_title,
+    open_role_model_selector, refresh_open_model_selector,
 };
 pub use models::{handle_models_key, open_models_selector, update_models_role_description};
 pub use search_engine::{handle_search_engine_key, open_search_engine_selector};
@@ -31,7 +31,7 @@ pub(crate) mod test_support {
 
     use super::super::ModalKeyResult;
     use crate::repl::ReplSession;
-    use crate::ui::interactive::{InteractiveState, NullBackend, TerminalController};
+    use crate::ui::interactive::{NullBackend, TerminalController};
 
     pub(crate) fn test_config(config_dir: &std::path::Path) -> rho_harness_core::config::Config {
         rho_harness_core::config::Config {
@@ -50,7 +50,7 @@ pub(crate) mod test_support {
         open: impl FnOnce(&ReplSession, &mut TerminalController<NullBackend>),
     ) -> TerminalController<NullBackend> {
         let session = create_test_session();
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         open(&session, &mut controller);
         controller.redraw().unwrap();
         controller

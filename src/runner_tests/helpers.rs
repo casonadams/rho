@@ -3,6 +3,7 @@ use crate::engine::AgentEngine;
 use crate::engine::runner::TurnRequest;
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
+use crate::ui::interactive::UiEvent;
 use rho_engine::provider::adapter::{MockAdapter, ModelAdapter};
 use rho_engine::tools::EngineTool;
 use rho_harness_core::presentation::presenter::Presenter;
@@ -55,11 +56,12 @@ pub fn test_engine_with_session(
     app_config: Config,
     session_manager: Option<SessionManager>,
 ) -> TestEngine {
-    let scratch = session_manager.is_none().then(|| TestDir::with_prefix("runner_test_"));
-    let base_dir = match (&session_manager, &scratch) {
-        (Some(session), _) => session.file_path.parent().unwrap().to_path_buf(),
-        (None, Some(dir)) => dir.to_path_buf(),
-        (None, None) => unreachable!("a scratch directory exists whenever there is no session"),
+    let (base_dir, scratch) = match &session_manager {
+        Some(session) => (session.file_path.parent().unwrap().to_path_buf(), None),
+        None => {
+            let dir = TestDir::with_prefix("runner_test_");
+            (dir.to_path_buf(), Some(dir))
+        }
     };
     let engine = rho_engine::engine::eval::mock::mock_engine(
         model as Arc<dyn ModelAdapter>,
@@ -70,13 +72,13 @@ pub fn test_engine_with_session(
                 ..app_config
             },
             session_manager,
-            built_in_tools: builtin_tools_for(&base_dir),
+            built_in_tools: Some(builtin_tools_for(&base_dir)),
         },
     );
     TestEngine { engine, dir: scratch }
 }
 
-pub fn builtin_tools_for(base_dir: &std::path::Path) -> Option<Vec<Arc<dyn EngineTool>>> {
+pub fn builtin_tools_for(base_dir: &std::path::Path) -> Vec<Arc<dyn EngineTool>> {
     rho_engine::tools::build_builtin_tools(
         base_dir,
         &Config {
@@ -85,7 +87,7 @@ pub fn builtin_tools_for(base_dir: &std::path::Path) -> Option<Vec<Arc<dyn Engin
         },
         None,
     )
-    .ok()
+    .expect("builtin tools build for a test scratch directory")
 }
 
 pub fn terminal_session() -> (SessionManager, TestDir) {
@@ -95,4 +97,13 @@ pub fn terminal_session() -> (SessionManager, TestDir) {
 
 pub fn request(prompt: &str) -> TurnRequest<'_> {
     TurnRequest::new(prompt)
+}
+
+pub fn drain_ui_events<T>(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    mut map: impl FnMut(UiEvent) -> Option<T>,
+) -> Vec<T> {
+    std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(&mut map)
+        .collect()
 }

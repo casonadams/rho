@@ -1,12 +1,12 @@
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{InteractiveState, TerminalController};
+use crate::ui::interactive::TerminalController;
 
 fn setup_history_and_controller(path: &std::path::Path) -> (InteractiveHistory, TerminalController<NullBackend>) {
     let mut history = InteractiveHistory::with_file(10, path.to_path_buf()).unwrap();
     history.record("older").unwrap();
     history.record("newer\nsecond").unwrap();
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("draft\nline");
     (history, controller)
 }
@@ -50,7 +50,7 @@ fn active_history_navigation_next_restores_draft() {
 
 #[test]
 fn test_paste_event_collapses_in_interactive_state() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let lines = (1..=15).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");
     controller
         .state_mut()
@@ -60,7 +60,7 @@ fn test_paste_event_collapses_in_interactive_state() {
 
 #[tokio::test]
 async fn test_paste_clipboard_async_callable() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let renderer = crate::ui::TerminalRenderer::default();
     super::super::navigation::paste_clipboard_async(&renderer, &mut controller).await;
 }
@@ -99,7 +99,7 @@ fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {
 #[test]
 fn test_hydrate_session_transcript_populates_items() {
     let tree = sample_qa_tree();
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
 
     super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
     assert_eq!(controller.transcript().len(), 2);
@@ -137,7 +137,7 @@ fn a_resumed_session_shows_no_card_for_wait_calls() {
         label: None,
         metadata: None,
     });
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
 
     super::super::navigation::hydrate_session_transcript(&mut controller, &tree).unwrap();
 

@@ -1,7 +1,7 @@
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{
-    InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
-    InteractiveState, ModalMode, OptionLayout, TerminalController, UiEvent,
+    InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, ModalMode,
+    OptionLayout, TerminalController, UiEvent,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::oneshot;
@@ -32,12 +32,13 @@ impl ModalDriver<'_> {
                 responder: InteractionResponder { responder: tx },
             },
             self.pending,
-        );
+        )
+        .unwrap();
     }
 }
 
 fn setup_searchable_modal() -> (TerminalController<NullBackend>, tempfile::TempDir, usize) {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("in-progress user draft");
     let cursor = controller.state().editor().cursor();
     let temp = tempfile::tempdir().unwrap();
@@ -111,7 +112,7 @@ fn sample_permission_prompt() -> InteractionPrompt {
 
 #[test]
 fn test_interaction_input_transition_and_escape_back() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let (tx, _rx) = oneshot::channel();
     let mut pending = None;
     let mut driver = ModalDriver {
@@ -137,7 +138,7 @@ fn test_interaction_input_transition_and_escape_back() {
 
 #[test]
 fn test_interaction_double_escape_cancels_and_restores_draft() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("prompt waiting to send");
     let (tx, mut rx) = oneshot::channel();
     let mut pending = None;
@@ -176,7 +177,7 @@ fn custom_input_prompt(label: &str, tag: &str, value: &str) -> InteractionPrompt
 
 #[test]
 fn test_interaction_custom_input_submit_delivers_input_and_restores_draft() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("queued user question");
     let (tx, mut rx) = oneshot::channel();
     let prompt = custom_input_prompt("Custom", "tag", "v1.0.0");
@@ -206,7 +207,7 @@ fn test_interaction_custom_input_submit_delivers_input_and_restores_draft() {
 
 #[test]
 fn test_tree_and_settings_ctrl_c_dismiss_restores_draft() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("my unsent prompt");
 
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
@@ -232,7 +233,7 @@ fn test_tree_and_settings_ctrl_c_dismiss_restores_draft() {
 
 #[test]
 fn test_interaction_custom_input_shift_enter_inserts_newline() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let (tx, mut rx) = oneshot::channel();
     let prompt = custom_input_prompt("Edit", "cmd", "echo line1");
     let mut pending = None;
@@ -263,7 +264,7 @@ fn test_interaction_custom_input_shift_enter_inserts_newline() {
 
 #[test]
 fn test_install_interaction_forwards_option_layout() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     let (tx, _rx) = oneshot::channel();
     let mut pending = None;
     let mut driver = ModalDriver {
@@ -281,7 +282,7 @@ fn test_install_interaction_forwards_option_layout() {
 
 #[test]
 fn test_settings_hierarchical_escape_back_navigation() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("draft to preserve");
     let temp = tempfile::tempdir().unwrap();
     let config = rho_harness_core::config::Config {
@@ -324,7 +325,7 @@ fn test_settings_hierarchical_escape_back_navigation() {
 
 #[test]
 fn test_tools_and_permissions_hierarchical_escape_back_navigation() {
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("unsent prompt");
     let temp = tempfile::tempdir().unwrap();
     let config = rho_harness_core::config::Config {

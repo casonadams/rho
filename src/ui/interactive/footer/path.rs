@@ -1,6 +1,7 @@
 use super::super::{GitPrInfo, GitStatusCounts};
+use crate::ui::best_effort;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 pub fn abbreviate_home(cwd: &Path, home: Option<&Path>) -> String {
@@ -52,12 +53,12 @@ const GIT_STATUS_TIMEOUT: Duration = Duration::from_secs(3);
 #[cfg(not(test))]
 const GH_TIMEOUT: Duration = Duration::from_secs(5);
 
-fn read_pipe(pipe: Option<impl std::io::Read>) -> Vec<u8> {
+fn read_pipe(pipe: Option<impl std::io::Read>) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     if let Some(mut reader) = pipe {
-        let _ = std::io::Read::read_to_end(&mut reader, &mut buf);
+        reader.read_to_end(&mut buf)?;
     }
-    buf
+    Ok(buf)
 }
 
 fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> Option<std::process::ExitStatus> {
@@ -67,19 +68,22 @@ fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> Option<
             Ok(Some(status)) => return Some(status),
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_and_reap(child);
                     return None;
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_and_reap(child);
                 return None;
             }
         }
     }
+}
+
+fn kill_and_reap(child: &mut std::process::Child) {
+    best_effort(child.kill());
+    best_effort(child.wait());
 }
 
 pub fn run_command_with_timeout(mut cmd: std::process::Command, timeout: Duration) -> Option<std::process::Output> {
@@ -93,8 +97,8 @@ pub fn run_command_with_timeout(mut cmd: std::process::Command, timeout: Duratio
         let out_handle = s.spawn(|| read_pipe(stdout_pipe));
         let err_handle = s.spawn(|| read_pipe(stderr_pipe));
         let status = wait_for_child(&mut child, timeout)?;
-        let stdout = out_handle.join().ok()?;
-        let stderr = err_handle.join().ok()?;
+        let stdout = out_handle.join().ok()?.ok()?;
+        let stderr = err_handle.join().ok()?.ok()?;
         Some(std::process::Output { status, stdout, stderr })
     })
 }
@@ -228,6 +232,12 @@ struct PrCacheEntry {
 }
 
 static PR_CACHE: OnceLock<Mutex<PrCacheEntry>> = OnceLock::new();
+
+// Cache entries are plain data, so a panicked holder must not disable the lookup.
+fn lock_ignoring_poison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 static PR_VERSION: OnceLock<tokio::sync::watch::Sender<u64>> = OnceLock::new();
 
 fn pr_version_sender() -> &'static tokio::sync::watch::Sender<u64> {
@@ -252,7 +262,7 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
     let branch = branch.filter(|b| !b.is_empty() && !is_default_branch(b))?;
     let key = (cwd.to_path_buf(), branch.to_string());
     let cache = PR_CACHE.get_or_init(|| Mutex::new(PrCacheEntry::default()));
-    let mut guard = cache.lock().ok()?;
+    let mut guard = lock_ignoring_poison(cache);
     let now = Instant::now();
     if cache_entry_is_fresh(&guard, &key, now) {
         return guard.pr.clone();
@@ -271,7 +281,8 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
         let branch_owned = key.1.clone();
         std::thread::spawn(move || {
             let pr = fetch_git_pr(&cwd_owned, &branch_owned);
-            let updated = if let Ok(mut g) = cache.lock() {
+            let updated = {
+                let mut g = lock_ignoring_poison(cache);
                 let matched = g.key.as_ref() == Some(&key);
                 if matched {
                     g.pr = pr;
@@ -279,8 +290,6 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
                 }
                 g.in_flight = false;
                 matched
-            } else {
-                false
             };
             if updated {
                 pr_version_sender().send_modify(|v| *v = v.wrapping_add(1));
@@ -313,7 +322,7 @@ fn git_status_entry_is_fresh(entry: &GitStatusCacheEntry, cwd: &Path, now: Insta
 /// Non-blocking git status lookup cached per `cwd`. Spawns a background fetch on miss/expiry
 /// and notifies `subscribe_git_pr()` when complete.
 pub fn cached_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
-    let mut guard = GIT_STATUS_CACHE.lock().ok()?;
+    let mut guard = lock_ignoring_poison(&GIT_STATUS_CACHE);
     let now = Instant::now();
     if git_status_entry_is_fresh(&guard, cwd, now) {
         return guard.counts;
@@ -336,7 +345,8 @@ pub fn cached_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
         let cwd_owned = cwd.to_path_buf();
         std::thread::spawn(move || {
             let counts = get_git_status_counts(&cwd_owned);
-            let updated = if let Ok(mut g) = GIT_STATUS_CACHE.lock() {
+            let updated = {
+                let mut g = lock_ignoring_poison(&GIT_STATUS_CACHE);
                 let matched = g.cwd.as_deref() == Some(cwd_owned.as_path());
                 if matched {
                     g.counts = counts;
@@ -344,8 +354,6 @@ pub fn cached_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
                 }
                 g.in_flight = false;
                 matched
-            } else {
-                false
             };
             if updated {
                 pr_version_sender().send_modify(|v| *v = v.wrapping_add(1));

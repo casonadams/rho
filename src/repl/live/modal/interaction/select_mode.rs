@@ -284,9 +284,7 @@ pub(crate) fn handle_select_mode_key<B: TerminalBackend>(
 mod tests {
     use super::*;
     use crate::ui::interactive::NullBackend;
-    use crate::ui::interactive::{
-        InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, UiEvent,
-    };
+    use crate::ui::interactive::{InteractionOption, InteractionPrompt, InteractionResponder, UiEvent};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tokio::sync::oneshot;
 
@@ -320,7 +318,7 @@ mod tests {
         Option<PendingModal>,
         oneshot::Receiver<InteractionResponse>,
     ) {
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         let (tx, rx) = oneshot::channel();
         let mut pending = None;
         super::super::install_interaction(
@@ -330,7 +328,8 @@ mod tests {
                 responder: InteractionResponder { responder: tx },
             },
             &mut pending,
-        );
+        )
+        .unwrap();
         (controller, pending, rx)
     }
 

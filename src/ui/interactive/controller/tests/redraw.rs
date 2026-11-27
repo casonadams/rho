@@ -1,15 +1,13 @@
 //! Redraw tests: resize rerendering and modal dismissal transitions.
 
 mod resize {
-    use super::super::fake::{FakeTerminal, Operation};
-    use crate::ui::interactive::controller::TerminalController;
+    use super::super::fake::{Operation, controller, controller_with_size};
+    use crate::ui::interactive::ToolStartRequest;
     use crate::ui::interactive::controller::ansi::CLEAR_SCREEN_AND_SCROLLBACK;
-    use crate::ui::interactive::{InteractiveState, ToolStartRequest};
 
     #[test]
     fn resize_erases_using_old_layout_and_redraws_at_new_width() {
-        let (backend, operations, width) = FakeTerminal::new(8);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(8);
         operations.borrow_mut().clear();
         width.set(4);
 
@@ -29,8 +27,7 @@ mod resize {
 
     #[test]
     fn resize_rerenders_at_new_width() {
-        let (backend, operations, width) = FakeTerminal::new(60);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(60);
         controller
             .start_tool(ToolStartRequest {
                 name: "bash".into(),
@@ -52,8 +49,7 @@ mod resize {
 
     #[test]
     fn resize_during_in_flight_stream_preserves_content_and_updates_dimensions() {
-        let (backend, operations, width) = FakeTerminal::new(80);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width) = controller(80);
         controller.write_stream_output("in-flight streaming chunk").unwrap();
         assert_eq!(controller.width(), 80);
         operations.borrow_mut().clear();
@@ -72,8 +68,7 @@ mod resize {
 
     #[test]
     fn tick_redraws_the_live_region() {
-        let (backend, operations, _) = FakeTerminal::new(8);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(8);
         operations.borrow_mut().clear();
 
         controller.tick().unwrap();
@@ -90,8 +85,7 @@ mod resize {
 
     #[test]
     fn unchanged_size_does_not_redraw() {
-        let (backend, operations, _) = FakeTerminal::new(8);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _) = controller(8);
         operations.borrow_mut().clear();
 
         assert!(!controller.refresh_size().unwrap());
@@ -109,8 +103,7 @@ mod resize {
 
     #[test]
     fn resize_vertical_only_rerenders_and_updates_height() {
-        let (backend, operations, _width, height) = FakeTerminal::with_size(60, 24);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _width, height) = controller_with_size(60, 24);
         assert_eq!((controller.terminal_height(), controller.terminal_width()), (24, 60));
 
         operations.borrow_mut().clear();
@@ -123,8 +116,7 @@ mod resize {
 
     #[test]
     fn resize_both_dimensions_rerenders_and_updates_both() {
-        let (backend, operations, width, height) = FakeTerminal::with_size(60, 24);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, width, height) = controller_with_size(60, 24);
 
         operations.borrow_mut().clear();
         width.set(40);
@@ -143,9 +135,9 @@ mod resize {
 }
 
 mod transition {
-    use super::super::fake::{FakeTerminal, Operation};
+    use super::super::fake::{FakeTerminal, Operation, controller_with_size};
     use crate::ui::interactive::controller::TerminalController;
-    use crate::ui::interactive::{InteractiveState, ModalOption, ModalState};
+    use crate::ui::interactive::{ModalOption, ModalState};
 
     fn track_cursor_ops(ops: &[Operation], initial_row: usize) -> (isize, isize, usize) {
         let mut cursor_row = initial_row as isize;
@@ -172,8 +164,7 @@ mod transition {
         usize,
         usize,
     ) {
-        let (backend, operations, _width, _height) = FakeTerminal::with_size(80, 15);
-        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let (mut controller, operations, _width, _height) = controller_with_size(80, 15);
         controller.state_mut().push_modal(modal);
         controller.redraw().unwrap();
         let layout = controller.current_layout();

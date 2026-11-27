@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::interactive::{InteractiveState, NullBackend, TranscriptItem};
+use crate::ui::interactive::{NullBackend, TranscriptItem};
 use crossterm::event::KeyModifiers;
 use rho_harness_core::agents::{AgentEvent, AgentHandle};
 
@@ -8,7 +8,7 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 fn controller() -> TerminalController<NullBackend> {
-    TerminalController::new(NullBackend, InteractiveState::default()).unwrap()
+    crate::repl::test_controller()
 }
 
 fn monitor_with_two_agents() -> (AgentMonitor, AgentHandle, AgentHandle) {

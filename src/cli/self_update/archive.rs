@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::Path;
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum ArchiveError {
     #[error("archive does not contain executable '{expected}' (found: {found:?})")]
     MissingBinary { expected: String, found: Vec<String> },
@@ -10,7 +10,7 @@ pub enum ArchiveError {
     #[error("decompression or archive read failed: {0}")]
     Corrupt(String),
     #[error("failed to write binary: {0}")]
-    Io(String),
+    Io(#[from] std::io::Error),
 }
 
 pub fn extract_binary(asset_name: &str, data: &[u8], executable_name: &str) -> Result<Vec<u8>, ArchiveError> {
@@ -107,28 +107,27 @@ fn select_executable(found_files: Vec<(String, Vec<u8>)>, executable_name: &str)
 pub fn write_binary_atomically(dest: &Path, content: &[u8]) -> Result<(), ArchiveError> {
     let dir = dest
         .parent()
-        .ok_or_else(|| ArchiveError::Io(format!("no parent directory for {}", dest.display())))?;
-    std::fs::create_dir_all(dir).map_err(|e| ArchiveError::Io(e.to_string()))?;
+        .ok_or_else(|| std::io::Error::other(format!("no parent directory for {}", dest.display())))?;
+    std::fs::create_dir_all(dir)?;
 
     let tmp_name = format!(".rho_self_update_{}", uuid::Uuid::new_v4());
     let tmp_path = dir.join(tmp_name);
 
-    std::fs::write(&tmp_path, content).map_err(|e| ArchiveError::Io(e.to_string()))?;
+    std::fs::write(&tmp_path, content)?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&tmp_path)
-            .map_err(|e| ArchiveError::Io(e.to_string()))?
-            .permissions();
+        let mut perms = std::fs::metadata(&tmp_path)?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&tmp_path, perms).map_err(|e| ArchiveError::Io(e.to_string()))?;
+        std::fs::set_permissions(&tmp_path, perms)?;
     }
 
-    std::fs::rename(&tmp_path, dest).map_err(|e| {
+    if let Err(err) = std::fs::rename(&tmp_path, dest) {
         let _ = std::fs::remove_file(&tmp_path);
-        ArchiveError::Io(e.to_string())
-    })
+        return Err(err.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -158,13 +157,11 @@ mod tests {
     fn zip_asset_without_executable_reports_found_names() {
         let data = zip_with(&[("a.txt", b"1"), ("b.txt", b"2")]);
         let err = extract_binary("rho.zip", &data, "rho").unwrap_err();
-        assert_eq!(
+        assert!(matches!(
             err,
-            ArchiveError::MissingBinary {
-                expected: "rho".into(),
-                found: vec!["a.txt".into(), "b.txt".into()]
-            }
-        );
+            ArchiveError::MissingBinary { ref expected, ref found }
+                if expected == "rho" && found == &["a.txt", "b.txt"]
+        ));
     }
 
     #[test]
@@ -176,6 +173,6 @@ mod tests {
     #[test]
     fn xz_asset_remains_unsupported() {
         let err = extract_binary("rho.tar.xz", b"", "rho").unwrap_err();
-        assert_eq!(err, ArchiveError::UnsupportedFormat("rho.tar.xz".into()));
+        assert!(matches!(err, ArchiveError::UnsupportedFormat(ref name) if name == "rho.tar.xz"));
     }
 }

@@ -73,8 +73,7 @@ pub(crate) async fn handle_compact<B: TerminalBackend>(
     match ctx.engine.compact_session(instructions).await {
         Ok(stats) => {
             crate::repl::line_mode::dispatch::print_compaction_stats(ctx.session, &stats);
-            crate::repl::live::turn::sync_turn_footer(io.controller, ctx.engine);
-            let _ = io.controller.redraw();
+            crate::ui::best_effort(io.controller.redraw());
         }
         Err(err) => {
             ctx.session
@@ -156,7 +155,7 @@ pub(crate) async fn handle_engine_command_rest<B: TerminalBackend>(
                 None,
             )
             .await;
-            let _ = io.controller.redraw();
+            io.controller.redraw()?;
             Ok(true)
         }
         CommandResult::Recap => {
@@ -168,7 +167,7 @@ pub(crate) async fn handle_engine_command_rest<B: TerminalBackend>(
                 Ok(created) => {
                     ctx.session.renderer.print_notice(&format!("  {}\n", created.summary()));
                     crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
-                    let _ = io.controller.redraw();
+                    io.controller.redraw()?;
                 }
                 Err(err) => {
                     ctx.session
@@ -317,8 +316,6 @@ pub(crate) async fn handle_tree_commands<B: TerminalBackend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::interactive::NullBackend;
-    use crate::ui::interactive::{InteractiveState, TerminalController};
 
     #[test]
     fn test_open_selector_modal_actions() {
@@ -326,7 +323,7 @@ mod tests {
         let auth = crate::auth::AuthStore::default();
         let session = crate::repl::ReplSession::new(config, auth, None);
 
-        let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+        let mut controller = crate::repl::test_controller();
         open_selector_modal(&session, &mut controller, &CommandResult::OpenModelSelector);
         assert!(controller.state().active_modal().is_some());
         controller.state_mut().pop_modal();

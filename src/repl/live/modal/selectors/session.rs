@@ -5,24 +5,33 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::ui::interactive::session_picker::{resume_modal, resume_options, session_row};
-use crate::ui::interactive::{TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, TerminalBackend, TerminalController};
 
 pub async fn open_session_selector<B: TerminalBackend>(
     sessions_dir: &Path,
     active_session_id: &str,
     controller: &mut TerminalController<B>,
 ) {
-    let _ = rho_harness_core::session::prune_empty_sessions_async(sessions_dir, Some(active_session_id)).await;
-    let summaries = rho_harness_core::session::list_session_summaries_async(sessions_dir)
-        .await
-        .unwrap_or_default();
+    if let Err(err) = rho_harness_core::session::prune_empty_sessions_async(sessions_dir, Some(active_session_id)).await
+    {
+        controller.set_system_message(format!("Warning: could not prune empty sessions: {err}"));
+    }
+    let summaries = match rho_harness_core::session::list_session_summaries_async(sessions_dir).await {
+        Ok(summaries) => summaries,
+        Err(err) => {
+            controller.set_system_message(format!("Warning: could not list sessions: {err}"));
+            Vec::new()
+        }
+    };
     let options = resume_options(&summaries, session_row);
     let subtitle = if options.is_empty() {
         "No previous sessions to resume"
     } else {
         ""
     };
-    controller.state_mut().push_modal(resume_modal(options, subtitle));
+    controller
+        .state_mut()
+        .push_modal(resume_modal(options, subtitle).with_kind(ModalKind::Session));
 }
 
 fn selected_session_id<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {

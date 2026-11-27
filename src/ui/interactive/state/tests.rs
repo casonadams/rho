@@ -78,32 +78,36 @@ fn modal_stack_depth_and_find_modal_mut() {
     let mut state = InteractiveState::default();
     assert_eq!(state.modal_depth(), 0);
 
-    state.push_modal(ModalState::new("Settings", "", vec![ModalOption::from("Option 1")]));
+    state.push_modal(
+        ModalState::new("Settings", "", vec![ModalOption::from("Option 1")]).with_kind(ModalKind::Settings),
+    );
     assert_eq!(state.modal_depth(), 1);
 
-    state.push_modal(ModalState::new("Models", "", vec![ModalOption::from("Default Model")]));
+    state.push_modal(
+        ModalState::new("Models", "", vec![ModalOption::from("Default Model")]).with_kind(ModalKind::Models),
+    );
     assert_eq!(state.modal_depth(), 2);
 
-    let found_settings = state.find_modal_mut("Settings");
+    let found_settings = state.find_modal_mut(&ModalKind::Settings);
     assert!(found_settings.is_some());
     assert_eq!(found_settings.unwrap().title, "Settings");
 
-    let found_models = state.find_modal_mut("Models");
+    let found_models = state.find_modal_mut(&ModalKind::Models);
     assert!(found_models.is_some());
     assert_eq!(found_models.unwrap().title, "Models");
 
-    state.update_modal_option_desc("Models", 0, "claude-3-7-sonnet");
+    state.update_modal_option_desc(&ModalKind::Models, 0, "claude-3-7-sonnet");
     assert_eq!(
         state.active_modal().unwrap().options[0].description.as_deref(),
         Some("claude-3-7-sonnet")
     );
 
-    assert!(state.find_modal_mut("Nonexistent").is_none());
+    assert!(state.find_modal_mut(&ModalKind::Help).is_none());
 
     state.pop_modal();
     assert_eq!(state.modal_depth(), 1);
-    assert!(state.find_modal_mut("Models").is_none());
-    assert!(state.find_modal_mut("Settings").is_some());
+    assert!(state.find_modal_mut(&ModalKind::Models).is_none());
+    assert!(state.find_modal_mut(&ModalKind::Settings).is_some());
 }
 
 #[test]

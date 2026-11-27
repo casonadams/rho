@@ -14,6 +14,8 @@ pub use terminal::{detect, detect_with_config};
 
 use anstyle::{AnsiColor, Color, RgbColor, Style};
 
+pub const SGR_RESET: &str = "\x1b[0m";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlockStyle {
     Solid,

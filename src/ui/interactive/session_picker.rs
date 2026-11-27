@@ -1,3 +1,4 @@
+use crate::ui::interactive::input::{is_ctrl_c, is_shift_tab};
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 use crate::ui::render::formatters::format_relative_time;
 use crate::ui::theme::Theme;
@@ -73,11 +74,11 @@ enum PickerAction {
 
 fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
     match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
+        KeyCode::Up => {
             modal.select_previous();
             PickerAction::Repaint
         }
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+        _ if is_shift_tab(key) => {
             modal.select_previous();
             PickerAction::Repaint
         }
@@ -93,17 +94,13 @@ fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
             PickerAction::Select(session_id)
         }
         KeyCode::Esc => PickerAction::Cancel,
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => PickerAction::Cancel,
+        _ if is_ctrl_c(key) => PickerAction::Cancel,
         KeyCode::Backspace => {
-            let mut query = modal.filter_query.clone();
-            query.pop();
-            modal.set_filter(&query);
+            modal.pop_filter_char();
             PickerAction::Repaint
         }
         KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            let mut query = modal.filter_query.clone();
-            query.push(c);
-            modal.set_filter(&query);
+            modal.push_filter_char(c);
             PickerAction::Repaint
         }
         _ => PickerAction::Repaint,

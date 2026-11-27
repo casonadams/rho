@@ -6,7 +6,6 @@ use crate::ui::terminal_stream::{Cursor, Token, tokens};
 
 pub const CSI_BEGIN_SYNC_UPDATE: &str = "\x1b[?2026h";
 pub const CSI_END_SYNC_UPDATE: &str = "\x1b[?2026l";
-pub const SGR_RESET: &str = "\x1b[0m";
 pub const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H\x1b[0m";
 pub const CLEAR_SCREEN_AND_SCROLLBACK: &str = "\x1b[H\x1b[2J\x1b[3J\x1b[0m";
 pub const CURSOR_HOME: &str = "\x1b[H";

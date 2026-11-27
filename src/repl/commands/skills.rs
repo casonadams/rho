@@ -40,10 +40,7 @@ pub(crate) fn prompt_skill_choice_from<R: std::io::BufRead, W: std::io::Write>(
     for (i, c) in choices.iter().enumerate() {
         writeln!(writer, "  {}. {c}", i + 1).ok()?;
     }
-    write!(writer, "Enter choice [1-{}]: ", choices.len()).ok()?;
-    writer.flush().ok()?;
-    let mut input = String::new();
-    reader.read_line(&mut input).ok()?;
+    let input = crate::repl::prompt::read_answer(reader, writer, &format!("Enter choice [1-{}]: ", choices.len()))?;
     parse_skill_choice(&input, choices)
 }
 

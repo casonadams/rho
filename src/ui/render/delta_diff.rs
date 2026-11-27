@@ -7,7 +7,7 @@ use super::diff::{DiffToken, compute_token_diff, format_gutter_prefix, more_line
 use crate::ui::block::leading_escape;
 use crate::ui::markdown::CodeHighlighter;
 use crate::ui::terminal_stream::is_sgr_reset;
-use crate::ui::theme::Theme;
+use crate::ui::theme::{SGR_RESET, Theme};
 use std::ops::Range;
 
 struct DeltaPalette {
@@ -69,7 +69,7 @@ fn overlay_diff_background(highlighted: &str, base_bg: &str, emph_bg: &str, emph
         offset += ch.len_utf8();
         vis_pos += ch.len_utf8();
     }
-    out.push_str("\x1b[0m");
+    out.push_str(SGR_RESET);
     out
 }
 
@@ -172,13 +172,13 @@ impl<'a> DeltaRenderCtx<'a> {
                 let red = self.theme.tool_err;
                 let bg = self.palette.minus_bg;
                 let styled = overlay_diff_background(&highlighted, bg, self.palette.minus_emph_bg, emph);
-                out.push_str(&format!("{gutter}{bg}{red}- {red:#}\x1b[0m{styled}\n"));
+                out.push_str(&format!("{gutter}{bg}{red}- {red:#}{SGR_RESET}{styled}\n"));
             }
             LineKind::Added => {
                 let green = self.theme.tool_ok;
                 let bg = self.palette.plus_bg;
                 let styled = overlay_diff_background(&highlighted, bg, self.palette.plus_emph_bg, emph);
-                out.push_str(&format!("{gutter}{bg}{green}+ {green:#}\x1b[0m{styled}\n"));
+                out.push_str(&format!("{gutter}{bg}{green}+ {green:#}{SGR_RESET}{styled}\n"));
             }
         }
     }

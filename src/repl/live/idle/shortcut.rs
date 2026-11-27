@@ -140,7 +140,7 @@ async fn handle_ui_toggle_or_selector(
             ctx.controller.redraw()?;
         }
         InputAction::Suspend => {
-            crate::platform::suspend::suspend_process();
+            crate::platform::suspend::suspend_process()?;
             ctx.controller.redraw()?;
         }
         _ => return Ok(false),

@@ -18,6 +18,8 @@ mod tests;
 
 pub use auth::{login_provider, logout_provider};
 
+pub(crate) type CliResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::config::cli::Cli;
@@ -38,7 +40,7 @@ async fn run_interactive_session(
     auth_store: AuthStore,
     resume_target: Option<String>,
     cli: Cli,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
+) -> CliResult {
     let mut session = ReplSession::new(config, auth_store, resume_target)
         .with_cli(Some(cli))
         .with_live_models();
@@ -52,18 +54,13 @@ async fn run_interactive_session(
     _auth_store: AuthStore,
     _resume_target: Option<String>,
     _cli: Cli,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
+) -> CliResult {
     Err(Box::new(crate::error::AppError::Session(
         "interactive REPL is unavailable in headless mode (compiled without 'ui' feature); provide a prompt via -p or piped stdin".to_string(),
     )))
 }
 
-async fn dispatch_prompt_runner(
-    runner: runner::CliRunner,
-    prompt: &str,
-    mode: &str,
-    name: Option<&str>,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn dispatch_prompt_runner(runner: runner::CliRunner, prompt: &str, mode: &str, name: Option<&str>) -> CliResult {
     if mode == "json" {
         runner.run_json_turn(prompt).await
     } else {
@@ -71,11 +68,7 @@ async fn dispatch_prompt_runner(
     }
 }
 
-async fn dispatch_cli_run(
-    cli: Cli,
-    config: Config,
-    auth_store: AuthStore,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn dispatch_cli_run(cli: Cli, config: Config, auth_store: AuthStore) -> CliResult {
     let resume_target = session::resolve_resume_target(&cli, &config)?;
     if let Some(export_path) = cli.export.as_deref() {
         return session::export_session(export_path, resume_target, &config).await;
@@ -86,14 +79,14 @@ async fn dispatch_cli_run(
     if cli.mode == "rpc" {
         return rpc::run_rpc_daemon(config, auth_store).await.map_err(Into::into);
     }
-    if let Some(prompt) = resolve_prompt_text(&cli) {
+    if let Some(prompt) = resolve_prompt_text(&cli)? {
         let runner = runner::CliRunner::new(config, auth_store, resume_target);
         return dispatch_prompt_runner(runner, &prompt, &cli.mode, cli.name.as_deref()).await;
     }
     run_interactive_session(config, auth_store, resume_target, cli).await
 }
 
-pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
+pub async fn run_cli() -> CliResult {
     rho_engine::install_crypto_provider();
     let _process_cleanup = ProcessCleanupGuard;
     exit::install_exit_handlers()?;
@@ -115,18 +108,18 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     result
 }
 
-fn resolve_prompt_text(cli: &Cli) -> Option<String> {
+fn resolve_prompt_text(cli: &Cli) -> CliResult<Option<String>> {
     if let Some(p) = cli.prompt.clone() {
-        Some(p)
+        Ok(Some(p))
     } else if !cli.message.is_empty() {
-        Some(cli.message.join(" "))
+        Ok(Some(cli.message.join(" ")))
     } else if !atty_check() {
         let mut buffer = String::new();
-        std::io::stdin().read_to_string(&mut buffer).ok();
+        std::io::stdin().read_to_string(&mut buffer)?;
         let trimmed = buffer.trim().to_string();
-        if !trimmed.is_empty() { Some(trimmed) } else { None }
+        Ok(if trimmed.is_empty() { None } else { Some(trimmed) })
     } else {
-        None
+        Ok(None)
     }
 }
 

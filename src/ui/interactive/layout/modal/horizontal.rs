@@ -1,6 +1,7 @@
 use super::types::ModalOptionsLayout;
 use crate::ui::block::visible_width;
 use crate::ui::interactive::{ModalOption, ModalState};
+use crate::ui::theme::SGR_RESET;
 
 fn horizontal_item_width(opt: &ModalOption, is_selected: bool) -> usize {
     visible_width(&opt.label) + if is_selected { 2 } else { 0 }
@@ -60,7 +61,7 @@ pub fn calculate_horizontal_window(modal: &ModalState, inner_width: usize) -> (u
 fn format_horizontal_option(opt: &ModalOption, is_selected: bool, theme: &crate::ui::theme::Theme) -> String {
     if is_selected {
         let hl = theme.highlight;
-        format!("{hl}▸{hl:#} \x1b[1m{}\x1b[0m", opt.label)
+        format!("{hl}▸{hl:#} \x1b[1m{}{SGR_RESET}", opt.label)
     } else {
         opt.label.clone()
     }

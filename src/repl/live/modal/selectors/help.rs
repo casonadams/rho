@@ -3,7 +3,7 @@ use crossterm::event::KeyEvent;
 use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::repl::commands::{BUILTIN_COMMANDS, BuiltinCommand, SHORTCUTS};
-use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
+use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
 
 fn help_modal_options() -> Vec<ModalOption> {
     let mut options = Vec::new();
@@ -38,7 +38,9 @@ fn help_modal_options() -> Vec<ModalOption> {
 }
 
 pub fn open_help_selector<B: TerminalBackend>(controller: &mut TerminalController<B>) {
-    let modal = ModalState::new("Help", "", help_modal_options()).with_search(true);
+    let modal = ModalState::new("Help", "", help_modal_options())
+        .with_search(true)
+        .with_kind(ModalKind::Help);
     controller.state_mut().push_modal(modal);
 }
 

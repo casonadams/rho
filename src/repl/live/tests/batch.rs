@@ -1,5 +1,5 @@
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{InteractiveState, TerminalController, tool_fixture};
+use crate::ui::interactive::{TerminalController, tool_fixture};
 
 fn tool_event(name: &str, output: &str) -> crate::ui::interactive::UiEvent {
     crate::ui::interactive::UiEvent::Transcript(tool_fixture(name, serde_json::json!({}), output))
@@ -8,7 +8,7 @@ fn tool_event(name: &str, output: &str) -> crate::ui::interactive::UiEvent {
 #[test]
 fn live_batch_flushes_tool_end_with_transcript_without_intermediate_redraw() {
     let mut batch = super::super::batch::LiveBatch::new();
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller
         .start_tool(crate::ui::interactive::ToolStartRequest {
             name: "bash".into(),
@@ -55,7 +55,7 @@ fn push_test_events(batch: &mut super::super::batch::LiveBatch, controller: &mut
 #[test]
 fn live_batch_coalesces_rapid_tool_activity_and_transcript() {
     let mut batch = super::super::batch::LiveBatch::new();
-    let mut controller = TerminalController::new(NullBackend, InteractiveState::default()).unwrap();
+    let mut controller = crate::repl::test_controller();
     controller
         .start_tool(crate::ui::interactive::ToolStartRequest {
             name: "read".into(),

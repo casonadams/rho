@@ -14,3 +14,10 @@ pub use interactive::cache;
 pub use markdown::MarkdownRenderer;
 pub use render::TerminalRenderer;
 pub use theme::Theme;
+
+/// Discards a result that has no recovery path at its call site, so the discard is explicit.
+/// A `UiPortError::Closed` means the interactive controller has exited; a failed stdout write
+/// means the reader is gone; a failed kill or reap means the child already exited.
+pub(crate) fn best_effort<T, E>(result: Result<T, E>) {
+    let _ = result;
+}
