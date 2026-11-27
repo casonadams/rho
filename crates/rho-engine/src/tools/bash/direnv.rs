@@ -5,6 +5,7 @@
 //! variables stripped). Never auto-allows `.envrc`: blocked or failing loads degrade
 //! silently so commands still execute normally.
 
+use crate::locking::lock;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -45,20 +46,18 @@ static ENVRC_CACHE: LazyLock<Mutex<EnvrcCache>> = LazyLock::new(|| Mutex::new(Ha
 pub fn find_envrc(start_dir: &Path) -> Option<PathBuf> {
     let key = start_dir.to_path_buf();
     let now = Instant::now();
-    if let Ok(cache) = ENVRC_CACHE.lock()
-        && let Some((at, found)) = cache.get(&key)
+    if let Some((at, found)) = lock(&ENVRC_CACHE).get(&key)
         && now.duration_since(*at) < ENVRC_CACHE_TTL
     {
         return found.clone();
     }
 
     let found = walk_for_envrc(start_dir);
-    if let Ok(mut cache) = ENVRC_CACHE.lock() {
-        if cache.len() >= ENVRC_CACHE_MAX_ENTRIES {
-            cache.clear();
-        }
-        cache.insert(key, (now, found.clone()));
+    let mut cache = lock(&ENVRC_CACHE);
+    if cache.len() >= ENVRC_CACHE_MAX_ENTRIES {
+        cache.clear();
     }
+    cache.insert(key, (now, found.clone()));
     found
 }
 

@@ -1,7 +1,8 @@
+use crate::locking::lock;
 use crate::presentation::{FileChange, ToolLine};
 use crate::text::truncate_chars;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 const MAX_EVENTS_PER_AGENT: usize = 500;
@@ -255,7 +256,7 @@ impl std::fmt::Debug for AgentMonitor {
 
 impl AgentMonitor {
     fn lock(&self) -> MutexGuard<'_, MonitorState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     #[must_use]

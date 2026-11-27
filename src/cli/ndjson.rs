@@ -1,5 +1,6 @@
 //! Line-delimited JSON output for headless runs: one `UiEnvelope` per line on stdout.
 
+use rho_harness_core::locking::lock;
 use rho_harness_core::presentation::{StructuredOutputSink, StructuredPresenter, UiEnvelope, UiEvent};
 use std::io::Write;
 use std::sync::Mutex;
@@ -40,14 +41,14 @@ impl<W: Write + Send> StructuredOutputSink for NdjsonSink<W> {
             Ok(line) => line,
             Err(error) => return self.record_failure(&error),
         };
-        let mut out = self.out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut out = lock(&self.out);
         if let Err(error) = writeln!(out, "{line}").and_then(|()| out.flush()) {
             self.record_failure(&error);
         }
     }
 
     fn flush(&self) {
-        let mut out = self.out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut out = lock(&self.out);
         if let Err(error) = out.flush() {
             self.record_failure(&error);
         }

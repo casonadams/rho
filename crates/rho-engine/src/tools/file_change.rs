@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::locking::lock;
 use rho_harness_core::presentation::{FileChange, ToolLine};
 use serde_json::Value;
 
@@ -153,13 +154,11 @@ impl PendingFileChanges {
 
     /// Forgets the file read for a streaming call.
     pub fn end_preview(&self) {
-        if let Ok(mut previewed) = self.previewed.lock() {
-            *previewed = None;
-        }
+        *lock(&self.previewed) = None;
     }
 
     fn previewed_content(&self, path: &str) -> Option<Arc<str>> {
-        let mut previewed = self.previewed.lock().ok()?;
+        let mut previewed = lock(&self.previewed);
         match &*previewed {
             Some((previewed_path, content)) if previewed_path == path => content.clone(),
             _ => {
@@ -172,9 +171,7 @@ impl PendingFileChanges {
 
     fn record(&self, snapshot: (String, FileChange)) -> Option<FileChange> {
         let (path, change) = snapshot;
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.insert(path, change.clone());
-        }
+        lock(&self.pending).insert(path, change.clone());
         Some(change)
     }
 
@@ -183,14 +180,13 @@ impl PendingFileChanges {
         self.end_preview();
         if line.file_change.is_none()
             && let Some(path) = rho_harness_core::args::target_path(&line.arguments)
-            && let Ok(mut pending) = self.pending.lock()
         {
-            line.file_change = pending.remove(path);
+            line.file_change = lock(&self.pending).remove(path);
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.pending.lock().is_ok_and(|pending| pending.is_empty())
+        lock(&self.pending).is_empty()
     }
 }
 

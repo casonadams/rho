@@ -7,6 +7,7 @@ use super::in_flight::{InFlightGuard, InFlightUsage};
 use super::speed::SpeedTracker;
 use super::types::{SessionUsageTotals, TurnUsage};
 use crate::engine::metrics::StructuralUsage;
+use crate::locking::lock;
 
 #[derive(Clone, Default)]
 pub struct UsageTracker {
@@ -19,27 +20,19 @@ pub struct UsageTracker {
 
 impl UsageTracker {
     pub fn start_turn(&self, estimated_prompt_tokens: Option<u64>) {
-        if let Ok(mut in_flight) = self.in_flight.lock() {
-            in_flight.start_turn(estimated_prompt_tokens);
-        }
+        lock(&self.in_flight).start_turn(estimated_prompt_tokens);
     }
 
     pub fn start_step(&self) {
-        if let Ok(mut in_flight) = self.in_flight.lock() {
-            in_flight.start_step();
-        }
+        lock(&self.in_flight).start_step();
     }
 
     pub fn record_streaming_chunk(&self, tokens: u64) {
-        if let Ok(mut in_flight) = self.in_flight.lock() {
-            in_flight.record_streaming_chunk(tokens);
-        }
+        lock(&self.in_flight).record_streaming_chunk(tokens);
     }
 
     pub fn record_step(&self, usage: StructuralUsage, elapsed_ms: u64) {
-        if let Ok(mut in_flight) = self.in_flight.lock() {
-            in_flight.record_step(usage, elapsed_ms);
-        }
+        lock(&self.in_flight).record_step(usage, elapsed_ms);
     }
 
     pub fn in_flight_guard(&self) -> InFlightGuard<'_> {
@@ -47,23 +40,17 @@ impl UsageTracker {
     }
 
     fn apply_in_flight_state(&self, in_flight: &InFlightUsage) {
-        if let Ok(mut totals) = self.totals.lock() {
-            totals.add_totals(&in_flight.turn_step_totals);
-        }
+        lock(&self.totals).add_totals(&in_flight.turn_step_totals);
         if in_flight.turn_step_elapsed_ms > 0 {
             self.record_generation(in_flight.turn_step_totals.total_output, in_flight.turn_step_elapsed_ms);
         }
-        if let Some(ctx) = in_flight.latest_context
-            && let Ok(mut latest) = self.latest.lock()
-        {
-            *latest = Some(ctx);
+        if let Some(ctx) = in_flight.latest_context {
+            *lock(&self.latest) = Some(ctx);
         }
     }
 
     pub fn commit_in_flight_partial(&self) {
-        let Ok(mut in_flight) = self.in_flight.lock() else {
-            return;
-        };
+        let mut in_flight = lock(&self.in_flight);
         if in_flight.turn_step_totals.has_values() {
             self.apply_in_flight_state(&in_flight);
         }
@@ -71,31 +58,21 @@ impl UsageTracker {
     }
 
     pub fn clear_in_flight(&self) {
-        if let Ok(mut in_flight) = self.in_flight.lock() {
-            *in_flight = InFlightUsage::default();
-        }
+        *lock(&self.in_flight) = InFlightUsage::default();
     }
 
     pub fn end_response(&self, output_tokens: u64) {
-        if let Ok(mut speed) = self.speed.lock() {
-            speed.response_end(output_tokens);
-        }
+        lock(&self.speed).response_end(output_tokens);
     }
 
     pub fn record_generation(&self, output_tokens: u64, elapsed_ms: u64) {
-        if let Ok(mut speed) = self.speed.lock() {
-            speed.record_generation(output_tokens, elapsed_ms);
-        }
+        lock(&self.speed).record_generation(output_tokens, elapsed_ms);
     }
 
     pub fn record_turn(&self, usage: TurnUsage, elapsed_ms: u64) {
         self.clear_in_flight();
-        if let Ok(mut latest) = self.latest.lock() {
-            *latest = usage.active_context.has_values().then_some(usage.active_context);
-        }
-        if let Ok(mut totals) = self.totals.lock() {
-            totals.add_usage(&usage.totals);
-        }
+        *lock(&self.latest) = usage.active_context.has_values().then_some(usage.active_context);
+        lock(&self.totals).add_usage(&usage.totals);
         if elapsed_ms > 0 {
             self.record_generation(usage.totals.output_tokens, elapsed_ms);
         } else {
@@ -109,29 +86,21 @@ impl UsageTracker {
 
     pub fn update_active_context(&self, usage: StructuralUsage) {
         self.clear_in_flight();
-        if let Ok(mut latest) = self.latest.lock() {
-            *latest = usage.has_values().then_some(usage);
-        }
+        *lock(&self.latest) = usage.has_values().then_some(usage);
     }
 
     pub fn record_compaction_usage(&self, usage: StructuralUsage) {
-        if let Ok(mut totals) = self.totals.lock() {
-            totals.add_usage(&usage);
-        }
+        lock(&self.totals).add_usage(&usage);
     }
 
     pub fn latest(&self) -> Option<StructuralUsage> {
-        if let Ok(in_flight) = self.in_flight.lock()
-            && let Some(usage) = in_flight.latest_context
-        {
-            return Some(usage);
-        }
-        self.latest.lock().ok().and_then(|usage| *usage)
+        let in_flight = lock(&self.in_flight).latest_context;
+        in_flight.or(*lock(&self.latest))
     }
 
     pub fn totals(&self) -> SessionUsageTotals {
-        let mut totals = self.totals.lock().ok().as_deref().copied().unwrap_or_default();
-        let in_flight = self.in_flight.lock().ok().as_deref().cloned().unwrap_or_default();
+        let mut totals = *lock(&self.totals);
+        let in_flight = lock(&self.in_flight).clone();
         totals.add_totals(&in_flight.turn_step_totals);
         totals.total_input = totals
             .total_input
@@ -141,12 +110,8 @@ impl UsageTracker {
     }
 
     pub fn tokens_per_second(&self) -> Option<f64> {
-        if let Ok(in_flight) = self.in_flight.lock()
-            && let Some(speed) = in_flight.tokens_per_second()
-        {
-            return Some(speed);
-        }
-        self.speed.lock().ok().and_then(|s| s.tokens_per_second())
+        let in_flight = lock(&self.in_flight).tokens_per_second();
+        in_flight.or_else(|| lock(&self.speed).tokens_per_second())
     }
 
     pub fn check_and_update_cache_miss(&self, usage: &StructuralUsage) -> Option<u64> {

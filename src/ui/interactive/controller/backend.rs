@@ -7,16 +7,13 @@ use crossterm::{
     execute, queue,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
+use rho_harness_core::locking::lock;
 use std::io::{self, BufWriter, Stdout, Write};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 /// Held across every raw-mode transition so an abort from a signal handler or panic hook never
 /// lands between enabling raw mode and recording it, which would leave the terminal raw.
 static RAW_TERMINAL_ACTIVE: Mutex<bool> = Mutex::new(false);
-
-fn lock_raw(active: &Mutex<bool>) -> MutexGuard<'_, bool> {
-    active.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Puts the terminal back into cooked mode from a signal or panic path that cannot reach the
 /// controller. Does nothing unless a crossterm backend currently holds the terminal in raw mode.
@@ -29,7 +26,7 @@ pub fn restore_terminal_after_abort() {
 /// Writes the escape sequences that undo [`write_setup_modes`] plus a visible cursor and runs
 /// `disable`, once, and only while a raw session is active. Returns whether it did.
 fn abort_raw_session(active: &Mutex<bool>, out: &mut impl Write, disable: impl FnOnce()) -> bool {
-    let mut raw = lock_raw(active);
+    let mut raw = lock(active);
     if !std::mem::take(&mut *raw) {
         return false;
     }
@@ -45,7 +42,7 @@ fn enter_raw_session(
     enable: impl FnOnce() -> io::Result<()>,
     setup: impl FnOnce() -> io::Result<()>,
 ) -> io::Result<()> {
-    let mut raw = lock_raw(active);
+    let mut raw = lock(active);
     enable()?;
     *raw = true;
     setup()
@@ -56,7 +53,7 @@ fn leave_raw_session(
     restore: impl FnOnce(),
     disable: impl FnOnce() -> io::Result<()>,
 ) -> io::Result<()> {
-    let mut raw = lock_raw(active);
+    let mut raw = lock(active);
     restore();
     *raw = false;
     disable()
@@ -260,7 +257,7 @@ mod tests {
             "{first:?}"
         );
         assert!(first.ends_with("\x1b[?25h"), "{first:?}");
-        assert!(!*lock_raw(&raw));
+        assert!(!*lock(&raw));
 
         assert!(!abort_raw_session(&raw, &mut out, || disabled += 1));
         assert_eq!(String::from_utf8(out).unwrap(), first);
@@ -324,6 +321,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(flag_seen_by_disable, Some(true), "the gate is held while disabling");
-        assert!(!*lock_raw(&raw));
+        assert!(!*lock(&raw));
     }
 }

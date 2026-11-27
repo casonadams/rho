@@ -1,6 +1,7 @@
 //! Spinner/activity lifetime token held while the model is thinking or a tool
 //! is running. The presentation layer supplies the closure invoked on finish.
 
+use crate::locking::lock;
 use std::sync::{Arc, Mutex};
 
 type Finisher = std::boxed::Box<dyn FnOnce() + Send>;
@@ -13,15 +14,17 @@ pub struct ActivityToken {
 
 impl ActivityToken {
     pub fn finish_and_clear(self) {
-        let finish = self.finisher.lock().ok().and_then(|mut slot| slot.take());
-        if let Some(finish) = finish {
-            finish();
-        }
+        self.run_finisher();
     }
 
     pub fn disarm(&self) {
-        if let Ok(mut slot) = self.finisher.lock() {
-            slot.take();
+        lock(&self.finisher).take();
+    }
+
+    fn run_finisher(&self) {
+        let finish = lock(&self.finisher).take();
+        if let Some(finish) = finish {
+            finish();
         }
     }
 }
@@ -29,10 +32,7 @@ impl ActivityToken {
 impl Drop for ActivityToken {
     fn drop(&mut self) {
         if Arc::strong_count(&self.finisher) == 1 {
-            let finish = self.finisher.lock().ok().and_then(|mut slot| slot.take());
-            if let Some(finish) = finish {
-                finish();
-            }
+            self.run_finisher();
         }
     }
 }

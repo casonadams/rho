@@ -29,6 +29,7 @@ pub mod build_info;
 pub mod config;
 pub mod error;
 pub mod fs;
+pub mod locking;
 pub mod memory;
 pub mod model;
 pub mod net;

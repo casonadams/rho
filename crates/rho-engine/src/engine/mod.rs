@@ -200,7 +200,7 @@ impl AgentEngine {
 
     /// Returns and clears any pending working-directory relocation requested by `worktree(action="create")`.
     pub fn take_pending_relocation(&self) -> Option<std::path::PathBuf> {
-        self.pending_relocation.lock().ok()?.take()
+        crate::locking::lock(&self.pending_relocation).take()
     }
 
     /// Relocates the live session into `new_base_dir` without dropping conversation history.

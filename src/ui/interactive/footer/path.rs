@@ -2,8 +2,9 @@ use super::super::{GitPrInfo, GitStatusCounts};
 use super::segments::status_bar_uses_segment;
 use crate::ui::best_effort;
 use rho_harness_core::config::{StatusBarConfig, StatusBarSegmentId};
+use rho_harness_core::locking::lock;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub fn abbreviate_home(cwd: &Path, home: Option<&Path>) -> String {
@@ -235,11 +236,6 @@ struct PrCacheEntry {
 
 static PR_CACHE: OnceLock<Mutex<PrCacheEntry>> = OnceLock::new();
 
-// Cache entries are plain data, so a panicked holder must not disable the lookup.
-fn lock_ignoring_poison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 static PR_VERSION: OnceLock<tokio::sync::watch::Sender<u64>> = OnceLock::new();
 
 fn pr_version_sender() -> &'static tokio::sync::watch::Sender<u64> {
@@ -264,7 +260,7 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
     let branch = branch.filter(|b| !b.is_empty() && !is_default_branch(b))?;
     let key = (cwd.to_path_buf(), branch.to_string());
     let cache = PR_CACHE.get_or_init(|| Mutex::new(PrCacheEntry::default()));
-    let mut guard = lock_ignoring_poison(cache);
+    let mut guard = lock(cache);
     let now = Instant::now();
     if cache_entry_is_fresh(&guard, &key, now) {
         return guard.pr.clone();
@@ -284,7 +280,7 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
         std::thread::spawn(move || {
             let pr = fetch_git_pr(&cwd_owned, &branch_owned);
             let updated = {
-                let mut g = lock_ignoring_poison(cache);
+                let mut g = lock(cache);
                 let matched = g.key.as_ref() == Some(&key);
                 if matched {
                     g.pr = pr;
@@ -339,7 +335,7 @@ fn git_status_entry_is_fresh(entry: &GitStatusCacheEntry, cwd: &Path, now: Insta
 /// Non-blocking git status lookup cached per `cwd`. Spawns a background fetch on miss/expiry
 /// and notifies `subscribe_git_pr()` when complete.
 pub fn cached_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
-    let mut guard = lock_ignoring_poison(&GIT_STATUS_CACHE);
+    let mut guard = lock(&GIT_STATUS_CACHE);
     let now = Instant::now();
     if git_status_entry_is_fresh(&guard, cwd, now) {
         return guard.counts;
@@ -363,7 +359,7 @@ pub fn cached_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
         std::thread::spawn(move || {
             let counts = get_git_status_counts(&cwd_owned);
             let updated = {
-                let mut g = lock_ignoring_poison(&GIT_STATUS_CACHE);
+                let mut g = lock(&GIT_STATUS_CACHE);
                 let matched = g.cwd.as_deref() == Some(cwd_owned.as_path());
                 if matched {
                     g.counts = counts;

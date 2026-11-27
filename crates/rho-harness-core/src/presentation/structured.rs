@@ -1,12 +1,13 @@
 //! Structured presentation output sinks and headless presenter.
 
 use super::types::{SessionStatus, ToolLine, UiEvent, WelcomeDisplay};
+use crate::locking::lock;
 use crate::presentation::activity::{ActivityToken, activity_token};
 use crate::presentation::presenter::Presenter;
 use crate::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// A thread-safe sink for presentation events.
 pub trait StructuredOutputSink: Send + Sync {
@@ -36,7 +37,7 @@ impl RecordingSink {
     }
 
     fn locked(&self) -> MutexGuard<'_, Vec<UiEvent>> {
-        self.events.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.events)
     }
 }
 

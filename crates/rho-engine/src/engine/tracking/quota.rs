@@ -1,3 +1,4 @@
+use crate::locking::lock;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -67,19 +68,13 @@ fn is_entry_fetchable(entry: &QuotaEntry, now: Instant) -> bool {
 
 impl QuotaTracker {
     pub fn should_fetch(&self, key: &QuotaKey) -> bool {
-        let Ok(entries) = self.entries.lock() else {
-            return false;
-        };
-        let Some(entry) = entries.get(key) else {
-            return true;
-        };
-        is_entry_fetchable(entry, Instant::now())
+        lock(&self.entries)
+            .get(key)
+            .is_none_or(|entry| is_entry_fetchable(entry, Instant::now()))
     }
 
     pub fn begin_fetch(&self, key: &QuotaKey) -> bool {
-        let Ok(mut entries) = self.entries.lock() else {
-            return false;
-        };
+        let mut entries = lock(&self.entries);
         let now = Instant::now();
         let entry = entries.entry(key.clone()).or_default();
         if !is_entry_fetchable(entry, now) {
@@ -91,27 +86,26 @@ impl QuotaTracker {
     }
 
     pub fn record_success(&self, key: &QuotaKey, display: String) {
-        if let Ok(mut entries) = self.entries.lock() {
-            let entry = entries.entry(key.clone()).or_default();
-            entry.in_flight = false;
-            entry.in_flight_since = None;
-            entry.display = Some(display);
-            entry.fetched_at = Some(Instant::now());
-            entry.error_until = None;
-            entry.backoff_secs = 60;
-        }
+        let mut entries = lock(&self.entries);
+        let entry = entries.entry(key.clone()).or_default();
+        entry.in_flight = false;
+        entry.in_flight_since = None;
+        entry.display = Some(display);
+        entry.fetched_at = Some(Instant::now());
+        entry.error_until = None;
+        entry.backoff_secs = 60;
+        drop(entries);
         self.version_tx.send_modify(|v| *v = v.wrapping_add(1));
     }
 
     pub fn record_failure(&self, key: &QuotaKey) {
-        if let Ok(mut entries) = self.entries.lock() {
-            let entry = entries.entry(key.clone()).or_default();
-            entry.in_flight = false;
-            entry.in_flight_since = None;
-            let backoff = entry.backoff_secs.max(60);
-            entry.error_until = Some(Instant::now() + Duration::from_secs(backoff));
-            entry.backoff_secs = (backoff * 2).min(300);
-        }
+        let mut entries = lock(&self.entries);
+        let entry = entries.entry(key.clone()).or_default();
+        entry.in_flight = false;
+        entry.in_flight_since = None;
+        let backoff = entry.backoff_secs.max(60);
+        entry.error_until = Some(Instant::now() + Duration::from_secs(backoff));
+        entry.backoff_secs = (backoff * 2).min(300);
     }
 
     pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
@@ -119,16 +113,14 @@ impl QuotaTracker {
     }
 
     pub fn invalidate(&self, key: &QuotaKey) {
-        if let Ok(mut entries) = self.entries.lock()
-            && let Some(entry) = entries.get_mut(key)
-        {
+        if let Some(entry) = lock(&self.entries).get_mut(key) {
             entry.fetched_at = None;
             entry.error_until = None;
         }
     }
 
     pub fn display_for(&self, key: &QuotaKey) -> Option<String> {
-        let entries = self.entries.lock().ok()?;
+        let entries = lock(&self.entries);
         entries.get(key).and_then(|e| e.display.clone()).or_else(|| {
             key.model.as_ref()?;
             let fallback = QuotaKey::new(&key.connection, None::<String>);

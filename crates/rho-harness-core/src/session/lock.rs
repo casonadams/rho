@@ -1,10 +1,11 @@
 use super::format::StoreState;
 use super::fs::session_error;
 use crate::error::Result;
+use crate::locking::lock;
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 struct Entry {
     file: File,
@@ -28,7 +29,7 @@ impl Drop for Entry {
 static HELD: Mutex<BTreeMap<PathBuf, Entry>> = Mutex::new(BTreeMap::new());
 
 fn held() -> MutexGuard<'static, BTreeMap<PathBuf, Entry>> {
-    HELD.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(&HELD)
 }
 
 pub(crate) struct SessionLock {

@@ -1,9 +1,10 @@
 use crate::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption};
 use crate::error::{AppError, Result};
+use crate::locking::lock;
 use crate::rpc::protocol::RpcEvent;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Clone, Default)]
@@ -13,10 +14,6 @@ pub struct AuthInputResponse {
 }
 
 type PendingInputs = Mutex<HashMap<String, oneshot::Sender<AuthInputResponse>>>;
-
-fn lock_pending(pending: &PendingInputs) -> MutexGuard<'_, HashMap<String, oneshot::Sender<AuthInputResponse>>> {
-    pending.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 #[derive(Clone, Default)]
 pub struct RpcAuthBridge {
@@ -29,7 +26,7 @@ impl RpcAuthBridge {
     }
 
     pub fn resolve_input(&self, interaction_id: &str, response: AuthInputResponse) -> bool {
-        let pending = lock_pending(&self.pending_inputs).remove(interaction_id);
+        let pending = lock(&self.pending_inputs).remove(interaction_id);
         pending.is_some_and(|tx| tx.send(response).is_ok())
     }
 
@@ -63,9 +60,9 @@ impl RpcOAuthCallbacks {
     async fn ask(&self, request: impl FnOnce(String) -> RpcEvent, cancelled: &str) -> Result<AuthInputResponse> {
         let interaction_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
-        lock_pending(&self.pending_inputs).insert(interaction_id.clone(), tx);
+        lock(&self.pending_inputs).insert(interaction_id.clone(), tx);
         if let Err(error) = self.send(request(interaction_id.clone())) {
-            lock_pending(&self.pending_inputs).remove(&interaction_id);
+            lock(&self.pending_inputs).remove(&interaction_id);
             return Err(error);
         }
         rx.await.map_err(|_| AppError::Auth(cancelled.to_string()))
