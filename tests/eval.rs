@@ -9,7 +9,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use rho_engine::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
-use rho_engine::tools::EngineTool;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
 use rho_harness_core::session::{SessionEventKind, SessionManager};
@@ -19,7 +18,7 @@ fn temp_dir(label: &str) -> TestDir {
     TestDir::with_prefix(&format!("agent_eval_{label}_"))
 }
 
-fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<Arc<dyn EngineTool>>> {
+fn builtin_tools_for(dir: &std::path::Path) -> Option<rho_engine::tools::BuiltinTools> {
     let config = rho::config::Config {
         sessions_dir: dir.join("sessions"),
         ..rho::config::Config::default()

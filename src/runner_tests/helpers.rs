@@ -5,7 +5,6 @@ use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::UiEvent;
 use rho_engine::provider::adapter::{MockAdapter, ModelAdapter};
-use rho_engine::tools::EngineTool;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_test_support::TestDir;
 use std::ops::Deref;
@@ -78,7 +77,7 @@ pub fn test_engine_with_session(
     TestEngine { engine, dir: scratch }
 }
 
-pub fn builtin_tools_for(base_dir: &std::path::Path) -> Vec<Arc<dyn EngineTool>> {
+pub fn builtin_tools_for(base_dir: &std::path::Path) -> rho_engine::tools::BuiltinTools {
     rho_engine::tools::build_builtin_tools(
         base_dir,
         &Config {

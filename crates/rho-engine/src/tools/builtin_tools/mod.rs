@@ -86,29 +86,22 @@ fn build_workspace_native_tools(
     tools
 }
 
+/// The built-in tools and the subagent runtime their `subagent` tool runs under. An engine built
+/// from them takes the same runtime, so it reaches the subagents and notices those tools produce.
+#[derive(Clone)]
+pub struct BuiltinTools {
+    pub tools: Vec<Arc<dyn EngineTool>>,
+    pub runtime: SubagentRuntime,
+}
+
 pub fn build_builtin_tools(
     base_dir: &Path,
     config: &Config,
     model: Option<crate::engine::compactor::llm::ModelHandle>,
-) -> Result<Vec<Arc<dyn EngineTool>>> {
-    build_builtin_tools_with_resolver(base_dir, config, model, None)
-}
-
-pub fn build_builtin_tools_with_resolver(
-    base_dir: &Path,
-    config: &Config,
-    model: Option<crate::engine::compactor::llm::ModelHandle>,
-    model_resolver: Option<SubagentModelResolver>,
-) -> Result<Vec<Arc<dyn EngineTool>>> {
-    build_builtin_toolset(
-        base_dir,
-        config,
-        model,
-        model_resolver,
-        ToolsetServices::default(),
-        &SubagentRuntime::default(),
-    )
-    .map(|(tools, _)| tools)
+) -> Result<BuiltinTools> {
+    let runtime = SubagentRuntime::default();
+    let (tools, _) = build_builtin_toolset(base_dir, config, model, None, ToolsetServices::default(), &runtime)?;
+    Ok(BuiltinTools { tools, runtime })
 }
 
 /// Long-lived services the engine shares with its tools.

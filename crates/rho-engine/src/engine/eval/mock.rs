@@ -6,7 +6,7 @@ use crate::engine::metrics::RunTracker;
 use crate::provider::adapter::ModelAdapter;
 #[cfg(test)]
 use crate::test_support::{TestDir, temp_dir};
-use crate::tools::EngineTool;
+use crate::tools::BuiltinTools;
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
 use std::path::Path;
@@ -16,7 +16,7 @@ pub struct MockEngineConfig<'a> {
     pub base_dir: &'a Path,
     pub app_config: Config,
     pub session_manager: Option<SessionManager>,
-    pub built_in_tools: Option<Vec<Arc<dyn EngineTool>>>,
+    pub built_in_tools: Option<BuiltinTools>,
 }
 
 #[cfg(test)]
@@ -44,7 +44,10 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
     };
     let session_manager = resolve_mock_session_manager(&config);
     let model_handle: ModelHandle = model;
-    let tools = config.built_in_tools.unwrap_or_default();
+    let BuiltinTools { tools, runtime } = config.built_in_tools.unwrap_or_else(|| BuiltinTools {
+        tools: Vec::new(),
+        runtime: crate::tools::subagent::SubagentRuntime::default(),
+    });
     let tool_names = tools.iter().map(|tool| tool.name().to_string()).collect();
 
     AgentEngine {
@@ -68,7 +71,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         compactor_model: None,
         demotion_hook: None,
         agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
-        subagent_runtime: crate::tools::subagent::SubagentRuntime::default(),
+        subagent_runtime: runtime,
         turn_notes: crate::engine::TurnNotes::default(),
         prune_memory: std::sync::Mutex::default(),
         worktrees: None,

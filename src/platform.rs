@@ -19,7 +19,7 @@ pub struct ToolAssembly {
 }
 
 pub async fn active_tools(config: &Config, base_dir: &Path) -> Result<ToolAssembly> {
-    let tools = rho_engine::tools::builtin_tools::build_builtin_tools(base_dir, config, None)?;
+    let tools = rho_engine::tools::builtin_tools::build_builtin_tools(base_dir, config, None)?.tools;
     Ok(ToolAssembly { tools })
 }
 

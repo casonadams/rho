@@ -63,7 +63,9 @@ fn names_without_memory(tools: &[Arc<dyn EngineTool>]) -> Vec<&str> {
 
 #[test]
 fn builtin_tools_build_successfully() {
-    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None).unwrap();
+    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None)
+        .unwrap()
+        .tools;
     let names = names_without_memory(&tools);
     assert_eq!(names.len(), 12);
     for exp in [
@@ -102,18 +104,18 @@ fn memory_tool_needs_a_home_and_context_files() {
 fn builtin_tools_web_flags_control_inclusion() {
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
-    let search_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
+    let search_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
     assert!(search_off.iter().all(|t| t.name() != "web_search"));
     assert!(search_off.iter().any(|t| t.name() == "web_fetch"));
 
     config.tools.web.search.enabled = true;
     config.tools.web.fetch.enabled = false;
-    let fetch_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
+    let fetch_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
     assert!(fetch_off.iter().any(|t| t.name() == "web_search"));
     assert!(fetch_off.iter().all(|t| t.name() != "web_fetch"));
 
     config.tools.web.search.enabled = false;
-    let both_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
+    let both_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
     assert!(
         both_off
             .iter()
@@ -126,13 +128,15 @@ fn builtin_tools_omit_web_when_disabled() {
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
-    let tools = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap();
+    let tools = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
     assert_eq!(names_without_memory(&tools).len(), 10);
 }
 
 #[test]
 fn only_read_only_builtin_tools_run_concurrently() {
-    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None).unwrap();
+    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None)
+        .unwrap()
+        .tools;
     let args = serde_json::json!({});
     let mut parallel: Vec<_> = tools
         .iter()

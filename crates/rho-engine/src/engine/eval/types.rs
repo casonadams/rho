@@ -7,9 +7,7 @@
 
 use crate::engine::metrics::RunMetrics;
 use crate::provider::adapter::ModelStreamEvent;
-use crate::tools::EngineTool;
 use serde::Serialize;
-use std::sync::Arc;
 
 pub struct EvalScenario {
     pub name: &'static str,
@@ -18,7 +16,7 @@ pub struct EvalScenario {
     pub expected_final: &'static str,
     pub expected_tools: Vec<&'static str>,
     pub max_turns: usize,
-    pub built_in_tools: Option<Vec<Arc<dyn EngineTool>>>,
+    pub built_in_tools: Option<crate::tools::BuiltinTools>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

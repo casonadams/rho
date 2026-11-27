@@ -80,6 +80,11 @@ impl AgentEngineBuilder {
         self
     }
 
+    /// Uses `built` as the engine's tools, running its subagents under their runtime.
+    pub fn builtin_tools(self, built: crate::tools::BuiltinTools) -> Self {
+        self.tools(built.tools).subagent_runtime(built.runtime)
+    }
+
     pub fn add_tool(mut self, tool: Arc<dyn EngineTool>) -> Self {
         self.extra_tools.push(tool);
         self

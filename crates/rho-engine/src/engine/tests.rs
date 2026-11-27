@@ -141,15 +141,20 @@ async fn builtin_engine(label: &str) -> BuiltinEngine {
     let (config, dir) = test_config(label);
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
-    let tools = crate::tools::build_builtin_tools(&base_dir, &config, None).unwrap();
-    let tool_count = tools.len();
+    let built = crate::tools::build_builtin_tools(&base_dir, &config, None).unwrap();
+    let tool_count = built.tools.len();
+    let tools_runtime = built.runtime.clone();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(base_dir)
-        .tools(tools)
+        .builtin_tools(built)
         .build()
         .await
         .unwrap();
     assert_eq!(engine.tool_names().len(), tool_count);
+    assert!(
+        engine.subagent_runtime.shares_state_with(&tools_runtime),
+        "the engine reaches the subagents its built-in tools start"
+    );
     BuiltinEngine {
         engine,
         config,

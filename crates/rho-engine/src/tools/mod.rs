@@ -34,7 +34,7 @@ pub mod write;
 pub use artifact::{cleanup_artifacts, format_artifact_notice, spill_artifact};
 pub use ask::AskTool;
 pub use bash::{BashArgs, BashTool};
-pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_builtin_tools};
+pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, BuiltinTools, DECLARATIONS, build_builtin_tools};
 pub use edit::{EditArgs, EditTool};
 pub use engine_tool::{EngineTool, GenericTool};
 pub use fd::{FdArgs, FdSort, FdTool};
