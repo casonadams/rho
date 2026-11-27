@@ -51,7 +51,7 @@ mod expansion {
     #[test]
     fn full_redraw_reuses_cached_rendered_items_across_expansion_toggles() {
         let (mut controller, operations, _) = controller(60);
-        let tool = TranscriptItem::Tool(ToolItem {
+        let tool = TranscriptItem::tool(ToolItem {
             name: "read".into(),
             arguments: serde_json::json!({"path": "src/main.rs"}),
             is_error: false,

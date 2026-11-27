@@ -35,7 +35,7 @@ fn render_test_widget(tool: &RunningTool, expanded: bool) -> String {
 
 #[test]
 fn running_tool_widget_collapsed_header_and_tail() {
-    let mut tool = RunningTool::new("bash", "cargo test", json!({"command": "cargo test"}));
+    let mut tool = RunningTool::new("bash", json!({"command": "cargo test"}));
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
     let full = crate::ui::block::strip_ansi(&render_test_widget(&tool, false));
 
@@ -46,7 +46,7 @@ fn running_tool_widget_collapsed_header_and_tail() {
 
 #[test]
 fn running_tool_widget_expanded_shows_all() {
-    let mut tool = RunningTool::new("bash", "cargo test", json!({"command": "cargo test"}));
+    let mut tool = RunningTool::new("bash", json!({"command": "cargo test"}));
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
     let full = render_test_widget(&tool, true);
 
@@ -57,11 +57,7 @@ fn running_tool_widget_expanded_shows_all() {
 #[test]
 fn running_tool_widget_bash_with_timeout_styles_timeout_with_dimmed() {
     let theme = Theme::default();
-    let mut tool = RunningTool::new(
-        "bash",
-        "cargo test (timeout 300s)",
-        json!({"command": "cargo test", "timeout": 300}),
-    );
+    let mut tool = RunningTool::new("bash", json!({"command": "cargo test", "timeout": 300}));
     tool.append_chunk("running...\n");
     let lines = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool,
@@ -77,7 +73,7 @@ fn running_tool_widget_bash_with_timeout_styles_timeout_with_dimmed() {
 
 #[test]
 fn running_tool_widget_renders_subagent_before_any_output() {
-    let tool = RunningTool::new("subagent", "prompt=\"find callers\"", json!({"prompt": "find callers"}));
+    let tool = RunningTool::new("subagent", json!({"prompt": "find callers"}));
     let full = render_test_widget(&tool, false);
     for token in ["subagent", "find callers", "Elapsed"] {
         assert!(full.contains(token), "missing {token}");
@@ -87,7 +83,7 @@ fn running_tool_widget_renders_subagent_before_any_output() {
 #[test]
 fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
     let theme = Theme::default();
-    let tool_fd = RunningTool::new("fd", "pattern in .", json!({"pattern": "pattern"}));
+    let tool_fd = RunningTool::new("fd", json!({"pattern": "pattern"}));
     let lines_fd = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool_fd,
         theme: &theme,
@@ -96,7 +92,7 @@ fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
     });
     assert!(lines_fd.is_empty(), "fd should not render a running widget card");
 
-    let tool_rg = RunningTool::new("rg", "/pattern/ in .", json!({"pattern": "pattern"}));
+    let tool_rg = RunningTool::new("rg", json!({"pattern": "pattern"}));
     let lines_rg = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool_rg,
         theme: &theme,
@@ -110,7 +106,7 @@ fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
 fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
     let mut theme = Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Border;
-    let mut tool = RunningTool::new("bash", "git log -n 50", json!({"command": "git log -n 50"}));
+    let mut tool = RunningTool::new("bash", json!({"command": "git log -n 50"}));
     for i in 1..=40 {
         tool.append_chunk(&format!("commit line {i}\n"));
     }
@@ -189,9 +185,9 @@ fn below_widget_lines_yield_to_editor_dividers_and_footer_on_small_terminals() {
 #[test]
 fn running_write_card_highlights_content_by_the_path_extension() {
     let code = "fn main() {\n    let x = 1;\n}\n";
-    let mut known = RunningTool::new("write", "demo.rs", json!({"path": "demo.rs"}));
+    let mut known = RunningTool::new("write", json!({"path": "demo.rs"}));
     known.append_chunk(code);
-    let mut unknown = RunningTool::new("write", "", json!({}));
+    let mut unknown = RunningTool::new("write", json!({}));
     unknown.append_chunk(code);
 
     let render = |tool: &RunningTool, theme: &Theme| {
@@ -223,7 +219,6 @@ fn running_edit_card_shows_its_diff_at_the_lines_noted_before_it_ran() {
     let args = json!({"path": "/nonexistent/a.rs", "edits": [{"oldText": "old()", "newText": "new()"}]});
     let tool = RunningTool::start(crate::ui::interactive::ToolStartRequest {
         name: "edit".into(),
-        args_summary: "a.rs".into(),
         arguments: args,
         file_change: Some(rho_harness_core::presentation::FileChange {
             overwrote_existing: true,

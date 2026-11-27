@@ -6,7 +6,6 @@ pub const MAX_RUNNING_BUFFER_BYTES: usize = 100 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunningTool {
     pub name: String,
-    pub args_summary: String,
     pub arguments: serde_json::Value,
     pub started: Instant,
     pub output: String,
@@ -44,10 +43,9 @@ impl RunningTool {
 
     /// A card for a tool that has just started. A `write` shows the file it is writing as its
     /// output, so its live card tails the content like command output.
-    pub fn new(name: impl Into<String>, args_summary: impl Into<String>, arguments: serde_json::Value) -> Self {
+    pub fn new(name: impl Into<String>, arguments: serde_json::Value) -> Self {
         let mut tool = Self {
             name: name.into(),
-            args_summary: args_summary.into(),
             arguments,
             started: Instant::now(),
             output: String::new(),
@@ -64,7 +62,7 @@ impl RunningTool {
 
     /// The card a start request opens.
     pub fn start(request: crate::ui::interactive::ToolStartRequest) -> Self {
-        let mut tool = Self::new(request.name, request.args_summary, request.arguments);
+        let mut tool = Self::new(request.name, request.arguments);
         tool.file_change = request.file_change;
         tool
     }

@@ -14,7 +14,7 @@ fn render_tool_item(item: &TranscriptItem, theme: &Theme, expanded: bool) -> Str
 #[test]
 fn render_transcript_standard_read_collapsed_and_expanded() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "read".into(),
         arguments: serde_json::json!({"path": "src/main.rs"}),
         is_error: false,
@@ -36,7 +36,7 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
 #[test]
 fn render_transcript_web_search_tool_expanded_shows_output() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "web_search".into(),
         arguments: serde_json::json!({"query": "rust async"}),
         is_error: false,
@@ -173,7 +173,7 @@ fn render_transcript_assistant_text_wraps_on_word_boundaries() {
 #[test]
 fn render_transcript_skill_read_collapsed() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "read".into(),
         arguments: serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
         is_error: false,
@@ -198,7 +198,7 @@ fn render_transcript_skill_read_collapsed() {
 #[test]
 fn render_transcript_skill_read_expanded() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "read".into(),
         arguments: serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
         is_error: false,
@@ -252,7 +252,7 @@ fn assert_lines_within_width(rendered: &str, max_width: usize) {
 #[test]
 fn render_transcript_tool_collapsed_shows_preview() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "bash".into(),
         arguments: serde_json::json!({"command": "cargo test"}),
         is_error: false,
@@ -278,7 +278,7 @@ fn render_transcript_tool_collapsed_shows_preview() {
 #[test]
 fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "bash".into(),
         arguments: serde_json::json!({"command": "cat /etc/hosts"}),
         is_error: false,
@@ -304,7 +304,7 @@ fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
 #[test]
 fn render_transcript_tool_expanded_shows_full_output() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "bash".into(),
         arguments: serde_json::json!({"command": "cargo test"}),
         is_error: false,
@@ -330,7 +330,7 @@ fn render_transcript_tool_expanded_shows_full_output() {
 #[test]
 fn render_transcript_bash_with_timeout_styles_timeout_with_dimmed() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "bash".into(),
         arguments: serde_json::json!({"command": "cargo clippy", "timeout": 300}),
         is_error: false,
@@ -360,7 +360,7 @@ fn render_transcript_tool_with_border_style_uses_outline() {
         bash_success_border: anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Green))),
         ..Default::default()
     };
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "bash".into(),
         arguments: serde_json::json!({"command": "cargo test"}),
         is_error: false,
@@ -394,7 +394,7 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         block_style: BlockStyle::Border,
         ..Default::default()
     };
-    let item1 = TranscriptItem::Tool(ToolItem {
+    let item1 = TranscriptItem::tool(ToolItem {
         name: "rg".into(),
         arguments: serde_json::json!({"pattern": "foo"}),
         is_error: false,
@@ -403,7 +403,7 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         duration_ms: Some(5),
         file_change: None,
     });
-    let item2 = TranscriptItem::Tool(ToolItem {
+    let item2 = TranscriptItem::tool(ToolItem {
         name: "read".into(),
         arguments: serde_json::json!({"path": "src/main.rs"}),
         is_error: false,
@@ -443,7 +443,7 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
 #[test]
 fn render_transcript_mcp_tool_shows_server_and_call() {
     let theme = Theme::default();
-    let item = TranscriptItem::Tool(ToolItem {
+    let item = TranscriptItem::tool(ToolItem {
         name: "mcp".into(),
         arguments: serde_json::json!({
             "action": "call",

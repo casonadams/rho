@@ -75,7 +75,6 @@ async fn update_footer_resets_activity_running_tool_and_active_tool() {
     state.footer_mut().running_tool = Some("bash".to_string());
     state.set_active_tool(Some(RunningTool::new(
         "bash".to_string(),
-        "sleep 30".to_string(),
         serde_json::json!({"command": "sleep 30"}),
     )));
 

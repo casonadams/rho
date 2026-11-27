@@ -34,6 +34,7 @@ fn edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
         args,
         file_change: None,
         expanded: false,
+        width: 60,
     };
     format_edit_diff(request, theme)
 }
@@ -540,25 +541,14 @@ fn long_running_tools_open_live_card() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
     let cases = [
-        ("bash", serde_json::json!({"command": "cargo test"}), "cargo test"),
-        (
-            "edit",
-            serde_json::json!({"path": "src/main.rs", "edits": []}),
-            "src/main.rs",
-        ),
-        (
-            "subagent",
-            serde_json::json!({"prompt": "find callers"}),
-            "find callers",
-        ),
+        ("bash", serde_json::json!({"command": "cargo test"})),
+        ("edit", serde_json::json!({"path": "src/main.rs", "edits": []})),
+        ("subagent", serde_json::json!({"prompt": "find callers"})),
     ];
-    for (tool, args, expected_summary) in cases {
+    for (tool, args) in cases {
         renderer.start_tool_run(tool, &args);
         match events.try_recv() {
-            Ok(UiEvent::ToolStart(request)) => {
-                assert_eq!(request.name, tool);
-                assert!(request.args_summary.contains(expected_summary));
-            }
+            Ok(UiEvent::ToolStart(request)) => assert_eq!(request.name, tool),
             other => panic!("expected ToolStart for {tool}, got ok={}", other.is_ok()),
         }
         assert!(events.try_recv().is_err());
@@ -1041,18 +1031,46 @@ fn multi_edit_diffs_label_every_edit_including_the_first() {
 }
 
 #[test]
-fn edit_diff_truncates_long_sides_until_expanded() {
+fn edit_diff_collapses_to_its_newest_rows_until_expanded() {
     let theme = Theme::default();
     let args = serde_json::json!({"edits": [{"oldText": numbered("old", 12), "newText": "new"}]});
     let request = |expanded| EditDiffRequest {
         args: &args,
         file_change: None,
         expanded,
+        width: 60,
     };
     let collapsed = crate::ui::block::strip_ansi(&format_edit_diff(request(false), &theme).unwrap());
-    assert!(collapsed.contains("... (4 more lines, Ctrl+O to expand)") && !collapsed.contains("old12"));
+    assert_eq!(
+        collapsed.lines().next(),
+        Some("... (3 earlier lines, 13 total, Ctrl+O to expand)")
+    );
+    assert_eq!(collapsed.lines().count(), 11);
+    assert!(collapsed.contains("- old12") && collapsed.contains("+ new") && !collapsed.contains("old3\n"));
     let expanded = crate::ui::block::strip_ansi(&format_edit_diff(request(true), &theme).unwrap());
-    assert!(expanded.contains("- old12") && !expanded.contains("more lines"));
+    assert!(expanded.contains("- old1\n") && !expanded.contains("earlier lines"));
+}
+
+#[test]
+fn collapsed_edit_diff_height_is_fixed_and_rows_are_clipped() {
+    let theme = Theme::default();
+    let wide = "x".repeat(200);
+    let heights: Vec<usize> = [1usize, 5, 9, 30, 60]
+        .iter()
+        .map(|&n| {
+            let args = serde_json::json!({"edits": [{"oldText": numbered(&wide, n), "newText": "y"}]});
+            let request = EditDiffRequest {
+                args: &args,
+                file_change: None,
+                expanded: false,
+                width: 40,
+            };
+            let plain = crate::ui::block::strip_ansi(&format_edit_diff(request, &theme).unwrap());
+            assert!(plain.lines().all(|row| row.chars().count() <= 40), "{plain}");
+            plain.lines().count()
+        })
+        .collect();
+    assert_eq!(heights, [2, 6, 10, 11, 11]);
 }
 
 #[test]
@@ -1068,6 +1086,7 @@ fn edit_diff_prefers_recorded_start_lines_over_the_file_on_disk() {
         args: &args,
         file_change: Some(&change),
         expanded: false,
+        width: 60,
     };
     let plain = crate::ui::block::strip_ansi(&format_edit_diff(request, &theme).unwrap());
     assert!(

@@ -303,12 +303,12 @@ impl A2uiModalState {
             })
             .unwrap_or_else(|| Value::Object(Map::new()));
         A2uiModalResult::Submitted {
-            action: A2uiUserAction {
+            action: Box::new(A2uiUserAction {
                 surface_id: self.surface_id.clone(),
                 action_name: action_name.to_string(),
                 source_component_id: component_id.to_string(),
                 context,
-            },
+            }),
             data_model: self.surface.data_model.clone(),
         }
     }

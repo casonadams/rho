@@ -270,6 +270,29 @@ mod tests {
 
         assert_eq!(child.reply(&request).await.unwrap().body, "the parser");
         assert_eq!(child.pending(), MAILBOX_CAPACITY + 1);
+        assert_eq!(
+            boxes.send(chatter()),
+            Err(SendError::Full),
+            "chatter is still held back"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_decline_reaches_an_asker_whose_mailbox_is_full() {
+        let boxes = Mailboxes::default();
+        let root = boxes.open(&id("root"), None);
+        let child = boxes.open(&id("child"), Some(&id("root")));
+        let request = child.ask_parent("which module?").unwrap();
+        let _ = root.take();
+        for _ in 0..MAILBOX_CAPACITY {
+            boxes
+                .send(Envelope::new(Party::User, &id("child"), Kind::Command, "chatter"))
+                .unwrap();
+        }
+
+        root.decline_unanswered();
+
+        assert_eq!(child.reply(&request).await.unwrap().from, Party::System);
     }
 
     #[test]

@@ -310,7 +310,7 @@ fn push_user_content(
             rho_harness_core::model::UserContent::ToolResult(result) => {
                 let tool = apply_tool_result(pending, result);
                 if crate::ui::interactive::RunningTool::has_transcript_card(&tool.name) {
-                    items.push(TranscriptItem::Tool(tool));
+                    items.push(TranscriptItem::tool(tool));
                 }
             }
             _ => {}
@@ -367,7 +367,7 @@ pub fn hydrate_session_transcript<B: TerminalBackend>(
     }
 
     for (_, tool) in pending_tools {
-        items.push(TranscriptItem::Tool(tool));
+        items.push(TranscriptItem::tool(tool));
     }
 
     controller.set_transcript(items)

@@ -13,7 +13,6 @@ fn start_bash(controller: &mut TerminalController<FakeTerminal>, cmd: &str) {
     controller
         .start_tool(ToolStartRequest {
             name: "bash".into(),
-            args_summary: cmd.into(),
             arguments: serde_json::json!({"command": cmd}),
             file_change: None,
         })
@@ -64,10 +63,7 @@ fn active_tool_chunks_accumulate_in_state() {
 
     start_bash(&mut controller, "cargo build");
     let tool = controller.state().active_tool().unwrap();
-    assert_eq!(
-        (tool.name.as_str(), tool.args_summary.as_str(), tool.output.as_str()),
-        ("bash", "cargo build", "")
-    );
+    assert_eq!((tool.name.as_str(), tool.output.as_str()), ("bash", ""));
 
     controller.append_tool_chunk("   Compiling rho v0.1.0\n").unwrap();
     controller
@@ -150,7 +146,7 @@ fn fast_tool_without_active_card_uses_standard_push_path() {
     operations.borrow_mut().clear();
 
     controller
-        .push_transcript_item(TranscriptItem::Tool(ToolItem {
+        .push_transcript_item(TranscriptItem::tool(ToolItem {
             name: "read".into(),
             arguments: serde_json::json!({"path": "src/main.rs"}),
             is_error: false,
@@ -204,7 +200,6 @@ fn restarting_the_same_tool_keeps_its_start_time_but_a_new_tool_resets_it() {
     controller
         .start_tool(ToolStartRequest {
             name: "write".into(),
-            args_summary: "a.txt".into(),
             arguments: serde_json::json!({"path": "a.txt"}),
             file_change: None,
         })

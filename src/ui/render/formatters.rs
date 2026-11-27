@@ -14,8 +14,10 @@ pub(crate) struct EditDiffRequest<'a> {
     pub args: &'a serde_json::Value,
     pub file_change: Option<&'a FileChange>,
     pub expanded: bool,
+    pub width: usize,
 }
 
+/// The collapsed edit card keeps its newest `PREVIEW_LINES` rows, like the write card, and clips each to one row.
 pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> Option<String> {
     let edits = request.args.get("edits")?.as_array()?;
     if edits.is_empty() {
@@ -38,7 +40,6 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
         out.push_str(&super::diff::format_entry_diff(super::diff::EntryDiffInput {
             idx,
             total: edits.len(),
-            expanded: request.expanded,
             old_text: &old_text,
             new_text: edit.get("newText").and_then(|v| v.as_str()).unwrap_or(""),
             theme,
@@ -46,7 +47,30 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
             lang,
         }));
     }
-    Some(out)
+    if request.expanded {
+        return Some(out);
+    }
+    Some(collapse_to_tail(&out, request.width, theme))
+}
+
+fn collapse_to_tail(rendered: &str, width: usize, theme: &Theme) -> String {
+    let rows: Vec<&str> = rendered.lines().collect();
+    let hidden = rows.len().saturating_sub(PREVIEW_LINES);
+    let mut out = earlier_lines_notice(hidden, rows.len(), width, theme);
+    for row in &rows[hidden..] {
+        let _ = writeln!(out, "{}", crate::ui::interactive::footer::truncate_to_width(row, width));
+    }
+    out
+}
+
+fn earlier_lines_notice(hidden: usize, total: usize, width: usize, theme: &Theme) -> String {
+    if hidden == 0 {
+        return String::new();
+    }
+    let dim = theme.dimmed;
+    let notice = format!("... ({hidden} earlier lines, {total} total, Ctrl+O to expand)");
+    let notice = crate::ui::interactive::footer::truncate_to_width(&notice, width);
+    format!("{dim}{notice}{dim:#}\n")
 }
 
 /// Highlights every line so highlighter state carries over, but emits only lines from `first` on.
@@ -181,7 +205,7 @@ fn parse_read_line(line: &str) -> Option<(usize, &str)> {
     Some((num, rest))
 }
 
-/// The collapsed preview grows with the file up to `WRITE_PREVIEW_LINES` rows, then adds a status row; it never shrinks.
+/// The collapsed preview grows with the file up to `PREVIEW_LINES` rows, then adds a status row; it never shrinks.
 pub(crate) fn format_write_preview(
     args: &serde_json::Value,
     theme: &Theme,
@@ -198,20 +222,13 @@ pub(crate) fn format_write_preview(
     if expanded {
         return Some(format_preview_lines(&lines, 0, None, lang, theme));
     }
-    let hidden = total.saturating_sub(WRITE_PREVIEW_LINES);
-    let dim = theme.dimmed;
-    let mut out = if hidden > 0 {
-        let notice = format!("... ({hidden} earlier lines, {total} total, Ctrl+O to expand)");
-        let notice = crate::ui::interactive::footer::truncate_to_width(&notice, width);
-        format!("{dim}{notice}{dim:#}\n")
-    } else {
-        String::new()
-    };
+    let hidden = total.saturating_sub(PREVIEW_LINES);
+    let mut out = earlier_lines_notice(hidden, total, width, theme);
     out.push_str(&format_preview_lines(&lines, hidden, Some(width), lang, theme));
     Some(out)
 }
 
-const WRITE_PREVIEW_LINES: usize = 10;
+const PREVIEW_LINES: usize = 10;
 
 pub(crate) fn format_relative_time(time: DateTime<Utc>) -> String {
     let now = Utc::now();

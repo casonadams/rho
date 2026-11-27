@@ -66,7 +66,7 @@ async fn streamed_write_arguments_open_and_fill_the_live_card_before_the_write_r
     let mut log = Vec::new();
     while let Ok(event) = events.try_recv() {
         match event {
-            UiEvent::ToolStart(r) => log.push(format!("start {}", r.args_summary)),
+            UiEvent::ToolStart(r) => log.push(format!("start {}", r.name)),
             UiEvent::ToolChunk { chunk } => log.push(format!("chunk {chunk}")),
             UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Tool(_)) => log.push("committed".into()),
             _ => {}
@@ -75,11 +75,11 @@ async fn streamed_write_arguments_open_and_fill_the_live_card_before_the_write_r
     assert_eq!(
         log,
         [
-            "start ",
+            "start write",
             "chunk alpha\n",
-            "start notes.txt",
+            "start write",
             "chunk alpha\nbeta\n",
-            "start notes.txt",
+            "start write",
             "committed",
         ],
         "the card is refreshed with the call's final arguments when it runs"

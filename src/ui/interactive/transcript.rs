@@ -30,7 +30,7 @@ pub type ToolItem = rho_harness_core::presentation::ToolLine;
 
 #[cfg(test)]
 pub(crate) fn tool_fixture(name: &str, arguments: serde_json::Value, output: &str) -> TranscriptItem {
-    TranscriptItem::Tool(ToolItem {
+    TranscriptItem::tool(ToolItem {
         name: name.into(),
         arguments,
         is_error: false,
@@ -47,9 +47,15 @@ pub enum TranscriptItem {
     UserMessage(String),
     AssistantText(String),
     Thinking(String),
-    Tool(ToolItem),
+    Tool(Box<ToolItem>),
     Notice(String),
     Recap(String),
+}
+
+impl TranscriptItem {
+    pub fn tool(line: ToolItem) -> Self {
+        Self::Tool(Box::new(line))
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

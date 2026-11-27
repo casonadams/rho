@@ -4,7 +4,6 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::agents::{AgentEvent, AgentMonitor, AgentRecord, AgentStatus};
-use rho_harness_core::presentation::summary::format_tool_args_summary;
 
 use crate::error::Result;
 use crate::repl::live::modal::agents::progress;
@@ -30,7 +29,7 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
             AgentEvent::Text(text) => frame.items.push(TranscriptItem::AssistantText(text.clone())),
             AgentEvent::Thinking(text) => frame.items.push(TranscriptItem::Thinking(text.clone())),
             AgentEvent::Tool(line) if RunningTool::has_transcript_card(&line.name) => {
-                frame.items.push(TranscriptItem::Tool(line.clone()));
+                frame.items.push(TranscriptItem::tool(line.clone()));
             }
             AgentEvent::Tool(_) => {}
             AgentEvent::ToolCall {
@@ -85,7 +84,6 @@ fn live_card(
     }
     Some(ToolStartRequest {
         name: name.to_string(),
-        args_summary: format_tool_args_summary(name, args),
         arguments: args.clone(),
         file_change: file_change.cloned(),
     })

@@ -476,8 +476,9 @@ happen.
   question. A `role`, `agent`, or `persona` that differs from the task's, or
   any `model` or `turns`, is refused instead of being ignored. A message is
   also refused, with the reason, when the subagent already has 32 unread
-  messages, unless it answers the question the subagent is waiting on: an
-  answer is always delivered. Messages it never read are listed with its
+  messages, unless it answers the question the subagent is waiting on or is a
+  system notice (such as a finished background command): those are always
+  delivered. Messages it never read are listed with its
   result. A subagent
   running inline moves to the background as soon as it asks a question, so the
   main agent can answer. At most 8 subagents run at once;

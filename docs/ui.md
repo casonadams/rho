@@ -325,10 +325,12 @@ always matches your terminal emulator, in dark or light mode.
   providers stream tool arguments; others show the call once it is complete).
   On Claude, rho sets `eager_input_streaming` on the `write` and `edit` tools
   so the API sends their arguments as they are generated instead of all at once.
-- Long edit diffs and tool output end with
-  `... (N more lines, Ctrl+O to expand)`; write previews and `bash` output show
-  their last lines under `... (N earlier lines, Ctrl+O to expand)`, so a write
-  card keeps the tail it showed while streaming. `Ctrl+O` shows everything. Tabs render
+  Both tools list `path` first, so a live edit card numbers its lines while the
+  edits stream.
+- Long tool output ends with `... (N more lines, Ctrl+O to expand)`. Edit
+  diffs, write previews and `bash` output show their last lines under
+  `... (N earlier lines, Ctrl+O to expand)`: an edit or write card grows to ten
+  rows, then keeps that height while streaming. `Ctrl+O` shows everything. Tabs render
   as four spaces.
 - Notices carry a bold `info`, `warning`, or `error` label.
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and

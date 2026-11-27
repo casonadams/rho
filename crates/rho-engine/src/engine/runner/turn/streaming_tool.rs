@@ -167,9 +167,11 @@ impl EditPreview {
     }
 }
 
-pub fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
+fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
     let start = locate_string_body(json, &format!("\"{field}\""))?;
-    decode_closed_json_string(&json[start..])
+    partial_json::read_string_body(&json.as_bytes()[start..])
+        .filter(|body| body.closed)
+        .map(|body| body.text)
 }
 
 fn locate_string_body(json: &str, field_key: &str) -> Option<usize> {
@@ -206,63 +208,12 @@ impl ContentDecoder {
                 start
             }
         };
-        let pending = &json[start + self.scanned..];
-        let mut pos = 0;
-        while pos < pending.len() {
-            let rest = &pending[pos..];
-            let Some(special) = rest.find(['"', '\\']) else {
-                self.decoded.push_str(rest);
-                pos = pending.len();
-                break;
-            };
-            self.decoded.push_str(&rest[..special]);
-            let at = pos + special;
-            if pending.as_bytes()[at] == b'"' {
-                self.closed = true;
-                pos = at + 1;
-                break;
-            }
-            // Backslash: an escape split across deltas is left unconsumed until complete.
-            let Some(next_ch) = pending[at + 1..].chars().next() else {
-                pos = at;
-                break;
-            };
-            append_escaped_char(&mut self.decoded, next_ch);
-            pos = at + 1 + next_ch.len_utf8();
-        }
-        self.scanned += pos;
-    }
-}
-
-fn decode_closed_json_string(string_content: &str) -> Option<String> {
-    let mut result = String::new();
-    let mut chars = string_content.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\\' => append_escaped_char(&mut result, chars.next()?),
-            '"' => return Some(result),
-            c => result.push(c),
-        }
-    }
-    None
-}
-
-const ESCAPE_CHARS: [(char, char); 8] = [
-    ('"', '"'),
-    ('\\', '\\'),
-    ('/', '/'),
-    ('b', '\x08'),
-    ('f', '\x0c'),
-    ('n', '\n'),
-    ('r', '\r'),
-    ('t', '\t'),
-];
-
-fn append_escaped_char(result: &mut String, next_ch: char) {
-    if let Some(&(_, unescaped)) = ESCAPE_CHARS.iter().find(|&&(k, _)| k == next_ch) {
-        result.push(unescaped);
-    } else {
-        result.push('\\');
-        result.push(next_ch);
+        let Some(body) = partial_json::read_string_body(&json.as_bytes()[start + self.scanned..]) else {
+            self.closed = true;
+            return;
+        };
+        self.decoded.push_str(&body.text);
+        self.scanned += body.consumed;
+        self.closed = body.closed;
     }
 }

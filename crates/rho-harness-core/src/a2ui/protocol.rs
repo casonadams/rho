@@ -110,7 +110,10 @@ pub struct A2uiModalRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum A2uiModalResult {
-    Submitted { action: A2uiUserAction, data_model: Value },
+    Submitted {
+        action: Box<A2uiUserAction>,
+        data_model: Value,
+    },
     Cancelled,
     TimedOut,
 }
@@ -174,12 +177,12 @@ mod tests {
         assert_eq!(decoded_req, req);
 
         let res = A2uiModalResult::Submitted {
-            action: A2uiUserAction {
+            action: Box::new(A2uiUserAction {
                 surface_id: "ask:1".to_string(),
                 action_name: "submit".to_string(),
                 source_component_id: "submit_btn".to_string(),
                 context: json!({"step": 1}),
-            },
+            }),
             data_model: json!({"answers": {"q1": "yes"}}),
         };
         let encoded_res = serde_json::to_string(&res).unwrap();

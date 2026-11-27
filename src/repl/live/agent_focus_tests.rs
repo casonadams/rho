@@ -36,7 +36,6 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
     );
     let tool = with_tool.running_tool.expect("bash gets a live card");
     assert_eq!(tool.name, "bash");
-    assert!(tool.args_summary.contains("make test"), "{}", tool.args_summary);
 
     handle.event(AgentEvent::Tool(
         rho_harness_core::presentation::ToolLine::new("bash", serde_json::json!({ "command": "make test" }))
@@ -137,7 +136,7 @@ fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
     handle.call_output("alpha\n");
     assert!(refresh(&mut c, &monitor).unwrap());
     let tool = c.state().active_tool().expect("the write keeps its card");
-    assert_eq!((tool.args_summary.as_str(), tool.output.as_str()), ("a.txt", "alpha\n"));
+    assert_eq!(tool.output, "alpha\n");
 
     let args = serde_json::json!({ "path": "a.txt", "text": "alpha\n" });
     handle.event(AgentEvent::Tool(

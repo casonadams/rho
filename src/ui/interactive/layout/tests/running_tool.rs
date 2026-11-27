@@ -5,7 +5,7 @@ use crate::ui::theme::Theme;
 
 fn tool_with_n_lines(n: usize) -> RunningTool {
     let command = format!("seq 1 {n}");
-    let mut tool = RunningTool::new("bash", &command, serde_json::json!({"command": command}));
+    let mut tool = RunningTool::new("bash", serde_json::json!({"command": command}));
     let out = (1..=n).map(|i| format!("line {i}\n")).collect::<String>();
     tool.append_chunk(&out);
     tool
@@ -58,7 +58,7 @@ fn running_tool_widget_boundary_51_lines() {
 #[test]
 fn running_tool_widget_large_output_with_soft_wrapping() {
     let theme = Theme::default();
-    let mut tool = RunningTool::new("bash", "wrapped", serde_json::json!({"command": "wrapped"}));
+    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "wrapped"}));
     let mut output = String::new();
     for i in 1..=55 {
         output.push_str(&format!("line {i}\n"));
@@ -82,7 +82,7 @@ fn running_tool_widget_large_output_with_soft_wrapping() {
 }
 
 fn streamed_tool(name: &str) -> RunningTool {
-    let mut tool = RunningTool::new(name, "step", serde_json::json!({"prompt": "step"}));
+    let mut tool = RunningTool::new(name, serde_json::json!({"prompt": "step"}));
     tool.append_chunk(&(1..=8).map(|i| format!("step line {i}\n")).collect::<String>());
     tool
 }
@@ -120,7 +120,7 @@ fn running_subagent_and_workflow_cards_show_streamed_output_tail() {
 fn running_tool_widget_starts_with_empty_line_pad() {
     let mut theme = Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Solid;
-    let tool = RunningTool::new("bash", "echo hello", serde_json::json!({"command": "echo hello"}));
+    let tool = RunningTool::new("bash", serde_json::json!({"command": "echo hello"}));
     let lines = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool,
         theme: &theme,

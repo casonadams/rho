@@ -802,12 +802,12 @@ mod tests {
 
     fn submitted(data_model: Value) -> A2uiModalResult {
         A2uiModalResult::Submitted {
-            action: A2uiUserAction {
+            action: Box::new(A2uiUserAction {
                 surface_id: ASK_SURFACE_ID.to_string(),
                 action_name: "submit".to_string(),
                 source_component_id: "submit_btn".to_string(),
                 context: json!({}),
-            },
+            }),
             data_model,
         }
     }

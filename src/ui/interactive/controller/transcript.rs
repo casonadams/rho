@@ -153,7 +153,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if let TranscriptItem::Tool(ref tool) = item
             && self.state.active_tool().is_some()
         {
-            return self.commit_active_tool(tool.clone(), needs_prefix_newline);
+            return self.commit_active_tool((**tool).clone(), needs_prefix_newline);
         }
         if matches!(item, TranscriptItem::Tool(_)) {
             self.clear_active_tool();

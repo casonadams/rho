@@ -149,7 +149,7 @@ fn bash_with_output_transcript_card_has_empty_block_break() {
     let mut theme = crate::ui::theme::Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Solid;
     let input = crate::ui::interactive::TranscriptRenderInput {
-        item: &crate::ui::interactive::TranscriptItem::Tool(crate::ui::interactive::ToolItem {
+        item: &crate::ui::interactive::TranscriptItem::tool(crate::ui::interactive::ToolItem {
             name: "bash".to_string(),
             arguments: serde_json::json!({ "command": "cargo test" }),
             is_error: false,
@@ -177,7 +177,7 @@ fn bash_with_output_transcript_card_has_empty_block_break() {
 #[test]
 fn write_transcript_card_renders_syntax_highlighting_without_backticks() {
     let input = crate::ui::interactive::TranscriptRenderInput {
-        item: &crate::ui::interactive::TranscriptItem::Tool(crate::ui::interactive::ToolItem {
+        item: &crate::ui::interactive::TranscriptItem::tool(crate::ui::interactive::ToolItem {
             name: "write".to_string(),
             arguments: serde_json::json!({
                 "path": "test.py",

@@ -243,37 +243,50 @@ fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, ex
     }
 }
 
-pub(crate) fn edit_diff(tool: &ToolLine, expanded: bool, theme: &Theme) -> Option<String> {
+fn edit_diff(tool: &ToolLine, expanded: bool, width: usize, theme: &Theme) -> Option<String> {
     let request = EditDiffRequest {
         args: &tool.arguments,
         file_change: tool.file_change.as_ref(),
         expanded,
+        width: theme.tool_block(false, false, width).inner_width(),
     };
     format_edit_diff(request, theme)
 }
 
-pub(crate) fn append_failed_edit_attempt(content: &mut String, tool: &ToolLine, expanded: bool, theme: &Theme) {
-    if let Some(diff) = edit_diff(tool, expanded, theme) {
+pub(crate) fn append_failed_edit_attempt(
+    content: &mut String,
+    tool: &ToolLine,
+    view: CardView,
+    width: usize,
+    theme: &Theme,
+) {
+    if let Some(diff) = edit_diff(tool, view.expanded, width, theme) {
         let dim = theme.dimmed;
         push_section(content, &format!("{dim}Attempted change:{dim:#}\n{diff}"));
     }
 }
 
-fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> bool {
-    if !tool.is_error && tool.name == "edit" {
-        if let Some(diff) = edit_diff(tool, expanded, theme) {
-            push_section(content, &diff);
-        }
-        return true;
-    }
-    if !tool.is_error && tool.name == "write" {
+pub(crate) fn shows_file_change(tool: &ToolLine) -> bool {
+    !tool.is_error && matches!(tool.name.as_str(), "edit" | "write")
+}
+
+/// The diff of a successful edit or the content preview of a successful write.
+pub(crate) fn file_change_preview(tool: &ToolLine, expanded: bool, width: usize, theme: &Theme) -> Option<String> {
+    if tool.name == "write" {
         let inner_width = theme.tool_block(false, false, width).inner_width();
-        if let Some(preview) = format_write_preview(&tool.arguments, theme, expanded, inner_width) {
-            push_section(content, &preview);
-        }
-        return true;
+        return format_write_preview(&tool.arguments, theme, expanded, inner_width);
     }
-    false
+    edit_diff(tool, expanded, width, theme)
+}
+
+fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> bool {
+    if !shows_file_change(tool) {
+        return false;
+    }
+    if let Some(preview) = file_change_preview(tool, expanded, width, theme) {
+        push_section(content, &preview);
+    }
+    true
 }
 
 pub(crate) fn append_background_hint(content: &mut String, tool: &ToolLine, dim: anstyle::Style) {
@@ -294,7 +307,7 @@ pub(crate) fn append_tool_details(content: &mut String, tool: &ToolLine, width: 
         append_generic_output(content, tool, width, view.expanded, theme);
     }
     if tool.is_error && tool.name == "edit" {
-        append_failed_edit_attempt(content, tool, view.expanded, theme);
+        append_failed_edit_attempt(content, tool, view, width, theme);
     }
     append_background_hint(content, tool, theme.dimmed);
     if let Some(duration_ms) = tool.duration_ms {

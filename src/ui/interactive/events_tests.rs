@@ -333,7 +333,6 @@ fn a_tool_card_shows_the_streamed_text_before_it_in_the_same_drain() {
     text_at(&mut batch, "two three four five six seven ", 400, base);
     let request = ToolStartRequest {
         name: "write".into(),
-        args_summary: String::new(),
         arguments: serde_json::json!({}),
         file_change: None,
     };
@@ -363,7 +362,6 @@ fn a_new_tool_card_drops_output_still_waiting_for_the_old_one() {
     let mut batch = burst_after_a_pause(base);
     let request = ToolStartRequest {
         name: "write".into(),
-        args_summary: "a.txt".into(),
         arguments: serde_json::json!({"path": "a.txt"}),
         file_change: None,
     };

@@ -62,7 +62,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn commit_active_tool(&mut self, tool: ToolItem, needs_prefix_newline: bool) -> io::Result<bool> {
         let expanded = self.state.tools_expanded();
         let block = render_tool_block(&tool, self.width, expanded, expanded, &self.theme);
-        let item = TranscriptItem::Tool(tool);
+        let item = TranscriptItem::tool(tool);
         let rendered = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
             block
         } else {

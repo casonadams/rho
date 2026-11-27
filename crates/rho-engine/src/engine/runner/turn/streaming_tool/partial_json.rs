@@ -130,20 +130,9 @@ impl Parser<'_> {
 
     /// Reads the string at the cursor and whether it closed; `None` when it holds an invalid escape.
     fn string(&mut self) -> Option<(String, bool)> {
-        self.pos += 1;
-        let start = self.pos;
-        let mut escaped = false;
-        while let Some(&byte) = self.bytes.get(self.pos) {
-            self.pos += 1;
-            match byte {
-                _ if escaped => escaped = false,
-                b'\\' => escaped = true,
-                b'"' => return decode(&self.bytes[start..self.pos - 1]).map(|text| (text, true)),
-                _ => {}
-            }
-        }
-        let body = &self.bytes[start..];
-        decode(&body[..cut_escape_start(body)]).map(|text| (text, false))
+        let body = read_string_body(&self.bytes[self.pos + 1..])?;
+        self.pos += 1 + body.consumed;
+        Some((body.text, body.closed))
     }
 
     /// A number or literal, kept only when its end has streamed in.
@@ -164,6 +153,41 @@ impl Parser<'_> {
     }
 }
 
+/// What `read_string_body` took from the start of a string body.
+pub struct StringBody {
+    pub text: String,
+    /// Bytes of the input the text came from, including the closing quote; an escape cut off at
+    /// the end is not consumed, so reading can resume at it once more has streamed in.
+    pub consumed: usize,
+    pub closed: bool,
+}
+
+/// Reads the JSON string whose opening quote has just been passed; `None` when it holds an
+/// invalid escape.
+pub fn read_string_body(raw: &[u8]) -> Option<StringBody> {
+    let mut escaped = false;
+    for (at, &byte) in raw.iter().enumerate() {
+        match byte {
+            _ if escaped => escaped = false,
+            b'\\' => escaped = true,
+            b'"' => {
+                return Some(StringBody {
+                    text: decode(&raw[..at])?,
+                    consumed: at + 1,
+                    closed: true,
+                });
+            }
+            _ => {}
+        }
+    }
+    let consumed = cut_escape_start(raw);
+    Some(StringBody {
+        text: decode(&raw[..consumed])?,
+        consumed,
+        closed: false,
+    })
+}
+
 /// Decodes the body of a JSON string, the text between its quotes.
 fn decode(body: &[u8]) -> Option<String> {
     let mut quoted = Vec::with_capacity(body.len() + 2);
@@ -174,22 +198,26 @@ fn decode(body: &[u8]) -> Option<String> {
 }
 
 /// Where an escape that `body` is cut off inside starts, or its length when it ends between
-/// characters. A last `\uD800`-`\uDBFF` escape is cut off too: it is half of a pair.
+/// characters. A trailing `\uD800`-`\uDBFF` escape is cut off too, with the escape after it if
+/// that is cut off: it is half of a pair.
 fn cut_escape_start(body: &[u8]) -> usize {
     let mut at = 0;
+    let mut high_surrogate_at = None;
     while at < body.len() {
         if body[at] != b'\\' {
             at += 1;
+            high_surrogate_at = None;
             continue;
         }
         let escape_len = if body.get(at + 1) == Some(&b'u') { 6 } else { 2 };
         let end = at + escape_len;
-        if end > body.len() || end == body.len() && is_high_surrogate(&body[at..end]) {
-            return at;
+        if end > body.len() {
+            return high_surrogate_at.unwrap_or(at);
         }
+        high_surrogate_at = is_high_surrogate(&body[at..end]).then_some(at);
         at = end;
     }
-    body.len()
+    high_surrogate_at.unwrap_or(body.len())
 }
 
 fn is_high_surrogate(escape: &[u8]) -> bool {
@@ -253,6 +281,8 @@ mod tests {
             (r#"{"t": "a\\u00"#, "a\\u00"),
             (r#"{"t": "q\"x"#, "q\"x"),
             (r#"{"t": "a\ud83d"#, "a"),
+            (r#"{"t": "a\ud83d\ude"#, "a"),
+            (r#"{"t": "a\ud83d\"#, "a"),
             (r#"{"t": "a\ud83d\ude00"#, "a\u{1f600}"),
         ];
         for (prefix, text) in cases {

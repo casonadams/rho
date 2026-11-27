@@ -480,7 +480,7 @@ mod tests {
         assert!(formatted.contains("`mcp` tool"));
         assert!(formatted.contains("server `weather`, tool `get_forecast`"));
         assert!(formatted.contains("city (required)"));
-        assert!(formatted.contains(r#"input schema: {"properties":{"city":{"type":"string"}}"#));
+        assert!(formatted.contains(r#"input schema: {"type":"object","properties":{"city":{"type":"string"}}"#));
     }
 
     #[test]

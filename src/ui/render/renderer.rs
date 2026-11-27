@@ -14,6 +14,7 @@ use crate::ui::render::stream::{StreamKind, StreamRenderer};
 use crate::ui::theme::Theme;
 use rho_engine::tools::file_change::PendingFileChanges;
 use rho_harness_core::config::DisplayUiConfig;
+use rho_harness_core::locking::lock;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
 use rho_harness_core::presentation::{ToolLine, TurnTelemetry};
 
@@ -120,28 +121,15 @@ impl TerminalRenderer {
     }
 
     pub fn print_token(&self, token: &str) {
-        if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
-            buf.push_str(token);
-        }
+        lock(&self.assistant_turn_buffer).push_str(token);
         let width = self.width.load(Ordering::Relaxed);
-        let rendered = self
-            .reply_stream
-            .lock()
-            .map(|mut stream| stream.push(token, width, &self.theme))
-            .unwrap_or_else(|_| token.to_string());
+        let rendered = lock(&self.reply_stream).push(token, width, &self.theme);
         self.stream_rendered(rendered);
     }
 
     pub fn print_thinking_token(&self, token: &str) {
         let width = self.width();
-        let rendered = self
-            .thinking_stream
-            .lock()
-            .map(|mut stream| stream.push(token, width, &self.theme))
-            .unwrap_or_else(|_| {
-                let dim = self.theme.dimmed;
-                format!("{dim}{token}{dim:#}")
-            });
+        let rendered = lock(&self.thinking_stream).push(token, width, &self.theme);
         self.stream_rendered(rendered);
     }
 
@@ -152,23 +140,18 @@ impl TerminalRenderer {
     }
 
     fn finish_stream(&self, stream: &Mutex<StreamRenderer>) {
-        let remaining = stream
-            .lock()
-            .map(|mut stream| stream.finish(&self.theme))
-            .unwrap_or_default();
+        let remaining = lock(stream).finish(&self.theme);
         self.stream_rendered(remaining);
     }
 
     pub fn flush(&self) {
         self.finish_stream(&self.thinking_stream);
         self.finish_stream(&self.reply_stream);
-        if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
-            let full_text = std::mem::take(&mut *buf);
-            if !full_text.is_empty()
-                && let Some(ui) = &self.ui
-            {
-                best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::AssistantText(full_text)));
-            }
+        let full_text = std::mem::take(&mut *lock(&self.assistant_turn_buffer));
+        if !full_text.is_empty()
+            && let Some(ui) = &self.ui
+        {
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::AssistantText(full_text)));
         }
     }
 
@@ -229,16 +212,10 @@ impl TerminalRenderer {
         args: &serde_json::Value,
         file_change: Option<rho_harness_core::presentation::FileChange>,
     ) {
-        let summary = if name == "bash" && self.theme.full_bash_command {
-            rho_harness_core::presentation::summary::format_bash_full_summary(args)
-        } else {
-            format_tool_args_summary(name, args)
-        };
         if let Some(ui) = &self.ui {
             if crate::ui::interactive::RunningTool::has_live_card(name) {
                 best_effort(ui.tool_start(crate::ui::interactive::ToolStartRequest {
                     name: name.to_string(),
-                    args_summary: summary,
                     arguments: args.clone(),
                     file_change,
                 }));
@@ -272,7 +249,7 @@ impl TerminalRenderer {
         }
         self.pending_file_changes.attach(&mut line);
         if let Some(ui) = &self.ui {
-            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line)));
+            best_effort(ui.push_transcript(crate::ui::interactive::TranscriptItem::tool(line)));
             return;
         }
         let card = render_tool_transcript(&line, crate::ui::block::terminal_width(), true, false, &self.theme);

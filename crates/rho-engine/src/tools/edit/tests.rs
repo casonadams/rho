@@ -2,6 +2,13 @@ use super::*;
 use crate::tools::types::ToolResult;
 use std::path::Path;
 
+#[test]
+fn schema_lists_path_before_edits_so_the_card_can_number_lines_while_edits_stream() {
+    let schema = crate::tools::types::generated_schema::<EditArgs>();
+    let keys: Vec<&String> = schema["properties"].as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["path", "edits"]);
+}
+
 fn fixture(label: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
         .prefix(&format!("edit-{label}-"))

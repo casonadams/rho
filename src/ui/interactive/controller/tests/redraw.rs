@@ -31,7 +31,6 @@ mod resize {
         controller
             .start_tool(ToolStartRequest {
                 name: "bash".into(),
-                args_summary: "cargo test".into(),
                 arguments: serde_json::json!({"command": "cargo test"}),
                 file_change: None,
             })

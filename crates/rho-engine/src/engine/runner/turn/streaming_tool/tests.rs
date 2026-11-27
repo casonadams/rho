@@ -127,10 +127,10 @@ fn extract_streaming_content_progressively() {
 
 #[test]
 fn extract_handles_all_escapes() {
-    let json = r#"{"content": "quote:\" slash:\\ slash2:\/ backspace:\b ff:\f lf:\n cr:\r tab:\t unknown:\a"}"#;
+    let json = r#"{"content": "quote:\" slash:\\ slash2:\/ backspace:\b ff:\f lf:\n cr:\r tab:\t esc:\u001b"}"#;
     assert_eq!(
         extract_json_streaming_content(json).as_deref(),
-        Some("quote:\" slash:\\ slash2:/ backspace:\x08 ff:\x0c lf:\n cr:\r tab:\t unknown:\\a")
+        Some("quote:\" slash:\\ slash2:/ backspace:\x08 ff:\x0c lf:\n cr:\r tab:\t esc:\x1b")
     );
 }
 
@@ -144,17 +144,24 @@ fn extract_trailing_escape_in_streaming_content() {
 }
 
 #[test]
-fn content_decoder_matches_one_shot_at_every_split() {
-    let full = "{\"path\": \"a.txt\", \"content\": \"é\\n\\\"q\\\" \\a tab\\t end\"}";
-    let expected = extract_json_streaming_content(full);
-    assert_eq!(expected.as_deref(), Some("é\n\"q\" \\a tab\t end"));
+fn content_decoder_reads_the_content_serde_reads_at_every_split() {
+    let full = "{\"path\": \"a.txt\", \"content\": \"é\\n\\\"q\\\" \\u001b[1m \\ud83d\\ude00 \\u00e9 tab\\t end\"}";
+    let expected = serde_json::from_str::<Value>(full).unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(expected.contains('\x1b') && expected.contains('\u{1f600}'));
 
     for split in (0..=full.len()).filter(|&i| full.is_char_boundary(i)) {
         let mut decoder = ContentDecoder::default();
         decoder.advance(&full[..split]);
+        assert!(
+            expected.starts_with(&decoder.decoded),
+            "split at {split}: {:?}",
+            decoder.decoded
+        );
         decoder.advance(full);
-        let emitted = decoder.decoded.clone();
-        assert_eq!(Some(emitted), expected, "split at {split}");
+        assert_eq!(decoder.decoded, expected, "split at {split}");
     }
 }
 
@@ -257,8 +264,8 @@ fn an_edit_card_opens_at_once_and_grows_line_by_line_as_its_arguments_stream() {
         [
             "flush",
             "start edit {}",
-            r#"start edit {"edits":[{"oldText":"fn a() {\n"}],"path":"a.rs"}"#,
-            r#"start edit {"edits":[{"newText":"fn a() {}","oldText":"fn a() {\n    old();\n}"}],"path":"a.rs"}"#,
+            r#"start edit {"path":"a.rs","edits":[{"oldText":"fn a() {\n"}]}"#,
+            r#"start edit {"path":"a.rs","edits":[{"oldText":"fn a() {\n    old();\n}","newText":"fn a() {}"}]}"#,
         ],
         "the fragment without a line end waits for one"
     );

@@ -6,7 +6,7 @@ mod lazy {
     use crate::ui::theme::Theme;
 
     fn sample_tool() -> TranscriptItem {
-        TranscriptItem::Tool(ToolItem {
+        TranscriptItem::tool(ToolItem {
             name: "read".into(),
             arguments: serde_json::json!({"path": "src/main.rs"}),
             is_error: false,

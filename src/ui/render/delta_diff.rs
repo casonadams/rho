@@ -3,7 +3,7 @@
 //! Combines `syntect` syntax highlighting (`CodeHighlighter`) with `similar`
 //! line- and word-level diffs and subtle red/green background tints.
 
-use super::diff::{DiffToken, compute_token_diff, format_gutter_prefix, more_lines_footer, replace_tabs, tokenize};
+use super::diff::{DiffToken, compute_token_diff, format_gutter_prefix, replace_tabs, tokenize};
 use crate::ui::block::leading_escape;
 use crate::ui::markdown::CodeHighlighter;
 use crate::ui::terminal_stream::is_sgr_reset;
@@ -121,13 +121,10 @@ struct DeltaRenderCtx<'a> {
     new_hl: CodeHighlighter,
     start_line: Option<usize>,
     gutter_width: usize,
-    limit: usize,
-    emitted: usize,
-    hidden: usize,
 }
 
 impl<'a> DeltaRenderCtx<'a> {
-    fn new(lang: Option<&str>, start_line: Option<usize>, gutter_width: usize, limit: usize, theme: &'a Theme) -> Self {
+    fn new(lang: Option<&str>, start_line: Option<usize>, gutter_width: usize, theme: &'a Theme) -> Self {
         Self {
             theme,
             palette: palette_for_theme(theme),
@@ -135,9 +132,6 @@ impl<'a> DeltaRenderCtx<'a> {
             new_hl: CodeHighlighter::new(lang),
             start_line,
             gutter_width,
-            limit,
-            emitted: 0,
-            hidden: 0,
         }
     }
 
@@ -158,11 +152,6 @@ impl<'a> DeltaRenderCtx<'a> {
                 self.new_hl.highlight_line(&clean, self.theme)
             }
         };
-        if self.emitted >= self.limit {
-            self.hidden += 1;
-            return;
-        }
-        self.emitted += 1;
         let gutter = self.format_gutter(line_offset);
         match kind {
             LineKind::Context => {
@@ -214,13 +203,11 @@ pub(crate) struct DeltaDiffRequest<'a> {
     pub lang: Option<&'a str>,
     pub start_line: Option<usize>,
     pub gutter_width: usize,
-    pub expanded: bool,
     pub theme: &'a Theme,
 }
 
 pub(crate) fn render_delta_diff(out: &mut String, req: DeltaDiffRequest<'_>) {
-    let limit = if req.expanded { usize::MAX } else { 16 };
-    let mut ctx = DeltaRenderCtx::new(req.lang, req.start_line, req.gutter_width, limit, req.theme);
+    let mut ctx = DeltaRenderCtx::new(req.lang, req.start_line, req.gutter_width, req.theme);
     for op in similar::capture_diff_slices(similar::Algorithm::Myers, req.old_lines, req.new_lines) {
         match op {
             similar::DiffOp::Equal { new_index, len, .. } => {
@@ -254,9 +241,6 @@ pub(crate) fn render_delta_diff(out: &mut String, req: DeltaDiffRequest<'_>) {
             }
         }
     }
-    if ctx.hidden > 0 {
-        out.push_str(&more_lines_footer(ctx.hidden, req.theme.dimmed));
-    }
 }
 
 #[cfg(test)]
@@ -274,7 +258,6 @@ mod tests {
         let rendered = format_entry_diff(EntryDiffInput {
             idx: 0,
             total: 1,
-            expanded: true,
             old_text: "let count = 1;",
             new_text: "let count = 42;",
             theme: &theme,
@@ -306,7 +289,6 @@ mod tests {
         let rendered = format_entry_diff(EntryDiffInput {
             idx: 0,
             total: 1,
-            expanded: true,
             old_text: "fn a() {}\nlet x = 1;\nfn b() {}",
             new_text: "fn a() {}\nlet x = 2;\nfn b() {}",
             theme: &theme,

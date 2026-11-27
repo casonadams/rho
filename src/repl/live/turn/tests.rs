@@ -414,7 +414,6 @@ async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
     h.controller.state_mut().footer_mut().running_tool = Some("bash".to_string());
     h.controller.state_mut().set_active_tool(Some(RunningTool::new(
         "bash".to_string(),
-        "sleep 30".to_string(),
         serde_json::json!({"command": "sleep 30"}),
     )));
 
@@ -568,7 +567,7 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
     .with_output("ok")
     .with_output_summary("ok");
     let event = super::TurnEvent::Ui(crate::ui::interactive::UiEvent::Transcript(
-        crate::ui::interactive::TranscriptItem::Tool(tool_item),
+        crate::ui::interactive::TranscriptItem::tool(tool_item),
     ));
 
     super::handle_turn_event(&mut ctx, event).await.unwrap();

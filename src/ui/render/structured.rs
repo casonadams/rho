@@ -4,13 +4,13 @@
 //! followed by explicit `Input` and `Output` sections.
 
 use super::card::{
-    CardStatus, CardView, append_background_hint, append_failed_edit_attempt, edit_diff, fetch_content_kind,
-    format_output_lines, normalize_tool_name, push_section, raw_output, shows_output_body, split_bash_timeout,
-    style_tool_header_args,
+    CardStatus, CardView, append_background_hint, append_failed_edit_attempt, fetch_content_kind, file_change_preview,
+    format_output_lines, normalize_tool_name, push_section, raw_output, shows_file_change, shows_output_body,
+    split_bash_timeout, style_tool_header_args,
 };
 use super::diff::replace_tabs;
 use super::file_change;
-use super::formatters::{format_read_expanded, format_write_preview};
+use super::formatters::format_read_expanded;
 use crate::ui::block::visible_width;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
@@ -187,12 +187,8 @@ fn structured_output_body(tool: &ToolLine, width: usize, view: CardView, theme: 
             None
         };
     }
-    if !tool.is_error && tool.name == "edit" {
-        return edit_diff(tool, view.expanded, theme);
-    }
-    if !tool.is_error && tool.name == "write" {
-        let inner_width = theme.tool_block(false, false, width).inner_width();
-        return format_write_preview(&tool.arguments, theme, view.expanded, inner_width);
+    if shows_file_change(tool) {
+        return file_change_preview(tool, view.expanded, width, theme);
     }
     if shows_output_body(tool, view) {
         return structured_generic_output(tool, width, view.expanded, theme);
@@ -218,7 +214,7 @@ pub(crate) fn render_structured_tool_content(tool: &ToolLine, view: CardView, wi
         append_section(&mut content, "Output", &output_body, theme.dimmed);
     }
     if tool.is_error && tool.name == "edit" {
-        append_failed_edit_attempt(&mut content, tool, view.expanded, theme);
+        append_failed_edit_attempt(&mut content, tool, view, width, theme);
     }
     append_background_hint(&mut content, tool, theme.dimmed);
     content
