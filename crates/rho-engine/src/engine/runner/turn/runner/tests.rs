@@ -467,9 +467,16 @@ fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
 }
 
 #[tokio::test]
-async fn a_full_context_stops_the_turn_for_compaction_unless_no_request_follows() {
-    for (budget, stops_early) in [(2, true), (1, false)] {
-        let model = Arc::new(MockAdapter::from_turns(vec![probe_then_usage(0, 190_000)]));
+async fn a_turn_stops_for_compaction_when_its_next_prompt_would_pass_the_threshold() {
+    let large_result: String = (0..4_000).map(|i| format!("line {i} ")).collect();
+    let cases = [
+        ("a full prompt", 190_000, "ok", 2, true),
+        ("no request follows", 190_000, "ok", 1, false),
+        ("a large tool result", 180_000, large_result.as_str(), 2, true),
+        ("room left", 180_000, "ok", 2, false),
+    ];
+    for (case, used, result, budget, stops_early) in cases {
+        let model = Arc::new(MockAdapter::from_turns(vec![probe_then_usage(0, used)]));
         let (runner, _temp, _, _) = test_agent_env(model);
         let context = crate::engine::tracking::ContextTracker::new().budget(
             200_000,
@@ -479,7 +486,7 @@ async fn a_full_context_stops_the_turn_for_compaction_unless_no_request_follows(
         let runner = AgentRunner {
             tools: vec![Arc::new(ScriptedTool {
                 name: "probe",
-                result: crate::tools::ToolResult::success("ok"),
+                result: crate::tools::ToolResult::success(result),
             })],
             ..runner
         }
@@ -490,9 +497,9 @@ async fn a_full_context_stops_the_turn_for_compaction_unless_no_request_follows(
         let error = run_agent_loop(runner, &acking_emitter()).await.unwrap_err();
 
         assert_eq!(
-            matches!(error, AppError::CompactionDue { used: 190_000 }),
+            matches!(error, AppError::CompactionDue { used: next } if next >= used),
             stops_early,
-            "budget {budget}: {error:?}"
+            "{case}: {error:?}"
         );
     }
 }

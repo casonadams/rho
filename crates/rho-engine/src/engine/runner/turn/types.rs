@@ -7,17 +7,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub enum RunStatus {
     Completed,
     ContentFiltered,
-    /// Compacted before running, so the prompt was not sent.
-    Compacted,
-}
-
-impl RunStatus {
-    pub fn compaction_guidance(self) -> Option<&'static str> {
-        match self {
-            Self::Compacted => Some("Context was compacted. Submit your prompt to proceed with compacted context.\n"),
-            Self::Completed | Self::ContentFiltered => None,
-        }
-    }
 }
 
 pub type UsageDetails = StructuralUsage;

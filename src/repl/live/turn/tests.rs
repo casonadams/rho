@@ -462,11 +462,6 @@ async fn test_turn_with_active_modal_advances_spinner() {
 }
 
 #[tokio::test]
-async fn test_turn_finish_active_turn_handles_compacted_notice() {
-    assert_finish_turn_goes_idle(crate::engine::runner::RunStatus::Compacted).await;
-}
-
-#[tokio::test]
 async fn test_turn_paste_routes_to_active_modal() {
     let mut f = LoopFixture::new("background text").await;
     let mut modal = crate::ui::interactive::ModalState::new("Permission Required", "", vec![]);
@@ -576,7 +571,8 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
     assert!(ctx.loop_ctx.batch.ui.is_empty());
 }
 
-async fn assert_finish_turn_goes_idle(status: crate::engine::runner::RunStatus) {
+#[tokio::test]
+async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
     let mut h = ActiveTurnHarness::new().await;
     let out = crate::engine::runner::TurnOutput {
         final_text: String::new(),
@@ -584,7 +580,7 @@ async fn assert_finish_turn_goes_idle(status: crate::engine::runner::RunStatus) 
         tool_failures_count: 0,
         requests: 0,
         usage: None,
-        status,
+        status: crate::engine::runner::RunStatus::Completed,
         metrics: rho_engine::engine::metrics::RunMetrics::default(),
     };
     let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
@@ -593,11 +589,6 @@ async fn assert_finish_turn_goes_idle(status: crate::engine::runner::RunStatus) 
     let mut loop_ctx = super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering);
     super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
     assert_eq!(h.controller.state().footer().activity, Activity::Idle);
-}
-
-#[tokio::test]
-async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
-    assert_finish_turn_goes_idle(crate::engine::runner::RunStatus::Completed).await;
 }
 
 #[tokio::test]

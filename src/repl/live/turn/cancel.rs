@@ -60,15 +60,8 @@ pub(super) fn finish_active_turn<B: TerminalBackend>(
     lp.batch.drain_events(lp.controller, ui_events)?;
     reset_controller_idle(lp.controller);
     lp.batch.flush(lp.controller, true)?;
-    match result {
-        Ok(out) => {
-            if let Some(guidance) = out.status.compaction_guidance() {
-                notify_turn_interruption(lp, ui_events, guidance)?;
-            }
-        }
-        Err(error) => {
-            notify_turn_interruption(lp, ui_events, &format!("\nError: {error}\n"))?;
-        }
+    if let Err(error) = result {
+        notify_turn_interruption(lp, ui_events, &format!("\nError: {error}\n"))?;
     }
     Ok(())
 }

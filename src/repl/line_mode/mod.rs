@@ -97,15 +97,8 @@ async fn handle_turn_cancellation(engine: &AgentEngine, renderer: &TerminalRende
 pub(crate) fn handle_turn_completion(res: Result<crate::engine::runner::TurnOutput>, renderer: &TerminalRenderer) {
     renderer.flush();
     renderer.write_output("\n");
-    match res {
-        Ok(out) => {
-            if let Some(guidance) = out.status.compaction_guidance() {
-                renderer.write_output(guidance);
-            }
-        }
-        Err(error) => {
-            renderer.write_output(&format!("\nError: {error}\n"));
-        }
+    if let Err(error) = res {
+        renderer.write_output(&format!("\nError: {error}\n"));
     }
 }
 

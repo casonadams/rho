@@ -62,7 +62,7 @@ impl AgentEngine {
 
     /// Runs the turn loop until the turn is over, starting it again with the turns it has left
     /// each time it stops to make room in its context.
-    async fn execute_turn_step(
+    async fn drive_turn(
         &self,
         sink: &Arc<TerminalApprovalSink>,
         preamble: &str,
@@ -98,14 +98,11 @@ impl AgentEngine {
         let turn_started_at = Instant::now();
         let oauth_secrets = self.router.auth().lock().await.oauth_secret_values();
         self.session_manager.add_secrets_async(oauth_secrets).await?;
-        let mut prep = match self.prepare_turn(request.prompt, &presenter).await? {
-            prepare::PreparedTurnOutcome::Compacted(out) => return Ok(*out),
-            prepare::PreparedTurnOutcome::Ready(prep) => prep,
-        };
+        let mut prep = self.prepare_turn(request.prompt, &presenter).await?;
         prep.loop_state.turn_started_at = turn_started_at;
         let lifecycle = self.lifecycle_hook(presenter.clone());
         let _in_flight_guard = self.usage.in_flight_guard();
-        self.execute_turn_step(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
+        self.drive_turn(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)
             .await
     }
 }

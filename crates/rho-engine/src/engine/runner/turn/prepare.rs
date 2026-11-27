@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine::AgentEngine;
+use crate::engine::compactor::TurnCompaction;
 use crate::engine::metrics::PruneDecision;
 use crate::engine::metrics::tracker::{PromptCacheKey, SentRequest};
 use crate::engine::runner::history::continuation_history;
@@ -15,15 +16,10 @@ use rho_harness_core::thinking::ThinkingLevel;
 
 use super::prune::PromptCache;
 use super::runner::AgentRunner;
-use super::types::{TurnOutput, TurnRequest};
+use super::types::TurnRequest;
 
 /// Time allowed between deciding the cache is warm and the next request reaching the provider.
 const CACHE_EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
-
-pub(super) enum PreparedTurnOutcome {
-    Compacted(Box<TurnOutput>),
-    Ready(PreparedTurn),
-}
 
 pub(super) struct TurnRunnerParams<'a> {
     pub prompt: &'a str,
@@ -43,8 +39,17 @@ pub(super) struct PreparedTurn {
 
 pub(in crate::engine) struct LoadedHistory {
     pub messages: Vec<ChatMessage>,
-    pub pruned: bool,
+    /// Pruned or compacted since the last request, so that request's reported usage no longer
+    /// measures it.
+    pub outdates_usage: bool,
     pub decision: PruneDecision,
+}
+
+/// A turn's prompt as typed and as sent, and the tokens it and the preamble add to the history.
+struct TurnPrompt<'a> {
+    typed: &'a str,
+    sent: String,
+    tokens: usize,
 }
 
 pub(super) struct TurnLoopState {
@@ -53,18 +58,14 @@ pub(super) struct TurnLoopState {
     pub current_prompt: String,
     pub current_budget: usize,
     pub thinking_level: Option<ThinkingLevel>,
-    /// Times this turn has compacted its context and gone on.
-    pub compactions: usize,
-    /// Early until a stop for compaction finds nothing to compact; the turn then runs on until an
-    /// overflow instead.
-    pub compaction_timing: CompactionTiming,
+    pub compaction: TurnCompaction,
     pub turn_started_at: std::time::Instant,
 }
 
 impl AgentEngine {
-    fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage], history_pruned: bool) {
+    fn start_turn_metrics(&self, additional_tokens: usize, history: &[ChatMessage], outdates_usage: bool) {
         self.run_tracker.start(&self.config.model, self.prompt_cache_key());
-        let anchor = if !history.is_empty() && !history_pruned {
+        let anchor = if !history.is_empty() && !outdates_usage {
             self.usage
                 .latest()
                 .filter(|u| u.has_values())
@@ -107,12 +108,12 @@ impl AgentEngine {
         Ok(match pruned {
             Some(pruned) => LoadedHistory {
                 messages: pruned,
-                pruned: true,
+                outdates_usage: true,
                 decision,
             },
             None => LoadedHistory {
                 messages: raw,
-                pruned: false,
+                outdates_usage: false,
                 decision,
             },
         })
@@ -165,14 +166,15 @@ impl AgentEngine {
         }
     }
 
+    /// Compacts the session when `history` plus `additional_tokens` passes the compaction threshold.
     pub(crate) async fn check_proactive_compaction(
         &self,
         presenter: &dyn Presenter,
-        history: &mut Vec<ChatMessage>,
+        history: &[ChatMessage],
         additional_tokens: usize,
-        history_pruned: bool,
+        outdates_usage: bool,
     ) -> Result<Option<crate::engine::CompactionStats>> {
-        let reported = self.usage.latest().filter(|_| !history_pruned);
+        let reported = self.usage.latest().filter(|_| !outdates_usage);
         let history_tokens = reported
             .map(|u| self.consumed_context(&u) as usize)
             .unwrap_or_else(|| self.context.estimate_messages_tokens(history, &self.config.model));
@@ -180,7 +182,6 @@ impl AgentEngine {
         if total_tokens > self.compaction_at() {
             let _spinner = presenter.start_spinner("Compacting...");
             let stats = self.compact_session(None).await?;
-            *history = self.session_manager.active_messages().await?;
             presenter.print_notice(&stats.auto_notice());
             Ok(Some(stats))
         } else {
@@ -188,61 +189,51 @@ impl AgentEngine {
         }
     }
 
-    async fn check_turn_proactive_compaction(
-        &self,
-        preamble: &str,
-        prompt: &str,
-        presenter: &dyn Presenter,
-        history: &mut Vec<ChatMessage>,
-        history_pruned: bool,
-    ) -> Result<Option<TurnOutput>> {
-        let add_tokens = rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
-            rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
-        );
-        if self
-            .check_proactive_compaction(presenter, history, add_tokens, history_pruned)
-            .await?
-            .is_some()
-        {
-            return self.compacted_turn_output().await.map(Some);
+    /// The history the turn starts from, compacted first when it and the turn's `prompt_tokens`
+    /// would pass the compaction threshold.
+    async fn load_turn_history(&self, presenter: &dyn Presenter, prompt_tokens: usize) -> Result<LoadedHistory> {
+        let loaded = self.load_initial_history().await?;
+        let compacted = self
+            .check_proactive_compaction(presenter, &loaded.messages, prompt_tokens, loaded.outdates_usage)
+            .await?;
+        if compacted.is_none() {
+            return Ok(loaded);
         }
-        Ok(None)
+        Ok(LoadedHistory {
+            outdates_usage: true,
+            ..self.load_initial_history().await?
+        })
     }
 
     async fn build_ready_turn(
         &self,
-        user_prompt: &str,
-        effective_prompt: &str,
+        prompt: TurnPrompt<'_>,
         preamble: String,
         loaded: LoadedHistory,
         presenter: &Arc<dyn Presenter>,
     ) -> Result<PreparedTurn> {
         let LoadedHistory {
             messages: history,
-            pruned: history_pruned,
+            outdates_usage,
             decision,
         } = loaded;
         self.session_manager
             .append_event(
                 SessionEventKind::UserMessage,
-                serde_json::json!({ "prompt": user_prompt }),
+                serde_json::json!({ "prompt": prompt.typed }),
             )
             .await?;
         let checkpoint = self.session_manager.load_checkpoint().await?;
-        let add_tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
-            rho_harness_core::tokens::estimate_text_tokens(effective_prompt, &self.config.model),
-        );
-        self.start_turn_metrics(add_tokens, &history, history_pruned);
+        self.start_turn_metrics(prompt.tokens, &history, outdates_usage);
         self.run_tracker.pruned(decision);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
             visible_history: history,
             checkpoint,
-            current_prompt: effective_prompt.to_string(),
+            current_prompt: prompt.sent,
             current_budget: self.config.max_turns,
             thinking_level: None,
-            compactions: 0,
-            compaction_timing: CompactionTiming::Early,
+            compaction: TurnCompaction::default(),
             turn_started_at: std::time::Instant::now(),
         };
         Ok(PreparedTurn {
@@ -252,39 +243,29 @@ impl AgentEngine {
         })
     }
 
-    pub(super) async fn prepare_turn(
-        &self,
-        prompt: &str,
-        presenter: &Arc<dyn Presenter>,
-    ) -> Result<PreparedTurnOutcome> {
+    pub(super) async fn prepare_turn(&self, prompt: &str, presenter: &Arc<dyn Presenter>) -> Result<PreparedTurn> {
         self.require_model()?;
         let context = self.project_context().await?;
         let mut preamble = context.build_system_prompt();
         crate::mcp::append_server_instructions(&mut preamble, &self.mcp.instructions);
         let notes = self.turn_notes.pending();
-        let effective_prompt = crate::engine::context::format_turn_prompt(
+        let sent = crate::engine::context::format_turn_prompt(
             &crate::engine::notes::with_notes(&notes, prompt),
             context.git_status.as_deref(),
         );
-        let mut loaded = self.load_initial_history().await?;
-        if let Some(out) = self
-            .check_turn_proactive_compaction(
-                &preamble,
-                &effective_prompt,
-                presenter.as_ref(),
-                &mut loaded.messages,
-                loaded.pruned,
-            )
-            .await?
-        {
-            return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
-        }
-        let mut ready = self
-            .build_ready_turn(prompt, &effective_prompt, preamble, loaded, presenter)
-            .await?;
+        let tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
+            rho_harness_core::tokens::estimate_text_tokens(&sent, &self.config.model),
+        );
+        let loaded = self.load_turn_history(presenter.as_ref(), tokens).await?;
+        let turn_prompt = TurnPrompt {
+            typed: prompt,
+            sent,
+            tokens,
+        };
+        let mut ready = self.build_ready_turn(turn_prompt, preamble, loaded, presenter).await?;
         ready.loop_state.thinking_level = self.resolve_turn_thinking_level(prompt).await;
         self.turn_notes.consume(notes.len());
-        Ok(PreparedTurnOutcome::Ready(ready))
+        Ok(ready)
     }
 
     pub(in crate::engine) fn require_model(&self) -> Result<crate::engine::compactor::llm::ModelHandle> {
@@ -315,8 +296,8 @@ impl AgentEngine {
             .project_context(self.project_context().await.ok().map(Arc::new))
             .worktrees(self.worktrees.clone())
             .context_budget(Some(
-                self.context
-                    .budget(self.context_limit(), self.context_limit_source(), self.compaction_at())
+                self.context_policy()
+                    .session_budget(&self.config.route(), &self.context)
                     .with_compaction_timing(params.compaction_timing),
             ))
             .working_dir(self.base_dir.clone())
@@ -402,7 +383,7 @@ impl AgentEngine {
                     thinking_level: loop_state.thinking_level,
                     checkpoint: loop_state.checkpoint.as_deref(),
                     history: &loop_state.visible_history,
-                    compaction_timing: loop_state.compaction_timing,
+                    compaction_timing: loop_state.compaction.timing(),
                 },
                 sink.clone(),
                 request,

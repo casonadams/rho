@@ -426,8 +426,8 @@ happen.
   loop with its own tools, instructions, and turn limit. It gets the same
   request retries, repeated-call guard, "Please continue" nudge after an empty
   reply, waiting for its own background `bash` jobs, message delivery, and
-  context compaction: once a request's prompt passes its model's window minus
-  `reserve_tokens` (or a request overflows the window), its older conversation
+  context compaction: once its next request's prompt would pass its model's
+  window minus `reserve_tokens` (or a request overflows the window), its older conversation
   is compacted into a summary (keeping `keep_recent_tokens` of recent
   conversation) and it continues with the turns it has left, up to three times
   per round.

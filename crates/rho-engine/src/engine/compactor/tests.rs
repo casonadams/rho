@@ -945,7 +945,7 @@ mod recovery {
     #[tokio::test]
     async fn overflow_after_checkpointed_steps_compacts_and_keeps_the_turn_work() {
         use rho_harness_core::model::{Reasoning, ToolCall, ToolFunction};
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let model = Arc::new(MockAdapter::default());
         model.add_turn(vec![
             Ok(ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature(
@@ -962,7 +962,7 @@ mod recovery {
         ))]);
         model.add_turn(vec![Ok(ModelStreamEvent::Text("finished the long task".to_string()))]);
 
-        let engine = recovery_engine(dir.path(), model);
+        let engine = recovery_engine(&dir, model);
         let session_id = engine.session_manager.session_id.clone();
         populate_recovery_history(&engine.session_manager, &session_id).await;
 
@@ -1003,7 +1003,7 @@ mod recovery {
     #[tokio::test]
     async fn a_turn_compacts_once_its_context_passes_the_threshold_without_waiting_for_an_overflow() {
         use rho_harness_core::model::{ToolCall, ToolFunction};
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let model = Arc::new(MockAdapter::default());
         model.add_turn(vec![
             Ok(ModelStreamEvent::ToolCall(ToolCall::new(
@@ -1020,10 +1020,10 @@ mod recovery {
             keep_recent_tokens: 5,
             context_limit: Some(10_000),
             reserve_tokens: 2_000,
-            auth_file: dir.path().join("auth.json"),
+            auth_file: dir.join("auth.json"),
             ..Config::default()
         };
-        let engine = engine_with(dir.path(), model.clone(), config);
+        let engine = engine_with(&dir, model.clone(), config);
         let session_id = engine.session_manager.session_id.clone();
         populate_recovery_history(&engine.session_manager, &session_id).await;
 
@@ -1054,9 +1054,56 @@ mod recovery {
     }
 
     #[tokio::test]
+    async fn past_its_compaction_limit_an_early_stop_runs_on_from_its_saved_work() {
+        use rho_harness_core::model::{ToolCall, ToolFunction, UserContent};
+        let dir = crate::test_support::TestDir::new();
+        let model = Arc::new(MockAdapter::default());
+        let steps = crate::engine::compactor::MAX_COMPACTIONS_PER_TURN + 1;
+        for i in 0..steps {
+            model.add_turn(vec![
+                Ok(ModelStreamEvent::ToolCall(ToolCall::new(
+                    format!("call-{i}"),
+                    ToolFunction::new("missing", serde_json::json!({})),
+                ))),
+                Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
+                    input_tokens: 9_000,
+                    ..Default::default()
+                })),
+            ]);
+        }
+        model.add_turn(vec![Ok(ModelStreamEvent::Text("ran on".to_string()))]);
+        let config = Config {
+            keep_recent_tokens: 5,
+            context_limit: Some(10_000),
+            reserve_tokens: 2_000,
+            auth_file: dir.join("auth.json"),
+            ..Config::default()
+        };
+        let engine = engine_with(&dir, model.clone(), config);
+
+        let output = engine
+            .run_turn(TurnRequest::new("Long task"), Arc::new(CapturingPresenter::default()))
+            .await
+            .unwrap();
+
+        assert_eq!(output.final_text, "ran on");
+        let requests = model.requests();
+        assert_eq!(requests.len(), steps + 1, "every step, then the answer");
+        let last = requests.last().unwrap();
+        let resumed = format!("{:?}", last.messages);
+        assert!(
+            matches!(
+                last.messages.last(),
+                Some(ChatMessage::User { content }) if matches!(content.first(), Some(UserContent::ToolResult(_)))
+            ),
+            "it goes on from the tool result, with no resume prompt: {resumed}"
+        );
+    }
+
+    #[tokio::test]
     async fn manual_compaction_continues_past_a_failed_turn_checkpoint() {
-        let dir = tempfile::tempdir().unwrap();
-        let engine = recovery_engine(dir.path(), Arc::new(MockAdapter::default()));
+        let dir = crate::test_support::TestDir::new();
+        let engine = recovery_engine(&dir, Arc::new(MockAdapter::default()));
         let sm = &engine.session_manager;
         populate_recovery_history(sm, &sm.session_id.clone()).await;
         sm.extend_checkpoint(vec![
@@ -1269,7 +1316,7 @@ mod auto_compact {
     }
 
     #[tokio::test]
-    async fn test_proactive_auto_compaction_before_turn() {
+    async fn a_turn_that_compacts_before_starting_still_sends_its_prompt() {
         let dir = crate::test_support::TestDir::new();
         let engine = proactive_engine(&dir, 127_980);
         let session_id = engine.session_manager.session_id.clone();
@@ -1280,10 +1327,9 @@ mod auto_compact {
             .run_turn(TurnRequest::new("Turn 3 request"), presenter.clone())
             .await
             .unwrap();
-        assert_eq!(output.status, crate::engine::runner::RunStatus::Compacted);
-        assert_eq!(output.final_text, "");
-        assert_eq!(output.requests, 0);
-        assert_eq!(output.tool_calls_count, 0);
+        assert_eq!(output.status, crate::engine::runner::RunStatus::Completed);
+        assert_eq!(output.final_text, "turn response");
+        assert_eq!(output.requests, 1);
         assert_compaction_presenter(&presenter);
         assert_compaction_node_present(&engine.session_manager).await;
     }
@@ -1306,7 +1352,7 @@ mod auto_compact {
     async fn check_compaction_step(
         engine: &crate::engine::AgentEngine,
         presenter: &CapturingPresenter,
-        history: &mut Vec<rho_harness_core::model::ChatMessage>,
+        history: &[rho_harness_core::model::ChatMessage],
         tokens: u64,
     ) {
         record_test_turn_usage(engine, tokens);
@@ -1416,10 +1462,10 @@ mod auto_compact {
                 built_in_tools: None,
             },
         );
-        let mut history = seed_threshold_history(&engine).await;
+        let history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
 
-        check_compaction_step(&engine, &presenter, &mut history, 150_000).await;
+        check_compaction_step(&engine, &presenter, &history, 150_000).await;
         assert!(presenter.notices.lock().unwrap().is_empty());
     }
 
@@ -1427,13 +1473,13 @@ mod auto_compact {
     async fn test_proactive_auto_compaction_at_reserve_threshold() {
         let dir = crate::test_support::TestDir::new();
         let engine = threshold_engine(&dir);
-        let mut history = seed_threshold_history(&engine).await;
+        let history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
 
         // Default reserve of 16,384 against a 128k window triggers at 111,617.
-        check_compaction_step(&engine, &presenter, &mut history, 111_616).await;
+        check_compaction_step(&engine, &presenter, &history, 111_616).await;
         assert!(presenter.notices.lock().unwrap().is_empty());
-        check_compaction_step(&engine, &presenter, &mut history, 111_617).await;
+        check_compaction_step(&engine, &presenter, &history, 111_617).await;
         let notices = presenter.notices.lock().unwrap().clone();
         assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
     }
@@ -1442,7 +1488,7 @@ mod auto_compact {
     async fn test_proactive_compaction_counts_cached_prompt_tokens() {
         let dir = crate::test_support::TestDir::new();
         let engine = threshold_engine(&dir);
-        let mut history = seed_threshold_history(&engine).await;
+        let history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
         let usage = crate::engine::metrics::StructuralUsage {
             input_tokens: 1_617,
@@ -1455,10 +1501,84 @@ mod auto_compact {
             .record_turn(crate::engine::tracking::TurnUsage::single(usage), 100);
 
         engine
-            .check_proactive_compaction(presenter.as_ref(), &mut history, 0, false)
+            .check_proactive_compaction(presenter.as_ref(), &history, 0, false)
             .await
             .unwrap();
         let notices = presenter.notices.lock().unwrap().clone();
         assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
+    }
+}
+
+mod turn_compaction {
+    use crate::engine::compactor::{MAX_COMPACTIONS_PER_TURN, MadeRoom, TurnCompaction};
+    use crate::engine::tracking::CompactionTiming;
+    use rho_harness_core::error::AppError;
+    use std::convert::Infallible;
+
+    fn early_stop() -> AppError {
+        AppError::CompactionDue { used: 1 }
+    }
+
+    fn overflow() -> AppError {
+        AppError::ContextOverflow("too long".into())
+    }
+
+    async fn make_room(turn: &mut TurnCompaction, error: AppError, folds: bool) -> Option<MadeRoom<()>> {
+        let Ok(made) = turn
+            .make_room(&error, async || Ok::<_, Infallible>(folds.then_some(())))
+            .await;
+        made
+    }
+
+    #[tokio::test]
+    async fn a_full_context_compacts_or_runs_on_and_other_errors_end_the_turn() {
+        let cases = [
+            (AppError::Network("reset".into()), true, None, CompactionTiming::Early),
+            (
+                early_stop(),
+                true,
+                Some(MadeRoom::Compacted(())),
+                CompactionTiming::Early,
+            ),
+            (overflow(), true, Some(MadeRoom::Compacted(())), CompactionTiming::Early),
+            (early_stop(), false, Some(MadeRoom::RunOn), CompactionTiming::OnOverflow),
+            (overflow(), false, None, CompactionTiming::Early),
+        ];
+        for (error, folds, expected, timing) in cases {
+            let mut turn = TurnCompaction::default();
+            let label = format!("{error:?} folds={folds}");
+            assert_eq!(make_room(&mut turn, error, folds).await, expected, "{label}");
+            assert_eq!(turn.timing(), timing, "{label}");
+            assert_eq!(
+                turn.has_compacted(),
+                matches!(expected, Some(MadeRoom::Compacted(_))),
+                "{label}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_compaction_after_running_on_turns_early_stops_back_on() {
+        let mut turn = TurnCompaction::default();
+        make_room(&mut turn, early_stop(), false).await;
+        assert_eq!(turn.timing(), CompactionTiming::OnOverflow);
+
+        make_room(&mut turn, overflow(), true).await;
+
+        assert_eq!(turn.timing(), CompactionTiming::Early);
+    }
+
+    #[tokio::test]
+    async fn past_its_compaction_limit_a_turn_runs_on_until_an_overflow_ends_it() {
+        let mut turn = TurnCompaction::default();
+        for _ in 0..MAX_COMPACTIONS_PER_TURN {
+            assert_eq!(
+                make_room(&mut turn, early_stop(), true).await,
+                Some(MadeRoom::Compacted(()))
+            );
+        }
+
+        assert_eq!(make_room(&mut turn, early_stop(), true).await, Some(MadeRoom::RunOn));
+        assert_eq!(make_room(&mut turn, overflow(), true).await, None);
     }
 }

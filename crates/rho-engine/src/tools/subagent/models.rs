@@ -30,7 +30,12 @@ impl SubagentModels {
 
     /// Moves subagents to the session model (short-lived where it has a cache lifetime), `resolver`
     /// and `context`.
-    pub fn replace(&self, session: Option<ModelHandle>, resolver: SubagentModelResolver, context: ContextPolicy) {
+    pub(crate) fn replace(
+        &self,
+        session: Option<ModelHandle>,
+        resolver: SubagentModelResolver,
+        context: ContextPolicy,
+    ) {
         *write(&self.0) = ModelSource {
             default: session.map(short_lived),
             resolver: Some(resolver),
@@ -38,7 +43,7 @@ impl SubagentModels {
         };
     }
 
-    pub fn set_context_policy(&self, context: ContextPolicy) {
+    pub(crate) fn set_context_policy(&self, context: ContextPolicy) {
         write(&self.0).context = Some(context);
     }
 

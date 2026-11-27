@@ -434,21 +434,36 @@ async fn initial_turn_messages(runner: &AgentRunner) -> Result<(Vec<ChatMessage>
     Ok((current_messages, new_turn_messages))
 }
 
-/// Stops the turn, its steps saved, once the latest request's context passed where compaction
-/// starts, so the caller compacts before the next request instead of after an overflow. After
-/// the last request the turn may make, no request follows, so it does not stop.
-fn stop_if_compaction_due(runner: &AgentRunner, turn: usize, calls: &[CompletionCall]) -> Result<(), AppError> {
+/// Stops the turn, its steps saved, once the next request's prompt would pass where compaction
+/// starts. No request follows the turn's last one, so that one never stops.
+fn stop_if_compaction_due(
+    runner: &AgentRunner,
+    turn: usize,
+    calls: &[CompletionCall],
+    appended: &[ChatMessage],
+) -> Result<(), AppError> {
     let (Some(budget), Some(call)) = (&runner.context_budget, calls.last()) else {
         return Ok(());
     };
     if turn >= runner.budget {
         return Ok(());
     }
-    let used = crate::engine::display::consumed_context_tokens(&call.usage);
+    let used = next_prompt_tokens(call, appended, runner.model.model_name());
     if budget.compaction_due(used) {
         return Err(AppError::CompactionDue { used });
     }
     Ok(())
+}
+
+/// The prompt of the request after `call`: its prompt and reply, plus the estimated size of
+/// everything else the step `appended` after the reply (tool results, delivered messages).
+fn next_prompt_tokens(call: &CompletionCall, appended: &[ChatMessage], model: &str) -> u64 {
+    let appended_inputs: usize = appended
+        .iter()
+        .filter(|message| !matches!(message, ChatMessage::Assistant { .. }))
+        .map(|message| rho_harness_core::tokens::estimate_message_tokens(message, model))
+        .sum();
+    crate::engine::display::consumed_context_tokens(&call.usage) + call.usage.output_tokens + appended_inputs as u64
 }
 
 async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Result<(), AppError> {
@@ -471,6 +486,7 @@ async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Resul
 
     while turn < runner.budget {
         turn += 1;
+        let sent = current_messages.len();
         let mut step_ctx = RunnerStepContext {
             current_messages: &mut current_messages,
             new_turn_messages: &mut new_turn_messages,
@@ -505,7 +521,7 @@ async fn run_agent_loop(mut runner: AgentRunner, emitter: &TurnEmitter) -> Resul
                 if runner.store.keeps_tool_events() {
                     runner.sink.record_tool_events().await?;
                 }
-                stop_if_compaction_due(&runner, turn, &all_completion_calls)?;
+                stop_if_compaction_due(&runner, turn, &all_completion_calls, &current_messages[sent..])?;
             }
             StepExecutionResult::EmptyCompletion if !nudged => {
                 nudged = true;

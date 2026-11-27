@@ -69,7 +69,8 @@ impl AgentEngine {
 
     /// The context size past which the session's model compacts.
     pub(crate) fn compaction_at(&self) -> usize {
-        self.context_policy().compaction_at(self.context_limit())
+        let policy = self.context_policy();
+        policy.compaction_at(policy.window(&self.config.route()).0)
     }
 
     /// Why rho could not read the local Ollama server's allocated window after the last turn.

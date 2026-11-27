@@ -83,7 +83,7 @@ fn headless_interactive_mode_diagnostic_message_is_actionable() {
 }
 
 fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engine::AgentEngine {
-    let model = Arc::new(MockAdapter::text("should not run"));
+    let model = Arc::new(MockAdapter::text("answered after compacting"));
     let config = Config {
         reserve_tokens: 127_980,
         keep_recent_tokens: 5,
@@ -102,7 +102,7 @@ fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engin
 }
 
 #[tokio::test]
-async fn headless_run_turn_stops_on_proactive_compaction() {
+async fn headless_run_turn_sends_its_prompt_after_proactive_compaction() {
     let workspace = temp_dir("headless_test");
     let engine = proactive_compaction_engine(&workspace);
     let sid = engine.session_manager.session_id.clone();
@@ -119,6 +119,6 @@ async fn headless_run_turn_stops_on_proactive_compaction() {
         .await
         .unwrap();
 
-    assert_eq!(output.status, rho_engine::engine::runner::RunStatus::Compacted);
-    assert_eq!(output.final_text, "");
+    assert_eq!(output.status, rho_engine::engine::runner::RunStatus::Completed);
+    assert_eq!(output.final_text, "answered after compacting");
 }

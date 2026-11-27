@@ -13,7 +13,7 @@ use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::round::{Round, RoundEnd, RoundInput, build_subagent_prompt, ended_with_question};
 use super::snapshot::Snapshot;
 use crate::engine::compactor::llm::ModelHandle;
-use crate::engine::compactor::{compact_messages, may_compact_again};
+use crate::engine::compactor::{MadeRoom, TurnCompaction, compact_messages};
 use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
@@ -23,7 +23,7 @@ use crate::engine::runner::turn::runner::{
 };
 use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
-use crate::engine::tracking::{CompactionTiming, ContextBudget, ContextPolicy};
+use crate::engine::tracking::{ContextBudget, ContextPolicy};
 use crate::mailbox::{AgentId, Mailbox};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
@@ -34,6 +34,7 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::Presenter;
 use rho_harness_core::provider::ModelRoute;
+use std::convert::Infallible;
 use std::sync::Arc;
 
 pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
@@ -116,9 +117,9 @@ struct RoundState {
     presenter: Arc<dyn Presenter>,
     question_tool: Option<Arc<dyn EngineTool>>,
     report_tool: Arc<dyn EngineTool>,
-    compacted: bool,
+    compaction: TurnCompaction,
     /// The round's context budget, its notices carried across runs until a compaction starts a
-    /// fresh one; its compaction stops are off once a stop found nothing to compact.
+    /// fresh one.
     context: Option<ContextBudget>,
 }
 
@@ -494,7 +495,7 @@ impl SubagentRunner {
     }
 
     /// Runs the subagent's turns on the shared turn loop and turns how it ended into a round end. When
-    /// a turn overflows the model's context, the older conversation is compacted into a summary and the
+    /// a turn fills the model's context, the older conversation is compacted into a summary and the
     /// round continues with the turns it has left.
     async fn drive(
         &self,
@@ -532,14 +533,13 @@ impl SubagentRunner {
             presenter,
             question_tool: self.parent_channel.then_some(question_tool),
             report_tool,
-            compacted: false,
+            compaction: TurnCompaction::default(),
             context: self.context_budget(),
         };
-        let mut compactions = 0;
         let (finish, mut transcript) = loop {
             let (finish, messages) = self.run_once(&mut round, tracker, recorder, &stop).await;
             if let Finish::Failed(error) = &finish
-                && self.make_room(error, &messages, &mut round, &mut compactions).await
+                && self.make_room(error, &messages, &mut round).await
             {
                 continue;
             }
@@ -570,7 +570,7 @@ impl SubagentRunner {
             data,
             transcript,
             tally: round.run.tally,
-            compacted: round.compacted,
+            compacted: round.compaction.has_compacted(),
         }
     }
 
@@ -627,7 +627,10 @@ impl SubagentRunner {
             report_tool: round.report_tool.clone(),
             stop,
             tracker,
-            context: round.context.clone(),
+            context: round
+                .context
+                .clone()
+                .map(|budget| budget.with_compaction_timing(round.compaction.timing())),
         });
         let finish = self.consume(agent, &sink, tracker, stop, &mut round.run.tally).await;
         let messages = store.messages();
@@ -637,37 +640,19 @@ impl SubagentRunner {
         (finish, messages)
     }
 
-    /// Readies another run after `error` stopped one for a full context: compacted, or, when an
-    /// early stop finds nothing to compact, unchanged and without early stops. False when the run
-    /// cannot continue.
-    async fn make_room(
-        &self,
-        error: &AppError,
-        messages: &[ChatMessage],
-        round: &mut RoundState,
-        compactions: &mut usize,
-    ) -> bool {
-        if !error.needs_compaction() {
-            return false;
-        }
-        let compacted = if may_compact_again(*compactions) {
-            self.compacted(messages).await
-        } else {
-            None
-        };
-        match compacted {
-            Some(compacted) => {
-                *compactions += 1;
-                round.compacted = true;
+    /// Readies another run after `error` stopped one for a full context; false when it cannot.
+    async fn make_room(&self, error: &AppError, messages: &[ChatMessage], round: &mut RoundState) -> bool {
+        let Ok(made) = round
+            .compaction
+            .make_room(error, async || Ok::<_, Infallible>(self.compacted(messages).await))
+            .await;
+        match made {
+            Some(MadeRoom::Compacted(compacted)) => {
                 round.run.transcript = compacted;
                 round.context = self.context_budget();
                 true
             }
-            None if error.is_early_stop() => {
-                round.context = round
-                    .context
-                    .take()
-                    .map(|budget| budget.with_compaction_timing(CompactionTiming::OnOverflow));
+            Some(MadeRoom::RunOn) => {
                 round.run.transcript = messages.to_vec();
                 true
             }

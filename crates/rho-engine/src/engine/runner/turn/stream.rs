@@ -10,10 +10,9 @@ use super::prepare::TurnLoopState;
 use super::runner::{AgentRunner, ModelRetry, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
 use crate::engine::AgentEngine;
-use crate::engine::compactor::may_compact_again;
+use crate::engine::compactor::MadeRoom;
 use crate::engine::metrics::types::{CompletionCall, PromptResponse, StructuralUsage};
 use crate::engine::runner::sink::TerminalApprovalSink;
-use crate::engine::tracking::CompactionTiming;
 use crate::engine::tracking::UsageTracker;
 
 pub(super) struct TurnStreamState {
@@ -233,9 +232,8 @@ impl AgentEngine {
         }
     }
 
-    /// Compacts the session mid-turn; true when it folded something, so the turn goes on from
-    /// the compacted history (resuming its saved work, or sending its prompt again when none was
-    /// saved).
+    /// Compacts the session mid-turn; true when it folded something. The turn then resumes its
+    /// saved work, or sends its prompt again when none was saved.
     async fn compact_mid_turn(&self, presenter: &dyn Presenter, loop_state: &mut TurnLoopState) -> Result<bool> {
         let _spinner = presenter.start_spinner("Compacting...");
         let started_with = loop_state.checkpoint.as_ref().map_or(0, Vec::len);
@@ -258,28 +256,29 @@ impl AgentEngine {
         }
     }
 
-    /// Readies the turn to go on after `error` stopped it for a full context: compacted, or, when
-    /// an early stop finds nothing to compact, resumed without early stops. False when it cannot.
+    /// Readies the turn to go on after `error` stopped it for a full context; false when it cannot.
     async fn make_room(
         &self,
         error: &AppError,
         presenter: &dyn Presenter,
         loop_state: &mut TurnLoopState,
     ) -> Result<bool> {
-        if !error.needs_compaction() {
-            return Ok(false);
+        let mut compaction = loop_state.compaction;
+        let made = compaction
+            .make_room(error, async || {
+                Ok::<_, AppError>(self.compact_mid_turn(presenter, loop_state).await?.then_some(()))
+            })
+            .await?;
+        loop_state.compaction = compaction;
+        match made {
+            Some(MadeRoom::Compacted(())) => Ok(true),
+            Some(MadeRoom::RunOn) => {
+                loop_state.checkpoint = self.session_manager.load_checkpoint().await?;
+                loop_state.current_prompt.clear();
+                Ok(true)
+            }
+            None => Ok(false),
         }
-        if may_compact_again(loop_state.compactions) && self.compact_mid_turn(presenter, loop_state).await? {
-            loop_state.compactions += 1;
-            return Ok(true);
-        }
-        if !error.is_early_stop() {
-            return Ok(false);
-        }
-        loop_state.compaction_timing = CompactionTiming::OnOverflow;
-        loop_state.checkpoint = self.session_manager.load_checkpoint().await?;
-        loop_state.current_prompt = RESUME_PROMPT.to_string();
-        Ok(true)
     }
 
     async fn handle_fatal_stream_error(&self, error: AppError, sink: &Arc<TerminalApprovalSink>) -> Result<RunEnd> {
@@ -356,8 +355,7 @@ mod tests {
             current_prompt: String::new(),
             current_budget: 10,
             thinking_level: None,
-            compactions: 0,
-            compaction_timing: CompactionTiming::Early,
+            compaction: crate::engine::compactor::TurnCompaction::default(),
             turn_started_at: Instant::now(),
         };
 

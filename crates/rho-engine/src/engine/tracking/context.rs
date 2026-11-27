@@ -16,9 +16,9 @@ pub enum ContextLimitSource {
 /// When a turn stops to compact its context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompactionTiming {
-    /// Once a request's context passes the compaction threshold.
+    /// Once the next request's prompt would pass the compaction threshold.
     Early,
-    /// Only when the provider reports an overflow; for a turn whose context could not be compacted.
+    /// Only when the provider reports an overflow; for a turn that could not compact early.
     OnOverflow,
 }
 
@@ -80,14 +80,13 @@ impl ContextBudget {
         }
     }
 
-    /// Whether a request whose prompt used `used` tokens leaves too little room for the next one;
-    /// never with [`CompactionTiming::OnOverflow`].
+    /// Whether a next request whose prompt is about `used` tokens should compact first; never with
+    /// [`CompactionTiming::OnOverflow`].
     pub fn compaction_due(&self, used: u64) -> bool {
         self.timing == CompactionTiming::Early && used > self.compaction_at
     }
 
-    /// The budget with `timing`; a turn whose context could not be compacted keeps its notices
-    /// and runs on until an overflow.
+    /// The budget with `timing`, keeping its notices.
     #[must_use]
     pub fn with_compaction_timing(mut self, timing: CompactionTiming) -> Self {
         self.timing = timing;
@@ -107,7 +106,7 @@ impl ContextBudget {
 
 /// Where a model's window comes from and how much of it compaction keeps free. The main agent and
 /// subagents share it, so each compacts at the same point of its own model's window.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ContextPolicy {
     catalog: ModelCatalog,
     configured_limit: Option<usize>,
@@ -146,6 +145,12 @@ impl ContextPolicy {
     pub fn budget(&self, route: &ModelRoute) -> ContextBudget {
         let (limit, source) = self.window(route);
         ContextBudget::new(limit, source, self.compaction_at(limit), Arc::default())
+    }
+
+    /// The session's budget on `route`, its notices shared through `tracker`.
+    pub fn session_budget(&self, route: &ModelRoute, tracker: &ContextTracker) -> ContextBudget {
+        let (limit, source) = self.window(route);
+        tracker.budget(limit, source, self.compaction_at(limit))
     }
 }
 
@@ -263,10 +268,15 @@ mod tests {
     #[test]
     fn an_agent_budget_keeps_its_notices_apart_from_the_session() {
         let tracker = ContextTracker::new();
-        let session = tracker.budget(200_000, ContextLimitSource::Provider, 183_616);
-        assert!(delivered(&session, 120_000, true).is_some());
         let policy = ContextPolicy::new(catalog_with("local", "m", 200_000), None, 16_384);
-        let agent = policy.budget(&ModelRoute::new("local", "m"));
+        let route = ModelRoute::new("local", "m");
+        assert!(delivered(&policy.session_budget(&route, &tracker), 120_000, true).is_some());
+        assert_eq!(
+            delivered(&policy.session_budget(&route, &tracker), 121_000, true),
+            None,
+            "the session's next turn remembers the notice"
+        );
+        let agent = policy.budget(&route);
         assert!(delivered(&agent, 120_000, true).is_some());
     }
 
