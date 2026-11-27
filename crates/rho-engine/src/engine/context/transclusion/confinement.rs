@@ -1,3 +1,5 @@
+use super::super::instructions::find_repo_root;
+use crate::paths::canonical_or_self;
 use std::path::Path;
 
 pub fn is_confined_target(canonical: &Path, base_dir: &Path) -> bool {
@@ -7,8 +9,8 @@ pub fn is_confined_target(canonical: &Path, base_dir: &Path) -> bool {
     if crate::permission::path::is_credential_file(canonical) {
         return false;
     }
-    let canonical_base = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
-    let repo_root = super::super::instructions::find_repo_root(base_dir).and_then(|r| r.canonicalize().ok());
+    let canonical_base = canonical_or_self(base_dir);
+    let repo_root = find_repo_root(base_dir).and_then(|r| r.canonicalize().ok());
 
     let in_workspace =
         canonical.starts_with(&canonical_base) || repo_root.as_ref().is_some_and(|r| canonical.starts_with(r));

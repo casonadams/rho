@@ -179,10 +179,15 @@ impl RecordedTool {
     }
 
     async fn snapshot(&self, previous: Option<&Snapshot>) -> Option<Snapshot> {
-        if self.recorder.snapshots {
-            Snapshot::take(&self.recorder.root, previous).await
-        } else {
-            None
+        if !self.recorder.snapshots {
+            return None;
+        }
+        match Snapshot::take(&self.recorder.root, previous).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!("subagent bash snapshot failed: {error}");
+                None
+            }
         }
     }
 }

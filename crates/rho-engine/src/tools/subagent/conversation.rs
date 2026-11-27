@@ -130,8 +130,14 @@ fn new_task(context_id: String, settings: &ConversationSettings) -> Task {
     Task::new(
         format!("{prefix}-{}", short_id()),
         context_id,
-        serde_json::to_value(settings).ok(),
+        settings_metadata(settings),
     )
+}
+
+fn settings_metadata(settings: &ConversationSettings) -> Option<serde_json::Value> {
+    serde_json::to_value(settings)
+        .inspect_err(|error| tracing::warn!("saving subagent settings failed: {error}"))
+        .ok()
 }
 
 fn task_settings(task: &Task) -> ConversationSettings {
@@ -233,7 +239,7 @@ impl Exchange {
     /// Records `settings` on the task, so later continuations run the same way.
     #[must_use]
     pub(crate) fn with_settings(mut self, settings: &ConversationSettings) -> Self {
-        self.task.metadata = serde_json::to_value(settings).ok();
+        self.task.metadata = settings_metadata(settings);
         self
     }
 

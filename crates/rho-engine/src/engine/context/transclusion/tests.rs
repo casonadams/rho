@@ -137,10 +137,7 @@ fn test_transclusion_git_internal_rejected() {
 
 #[test]
 fn test_transclusion_credential_store_rejected() {
-    let _env = crate::permission::tests::ENV_LOCK.blocking_lock();
-    let Some(config_dir) = crate::permission::policy::config_dir() else {
-        return;
-    };
+    let (config_dir, _env) = crate::permission::tests::config_home();
     let workspace = tempfile::tempdir().unwrap();
     let auth = config_dir.join("auth.json");
     assert!(!is_confined_target(&auth, workspace.path()));

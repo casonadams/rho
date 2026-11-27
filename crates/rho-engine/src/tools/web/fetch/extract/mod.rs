@@ -16,8 +16,34 @@ pub struct ExtractTextParams<'a> {
     pub body: &'a str,
     pub content_type: &'a str,
     pub url_str: &'a str,
-    pub mode: &'a str,
+    pub mode: FetchMode,
     pub format_override: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchMode {
+    Auto,
+    Main,
+    Full,
+}
+
+impl FetchMode {
+    /// Unknown names extract as `Auto`.
+    pub fn parse(mode: Option<&str>) -> Self {
+        match mode.map(str::to_lowercase).as_deref() {
+            Some("main") => Self::Main,
+            Some("full") => Self::Full,
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Main => "main",
+            Self::Full => "full",
+        }
+    }
 }
 
 fn extract_delimited(body: &str, ct_lower: &str, url_str: &str) -> String {
@@ -51,7 +77,7 @@ fn delimiter_for_format(fmt: &str) -> u8 {
     if fmt.eq_ignore_ascii_case("tsv") { b'\t' } else { b',' }
 }
 
-fn extract_override_text(fmt: &str, body: &str, url_str: &str, mode: &str) -> Option<Result<String>> {
+fn extract_override_text(fmt: &str, body: &str, url_str: &str, mode: FetchMode) -> Option<Result<String>> {
     let lower = fmt.to_lowercase();
     match lower.as_str() {
         "json" => Some(Ok(extract_json(body))),
@@ -77,7 +103,7 @@ fn extract_structured_text(body: &str, ct_lower: &str, url_str: &str) -> Option<
     }
 }
 
-fn extract_inferred_text(body: &str, ct_lower: &str, url_str: &str, mode: &str) -> Result<String> {
+fn extract_inferred_text(body: &str, ct_lower: &str, url_str: &str, mode: FetchMode) -> Result<String> {
     if let Some(text) = extract_structured_text(body, ct_lower, url_str) {
         return Ok(text);
     }

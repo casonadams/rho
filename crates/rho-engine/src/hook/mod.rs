@@ -69,7 +69,9 @@ impl LifecycleHook {
 
     async fn run_hooks_for_event(&self, name: &str, event: &HookEvent) {
         for hook in self.find_all_hooks(name) {
-            let _ = run_hook(&hook, event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await;
+            if let Err(err) = run_hook(&hook, event, &self.working_dir, DEFAULT_HOOK_TIMEOUT).await {
+                tracing::warn!(hook = %hook.display(), error = %err, "hook failed");
+            }
         }
     }
 

@@ -98,14 +98,23 @@ impl HttpClient {
         rho_harness_core::net::validate_url(raw_url, self.allow_private_network)
     }
 
+    fn request_builder(
+        &self,
+        method: reqwest::Method,
+        url: &Url,
+        user_agent: &str,
+        timeout_sec: u64,
+    ) -> reqwest::RequestBuilder {
+        self.client
+            .request(method, url.as_str())
+            .header("User-Agent", user_agent)
+            .timeout(Duration::from_secs(timeout_sec))
+    }
+
     async fn send_request(&self, request: &HttpRequest<'_>, accept_headers: bool) -> Result<reqwest::Response> {
         let valid_url = self.validate_url(request.url)?;
         let ua = request.user_agent.unwrap_or(DEFAULT_USER_AGENT);
-        let mut req = self
-            .client
-            .get(valid_url.as_str())
-            .header("User-Agent", ua)
-            .timeout(Duration::from_secs(request.timeout_sec));
+        let mut req = self.request_builder(reqwest::Method::GET, &valid_url, ua, request.timeout_sec);
         if accept_headers {
             req = req
                 .header(
@@ -134,23 +143,25 @@ impl HttpClient {
         Ok(resp)
     }
 
-    pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<HttpResponse<String>> {
-        let resp = self.send_request(&request, true).await?;
+    async fn read_response(
+        resp: reqwest::Response,
+        request: &HttpRequest<'_>,
+        default_content_type: &str,
+    ) -> Result<HttpResponse<Vec<u8>>> {
         let final_url = resp.url().as_str().to_string();
         let content_type = resp
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("text/html")
+            .unwrap_or(default_content_type)
             .to_string();
-        let bytes = read_limited(ReadLimitedParams {
+        let body = read_limited(ReadLimitedParams {
             response: resp,
             content_type: &content_type,
             max_bytes: request.max_bytes,
             pdf_max_bytes: request.pdf_max_bytes,
         })
         .await?;
-        let body = String::from_utf8_lossy(&bytes).to_string();
         Ok(HttpResponse {
             body,
             content_type,
@@ -158,38 +169,32 @@ impl HttpClient {
         })
     }
 
+    pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<HttpResponse<String>> {
+        let resp = self.send_request(&request, true).await?;
+        let bytes = Self::read_response(resp, &request, "text/html").await?;
+        Ok(HttpResponse {
+            body: String::from_utf8_lossy(&bytes.body).into_owned(),
+            content_type: bytes.content_type,
+            final_url: bytes.final_url,
+        })
+    }
+
     pub async fn get_bytes(&self, request: HttpRequest<'_>) -> Result<HttpResponse<Vec<u8>>> {
         let resp = self.send_request(&request, false).await?;
-        let final_url = resp.url().as_str().to_string();
-        let content_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("application/octet-stream")
-            .to_string();
-        let bytes = read_limited(ReadLimitedParams {
-            response: resp,
-            content_type: &content_type,
-            max_bytes: request.max_bytes,
-            pdf_max_bytes: request.pdf_max_bytes,
-        })
-        .await?;
-        Ok(HttpResponse {
-            body: bytes,
-            content_type,
-            final_url,
-        })
+        Self::read_response(resp, &request, "application/octet-stream").await
     }
 
     async fn send_post_json(&self, request: &PostJsonRequest<'_>) -> Result<reqwest::Response> {
         let valid_url = self.validate_url(request.url)?;
         let safe_url = sanitize_url_for_error(&valid_url);
         let mut req = self
-            .client
-            .post(valid_url.as_str())
-            .header("User-Agent", DEFAULT_USER_AGENT)
+            .request_builder(
+                reqwest::Method::POST,
+                &valid_url,
+                DEFAULT_USER_AGENT,
+                request.timeout_sec,
+            )
             .header("Content-Type", "application/json")
-            .timeout(Duration::from_secs(request.timeout_sec))
             .json(request.body);
         for &(name, value) in request.headers {
             req = req.header(name, value);

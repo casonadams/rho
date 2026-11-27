@@ -22,13 +22,15 @@ pub(crate) struct OAuthAccount {
     pub email: Option<String>,
 }
 
+const EXPIRY_MARGIN_MS: i64 = 5 * 60 * 1000;
+
 pub(crate) fn oauth_credential(
     access_token: String,
     refresh_token: Option<String>,
     expires_in: Option<i64>,
     account: OAuthAccount,
 ) -> StoredCredential {
-    let expires_at_ms = expires_in.map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
+    let expires_at_ms = expires_in.map(|secs| crate::clock::expires_at_ms(secs, EXPIRY_MARGIN_MS));
     StoredCredential::OAuth {
         access_token,
         refresh_token,

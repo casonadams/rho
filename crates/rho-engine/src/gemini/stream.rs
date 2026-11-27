@@ -6,16 +6,15 @@
 //! - Attaches `thoughtSignature` to `ToolCall`s (falling back to any trailing thought signature).
 //! - Maps `finishReason` accurately and surfaces `MALFORMED_FUNCTION_CALL` as a retryable error.
 
-use crate::antigravity::request::sanitize_tool_call_id;
-use crate::antigravity::stream::wire::{
-    StreamCandidate, StreamChunk, StreamError, StreamFunctionCall, StreamPart, map_finish_reason, usage_from_metadata,
-};
 use crate::engine::metrics::types::Usage;
 use crate::provider::adapter::ModelStreamEvent;
+use crate::provider::google_wire::{
+    StreamCandidate, StreamChunk, StreamError, StreamFunctionCall, StreamPart, ToolCallIds, map_finish_reason,
+    usage_from_metadata,
+};
 use crate::provider::sse::{SseEvents, SseLineDecoder, SseStreamParser, sse_line_feed};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{Reasoning, ToolCall, ToolFunction};
-use serde_json::Value;
 
 #[derive(Default)]
 pub struct GeminiSseParser {
@@ -24,19 +23,11 @@ pub struct GeminiSseParser {
     reasoning_signature: Option<String>,
     trailing_signature: Option<String>,
     latest_usage: Option<Usage>,
-    next_minted_tool: u64,
-}
-
-fn format_error_message(error: &StreamError) -> String {
-    match &error.message {
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => other.to_string(),
-        None => "Unknown Gemini stream error".to_string(),
-    }
+    tool_ids: ToolCallIds,
 }
 
 fn stream_error(error: &StreamError) -> AppError {
-    let message = format_error_message(error);
+    let message = error.message_text("Unknown Gemini stream error");
     match error.code {
         Some(429) => AppError::RateLimited {
             message,
@@ -89,14 +80,7 @@ impl GeminiSseParser {
     ) {
         self.flush_reasoning(events);
         let sig = signature.or_else(|| self.trailing_signature.take());
-        let id = match call.id.as_deref() {
-            Some(raw) if !raw.is_empty() => sanitize_tool_call_id(raw),
-            _ => {
-                let idx = self.next_minted_tool;
-                self.next_minted_tool += 1;
-                format!("call-{idx}")
-            }
-        };
+        let id = self.tool_ids.resolve(call.id.as_deref());
         let mut tool_call = ToolCall::new(id, ToolFunction::new(call.name, call.args));
         tool_call.signature = sig;
         events.push(Ok(ModelStreamEvent::ToolCall(tool_call)));

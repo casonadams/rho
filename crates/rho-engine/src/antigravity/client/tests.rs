@@ -174,10 +174,8 @@ fn test_completion_request() -> ModelCompletionRequest {
     }
 }
 
-use crate::test_support::{ScriptedTokenProvider, serve_raw_http};
+use crate::test_support::{ScriptedTokenProvider, dead_port_url, serve_raw_http};
 use std::sync::atomic::Ordering;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 
 #[tokio::test]
 async fn open_stream_retries_on_401_with_forced_token_refresh() {
@@ -281,11 +279,7 @@ fn resolve_endpoints_order_and_overrides() {
 
 #[tokio::test]
 async fn post_metadata_candidates_falls_back_on_unreachable_endpoint() {
-    let dead_addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        listener.local_addr().unwrap()
-    };
-    let dead_url = format!("http://{dead_addr}");
+    let dead_url = dead_port_url();
 
     let r200 = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"success\":true}";
     let live_url = serve_raw_http(vec![r200.to_string(), r200.to_string()]).await;
@@ -297,11 +291,7 @@ async fn post_metadata_candidates_falls_back_on_unreachable_endpoint() {
 
 #[tokio::test]
 async fn try_candidates_falls_back_on_transport_error() {
-    let dead_addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        listener.local_addr().unwrap()
-    };
-    let dead_url = format!("http://{dead_addr}");
+    let dead_url = dead_port_url();
 
     let r200 = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
     let live_url = serve_raw_http(vec![r200.to_string(), r200.to_string()]).await;
@@ -326,11 +316,7 @@ async fn try_candidates_falls_back_on_transport_error() {
 
 #[tokio::test]
 async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() {
-    let dead_addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        listener.local_addr().unwrap()
-    };
-    let dead_url = format!("http://{dead_addr}");
+    let dead_url = dead_port_url();
 
     let client = AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro");
     let mut token = "token-1".to_string();
@@ -360,21 +346,9 @@ async fn antigravity_completion_aggregates_sse_response() {
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from Antigravity\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":6,\"totalTokenCount\":18}}}\n\n"
     );
-    let addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf).await;
-                let _ = stream.write_all(sse_chunk.as_bytes()).await;
-            }
-        });
-        addr
-    };
+    let url = serve_raw_http(vec![sse_chunk.to_string()]).await;
 
-    let client =
-        AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
+    let client = AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(url);
     let handle: crate::provider::adapter::ModelHandle = std::sync::Arc::new(client);
     let resp = handle.complete(test_completion_request()).await.unwrap();
 
@@ -390,21 +364,9 @@ async fn antigravity_stream_returns_sse_stream() {
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
         "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Stream chunk\"}]}}]}}\n\n"
     );
-    let addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf).await;
-                let _ = stream.write_all(sse_chunk.as_bytes()).await;
-            }
-        });
-        addr
-    };
+    let url = serve_raw_http(vec![sse_chunk.to_string()]).await;
 
-    let client =
-        AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
+    let client = AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(url);
     let handle: crate::provider::adapter::ModelHandle = std::sync::Arc::new(client);
     let mut stream = handle.stream(test_completion_request()).await.unwrap();
     let first = stream.next().await;
@@ -424,20 +386,9 @@ async fn discover_models_fetches_and_filters_catalog() {
     })
     .to_string();
     let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{mock_body}");
-    let addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf).await;
-                let _ = stream.write_all(resp.as_bytes()).await;
-            }
-        });
-        addr
-    };
+    let url = serve_raw_http(vec![resp]).await;
 
-    let endpoints = vec![format!("http://{addr}")];
+    let endpoints = vec![url];
     let models = super::discovery::discover_models_from_endpoints(&endpoints, "test-token", "test-project")
         .await
         .unwrap();
@@ -454,20 +405,9 @@ async fn load_project_id_resolves_project() {
     })
     .to_string();
     let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{mock_body}");
-    let addr = {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf).await;
-                let _ = stream.write_all(resp.as_bytes()).await;
-            }
-        });
-        addr
-    };
+    let url = serve_raw_http(vec![resp]).await;
 
-    let endpoints = vec![format!("http://{addr}")];
+    let endpoints = vec![url];
     let proj = super::discovery::load_project_id_from_endpoints(&endpoints, "test-token").await;
 
     assert_eq!(proj, Some("resolved-project-123".to_string()));

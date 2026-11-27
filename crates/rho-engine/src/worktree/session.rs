@@ -4,7 +4,7 @@
 use super::WORKTREE_LOCK;
 use super::clone::{self, CloneKind};
 use super::git::{self, Repo};
-use sha2::{Digest, Sha256};
+use crate::digest::sha256_hex;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -90,8 +90,7 @@ fn branch_slug(branch: &str) -> String {
 }
 
 fn path_hash(path: &Path) -> String {
-    let digest = Sha256::digest(path.to_string_lossy().as_bytes());
-    digest.iter().take(4).map(|b| format!("{b:02x}")).collect()
+    sha256_hex(path.to_string_lossy().as_bytes())[..8].to_string()
 }
 
 fn resolve_available_path(base_dir: &Path, branch: &str, common_dir: &Path) -> PathBuf {
@@ -139,18 +138,25 @@ pub(super) fn remove_non_git_entries(dir: &Path) -> Result<(), String> {
         }
         let path = entry.path();
         if path.is_dir() && !path.is_symlink() {
-            let _ = std::fs::remove_dir_all(&path);
+            std::fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
         } else {
-            let _ = std::fs::remove_file(&path);
+            std::fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
         }
     }
     Ok(())
 }
 
+fn remove_if_exists(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(format!("remove {}: {err}", path.display())),
+        _ => Ok(()),
+    }
+}
+
 fn copy_one_path(src: &Path, dst: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(src) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            let _ = std::fs::remove_file(dst);
+            remove_if_exists(dst)?;
             if let Some(parent) = dst.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -163,14 +169,12 @@ fn copy_one_path(src: &Path, dst: &Path) -> Result<(), String> {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
             std::fs::copy(src, dst).map_err(|e| format!("copy {} -> {}: {e}", src.display(), dst.display()))?;
-            let _ = std::fs::set_permissions(dst, meta.permissions());
+            std::fs::set_permissions(dst, meta.permissions())
+                .map_err(|e| format!("set permissions on {}: {e}", dst.display()))?;
             Ok(())
         }
         Ok(_) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            let _ = std::fs::remove_file(dst);
-            Ok(())
-        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => remove_if_exists(dst),
         Err(err) => Err(err.to_string()),
     }
 }
@@ -242,7 +246,9 @@ async fn copy_small_ignored_files(source: &Path, worktree: &Path) -> Result<(), 
             && meta.is_file()
             && meta.len() <= MAX_FALLBACK_IGNORED_FILE_BYTES
         {
-            let _ = tokio::fs::copy(&src, &dst).await;
+            tokio::fs::copy(&src, &dst)
+                .await
+                .map_err(|e| format!("could not copy ignored file {name}: {e}"))?;
         }
     }
     Ok(())
@@ -329,8 +335,12 @@ pub async fn create_session_worktree(
         Err(err) => {
             let _guard = WORKTREE_LOCK.lock().await;
             let path_str = worktree_path.to_string_lossy().into_owned();
-            let _ = git::run(&repo.top, &["worktree", "remove", "--force", &path_str], &[]).await;
-            let _ = git::run(&repo.top, &["branch", "-D", branch], &[]).await;
+            if let Err(error) = git::run(&repo.top, &["worktree", "remove", "--force", &path_str], &[]).await {
+                tracing::warn!("removing worktree {path_str} after a failed create failed: {error}");
+            }
+            if let Err(error) = git::run(&repo.top, &["branch", "-D", branch], &[]).await {
+                tracing::warn!("deleting branch {branch} after a failed worktree create failed: {error}");
+            }
             return Err(err);
         }
     };

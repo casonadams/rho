@@ -1,56 +1,16 @@
 use super::super::helpers::{clear_spinner, disarm_spinner, redact_value};
-use super::reasoning::split_reasoning_chunk;
+use super::reasoning::{ReasoningStreamPlan, update_reasoning_state};
 use super::types::{
     CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
 };
-use crate::engine::metrics::RunTracker;
+use crate::engine::locking::lock;
+use crate::engine::metrics::{RunTracker, ToolOutcome};
 use rho_harness_core::presentation::{Presenter, ToolLine, ToolStreamSink, summarize_tool_output};
 use rho_harness_core::session::SessionManager;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
-
-struct ReasoningStreamPlan {
-    prefix_blank: bool,
-    internal_newlines: Option<&'static str>,
-    content: String,
-}
-
-fn pop_internal_newlines(state: &mut TerminalSinkState) -> Option<&'static str> {
-    if !state.has_reasoning_content || state.pending_reasoning_newlines == 0 {
-        return None;
-    }
-    let count = state.pending_reasoning_newlines.min(2);
-    state.pending_reasoning_newlines = 0;
-    Some(if count == 1 { "\n" } else { "\n\n" })
-}
-
-fn update_reasoning_state(state: &mut TerminalSinkState, text_to_stream: &str) -> ReasoningStreamPlan {
-    state.reasoning.push(text_to_stream.to_string());
-    let (content, trailing_newlines) = split_reasoning_chunk(text_to_stream);
-    if content.is_empty() {
-        state.pending_reasoning_newlines += trailing_newlines;
-        return ReasoningStreamPlan {
-            prefix_blank: false,
-            internal_newlines: None,
-            content: String::new(),
-        };
-    }
-    let internal_newlines = pop_internal_newlines(state);
-    let prefix_blank = matches!(
-        state.last_display,
-        DisplayKind::Tool | DisplayKind::Text | DisplayKind::None
-    );
-    state.last_display = DisplayKind::Thinking;
-    state.has_reasoning_content = true;
-    state.pending_reasoning_newlines = trailing_newlines;
-    ReasoningStreamPlan {
-        prefix_blank,
-        internal_newlines,
-        content: content.to_string(),
-    }
-}
 
 pub struct TerminalApprovalSink {
     pub presenter: std::sync::Arc<dyn Presenter>,
@@ -100,39 +60,35 @@ impl TerminalApprovalSink {
     }
 
     pub fn finish_spinner(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            clear_spinner(&mut state);
-        }
+        self.with_state(clear_spinner);
     }
 
     pub fn resume_spinner_with_message(&self, message: &str) {
         self.flush_reasoning();
         self.presenter.flush();
-        if let Ok(mut state) = self.state.lock() {
-            disarm_spinner(&mut state);
+        self.with_state(|state| {
+            disarm_spinner(state);
             state.spinner = Some(self.presenter.start_spinner(message));
-        }
+        });
     }
 
     pub fn resume_model_spinner(&self) {
-        let has_spinner = self.state.lock().is_ok_and(|s| s.spinner.is_some());
+        let has_spinner = self.with_state(|s| s.spinner.is_some());
         if !has_spinner {
             self.resume_spinner_with_message("thinking...");
         }
     }
 
     pub fn completed(&self) -> Vec<CompletedTool> {
-        self.state
-            .lock()
-            .map(|state| state.completed.clone())
-            .unwrap_or_default()
+        self.with_state(|state| state.completed.clone())
     }
 
     pub fn unrecorded(&self) -> Vec<CompletedTool> {
-        self.state
-            .lock()
-            .map(|state| state.completed[state.recorded_events..].to_vec())
-            .unwrap_or_default()
+        self.with_state(|state| state.completed[state.recorded_events..].to_vec())
+    }
+
+    fn with_state<R>(&self, f: impl FnOnce(&mut TerminalSinkState) -> R) -> R {
+        f(&mut lock(&self.state))
     }
 
     pub async fn record_tool_events(&self) -> rho_harness_core::error::Result<()> {
@@ -141,32 +97,9 @@ impl TerminalApprovalSink {
         };
         for tool in self.unrecorded() {
             append_tool_events(session_manager, &tool).await?;
-            if let Ok(mut state) = self.state.lock() {
-                state.recorded_events += 1;
-            }
+            self.with_state(|state| state.recorded_events += 1);
         }
         Ok(())
-    }
-
-    fn redact(&self, text: &str) -> String {
-        match &self.session_manager {
-            Some(session) => session.redact_credentials(text),
-            None => text.to_string(),
-        }
-    }
-
-    fn redact_streamed(&self, carry: &mut String, chunk: &str) -> String {
-        match &self.session_manager {
-            Some(session) => session.redact_credentials_streamed(carry, chunk),
-            None => chunk.to_string(),
-        }
-    }
-
-    fn redact_arguments(&self, arguments: &Value) -> Value {
-        match &self.session_manager {
-            Some(session) => redact_value(session, arguments),
-            None => arguments.clone(),
-        }
     }
 
     pub fn flush_reasoning(&self) {
@@ -175,46 +108,36 @@ impl TerminalApprovalSink {
     }
 
     fn release_text_carry(&self) {
-        let tail = self
-            .state
-            .lock()
-            .map(|mut state| std::mem::take(&mut state.text_carry))
-            .unwrap_or_default();
+        let tail = self.with_state(|state| std::mem::take(&mut state.text_carry));
         if !tail.is_empty() {
             self.presenter.print_token(&tail);
         }
     }
 
     fn release_reasoning_carry(&self) {
-        let plan = {
-            let Ok(mut state) = self.state.lock() else { return };
+        let plan = self.with_state(|state| {
             let tail = std::mem::take(&mut state.reasoning_carry);
-            if tail.is_empty() {
-                return;
-            }
-            update_reasoning_state(&mut state, &tail)
-        };
-        self.present_reasoning_plan(plan);
+            (!tail.is_empty()).then(|| update_reasoning_state(state, &tail))
+        });
+        if let Some(plan) = plan {
+            self.present_reasoning_plan(plan);
+        }
     }
 
     fn finish_reasoning_block(&self) {
         self.release_reasoning_carry();
-        let collected = self
-            .state
-            .lock()
-            .map(|mut state| {
-                if state.reasoning.is_empty() {
-                    return None;
-                }
-                let text = state.reasoning.join("");
-                state.reasoning.clear();
-                state.pending_reasoning_newlines = 0;
-                let had_content = state.has_reasoning_content;
-                state.has_reasoning_content = false;
-                state.last_display = DisplayKind::Thinking;
-                if had_content { Some(text) } else { None }
-            })
-            .unwrap_or(None);
+        let collected = self.with_state(|state| {
+            if state.reasoning.is_empty() {
+                return None;
+            }
+            let text = state.reasoning.join("");
+            state.reasoning.clear();
+            state.pending_reasoning_newlines = 0;
+            let had_content = state.has_reasoning_content;
+            state.has_reasoning_content = false;
+            state.last_display = DisplayKind::Thinking;
+            if had_content { Some(text) } else { None }
+        });
 
         if let Some(text) = collected {
             self.presenter.finish_thinking(&text);
@@ -225,10 +148,12 @@ impl TerminalApprovalSink {
     fn ensure_reasoning_spinner(&self) {
         if !self.presenter.has_interactive_ui() {
             self.finish_spinner();
-        } else if let Ok(mut state) = self.state.lock()
-            && state.spinner.is_none()
-        {
-            state.spinner = Some(self.presenter.start_spinner("thinking..."));
+        } else {
+            self.with_state(|state| {
+                if state.spinner.is_none() {
+                    state.spinner = Some(self.presenter.start_spinner("thinking..."));
+                }
+            });
         }
     }
 
@@ -250,11 +175,14 @@ impl TerminalApprovalSink {
         }
         self.release_text_carry();
         self.ensure_reasoning_spinner();
-        let plan = {
-            let Ok(mut state) = self.state.lock() else { return };
-            let redacted = self.redact_streamed(&mut state.reasoning_carry, text);
-            update_reasoning_state(&mut state, &redacted)
-        };
+        let plan = self.with_state(|state| {
+            let redacted = redact(
+                self.session_manager.as_ref(),
+                |session| session.redact_credentials_streamed(&mut state.reasoning_carry, text),
+                || text.to_string(),
+            );
+            update_reasoning_state(state, &redacted)
+        });
         self.present_reasoning_plan(plan);
     }
 
@@ -263,18 +191,19 @@ impl TerminalApprovalSink {
             self.finish_spinner();
         }
         self.finish_reasoning_block();
-        let mut prefix_blank = false;
-        let mut redacted = String::new();
-        if let Ok(mut state) = self.state.lock() {
-            if state.last_display == DisplayKind::Tool
-                || state.last_display == DisplayKind::Thinking
-                || state.last_display == DisplayKind::None
-            {
-                prefix_blank = true;
-            }
+        let (prefix_blank, redacted) = self.with_state(|state| {
+            let prefix_blank = matches!(
+                state.last_display,
+                DisplayKind::Tool | DisplayKind::Thinking | DisplayKind::None
+            );
             state.last_display = DisplayKind::Text;
-            redacted = self.redact_streamed(&mut state.text_carry, text);
-        }
+            let redacted = redact(
+                self.session_manager.as_ref(),
+                |session| session.redact_credentials_streamed(&mut state.text_carry, text),
+                || text.to_string(),
+            );
+            (prefix_blank, redacted)
+        });
         if prefix_blank {
             self.presenter.write_output("\n");
         }
@@ -292,12 +221,16 @@ impl TerminalApprovalSink {
         self.run_tracker.tool_called();
         self.flush_reasoning();
         self.presenter.flush();
-        let arguments = self.redact_arguments(arguments);
-        if let Ok(mut state) = self.state.lock() {
+        let arguments = redact(
+            self.session_manager.as_ref(),
+            |session| redact_value(session, arguments),
+            || arguments.clone(),
+        );
+        self.with_state(|state| {
             state.tool_output_carry.clear();
             let previewing = state.tool_preview.take().is_some();
             let started = state.tool_preview_started.take().unwrap_or_else(Instant::now);
-            disarm_spinner(&mut state);
+            disarm_spinner(state);
             state
                 .pending
                 .entry(name.to_string())
@@ -311,7 +244,7 @@ impl TerminalApprovalSink {
             if !previewing {
                 self.presenter.start_tool_run(name, &arguments);
             }
-        }
+        });
     }
 
     fn finish_tool_presentation(
@@ -331,7 +264,12 @@ impl TerminalApprovalSink {
         self.presenter.finish_tool_line(line);
     }
 
-    fn record_completed_tool(&self, state: &mut TerminalSinkState, details: ToolFinishDetails<'_>, status: &str) {
+    fn record_completed_tool(
+        &self,
+        state: &mut TerminalSinkState,
+        details: ToolFinishDetails<'_>,
+        outcome: ToolOutcome,
+    ) {
         disarm_spinner(state);
         state.last_display = DisplayKind::Tool;
         let duration_ms = state
@@ -340,27 +278,42 @@ impl TerminalApprovalSink {
             .and_then(std::collections::VecDeque::pop_front)
             .and_then(|p| p.started)
             .map(|s| s.elapsed().as_millis() as u64);
-        let arguments = self.redact_arguments(details.arguments);
-        let output_redacted = self.redact(details.output);
+        let arguments = redact(
+            self.session_manager.as_ref(),
+            |session| redact_value(session, details.arguments),
+            || details.arguments.clone(),
+        );
+        let output_redacted = redact(
+            self.session_manager.as_ref(),
+            |session| session.redact_credentials(details.output),
+            || details.output.to_string(),
+        );
         self.finish_tool_presentation(&details, &arguments, &output_redacted, duration_ms);
         state.completed.push(CompletedTool {
             internal_call_id: uuid::Uuid::new_v4().to_string(),
             name: details.name.to_string(),
             arguments,
             output: output_redacted,
-            status: status.to_string(),
+            status: outcome,
         });
         state.spinner = Some(self.presenter.start_spinner("thinking..."));
     }
 
     pub fn tool_finished(&self, details: ToolFinishDetails<'_>) {
-        let status = if details.is_error { "error" } else { "success" };
-        self.run_tracker.tool_finished(status);
+        let outcome = if details.is_error {
+            ToolOutcome::Error
+        } else {
+            ToolOutcome::Success
+        };
+        self.run_tracker.tool_finished(outcome);
         self.flush_reasoning();
         self.presenter.flush();
-        if let Ok(mut state) = self.state.lock() {
-            self.record_completed_tool(&mut state, details, status);
-        }
+        self.with_state(|state| self.record_completed_tool(state, details, outcome));
+    }
+
+    pub fn tool_denied(&self) {
+        self.run_tracker.tool_called();
+        self.run_tracker.tool_finished(ToolOutcome::Denied);
     }
 
     /// Shows a card for a tool call whose arguments are still streaming; interactive UIs only.
@@ -368,24 +321,30 @@ impl TerminalApprovalSink {
         if !self.presenter.has_interactive_ui() {
             return;
         }
-        let arguments = self.redact_arguments(arguments);
-        if let Ok(mut state) = self.state.lock() {
+        let arguments = redact(
+            self.session_manager.as_ref(),
+            |session| redact_value(session, arguments),
+            || arguments.clone(),
+        );
+        self.with_state(|state| {
             state.tool_preview = Some(String::new());
             state.tool_preview_started.get_or_insert_with(Instant::now);
-        }
+        });
         self.presenter.preview_tool_run(name, &arguments);
     }
 
     pub fn preview_tool_chunk(&self, chunk: &str) {
-        let redacted = {
-            let Ok(mut state) = self.state.lock() else { return };
-            let Some(mut carry) = state.tool_preview.take() else {
-                return;
-            };
-            let redacted = self.redact_streamed(&mut carry, chunk);
+        let redacted = self.with_state(|state| {
+            let mut carry = state.tool_preview.take()?;
+            let redacted = redact(
+                self.session_manager.as_ref(),
+                |session| session.redact_credentials_streamed(&mut carry, chunk),
+                || chunk.to_string(),
+            );
             state.tool_preview = Some(carry);
-            redacted
-        };
+            Some(redacted)
+        });
+        let Some(redacted) = redacted else { return };
         if !redacted.is_empty() {
             self.presenter.stream_port().stream_chunk(&redacted);
         }
@@ -393,7 +352,7 @@ impl TerminalApprovalSink {
 
     /// Removes the preview card of a call that will not run.
     pub fn cancel_tool_preview(&self) {
-        let previewing = self.state.lock().is_ok_and(|mut state| {
+        let previewing = self.with_state(|state| {
             state.tool_preview_started = None;
             state.tool_preview.take().is_some()
         });
@@ -407,10 +366,13 @@ impl TerminalApprovalSink {
 /// reaches the presenter's port, which is the screen's card or the subagent's own record.
 impl ToolStreamSink for TerminalApprovalSink {
     fn tool_chunk(&self, chunk: String) {
-        let redacted = {
-            let Ok(mut state) = self.state.lock() else { return };
-            self.redact_streamed(&mut state.tool_output_carry, &chunk)
-        };
+        let redacted = self.with_state(|state| {
+            redact(
+                self.session_manager.as_ref(),
+                |session| session.redact_credentials_streamed(&mut state.tool_output_carry, &chunk),
+                || chunk.clone(),
+            )
+        });
         if !redacted.is_empty() {
             self.presenter.stream_port().stream_chunk(&redacted);
         }
@@ -420,6 +382,17 @@ impl ToolStreamSink for TerminalApprovalSink {
 impl Drop for TerminalApprovalSink {
     fn drop(&mut self) {
         self.flush_reasoning();
+    }
+}
+
+fn redact<R>(
+    session: Option<&SessionManager>,
+    apply: impl FnOnce(&SessionManager) -> R,
+    plain: impl FnOnce() -> R,
+) -> R {
+    match session {
+        Some(session) => apply(session),
+        None => plain(),
     }
 }
 
@@ -445,7 +418,7 @@ async fn append_tool_events(
                 "id": tool.internal_call_id,
                 "name": tool.name,
                 "output": tool.output,
-                "status": tool.status,
+                "status": tool.status.as_str(),
             }),
         )
         .await
@@ -578,6 +551,57 @@ mod tests {
         let state = sink.state.lock().unwrap();
         assert!(state.pending["subagent"].is_empty());
         assert_eq!(state.completed.len(), 2);
+    }
+
+    #[test]
+    fn tool_results_are_still_recorded_after_a_panic_poisoned_the_sink_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: Arc::default(),
+            active_tools: Arc::default(),
+            thinking: Arc::default(),
+        });
+        let sink = new_test_sink(&temp, &presenter);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = sink.state.lock().unwrap();
+            panic!("poison the sink state");
+        }));
+
+        sink.tool_finished(ToolFinishDetails {
+            name: "read",
+            arguments: &serde_json::json!({}),
+            output: "ok",
+            is_error: false,
+        });
+
+        assert_eq!(sink.completed().len(), 1);
+    }
+
+    #[test]
+    fn denied_tool_calls_count_as_denials_in_run_metrics() {
+        let temp = tempfile::tempdir().unwrap();
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: Arc::default(),
+            active_tools: Arc::default(),
+            thinking: Arc::default(),
+        });
+        let tracker = crate::engine::metrics::RunTracker::default();
+        tracker.start("model", crate::engine::metrics::PromptCacheKey::default());
+        let session = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
+        let sink = TerminalApprovalSink::new(
+            &presenter,
+            TerminalSinkConfig {
+                model_label: "test".to_string(),
+                run_tracker: tracker.clone(),
+            },
+            session,
+        );
+
+        sink.tool_denied();
+
+        let metrics = tracker.terminate("session", crate::engine::metrics::TerminalStatus::Completed);
+        assert_eq!(metrics.tool_denials, 1);
+        assert_eq!(metrics.tool_errors, 1);
     }
 
     #[test]

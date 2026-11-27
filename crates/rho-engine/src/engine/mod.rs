@@ -195,12 +195,12 @@ impl AgentEngine {
 
     /// Relocates the live session into `new_base_dir` without dropping conversation history.
     pub async fn relocate_working_dir(&mut self, new_base_dir: std::path::PathBuf) -> Result<()> {
-        let _ = std::env::set_current_dir(&new_base_dir);
-        let _ = rho_harness_core::session::record_session_for_cwd(
+        std::env::set_current_dir(&new_base_dir)?;
+        rho_harness_core::session::record_session_for_cwd(
             &self.config.sessions_dir,
             &new_base_dir,
             &self.session_manager.session_id,
-        );
+        )?;
         let auth_store = self.router.auth().lock().await.clone();
         let mut builder = builder::AgentEngineBuilder::new(self.config.clone(), auth_store)
             .session(self.session_manager.clone())

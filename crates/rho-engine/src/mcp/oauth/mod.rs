@@ -47,8 +47,7 @@ impl McpTokens {
     }
 
     fn is_expired(&self) -> bool {
-        self.expires_at_ms
-            .is_some_and(|at| at <= chrono::Utc::now().timestamp_millis())
+        self.expires_at_ms.is_some_and(|at| at <= crate::clock::unix_now_ms())
     }
 
     fn with_reply(&self, reply: TokenResponse) -> Self {
@@ -62,7 +61,7 @@ impl McpTokens {
 }
 
 fn expires_at(expires_in: Option<i64>) -> Option<i64> {
-    expires_in.map(|secs| chrono::Utc::now().timestamp_millis() + secs * 1000 - EXPIRY_MARGIN_MS)
+    expires_in.map(|secs| crate::clock::expires_at_ms(secs, EXPIRY_MARGIN_MS))
 }
 
 #[derive(Debug, Clone)]

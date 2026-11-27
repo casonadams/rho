@@ -11,6 +11,7 @@ use std::time::Duration;
 use rho_harness_core::config::{Config, ModelRole};
 use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
+use rho_harness_core::text::truncate_chars;
 use rho_harness_core::thinking::ThinkingLevel;
 use tokio::sync::watch;
 
@@ -214,27 +215,21 @@ async fn generate_title_text(
     sanitize_title(&response.content)
 }
 
-fn truncate_chars(text: &str, max_chars: usize) -> String {
-    let trimmed = text.trim();
-    let count = trimmed.chars().count();
-    if count <= max_chars {
-        return trimmed.to_string();
+fn clip_with_ellipsis(text: &str, max_chars: usize) -> String {
+    match truncate_chars(text.trim(), max_chars) {
+        (head, true) => format!("{head}..."),
+        (head, false) => head.to_string(),
     }
-    let end = trimmed
-        .char_indices()
-        .nth(max_chars)
-        .map_or(trimmed.len(), |(idx, _)| idx);
-    format!("{}...", &trimmed[..end])
 }
 
 pub(crate) fn build_title_prompt(user_message: &str, assistant_reply: Option<&str>) -> Option<String> {
-    let user = truncate_chars(user_message, MAX_USER_INPUT_CHARS);
+    let user = clip_with_ellipsis(user_message, MAX_USER_INPUT_CHARS);
     if user.is_empty() {
         return None;
     }
     let mut out = format!("<user>\n{user}\n</user>");
     if let Some(reply) = assistant_reply {
-        let assistant = truncate_chars(reply, MAX_ASSISTANT_INPUT_CHARS);
+        let assistant = clip_with_ellipsis(reply, MAX_ASSISTANT_INPUT_CHARS);
         if !assistant.is_empty() {
             out.push_str("\n<assistant>\n");
             out.push_str(&assistant);

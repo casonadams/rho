@@ -5,12 +5,20 @@ use super::markdown::resolve_markdown_links;
 use super::*;
 
 #[test]
+fn fetch_mode_names_are_case_insensitive_and_unknown_names_extract_as_auto() {
+    assert_eq!(FetchMode::parse(Some("FULL")), FetchMode::Full);
+    assert_eq!(FetchMode::parse(Some("Main")), FetchMode::Main);
+    assert_eq!(FetchMode::parse(Some("bogus")), FetchMode::Auto);
+    assert_eq!(FetchMode::parse(None), FetchMode::Auto);
+}
+
+#[test]
 fn test_extract_html_semantic_main() {
     let article_text = "Important article content with enough detail for extraction. ".repeat(12);
     let html = format!(
         "<html><head><title>Article Title</title><meta name=\"author\" content=\"Jane Doe\"><meta property=\"og:site_name\" content=\"TechBlog\"></head><body><nav>NOISY NAVIGATION</nav><main><h1>Article Heading</h1><p>{article_text}</p></main><footer>NOISY FOOTER</footer></body></html>"
     );
-    let res = extract_html(&html, "https://example.com/post", "auto").unwrap();
+    let res = extract_html(&html, "https://example.com/post", FetchMode::Auto).unwrap();
     for expected in [
         "main content via <main>",
         "# Article Title",
@@ -25,7 +33,7 @@ fn test_extract_html_semantic_main() {
 #[test]
 fn test_extract_html_base_href() {
     let html = "<html><head><base href=\"/assets/\"></head><body><p><a href=\"guide.html\">Guide</a></p></body></html>";
-    let res = extract_html(html, "https://example.com/pages/index.html", "full").unwrap();
+    let res = extract_html(html, "https://example.com/pages/index.html", FetchMode::Full).unwrap();
     assert!(res.contains("https://example.com/assets/guide.html"));
 }
 
@@ -35,7 +43,7 @@ fn test_extract_html_spa_shell() {
         "<html><body><div id=\"root\"></div><script>{}</script></body></html>",
         "x".repeat(600)
     );
-    let res = extract_html(&html, "https://example.com/app", "auto");
+    let res = extract_html(&html, "https://example.com/app", FetchMode::Auto);
     assert!(res.is_err());
     assert!(res.unwrap_err().to_string().contains("JavaScript-capable browser"));
 }
@@ -43,7 +51,7 @@ fn test_extract_html_spa_shell() {
 #[test]
 fn test_extract_html_main_mode_missing_content() {
     let html = "<html><body><p>Short</p></body></html>";
-    let res = extract_html(html, "https://example.com/short", "main");
+    let res = extract_html(html, "https://example.com/short", FetchMode::Main);
     assert!(res.is_err());
     assert!(res.unwrap_err().to_string().contains("mode=\"full\""));
 }
@@ -145,7 +153,7 @@ fn test_extract_text_routing() {
         body: json_body,
         content_type: "application/json",
         url_str: "https://example.com/api",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: None,
     })
     .unwrap();
@@ -155,7 +163,7 @@ fn test_extract_text_routing() {
         body: "binary",
         content_type: "image/png",
         url_str: "https://example.com/img.png",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: None,
     });
     assert!(unsupported.is_err());
@@ -167,7 +175,7 @@ fn test_extract_override_structured_formats() {
         body: r#"{"foo":"bar"}"#,
         content_type: "text/plain",
         url_str: "https://example.com/data",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("json"),
     })
     .unwrap();
@@ -177,7 +185,7 @@ fn test_extract_override_structured_formats() {
         body: "a,b\n1,2",
         content_type: "text/plain",
         url_str: "https://example.com/data",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("csv"),
     })
     .unwrap();
@@ -187,7 +195,7 @@ fn test_extract_override_structured_formats() {
         body: "a\tb\n1\t2",
         content_type: "text/plain",
         url_str: "https://example.com/data",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("tsv"),
     })
     .unwrap();
@@ -197,7 +205,7 @@ fn test_extract_override_structured_formats() {
         body: "<root><item>test</item></root>",
         content_type: "text/plain",
         url_str: "https://example.com/feed.xml",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("xml"),
     })
     .unwrap();
@@ -207,7 +215,7 @@ fn test_extract_override_structured_formats() {
         body: "<rss><channel><title>News</title></channel></rss>",
         content_type: "text/plain",
         url_str: "https://example.com/rss",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("rss"),
     })
     .unwrap();
@@ -217,7 +225,7 @@ fn test_extract_override_structured_formats() {
         body: "<feed><title>Atom</title></feed>",
         content_type: "text/plain",
         url_str: "https://example.com/atom",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("atom"),
     })
     .unwrap();
@@ -230,7 +238,7 @@ fn test_extract_override_document_and_fallback_formats() {
         body: "# Header\n[link](/test)",
         content_type: "text/plain",
         url_str: "https://example.com/doc",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("markdown"),
     })
     .unwrap();
@@ -240,7 +248,7 @@ fn test_extract_override_document_and_fallback_formats() {
         body: "# Header\n[link](/test)",
         content_type: "text/plain",
         url_str: "https://example.com/doc",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("md"),
     })
     .unwrap();
@@ -250,7 +258,7 @@ fn test_extract_override_document_and_fallback_formats() {
         body: "<html><body><p>Hello world</p></body></html>",
         content_type: "text/plain",
         url_str: "https://example.com/page",
-        mode: "raw",
+        mode: FetchMode::Auto,
         format_override: Some("html"),
     })
     .unwrap();
@@ -260,7 +268,7 @@ fn test_extract_override_document_and_fallback_formats() {
         body: "plain text fallback",
         content_type: "text/plain",
         url_str: "https://example.com/page",
-        mode: "auto",
+        mode: FetchMode::Auto,
         format_override: Some("custom-unknown"),
     })
     .unwrap();
@@ -279,7 +287,7 @@ fn nested_articles(depth: usize, text: &str) -> String {
 fn deeply_nested_articles_extract_in_linear_time() {
     let text = "Substantial article content for extraction. ".repeat(20);
     let started = std::time::Instant::now();
-    let out = extract_html(&nested_articles(800, &text), "https://example.com/", "auto").unwrap();
+    let out = extract_html(&nested_articles(800, &text), "https://example.com/", FetchMode::Auto).unwrap();
     let elapsed = started.elapsed();
 
     assert!(out.contains("main content via <article>"), "{}", &out[..80]);
@@ -293,7 +301,7 @@ fn nested_main_elements_pick_the_longest_outermost_candidate() {
     let long = "The long article body carries the real content of this page. ".repeat(20);
     let html =
         format!("<html><body><article>{short}</article><main><article>inner</article>{long}</main></body></html>");
-    let out = extract_html(&html, "https://example.com/", "auto").unwrap();
+    let out = extract_html(&html, "https://example.com/", FetchMode::Auto).unwrap();
     assert!(out.contains("main content via <main>"), "{out}");
     assert!(out.contains("real content of this page"));
 }

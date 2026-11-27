@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use rho_harness_core::text::truncate_chars;
+
 /// Detects whether the content predominantly uses CRLF or LF; ties go to LF.
 pub fn detect_line_ending(content: &str) -> &'static str {
     let crlf = content.matches("\r\n").count();
@@ -35,11 +37,9 @@ fn has_isolated_lf(text: &str) -> bool {
 }
 
 pub fn truncate_snippet(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{truncated}...")
+    match truncate_chars(s, max_chars) {
+        (head, true) => format!("{head}..."),
+        (_, false) => s.to_string(),
     }
 }
 

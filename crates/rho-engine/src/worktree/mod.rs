@@ -10,6 +10,7 @@ pub mod session;
 mod share;
 mod sweep;
 
+use crate::digest::sha256_hex;
 use chrono::{DateTime, Utc};
 pub use clone::CloneKind;
 pub use lease::{WorktreeLease, settle_abandoned};
@@ -84,13 +85,11 @@ impl PartialEq for WorktreeStore {
 impl Eq for WorktreeStore {}
 
 fn repo_key(common_dir: &Path) -> String {
-    use sha2::{Digest, Sha256};
     let project = common_dir
         .parent()
         .and_then(Path::file_name)
         .map_or_else(|| "repo".to_string(), |n| n.to_string_lossy().into_owned());
-    let digest = Sha256::digest(common_dir.to_string_lossy().as_bytes());
-    let hash: String = digest.iter().take(4).map(|b| format!("{b:02x}")).collect();
+    let hash = sha256_hex(common_dir.to_string_lossy().as_bytes())[..8].to_string();
     format!("{project}-{hash}")
 }
 

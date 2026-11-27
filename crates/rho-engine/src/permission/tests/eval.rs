@@ -3,6 +3,7 @@ use crate::permission::policy::{Policy, build_policy, parse_scope_from_str, save
 use crate::permission::suggest::{canonical_tool, match_input, suggested_rule};
 use crate::permission::{Decision, EvalRequest, decide_tool_call};
 use crate::test_support::temp_dir;
+use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::path::Path;
 
@@ -290,6 +291,38 @@ fn path_tool_always_allow_saves_to_path_surface_and_overrides_workspace_ask() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn saving_never_overwrites_an_unreadable_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("unreadable_save");
+    let path = dir.join("permission.toml");
+    let original = "[permission.bash]\n\"git *\" = \"allow\"\n";
+    std::fs::write(&path, original).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    assert!(save_allow_rule(&path, "bash", "cargo test *").is_err());
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn saving_keeps_the_existing_file_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("mode_save");
+    let path = dir.join("permission.toml");
+    std::fs::write(&path, "").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    save_allow_rule(&path, "bash", "cargo test *").unwrap();
+
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
 #[test]
 fn saving_never_clobbers_a_malformed_file() {
     let dir = temp_dir("malformed");
@@ -473,10 +506,7 @@ fn quoted_absolute_path_is_gated_as_outside_workspace() {
 
 #[test]
 fn credential_store_is_denied_even_with_allow_rule() {
-    let _env = super::ENV_LOCK.blocking_lock();
-    let Some(config_dir) = crate::permission::policy::config_dir() else {
-        return;
-    };
+    let (config_dir, _env) = super::config_home();
     let auth = config_dir.join("auth.json").display().to_string();
     let policy = build_policy(Some(parse_scope_from_str("[allow]\npath = [\"*\"]\n").unwrap()), None);
     for tool in ["read", "write", "edit"] {
@@ -503,10 +533,7 @@ fn protected_names_are_case_insensitive_and_policy_files_need_approval() {
 
 #[test]
 fn prompts_read_without_approval_but_config_files_do_not() {
-    let _env = super::ENV_LOCK.blocking_lock();
-    let Some(config_dir) = crate::permission::policy::config_dir() else {
-        return;
-    };
+    let (config_dir, _env) = super::config_home();
     let policy = build_policy(None, None);
     let prompt = config_dir.join("prompts/review.md").display().to_string();
     assert_eq!(check_eval(&policy, "read", json!({"path": prompt})), Decision::Allow);
@@ -549,12 +576,9 @@ fn bash_deny_rules_apply_to_obfuscated_and_wrapped_commands() {
 
 #[test]
 fn bash_reads_of_the_credential_file_through_env_variables_are_denied() {
-    let _env = super::ENV_LOCK.blocking_lock();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.path());
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", &dir.path().to_string_lossy());
     let policy = build_policy(None, None);
     let decisions = [
         "cat $RHO_HOME/auth.json",
@@ -562,9 +586,6 @@ fn bash_reads_of_the_credential_file_through_env_variables_are_denied() {
         "cat ${RHO_HOME}/auth.json",
     ]
     .map(|command| check_eval(&policy, "bash", json!({"command": command})));
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
     for decision in decisions {
         assert!(matches!(decision, Decision::Deny(_)));
     }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::web::test_server::{CannedResponse, serve_once};
 
 #[test]
 fn test_private_host_detection() {
@@ -92,21 +93,9 @@ async fn request_respects_per_call_timeout() {
 }
 
 async fn spawn_response_server(body: &'static str, delay: Duration) -> String {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut request = [0_u8; 1024];
-        let _ = stream.read(&mut request).await;
-        tokio::time::sleep(delay).await;
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = stream.write_all(response.as_bytes()).await;
-    });
-    format!("http://{address}/")
+    let response = CannedResponse {
+        delay,
+        ..CannedResponse::new("200 OK", "text/plain", body)
+    };
+    serve_once(response).await.0
 }

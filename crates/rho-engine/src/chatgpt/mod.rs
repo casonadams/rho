@@ -30,7 +30,7 @@ pub async fn fetch_quota(usage_url: &str, token: &str, account_id: Option<&str>)
         req = req.header("ChatGPT-Account-Id", account_id);
     }
 
-    let response = send_json_if_ok(req).await?;
+    let response: Value = send_json_if_ok(req).await?;
     parse_quota(&response, Utc::now())
 }
 

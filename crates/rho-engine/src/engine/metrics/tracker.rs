@@ -6,6 +6,23 @@ use crate::engine::locking::lock;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolOutcome {
+    Success,
+    Error,
+    Denied,
+}
+
+impl ToolOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Error => "error",
+            Self::Denied => "denied",
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct RunTracker {
     state: Arc<Mutex<Option<RunObservation>>>,
@@ -69,12 +86,12 @@ impl RunTracker {
         }
     }
 
-    pub fn tool_finished(&self, status: &str) {
+    pub fn tool_finished(&self, outcome: ToolOutcome) {
         if let Some(state) = self.state().as_mut() {
-            if status != "success" {
+            if outcome != ToolOutcome::Success {
                 state.tool_errors += 1;
             }
-            if status == "denied" {
+            if outcome == ToolOutcome::Denied {
                 state.tool_denials += 1;
             }
         }

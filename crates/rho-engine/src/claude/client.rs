@@ -7,7 +7,7 @@ use super::request::build_request_body;
 use crate::auth::token::{StaticTokenProvider, TokenProvider};
 use crate::http::post_json_checked;
 use crate::provider::adapter::ModelCompletionRequest;
-use crate::provider::error::{HttpFailure, HttpResult};
+use crate::provider::error::{HttpFailure, HttpResult, retry_once_after_unauthorized};
 use rho_harness_core::config::CacheRetention;
 use rho_harness_core::provider::ProviderId;
 
@@ -97,10 +97,7 @@ impl ClaudeClient {
     }
 
     async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
-        let effective_thinking = request
-            .thinking_level
-            .map(|level| level.concrete_or_default().as_str())
-            .or(self.thinking_level.as_deref());
+        let effective_thinking = request.effective_thinking(self.thinking_level.as_deref());
         let body = build_request_body(
             &self.model,
             effective_thinking,
@@ -112,15 +109,6 @@ impl ClaudeClient {
         post_json_checked(&self.target_url(), claude_headers(self.auth, token)?, &body).await
     }
 
-    async fn refresh_and_retry(&self, request: &ModelCompletionRequest, body: &str) -> HttpResult {
-        match self.token_provider.force_refresh().await {
-            Ok(new_token) => self.post_stream(&new_token, request).await,
-            Err(error) => Err(HttpFailure::Local(format!(
-                "token refresh failed after 401 ({error}). Run 'rho login claude'. Backend: {body}"
-            ))),
-        }
-    }
-
     pub(crate) async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
         let token = self
             .token_provider
@@ -128,9 +116,17 @@ impl ClaudeClient {
             .await
             .map_err(|e| HttpFailure::Local(format!("Failed to acquire Claude access token: {e}")))?;
 
-        match self.post_stream(&token, request).await {
-            Err(failure) if failure.status_code() == Some(401) => self.refresh_and_retry(request, failure.body()).await,
-            res => res,
-        }
+        retry_once_after_unauthorized(
+            self.token_provider.as_ref(),
+            token,
+            |token| async move { self.post_stream(&token, request).await },
+            |error, failure| {
+                HttpFailure::Local(format!(
+                    "token refresh failed after 401 ({error}). Run 'rho login claude'. Backend: {}",
+                    failure.body()
+                ))
+            },
+        )
+        .await
     }
 }

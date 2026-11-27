@@ -159,6 +159,16 @@ pub(crate) async fn serve_raw_http(responses: Vec<String>) -> String {
     format!("http://{addr}")
 }
 
+/// A loopback URL whose port was just released, so connecting to it is refused.
+pub(crate) fn dead_port_url() -> String {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    format!("http://127.0.0.1:{port}")
+}
+
 /// Token provider with scripted `token()` and `force_refresh()` results.
 pub(crate) struct ScriptedTokenProvider {
     token: Result<String, String>,

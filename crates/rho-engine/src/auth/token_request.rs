@@ -25,7 +25,10 @@ pub(crate) async fn send_checked(request: reqwest::RequestBuilder, operation: &s
         return Ok(res);
     }
     let status = res.status();
-    let body = res.text().await.unwrap_or_default();
+    let body = res
+        .text()
+        .await
+        .unwrap_or_else(|e| format!("(failed to read error body: {e})"));
     Err(AppError::Auth(format!("{operation} failed ({status}): {body}")))
 }
 
@@ -54,17 +57,8 @@ pub(crate) async fn post_form_json<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::serve_http;
+    use crate::test_support::{dead_port_url, serve_http};
     use serde_json::Value;
-
-    fn free_port_url() -> String {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        format!("http://127.0.0.1:{port}")
-    }
 
     #[tokio::test]
     async fn send_checked_passes_success_and_reports_failed_status_with_body() {
@@ -84,7 +78,7 @@ mod tests {
             "{err}"
         );
 
-        let err = send_checked(CLIENT.get(free_port_url()), "Probe").await.unwrap_err();
+        let err = send_checked(CLIENT.get(dead_port_url()), "Probe").await.unwrap_err();
         assert!(err.to_string().contains("Probe request failed"), "{err}");
     }
 

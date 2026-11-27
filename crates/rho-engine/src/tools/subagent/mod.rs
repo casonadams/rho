@@ -16,6 +16,8 @@ pub mod runner;
 mod snapshot;
 mod tasks;
 #[cfg(test)]
+mod test_repo;
+#[cfg(test)]
 mod tests;
 pub mod types;
 pub(crate) mod workspace;

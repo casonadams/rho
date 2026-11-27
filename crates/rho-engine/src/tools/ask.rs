@@ -63,9 +63,26 @@ pub struct AskChoiceArg {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AskOutcome {
+    Submitted,
+    Cancelled,
+    TimedOut,
+    Undelivered,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AnswerStatus {
+    Answered,
+    Skipped,
+    Unanswered,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct AskOutput {
-    outcome: &'static str,
+    outcome: AskOutcome,
     answers: Vec<AskAnswerOutput>,
 }
 
@@ -73,10 +90,35 @@ struct AskOutput {
 struct AskAnswerOutput {
     id: String,
     question: String,
-    status: &'static str,
+    status: AnswerStatus,
     selected_index: Option<usize>,
     selected_indices: Vec<usize>,
     user_response: String,
+}
+
+impl AskAnswerOutput {
+    fn new(q: &PreparedQuestion, status: AnswerStatus, selected_indices: Vec<usize>, user_response: String) -> Self {
+        Self {
+            id: q.id.clone(),
+            question: q.raw_question.clone(),
+            status,
+            selected_index: selected_indices.first().copied(),
+            selected_indices,
+            user_response,
+        }
+    }
+
+    fn answered(q: &PreparedQuestion, selected_indices: Vec<usize>, user_response: String) -> Self {
+        Self::new(q, AnswerStatus::Answered, selected_indices, user_response)
+    }
+
+    fn skipped(q: &PreparedQuestion) -> Self {
+        Self::new(q, AnswerStatus::Skipped, Vec::new(), String::new())
+    }
+
+    fn unanswered(q: &PreparedQuestion) -> Self {
+        Self::new(q, AnswerStatus::Unanswered, Vec::new(), String::new())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -510,11 +552,11 @@ fn append_action_buttons(components: &mut Vec<A2uiComponent>, root_children: &mu
 
 fn build_output(questions: &[PreparedQuestion], result: Option<A2uiModalResult>) -> AskOutput {
     match result {
-        None => unanswered_output("undelivered", questions),
-        Some(A2uiModalResult::Cancelled) => unanswered_output("cancelled", questions),
-        Some(A2uiModalResult::TimedOut) => unanswered_output("timed_out", questions),
+        None => unanswered_output(AskOutcome::Undelivered, questions),
+        Some(A2uiModalResult::Cancelled) => unanswered_output(AskOutcome::Cancelled, questions),
+        Some(A2uiModalResult::TimedOut) => unanswered_output(AskOutcome::TimedOut, questions),
         Some(A2uiModalResult::Submitted { data_model, .. }) => AskOutput {
-            outcome: "submitted",
+            outcome: AskOutcome::Submitted,
             answers: questions
                 .iter()
                 .map(|q| extract_question_answer(q, &data_model))
@@ -523,20 +565,10 @@ fn build_output(questions: &[PreparedQuestion], result: Option<A2uiModalResult>)
     }
 }
 
-fn unanswered_output(outcome: &'static str, questions: &[PreparedQuestion]) -> AskOutput {
+fn unanswered_output(outcome: AskOutcome, questions: &[PreparedQuestion]) -> AskOutput {
     AskOutput {
         outcome,
-        answers: questions
-            .iter()
-            .map(|q| AskAnswerOutput {
-                id: q.id.clone(),
-                question: q.raw_question.clone(),
-                status: "unanswered",
-                selected_index: None,
-                selected_indices: Vec::new(),
-                user_response: String::new(),
-            })
-            .collect(),
+        answers: questions.iter().map(AskAnswerOutput::unanswered).collect(),
     }
 }
 
@@ -566,15 +598,10 @@ fn extract_free_text_answer(q: &PreparedQuestion, answer_val: Option<&Value>) ->
         .map(strip_recommended_suffix)
         .unwrap_or("")
         .to_string();
-    let status = if text.is_empty() { "skipped" } else { "answered" };
-    AskAnswerOutput {
-        id: q.id.clone(),
-        question: q.raw_question.clone(),
-        status,
-        selected_index: None,
-        selected_indices: Vec::new(),
-        user_response: text,
+    if text.is_empty() {
+        return AskAnswerOutput::skipped(q);
     }
+    AskAnswerOutput::answered(q, Vec::new(), text)
 }
 
 fn extract_single_select_answer(
@@ -587,14 +614,7 @@ fn extract_single_select_answer(
     }
     if let Some(idx) = answer_val.and_then(|v| resolve_choice_index(q, v)) {
         let raw = strip_recommended_suffix(&q.raw_labels[idx]).to_string();
-        return AskAnswerOutput {
-            id: q.id.clone(),
-            question: q.raw_question.clone(),
-            status: "answered",
-            selected_index: Some(idx),
-            selected_indices: vec![idx],
-            user_response: raw,
-        };
+        return AskAnswerOutput::answered(q, vec![idx], raw);
     }
     if let Some(text) = other_text {
         return custom_text_answer(q, text);
@@ -608,7 +628,7 @@ fn extract_single_select_answer(
     {
         return custom_text_answer(q, raw.to_string());
     }
-    skipped_answer(q)
+    AskAnswerOutput::skipped(q)
 }
 
 fn extract_multi_select_answer(
@@ -646,42 +666,17 @@ fn extract_multi_select_answer(
     }
 
     if parts.is_empty() {
-        return skipped_answer(q);
+        return AskAnswerOutput::skipped(q);
     }
 
-    AskAnswerOutput {
-        id: q.id.clone(),
-        question: q.raw_question.clone(),
-        status: "answered",
-        selected_index: selected_indices.first().copied(),
-        selected_indices,
-        user_response: parts.join(", "),
-    }
+    AskAnswerOutput::answered(q, selected_indices, parts.join(", "))
 }
 
 fn custom_text_answer(q: &PreparedQuestion, text: String) -> AskAnswerOutput {
     if text.is_empty() {
-        return skipped_answer(q);
+        return AskAnswerOutput::skipped(q);
     }
-    AskAnswerOutput {
-        id: q.id.clone(),
-        question: q.raw_question.clone(),
-        status: "answered",
-        selected_index: None,
-        selected_indices: Vec::new(),
-        user_response: text,
-    }
-}
-
-fn skipped_answer(q: &PreparedQuestion) -> AskAnswerOutput {
-    AskAnswerOutput {
-        id: q.id.clone(),
-        question: q.raw_question.clone(),
-        status: "skipped",
-        selected_index: None,
-        selected_indices: Vec::new(),
-        user_response: String::new(),
-    }
+    AskAnswerOutput::answered(q, Vec::new(), text)
 }
 
 fn is_other_selection(value: Option<&Value>) -> bool {

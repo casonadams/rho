@@ -3,6 +3,7 @@ use crate::permission::path::{
     extract_mcp_path, extract_mcp_targets, extract_tool_path, is_credential_path, is_infrastructure_read,
     is_path_outside_working_dir, is_protected_path, is_safe_system_path, path_policy_values,
 };
+use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -120,10 +121,7 @@ fn parent_segments_cannot_satisfy_workspace_glob_rules() {
 
 #[test]
 fn credential_store_is_identified_by_resolved_path() {
-    let _env = super::ENV_LOCK.blocking_lock();
-    let Some(config_dir) = crate::permission::policy::config_dir() else {
-        return;
-    };
+    let (config_dir, _env) = super::config_home();
     let auth = config_dir.join("auth.json");
     assert!(is_credential_path(&auth.display().to_string(), None));
     assert!(is_credential_path(
@@ -147,35 +145,21 @@ fn path_values_carry_absolute_then_cwd_relative() {
 
 #[test]
 fn credential_store_follows_rust_ai_home_config_dir() {
-    let _env = super::ENV_LOCK.blocking_lock();
     let dir = tempfile::tempdir().unwrap();
     let auth = dir.path().join("auth.json");
     std::fs::write(&auth, "{}").unwrap();
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-        std::env::set_var("RUST_AI_HOME", dir.path());
-    }
-    let protected = is_credential_path(&auth.display().to_string(), None);
-    unsafe {
-        std::env::remove_var("RUST_AI_HOME");
-    }
-    assert!(protected);
+    let _env = EnvVarGuard::set("RUST_AI_HOME", &dir.path().to_string_lossy());
+    assert!(is_credential_path(&auth.display().to_string(), None));
 }
 
 #[test]
 fn leading_env_variables_resolve_before_the_credential_check() {
-    let _env = super::ENV_LOCK.blocking_lock();
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.path());
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", &dir.path().to_string_lossy());
     let hits = ["$RHO_HOME/auth.json", "${RHO_HOME}/auth.json"].map(|raw| is_credential_path(raw, None));
     let lookalikes = ["$RHO_HOME_X/auth.json", "$RHO_HOMEauth.json", "x$RHO_HOME/auth.json"]
         .map(|raw| is_credential_path(raw, None));
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
     assert_eq!(hits, [true, true]);
     assert_eq!(lookalikes, [false, false, false]);
 }

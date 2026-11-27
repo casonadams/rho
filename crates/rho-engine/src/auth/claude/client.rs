@@ -1,5 +1,5 @@
 use crate::auth::token_request::post_form_json;
-use crate::http::CLIENT;
+use crate::http::{CLIENT, send_json_if_ok};
 use rho_harness_core::error::Result;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -106,19 +106,11 @@ pub async fn refresh_token(token_url: &str, refresh: &str) -> Result<ClaudeToken
 }
 
 pub async fn fetch_profile(profile_url: &str, access_token: &str) -> Option<ClaudeProfileResponse> {
-    let res = CLIENT
+    let request = CLIENT
         .get(profile_url)
         .timeout(TOKEN_TIMEOUT)
         .bearer_auth(access_token)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
-        .header("anthropic-beta", ANTHROPIC_BETA)
-        .send()
-        .await
-        .ok()?;
-
-    if !res.status().is_success() {
-        return None;
-    }
-
-    res.json::<ClaudeProfileResponse>().await.ok()
+        .header("anthropic-beta", ANTHROPIC_BETA);
+    send_json_if_ok(request).await
 }

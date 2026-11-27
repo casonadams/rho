@@ -478,22 +478,8 @@ async fn a_continued_subagent_is_told_which_files_changed_since_it_read_them() {
 
 #[tokio::test]
 async fn bash_changes_are_attributed_and_later_changes_reach_a_continued_subagent() {
-    let repo = tempfile::tempdir().unwrap();
-    let root = repo.path().canonicalize().unwrap();
-    let git = |args: &[&str]| {
-        let out = std::process::Command::new("git")
-            .args(["-c", "user.email=t@e", "-c", "user.name=t"])
-            .args(args)
-            .current_dir(&root)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "git {args:?}");
-    };
-    git(&["init", "--quiet", "-b", "main"]);
-    std::fs::write(root.join("other.rs"), "v1").unwrap();
-    git(&["add", "."]);
-    git(&["commit", "--quiet", "-m", "init"]);
+    let _repo = rho_test_support::TestDir::new();
+    let root = crate::tools::subagent::test_repo::committed_repo(&_repo, &["other.rs"]);
     let sessions = tempfile::tempdir().unwrap();
     let session = SessionManager::new(sessions.path(), None).unwrap();
     let bash_root = root.clone();

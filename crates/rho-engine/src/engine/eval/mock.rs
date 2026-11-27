@@ -4,6 +4,8 @@ use crate::engine::AgentEngine;
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::metrics::RunTracker;
 use crate::provider::adapter::ModelAdapter;
+#[cfg(test)]
+use crate::test_support::{TestDir, temp_dir};
 use crate::tools::EngineTool;
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
@@ -15,6 +17,24 @@ pub struct MockEngineConfig<'a> {
     pub app_config: Config,
     pub session_manager: Option<SessionManager>,
     pub built_in_tools: Option<Vec<Arc<dyn EngineTool>>>,
+}
+
+#[cfg(test)]
+pub fn mock_engine_in_dir(label: &str, model: Arc<dyn ModelAdapter>) -> (AgentEngine, TestDir) {
+    let dir = temp_dir(label);
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &dir,
+            app_config: Config {
+                auth_file: dir.join("auth.json"),
+                ..Config::default()
+            },
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+    (engine, dir)
 }
 
 pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -> AgentEngine {

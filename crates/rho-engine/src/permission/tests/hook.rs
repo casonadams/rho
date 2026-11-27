@@ -1,4 +1,5 @@
 use rho_harness_core::presentation::types::InteractionResponse;
+use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -133,11 +134,8 @@ fn assert_permission_persisted(path: &std::path::Path, content: &str) {
 
 #[tokio::test]
 async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
-    let _guard = super::ENV_LOCK.lock().await;
     let global_dir = tempdir().unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", global_dir.path());
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.path().to_string_lossy());
 
     let project_dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
@@ -154,19 +152,26 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
         .check_permission("bash", &json!({"command": "touch persist_test"}))
         .await;
     assert_eq!(verdict2, PermissionAction::Proceed);
+}
 
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
+#[tokio::test]
+async fn malformed_global_policy_is_announced_when_the_hook_loads() {
+    let global_dir = tempdir().unwrap();
+    std::fs::write(global_dir.path().join("permission.toml"), "[permission\n").unwrap();
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.path().to_string_lossy());
+
+    let presenter = Arc::new(crate::test_support::CapturingPresenter::default());
+    let _hook = PermissionHook::new(None, presenter.clone());
+
+    let notices = presenter.notices.lock().unwrap();
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(notices[0].contains("permission.toml"), "{notices:?}");
 }
 
 #[tokio::test]
 async fn test_ask_interactive_always_allow_custom_pattern_persists() {
-    let _guard = super::ENV_LOCK.lock().await;
     let global_dir = tempdir().unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", global_dir.path());
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.path().to_string_lossy());
 
     let project_dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(
@@ -183,10 +188,6 @@ async fn test_ask_interactive_always_allow_custom_pattern_persists() {
         .await;
     assert_eq!(verdict, PermissionAction::Proceed);
     assert_permission_persisted(global_dir.path(), "touch custom_*");
-
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
 }
 
 #[tokio::test]
@@ -392,13 +393,10 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
 
 #[tokio::test]
 async fn test_always_allow_save_failure_denies_instead_of_running() {
-    let _guard = super::ENV_LOCK.lock().await;
     let dir = tempdir().unwrap();
     let blocker = dir.path().join("not-a-dir");
     std::fs::write(&blocker, "").unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", &blocker);
-    }
+    let _env = EnvVarGuard::set("RHO_HOME", &blocker.to_string_lossy());
 
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
     let hook = PermissionHook::new(Some(dir.path().to_path_buf()), presenter.clone());
@@ -406,9 +404,6 @@ async fn test_always_allow_save_failure_denies_instead_of_running() {
         .check_permission("bash", &json!({"command": "touch never_run"}))
         .await;
 
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
     assert!(
         matches!(&verdict, PermissionAction::Deny(msg) if msg.contains("Failed to save always-allow rule")),
         "{verdict:?}"

@@ -1,3 +1,4 @@
+mod checkpoint;
 mod completion;
 mod prepare;
 pub(crate) mod prune;

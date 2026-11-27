@@ -203,6 +203,26 @@ async fn an_unreadable_existing_file_is_not_recorded_so_undo_cannot_delete_it() 
     assert_eq!(read_before(&dir.path().join("missing")).await, Some(None));
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_current_file_is_an_error_not_a_missing_one() {
+    use std::os::unix::fs::PermissionsExt;
+    if !permissions_are_enforced() {
+        return;
+    }
+    let t = tools();
+    std::fs::write(t.dir.path().join("a.txt"), "one\n").unwrap();
+    t.edit("one", "1").await;
+    let file = t.dir.path().join("a.txt");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let failed = t.undo("a.txt").await;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(failed.is_error);
+    assert!(failed.content.starts_with("reading a.txt"), "{}", failed.content);
+    assert!(!failed.content.contains("no longer exists"), "{}", failed.content);
+    assert_eq!(t.read("a.txt").as_deref(), Some("1\n"));
+}
+
 #[tokio::test]
 async fn undo_restores_a_non_utf8_file_without_a_diff_preview() {
     let t = tools();

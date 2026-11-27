@@ -1,6 +1,7 @@
 //! Maps provider HTTP failures and stream error events onto typed `AppError`s, so the engine decides
 //! retries, compaction, and content-filter handling by variant instead of matching message text.
 
+use crate::auth::token::TokenProvider;
 use rho_harness_core::error::AppError;
 use std::time::Duration;
 
@@ -60,6 +61,26 @@ impl HttpFailure {
                 retry_after,
             } => classify_status(status, &body, retry_after, message),
         }
+    }
+}
+
+/// Runs `post` with `token`; on a 401 it force-refreshes the token once and posts again with the fresh one.
+pub(crate) async fn retry_once_after_unauthorized<Post, Fut>(
+    tokens: &dyn TokenProvider,
+    token: String,
+    post: Post,
+    refresh_failed: impl FnOnce(String, &HttpFailure) -> HttpFailure,
+) -> HttpResult
+where
+    Post: Fn(String) -> Fut,
+    Fut: Future<Output = HttpResult>,
+{
+    match post(token).await {
+        Err(failure) if failure.status_code() == Some(401) => match tokens.force_refresh().await {
+            Ok(fresh) => post(fresh).await,
+            Err(error) => Err(refresh_failed(error, &failure)),
+        },
+        res => res,
     }
 }
 

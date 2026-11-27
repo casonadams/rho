@@ -1,6 +1,6 @@
 use crate::engine::AgentEngine;
 use crate::engine::metrics::types::PromptResponse;
-use crate::engine::metrics::{RunMetrics, TerminalStatus};
+use crate::engine::metrics::{RunMetrics, TerminalStatus, ToolOutcome};
 use crate::engine::runner::helpers::redact_text;
 use crate::engine::runner::sink::TurnArtifacts;
 use crate::engine::runner::turn::types::{RunStatus, TurnOutput, UsageDetails};
@@ -95,9 +95,7 @@ impl AgentEngine {
         let cache_miss_tokens = artifacts
             .cache_miss_tokens
             .unwrap_or_else(|| self.detect_turn_cache_miss(&artifacts.response));
-        let timestamp_unix_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
+        let timestamp_unix_ms = u64::try_from(crate::clock::unix_now_ms()).unwrap_or(0);
         TurnTelemetry {
             timestamp_unix_ms,
             turn_elapsed_ms: artifacts.turn_started_at.elapsed().as_millis() as u64,
@@ -169,7 +167,10 @@ impl AgentEngine {
             ..
         } = artifacts;
         Ok(TurnOutput {
-            tool_failures_count: completed_tools.iter().filter(|tool| tool.status != "success").count(),
+            tool_failures_count: completed_tools
+                .iter()
+                .filter(|tool| tool.status != ToolOutcome::Success)
+                .count(),
             requests: response.requests,
             final_text: response.output,
             tool_calls_count,

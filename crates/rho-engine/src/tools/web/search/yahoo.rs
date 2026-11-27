@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 
-use crate::tools::web::http::{HttpRequest, LYNX_UA};
-use crate::tools::web::search::engine::EngineRequest;
-use crate::tools::web::search::query::urlencoding_encode;
+use crate::tools::web::http::LYNX_UA;
+use crate::tools::web::search::engine::{EngineRequest, fetch_results_page};
+use crate::tools::web::search::query::{recency_param, urlencoding_encode};
 use crate::tools::web::search::result::SearchResult;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
@@ -15,13 +15,7 @@ static TITLE_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("h3, a.t
 static SNIPPET_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".compText, p").expect("valid selector"));
 
 pub fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
-    let age_param = match recency {
-        Some(WebSearchRecency::Day) => "&age=1d",
-        Some(WebSearchRecency::Week) => "&age=1w",
-        Some(WebSearchRecency::Month) => "&age=1m",
-        Some(WebSearchRecency::Year) => "&age=1y",
-        None => "",
-    };
+    let age_param = recency_param(recency, "age", ["1d", "1w", "1m", "1y"]);
     format!(
         "https://search.yahoo.com/search?p={}{age_param}",
         urlencoding_encode(query)
@@ -30,17 +24,8 @@ pub fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> Strin
 
 pub async fn search_yahoo(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     let url = yahoo_search_url(req.query, req.recency);
-    let resp = req
-        .http
-        .get_text(HttpRequest {
-            url: &url,
-            user_agent: Some(LYNX_UA),
-            timeout_sec: req.timeout_sec,
-            max_bytes: 2_000_000,
-            pdf_max_bytes: None,
-        })
-        .await?;
-    Ok(parse_yahoo_html(&resp.body))
+    let body = fetch_results_page(req, &url, LYNX_UA).await?;
+    Ok(parse_yahoo_html(&body))
 }
 
 pub fn decode_yahoo_url(raw: &str) -> String {

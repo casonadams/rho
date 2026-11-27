@@ -3,6 +3,7 @@ mod builders;
 pub mod catalog;
 pub mod discovery;
 pub mod error;
+pub mod google_wire;
 pub mod openai;
 mod router;
 pub mod sse;

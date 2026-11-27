@@ -132,6 +132,7 @@ async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> 
         }
         DispatchDecision::Deny(msg) => {
             ctx.sink.cancel_tool_preview();
+            ctx.sink.tool_denied();
             if let Some(observer) = ctx.observer {
                 observer.denied(call, &message_text(&msg));
             }

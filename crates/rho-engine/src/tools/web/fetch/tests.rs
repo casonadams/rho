@@ -1,6 +1,7 @@
 use super::encoding::*;
 use super::pagination::*;
 use super::*;
+use crate::tools::web::test_server::{CannedResponse, serve_once};
 
 #[test]
 fn test_format_page_empty() {
@@ -130,20 +131,10 @@ async fn test_web_fetch_rejects_credentials_with_explanation() {
 
 #[tokio::test]
 async fn test_web_fetch_image_returns_error() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            use tokio::io::{AsyncReadExt, AsyncWriteExt};
-            let mut request = [0u8; 1024];
-            let _ = stream.read(&mut request).await;
-            let response = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\n\r\nfake";
-            let _ = stream.write_all(response.as_bytes()).await;
-        }
-    });
+    let (base, _) = serve_once(CannedResponse::new("200 OK", "image/png", "fake")).await;
 
     let res = fetch_tool()
-        .execute(fetch_args(&format!("http://{addr}/chart.png")))
+        .execute(fetch_args(&format!("{base}chart.png")))
         .await
         .unwrap();
     assert!(res.is_error);

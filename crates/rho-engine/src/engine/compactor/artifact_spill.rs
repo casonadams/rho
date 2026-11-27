@@ -24,12 +24,14 @@ pub struct ArtifactDemotionHook {
 impl ArtifactDemotionHook {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         let dir = dir.into();
-        let _ = cleanup_artifacts(
+        if let Err(error) = cleanup_artifacts(
             &dir,
             Duration::from_secs(DEFAULT_RETENTION_SECS),
             DEFAULT_MAX_TOTAL_BYTES,
             Duration::ZERO,
-        );
+        ) {
+            tracing::warn!("cleaning up artifacts in {} failed: {error}", dir.display());
+        }
         Self { dir }
     }
 }
@@ -44,10 +46,35 @@ impl DemotionHook for ArtifactDemotionHook {
             if messages.is_empty() {
                 return Ok(());
             }
-            if let Ok(serialized) = serde_json::to_string_pretty(&messages) {
-                let _ = spill_artifact(&self.dir, &serialized);
-            }
+            let serialized =
+                serde_json::to_string_pretty(&messages).map_err(|e| format!("serializing demoted messages: {e}"))?;
+            spill_artifact(&self.dir, &serialized).map_err(|e| format!("spilling demoted messages: {e}"))?;
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_spill_that_cannot_be_written_is_reported_to_the_caller() {
+        let dir = rho_test_support::TestDir::new();
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, "file").unwrap();
+        let hook = ArtifactDemotionHook::new(blocker.join("artifacts"));
+        let messages = [ChatMessage::user("hi")];
+        assert!(hook.on_demote("session", &messages).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_spill_writes_the_demoted_messages() {
+        let dir = rho_test_support::TestDir::new();
+        let hook = ArtifactDemotionHook::new(dir.join("artifacts"));
+        let messages = [ChatMessage::user("hi")];
+        hook.on_demote("session", &messages).await.unwrap();
+        let written: Vec<_> = std::fs::read_dir(dir.join("artifacts")).unwrap().collect();
+        assert_eq!(written.len(), 1);
     }
 }

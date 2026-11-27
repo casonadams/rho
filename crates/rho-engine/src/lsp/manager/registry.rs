@@ -1,7 +1,8 @@
 //! The process-wide registry of managers, one per workspace, and shutting them down.
 
 use super::{LspManager, SHUTDOWN_BUDGET};
-use crate::lsp::support::{canonical, lock};
+use crate::lsp::support::lock;
+use crate::paths::canonical_or_parent;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -12,7 +13,7 @@ static MANAGERS: LazyLock<Mutex<HashMap<PathBuf, Arc<LspManager>>>> = LazyLock::
 /// The manager registered for `workspace` (by its resolved path), made by `init` the first time.
 pub(super) fn managed(workspace: &Path, init: impl FnOnce() -> Arc<LspManager>) -> Arc<LspManager> {
     let mut managers = lock(&MANAGERS);
-    Arc::clone(managers.entry(canonical(workspace)).or_insert_with(init))
+    Arc::clone(managers.entry(canonical_or_parent(workspace)).or_insert_with(init))
 }
 
 /// Shuts down the servers of `workspace` and forgets its manager, so a later [`LspManager::for_workspace`]
@@ -26,7 +27,7 @@ pub async fn shutdown_workspace(workspace: &Path) {
 /// Drops the registry's hold on the manager of `workspace`. Without other holders its clients drop,
 /// and dropping a client kills its server's process group; usable where nothing can be awaited.
 pub fn forget_workspace(workspace: &Path) -> Option<Arc<LspManager>> {
-    lock(&MANAGERS).remove(&canonical(workspace))
+    lock(&MANAGERS).remove(&canonical_or_parent(workspace))
 }
 
 #[cfg(test)]
@@ -36,7 +37,7 @@ pub(crate) fn register_manager(manager: &Arc<LspManager>) {
 
 #[cfg(test)]
 pub(crate) fn is_registered(workspace: &Path) -> bool {
-    lock(&MANAGERS).contains_key(&canonical(workspace))
+    lock(&MANAGERS).contains_key(&canonical_or_parent(workspace))
 }
 
 /// Shuts down the servers of every workspace in this process.

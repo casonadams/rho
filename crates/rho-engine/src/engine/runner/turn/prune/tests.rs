@@ -20,16 +20,18 @@ fn prune_historical_tool_outputs(
     prune_historical_tool_outputs_with_policy(messages, &policy)
 }
 
-fn make_tool_turn(cid: &str, tool: &str, cmd: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
-    let call = ToolCall::new(
-        cid,
-        ToolFunction::new(tool.to_string(), serde_json::json!({ "command": cmd })),
-    );
+fn tool_turn(
+    cid: &str,
+    name: &str,
+    args: serde_json::Value,
+    content: Vec<ToolResultContent>,
+) -> (ChatMessage, ChatMessage) {
+    let call = ToolCall::new(cid, ToolFunction::new(name.to_string(), args));
     let res = ToolResult {
         call: cid.to_string(),
         provider: None,
-        name: tool.to_string(),
-        content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
+        name: name.to_string(),
+        content,
     };
     (
         ChatMessage::Assistant {
@@ -42,25 +44,21 @@ fn make_tool_turn(cid: &str, tool: &str, cmd: &str, tool_output: &str) -> (ChatM
     )
 }
 
-fn make_read_turn(cid: &str, path: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
-    let call = ToolCall::new(
+fn make_tool_turn(cid: &str, tool: &str, cmd: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
+    tool_turn(
         cid,
-        ToolFunction::new("read".to_string(), serde_json::json!({ "path": path })),
-    );
-    let res = ToolResult {
-        call: cid.to_string(),
-        provider: None,
-        name: "read".to_string(),
-        content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
-    };
-    (
-        ChatMessage::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
-        ChatMessage::User {
-            content: vec![UserContent::ToolResult(res)],
-        },
+        tool,
+        serde_json::json!({ "command": cmd }),
+        vec![ToolResultContent::Text(TextContent::new(tool_output))],
+    )
+}
+
+fn make_read_turn(cid: &str, path: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
+    tool_turn(
+        cid,
+        "read",
+        serde_json::json!({ "path": path }),
+        vec![ToolResultContent::Text(TextContent::new(tool_output))],
     )
 }
 
@@ -70,49 +68,23 @@ fn make_image_read_turn(
     tool_output: &str,
     media_type: Option<&str>,
 ) -> (ChatMessage, ChatMessage) {
-    let call = ToolCall::new(
+    tool_turn(
         cid,
-        ToolFunction::new("read".to_string(), serde_json::json!({ "path": path })),
-    );
-    let res = ToolResult {
-        call: cid.to_string(),
-        provider: None,
-        name: "read".to_string(),
-        content: vec![
+        "read",
+        serde_json::json!({ "path": path }),
+        vec![
             ToolResultContent::Text(TextContent::new(tool_output)),
             ToolResultContent::image("iVBORw0KGgoAAAANSUhEUgA=", media_type.map(str::to_string)),
         ],
-    };
-    (
-        ChatMessage::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
-        ChatMessage::User {
-            content: vec![UserContent::ToolResult(res)],
-        },
     )
 }
 
 fn make_search_turn(cid: &str, tool: &str, pattern: &str, tool_output: &str) -> (ChatMessage, ChatMessage) {
-    let call = ToolCall::new(
+    tool_turn(
         cid,
-        ToolFunction::new(tool.to_string(), serde_json::json!({ "pattern": pattern })),
-    );
-    let res = ToolResult {
-        call: cid.to_string(),
-        provider: None,
-        name: tool.to_string(),
-        content: vec![ToolResultContent::Text(TextContent::new(tool_output))],
-    };
-    (
-        ChatMessage::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(call)],
-        },
-        ChatMessage::User {
-            content: vec![UserContent::ToolResult(res)],
-        },
+        tool,
+        serde_json::json!({ "pattern": pattern }),
+        vec![ToolResultContent::Text(TextContent::new(tool_output))],
     )
 }
 

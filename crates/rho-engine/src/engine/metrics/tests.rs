@@ -33,9 +33,9 @@ fn tracker_counts_tool_errors_and_denials_separately() {
     let tracker = RunTracker::default();
     tracker.start("model", PromptCacheKey::default());
     tracker.tool_called();
-    tracker.tool_finished("denied");
+    tracker.tool_finished(ToolOutcome::Denied);
     tracker.tool_called();
-    tracker.tool_finished("error");
+    tracker.tool_finished(ToolOutcome::Error);
     let metrics = tracker.terminate("session", TerminalStatus::Failed);
 
     assert_eq!(metrics.tool_calls, 2);
@@ -47,7 +47,7 @@ fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
     let tracker = RunTracker::default();
     tracker.start("model", PromptCacheKey::default());
     tracker.tool_called();
-    tracker.tool_finished("success");
+    tracker.tool_finished(ToolOutcome::Success);
     tracker
         .complete(CompletionOutcome {
             session_id,

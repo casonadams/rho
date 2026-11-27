@@ -1,4 +1,4 @@
-use sha2::{Digest, Sha256};
+use crate::digest::sha256_hex;
 use std::collections::HashSet;
 
 /// Provider tool-name limit shared by OpenAI and Anthropic (`^[a-zA-Z0-9_-]{1,64}$`).
@@ -18,8 +18,7 @@ pub fn wire_name(server: &str, tool: &str) -> String {
     if name.len() <= MAX_WIRE_NAME_LEN {
         return name;
     }
-    let digest = Sha256::digest(format!("{server}\0{tool}").as_bytes());
-    let suffix: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let suffix = sha256_hex(format!("{server}\0{tool}"));
     let keep = MAX_WIRE_NAME_LEN - HASH_SUFFIX_LEN - 1;
     format!("{}_{}", &name[..keep], &suffix[..HASH_SUFFIX_LEN])
 }

@@ -1,3 +1,4 @@
+use crate::paths::canonical_or_self;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -15,8 +16,7 @@ pub struct RepeatedCallTracker {
 
 impl RepeatedCallTracker {
     pub fn new(working_dir: impl AsRef<Path>) -> Self {
-        let p = working_dir.as_ref();
-        let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let canonical = canonical_or_self(working_dir.as_ref());
         Self {
             working_dir: canonical,
             key: None,

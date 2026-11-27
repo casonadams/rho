@@ -70,11 +70,11 @@ impl GeminiClient {
     }
 
     async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
-        let effective_thinking = request
-            .thinking_level
-            .map(|level| level.concrete_or_default().as_str())
-            .or(self.thinking_level.as_deref());
-        let body = build_request_body(&self.model, effective_thinking, request);
+        let body = build_request_body(
+            &self.model,
+            request.effective_thinking(self.thinking_level.as_deref()),
+            request,
+        );
         post_json_checked(&self.stream_url(), self.headers()?, &body).await
     }
 }

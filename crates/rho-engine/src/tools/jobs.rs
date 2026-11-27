@@ -78,8 +78,10 @@ impl JobCompletion {
     /// is sent before the job stops counting as running, so a waiting turn cannot miss it.
     pub(crate) fn finish(mut self, status: JobStatus, notice: Option<String>) {
         self.finished = true;
-        if let (Some(deliver), Some(notice)) = (&self.deliver, notice.filter(|_| !self.cancel.is_cancelled())) {
-            let _ = deliver.send(Envelope::new(Party::System, self.owner.clone(), Kind::Event, notice));
+        if let (Some(deliver), Some(notice)) = (&self.deliver, notice.filter(|_| !self.cancel.is_cancelled()))
+            && let Err(error) = deliver.send(Envelope::new(Party::System, self.owner.clone(), Kind::Event, notice))
+        {
+            tracing::warn!("delivering the notice for job {} failed: {error:?}", self.id);
         }
         self.jobs.update_status(&self.id, status);
     }
@@ -103,8 +105,12 @@ fn evict_finished(registry: &mut Registry) {
         };
         if let Some(job) = registry.jobs.remove(&id)
             && let Some(path) = job.log_path
+            && let Err(error) = std::fs::remove_file(&path)
         {
-            let _ = std::fs::remove_file(path);
+            tracing::warn!(
+                "removing the log of an evicted job, {}, failed: {error}",
+                path.display()
+            );
         }
     }
 }

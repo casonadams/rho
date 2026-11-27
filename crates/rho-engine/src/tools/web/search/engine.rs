@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::tools::web::http::HttpClient;
+use crate::tools::web::http::{HttpClient, HttpRequest};
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 use crate::tools::web::search::query::{
     build_search_query_with_filters, matches_domain_filters, normalize_domain_filters,
@@ -8,7 +8,7 @@ use crate::tools::web::search::query::{
 use crate::tools::web::search::result::{SearchResult, deduplicate_results};
 use crate::tools::web::search::{brave, ddg_lite, exa, yahoo};
 use rho_harness_core::args::WebSearchRecency;
-use rho_harness_core::config::SUPPORTED_SEARCH_ENGINES;
+use rho_harness_core::config::SearchEngine;
 use rho_harness_core::error::AppError;
 use url::Url;
 
@@ -31,29 +31,13 @@ impl EngineKind {
     }
 }
 
-impl std::fmt::Display for EngineKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Brave => write!(f, "brave"),
-            Self::DuckDuckGoLite => write!(f, "duckduckgo"),
-            Self::Yahoo => write!(f, "yahoo"),
-            Self::Exa => write!(f, "exa"),
-        }
-    }
-}
-
-impl std::str::FromStr for EngineKind {
-    type Err = AppError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "brave" => Ok(Self::Brave),
-            "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" => Ok(Self::DuckDuckGoLite),
-            "yahoo" => Ok(Self::Yahoo),
-            "exa" => Ok(Self::Exa),
-            other => Err(AppError::Config(format!(
-                "Unknown search engine '{other}'. Supported engines: {SUPPORTED_SEARCH_ENGINES}"
-            ))),
+impl From<SearchEngine> for EngineKind {
+    fn from(engine: SearchEngine) -> Self {
+        match engine {
+            SearchEngine::Brave => Self::Brave,
+            SearchEngine::DuckDuckGo => Self::DuckDuckGoLite,
+            SearchEngine::Yahoo => Self::Yahoo,
+            SearchEngine::Exa => Self::Exa,
         }
     }
 }
@@ -63,18 +47,19 @@ pub fn default_engine_chain() -> Vec<EngineKind> {
 }
 
 pub fn resolve_engine_chain(default: &str, fallback: &[String]) -> Result<Vec<EngineKind>, AppError> {
-    let mut engines = Vec::new();
-    let default_engine: EngineKind = default.parse()?;
-    engines.push(default_engine);
-
+    let mut engines = vec![parse_engine(default)?];
     for item in fallback {
-        let engine: EngineKind = item.parse()?;
+        let engine = parse_engine(item)?;
         if !engines.contains(&engine) {
             engines.push(engine);
         }
     }
-
     Ok(engines)
+}
+
+fn parse_engine(name: &str) -> Result<EngineKind, AppError> {
+    let engine: SearchEngine = name.parse().map_err(AppError::Config)?;
+    Ok(engine.into())
 }
 
 pub struct EngineRequest<'a> {
@@ -87,6 +72,20 @@ pub struct EngineRequest<'a> {
     pub allowed_domains: &'a [String],
     pub blocked_domains: &'a [String],
     pub auth_file: Option<&'a Path>,
+}
+
+pub async fn fetch_results_page(req: &EngineRequest<'_>, url: &str, user_agent: &str) -> Result<String, AppError> {
+    let resp = req
+        .http
+        .get_text(HttpRequest {
+            url,
+            user_agent: Some(user_agent),
+            timeout_sec: req.timeout_sec,
+            max_bytes: 2_000_000,
+            pdf_max_bytes: None,
+        })
+        .await?;
+    Ok(resp.body)
 }
 
 pub struct MultiEngineParams<'a> {
@@ -212,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_engine_kind_parsing() {
-        let cases = [
+        for (input, expected) in [
             ("brave", EngineKind::Brave),
             ("duckduckgo", EngineKind::DuckDuckGoLite),
             ("ddg", EngineKind::DuckDuckGoLite),
@@ -220,24 +219,22 @@ mod tests {
             ("yahoo", EngineKind::Yahoo),
             ("exa", EngineKind::Exa),
             ("EXA", EngineKind::Exa),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(input.parse::<EngineKind>().unwrap(), expected);
+        ] {
+            assert_eq!(resolve_engine_chain(input, &[]).unwrap(), vec![expected]);
         }
-        assert!("unknown".parse::<EngineKind>().is_err());
-        assert!("gemini".parse::<EngineKind>().is_err());
+        assert!(resolve_engine_chain("unknown", &[]).is_err());
+        assert!(resolve_engine_chain("brave", &["gemini".to_string()]).is_err());
     }
 
     #[test]
-    fn test_engine_kind_display_and_name() {
+    fn test_engine_kind_name() {
         let cases = [
-            (EngineKind::Brave, "brave", "Brave"),
-            (EngineKind::DuckDuckGoLite, "duckduckgo", "DuckDuckGo Lite"),
-            (EngineKind::Yahoo, "yahoo", "Yahoo"),
-            (EngineKind::Exa, "exa", "Exa"),
+            (EngineKind::Brave, "Brave"),
+            (EngineKind::DuckDuckGoLite, "DuckDuckGo Lite"),
+            (EngineKind::Yahoo, "Yahoo"),
+            (EngineKind::Exa, "Exa"),
         ];
-        for (engine, display, name) in cases {
-            assert_eq!(engine.to_string(), display);
+        for (engine, name) in cases {
             assert_eq!(engine.name(), name);
         }
     }

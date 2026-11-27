@@ -148,10 +148,7 @@ async fn fresh_cache_entries_start_without_contacting_the_server() {
     let server = test_server::spawn(standard(&["new_tool"], None)).await;
     let cfg = remote(&server.url);
     let config = config_with(dir.path(), vec![("srv", cfg.clone())]);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = crate::clock::unix_now_secs();
     stale_cache(&config, "srv", &cfg, now);
 
     let load = load_mcp(&config, dir.path(), &HashSet::new()).await;

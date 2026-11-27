@@ -1,3 +1,4 @@
+use serde::de::DeserializeOwned;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -56,7 +57,7 @@ pub async fn post_json_checked(
     })
 }
 
-pub async fn send_json_if_ok(request: reqwest::RequestBuilder) -> Option<serde_json::Value> {
+pub async fn send_json_if_ok<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Option<T> {
     let response = request.send().await.ok()?;
     if !response.status().is_success() {
         return None;
@@ -75,7 +76,10 @@ pub(crate) async fn get_json(
         .map_err(|e| failed(format!("request failed: {e}")))?;
     let status = response.status();
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("(failed to read error body: {e})"));
         return Err(failed(format!("returned HTTP {status}: {}", backend_message(&body))));
     }
     response
@@ -161,7 +165,7 @@ mod tests {
         ];
         for (status, body, expect_json) in cases {
             let url = serve_http(vec![(status, body.to_string())]).await;
-            let value = send_json_if_ok(CLIENT.get(&url)).await;
+            let value: Option<serde_json::Value> = send_json_if_ok(CLIENT.get(&url)).await;
             assert_eq!(
                 value.map(|v| v["ok"].clone()),
                 expect_json.then_some(serde_json::Value::Bool(true)),

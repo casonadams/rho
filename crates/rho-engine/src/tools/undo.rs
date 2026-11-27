@@ -43,10 +43,15 @@ struct Undoing {
 /// The file's contents before a change: `Some(None)` when it does not exist yet, `None` when it
 /// could not be read, in which case the change must not be recorded (undo would delete the file).
 pub async fn read_before(path: &Path) -> Option<Option<Vec<u8>>> {
+    read_current(path).await.ok()
+}
+
+/// `None` when the file does not exist; other read failures are errors, not a missing file.
+async fn read_current(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     match tokio::fs::read(path).await {
-        Ok(bytes) => Some(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(None),
-        Err(_) => None,
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -187,27 +192,26 @@ impl UndoTool {
     }
 
     async fn undo(&self, clean_path: &str) -> Result<String, String> {
-        let message = self.restore(clean_path).await?;
-        if let (Some(lsp), Ok(path)) = (
-            &self.lsp,
-            resolve_tool_path(&Workspace::new(self.base_dir.get()), clean_path, "undo"),
-        ) {
+        let path =
+            resolve_tool_path(&Workspace::new(self.base_dir.get()), clean_path, "undo").map_err(|e| e.content)?;
+        let message = self.restore(&path, clean_path).await?;
+        if let Some(lsp) = &self.lsp {
             lsp.refresh_after_write(&[path]).await;
         }
         Ok(message)
     }
 
-    async fn restore(&self, clean_path: &str) -> Result<String, String> {
-        let path =
-            resolve_tool_path(&Workspace::new(self.base_dir.get()), clean_path, "undo").map_err(|e| e.content)?;
-        let current = tokio::fs::read(&path).await.ok();
+    async fn restore(&self, path: &Path, clean_path: &str) -> Result<String, String> {
+        let current = read_current(path)
+            .await
+            .map_err(|error| format!("reading {clean_path}: {error}; nothing was changed"))?;
         let Undoing {
             before,
             after,
             created_dirs,
-        } = self.history.peek_if_current(&path, current.as_deref())?;
+        } = self.history.peek_if_current(path, current.as_deref())?;
         let Some(before) = before else {
-            tokio::fs::remove_file(&path)
+            tokio::fs::remove_file(path)
                 .await
                 .map_err(|error| format!("removing {clean_path}: {error}; nothing was changed"))?;
             let removed = remove_empty_dirs(&created_dirs).await;
@@ -217,15 +221,15 @@ impl UndoTool {
                     0 => String::new(),
                     n => format!(" (and {})", crate::tools::listing::count_noun(n, "empty directory")),
                 },
-                self.more(&path)
+                self.more(path)
             ));
         };
-        atomic_write(&path, &before)
+        atomic_write(path, &before)
             .await
             .map_err(|error| format!("writing {clean_path}: {error}; nothing was changed"))?;
         let mut message = format!(
             "Restored {clean_path} to its contents before the last change{}",
-            self.more(&path)
+            self.more(path)
         );
         if let (Ok(old), Ok(new)) = (std::str::from_utf8(&after), std::str::from_utf8(&before)) {
             let regions = changed_regions(old, new);

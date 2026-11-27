@@ -2,45 +2,22 @@
 //! proactive auto-compaction, and sequential compaction accumulation.
 
 mod branch {
-    use rho_harness_core::config::Config;
+    use super::common::test_engine;
     use rho_harness_core::model::ChatMessage;
     use std::sync::Arc;
 
-    use crate::auth::AuthStore;
-    use crate::engine::AgentEngine;
-    use crate::engine::builder::AgentEngineBuilder;
-    use crate::provider::adapter::{MockAdapter, ModelAdapter};
-
-    async fn test_engine(
-        label: &str,
-        model: Option<Arc<dyn ModelAdapter>>,
-    ) -> (AgentEngine, crate::test_support::TestDir) {
-        let dir = crate::test_support::TestDir::with_prefix(&format!("branch_{label}_"));
-        let config = Config {
-            sessions_dir: dir.join("sessions"),
-            auth_file: dir.join("auth.json"),
-            ..Default::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let mut builder = AgentEngineBuilder::new(config, auth_store)
-            .base_dir(dir.to_path_buf())
-            .tools(Vec::new());
-        if let Some(m) = model {
-            builder = builder.model(m);
-        }
-        (builder.build().await.unwrap(), dir)
-    }
+    use crate::provider::adapter::MockAdapter;
 
     #[tokio::test]
     async fn test_summarize_branch_empty_messages() {
-        let (engine, _dir) = test_engine("empty", None).await;
+        let (engine, _dir) = test_engine("empty", None, None).await;
         let summary = engine.summarize_branch(&[]).await;
         assert!(summary.is_empty());
     }
 
     #[tokio::test]
     async fn test_summarize_branch_fallback_when_no_model() {
-        let (engine, _dir) = test_engine("fallback", None).await;
+        let (engine, _dir) = test_engine("fallback", None, None).await;
 
         let messages = vec![
             ChatMessage::user("Investigate memory optimization in parser"),
@@ -56,7 +33,7 @@ mod branch {
     async fn test_summarize_branch_with_llm_model() {
         let mock_response = "# Goal\nOptimize AST memory usage\n\n# Key Decisions\nReplaced clones with Arc";
         let model = Arc::new(MockAdapter::text(mock_response));
-        let (engine, _dir) = test_engine("llm", Some(model)).await;
+        let (engine, _dir) = test_engine("llm", None, Some(model)).await;
 
         let messages = vec![
             ChatMessage::user("Investigate memory optimization"),
@@ -72,7 +49,7 @@ mod branch {
         let secret = "sk-ant-api03-abcdefghijklmnop1234567890abcdefghijklmnop";
         let mock_response = format!("# Critical Context\nDiscovered secret: {secret}");
         let model = Arc::new(MockAdapter::text(&mock_response));
-        let (engine, _dir) = test_engine("redact", Some(model)).await;
+        let (engine, _dir) = test_engine("redact", None, Some(model)).await;
         engine
             .session_manager
             .add_secrets_async(vec![secret.to_string()])
@@ -443,6 +420,37 @@ mod compactor {
 }
 
 mod common {
+    use crate::auth::AuthStore;
+    use crate::engine::AgentEngine;
+    use crate::engine::builder::AgentEngineBuilder;
+    use crate::provider::adapter::ModelAdapter;
+    use crate::test_support::TestDir;
+    use rho_harness_core::config::Config;
+    use std::sync::Arc;
+
+    pub async fn test_engine(
+        label: &str,
+        keep_recent_tokens: Option<usize>,
+        model: Option<Arc<dyn ModelAdapter>>,
+    ) -> (AgentEngine, TestDir) {
+        let dir = TestDir::with_prefix(&format!("compactor_{label}_"));
+        let mut config = Config {
+            sessions_dir: dir.join("sessions"),
+            auth_file: dir.join("auth.json"),
+            ..Default::default()
+        };
+        if let Some(keep) = keep_recent_tokens {
+            config.keep_recent_tokens = keep;
+        }
+        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+        let mut builder = AgentEngineBuilder::new(config, auth_store)
+            .base_dir(dir.to_path_buf())
+            .tools(Vec::new());
+        if let Some(m) = model {
+            builder = builder.model(m);
+        }
+        (builder.build().await.unwrap(), dir)
+    }
 
     pub async fn append_test_messages(
         sm: &rho_harness_core::session::SessionManager,
@@ -454,7 +462,7 @@ mod common {
 }
 
 mod orchestrator {
-    use super::common;
+    use super::common::{self, test_engine};
     use rho_harness_core::config::Config;
     use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
     use rho_harness_core::session::tree::TreeNodeKind;
@@ -463,27 +471,6 @@ mod orchestrator {
     use crate::auth::AuthStore;
     use crate::engine::builder::AgentEngineBuilder;
     use crate::provider::adapter::MockAdapter;
-
-    async fn test_engine(
-        label: &str,
-        model: Option<Arc<MockAdapter>>,
-    ) -> (crate::engine::AgentEngine, crate::test_support::TestDir) {
-        let dir = crate::test_support::TestDir::with_prefix(&format!("orchestrator_{label}_"));
-        let config = Config {
-            sessions_dir: dir.join("sessions"),
-            auth_file: dir.join("auth.json"),
-            keep_recent_tokens: 10,
-            ..Default::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let mut builder = AgentEngineBuilder::new(config, auth_store)
-            .base_dir(dir.to_path_buf())
-            .tools(Vec::new());
-        if let Some(m) = model {
-            builder = builder.model(m);
-        }
-        (builder.build().await.unwrap(), dir)
-    }
 
     fn tool_turn(cid: &str, tool: &str, path: &str, user: &str, done: &str) -> Vec<ChatMessage> {
         let call = ToolCall::new(cid, ToolFunction::new(tool, serde_json::json!({"path": path})));
@@ -519,7 +506,7 @@ mod orchestrator {
         let mock = Arc::new(MockAdapter::text(
             "## Goal\nRefactor session storage\n\n## Progress\n### Done\n- [x] Read files",
         ));
-        let (engine, _dir) = test_engine("file_tracking", Some(mock)).await;
+        let (engine, _dir) = test_engine("file_tracking", Some(10), Some(mock)).await;
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
 
@@ -555,7 +542,7 @@ mod orchestrator {
         use crate::engine::metrics::StructuralUsage;
 
         let mock = Arc::new(MockAdapter::text("## Summary\nPrior work completed"));
-        let (engine, _dir) = test_engine("usage_preservation", Some(mock)).await;
+        let (engine, _dir) = test_engine("usage_preservation", Some(10), Some(mock)).await;
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
 
@@ -584,7 +571,7 @@ mod orchestrator {
         use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
 
         let mock = Arc::new(MockAdapter::text("## Summary\nPrior work completed"));
-        let (engine, _dir) = test_engine("compaction_cache", Some(mock)).await;
+        let (engine, _dir) = test_engine("compaction_cache", Some(10), Some(mock)).await;
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
         engine.run_tracker.completion(
@@ -613,7 +600,7 @@ mod orchestrator {
             },
         ];
         let mock = Arc::new(MockAdapter::text("## Summary\nPrior work completed"));
-        let (engine, _dir) = test_engine("todo_carry_over", Some(mock)).await;
+        let (engine, _dir) = test_engine("todo_carry_over", Some(10), Some(mock)).await;
         let sm = &engine.session_manager;
         let session_id = sm.session_id.clone();
         let call = ToolCall::new("todo-1", ToolFunction::new("todo", serde_json::json!({})));
@@ -649,7 +636,7 @@ mod orchestrator {
 
     #[tokio::test]
     async fn test_compact_session_empty_or_single_node() {
-        let (engine, _dir) = test_engine("empty_session", None).await;
+        let (engine, _dir) = test_engine("empty_session", Some(10), None).await;
         let stats = engine.compact_session(None).await.unwrap();
         assert_eq!(stats.saved_tokens, 0);
 
@@ -811,7 +798,7 @@ mod orchestrator {
     #[tokio::test]
     async fn test_compact_session_split_turn_prunes_prefix_messages() {
         let mock = Arc::new(MockAdapter::text("## Goal\nComplete huge operation"));
-        let (engine, _dir) = test_engine("split_turn", Some(mock)).await;
+        let (engine, _dir) = test_engine("split_turn", Some(10), Some(mock)).await;
         let sid = engine.session_manager.session_id.clone();
         common::append_test_messages(&engine.session_manager, &sid, split_turn_fixture()).await;
 
@@ -1047,34 +1034,12 @@ mod recovery {
 }
 
 mod sequential {
-    use super::common;
-    use rho_harness_core::config::Config;
+    use super::common::{self, test_engine};
     use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
     use rho_harness_core::session::tree::TreeNodeKind;
     use std::sync::Arc;
 
-    use crate::auth::AuthStore;
-    use crate::engine::AgentEngine;
-    use crate::engine::builder::AgentEngineBuilder;
     use crate::provider::adapter::MockAdapter;
-
-    async fn test_engine(label: &str, model: Option<Arc<MockAdapter>>) -> (AgentEngine, crate::test_support::TestDir) {
-        let dir = crate::test_support::TestDir::with_prefix(&format!("sequential_{label}_"));
-        let config = Config {
-            sessions_dir: dir.join("sessions"),
-            auth_file: dir.join("auth.json"),
-            keep_recent_tokens: 10,
-            ..Default::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let mut builder = AgentEngineBuilder::new(config, auth_store)
-            .base_dir(dir.to_path_buf())
-            .tools(Vec::new());
-        if let Some(m) = model {
-            builder = builder.model(m);
-        }
-        (builder.build().await.unwrap(), dir)
-    }
 
     fn file_turn(call_id: &str, tool: &str, path: &str) -> Vec<ChatMessage> {
         let call = ToolCall::new(call_id, ToolFunction::new(tool, serde_json::json!({"path": path})));
@@ -1144,7 +1109,7 @@ mod sequential {
             "## Goal\nPrefix 2".to_string(),
         ))]);
 
-        let (engine, _dir) = test_engine("seq", Some(mock.clone())).await;
+        let (engine, _dir) = test_engine("seq", Some(10), Some(mock.clone())).await;
         let sid = engine.session_manager.session_id.clone();
 
         append_file_turns(

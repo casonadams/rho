@@ -1,5 +1,5 @@
+use crate::digest::sha256_hex;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -8,11 +8,7 @@ const JOURNAL_SUFFIX: &str = ".journal.jsonl";
 
 /// Identifies one agent step's inputs: the same agent given the same prompt gets the same key.
 pub(crate) fn step_key(agent: &str, prompt: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(agent.as_bytes());
-    hasher.update([0]);
-    hasher.update(prompt.as_bytes());
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    sha256_hex([agent.as_bytes(), &[0], prompt.as_bytes()].concat())
 }
 
 /// Agent results a finished or interrupted run produced, reused by a run that resumes it.

@@ -1,3 +1,4 @@
+use crate::paths::canonical_or_self;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -98,8 +99,8 @@ fn load_ancestry_instructions(dirs: &[PathBuf], files: &mut Vec<(String, String)
 }
 
 fn ancestry_chain(base: &Path, root: &Path) -> Vec<PathBuf> {
-    let canonical_base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_base = canonical_or_self(base);
+    let canonical_root = canonical_or_self(root);
 
     if let Ok(rel) = canonical_base.strip_prefix(&canonical_root) {
         let mut chain = vec![root.to_path_buf()];
@@ -123,8 +124,7 @@ fn load_single_instruction_file(
     if !file_path.is_file() {
         return;
     }
-    let canonical = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
-    if seen.insert(canonical)
+    if seen.insert(canonical_or_self(file_path))
         && let Ok(content) = std::fs::read_to_string(file_path)
     {
         let base_dir = file_path.parent().unwrap_or(dir);
@@ -133,27 +133,31 @@ fn load_single_instruction_file(
     }
 }
 
+pub(super) const CANDIDATE_FILES: [&str; 4] = ["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", ".cursorrules"];
+
+pub(super) fn rules_files(dir: &Path) -> Vec<PathBuf> {
+    let rules_dir = dir.join("rules");
+    let Ok(entries) = std::fs::read_dir(&rules_dir) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
+        .collect();
+    paths.sort();
+    paths
+}
+
 fn load_candidate_instructions(dir: &Path, files: &mut Vec<(String, String)>, seen: &mut HashSet<PathBuf>) {
     if !dir.is_dir() {
         return;
     }
-    let candidates = ["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", ".cursorrules"];
-    for filename in candidates {
-        load_single_instruction_file(&dir.join(filename), dir, files, seen);
-    }
-
-    let rules_dir = dir.join("rules");
-    if rules_dir.is_dir()
-        && let Ok(entries) = std::fs::read_dir(&rules_dir)
-    {
-        let mut paths: Vec<_> = entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
-            .collect();
-        paths.sort();
-        for file_path in paths {
-            load_single_instruction_file(&file_path, dir, files, seen);
-        }
+    let candidates = CANDIDATE_FILES
+        .iter()
+        .map(|name| dir.join(name))
+        .chain(rules_files(dir));
+    for file_path in candidates {
+        load_single_instruction_file(&file_path, dir, files, seen);
     }
 }

@@ -316,7 +316,10 @@ impl AgentEngineBuilder {
         let router = ModelRouter::new(shared_auth, self.model_catalog.clone());
         let model = self.resolve_model(&router).await?;
 
-        let history_messages = session_manager.active_messages().await.unwrap_or_default();
+        let history_messages = session_manager.active_messages().await.unwrap_or_else(|error| {
+            tracing::warn!(%error, "could not load session history; starting without it");
+            Vec::new()
+        });
         let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
 
         let lsp = match self.lsp.take() {

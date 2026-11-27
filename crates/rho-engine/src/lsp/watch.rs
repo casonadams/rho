@@ -3,7 +3,8 @@
 
 use super::client::file_uri;
 use super::manager::LspManager;
-use super::support::{canonical, lock};
+use super::support::{lock, log_failure};
+use crate::paths::canonical_or_parent;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -45,7 +46,7 @@ impl LspManager {
     /// Announces files rho just rewrote and gives each server that has one open its new contents and
     /// a save, so its diagnostics follow the file instead of the text it held before.
     pub async fn refresh_after_write(&self, paths: &[PathBuf]) {
-        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical_or_parent(path)).collect();
         self.bump_epochs(&paths);
         for client in self.running_clients() {
             let inside: Vec<&PathBuf> = paths.iter().filter(|path| path.starts_with(&client.root)).collect();
@@ -58,8 +59,8 @@ impl LspManager {
                     unopened.push((file_uri(path), file_change(path)));
                 }
             }
-            let _ = client.sync_open_documents_from_disk().await;
-            let _ = client.did_change_watched_files(&unopened);
+            log_failure("document sync", client.sync_open_documents_from_disk().await);
+            log_failure("watched file change", client.did_change_watched_files(&unopened));
             for path in open {
                 if let Ok(text) = tokio::fs::read_to_string(path).await {
                     let _ = client.did_save(path, &text).await;
@@ -76,7 +77,10 @@ impl LspManager {
     /// How many times rho has changed `path` through [`LspManager::files_changed`] or
     /// [`LspManager::files_created`].
     pub fn change_count(&self, path: &Path) -> u64 {
-        lock(&self.epochs.files).get(&canonical(path)).copied().unwrap_or(0)
+        lock(&self.epochs.files)
+            .get(&canonical_or_parent(path))
+            .copied()
+            .unwrap_or(0)
     }
 
     fn bump_epochs(&self, paths: &[PathBuf]) {
@@ -93,7 +97,7 @@ impl LspManager {
     }
 
     fn announce(&self, paths: &[PathBuf], kind: impl Fn(&Path) -> FileChange) {
-        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical_or_parent(path)).collect();
         self.bump_epochs(&paths);
         for client in self.running_clients() {
             let changes: Vec<(String, FileChange)> = paths
@@ -101,7 +105,7 @@ impl LspManager {
                 .filter(|path| path.starts_with(&client.root))
                 .map(|path| (file_uri(path), kind(path)))
                 .collect();
-            let _ = client.did_change_watched_files(&changes);
+            log_failure("watched file change", client.did_change_watched_files(&changes));
         }
     }
 }

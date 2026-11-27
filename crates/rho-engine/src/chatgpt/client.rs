@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::auth::token::{StaticTokenProvider, TokenProvider};
 use crate::http::{bearer, header_value, post_json_checked};
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
-use crate::provider::error::{HttpFailure, HttpResult};
+use crate::provider::error::{HttpFailure, HttpResult, retry_once_after_unauthorized};
 use crate::provider::sse::open_sse_stream;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
@@ -146,17 +146,15 @@ impl ChatGptClient {
         post_json_checked(&self.target_url(), self.headers(token)?, &body).await
     }
 
-    async fn retry_post_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
-        let fresh = self.token_provider.force_refresh().await.map_err(HttpFailure::Local)?;
-        self.post_stream(&fresh, request).await
-    }
-
     pub async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
         let token = self.token_provider.token().await.map_err(HttpFailure::Local)?;
-        match self.post_stream(&token, request).await {
-            Err(failure) if failure.status_code() == Some(401) => self.retry_post_stream(request).await,
-            other => other,
-        }
+        retry_once_after_unauthorized(
+            self.token_provider.as_ref(),
+            token,
+            |token| async move { self.post_stream(&token, request).await },
+            |error, _| HttpFailure::Local(error),
+        )
+        .await
     }
 }
 

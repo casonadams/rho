@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::path::Path;
 
+pub use rho_harness_core::text::format_size;
+
 pub const DEFAULT_MAX_LINES: usize = 2000;
 pub const DEFAULT_MAX_BYTES: usize = 50 * 1024; // 50 KB
 /// Max chars per search match line (pi's `GREP_MAX_LINE_LENGTH`).
@@ -35,17 +37,6 @@ pub struct Truncation {
     pub first_line_exceeds_limit: bool,
     pub max_lines: usize,
     pub max_bytes: usize,
-}
-
-/// Format bytes as human-readable size (pi's `formatSize`).
-pub fn format_size(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{bytes}B")
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
-    }
 }
 
 /// A single line passed through [`truncate_line`].
@@ -252,13 +243,6 @@ pub fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_format_size() {
-        assert_eq!(format_size(512), "512B");
-        assert_eq!(format_size(DEFAULT_MAX_BYTES), "50.0KB");
-        assert_eq!(format_size(1024 * 1024), "1.0MB");
-    }
 
     #[test]
     fn test_truncate_line_keeps_short_lines_unmarked() {

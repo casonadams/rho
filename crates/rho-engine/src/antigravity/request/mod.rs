@@ -30,11 +30,7 @@ pub fn new_envelope() -> Envelope {
     let mut bytes = [0u8; 8];
     rand::fill(&mut bytes);
     Envelope {
-        request_id: format!(
-            "agent/{}/{}",
-            uuid::Uuid::new_v4(),
-            chrono::Utc::now().timestamp_millis()
-        ),
+        request_id: format!("agent/{}/{}", uuid::Uuid::new_v4(), crate::clock::unix_now_ms()),
         session_id: i64::from_le_bytes(bytes).to_string(),
     }
 }

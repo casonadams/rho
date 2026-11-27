@@ -1,8 +1,9 @@
 //! Google OAuth token exchange and user info endpoints.
 
 use crate::auth::token_request::{TokenResponse, post_form_json};
-use crate::http::CLIENT;
+use crate::http::{CLIENT, send_json_if_ok};
 use rho_harness_core::error::{AppError, Result};
+use serde::Deserialize;
 use std::time::Duration;
 
 pub const GOOGLE_CLIENT_ID: &str = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
@@ -41,20 +42,18 @@ pub(super) async fn exchange_code(token_url: &str, code: &str, verifier: &str) -
     Ok(token)
 }
 
+#[derive(Deserialize)]
+struct UserInfo {
+    email: Option<String>,
+}
+
 pub(super) async fn fetch_user_email(userinfo_url: &str, access_token: &str) -> Option<String> {
-    let client = &CLIENT;
-    let res = client
+    let request = CLIENT
         .get(userinfo_url)
         .timeout(Duration::from_secs(15))
-        .bearer_auth(access_token)
-        .send()
-        .await
-        .ok()?;
-    if !res.status().is_success() {
-        return None;
-    }
-    let value: serde_json::Value = res.json().await.ok()?;
-    value.get("email").and_then(|v| v.as_str()).map(String::from)
+        .bearer_auth(access_token);
+    let info: UserInfo = send_json_if_ok(request).await?;
+    info.email
 }
 
 pub(super) async fn refresh_google_token(token_url: &str, refresh: &str) -> Result<TokenResponse> {

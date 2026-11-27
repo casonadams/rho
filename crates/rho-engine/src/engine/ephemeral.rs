@@ -282,35 +282,12 @@ pub fn format_recap_text(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::engine::eval::mock::mock_engine_in_dir;
     use crate::engine::runner::TurnRequest;
     use crate::provider::adapter::{FinishReason, MockAdapter, ModelAdapter, ModelStreamEvent};
-    use crate::test_support::temp_dir;
     use async_trait::async_trait;
-    use rho_harness_core::config::Config;
     use rho_harness_core::model::{ToolCall, ToolFunction};
     use std::sync::Arc;
-
-    fn test_engine_with_model(
-        label: &str,
-        model: Arc<dyn ModelAdapter>,
-    ) -> (AgentEngine, crate::test_support::TestDir) {
-        let dir = temp_dir(label);
-        let engine = mock_engine(
-            model,
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config: Config {
-                    sessions_dir: dir.join("sessions"),
-                    auth_file: dir.join("auth.json"),
-                    ..Config::default()
-                },
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
-        (engine, dir)
-    }
 
     #[tokio::test]
     async fn ephemeral_turn_preserves_preamble_and_tools_and_does_not_mutate_session_or_dispatch_tools() {
@@ -332,7 +309,7 @@ mod tests {
             Ok(ModelStreamEvent::Finish(FinishReason::Stop)),
         ]);
 
-        let (engine, _dir) = test_engine_with_model("ephemeral-cache", model.clone());
+        let (engine, _dir) = mock_engine_in_dir("ephemeral-cache", model.clone());
         let presenter = Arc::new(crate::engine::eval::presenter::NoopPresenter);
         engine
             .run_turn(TurnRequest::new("hello"), presenter)
@@ -390,7 +367,7 @@ mod tests {
     #[tokio::test]
     async fn ephemeral_turn_handles_partial_assistant_without_breaking_alternation() {
         let model = Arc::new(MockAdapter::text("side answer"));
-        let (engine, _dir) = test_engine_with_model("ephemeral-partial", model.clone());
+        let (engine, _dir) = mock_engine_in_dir("ephemeral-partial", model.clone());
         engine
             .session_manager
             .extend_checkpoint(vec![ChatMessage::user("in-flight user prompt")])
@@ -452,7 +429,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn ephemeral_turn_aborts_cleanly_on_cancellation() {
-        let (engine, _dir) = test_engine_with_model("ephemeral-cancel", Arc::new(HangingStreamModel));
+        let (engine, _dir) = mock_engine_in_dir("ephemeral-cancel", Arc::new(HangingStreamModel));
         let signal = CancellationSignal::default();
         let cancel_handle = signal.clone();
         tokio::spawn(async move {
@@ -476,7 +453,7 @@ mod tests {
 
     #[tokio::test]
     async fn ephemeral_turn_errors_clearly_when_model_is_missing() {
-        let (mut engine, _dir) = test_engine_with_model("ephemeral-no-model", Arc::new(MockAdapter::default()));
+        let (mut engine, _dir) = mock_engine_in_dir("ephemeral-no-model", Arc::new(MockAdapter::default()));
         engine.model = None;
         let err = engine
             .run_ephemeral_turn(
@@ -538,7 +515,7 @@ mod tests {
         let model = Arc::new(MockAdapter::text(
             "<recap>Adding ephemeral turn support.\nNext: wire /btw.</recap>",
         ));
-        let (engine, _dir) = test_engine_with_model("ephemeral-recap", model);
+        let (engine, _dir) = mock_engine_in_dir("ephemeral-recap", model);
 
         let empty = engine.generate_recap(CancellationSignal::default()).await.unwrap();
         assert_eq!(empty, None);

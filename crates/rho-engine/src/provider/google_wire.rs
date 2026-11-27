@@ -1,5 +1,6 @@
-//! Antigravity wire format definitions and JSON deserialization schemas.
+//! Google Generative Language wire format shared by the Gemini and Antigravity SSE parsers.
 
+use crate::antigravity::request::sanitize_tool_call_id;
 use crate::engine::metrics::types::Usage;
 use crate::provider::adapter::FinishReason;
 use serde::Deserialize;
@@ -86,6 +87,34 @@ pub(crate) struct StreamError {
     pub(crate) message: Option<Value>,
 }
 
+impl StreamError {
+    pub(crate) fn message_text(&self, fallback: &str) -> String {
+        match &self.message {
+            Some(Value::String(text)) => text.clone(),
+            Some(other) => other.to_string(),
+            None => fallback.to_string(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ToolCallIds {
+    next_minted: u64,
+}
+
+impl ToolCallIds {
+    pub(crate) fn resolve(&mut self, provided: Option<&str>) -> String {
+        match provided.filter(|id| !id.is_empty()) {
+            Some(id) => sanitize_tool_call_id(id),
+            None => {
+                let index = self.next_minted;
+                self.next_minted += 1;
+                format!("call-{index}")
+            }
+        }
+    }
+}
+
 pub(crate) fn usage_from_metadata(metadata: &UsageMetadata) -> Usage {
     let mut usage = Usage::new();
     usage.input_tokens = Some(
@@ -124,5 +153,21 @@ mod tests {
         ));
         assert!(matches!(map_finish_reason("BLOCKLIST"), FinishReason::ContentFilter));
         assert!(matches!(map_finish_reason("UNKNOWN"), FinishReason::Other));
+    }
+
+    #[test]
+    fn stream_error_text_uses_string_other_or_fallback() {
+        let text = |message| StreamError { code: None, message }.message_text("fallback");
+        assert_eq!(text(Some(Value::String("boom".into()))), "boom");
+        assert_eq!(text(Some(serde_json::json!({ "k": 1 }))), r#"{"k":1}"#);
+        assert_eq!(text(None), "fallback");
+    }
+
+    #[test]
+    fn tool_call_ids_keep_provider_ids_and_mint_missing_ones_in_order() {
+        let mut ids = ToolCallIds::default();
+        assert_eq!(ids.resolve(Some("fc-1")), "fc-1");
+        assert_eq!(ids.resolve(Some("")), "call-0");
+        assert_eq!(ids.resolve(None), "call-1");
     }
 }

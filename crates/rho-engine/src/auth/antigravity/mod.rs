@@ -13,18 +13,18 @@ use super::oauth::{
 };
 use crate::antigravity::load_project_id;
 use crate::auth::token_request::TokenResponse;
+use crate::digest::sha256_hex;
 use client::{
     CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL, REDIRECT_PORT,
     REDIRECT_URI_ENCODED, SCOPES, exchange_code, fetch_user_email, refresh_google_token,
 };
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
 use rho_harness_core::error::Result;
-use sha2::{Digest, Sha256};
 
 /// Stable UUID-shaped fallback project id derived from a seed (account email).
 pub fn stable_project_id(seed: &str) -> String {
-    let digest = Sha256::digest(format!("antigravity:{seed}").as_bytes());
-    let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    let digest = sha256_hex(format!("antigravity:{seed}"));
+    let hex = &digest[..32];
     format!(
         "{}-{}-{}-{}-{}",
         &hex[..8],

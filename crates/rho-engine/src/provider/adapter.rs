@@ -38,6 +38,15 @@ pub struct ModelCompletionRequest {
     pub thinking_level: Option<ThinkingLevel>,
 }
 
+impl ModelCompletionRequest {
+    /// The request's thinking level when set (auto resolved to medium), else `default`.
+    pub fn effective_thinking<'a>(&self, default: Option<&'a str>) -> Option<&'a str> {
+        self.thinking_level
+            .map(|level| level.concrete_or_default().as_str())
+            .or(default)
+    }
+}
+
 /// Tool-call arguments as streamed by a provider: empty input means no arguments, and text that is not
 /// valid JSON is kept as `{"raw": text}` so the tool layer rejects it instead of running on made-up input.
 pub fn parse_tool_arguments(raw: &str) -> serde_json::Value {

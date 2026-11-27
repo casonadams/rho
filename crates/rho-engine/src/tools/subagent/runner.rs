@@ -358,9 +358,13 @@ impl SubagentRunner {
 
     /// Round-level snapshots look for changes made outside the agent's tools, which a worktree rules
     /// out; they run only in real sessions, which have a project directory.
-    async fn round_snapshot(&self, root: &std::path::Path, previous: Option<&Snapshot>) -> Option<Snapshot> {
+    async fn round_snapshot(
+        &self,
+        root: &std::path::Path,
+        previous: Option<&Snapshot>,
+    ) -> Result<Option<Snapshot>, String> {
         if self.isolated || self.ctx.project.is_none() {
-            return None;
+            return Ok(None);
         }
         Snapshot::take(root, previous).await
     }
@@ -427,9 +431,10 @@ impl SubagentRunner {
             tracker.finish(self.final_status(&drive.end));
         }
         let evidence = recorder.take();
-        let after = self.round_snapshot(&root, before.as_ref()).await;
+        let previous = before.as_ref().ok().and_then(Option::as_ref);
+        let after = self.round_snapshot(&root, previous).await;
         let (workspace_changes, workspace_complete) = match (&before, &after) {
-            (Some(before), Some(after)) => {
+            (Ok(Some(before)), Ok(Some(after))) => {
                 let changes = after.changes_since(before, &root);
                 let files = changes
                     .files
@@ -440,6 +445,10 @@ impl SubagentRunner {
                     })
                     .collect();
                 (files, changes.complete)
+            }
+            (Err(error), _) | (_, Err(error)) => {
+                tracing::warn!("subagent workspace snapshot failed: {error}");
+                (evidence.bash_workspace_changes(&root), false)
             }
             _ => (evidence.bash_workspace_changes(&root), true),
         };

@@ -77,12 +77,6 @@ fn is_tool_allowed(name: &str, cfg: &McpServerConfig) -> bool {
     cfg.include_tools.as_deref().is_none_or(matches)
 }
 
-fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
-
 fn format_resource_list(resources: &[McpResourceDefinition]) -> String {
     if resources.is_empty() {
         return "No resources.".to_string();
@@ -320,7 +314,7 @@ impl McpRuntime {
         let cfg = self.servers.get(server)?;
         let cache = self.cache.lock().await;
         let entry = cache.get_valid(server, &compute_definition_hash(cfg))?;
-        let fresh = entry.updated_at + CACHE_REFRESH_AFTER.as_secs() > unix_now();
+        let fresh = entry.updated_at + CACHE_REFRESH_AFTER.as_secs() > crate::clock::unix_now_secs();
         let snapshot = ServerSnapshot {
             tools: entry.tools.clone(),
             instructions: entry.instructions.clone(),
@@ -361,7 +355,9 @@ impl McpRuntime {
             snapshot.tools.clone(),
             snapshot.instructions.clone(),
         );
-        let _ = cache.save_to_dir(&self.config_dir);
+        if let Err(error) = cache.save_to_dir(&self.config_dir) {
+            tracing::warn!("saving the MCP tool cache for {server} failed: {error}");
+        }
         Ok(snapshot)
     }
 

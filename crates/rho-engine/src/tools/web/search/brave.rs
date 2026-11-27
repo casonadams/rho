@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 
-use crate::tools::web::http::{BRAVE_CHROME_UA, HttpRequest};
-use crate::tools::web::search::engine::EngineRequest;
-use crate::tools::web::search::query::urlencoding_encode;
+use crate::tools::web::http::BRAVE_CHROME_UA;
+use crate::tools::web::search::engine::{EngineRequest, fetch_results_page};
+use crate::tools::web::search::query::{recency_param, urlencoding_encode};
 use crate::tools::web::search::result::SearchResult;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
@@ -18,13 +18,7 @@ static CONTENT_SEL: LazyLock<Selector> = LazyLock::new(|| {
 });
 
 pub fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
-    let tf_param = match recency {
-        Some(WebSearchRecency::Day) => "&tf=pd",
-        Some(WebSearchRecency::Week) => "&tf=pw",
-        Some(WebSearchRecency::Month) => "&tf=pm",
-        Some(WebSearchRecency::Year) => "&tf=py",
-        None => "",
-    };
+    let tf_param = recency_param(recency, "tf", ["pd", "pw", "pm", "py"]);
     format!(
         "https://search.brave.com/search?q={}&source=web{tf_param}",
         urlencoding_encode(query)
@@ -33,17 +27,8 @@ pub fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> Strin
 
 pub async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     let url = brave_search_url(req.query, req.recency);
-    let resp = req
-        .http
-        .get_text(HttpRequest {
-            url: &url,
-            user_agent: Some(BRAVE_CHROME_UA),
-            timeout_sec: req.timeout_sec,
-            max_bytes: 2_000_000,
-            pdf_max_bytes: None,
-        })
-        .await?;
-    Ok(parse_brave_html(&resp.body))
+    let body = fetch_results_page(req, &url, BRAVE_CHROME_UA).await?;
+    Ok(parse_brave_html(&body))
 }
 
 pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {

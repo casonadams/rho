@@ -1,8 +1,8 @@
 use std::sync::LazyLock;
 
-use crate::tools::web::http::{HttpRequest, LYNX_UA};
-use crate::tools::web::search::engine::EngineRequest;
-use crate::tools::web::search::query::urlencoding_encode;
+use crate::tools::web::http::LYNX_UA;
+use crate::tools::web::search::engine::{EngineRequest, fetch_results_page};
+use crate::tools::web::search::query::{recency_param, urlencoding_encode};
 use crate::tools::web::search::result::SearchResult;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
@@ -15,13 +15,7 @@ static SNIPPET_SEL: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("td.result-snippet").expect("valid selector"));
 
 pub fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchRecency>) -> String {
-    let df_param = match recency {
-        Some(WebSearchRecency::Day) => "&df=d",
-        Some(WebSearchRecency::Week) => "&df=w",
-        Some(WebSearchRecency::Month) => "&df=m",
-        Some(WebSearchRecency::Year) => "&df=y",
-        None => "",
-    };
+    let df_param = recency_param(recency, "df", ["d", "w", "m", "y"]);
     format!(
         "https://lite.duckduckgo.com/lite/?q={}&kl={}{df_param}",
         urlencoding_encode(query),
@@ -31,17 +25,8 @@ pub fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchR
 
 pub async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     let url = ddg_lite_search_url(req.query, req.region, req.recency);
-    let resp = req
-        .http
-        .get_text(HttpRequest {
-            url: &url,
-            user_agent: Some(LYNX_UA),
-            timeout_sec: req.timeout_sec,
-            max_bytes: 2_000_000,
-            pdf_max_bytes: None,
-        })
-        .await?;
-    Ok(parse_ddg_lite_html(&resp.body))
+    let body = fetch_results_page(req, &url, LYNX_UA).await?;
+    Ok(parse_ddg_lite_html(&body))
 }
 
 pub fn decode_ddg_url(raw: &str) -> String {

@@ -43,14 +43,21 @@ fn settled(decision: Decision) -> Option<PermissionAction> {
     }
 }
 
+fn report_policy_warnings(presenter: &dyn Presenter, warnings: &[String]) {
+    for warning in warnings {
+        presenter.print_notice(warning);
+    }
+}
+
 impl PermissionHook {
     pub fn new(working_dir: Option<PathBuf>, presenter: Arc<dyn Presenter>) -> Self {
-        let policy = load_policy(working_dir.as_deref());
+        let loaded = load_policy(working_dir.as_deref());
+        report_policy_warnings(presenter.as_ref(), &loaded.warnings);
         Self {
             policy_dir: working_dir.clone(),
             working_dir,
             presenter,
-            policy: Arc::new(RwLock::new(policy)),
+            policy: Arc::new(RwLock::new(loaded.policy)),
             guard_evaluator: None,
             guard_all_tools: false,
             mcp_servers: Vec::new(),
@@ -241,9 +248,10 @@ impl PermissionHook {
             Some(pattern) => save_custom_pattern(&target, req.tool, drafts, pattern)?,
             None => save_drafts_or_fallback(&target, req.tool, req.args, drafts)?,
         }
-        let new_policy = load_policy(self.policy_dir.as_deref());
+        let loaded = load_policy(self.policy_dir.as_deref());
+        report_policy_warnings(self.presenter.as_ref(), &loaded.warnings);
         let mut guard = self.policy.write().await;
-        *guard = new_policy;
+        *guard = loaded.policy;
         Ok(())
     }
 

@@ -1,6 +1,9 @@
-use crate::permission::policy::{Policy, build_policy, load_policy, parse_scope_from_str, project_config_path};
+use crate::permission::policy::{
+    LoadedPolicy, Policy, build_policy, load_policy, parse_scope_from_str, project_config_path,
+};
 use crate::permission::{Decision, EvalRequest, decide_tool_call};
 use crate::test_support::temp_dir;
+use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::path::Path;
 
@@ -147,23 +150,16 @@ fn setup_hierarchical_dirs() -> (crate::test_support::TestDir, crate::test_suppo
     (global_dir, project_dir)
 }
 
-fn load_test_policy_with_env(global_dir: &std::path::Path, project_dir: &std::path::Path) -> Policy {
-    let _guard = super::ENV_LOCK.blocking_lock();
-    unsafe {
-        std::env::set_var("RHO_HOME", global_dir);
-    }
-    let p = load_policy(Some(project_dir));
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
-    p
+fn load_test_policy_with_env(global_dir: &std::path::Path, project_dir: &std::path::Path) -> LoadedPolicy {
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.to_string_lossy());
+    load_policy(Some(project_dir))
 }
 
 #[test]
 fn load_policy_discovers_project_and_global_hierarchies() {
     let (global_dir, project_dir) = setup_hierarchical_dirs();
     assert!(project_config_path(Some(&project_dir)).is_some());
-    let policy = load_test_policy_with_env(&global_dir, &project_dir);
+    let policy = load_test_policy_with_env(&global_dir, &project_dir).policy;
 
     let cases = [
         ("global_cmd run", Decision::Allow),
@@ -185,6 +181,47 @@ fn load_policy_discovers_project_and_global_hierarchies() {
 }
 
 #[test]
+fn malformed_global_policy_warns_and_keeps_project_rules() {
+    let (global_dir, project_dir) = setup_hierarchical_dirs();
+    std::fs::write(global_dir.join("permission.toml"), "[permission\n").unwrap();
+    let loaded = load_test_policy_with_env(&global_dir, &project_dir);
+
+    assert_eq!(loaded.warnings.len(), 1, "{:?}", loaded.warnings);
+    assert!(loaded.warnings[0].contains("permission.toml"), "{:?}", loaded.warnings);
+    assert_eq!(
+        decide_with(&loaded.policy, "bash", json!({"command": "project_cmd run"})),
+        Decision::Allow
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_project_policy_warns_instead_of_failing_silently() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (global_dir, project_dir) = setup_hierarchical_dirs();
+    let project_file = project_dir.join(".rho/permission.toml");
+    std::fs::set_permissions(&project_file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let loaded = load_test_policy_with_env(&global_dir, &project_dir);
+    std::fs::set_permissions(&project_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    assert_eq!(loaded.warnings.len(), 1, "{:?}", loaded.warnings);
+    assert_eq!(
+        decide_with(&loaded.policy, "bash", json!({"command": "global_cmd run"})),
+        Decision::Allow
+    );
+}
+
+#[test]
+fn missing_policy_files_are_not_warnings() {
+    let (global_dir, project_dir) = setup_hierarchical_dirs();
+    std::fs::remove_file(global_dir.join("permission.toml")).unwrap();
+    let loaded = load_test_policy_with_env(&global_dir, &project_dir);
+
+    assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+}
+
+#[test]
 fn load_policy_discovers_dot_config_rho_fallback() {
     let project_dir = tempfile::tempdir().unwrap();
     let perm_file = project_dir.path().join(".config/rho/permission.toml");
@@ -192,7 +229,7 @@ fn load_policy_discovers_dot_config_rho_fallback() {
 
     assert_eq!(project_config_path(Some(project_dir.path())), Some(perm_file));
 
-    let policy = load_policy(Some(project_dir.path()));
+    let policy = load_policy(Some(project_dir.path())).policy;
     assert_eq!(
         decide_with(&policy, "bash", json!({"command": "fallback_cmd run"})),
         Decision::Allow

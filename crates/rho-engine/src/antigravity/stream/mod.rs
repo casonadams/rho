@@ -1,40 +1,27 @@
 //! Antigravity wire format, stream side: SSE chunk decoding into
 //! canonical streaming events.
 
-pub mod wire;
-
 #[cfg(test)]
 mod tests;
 
-pub use wire::map_finish_reason;
-use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, usage_from_metadata};
-
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
+use crate::provider::google_wire::{
+    StreamCandidate, StreamChunk, StreamError, StreamFunctionCall, StreamPart, ToolCallIds, usage_from_metadata,
+};
 use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ToolCall, ToolFunction};
-use serde_json::Value;
-
-use super::request::sanitize_tool_call_id;
 
 /// Incremental SSE parser for Antigravity `streamGenerateContent?alt=sse`.
 #[derive(Default)]
 pub struct SseParser {
     decoder: SseLineDecoder,
     reasoning_signature: Option<String>,
-    next_minted_tool: u64,
+    tool_ids: ToolCallIds,
 }
 
-fn format_chunk_error(error: &wire::StreamError) -> String {
-    match &error.message {
-        Some(Value::String(text)) => text.clone(),
-        Some(other) => other.to_string(),
-        None => "unknown provider error".to_string(),
-    }
-}
-
-fn chunk_error(error: &wire::StreamError) -> AppError {
-    let message = format_chunk_error(error);
+fn chunk_error(error: &StreamError) -> AppError {
+    let message = error.message_text("unknown provider error");
     match error.code {
         Some(status) => {
             crate::provider::error::HttpFailure::status(status, message).into_app_error(|_, body| body.to_string())
@@ -95,14 +82,7 @@ impl SseParser {
     ) {
         let sig = signature.or_else(|| self.reasoning_signature.take());
         self.close_reasoning();
-        let sanitized = sanitize_tool_call_id(call.id.as_deref().unwrap_or_default());
-        let id = if call.id.as_deref().is_some_and(|id| !id.is_empty()) {
-            sanitized
-        } else {
-            let index = self.next_minted_tool;
-            self.next_minted_tool += 1;
-            format!("call-{index}")
-        };
+        let id = self.tool_ids.resolve(call.id.as_deref());
         let mut tool_call = ToolCall::new(id, ToolFunction::new(call.name, call.args));
         tool_call.signature = sig;
         events.push(Ok(ModelStreamEvent::ToolCall(tool_call)));

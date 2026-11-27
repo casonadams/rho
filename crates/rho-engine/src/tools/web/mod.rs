@@ -16,6 +16,8 @@ pub mod fetch;
 pub mod http;
 pub mod rate_limiter;
 pub mod search;
+#[cfg(test)]
+mod test_server;
 
 pub use fetch::cache::FetchCache;
 pub use fetch::{WebFetchConfig, WebFetchTool};

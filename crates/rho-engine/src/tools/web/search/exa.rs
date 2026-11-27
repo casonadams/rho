@@ -11,6 +11,7 @@ use crate::tools::web::search::engine::EngineRequest;
 use crate::tools::web::search::result::SearchResult;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
+use rho_harness_core::text::truncate_chars;
 
 const EXA_API_URL: &str = "https://api.exa.ai/search";
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_exa";
@@ -41,16 +42,24 @@ pub async fn resolve_exa_api_key(auth_file: Option<&Path>) -> Option<String> {
 }
 
 async fn resolve_exa_api_key_with_env(auth_file: Option<&Path>, env_fallback: Option<String>) -> Option<String> {
-    if let Some(path) = auth_file {
-        let mut store = AuthStore::load_async(path).await.unwrap_or_default();
-        if let Ok(Some(key)) = store.get_key(EXA_AUTH_PROVIDER).await {
-            let trimmed = key.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-    env_fallback.map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
+    let from_file = match auth_file {
+        Some(path) => exa_key_from_auth_file(path).await,
+        None => None,
+    };
+    from_file.or_else(|| env_fallback.map(|k| k.trim().to_string()).filter(|k| !k.is_empty()))
+}
+
+async fn exa_key_from_auth_file(path: &Path) -> Option<String> {
+    let mut store = AuthStore::load_async(path)
+        .await
+        .inspect_err(|error| tracing::warn!("reading {} for the Exa API key failed: {error}", path.display()))
+        .ok()?;
+    let key = store
+        .get_key(EXA_AUTH_PROVIDER)
+        .await
+        .inspect_err(|error| tracing::warn!("resolving the Exa API key failed: {error}"))
+        .ok()??;
+    Some(key.trim().to_string()).filter(|k| !k.is_empty())
 }
 
 pub fn recency_to_start_published_date(recency: WebSearchRecency, now: DateTime<Utc>) -> String {
@@ -69,21 +78,23 @@ pub fn build_exa_api_body(req: &EngineRequest<'_>, now: DateTime<Utc>) -> Value 
     body.insert("numResults".into(), json!(req.limit.clamp(1, 20)));
     body.insert("type".into(), json!("auto"));
     body.insert("contents".into(), json!({ "summary": { "query": req.query } }));
+    insert_native_filters(&mut body, req, now);
+    Value::Object(body)
+}
 
+fn insert_native_filters(arguments: &mut Map<String, Value>, req: &EngineRequest<'_>, now: DateTime<Utc>) {
     if !req.allowed_domains.is_empty() {
-        body.insert("includeDomains".into(), json!(req.allowed_domains));
+        arguments.insert("includeDomains".into(), json!(req.allowed_domains));
     }
     if !req.blocked_domains.is_empty() {
-        body.insert("excludeDomains".into(), json!(req.blocked_domains));
+        arguments.insert("excludeDomains".into(), json!(req.blocked_domains));
     }
     if let Some(recency) = req.recency {
-        body.insert(
+        arguments.insert(
             "startPublishedDate".into(),
             json!(recency_to_start_published_date(recency, now)),
         );
     }
-
-    Value::Object(body)
 }
 
 fn has_native_filters(req: &EngineRequest<'_>) -> bool {
@@ -96,18 +107,7 @@ pub fn build_exa_mcp_body(req: &EngineRequest<'_>, request_id: &str, now: DateTi
     arguments.insert("numResults".into(), json!(req.limit.clamp(1, 20)));
 
     let tool_name = if has_native_filters(req) {
-        if !req.allowed_domains.is_empty() {
-            arguments.insert("includeDomains".into(), json!(req.allowed_domains));
-        }
-        if !req.blocked_domains.is_empty() {
-            arguments.insert("excludeDomains".into(), json!(req.blocked_domains));
-        }
-        if let Some(recency) = req.recency {
-            arguments.insert(
-                "startPublishedDate".into(),
-                json!(recency_to_start_published_date(recency, now)),
-            );
-        }
+        insert_native_filters(&mut arguments, req, now);
         "web_search_advanced_exa"
     } else {
         "web_search_exa"
@@ -204,11 +204,11 @@ async fn search_exa_mcp(req: &EngineRequest<'_>, endpoint: &str) -> Result<Vec<S
 
 fn truncate_text(raw: &str, max_chars: usize) -> String {
     let trimmed = raw.trim();
-    if trimmed.chars().count() <= max_chars {
+    let (_, cut) = truncate_chars(trimmed, max_chars);
+    if !cut {
         return trimmed.to_string();
     }
-    let keep = max_chars.saturating_sub(3);
-    let prefix: String = trimmed.chars().take(keep).collect();
+    let (prefix, _) = truncate_chars(trimmed, max_chars.saturating_sub(3));
     format!("{}...", prefix.trim_end())
 }
 
@@ -522,66 +522,16 @@ fn parse_mcp_text_blocks(result: &Value) -> Option<Vec<SearchResult>> {
 mod tests {
     use super::*;
     use crate::tools::web::http::HttpClient;
+    use crate::tools::web::test_server::{CannedResponse, serve_once};
     use chrono::TimeZone;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    async fn read_full_http_request(socket: &mut tokio::net::TcpStream) -> String {
-        let mut buf = Vec::new();
-        let mut chunk = [0u8; 4096];
-        let header_end = loop {
-            let n = socket.read(&mut chunk).await.unwrap();
-            if n == 0 {
-                return String::from_utf8_lossy(&buf).to_string();
-            }
-            buf.extend_from_slice(&chunk[..n]);
-            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                break pos + 4;
-            }
-        };
-        let headers = String::from_utf8_lossy(&buf[..header_end]);
-        let content_length = headers
-            .lines()
-            .find_map(|line| {
-                let (name, val) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| val.trim().parse::<usize>().ok())
-                    .flatten()
-            })
-            .unwrap_or(0);
-        while buf.len() < header_end + content_length {
-            let n = socket.read(&mut chunk).await.unwrap();
-            if n == 0 {
-                break;
-            }
-            buf.extend_from_slice(&chunk[..n]);
-        }
-        String::from_utf8_lossy(&buf).to_string()
-    }
 
     async fn spawn_mock_http_server(
         status: &'static str,
         content_type: &'static str,
         response_body: String,
     ) -> (String, tokio::sync::oneshot::Receiver<String>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let raw_req = read_full_http_request(&mut socket).await;
-            let _ = tx.send(raw_req);
-
-            let resp = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
-                response_body.len()
-            );
-            let _ = socket.write_all(resp.as_bytes()).await;
-            let _ = socket.shutdown().await;
-        });
-
-        (format!("http://{addr}/search"), rx)
+        let (base, captured) = serve_once(CannedResponse::new(status, content_type, response_body)).await;
+        (format!("{base}search"), captured)
     }
 
     fn test_request<'a>(
@@ -865,5 +815,14 @@ mod tests {
         store.set_key(EXA_AUTH_PROVIDER, "exa-stored-key-123").unwrap();
         let stored_resolved = resolve_exa_api_key_with_env(Some(&auth_path), Some("exa-env-key-456".to_string())).await;
         assert_eq!(stored_resolved.as_deref(), Some("exa-stored-key-123"));
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_auth_file_falls_back_to_env() {
+        let dir = rho_test_support::TestDir::new();
+        let auth_path = dir.join("auth.json");
+        std::fs::write(&auth_path, "not json").unwrap();
+        let resolved = resolve_exa_api_key_with_env(Some(&auth_path), Some("exa-env-key-456".to_string())).await;
+        assert_eq!(resolved.as_deref(), Some("exa-env-key-456"));
     }
 }

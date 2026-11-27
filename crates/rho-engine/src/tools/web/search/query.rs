@@ -1,3 +1,4 @@
+use rho_harness_core::args::WebSearchRecency;
 use url::Url;
 
 fn parse_host_str(input: &str) -> Option<String> {
@@ -104,6 +105,17 @@ pub fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) 
     append_allowed_sites(&mut parts, &allowed);
     append_blocked_sites(&mut parts, &blocked);
     parts.join(" ").trim().to_string()
+}
+
+pub fn recency_param(recency: Option<WebSearchRecency>, key: &str, values: [&str; 4]) -> String {
+    let index = match recency {
+        None => return String::new(),
+        Some(WebSearchRecency::Day) => 0,
+        Some(WebSearchRecency::Week) => 1,
+        Some(WebSearchRecency::Month) => 2,
+        Some(WebSearchRecency::Year) => 3,
+    };
+    format!("&{key}={}", values[index])
 }
 
 pub fn urlencoding_encode(s: &str) -> String {

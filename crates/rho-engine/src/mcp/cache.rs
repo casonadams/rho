@@ -1,8 +1,8 @@
 use super::client::McpToolDefinition;
+use crate::digest::sha256_hex;
 use rho_harness_core::config::McpServerConfig;
 use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -25,54 +25,53 @@ pub struct McpCache {
 }
 
 pub fn compute_definition_hash(config: &McpServerConfig) -> String {
-    let mut hasher = Sha256::new();
+    let mut bytes = Vec::new();
     if let Some(cmd) = &config.command {
-        hasher.update(b"command:");
-        hasher.update(cmd.as_bytes());
-        hasher.update(b"\n");
+        bytes.extend_from_slice(b"command:");
+        bytes.extend_from_slice(cmd.as_bytes());
+        bytes.extend_from_slice(b"\n");
     }
     for arg in &config.args {
-        hasher.update(b"arg:");
-        hasher.update(arg.as_bytes());
-        hasher.update(b"\n");
+        bytes.extend_from_slice(b"arg:");
+        bytes.extend_from_slice(arg.as_bytes());
+        bytes.extend_from_slice(b"\n");
     }
     for (k, v) in &config.env {
-        hasher.update(b"env:");
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
-        hasher.update(b"\n");
+        bytes.extend_from_slice(b"env:");
+        bytes.extend_from_slice(k.as_bytes());
+        bytes.extend_from_slice(b"=");
+        bytes.extend_from_slice(v.as_bytes());
+        bytes.extend_from_slice(b"\n");
     }
     if let Some(url) = &config.url {
-        hasher.update(b"url:");
-        hasher.update(url.as_bytes());
-        hasher.update(b"\n");
+        bytes.extend_from_slice(b"url:");
+        bytes.extend_from_slice(url.as_bytes());
+        bytes.extend_from_slice(b"\n");
     }
     for (k, v) in &config.headers {
-        hasher.update(b"header:");
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
-        hasher.update(b"\n");
+        bytes.extend_from_slice(b"header:");
+        bytes.extend_from_slice(k.as_bytes());
+        bytes.extend_from_slice(b"=");
+        bytes.extend_from_slice(v.as_bytes());
+        bytes.extend_from_slice(b"\n");
     }
-    update_with_json(&mut hasher, "transport", &config.transport);
-    update_with_json(&mut hasher, "oauth", &config.oauth);
-    update_with_json(&mut hasher, "mode", &config.mode);
-    update_with_json(&mut hasher, "include_tools", &config.include_tools);
-    update_with_json(&mut hasher, "exclude_tools", &config.exclude_tools);
-    update_with_json(&mut hasher, "direct_tools", &config.direct_tools);
-    update_with_json(&mut hasher, "instructions", &config.instructions);
-    let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    update_with_json(&mut bytes, "transport", &config.transport);
+    update_with_json(&mut bytes, "oauth", &config.oauth);
+    update_with_json(&mut bytes, "mode", &config.mode);
+    update_with_json(&mut bytes, "include_tools", &config.include_tools);
+    update_with_json(&mut bytes, "exclude_tools", &config.exclude_tools);
+    update_with_json(&mut bytes, "direct_tools", &config.direct_tools);
+    update_with_json(&mut bytes, "instructions", &config.instructions);
+    sha256_hex(bytes)
 }
 
 /// Unset fields add nothing, so approvals of configs that predate a field stay valid.
-fn update_with_json<T: Serialize>(hasher: &mut Sha256, label: &str, value: &Option<T>) {
+fn update_with_json<T: Serialize>(bytes: &mut Vec<u8>, label: &str, value: &Option<T>) {
     if let Some(value) = value {
-        hasher.update(label.as_bytes());
-        hasher.update(b":");
-        hasher.update(serde_json::to_vec(value).unwrap_or_default());
-        hasher.update(b"\n");
+        bytes.extend_from_slice(label.as_bytes());
+        bytes.extend_from_slice(b":");
+        bytes.extend_from_slice(&serde_json::to_vec(value).unwrap_or_default());
+        bytes.extend_from_slice(b"\n");
     }
 }
 
@@ -102,20 +101,10 @@ impl McpCache {
     }
 
     pub fn save_to_path(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let serialized = serde_json::to_string_pretty(self)
+        let serialized = serde_json::to_vec_pretty(self)
             .map_err(|e| AppError::Config(format!("Failed to serialize MCP cache: {e}")))?;
-
-        let tmp_path = path.with_extension(format!("tmp.{}", uuid::Uuid::new_v4()));
-        std::fs::write(&tmp_path, serialized)
-            .map_err(|e| AppError::Config(format!("Failed to write MCP cache temporary file: {e}")))?;
-
-        std::fs::rename(&tmp_path, path)
-            .map_err(|e| AppError::Config(format!("Failed to atomically rename MCP cache file: {e}")))?;
-
-        Ok(())
+        rho_harness_core::fs::write_atomic(path, &serialized, 0o600)
+            .map_err(|e| AppError::Config(format!("Failed to save MCP cache: {e}")))
     }
 
     pub fn get_valid(&self, server_name: &str, current_hash: &str) -> Option<&McpCacheEntry> {
@@ -131,10 +120,7 @@ impl McpCache {
         tools: Vec<McpToolDefinition>,
         instructions: Option<String>,
     ) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = crate::clock::unix_now_secs();
 
         self.servers.insert(
             server_name.to_string(),
@@ -254,9 +240,7 @@ mod tests {
         };
         assert_eq!(compute_definition_hash(&base), compute_definition_hash(&tuned));
 
-        let mut legacy = Sha256::new();
-        legacy.update(b"command:srv\n");
-        let expected: String = legacy.finalize().iter().map(|b| format!("{b:02x}")).collect();
+        let expected = sha256_hex(b"command:srv\n");
         assert_eq!(compute_definition_hash(&base), expected);
     }
 
@@ -282,6 +266,27 @@ mod tests {
         assert_eq!(loaded.get_valid("srv1", &hash).unwrap().tools.len(), 1);
         assert!(loaded.get_valid("srv1", "different_hash").is_none());
         assert!(loaded.get_valid("non_existent", &hash).is_none());
+    }
+
+    #[test]
+    fn saving_leaves_only_the_cache_file_and_fails_when_the_directory_is_blocked() {
+        let dir = rho_test_support::TestDir::new();
+        let path = dir.join("mcp").join(CACHE_FILE_NAME);
+        McpCache::default().save_to_path(&path).unwrap();
+        assert_eq!(McpCache::load_from_path(&path), McpCache::default());
+        let names: Vec<_> = std::fs::read_dir(dir.join("mcp"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, [CACHE_FILE_NAME]);
+
+        let blocker = dir.join("blocker");
+        std::fs::write(&blocker, "file").unwrap();
+        assert!(
+            McpCache::default()
+                .save_to_path(&blocker.join(CACHE_FILE_NAME))
+                .is_err()
+        );
     }
 
     #[test]

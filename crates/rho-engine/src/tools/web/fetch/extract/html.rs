@@ -1,3 +1,4 @@
+use super::FetchMode;
 use super::markdown::resolve_markdown_links;
 use rho_harness_core::error::{AppError, Result};
 use scraper::{ElementRef, Html, Selector};
@@ -155,15 +156,14 @@ fn try_main_mode(document: &Html, full_len: usize, base_url: &str, is_main: bool
     Ok(None)
 }
 
-pub fn extract_html(html: &str, response_url: &str, mode: &str) -> Result<String> {
+pub fn extract_html(html: &str, response_url: &str, mode: FetchMode) -> Result<String> {
     let document = Html::parse_document(html);
     let base_url = effective_base_url(&document, response_url);
     let full_raw = html_to_text(html, 120);
     let full_text = resolve_markdown_links(full_raw.trim(), &base_url);
 
-    let mode_lower = mode.to_lowercase();
-    if mode_lower != "full"
-        && let Some(main_out) = try_main_mode(&document, full_text.len(), &base_url, mode_lower == "main")?
+    if mode != FetchMode::Full
+        && let Some(main_out) = try_main_mode(&document, full_text.len(), &base_url, mode == FetchMode::Main)?
     {
         return Ok(main_out);
     }

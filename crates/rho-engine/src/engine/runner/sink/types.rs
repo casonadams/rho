@@ -1,4 +1,4 @@
-use crate::engine::metrics::RunTracker;
+use crate::engine::metrics::{RunTracker, ToolOutcome};
 use rho_harness_core::presentation::ActivityToken;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ pub struct CompletedTool {
     pub name: String,
     pub arguments: Value,
     pub output: String,
-    pub status: String,
+    pub status: ToolOutcome,
 }
 
 pub struct TurnArtifacts {

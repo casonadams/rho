@@ -157,7 +157,9 @@ fn cache_antigravity_project(store: &mut AuthStore, connection: &str, discovered
         if let StoredCredential::OAuth { ref mut account_id, .. } = cred {
             *account_id = Some(discovered.to_string());
         }
-        let _ = store.set_credential(connection, cred);
+        if let Err(err) = store.set_credential(connection, cred) {
+            tracing::warn!(connection, error = %err, "could not cache the antigravity project");
+        }
     }
 }
 

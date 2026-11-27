@@ -96,7 +96,7 @@ fn walk(root: &Path, extra: Vec<PathBuf>) -> Snapshot {
     Snapshot { files, complete }
 }
 
-async fn fingerprints(paths: BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Fingerprint> {
+async fn fingerprints(paths: BTreeSet<PathBuf>) -> Result<BTreeMap<PathBuf, Fingerprint>, String> {
     tokio::task::spawn_blocking(move || {
         paths
             .into_iter()
@@ -107,26 +107,33 @@ async fn fingerprints(paths: BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Fingerprint
             .collect()
     })
     .await
-    .unwrap_or_default()
+    .map_err(join_failure)
+}
+
+fn join_failure(error: tokio::task::JoinError) -> String {
+    format!("workspace snapshot task failed: {error}")
 }
 
 impl Snapshot {
     /// Snapshots `root`, also fingerprinting the files in `previous` so a file that became clean
     /// (committed or reverted) compares by content. `None` when `root` is not a directory.
-    pub(crate) async fn take(root: &Path, previous: Option<&Self>) -> Option<Self> {
+    pub(crate) async fn take(root: &Path, previous: Option<&Self>) -> Result<Option<Self>, String> {
         if !root.is_dir() {
-            return None;
+            return Ok(None);
         }
         let extra: Vec<PathBuf> = previous.map(|p| p.files.keys().cloned().collect()).unwrap_or_default();
         let Some(status) = git_status(root).await else {
             let root = root.to_path_buf();
-            return tokio::task::spawn_blocking(move || walk(&root, extra)).await.ok();
+            return tokio::task::spawn_blocking(move || walk(&root, extra))
+                .await
+                .map(Some)
+                .map_err(join_failure);
         };
         let paths: BTreeSet<PathBuf> = status.into_iter().chain(extra).collect();
-        Some(Self {
-            files: fingerprints(paths).await,
+        Ok(Some(Self {
+            files: fingerprints(paths).await?,
             complete: true,
-        })
+        }))
     }
 
     pub(crate) fn changes_since(&self, before: &Self, root: &Path) -> Changes {
@@ -154,32 +161,19 @@ fn change(root: &Path, path: &Path) -> WorkspaceChange {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::subagent::test_repo::{committed_repo, git};
 
     fn labels(changes: &BTreeSet<WorkspaceChange>) -> Vec<String> {
         changes.iter().map(WorkspaceChange::label).collect()
     }
 
-    fn repo() -> (tempfile::TempDir, PathBuf, impl Fn(&[&str])) {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        let cwd = root.clone();
-        let git_cmd = move |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(["-c", "user.email=t@e", "-c", "user.name=t"])
-                .args(args)
-                .current_dir(&cwd)
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .output()
-                .unwrap();
-            assert!(status.status.success(), "git {args:?}");
-        };
-        git_cmd(&["init", "--quiet", "-b", "main"]);
-        for file in ["kept.rs", "reverted.rs", "gone.rs", "edited.rs", "committed.rs"] {
-            std::fs::write(root.join(file), "v1").unwrap();
-        }
-        git_cmd(&["add", "."]);
-        git_cmd(&["commit", "--quiet", "-m", "init"]);
-        (dir, root, git_cmd)
+    fn repo() -> (rho_test_support::TestDir, PathBuf) {
+        let dir = rho_test_support::TestDir::new();
+        let root = committed_repo(
+            &dir,
+            &["kept.rs", "reverted.rs", "gone.rs", "edited.rs", "committed.rs"],
+        );
+        (dir, root)
     }
 
     #[test]
@@ -191,18 +185,18 @@ mod tests {
 
     #[tokio::test]
     async fn git_snapshots_report_content_changes_but_not_commits() {
-        let (_dir, root, git_cmd) = repo();
+        let (_dir, root) = repo();
         for file in ["reverted.rs", "edited.rs", "committed.rs"] {
             std::fs::write(root.join(file), "dirty").unwrap();
         }
-        let before = Snapshot::take(&root, None).await.unwrap();
+        let before = Snapshot::take(&root, None).await.unwrap().unwrap();
 
         std::fs::write(root.join("reverted.rs"), "v1").unwrap();
         std::fs::write(root.join("edited.rs"), "dirtier").unwrap();
         std::fs::remove_file(root.join("gone.rs")).unwrap();
         std::fs::write(root.join("new.rs"), "x").unwrap();
-        git_cmd(&["commit", "--quiet", "-m", "wip", "--", "committed.rs"]);
-        let after = Snapshot::take(&root, Some(&before)).await.unwrap();
+        git(&root, &["commit", "--quiet", "-m", "wip", "--", "committed.rs"]);
+        let after = Snapshot::take(&root, Some(&before)).await.unwrap().unwrap();
 
         let changes = after.changes_since(&before, &root);
         assert!(changes.complete);
@@ -218,16 +212,16 @@ mod tests {
         let root = dir.path().canonicalize().unwrap();
         std::fs::write(root.join("a.rs"), "1").unwrap();
         std::fs::write(root.join("b.rs"), "1").unwrap();
-        let before = Snapshot::take(&root, None).await.unwrap();
+        let before = Snapshot::take(&root, None).await.unwrap().unwrap();
 
         std::fs::write(root.join("a.rs"), "22").unwrap();
         std::fs::remove_file(root.join("b.rs")).unwrap();
         std::fs::write(root.join("c.rs"), "1").unwrap();
-        let after = Snapshot::take(&root, Some(&before)).await.unwrap();
+        let after = Snapshot::take(&root, Some(&before)).await.unwrap().unwrap();
 
         let changes = after.changes_since(&before, &root);
         assert!(changes.complete);
         assert_eq!(labels(&changes.files), ["a.rs", "b.rs (deleted)", "c.rs"]);
-        assert!(Snapshot::take(&root.join("missing"), None).await.is_none());
+        assert!(Snapshot::take(&root.join("missing"), None).await.unwrap().is_none());
     }
 }

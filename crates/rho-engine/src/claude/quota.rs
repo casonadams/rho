@@ -18,7 +18,7 @@ pub async fn fetch_quota(usage_url: &str, token: &str, target_model: Option<&str
         .header("Content-Type", "application/json")
         .header("anthropic-beta", "oauth-2025-04-20")
         .header("User-Agent", crate::auth::claude::USER_AGENT);
-    let response = send_json_if_ok(request).await?;
+    let response: Value = send_json_if_ok(request).await?;
     parse_quota(&response, target_model, Utc::now())
 }
 

@@ -3,19 +3,12 @@ use std::time::Duration;
 
 use crate::decision::{DecisionModel, DecisionRequest};
 use crate::engine::AgentEngine;
+use rho_harness_core::text::truncate_chars;
 use rho_harness_core::thinking::ThinkingLevel;
 
 pub(crate) const AUTO_THINKING_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_CLASSIFIER_PROMPT_CHARS: usize = 2000;
 const EFFORT_QUESTION_KEY: &str = "effort";
-
-fn truncate_prompt(prompt: &str, max_chars: usize) -> String {
-    let trimmed = prompt.trim();
-    if trimmed.chars().count() <= max_chars {
-        return trimmed.to_string();
-    }
-    trimmed.chars().take(max_chars).collect()
-}
 
 fn effort_choice_criteria() -> BTreeMap<String, String> {
     BTreeMap::from([
@@ -45,7 +38,7 @@ fn map_effort_choice(choice: &str) -> ThinkingLevel {
 }
 
 pub async fn classify_thinking_effort(decision: &dyn DecisionModel, prompt: &str, timeout: Duration) -> ThinkingLevel {
-    let bounded = truncate_prompt(prompt, MAX_CLASSIFIER_PROMPT_CHARS);
+    let (bounded, _) = truncate_chars(prompt.trim(), MAX_CLASSIFIER_PROMPT_CHARS);
     if bounded.is_empty() {
         return ThinkingLevel::Medium;
     }

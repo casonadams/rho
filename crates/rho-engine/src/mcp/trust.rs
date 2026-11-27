@@ -12,10 +12,6 @@ struct ApprovedServers {
     approved: BTreeMap<String, String>,
 }
 
-fn canonical_path(p: &Path) -> PathBuf {
-    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
-}
-
 fn approved_servers_path(config_dir: &Path) -> PathBuf {
     config_dir.join(APPROVED_SERVERS_FILE_NAME)
 }
@@ -32,7 +28,7 @@ fn load_approved_servers(config_dir: &Path) -> ApprovedServers {
 }
 
 fn server_trust_key(workspace: &Path, server_name: &str) -> String {
-    let canonical = canonical_path(workspace);
+    let canonical = crate::paths::canonical_or_self(workspace);
     format!("{}:{}", canonical.to_string_lossy(), server_name)
 }
 

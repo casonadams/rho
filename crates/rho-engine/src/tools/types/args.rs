@@ -1,4 +1,5 @@
 use super::ToolResult;
+use rho_harness_core::text::truncate_chars;
 use rho_harness_core::workspace::Workspace;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -71,10 +72,6 @@ fn expected_shape(schema: &Value) -> String {
     )
 }
 
-fn truncate_chars(text: &str, max_chars: usize) -> &str {
-    text.char_indices().nth(max_chars).map_or(text, |(end, _)| &text[..end])
-}
-
 pub fn try_parse_tool_args<T: DeserializeOwned>(args: &Value) -> Result<T, serde_json::Error> {
     let first_error = match T::deserialize(args) {
         Ok(parsed) => return Ok(parsed),
@@ -126,8 +123,8 @@ fn coerce_to_schema(value: &mut Value, schema: &Value) -> bool {
 
 fn invalid_arguments(tool: &str, error: &serde_json::Error, schema: &Value) -> ToolResult {
     let error = error.to_string();
-    let shown = truncate_chars(&error, MAX_ERROR_CHARS);
-    let ellipsis = if shown.len() < error.len() { "..." } else { "" };
+    let (shown, cut) = truncate_chars(&error, MAX_ERROR_CHARS);
+    let ellipsis = if cut { "..." } else { "" };
     ToolResult::error(format!(
         "Invalid arguments for {tool}: {shown}{ellipsis}. Pass a JSON object matching the schema ({}); arrays and objects must not be JSON-encoded strings.",
         expected_shape(schema)

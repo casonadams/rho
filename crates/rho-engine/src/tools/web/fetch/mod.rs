@@ -31,7 +31,7 @@ pub struct WebFetchTool {
 }
 
 struct FetchOptions<'a> {
-    mode: &'a str,
+    mode: extract::FetchMode,
     format_override: Option<&'a str>,
 }
 
@@ -45,7 +45,11 @@ impl WebFetchTool {
         url_str: &str,
         options: FetchOptions<'_>,
     ) -> Result<CachedResource, AppError> {
-        let cache_key = format!("{url_str}:{}:{}", options.mode, options.format_override.unwrap_or(""));
+        let cache_key = format!(
+            "{url_str}:{}:{}",
+            options.mode.as_str(),
+            options.format_override.unwrap_or("")
+        );
         if let Some(cached) = self.cache.get(&cache_key).await {
             return Ok(cached);
         }
@@ -64,11 +68,11 @@ impl WebFetchTool {
             return Ok(ToolResult::error("Empty URL provided for fetch"));
         }
 
-        let mode = args.mode.unwrap_or_else(|| "auto".to_string());
+        let mode = extract::FetchMode::parse(args.mode.as_deref());
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.unwrap_or(self.config.default_limit);
         let options = FetchOptions {
-            mode: &mode,
+            mode,
             format_override: args.format.as_deref(),
         };
 

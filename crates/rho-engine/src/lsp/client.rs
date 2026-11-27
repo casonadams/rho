@@ -2,8 +2,8 @@
 
 use super::rpc::{BoxedReader, BoxedWriter, Connection, ServerMessages};
 pub use super::state::{ClientState, Diagnostic};
-use super::support::canonical;
 use super::watch::FileChange;
+use crate::paths::canonical_or_parent;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,7 +39,7 @@ pub fn file_uri(path: &Path) -> String {
 
 /// The URI a document is known by: its resolved path, however the caller spelled it.
 pub fn document_uri(path: &Path) -> String {
-    file_uri(&canonical(path))
+    file_uri(&canonical_or_parent(path))
 }
 
 pub fn uri_path(uri: &str) -> Option<PathBuf> {

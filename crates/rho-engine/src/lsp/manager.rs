@@ -6,7 +6,8 @@ mod slots;
 use super::client::LspClient;
 use super::config::{ServerConfig, ServerSet, layer_paths, load_servers, resolve_command};
 pub use super::process::{Launched, Launcher, ProcessLauncher};
-use super::support::{canonical, lock};
+use super::support::lock;
+use crate::paths::canonical_or_parent;
 use futures::FutureExt;
 use slots::{
     Key, Reuse, Slot, Slots, StartFuture, first_report, prune_exited, reap_idle, start_client, stop_least_recently_used,
@@ -121,7 +122,7 @@ impl LspManager {
     ) -> Self {
         let (loaded, idle_ms) = loaded_from(servers);
         Self {
-            workspace: canonical(workspace),
+            workspace: canonical_or_parent(workspace),
             loaded: Mutex::new(Arc::new(loaded)),
             watch: None,
             idle_ms: Arc::new(AtomicU64::new(idle_ms)),
@@ -177,12 +178,12 @@ impl LspManager {
     }
 
     pub fn in_workspace(&self, path: &Path) -> bool {
-        canonical(path).starts_with(&self.workspace)
+        canonical_or_parent(path).starts_with(&self.workspace)
     }
 
     /// `path` relative to the workspace, as the `lsp` tool takes it.
     pub fn relative(&self, path: &Path) -> String {
-        let path = canonical(path);
+        let path = canonical_or_parent(path);
         path.strip_prefix(&self.workspace)
             .unwrap_or(&path)
             .display()
@@ -252,7 +253,7 @@ impl LspManager {
 
     /// Servers that can run for `path`: the main one first, then linters.
     pub fn candidates(&self, path: &Path) -> Vec<Candidate> {
-        let path = canonical(path);
+        let path = canonical_or_parent(path);
         let path = path.as_path();
         let loaded = self.current();
         let mut found = Vec::new();
@@ -284,7 +285,7 @@ impl LspManager {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             return format!("no language server is configured for '.{ext}' files{notice}");
         }
-        let outside = !canonical(path).starts_with(&self.workspace);
+        let outside = !canonical_or_parent(path).starts_with(&self.workspace);
         let reasons: Vec<String> = handlers
             .iter()
             .map(|server| match (self.is_installed(server), outside) {

@@ -253,7 +253,9 @@ fn spawn_background_work(runtime: &Arc<McpRuntime>, stale: Vec<String>) {
     for name in eager {
         let runtime = Arc::clone(runtime);
         tokio::spawn(async move {
-            let _ = runtime.pool().get_or_connect(&name).await;
+            if let Err(err) = runtime.pool().get_or_connect(&name).await {
+                tracing::warn!(server = %name, error = %err, "eager MCP connection failed");
+            }
         });
     }
 }
