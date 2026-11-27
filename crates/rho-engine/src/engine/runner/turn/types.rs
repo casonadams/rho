@@ -86,11 +86,6 @@ pub trait SteeringQueueProvider: Send + Sync {
     }
 }
 
-/// Whether a message from the agent's mailbox or the user's steering waits for its next model call.
-pub(crate) fn message_waiting(inbox: &crate::mailbox::Mailbox, steering: Option<&dyn SteeringQueueProvider>) -> bool {
-    inbox.pending() > 0 || steering.is_some_and(SteeringQueueProvider::has_steering)
-}
-
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,

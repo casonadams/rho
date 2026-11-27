@@ -2,7 +2,7 @@
 //! delegating agent receives; it is refused while a message or background work is outstanding.
 
 use crate::engine::runner::SteeringQueueProvider;
-use crate::engine::runner::turn::types::message_waiting;
+use crate::engine::runner::turn::wakeups::message_waiting;
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::ToolResult;

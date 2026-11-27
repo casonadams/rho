@@ -1,8 +1,9 @@
 use crate::engine::runner::SteeringQueueProvider;
-use crate::engine::runner::turn::types::{CancellationSignal, message_waiting, unless_cancelled};
+use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
+use crate::engine::runner::turn::wakeups::{Wakeups, message_waiting};
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
-use crate::tools::jobs::{BackgroundJobInfo, Wakeups};
+use crate::tools::jobs::BackgroundJobInfo;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::WaitArgs;
 use rho_harness_core::error::AppError;

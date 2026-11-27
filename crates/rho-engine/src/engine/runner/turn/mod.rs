@@ -8,6 +8,7 @@ mod stream;
 pub(crate) mod streaming_tool;
 mod thinking;
 pub mod types;
+pub(crate) mod wakeups;
 
 pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PruneMemory, PrunePolicy, prune_historical_tool_outputs_with_policy};
 pub use store::{MemoryStore, TurnStore};

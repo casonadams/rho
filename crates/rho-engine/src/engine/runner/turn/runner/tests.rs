@@ -1192,7 +1192,7 @@ async fn background_notification_is_injected_once_when_woken() {
     });
 
     let emitter = acking_emitter();
-    let mut wakeups = crate::tools::jobs::Wakeups::new(runner.inbox.as_ref().unwrap(), None);
+    let mut wakeups = crate::engine::runner::turn::wakeups::Wakeups::new(runner.inbox.as_ref().unwrap(), None);
     let step = wait_step(&runner, &mut ctx, &emitter, &mut wakeups).await.unwrap();
     enqueue.await.unwrap();
     deliver_messages(&runner, &mut ctx, &emitter).await.unwrap();

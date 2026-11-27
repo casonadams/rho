@@ -1,6 +1,5 @@
-use crate::engine::runner::SteeringQueueProvider;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Mailbox, NoticeTarget};
+use crate::mailbox::NoticeTarget;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -46,48 +45,6 @@ impl Default for JobManager {
         Self {
             registry: Arc::default(),
             ended: Arc::new(watch::Sender::new(0)),
-        }
-    }
-}
-
-/// What wakes an agent waiting on its background work: a message in its mailbox, steering from the
-/// user, or any job of its engine ending. Made before the waiter first checks what it waits for, so
-/// it never misses a change that happens between that check and the wait.
-pub(crate) struct Wakeups<'a> {
-    inbox: &'a Mailbox,
-    steering: Option<&'a dyn SteeringQueueProvider>,
-    ended: watch::Receiver<u64>,
-}
-
-impl<'a> Wakeups<'a> {
-    pub(crate) fn new(inbox: &'a Mailbox, steering: Option<&'a dyn SteeringQueueProvider>) -> Self {
-        Self {
-            inbox,
-            steering,
-            ended: inbox.jobs().ended.subscribe(),
-        }
-    }
-
-    /// Returns once a message or steering is waiting, or after a job ended since the last call. An
-    /// agent that blocks here is not answering, so it first declines the questions it has read.
-    pub(crate) async fn next(&mut self) {
-        let Self { inbox, steering, ended } = self;
-        inbox.decline_unanswered();
-        let job_ended = async {
-            if ended.changed().await.is_err() {
-                std::future::pending::<()>().await;
-            }
-        };
-        let steering = async {
-            match steering {
-                Some(steering) => steering.arrived().await,
-                None => std::future::pending().await,
-            }
-        };
-        tokio::select! {
-            () = job_ended => {}
-            () = inbox.wait() => {}
-            () = steering => {}
         }
     }
 }
@@ -164,6 +121,11 @@ fn evict_finished(registry: &mut Registry) {
 impl JobManager {
     fn lock(&self) -> MutexGuard<'_, Registry> {
         self.registry.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Changes each time one of these jobs stops running.
+    pub(crate) fn watch_ended(&self) -> watch::Receiver<u64> {
+        self.ended.subscribe()
     }
 
     /// Registers a running job for the session `owner`. The returned signal fires when the job must stop.
