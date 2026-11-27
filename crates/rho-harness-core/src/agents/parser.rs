@@ -1,4 +1,5 @@
 use super::types::AgentMetadata;
+use crate::text::unquote_scalar;
 use std::path::Path;
 
 pub fn normalize_tool_name(name: &str) -> String {
@@ -22,7 +23,7 @@ pub fn parse_tool_list(value: &str) -> Vec<String> {
     };
     cleaned
         .split(',')
-        .map(|item| item.trim().trim_matches('"').trim_matches('\''))
+        .map(unquote_scalar)
         .filter(|item| !item.is_empty())
         .map(normalize_tool_name)
         .collect()
@@ -38,9 +39,9 @@ pub(super) struct ParsedFrontmatter {
 
 fn parse_frontmatter_field(line: &str, out: &mut ParsedFrontmatter) {
     if let Some(val) = line.strip_prefix("name:") {
-        out.name = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
+        out.name = Some(unquote_scalar(val).to_string());
     } else if let Some(val) = line.strip_prefix("description:") {
-        out.description = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
+        out.description = Some(unquote_scalar(val).to_string());
     } else if let Some(val) = line.strip_prefix("tools:") {
         out.tools = Some(parse_tool_list(val));
     } else if let Some(val) = line

@@ -2,12 +2,12 @@
 
 use crate::args::read::DEFAULT_READ_LIMIT;
 use crate::args::{TodoArgs, TodoStatus};
-use crate::text::truncate_chars;
+use crate::text::{truncate_chars, unquote_scalar};
 use crate::todo::done_count;
 use std::path::Path;
 
 pub fn to_relative_path(raw_path: &str) -> String {
-    let clean = raw_path.trim().trim_matches('"').trim_matches('\'');
+    let clean = unquote_scalar(raw_path);
     let path = Path::new(clean);
     if let Ok(cwd) = std::env::current_dir()
         && let Ok(rel) = path.strip_prefix(&cwd)
@@ -92,7 +92,7 @@ fn classify_doc_or_resource(clean: &str, file_name: &str) -> Option<ReadClassifi
 
 pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification> {
     let raw = crate::args::target_path(args)?;
-    let clean = raw.trim().trim_matches('"').trim_matches('\'');
+    let clean = unquote_scalar(raw);
     let path = Path::new(clean);
     let file_name = path.file_name()?.to_str()?;
     classify_skill(path, file_name).or_else(|| classify_doc_or_resource(clean, file_name))

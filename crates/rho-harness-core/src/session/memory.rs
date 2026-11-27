@@ -5,18 +5,6 @@ use crate::error::Result;
 use crate::model::ChatMessage;
 use chrono::Utc;
 
-fn create_user_turn_node(parent_id: Option<String>, messages: Vec<ChatMessage>) -> TreeNodeData {
-    TreeNodeData {
-        id: uuid::Uuid::new_v4().to_string(),
-        parent_id,
-        timestamp: Utc::now(),
-        kind: TreeNodeKind::UserTurn,
-        messages,
-        label: None,
-        metadata: None,
-    }
-}
-
 impl SessionManager {
     pub async fn append_messages(&self, conversation_id: &str, messages: Vec<ChatMessage>) -> Result<()> {
         self.append_message_batches(conversation_id, vec![messages]).await
@@ -45,7 +33,7 @@ impl SessionManager {
         let mut nodes = Vec::with_capacity(batches.len());
         for messages in batches {
             state.integrity.check_canonical_batch(&messages)?;
-            let node = create_user_turn_node(parent_id, messages);
+            let node = TreeNodeData::turn(TreeNodeKind::UserTurn, parent_id, Utc::now(), messages);
             parent_id = Some(node.id.clone());
             nodes.push(node);
         }

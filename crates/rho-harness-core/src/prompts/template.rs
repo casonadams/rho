@@ -1,3 +1,4 @@
+use crate::text::unquote_scalar;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -117,12 +118,12 @@ fn parse_frontmatter_lines(frontmatter_str: &str) -> (Option<String>, Option<Str
     for line in frontmatter_str.lines() {
         let line = line.trim();
         if let Some(val) = line.strip_prefix("description:") {
-            description = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
+            description = Some(unquote_scalar(val).to_string());
         } else if let Some(val) = line
             .strip_prefix("argument-hint:")
             .or_else(|| line.strip_prefix("argument_hint:"))
         {
-            argument_hint = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
+            argument_hint = Some(unquote_scalar(val).to_string());
         }
     }
     (description, argument_hint)

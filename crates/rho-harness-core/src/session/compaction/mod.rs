@@ -20,7 +20,6 @@ pub use types::{
 };
 
 use super::SessionManager;
-use super::format::{SessionRecord, append_durable_record};
 use super::fs::session_error;
 use super::tree::{TreeNodeData, TreeNodeKind};
 use crate::error::Result;
@@ -55,15 +54,7 @@ impl SessionManager {
             ));
         }
         let node = create_compaction_node(state.tree.active_leaf_id.clone(), summary, &metadata)?;
-        let record = SessionRecord::TreeNode {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            node: node.clone(),
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.tree.add_node(node);
-        state.messages = state.tree.active_messages();
+        self.append_tree_node(&mut state, node).await?;
         state.checkpoint = None;
         Ok(())
     }

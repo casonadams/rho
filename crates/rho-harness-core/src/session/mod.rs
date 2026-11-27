@@ -22,6 +22,7 @@ pub mod tree;
 pub mod turns;
 mod validation;
 
+use format::append_durable_record;
 use secrets::SecretGuard;
 
 pub use compaction::{
@@ -211,5 +212,18 @@ impl SessionManager {
 
     pub(crate) fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {
         self.secrets.reject_in(value)
+    }
+
+    async fn append_tree_node(&self, state: &mut StoreState, node: TreeNodeData) -> Result<()> {
+        let record = SessionRecord::TreeNode {
+            sequence: state.next_sequence,
+            session_id: self.session_id.clone(),
+            node: node.clone(),
+        };
+        append_durable_record(&self.file_path, &record).await?;
+        state.next_sequence += 1;
+        state.tree.add_node(node);
+        state.messages = state.tree.active_messages();
+        Ok(())
     }
 }

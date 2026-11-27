@@ -68,15 +68,12 @@ fn apply_canonical_messages(
     }
     state.integrity.check_canonical_batch(&messages)?;
     state.messages.extend(messages.clone());
-    let node = TreeNodeData {
-        id: uuid::Uuid::new_v4().to_string(),
-        parent_id: state.tree.active_leaf_id.clone(),
+    let node = TreeNodeData::turn(
+        TreeNodeKind::UserTurn,
+        state.tree.active_leaf_id.clone(),
         timestamp,
-        kind: TreeNodeKind::UserTurn,
         messages,
-        label: None,
-        metadata: None,
-    };
+    );
     state.tree.add_node(node);
     Ok(())
 }
@@ -118,15 +115,12 @@ fn apply_checkpoint_promoted(
     state.integrity.check_canonical_batch(&messages)?;
     state.messages.extend(messages.clone());
     state.checkpoint = None;
-    let node = TreeNodeData {
-        id: uuid::Uuid::new_v4().to_string(),
-        parent_id: state.tree.active_leaf_id.clone(),
+    let node = TreeNodeData::turn(
+        TreeNodeKind::AssistantTurn,
+        state.tree.active_leaf_id.clone(),
         timestamp,
-        kind: TreeNodeKind::AssistantTurn,
         messages,
-        label: None,
-        metadata: None,
-    };
+    );
     state.tree.add_node(node);
     Ok(())
 }

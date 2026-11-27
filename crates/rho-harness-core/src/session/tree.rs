@@ -31,6 +31,23 @@ pub struct TreeNodeData {
 }
 
 impl TreeNodeData {
+    pub fn turn(
+        kind: TreeNodeKind,
+        parent_id: Option<String>,
+        timestamp: DateTime<Utc>,
+        messages: Vec<ChatMessage>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            parent_id,
+            timestamp,
+            kind,
+            messages,
+            label: None,
+            metadata: None,
+        }
+    }
+
     pub fn compaction_metadata(&self) -> Option<CompactionMetadata> {
         if self.kind != TreeNodeKind::Compaction {
             return None;

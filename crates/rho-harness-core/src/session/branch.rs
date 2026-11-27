@@ -102,16 +102,7 @@ impl SessionManager {
         self.reject_secrets(&summary)?;
         let mut state = self.state.lock().await;
         let node = create_branch_summary_node(state.tree.active_leaf_id.clone(), source_leaf_id, summary);
-        let record = SessionRecord::TreeNode {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            node: node.clone(),
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.tree.add_node(node);
-        state.messages = state.tree.active_messages();
-        Ok(())
+        self.append_tree_node(&mut state, node).await
     }
 
     async fn resolve_turn_node_id(

@@ -6,18 +6,6 @@ use crate::error::Result;
 use crate::model::ChatMessage;
 use chrono::Utc;
 
-fn create_turn_node(parent_id: Option<String>, messages: Vec<ChatMessage>) -> TreeNodeData {
-    TreeNodeData {
-        id: uuid::Uuid::new_v4().to_string(),
-        parent_id,
-        timestamp: Utc::now(),
-        kind: TreeNodeKind::AssistantTurn,
-        messages,
-        label: None,
-        metadata: None,
-    }
-}
-
 impl SessionManager {
     pub async fn load_checkpoint(&self) -> Result<Option<Vec<ChatMessage>>> {
         Ok(self.state.lock().await.checkpoint.clone())
@@ -81,16 +69,13 @@ impl SessionManager {
         promoted.extend(messages);
         state.integrity.check_canonical_batch(&promoted)?;
 
-        let node = create_turn_node(state.tree.active_leaf_id.clone(), promoted);
-        let record = SessionRecord::TreeNode {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            node: node.clone(),
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.tree.add_node(node);
-        state.messages = state.tree.active_messages();
+        let node = TreeNodeData::turn(
+            TreeNodeKind::AssistantTurn,
+            state.tree.active_leaf_id.clone(),
+            Utc::now(),
+            promoted,
+        );
+        self.append_tree_node(&mut state, node).await?;
         state.checkpoint = None;
         Ok(())
     }

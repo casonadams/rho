@@ -19,6 +19,11 @@ pub fn truncate_chars(text: &str, max_chars: usize) -> (&str, bool) {
     }
 }
 
+/// Trims a value and strips surrounding `"` and `'` quote characters.
+pub fn unquote_scalar(value: &str) -> &str {
+    value.trim().trim_matches('"').trim_matches('\'')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -30,6 +35,13 @@ mod tests {
         assert_eq!(truncate_chars("", 0), ("", false));
         assert_eq!(truncate_chars("h\u{e9}llo", 2), ("h\u{e9}", true));
         assert_eq!(truncate_chars("\u{65e5}\u{672c}\u{8a9e}", 1), ("\u{65e5}", true));
+    }
+
+    #[test]
+    fn unquote_scalar_trims_and_strips_quote_characters() {
+        for (raw, expected) in [("  \"name\" ", "name"), ("'x'", "x"), ("plain", "plain"), ("", "")] {
+            assert_eq!(unquote_scalar(raw), expected, "{raw:?}");
+        }
     }
 
     #[test]

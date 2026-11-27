@@ -1,4 +1,5 @@
 use super::types::SkillMetadata;
+use crate::text::unquote_scalar;
 use std::io::Read;
 use std::path::Path;
 
@@ -38,18 +39,14 @@ fn read_skill_prefix(path: &Path) -> Option<String> {
 
 fn parse_frontmatter_line(line: &str, out: &mut ParsedFrontmatter) {
     if let Some(value) = line.strip_prefix("name:") {
-        out.name = Some(value.trim().trim_matches('"').trim_matches('\'').to_string());
+        out.name = Some(unquote_scalar(value).to_string());
     } else if let Some(value) = line.strip_prefix("description:") {
-        out.description = Some(value.trim().trim_matches('"').trim_matches('\'').to_string());
+        out.description = Some(unquote_scalar(value).to_string());
     } else if let Some(value) = line
         .strip_prefix("disable-model-invocation:")
         .or_else(|| line.strip_prefix("disable_model_invocation:"))
     {
-        out.disable_model_invocation = value
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .eq_ignore_ascii_case("true");
+        out.disable_model_invocation = unquote_scalar(value).eq_ignore_ascii_case("true");
     }
 }
 
