@@ -91,10 +91,6 @@ pub(crate) fn message_waiting(inbox: &crate::mailbox::Mailbox, steering: Option<
     inbox.pending() > 0 || steering.is_some_and(SteeringQueueProvider::has_steering)
 }
 
-/// Serializes tests that touch the process-wide background jobs and notifications.
-#[cfg(test)]
-pub(crate) static BACKGROUND_QUEUE_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,

@@ -224,8 +224,8 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
         text("Found one hot loop."),
         text("Second pass found nothing new."),
     ]);
-    let jobs = crate::tools::jobs::JobManager::new();
-    let background = super::super::background::Backgrounding::new(jobs.clone(), std::time::Duration::from_secs(60));
+    let background = super::super::background::Backgrounding::new(std::time::Duration::from_secs(60));
+    let jobs = background.runtime().jobs().clone();
     let parent_inbox = background.runtime().inbox(&owner);
     let next_notice = || async {
         parent_inbox.wait().await;

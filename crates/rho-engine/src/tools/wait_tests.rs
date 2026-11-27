@@ -13,18 +13,15 @@ impl SteeringQueueProvider for Steering {
 }
 
 struct Fixture {
-    jobs: JobManager,
     boxes: Mailboxes,
     inbox: Mailbox,
     tool: Arc<WaitTool>,
 }
 
 fn fixture(cancellation: Option<CancellationSignal>, steering: Option<Arc<dyn SteeringQueueProvider>>) -> Fixture {
-    let jobs = JobManager::new();
     let boxes = Mailboxes::default();
     let inbox = boxes.open("owner", None);
     let tool = Arc::new(WaitTool {
-        jobs: jobs.clone(),
         cap: Duration::from_secs(30),
         turn: Some(Turn {
             inbox: inbox.clone(),
@@ -32,18 +29,12 @@ fn fixture(cancellation: Option<CancellationSignal>, steering: Option<Arc<dyn St
             steering,
         }),
     });
-    Fixture {
-        jobs,
-        boxes,
-        inbox,
-        tool,
-    }
+    Fixture { boxes, inbox, tool }
 }
 
 impl Fixture {
     fn start_job(&self, id: &str, command: &str) -> crate::tools::jobs::JobCompletion {
-        self.jobs
-            .start(Some(self.boxes.notices_for("owner")), id.into(), command.into())
+        self.inbox.start_job(id.into(), command.into())
     }
 
     fn wait(&self) -> tokio::task::JoinHandle<ToolResult> {
@@ -79,7 +70,7 @@ async fn returns_the_framed_notice_when_a_background_job_finishes_and_delivers_i
         result.content
     );
     assert_eq!(f.inbox.pending(), 0, "the notice is not delivered again as a follow-up");
-    assert!(!f.jobs.has_running("owner"));
+    assert!(!f.inbox.has_running_jobs());
 }
 
 #[tokio::test(start_paused = true)]
@@ -112,7 +103,7 @@ async fn a_message_in_the_mailbox_ends_the_wait_and_stays_queued_for_delivery() 
 
     assert!(result.content.contains("new message arrived"), "{}", result.content);
     assert_eq!(f.inbox.pending(), 1);
-    assert!(f.jobs.has_running("owner"));
+    assert!(f.inbox.has_running_jobs());
 }
 
 #[tokio::test(start_paused = true)]
@@ -147,7 +138,7 @@ async fn nothing_running_and_an_empty_mailbox_returns_at_once() {
 async fn the_safety_cap_reports_what_still_runs() {
     let f = fixture(None, None);
     let _job = f.start_job("j1", "sleep 100000");
-    let _other = f.jobs.register("someone-else", "j2".into(), "make".into());
+    let _other = f.inbox.jobs().register("someone-else", "j2".into(), "make".into());
 
     let result = f.tool.execute(serde_json::json!({})).await.unwrap();
 
@@ -157,7 +148,7 @@ async fn the_safety_cap_reports_what_still_runs() {
         result.content
     );
     assert!(!result.content.contains("j2"));
-    assert!(f.jobs.has_running("owner"));
+    assert!(f.inbox.has_running_jobs());
 }
 
 #[tokio::test(start_paused = true)]
@@ -173,7 +164,7 @@ async fn cancelling_the_turn_interrupts_the_wait_without_stopping_the_jobs() {
 
     assert!(result.is_error);
     assert!(result.content.contains("interrupted"), "{}", result.content);
-    assert!(f.jobs.has_running("owner"));
+    assert!(f.inbox.has_running_jobs());
     assert!(!job.cancel().is_cancelled());
 }
 

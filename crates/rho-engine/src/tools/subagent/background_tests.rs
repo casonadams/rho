@@ -65,8 +65,8 @@ impl Backgrounding {
 
 #[tokio::test(start_paused = true)]
 async fn a_round_within_the_budget_returns_its_result_in_the_foreground() {
-    let jobs = JobManager::new();
-    let background = Backgrounding::new(jobs.clone(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
+    let jobs = background.runtime.jobs().clone();
     let result = background
         .start(task("t-1", None), &ToolStreamPort::default(), |_| async {
             tokio::time::sleep(Duration::from_secs(59)).await;
@@ -93,7 +93,7 @@ fn long_results_are_clipped_on_a_character_boundary_in_the_notice() {
 
 #[tokio::test(start_paused = true)]
 async fn no_more_than_the_limit_of_rounds_run_at_once() {
-    let background = Backgrounding::new(JobManager::new(), Duration::from_secs(1));
+    let background = Backgrounding::new(Duration::from_secs(1));
     let port = ToolStreamPort::default();
     let release = Arc::new(tokio::sync::Notify::new());
     let ids: Vec<String> = (0..MAX_ACTIVE_ROUNDS).map(|i| format!("cap-{i}")).collect();
@@ -130,7 +130,7 @@ async fn no_more_than_the_limit_of_rounds_run_at_once() {
 
 #[tokio::test(start_paused = true)]
 async fn a_caller_waiting_for_a_slot_gets_one_when_a_round_ends() {
-    let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
     let mut held: Vec<RoundSlot> = (0..MAX_ACTIVE_ROUNDS)
         .map(|_| background.runtime.reserve().unwrap())
         .collect();
@@ -155,9 +155,9 @@ async fn a_caller_waiting_for_a_slot_gets_one_when_a_round_ends() {
 #[tokio::test(start_paused = true)]
 async fn tools_rebuilt_for_the_session_reach_and_count_rounds_the_old_tool_started() {
     let runtime = SubagentRuntime::default();
-    let before = Backgrounding::new(JobManager::new(), Duration::from_secs(1)).sharing(&runtime);
-    let after = Backgrounding::new(JobManager::new(), Duration::from_secs(1)).sharing(&runtime);
-    let unrelated = Backgrounding::new(JobManager::new(), Duration::from_secs(1));
+    let before = Backgrounding::new(Duration::from_secs(1)).sharing(&runtime);
+    let after = Backgrounding::new(Duration::from_secs(1)).sharing(&runtime);
+    let unrelated = Backgrounding::new(Duration::from_secs(1));
     let port = ToolStreamPort::default();
     let release = Arc::new(tokio::sync::Notify::new());
     for i in 0..MAX_ACTIVE_ROUNDS {
@@ -188,12 +188,12 @@ async fn tools_rebuilt_for_the_session_reach_and_count_rounds_the_old_tool_start
 
 #[tokio::test(start_paused = true)]
 async fn a_long_round_moves_to_the_background_and_delivers_its_result_when_done() {
-    let jobs = JobManager::new();
     let chunks = Arc::new(Chunks::default());
     let port = ToolStreamPort::new(Some(chunks.clone()));
     let release = Arc::new(tokio::sync::Notify::new());
     let gate = release.clone();
-    let background = Backgrounding::new(jobs.clone(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
+    let jobs = background.runtime.jobs().clone();
 
     let moved = background
         .start(task("t-2", None), &port, |io| async move {
@@ -236,7 +236,7 @@ async fn a_long_round_moves_to_the_background_and_delivers_its_result_when_done(
 async fn dropping_the_call_in_the_foreground_stops_the_round() {
     let finished = Arc::new(AtomicBool::new(false));
     let flag = finished.clone();
-    let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
     let port = ToolStreamPort::default();
     let call = background.start(task("t-3", None), &port, |_| async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -250,9 +250,9 @@ async fn dropping_the_call_in_the_foreground_stops_the_round() {
 
 #[tokio::test(start_paused = true)]
 async fn a_background_round_ending_after_cancellation_reports_nothing() {
-    let jobs = JobManager::new();
     let cancellation = CancellationSignal::default();
-    let background = Backgrounding::new(jobs.clone(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
+    let jobs = background.runtime.jobs().clone();
     let signal = cancellation.clone();
     let port = ToolStreamPort::default();
     background
@@ -276,7 +276,7 @@ async fn a_background_round_ending_after_cancellation_reports_nothing() {
 
 #[tokio::test(start_paused = true)]
 async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_result() {
-    let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
     assert_eq!(
         background.runtime.steer("t-5", "too early"),
         Err(SendError::NoMailbox),
@@ -325,7 +325,7 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
 
 #[tokio::test(start_paused = true)]
 async fn steering_a_round_whose_mailbox_is_full_reports_why_it_was_refused() {
-    let background = Backgrounding::new(JobManager::new(), Duration::ZERO);
+    let background = Backgrounding::new(Duration::ZERO);
     let port = ToolStreamPort::default();
     background
         .start(task("full", None), &port, |_| std::future::pending())
@@ -340,7 +340,7 @@ async fn steering_a_round_whose_mailbox_is_full_reports_why_it_was_refused() {
 #[tokio::test(start_paused = true)]
 async fn one_round_can_be_stopped_by_task_id_in_the_foreground_or_background() {
     let runtime = SubagentRuntime::default();
-    let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60)).sharing(&runtime);
+    let background = Backgrounding::new(Duration::from_secs(60)).sharing(&runtime);
     let port = ToolStreamPort::default();
     assert!(!runtime.stop("none"), "nothing to stop");
 
@@ -372,8 +372,8 @@ async fn one_round_can_be_stopped_by_task_id_in_the_foreground_or_background() {
 
 #[tokio::test(start_paused = true)]
 async fn ending_a_session_asks_its_background_round_to_stop_and_lets_it_wrap_up() {
-    let jobs = JobManager::new();
-    let background = Backgrounding::new(jobs.clone(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
+    let jobs = background.runtime.jobs().clone();
     let port = ToolStreamPort::default();
     let moved = background
         .start(task("t-9", None), &port, |io| async move {
@@ -400,8 +400,8 @@ async fn ending_a_session_asks_its_background_round_to_stop_and_lets_it_wrap_up(
 
 #[tokio::test(start_paused = true)]
 async fn a_background_round_that_ignores_the_stop_is_aborted_after_a_grace_period() {
-    let jobs = JobManager::new();
-    let background = Backgrounding::new(jobs.clone(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
+    let jobs = background.runtime.jobs().clone();
     let port = ToolStreamPort::default();
     let finished = Arc::new(AtomicBool::new(false));
     let flag = finished.clone();
@@ -438,7 +438,7 @@ async fn a_background_round_that_ignores_the_stop_is_aborted_after_a_grace_perio
 
 #[tokio::test(start_paused = true)]
 async fn an_aborted_round_closes_its_inbox() {
-    let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
+    let background = Backgrounding::new(Duration::from_secs(60));
     let port = ToolStreamPort::default();
     let call = background.start(task("t-6", None), &port, |_| std::future::pending());
     assert!(tokio::time::timeout(Duration::from_secs(1), call).await.is_err());
@@ -448,8 +448,7 @@ async fn an_aborted_round_closes_its_inbox() {
 
 #[tokio::test(start_paused = true)]
 async fn a_zero_budget_starts_the_round_in_the_background_at_once() {
-    let jobs = JobManager::new();
-    let background = Backgrounding::new(jobs.clone(), Duration::ZERO);
+    let background = Backgrounding::new(Duration::ZERO);
     let started = background
         .start(task("t-9", None), &ToolStreamPort::default(), |_| async {
             ToolResult::success("instant")
@@ -470,7 +469,7 @@ async fn a_zero_budget_starts_the_round_in_the_background_at_once() {
 #[tokio::test(start_paused = true)]
 async fn wait_returns_a_background_subagents_result_once() {
     use crate::tools::engine_tool::{EngineTool, TurnToolContext};
-    let background = Backgrounding::new(JobManager::global().clone(), Duration::ZERO);
+    let background = Backgrounding::new(Duration::ZERO);
     let inbox = background.runtime.inbox("wait-owner");
     let wait = crate::tools::wait::WaitTool::default()
         .bind_turn(&TurnToolContext {
@@ -517,7 +516,7 @@ async fn background_round_emits_and_deletes_a2ui_subagent_surface() {
 
     let recording = RecordingSink::default();
     let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::new(Arc::new(recording.clone())));
-    let background = Backgrounding::new(JobManager::default(), Duration::from_secs(5));
+    let background = Backgrounding::new(Duration::from_secs(5));
     let slot = background.runtime.reserve().unwrap();
 
     let result = background

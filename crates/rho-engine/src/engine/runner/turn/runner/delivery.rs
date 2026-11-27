@@ -1,5 +1,5 @@
 use super::{AgentRunner, MultiTurnStreamItem, RunnerStepContext, TurnEmitter, interrupted};
-use crate::tools::jobs::{JobManager, Wakeups};
+use crate::tools::jobs::Wakeups;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 
@@ -61,16 +61,14 @@ pub(super) async fn wait_for_background_jobs(
     ctx: &mut RunnerStepContext<'_>,
     emitter: &TurnEmitter,
 ) -> Result<bool, AppError> {
-    let owner = runner.store.owner();
-    let jobs = JobManager::global();
-    let mut wakeups = jobs.wakeups(runner.inbox.as_ref(), runner.steering.as_deref());
-    if !jobs.has_running(owner) {
+    let Some(inbox) = runner.inbox.as_ref().filter(|inbox| inbox.has_running_jobs()) else {
         return deliver_messages(runner, ctx, emitter).await;
-    }
+    };
+    let mut wakeups = Wakeups::new(inbox, runner.steering.as_deref());
 
     emitter.wait_for_display_drain().await?;
     runner.sink.resume_spinner_with_message("waiting...");
-    while jobs.has_running(owner) {
+    while inbox.has_running_jobs() {
         if let WaitStepResult::EventDelivered = wait_step(runner, ctx, emitter, &mut wakeups).await? {
             runner.sink.resume_spinner_with_message("thinking...");
             return Ok(true);

@@ -183,11 +183,11 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         .and_then(|rest| rest.split(';').next())
         .expect("the result names the job")
         .to_string();
-    let jobs = crate::tools::jobs::JobManager::global();
+    let jobs = inbox.jobs();
     assert_eq!(jobs.get(&job_id).unwrap().owner, owner);
     assert!(jobs.has_running(&owner));
 
-    crate::tools::jobs::abandon_background_work(&owner);
+    inbox.cancel_jobs();
 
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while jobs.has_running(&owner) {

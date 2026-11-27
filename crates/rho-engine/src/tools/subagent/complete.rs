@@ -5,7 +5,6 @@ use crate::engine::runner::SteeringQueueProvider;
 use crate::engine::runner::turn::types::message_waiting;
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
-use crate::tools::jobs::JobManager;
 use crate::tools::types::ToolResult;
 use rho_harness_core::error::AppError;
 use serde_json::Value;
@@ -32,7 +31,6 @@ pub(crate) type ReportSlot = Arc<Mutex<Option<Report>>>;
 
 pub(crate) struct CompleteTaskTool {
     report: ReportSlot,
-    jobs: JobManager,
     inbox: Option<Mailbox>,
     steering: Option<Arc<dyn SteeringQueueProvider>>,
 }
@@ -43,7 +41,6 @@ impl CompleteTaskTool {
         let report = ReportSlot::default();
         let tool = Arc::new(Self {
             report: report.clone(),
-            jobs: JobManager::global().clone(),
             inbox: None,
             steering: None,
         });
@@ -55,7 +52,7 @@ impl CompleteTaskTool {
         if message_waiting(inbox, self.steering.as_deref()) {
             return Some(MESSAGE_WAITING);
         }
-        self.jobs.has_running(inbox.id()).then_some(WORK_RUNNING)
+        inbox.has_running_jobs().then_some(WORK_RUNNING)
     }
 }
 
@@ -110,7 +107,6 @@ impl EngineTool for CompleteTaskTool {
     fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
         Some(Arc::new(Self {
             report: self.report.clone(),
-            jobs: self.jobs.clone(),
             inbox: ctx.inbox.clone(),
             steering: ctx.steering.clone(),
         }))
@@ -122,14 +118,8 @@ mod tests {
     use super::*;
     use crate::mailbox::{Envelope, Kind, Mailboxes, Party};
 
-    fn bound(jobs: &JobManager, inbox: &Mailbox) -> (Arc<dyn EngineTool>, ReportSlot) {
-        let report = ReportSlot::default();
-        let tool = CompleteTaskTool {
-            report: report.clone(),
-            jobs: jobs.clone(),
-            inbox: None,
-            steering: None,
-        };
+    fn bound(inbox: &Mailbox) -> (Arc<dyn EngineTool>, ReportSlot) {
+        let (tool, report) = CompleteTaskTool::with_report_slot();
         let ctx = TurnToolContext {
             inbox: Some(inbox.clone()),
             ..Default::default()
@@ -144,7 +134,7 @@ mod tests {
     #[tokio::test]
     async fn a_report_is_kept_once_and_ends_the_turn() {
         let boxes = Mailboxes::default();
-        let (tool, report) = bound(&JobManager::new(), &boxes.open("task", None));
+        let (tool, report) = bound(&boxes.open("task", None));
 
         let sent = complete(&tool, "  findings at a.rs:3  ").await;
 
@@ -160,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn structured_data_travels_with_the_report_and_must_be_an_object() {
         let boxes = Mailboxes::default();
-        let (tool, report) = bound(&JobManager::new(), &boxes.open("task", None));
+        let (tool, report) = bound(&boxes.open("task", None));
 
         let bad = tool
             .execute(serde_json::json!({ "result": "x", "data": [1] }))
@@ -179,11 +169,10 @@ mod tests {
 
     #[tokio::test]
     async fn completion_is_refused_while_the_report_is_empty_or_work_is_outstanding() {
-        let jobs = JobManager::new();
         let boxes = Mailboxes::default();
         let _boss = boxes.open("boss", None);
         let inbox = boxes.open("task", Some("boss"));
-        let (tool, report) = bound(&jobs, &inbox);
+        let (tool, report) = bound(&inbox);
 
         let empty = complete(&tool, "   ").await;
         boxes
@@ -196,7 +185,7 @@ mod tests {
             .unwrap();
         let messaged = complete(&tool, "done").await;
         assert_eq!(inbox.take().len(), 1, "the message stays for delivery");
-        let _job = jobs.start(Some(inbox.notices()), "j1".into(), "cargo test".into());
+        let _job = inbox.start_job("j1".into(), "cargo test".into());
         let working = complete(&tool, "done").await;
 
         for (refused, reason) in [

@@ -11,7 +11,7 @@ use rho_harness_core::session::SessionEventKind;
 
 impl AgentEngine {
     pub async fn record_cancellation(&self, reason: &str) -> Result<()> {
-        crate::tools::jobs::JobManager::global().cancel_owner(&self.session_manager.session_id);
+        self.inbox().cancel_jobs();
         self.session_manager
             .append_event(
                 SessionEventKind::Cancellation,

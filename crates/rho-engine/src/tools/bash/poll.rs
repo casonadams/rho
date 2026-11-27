@@ -1,5 +1,4 @@
 use crate::mailbox::Mailbox;
-use crate::tools::jobs::JobManager;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::BashArgs;
 
@@ -34,7 +33,7 @@ pub(super) fn is_poll_command(command: &str) -> bool {
 pub(super) fn refusal(owner: Option<&Mailbox>, args: &BashArgs) -> Option<ToolResult> {
     let owner = owner?;
     let foreground_poll = args.background != Some(true) && is_poll_command(&args.command);
-    (foreground_poll && JobManager::global().has_running(owner.id())).then(|| ToolResult::error(REFUSAL))
+    (foreground_poll && owner.has_running_jobs()).then(|| ToolResult::error(REFUSAL))
 }
 
 #[cfg(test)]
@@ -75,7 +74,7 @@ mod tests {
     #[test]
     fn polls_are_refused_only_while_the_owner_has_running_work() {
         let inbox = Mailboxes::default().open("poll-owner", None);
-        let jobs = JobManager::global();
+        let jobs = inbox.jobs();
 
         assert!(
             refusal(Some(&inbox), &foreground("sleep 5")).is_none(),

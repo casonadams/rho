@@ -37,9 +37,28 @@ pub fn format_background_notice(job_id: &str) -> String {
     format!("background job {job_id}; its output arrives as a follow-up, do not poll")
 }
 
+/// Starts tracking a background command for `owner`; a job without an owner is tracked by nobody,
+/// since no agent could wait for it.
 fn register_background_job(owner: Option<&Mailbox>, command: &str) -> JobCompletion {
     let id = format!("bash-{}", uuid::Uuid::new_v4().simple());
-    JobManager::global().start(owner.map(Mailbox::notices), id, command.to_string())
+    match owner {
+        Some(owner) => owner.start_job(id, command.to_string()),
+        None => JobManager::default().start(None, id, command.to_string()),
+    }
+}
+
+/// Hands a started command to a background job owned by `owner`, returning the footer naming it.
+fn continue_in_background(
+    owner: Option<&Mailbox>,
+    command: &str,
+    cmd: StreamingCommand,
+    rx: Receiver<String>,
+    acc: OutputAccumulator,
+) -> String {
+    let job = register_background_job(owner, command);
+    let footer = format_background_notice(job.id());
+    dispatch_background_task(cmd, rx, acc, job, BACKGROUND_MAX_RUNTIME);
+    footer
 }
 
 async fn shape_on_blocking_pool<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, AppError> {
@@ -74,7 +93,7 @@ fn dispatch_background_task(
         acc.finish();
         let snapshot = acc.snapshot();
         if let Some(path) = snapshot.full_output_path.clone() {
-            JobManager::global().attach_log(job.id(), path);
+            job.attach_log(path);
         }
         match tokio::task::spawn_blocking(move || report_background_result(job, status, &snapshot)).await {
             Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
@@ -277,15 +296,8 @@ async fn handle_timeout_fallback<F: FnMut(&str)>(
         return Ok(ToolResult::error(text));
     }
 
-    let job = register_background_job(ctx.owner, &ctx.args.command);
-    let job_id = job.id().to_string();
-    dispatch_background_task(ctx.cmd, ctx.rx, ctx.acc, job, BACKGROUND_MAX_RUNTIME);
-
-    Ok(ToolResult::error(format!(
-        "[timeout {}s; {}]",
-        ctx.timeout_sec,
-        format_background_notice(&job_id)
-    )))
+    let footer = continue_in_background(ctx.owner, &ctx.args.command, ctx.cmd, ctx.rx, ctx.acc);
+    Ok(ToolResult::error(format!("[timeout {}s; {footer}]", ctx.timeout_sec)))
 }
 
 struct RunContext<'a> {
@@ -375,12 +387,9 @@ where
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        let job = register_background_job(owner, &args.command);
-        let job_id = job.id().to_string();
         let acc = OutputAccumulator::new().with_log_dir(log_dir);
-        dispatch_background_task(cmd, rx, acc, job, BACKGROUND_MAX_RUNTIME);
-
-        return Ok(ToolResult::success(format!("[{}]", format_background_notice(&job_id))));
+        let footer = continue_in_background(owner, &args.command, cmd, rx, acc);
+        return Ok(ToolResult::success(format!("[{footer}]")));
     }
 
     let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
@@ -403,9 +412,6 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn background_job_is_killed_after_max_runtime() {
-        let _queue = crate::engine::runner::turn::types::BACKGROUND_QUEUE_TEST_LOCK
-            .lock()
-            .await;
         let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), "sleep 1000", NO_DIRENV, None).await else {
             panic!("failed to spawn test command");
         };
@@ -415,7 +421,7 @@ mod tests {
         let job_id = job.id().to_string();
         let handle = dispatch_background_task(cmd, rx, OutputAccumulator::new(), job, Duration::from_secs(5));
         handle.await.unwrap();
-        let job = JobManager::global().get(&job_id).unwrap();
+        let job = inbox.jobs().get(&job_id).unwrap();
         assert!(matches!(&job.status, JobStatus::Failed { error } if error.contains("max runtime")));
         assert_eq!(inbox.take().len(), 1, "a timed-out job still reports to its owner");
     }
@@ -446,14 +452,14 @@ mod tests {
         }
         let pid = pid.expect("the command wrote its pid");
 
-        crate::tools::jobs::abandon_background_work("ended-session-owner");
+        inbox.cancel_jobs();
 
         tokio::time::timeout(Duration::from_secs(2), handle)
             .await
             .expect("the job stops promptly")
             .unwrap();
         crate::process::wait_group_dead(pid).await;
-        let job = JobManager::global().get(&job_id).unwrap();
+        let job = inbox.jobs().get(&job_id).unwrap();
         assert!(
             matches!(&job.status, JobStatus::Failed { error } if error.contains("interrupted or its session ended")),
             "{:?}",
@@ -476,7 +482,7 @@ mod tests {
             .await
             .unwrap();
 
-        let status = JobManager::global().get(&job_id).unwrap().status;
+        let status = inbox.jobs().get(&job_id).unwrap().status;
         assert_eq!(
             status,
             JobStatus::Completed {
@@ -509,7 +515,7 @@ mod tests {
             .await
             .unwrap();
 
-        let JobStatus::Completed { exit_code, output } = JobManager::global().get(&job_id).unwrap().status else {
+        let JobStatus::Completed { exit_code, output } = inbox.jobs().get(&job_id).unwrap().status else {
             panic!("the job completes");
         };
         assert_eq!(exit_code, 0);

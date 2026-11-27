@@ -678,11 +678,10 @@ fn mock_engine_in(dir: &Path, session: Option<SessionManager>) -> AgentEngine {
 
 #[tokio::test]
 async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessions() {
-    use crate::tools::jobs::{JobManager, JobStatus};
     let dir = tempfile::tempdir().unwrap();
     let engine = mock_engine_in(dir.path(), None);
     let id = engine.session_manager.session_id.clone();
-    let jobs = JobManager::global();
+    let jobs = engine.inbox().jobs().clone();
     let own = jobs.register(&id, format!("{id}-job"), "sleep".into());
     let other = jobs.register("interrupt-other", "interrupt-other-job".into(), "sleep".into());
 
@@ -690,81 +689,50 @@ async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessio
 
     assert!(own.is_cancelled());
     assert!(!other.is_cancelled());
-    for job in [format!("{id}-job"), "interrupt-other-job".to_string()] {
-        jobs.update_status(
-            &job,
-            JobStatus::Failed {
-                error: "test over".into(),
-            },
-        );
-    }
 }
 
 #[tokio::test]
 async fn switching_sessions_stops_the_left_sessions_background_work_but_not_the_new_ones() {
-    use crate::mailbox::{Envelope, Kind, Party};
-    use crate::tools::jobs::{JobManager, JobStatus};
-    let notice = |to: &str, body: &str| Envelope::new(Party::System, to, Kind::Event, body);
     let dir = tempfile::tempdir().unwrap();
     let mut engine = mock_engine_in(&dir.path().join("a"), None);
     let next = mock_engine_in(&dir.path().join("b"), None);
-    let (left, arrived) = (
-        engine.session_manager.session_id.clone(),
-        next.session_manager.session_id.clone(),
-    );
-    assert_ne!(left, arrived);
-    let jobs = JobManager::global();
-    let left_job = jobs.register(&left, format!("{left}-job"), "sleep".into());
-    let arrived_job = jobs.register(&arrived, format!("{arrived}-job"), "sleep".into());
-    let left_mail = engine.inbox().registry().clone();
-    left_mail.send(notice(&left, "stale notice")).unwrap();
-    next.inbox().registry().send(notice(&arrived, "fresh notice")).unwrap();
+    let (left, arrived) = (engine.inbox(), next.inbox());
+    assert_ne!(left.id(), arrived.id());
+    let left_job = left.jobs().register(left.id(), "left-job".into(), "sleep".into());
+    let arrived_job = arrived
+        .jobs()
+        .register(arrived.id(), "arrived-job".into(), "sleep".into());
+    let left_mail = left.registry().clone();
+    left.notices().send("stale notice").unwrap();
+    arrived.notices().send("fresh notice").unwrap();
+    let left_id = left.id().to_string();
+    drop((left, arrived));
 
     engine.switch_to(next);
 
-    assert_eq!(engine.session_manager.session_id, arrived);
+    assert_ne!(engine.session_manager.session_id, left_id);
     assert!(left_job.is_cancelled());
     assert!(!arrived_job.is_cancelled());
     assert!(
-        !left_mail.is_open(&left),
+        !left_mail.is_open(&left_id),
         "the left session's mailbox and its notices are gone"
     );
     assert_eq!(engine.inbox().take()[0].body, "fresh notice");
-    for id in [format!("{left}-job"), format!("{arrived}-job")] {
-        jobs.update_status(
-            &id,
-            JobStatus::Failed {
-                error: "test over".into(),
-            },
-        );
-    }
 }
 
 #[tokio::test]
 async fn rebuilding_the_same_session_keeps_its_background_work() {
-    use crate::mailbox::{Envelope, Kind, Party};
-    use crate::tools::jobs::{JobManager, JobStatus};
     let dir = tempfile::tempdir().unwrap();
     let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
     let id = session.session_id.clone();
     let mut engine = mock_engine_in(dir.path(), Some(session.clone()));
     let mut rebuilt = mock_engine_in(dir.path(), Some(session));
     rebuilt.subagent_runtime = engine.subagent_runtime.clone();
-    let job = JobManager::global().register(&id, format!("{id}-job"), "sleep".into());
-    engine
-        .inbox()
-        .registry()
-        .send(Envelope::new(Party::System, id.clone(), Kind::Event, "kept notice"))
-        .unwrap();
+    let job = engine.inbox().jobs().register(&id, format!("{id}-job"), "sleep".into());
+    engine.inbox().notices().send("kept notice").unwrap();
 
     engine.switch_to(rebuilt);
 
     assert!(!job.is_cancelled());
     assert_eq!(engine.inbox().take()[0].body, "kept notice");
-    JobManager::global().update_status(
-        &format!("{id}-job"),
-        JobStatus::Failed {
-            error: "test over".into(),
-        },
-    );
 }

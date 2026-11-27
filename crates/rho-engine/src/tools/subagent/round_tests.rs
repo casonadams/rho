@@ -106,11 +106,9 @@ async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
     let adapter = MockAdapter::from_turns([text_turn("done")]);
     let boxes = crate::mailbox::Mailboxes::default();
     let inbox = boxes.open("round-jobs-7a1", None);
-    let job = crate::tools::jobs::JobManager::global().register(
-        "round-jobs-7a1",
-        "round-jobs-7a1-job".into(),
-        "sleep".into(),
-    );
+    let job = inbox
+        .jobs()
+        .register("round-jobs-7a1", "round-jobs-7a1-job".into(), "sleep".into());
     let stop = CancellationSignal::default();
     let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5)
         .with_inbox(inbox)
@@ -127,12 +125,6 @@ async fn a_rounds_own_background_jobs_stop_when_the_round_is_stopped() {
 
     assert_eq!(round.end, round::RoundEnd::Cancelled);
     assert!(job.is_cancelled(), "the round's own job is stopped with it");
-    crate::tools::jobs::JobManager::global().update_status(
-        "round-jobs-7a1-job",
-        crate::tools::jobs::JobStatus::Failed {
-            error: "test over".into(),
-        },
-    );
 }
 
 #[derive(Debug)]

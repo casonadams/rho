@@ -5,7 +5,7 @@ use super::conversation::ConversationSettings;
 use super::runtime::{RoundSlot, SubagentRuntime};
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::mailbox::{Mailbox, framed_notice, neutralize_notice_tags};
-use crate::tools::jobs::{JobManager, JobStatus};
+use crate::tools::jobs::JobStatus;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::{Presenter, SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
@@ -24,7 +24,6 @@ const STOP_GRACE: Duration = Duration::from_secs(10);
 /// Runs subagent rounds in the foreground up to a time budget, then moves them to the background.
 #[derive(Clone)]
 pub(crate) struct Backgrounding {
-    jobs: JobManager,
     budget: Duration,
     runtime: SubagentRuntime,
 }
@@ -32,7 +31,6 @@ pub(crate) struct Backgrounding {
 impl Default for Backgrounding {
     fn default() -> Self {
         Self {
-            jobs: JobManager::global().clone(),
             budget: Duration::from_secs(DEFAULT_FOREGROUND_SECONDS),
             runtime: SubagentRuntime::default(),
         }
@@ -177,9 +175,8 @@ impl Backgrounding {
     }
 
     #[cfg(test)]
-    pub(crate) fn new(jobs: JobManager, budget: Duration) -> Self {
+    pub(crate) fn new(budget: Duration) -> Self {
         Self {
-            jobs,
             budget,
             ..Self::default()
         }
@@ -187,7 +184,8 @@ impl Backgrounding {
 
     /// A message for task `task_id` while its round still runs in the background, otherwise `None`.
     pub(crate) fn still_running(&self, task_id: &str) -> Option<String> {
-        self.jobs
+        self.runtime
+            .jobs()
             .get(task_id)
             .filter(|job| job.status == JobStatus::Running)
             .map(|_| format!("subagent task '{task_id}' is still running in the background; its result arrives as a follow-up message when it finishes"))
@@ -260,11 +258,9 @@ impl Backgrounding {
     /// Tracks a round that moved to the background. Stopping its job asks the round to stop so it can
     /// save its transcript, and aborts it only if it has not finished after `STOP_GRACE`.
     fn detach(&self, mut handle: JoinHandle<ToolResult>, task: &BackgroundTask<'_>, stop: CancellationSignal) {
-        let job = self.jobs.start(
-            Some(self.runtime.notices_for(task.owner)),
-            task.id.to_string(),
-            task.label.clone(),
-        );
+        let job = self
+            .runtime
+            .start_job(task.owner, task.id.to_string(), task.label.clone());
         let cancellation = task.cancellation.clone();
         tokio::spawn(async move {
             let result = tokio::select! {

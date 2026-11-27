@@ -4,7 +4,8 @@
 
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Delivery, Mailbox, Mailboxes, NoticeTarget, Party, SendError};
+use crate::mailbox::{Delivery, Mailbox, Mailboxes, Party, SendError};
+use crate::tools::jobs::{JobCompletion, JobManager};
 use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::Presenter;
@@ -124,9 +125,14 @@ impl SubagentRuntime {
         }
     }
 
-    /// Where agent `agent`'s notices go.
-    pub(crate) fn notices_for(&self, agent: &str) -> NoticeTarget {
-        self.mailboxes.notices_for(agent)
+    /// The background work of this engine's agents.
+    pub(crate) fn jobs(&self) -> &JobManager {
+        self.mailboxes.jobs()
+    }
+
+    /// Starts tracking background work agent `owner` owns; its notice goes to `owner`.
+    pub(crate) fn start_job(&self, owner: &str, id: String, label: String) -> JobCompletion {
+        self.mailboxes.start_job(owner, id, label)
     }
 
     #[cfg(test)]

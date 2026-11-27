@@ -137,7 +137,7 @@ impl AgentEngine {
     pub fn switch_to(&mut self, next: Self) {
         if self.session_manager.session_id != next.session_manager.session_id {
             self.cancel_auto_title();
-            crate::tools::jobs::abandon_background_work(&self.session_manager.session_id);
+            self.inbox().cancel_jobs();
         }
         *self = next;
     }

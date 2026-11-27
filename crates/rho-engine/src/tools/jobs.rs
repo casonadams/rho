@@ -51,31 +51,31 @@ impl Default for JobManager {
 }
 
 /// What wakes an agent waiting on its background work: a message in its mailbox, steering from the
-/// user, or any job ending. Made before the waiter first checks what it waits for, so it never
-/// misses a change that happens between that check and the wait.
+/// user, or any job of its engine ending. Made before the waiter first checks what it waits for, so
+/// it never misses a change that happens between that check and the wait.
 pub(crate) struct Wakeups<'a> {
-    inbox: Option<&'a Mailbox>,
+    inbox: &'a Mailbox,
     steering: Option<&'a dyn SteeringQueueProvider>,
     ended: watch::Receiver<u64>,
 }
 
-impl Wakeups<'_> {
+impl<'a> Wakeups<'a> {
+    pub(crate) fn new(inbox: &'a Mailbox, steering: Option<&'a dyn SteeringQueueProvider>) -> Self {
+        Self {
+            inbox,
+            steering,
+            ended: inbox.jobs().ended.subscribe(),
+        }
+    }
+
     /// Returns once a message or steering is waiting, or after a job ended since the last call. An
     /// agent that blocks here is not answering, so it first declines the questions it has read.
     pub(crate) async fn next(&mut self) {
         let Self { inbox, steering, ended } = self;
-        if let Some(inbox) = inbox {
-            inbox.decline_unanswered();
-        }
+        inbox.decline_unanswered();
         let job_ended = async {
             if ended.changed().await.is_err() {
                 std::future::pending::<()>().await;
-            }
-        };
-        let message = async {
-            match inbox {
-                Some(inbox) => inbox.wait().await,
-                None => std::future::pending().await,
             }
         };
         let steering = async {
@@ -86,7 +86,7 @@ impl Wakeups<'_> {
         };
         tokio::select! {
             () = job_ended => {}
-            () = message => {}
+            () = inbox.wait() => {}
             () = steering => {}
         }
     }
@@ -111,6 +111,11 @@ impl JobCompletion {
     /// Fires when the job must stop: its turn was interrupted or its session ended.
     pub(crate) fn cancel(&self) -> &CancellationSignal {
         &self.cancel
+    }
+
+    /// Records where the job's full output was saved.
+    pub(crate) fn attach_log(&self, path: PathBuf) {
+        self.jobs.attach_log(&self.id, path);
     }
 
     /// Records `status`; `notice` reaches the owner's mailbox unless the job was stopped. The notice
@@ -139,8 +144,6 @@ impl Drop for JobCompletion {
     }
 }
 
-static GLOBAL_JOB_MANAGER: std::sync::LazyLock<JobManager> = std::sync::LazyLock::new(JobManager::default);
-
 fn evict_finished(registry: &mut Registry) {
     while registry.finished.len() > MAX_FINISHED_JOBS {
         let Some(id) = registry.finished.pop_front() else {
@@ -159,14 +162,6 @@ fn evict_finished(registry: &mut Registry) {
 }
 
 impl JobManager {
-    pub fn global() -> &'static Self {
-        &GLOBAL_JOB_MANAGER
-    }
-
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     fn lock(&self) -> MutexGuard<'_, Registry> {
         self.registry.lock().unwrap_or_else(|p| p.into_inner())
     }
@@ -234,19 +229,6 @@ impl JobManager {
         }
     }
 
-    /// Wakes a waiter on `inbox`, `steering`, or any job of this manager ending.
-    pub(crate) fn wakeups<'a>(
-        &self,
-        inbox: Option<&'a Mailbox>,
-        steering: Option<&'a dyn SteeringQueueProvider>,
-    ) -> Wakeups<'a> {
-        Wakeups {
-            inbox,
-            steering,
-            ended: self.ended.subscribe(),
-        }
-    }
-
     pub fn get(&self, id: &str) -> Option<BackgroundJobInfo> {
         self.lock().jobs.get(id).cloned()
     }
@@ -291,11 +273,6 @@ impl JobManager {
     }
 }
 
-/// Stops a no-longer-active session's background work. Its undelivered notices go with its mailbox.
-pub fn abandon_background_work(owner: &str) {
-    JobManager::global().cancel_owner(owner);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_job_manager_lifecycle() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         mgr.register("me", "j1".into(), "echo 1".into());
         assert_eq!(mgr.get("j1").unwrap().status, JobStatus::Running);
         assert!(mgr.has_running("me"));
@@ -326,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_job_whose_task_dies_before_reporting_stops_blocking_its_session() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         let job = mgr.start(
             Some(crate::mailbox::Mailboxes::default().notices_for("panicking-owner")),
             "p1".into(),
@@ -349,7 +326,7 @@ mod tests {
     fn a_finished_jobs_notice_reaches_its_owners_mailbox_unless_the_job_was_told_to_stop() {
         let boxes = Mailboxes::default();
         let inbox = boxes.open("o", None);
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         mgr.start(Some(inbox.notices()), "kept".into(), "cmd".into())
             .finish(done(0, "ok"), Some("kept notice".into()));
         let stopped = mgr.start(Some(inbox.notices()), "stopped".into(), "cmd".into());
@@ -370,7 +347,7 @@ mod tests {
 
     #[test]
     fn an_earlier_run_finishing_late_leaves_the_rerun_under_its_id_running() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         let boxes = Mailboxes::default();
         let first = mgr.start(Some(boxes.notices_for("o")), "task-1".into(), "subagent".into());
         let _second = mgr.start(Some(boxes.notices_for("o")), "task-1".into(), "subagent".into());
@@ -383,7 +360,7 @@ mod tests {
 
     #[test]
     fn running_jobs_only_count_for_their_own_session() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         mgr.register("session-a", "a1".into(), "sleep".into());
         mgr.register("session-a", "a2".into(), "sleep".into());
         mgr.register("session-b", "b1".into(), "sleep".into());
@@ -398,7 +375,7 @@ mod tests {
 
     #[test]
     fn cancelling_a_session_signals_only_its_running_jobs() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         let a_running = mgr.register("session-a", "a1".into(), "sleep".into());
         let a_finished = mgr.register("session-a", "a2".into(), "true".into());
         let b_running = mgr.register("session-b", "b1".into(), "sleep".into());
@@ -412,22 +389,8 @@ mod tests {
     }
 
     #[test]
-    fn abandoning_a_session_cancels_only_its_jobs() {
-        let global = JobManager::global();
-        let gone = global.register("abandon-gone", "abandon-job-gone".into(), "sleep".into());
-        let kept = global.register("abandon-kept", "abandon-job-kept".into(), "sleep".into());
-
-        abandon_background_work("abandon-gone");
-
-        assert!(gone.is_cancelled());
-        assert!(!kept.is_cancelled());
-        global.update_status("abandon-job-gone", done(0, ""));
-        global.update_status("abandon-job-kept", done(0, ""));
-    }
-
-    #[test]
     fn a_reregistered_job_runs_again_and_is_not_evicted_as_finished() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         mgr.register("me", "task".into(), "subagent".into());
         mgr.update_status("task", done(0, "first round"));
         mgr.register("me", "task".into(), "subagent".into());
@@ -442,7 +405,7 @@ mod tests {
 
     #[test]
     fn finished_jobs_are_bounded_and_evict_their_logs() {
-        let mgr = JobManager::new();
+        let mgr = JobManager::default();
         let dir = tempfile::tempdir().unwrap();
         let first_log = dir.path().join("first.log");
         std::fs::write(&first_log, "output").unwrap();

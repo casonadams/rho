@@ -10,6 +10,7 @@
 //! and a parent that blocks or finishes its turn without answering declines the questions it read
 //! ([`Mailbox::decline_unanswered`]).
 
+use crate::tools::jobs::{JobCompletion, JobManager};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
@@ -232,13 +233,27 @@ impl Registry {
     }
 }
 
-/// The mailboxes of every running agent of an engine.
+/// The mailboxes of every running agent of an engine, and the background work those agents own.
 #[derive(Clone, Default)]
-pub struct Mailboxes(Arc<Mutex<Registry>>);
+pub struct Mailboxes {
+    registry: Arc<Mutex<Registry>>,
+    jobs: JobManager,
+}
 
 impl Mailboxes {
     fn lock(&self) -> MutexGuard<'_, Registry> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.registry.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The background work of this engine's agents.
+    #[must_use]
+    pub fn jobs(&self) -> &JobManager {
+        &self.jobs
+    }
+
+    /// Starts tracking background work agent `owner` owns; its notice goes to `owner`.
+    pub(crate) fn start_job(&self, owner: &str, id: String, command: String) -> JobCompletion {
+        self.jobs.start(Some(self.notices_for(owner)), id, command)
     }
 
     /// Opens agent `id`'s mailbox, replacing any earlier one; `parent` is the agent that delegated to it.
@@ -326,6 +341,27 @@ impl Mailbox {
     #[must_use]
     pub fn notices(&self) -> NoticeTarget {
         self.0.registry.notices_for(&self.0.id)
+    }
+
+    /// The background work of this agent's engine; [`Self::start_job`] adds work this agent owns.
+    #[must_use]
+    pub fn jobs(&self) -> &JobManager {
+        self.0.registry.jobs()
+    }
+
+    /// Starts tracking background work this agent owns; its notice comes to this mailbox.
+    pub(crate) fn start_job(&self, id: String, command: String) -> JobCompletion {
+        self.0.registry.start_job(self.id(), id, command)
+    }
+
+    #[must_use]
+    pub fn has_running_jobs(&self) -> bool {
+        self.jobs().has_running(self.id())
+    }
+
+    /// Signals every running job this agent owns to stop.
+    pub fn cancel_jobs(&self) {
+        self.jobs().cancel_owner(self.id());
     }
 
     fn with_slot<R>(&self, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {

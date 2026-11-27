@@ -52,23 +52,14 @@ async fn the_model_sees_plain_bash_output_while_the_ui_keeps_its_colors() {
 
 #[tokio::test]
 async fn a_turn_ends_while_another_sessions_background_job_runs_and_never_receives_its_result() {
-    use rho_engine::mailbox::{Envelope, Kind, Party};
-    use rho_engine::tools::jobs::{JobManager, JobStatus};
     let model = Arc::new(MockAdapter::default());
     model.add_turn(vec![Ok(ModelStreamEvent::Text("all done".to_string()))]);
     let engine = test_engine(model.clone(), Config::default());
-    let jobs = JobManager::global();
-    let elsewhere = jobs.register("e2e-other-session", "e2e-other-job".into(), "sleep 1000".into());
     let other = engine.inbox().registry().open("e2e-other-session", None);
-    other
-        .registry()
-        .send(Envelope::new(
-            Party::System,
-            "e2e-other-session",
-            Kind::Event,
-            "e2e-other-secret-result",
-        ))
-        .unwrap();
+    let elsewhere = other
+        .jobs()
+        .register(other.id(), "e2e-other-job".into(), "sleep 1000".into());
+    other.notices().send("e2e-other-secret-result").unwrap();
 
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
@@ -82,10 +73,4 @@ async fn a_turn_ends_while_another_sessions_background_job_runs_and_never_receiv
     assert!(!sent_to_model.contains("e2e-other-secret-result"), "{sent_to_model}");
     assert!(!elsewhere.is_cancelled());
     assert_eq!(other.take()[0].body, "e2e-other-secret-result");
-    jobs.update_status(
-        "e2e-other-job",
-        JobStatus::Failed {
-            error: "test over".into(),
-        },
-    );
 }

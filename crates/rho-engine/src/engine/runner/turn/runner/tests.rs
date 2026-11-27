@@ -52,7 +52,10 @@ fn test_agent_env_with(
     )
 }
 
-use crate::engine::runner::turn::types::BACKGROUND_QUEUE_TEST_LOCK;
+/// The background work of the test runner's engine.
+fn jobs(runner: &AgentRunner) -> &crate::tools::jobs::JobManager {
+    runner.inbox.as_ref().expect("test runners have a mailbox").jobs()
+}
 
 /// Posts a system notice to agent `to` through the test runner's mailbox registry.
 fn notify(runner: &AgentRunner, to: &str, body: &str) {
@@ -130,7 +133,6 @@ async fn tool_dispatch_waits_until_queued_reasoning_is_displayed() {
 
 #[tokio::test]
 async fn test_wait_for_background_jobs_flow() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let sig = CancellationSignal::default();
     let runner = runner.cancellation(Some(sig.clone()));
@@ -140,7 +142,7 @@ async fn test_wait_for_background_jobs_flow() {
 
     assert!(!wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
     let notices = runner.inbox.as_ref().map(crate::mailbox::Mailbox::notices);
-    let job = crate::tools::jobs::JobManager::global().start(notices, "bg-1".into(), "echo 1".into());
+    let job = jobs(&runner).start(notices, "bg-1".into(), "echo 1".into());
     tokio::spawn(async move {
         job.finish(
             crate::tools::jobs::JobStatus::Completed {
@@ -151,23 +153,20 @@ async fn test_wait_for_background_jobs_flow() {
         );
     });
     assert!(wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
-    crate::tools::jobs::JobManager::global().register(&owner, "bg-2".into(), "sleep".into());
+    jobs(&runner).register(&owner, "bg-2".into(), "sleep".into());
     sig.cancel();
     assert!(matches!(
         wait_for_background_jobs(&runner, &mut ctx, &emitter).await,
         Err(AppError::Cancelled(_))
     ));
-    crate::tools::jobs::JobManager::global()
-        .update_status("bg-2", crate::tools::jobs::JobStatus::Failed { error: "a".into() });
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
-    let jobs = crate::tools::jobs::JobManager::global();
+    let jobs = jobs(&runner);
     let job = jobs.start(
         runner.inbox.as_ref().map(crate::mailbox::Mailbox::notices),
         "silent-5e3".into(),
@@ -196,7 +195,6 @@ async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
 
 #[tokio::test(start_paused = true)]
 async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
@@ -204,11 +202,7 @@ async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read()
     let child = parent.registry().open("asker-6a1", Some(parent.id()));
     let request = child.ask_parent("which module?").unwrap();
     let _ = parent.take();
-    let job = crate::tools::jobs::JobManager::global().start(
-        Some(parent.notices()),
-        "asker-job-6a1".into(),
-        "subagent".into(),
-    );
+    let job = jobs(&runner).start(Some(parent.notices()), "asker-job-6a1".into(), "subagent".into());
     let asker = tokio::spawn(async move {
         let reply = child.reply(&request).await;
         job.finish(crate::tools::jobs::JobStatus::Failed { error: "paused".into() }, None);
@@ -256,14 +250,13 @@ async fn steering_typed_while_waiting_for_background_work_is_delivered_at_once()
             crate::wake::until(&self.1, || self.has_steering().then_some(())).await;
         }
     }
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let steering = Arc::new(Queued(std::sync::Mutex::default(), tokio::sync::Notify::new()));
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let runner = runner.steering(Some(steering.clone()));
     let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
-    let jobs = crate::tools::jobs::JobManager::global();
+    let jobs = jobs(&runner);
     jobs.register(&owner, "steer-wait-2b8".into(), "sleep".into());
     tokio::spawn(async move {
         tokio::task::yield_now().await;
@@ -281,20 +274,15 @@ async fn steering_typed_while_waiting_for_background_work_is_delivered_at_once()
             .unwrap()
             .contains("use the cache")
     );
-    jobs.update_status(
-        "steer-wait-2b8",
-        crate::tools::jobs::JobStatus::Failed { error: "done".into() },
-    );
 }
 
 #[tokio::test]
 async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
-    let jobs = crate::tools::jobs::JobManager::global();
+    let jobs = jobs(&runner);
     let elsewhere = jobs.register("other-session-3f1", "other-job-3f1".into(), "sleep".into());
     let other_inbox = runner
         .inbox
@@ -320,15 +308,10 @@ async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work(
     assert!(!elsewhere.is_cancelled(), "another session's work is left alone");
     assert!(jobs.has_running("other-session-3f1"));
     assert_eq!(other_inbox.take()[0].body, "other-notice-3f1");
-    jobs.update_status(
-        "other-job-3f1",
-        crate::tools::jobs::JobStatus::Failed { error: "done".into() },
-    );
 }
 
 #[tokio::test]
 async fn a_job_that_finished_before_the_turn_ended_still_delivers_its_notification() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
@@ -391,7 +374,6 @@ impl EngineTool for ScriptedTool {
 
 #[tokio::test]
 async fn a_tool_can_end_the_turn_once_its_batch_is_answered() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let model = Arc::new(MockAdapter::from_turns(vec![
         vec![
             ModelStreamEvent::Text("asking".into()),
@@ -448,7 +430,6 @@ fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
 
 #[tokio::test]
 async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_percentage() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let model = Arc::new(MockAdapter::from_turns(vec![
         probe_then_usage(0, 90_000),
         probe_then_usage(1, 142_000),
@@ -1032,14 +1013,16 @@ async fn completing_after_checkpointed_steps_promotes_them_once() {
 
 #[tokio::test]
 async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_background_work() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let model = tool_turn_then(vec![vec![Ok(ModelStreamEvent::Text("done".into()))]]);
     let (runner, _temp, _, _) = test_agent_env(model.clone());
     let session_id = runner.session_file().session_id.clone();
     let store = crate::engine::runner::turn::MemoryStore::new("child-task-9", vec![ChatMessage::user("earlier")]);
-    let jobs = crate::tools::jobs::JobManager::global();
-    jobs.register(&session_id, "memstore-parent-job".into(), "sleep".into());
-    let runner = runner.store(Arc::new(store.clone())).prompt("do it");
+    let parent = runner.inbox.clone().unwrap();
+    let child = parent.registry().open("child-task-9", Some(parent.id()));
+    parent
+        .jobs()
+        .register(&session_id, "memstore-parent-job".into(), "sleep".into());
+    let runner = runner.store(Arc::new(store.clone())).inbox(Some(child)).prompt("do it");
 
     tokio::time::timeout(
         std::time::Duration::from_secs(2),
@@ -1049,10 +1032,6 @@ async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_
     .expect("the turn does not wait for the session's own jobs")
     .unwrap();
 
-    jobs.update_status(
-        "memstore-parent-job",
-        crate::tools::jobs::JobStatus::Failed { error: "over".into() },
-    );
     let messages = store.messages();
     assert_eq!(messages.first(), Some(&ChatMessage::user("earlier")));
     assert_eq!(messages.get(1), Some(&ChatMessage::user("do it")));
@@ -1068,7 +1047,6 @@ async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_
 
 #[tokio::test]
 async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on_its_last_turn() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     for (budget, expected_requests) in [(5, 2), (1, 1)] {
         let model = Arc::new(MockAdapter::from_turns(vec![
             vec![ModelStreamEvent::Text("first answer".into())],
@@ -1171,7 +1149,6 @@ async fn a_dropped_model_request_is_retried_without_failing_the_turn() {
 
 #[tokio::test(start_paused = true)]
 async fn delivering_messages_to_an_interrupted_turn_reports_the_interrupt() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
@@ -1198,7 +1175,6 @@ async fn delivering_messages_to_an_interrupted_turn_reports_the_interrupt() {
 
 #[tokio::test(start_paused = true)]
 async fn background_notification_is_injected_once_when_woken() {
-    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
@@ -1216,7 +1192,7 @@ async fn background_notification_is_injected_once_when_woken() {
     });
 
     let emitter = acking_emitter();
-    let mut wakeups = crate::tools::jobs::JobManager::global().wakeups(runner.inbox.as_ref(), None);
+    let mut wakeups = crate::tools::jobs::Wakeups::new(runner.inbox.as_ref().unwrap(), None);
     let step = wait_step(&runner, &mut ctx, &emitter, &mut wakeups).await.unwrap();
     enqueue.await.unwrap();
     deliver_messages(&runner, &mut ctx, &emitter).await.unwrap();

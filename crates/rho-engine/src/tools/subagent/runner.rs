@@ -519,7 +519,9 @@ impl SubagentRunner {
                 None => break (finish, messages),
             }
         };
-        crate::tools::jobs::JobManager::global().cancel_owner(&round.owner);
+        if let Some(inbox) = &self.inbox {
+            inbox.cancel_jobs();
+        }
         if !round.run.prompt.is_empty() {
             transcript.push(ChatMessage::user(round.run.prompt.clone()));
         }

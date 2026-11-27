@@ -2,7 +2,7 @@ use crate::engine::runner::SteeringQueueProvider;
 use crate::engine::runner::turn::types::{CancellationSignal, message_waiting, unless_cancelled};
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
-use crate::tools::jobs::{BackgroundJobInfo, JobManager};
+use crate::tools::jobs::{BackgroundJobInfo, Wakeups};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::WaitArgs;
 use rho_harness_core::error::AppError;
@@ -19,7 +19,6 @@ const COMMAND_PREVIEW_CHARS: usize = 60;
 /// Each turn binds a copy to the agent's mailbox; an unbound tool has nothing to wait for.
 #[derive(Clone)]
 pub struct WaitTool {
-    jobs: JobManager,
     cap: Duration,
     turn: Option<Turn>,
 }
@@ -34,7 +33,6 @@ struct Turn {
 impl Default for WaitTool {
     fn default() -> Self {
         Self {
-            jobs: JobManager::global().clone(),
             cap: WAIT_CAP,
             turn: None,
         }
@@ -60,7 +58,7 @@ impl WaitTool {
                 "Wait interrupted; background work keeps running and its result still arrives as a follow-up message.",
             ));
         }
-        let running = self.jobs.has_running(turn.inbox.id());
+        let running = turn.inbox.has_running_jobs();
         let notices = turn.inbox.read_notices();
         if !notices.is_empty() {
             return Some(ToolResult::success(notices.join("\n\n")));
@@ -79,8 +77,8 @@ impl WaitTool {
         })
     }
 
-    fn still_running(&self, owner: &str) -> ToolResult {
-        let entries: Vec<String> = self.jobs.running(owner).iter().map(describe).collect();
+    fn still_running(inbox: &Mailbox) -> ToolResult {
+        let entries: Vec<String> = inbox.jobs().running(inbox.id()).iter().map(describe).collect();
         ToolResult::success(format!(
             "Still running: {}. Call wait again to keep waiting, or end your turn.",
             entries.join("; ")
@@ -108,7 +106,7 @@ impl TypedTool for WaitTool {
             return Ok(ToolResult::success(NOTHING_RUNNING));
         };
         let deadline = Instant::now() + self.cap;
-        let mut wakeups = self.jobs.wakeups(Some(&turn.inbox), turn.steering.as_deref());
+        let mut wakeups = Wakeups::new(&turn.inbox, turn.steering.as_deref());
         let mut waited = false;
         loop {
             if let Some(result) = self.ready(turn, waited) {
@@ -119,7 +117,7 @@ impl TypedTool for WaitTool {
             if let Some(Err(_)) = unless_cancelled(turn.cancellation.as_ref(), woken).await {
                 return Ok(self
                     .ready(turn, waited)
-                    .unwrap_or_else(|| self.still_running(turn.inbox.id())));
+                    .unwrap_or_else(|| Self::still_running(&turn.inbox)));
             }
         }
     }
