@@ -55,7 +55,7 @@ pub struct McpServerList(std::sync::Arc<std::sync::RwLock<Vec<McpServerItem>>>);
 
 impl McpServerList {
     pub fn set_from(&self, mcp: &rho_harness_core::config::McpConfig) {
-        *self.0.write().unwrap() = mcp
+        *rho_harness_core::locking::write(&self.0) = mcp
             .servers
             .iter()
             .filter(|(_, cfg)| cfg.enabled)
@@ -68,7 +68,7 @@ impl McpServerList {
     }
 
     fn snapshot(&self) -> Vec<McpServerItem> {
-        self.0.read().unwrap().clone()
+        rho_harness_core::locking::read(&self.0).clone()
     }
 }
 

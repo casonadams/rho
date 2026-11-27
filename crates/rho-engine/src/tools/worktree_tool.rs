@@ -119,10 +119,7 @@ impl WorktreeTool {
                 let created =
                     crate::worktree::create_session_worktree(&root, &base, &branch, self.clean_source).await?;
                 if let Some(slot) = &self.relocate_slot {
-                    let mut guard = slot
-                        .lock()
-                        .map_err(|_| "failed to queue session relocation: relocation lock poisoned".to_string())?;
-                    *guard = Some(created.path.clone());
+                    *crate::locking::lock(slot) = Some(created.path.clone());
                 }
                 self.root.set(created.path.clone());
                 Ok(created.summary())

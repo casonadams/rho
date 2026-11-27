@@ -5,6 +5,7 @@ use crate::engine::metrics::PruneDecision;
 use crate::engine::metrics::tracker::{PromptCacheKey, SentRequest};
 use crate::engine::runner::history::continuation_history;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
+use crate::engine::tracking::CompactionTiming;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::model::ChatMessage;
 use rho_harness_core::presentation::presenter::Presenter;
@@ -31,7 +32,7 @@ pub(super) struct TurnRunnerParams<'a> {
     pub thinking_level: Option<ThinkingLevel>,
     pub checkpoint: Option<&'a [ChatMessage]>,
     pub history: &'a [ChatMessage],
-    pub compact_early: bool,
+    pub compaction_timing: CompactionTiming,
 }
 
 pub(super) struct PreparedTurn {
@@ -54,9 +55,9 @@ pub(super) struct TurnLoopState {
     pub thinking_level: Option<ThinkingLevel>,
     /// Times this turn has compacted its context and gone on.
     pub compactions: usize,
-    /// Stops to compact once the context passes the threshold; off once that found nothing to
-    /// compact, so the turn runs on until an overflow instead.
-    pub compact_early: bool,
+    /// Early until a stop for compaction finds nothing to compact; the turn then runs on until an
+    /// overflow instead.
+    pub compaction_timing: CompactionTiming,
     pub turn_started_at: std::time::Instant,
 }
 
@@ -241,7 +242,7 @@ impl AgentEngine {
             current_budget: self.config.max_turns,
             thinking_level: None,
             compactions: 0,
-            compact_early: true,
+            compaction_timing: CompactionTiming::Early,
             turn_started_at: std::time::Instant::now(),
         };
         Ok(PreparedTurn {
@@ -316,7 +317,7 @@ impl AgentEngine {
             .context_budget(Some(
                 self.context
                     .budget(self.context_limit(), self.context_limit_source(), self.compaction_at())
-                    .with_compaction_stops(params.compact_early),
+                    .with_compaction_timing(params.compaction_timing),
             ))
             .working_dir(self.base_dir.clone())
             .a2ui_config(self.config.ui.a2ui_widgets, self.config.ui.a2ui.clone());
@@ -401,7 +402,7 @@ impl AgentEngine {
                     thinking_level: loop_state.thinking_level,
                     checkpoint: loop_state.checkpoint.as_deref(),
                     history: &loop_state.visible_history,
-                    compact_early: loop_state.compact_early,
+                    compaction_timing: loop_state.compaction_timing,
                 },
                 sink.clone(),
                 request,
@@ -469,7 +470,7 @@ mod tests {
         use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
         use std::time::{Duration, Instant};
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let now = Some(Instant::now());
         let ten_minutes_ago = Instant::now().checked_sub(Duration::from_secs(600));
         let cases = [
@@ -482,7 +483,7 @@ mod tests {
             (Auto, "anthropic", ten_minutes_ago, false, PromptCache::Cold),
         ];
         for (retention, provider, sent, switch, expected) in cases {
-            let mut engine = cache_test_engine(dir.path(), retention, provider);
+            let mut engine = cache_test_engine(&dir, retention, provider);
             send_then_maybe_switch(&mut engine, sent, switch);
             assert_eq!(
                 engine.prompt_cache(),
@@ -498,7 +499,7 @@ mod tests {
         use rho_harness_core::config::CacheRetention;
         use std::time::{Duration, Instant};
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let cached = StructuralUsage {
             input_tokens: 10,
             output_tokens: 200,
@@ -522,7 +523,7 @@ mod tests {
             (now, Some(cached), true, Some("about 124k tokens")),
         ];
         for (sent, usage, switch, expected) in cases {
-            let mut engine = cache_test_engine(dir.path(), CacheRetention::Auto, "claude");
+            let mut engine = cache_test_engine(&dir, CacheRetention::Auto, "claude");
             if let Some(usage) = usage {
                 engine.usage.record(usage);
             }
@@ -543,9 +544,9 @@ mod tests {
         use crate::test_support::CapturingPresenter;
         use rho_harness_core::presentation::presenter::Presenter;
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let mut app_config = Config {
-            auth_file: dir.path().join("auth.json"),
+            auth_file: dir.join("auth.json"),
             ..Config::default()
         };
         app_config.permission.enabled = true;
@@ -555,7 +556,7 @@ mod tests {
         let engine = mock_engine(
             Arc::new(MockAdapter::new("mock-model", "claude")),
             MockEngineConfig {
-                base_dir: dir.path(),
+                base_dir: &dir,
                 app_config,
                 session_manager: None,
                 built_in_tools: None,
@@ -564,7 +565,7 @@ mod tests {
         let capturing = Arc::new(CapturingPresenter::default());
         let presenter: Arc<dyn Presenter> = capturing.clone();
 
-        let hook = engine.permission_hook(dir.path().to_path_buf(), &presenter).await;
+        let hook = engine.permission_hook(dir.to_path_buf(), &presenter).await;
 
         assert!(hook.is_some());
         let notices = capturing.notices.lock().unwrap();

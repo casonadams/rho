@@ -101,7 +101,7 @@ TurnRequest
    │ prepare.rs ─▶ context assembly (AGENTS.md, skills, transclusion)
    ▼
 provider stream (claude/antigravity/chatgpt/ollama)
-   │ stream.rs ─▶ DisplayEvent → sink ─▶ UI
+   │ stream.rs ─▶ sink ─▶ UI
    ▼
 tool calls ── permission gate ──▶ execute ──▶ results appended
    │                                             │

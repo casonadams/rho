@@ -5,30 +5,27 @@ use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::presentation::presenter::Presenter;
 
+use super::calls::TurnCalls;
 use super::prepare::TurnLoopState;
 use super::runner::{AgentRunner, ModelRetry, MultiTurnStreamItem, StreamEvent};
 use super::streaming_tool::StreamingToolTracker;
 use crate::engine::AgentEngine;
-use crate::engine::compactor::MAX_COMPACTIONS_PER_TURN;
-use crate::engine::metrics::StructuralUsage;
-use crate::engine::metrics::types::{CompletionCall, PromptResponse};
-use crate::engine::runner::history::DisplayEvent;
+use crate::engine::compactor::may_compact_again;
+use crate::engine::metrics::types::{CompletionCall, PromptResponse, StructuralUsage};
 use crate::engine::runner::sink::TerminalApprovalSink;
+use crate::engine::tracking::CompactionTiming;
 use crate::engine::tracking::UsageTracker;
 
 pub(super) struct TurnStreamState {
-    pub(super) model_call_start: Option<Instant>,
-    pub(super) first_token_at: Option<Instant>,
-    pub(super) ttft_ms: Option<u64>,
-    pub(super) total_generation_elapsed_ms: u64,
-    pub(super) final_response: Option<PromptResponse>,
-    pub(super) streaming_tool: StreamingToolTracker,
+    model_call_start: Option<Instant>,
+    first_token_at: Option<Instant>,
+    first_call_ttft_ms: Option<u64>,
+    total_generation_elapsed_ms: u64,
+    final_response: Option<PromptResponse>,
+    streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
     pub(super) cache_miss_tokens: Option<u64>,
-    /// Requests of the turn's runs that ended to compact; the final response adds them.
-    earlier_calls: Vec<CompletionCall>,
-    /// Requests of the run in progress.
-    run_calls: Vec<CompletionCall>,
+    calls: TurnCalls,
 }
 
 impl TurnStreamState {
@@ -36,60 +33,78 @@ impl TurnStreamState {
         Self {
             model_call_start: Some(Instant::now()),
             first_token_at: None,
-            ttft_ms: None,
+            first_call_ttft_ms: None,
             total_generation_elapsed_ms: 0,
             final_response: None,
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
             cache_miss_tokens: None,
-            earlier_calls: Vec::new(),
-            run_calls: Vec::new(),
+            calls: TurnCalls::default(),
         }
     }
 
     /// Ends the run in progress to start another after a compaction; returns its request count.
     pub(super) fn next_run(&mut self) -> usize {
-        let requests = self.run_calls.len();
-        self.earlier_calls.append(&mut self.run_calls);
+        self.restart_model_call();
+        self.calls.next_run()
+    }
+
+    pub(super) fn elapsed_generation_ms(&self) -> u64 {
+        (self.total_generation_elapsed_ms
+            + self
+                .model_call_start
+                .map(|s| s.elapsed().as_millis() as u64)
+                .unwrap_or(0))
+        .max(1)
+    }
+
+    pub(super) fn ttft_ms(&self) -> Option<u64> {
+        self.first_call_ttft_ms.or_else(|| self.call_ttft_ms())
+    }
+
+    /// Time to the first token of the current model call, which may have just finished.
+    fn call_ttft_ms(&self) -> Option<u64> {
+        let first = self.first_token_at?;
+        Some(first.saturating_duration_since(self.model_call_start?).as_millis() as u64)
+    }
+
+    fn mark_first_token(&mut self, non_empty: bool) {
+        if non_empty && self.first_token_at.is_none() {
+            self.first_token_at = Some(Instant::now());
+        }
+    }
+
+    fn restart_model_call(&mut self) {
+        self.first_token_at = None;
         self.model_call_start = Some(Instant::now());
-        requests
-    }
-
-    /// `call` of the run in progress, numbered among all the turn's requests.
-    fn in_turn(&self, mut call: CompletionCall) -> CompletionCall {
-        call.call_index += self.earlier_calls.len();
-        call
-    }
-
-    /// The final response of the last run, with the requests of the runs before it.
-    pub(super) fn whole_turn(&self, last: PromptResponse) -> PromptResponse {
-        if self.earlier_calls.is_empty() {
-            return last;
-        }
-        let earlier = self
-            .earlier_calls
-            .iter()
-            .fold(StructuralUsage::default(), |sum, call| sum.merge(&call.usage));
-        let mut completion_calls = self.earlier_calls.clone();
-        completion_calls.extend(last.completion_calls.into_iter().map(|call| self.in_turn(call)));
-        PromptResponse {
-            output: last.output,
-            usage: earlier.merge(&last.usage),
-            requests: self.earlier_calls.len() + last.requests,
-            completion_calls,
-        }
-    }
-}
-
-fn mark_first_token(first_token_at: &mut Option<Instant>, non_empty: bool) {
-    if non_empty && first_token_at.is_none() {
-        *first_token_at = Some(Instant::now());
     }
 }
 
 pub(super) enum StreamRunResult {
     Complete(Box<TurnStreamState>),
     ContentFiltered(Box<TurnStreamState>),
+}
+
+impl StreamRunResult {
+    pub(super) fn is_filtered(&self) -> bool {
+        matches!(self, Self::ContentFiltered(_))
+    }
+
+    /// The turn's state and whole response; a filtered turn keeps its requests but no output.
+    pub(super) fn into_response(self) -> (Box<TurnStreamState>, PromptResponse) {
+        match self {
+            Self::Complete(mut state) => {
+                let response = state.final_response.take().unwrap_or_default();
+                (state, response)
+            }
+            Self::ContentFiltered(state) => {
+                let response = state
+                    .calls
+                    .whole_turn(PromptResponse::new("", StructuralUsage::default()));
+                (state, response)
+            }
+        }
+    }
 }
 
 /// How one run of the turn loop ended: the turn is over, or it made room in its context and
@@ -112,38 +127,11 @@ fn format_model_retry(retry: &ModelRetry) -> String {
     )
 }
 
-fn record_streaming_text(text: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
-    if start.is_none() {
-        *start = Some(Instant::now());
-    }
+fn record_streaming_text(text: &str, usage: &UsageTracker, state: &mut TurnStreamState) {
+    state.mark_first_token(!text.is_empty());
+    state.model_call_start.get_or_insert_with(Instant::now);
     let delta = rho_harness_core::tokens::estimate_char_tokens(text) as u64;
     usage.record_streaming_chunk(delta.max(1));
-}
-
-fn handle_display_events(
-    events: Vec<DisplayEvent>,
-    sink: &Arc<TerminalApprovalSink>,
-    usage: &UsageTracker,
-    start: &mut Option<Instant>,
-    tool_calls: &mut usize,
-) {
-    for event in events {
-        match event {
-            DisplayEvent::Text(text) => {
-                record_streaming_text(&text, usage, start);
-                sink.emit_text(&text);
-            }
-            DisplayEvent::Reasoning(text) => {
-                record_streaming_text(&text, usage, start);
-                sink.emit_reasoning(&text);
-            }
-            DisplayEvent::ToolCall { .. } => {
-                sink.flush_reasoning();
-                sink.resume_model_spinner();
-                *tool_calls += 1;
-            }
-        }
-    }
 }
 
 fn record_completion_call(
@@ -152,12 +140,11 @@ fn record_completion_call(
     run_tracker: &crate::engine::metrics::RunTracker,
     state: &mut TurnStreamState,
 ) {
-    let started = state.model_call_start.take();
-    let first_tok = state.first_token_at.take();
-    if let (Some(s), Some(f)) = (started, first_tok) {
-        let ttft = f.saturating_duration_since(s).as_millis() as u64;
-        state.ttft_ms.get_or_insert(ttft);
+    if let Some(ttft) = state.call_ttft_ms() {
+        state.first_call_ttft_ms.get_or_insert(ttft);
     }
+    let started = state.model_call_start.take();
+    state.first_token_at = None;
     let elapsed_ms = if let Some(s) = started {
         let ms = s.elapsed().as_millis().max(1) as u64;
         state.total_generation_elapsed_ms += ms;
@@ -184,15 +171,14 @@ fn handle_completion_stream_item(
     state.streaming_tool.observe_boundary(&item, sink);
     match item {
         MultiTurnStreamItem::FinalResponse(resp) => {
-            state.final_response = Some(state.whole_turn(resp));
+            state.final_response = Some(state.calls.whole_turn(resp));
         }
         MultiTurnStreamItem::CompletionCall(call) => {
-            let call = state.in_turn(call);
+            let call = state.calls.record(call);
             record_completion_call(&call, usage, run_tracker, state);
-            state.run_calls.push(call);
         }
         MultiTurnStreamItem::ToolCall { .. } => {
-            mark_first_token(&mut state.first_token_at, true);
+            state.mark_first_token(true);
             state.total_tool_calls += 1;
         }
         MultiTurnStreamItem::ModelTurnRetried(retry) => {
@@ -200,14 +186,10 @@ fn handle_completion_stream_item(
             sink.finish_spinner();
             sink.flush_display();
             sink.presenter.print_notice(&format_model_retry(&retry));
-            state.first_token_at = None;
-            state.model_call_start = Some(Instant::now());
+            state.restart_model_call();
             sink.resume_model_spinner();
         }
-        MultiTurnStreamItem::ToolExecutionCommitted => {
-            state.first_token_at = None;
-            state.model_call_start = Some(Instant::now());
-        }
+        MultiTurnStreamItem::ToolExecutionCommitted => state.restart_model_call(),
         MultiTurnStreamItem::DisplayBarrier(drained) => drained.notify_one(),
         _ => {}
     }
@@ -222,32 +204,18 @@ impl AgentEngine {
     ) {
         match event {
             StreamEvent::Arguments { id, name, json } => {
-                mark_first_token(&mut state.first_token_at, !json.is_empty());
+                state.mark_first_token(!json.is_empty());
                 sink.flush_reasoning();
                 sink.resume_model_spinner();
                 state.streaming_tool.handle_delta(&id, &name, &json, sink);
             }
-            StreamEvent::Text(t) => {
-                mark_first_token(&mut state.first_token_at, !t.is_empty());
-                let events = vec![DisplayEvent::Text(t)];
-                handle_display_events(
-                    events,
-                    sink,
-                    &self.usage,
-                    &mut state.model_call_start,
-                    &mut state.total_tool_calls,
-                );
+            StreamEvent::Text(text) => {
+                record_streaming_text(&text, &self.usage, state);
+                sink.emit_text(&text);
             }
-            StreamEvent::Reasoning(r) => {
-                mark_first_token(&mut state.first_token_at, !r.is_empty());
-                let events = vec![DisplayEvent::Reasoning(r)];
-                handle_display_events(
-                    events,
-                    sink,
-                    &self.usage,
-                    &mut state.model_call_start,
-                    &mut state.total_tool_calls,
-                );
+            StreamEvent::Reasoning(text) => {
+                record_streaming_text(&text, &self.usage, state);
+                sink.emit_reasoning(&text);
             }
         }
     }
@@ -301,14 +269,14 @@ impl AgentEngine {
         if !error.needs_compaction() {
             return Ok(false);
         }
-        if loop_state.compactions < MAX_COMPACTIONS_PER_TURN && self.compact_mid_turn(presenter, loop_state).await? {
+        if may_compact_again(loop_state.compactions) && self.compact_mid_turn(presenter, loop_state).await? {
             loop_state.compactions += 1;
             return Ok(true);
         }
-        if !matches!(error, AppError::CompactionDue { .. }) {
+        if !error.is_early_stop() {
             return Ok(false);
         }
-        loop_state.compact_early = false;
+        loop_state.compaction_timing = CompactionTiming::OnOverflow;
         loop_state.checkpoint = self.session_manager.load_checkpoint().await?;
         loop_state.current_prompt = RESUME_PROMPT.to_string();
         Ok(true)
@@ -359,23 +327,6 @@ impl AgentEngine {
         }
         Ok(RunEnd::Finished(StreamRunResult::Complete(Box::new(state))))
     }
-
-    pub(super) fn elapsed_generation_ms(state: &TurnStreamState) -> u64 {
-        (state.total_generation_elapsed_ms
-            + state
-                .model_call_start
-                .map(|s| s.elapsed().as_millis() as u64)
-                .unwrap_or(0))
-        .max(1)
-    }
-
-    pub(super) fn ttft_ms(state: &TurnStreamState) -> Option<u64> {
-        state.ttft_ms.or_else(|| {
-            let start = state.model_call_start?;
-            let first = state.first_token_at?;
-            Some(first.saturating_duration_since(start).as_millis() as u64)
-        })
-    }
 }
 
 #[cfg(test)]
@@ -387,11 +338,11 @@ mod tests {
 
     #[tokio::test]
     async fn fatal_stream_errors_are_recorded_with_their_cause() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = crate::test_support::TestDir::new();
         let engine = mock_engine(
             Arc::new(MockAdapter::default()),
             MockEngineConfig {
-                base_dir: temp_dir.path(),
+                base_dir: &temp_dir,
                 app_config: rho_harness_core::config::Config::default(),
                 session_manager: None,
                 built_in_tools: None,
@@ -406,7 +357,7 @@ mod tests {
             current_budget: 10,
             thinking_level: None,
             compactions: 0,
-            compact_early: true,
+            compaction_timing: CompactionTiming::Early,
             turn_started_at: Instant::now(),
         };
 
@@ -433,6 +384,27 @@ mod tests {
             .find(|e| e.kind == rho_harness_core::session::SessionEventKind::RunSummary)
             .expect("run summary");
         assert_eq!(summary.payload["terminal_status"], "failed");
+    }
+
+    #[test]
+    fn a_new_run_forgets_the_first_token_of_the_run_it_replaced() {
+        let mut state = TurnStreamState::new();
+        state.mark_first_token(true);
+        state.next_run();
+        assert_eq!(state.ttft_ms(), None);
+    }
+
+    #[test]
+    fn a_filtered_turn_keeps_its_requests_but_drops_its_output() {
+        let mut state = TurnStreamState::new();
+        state.calls.record(CompletionCall::new(0, StructuralUsage::default()));
+        state.final_response = Some(PromptResponse::new("hidden", StructuralUsage::default()));
+        state.next_run();
+
+        let (_, response) = StreamRunResult::ContentFiltered(Box::new(state)).into_response();
+
+        assert_eq!(response.output, "");
+        assert_eq!(response.requests, 1);
     }
 
     #[test]

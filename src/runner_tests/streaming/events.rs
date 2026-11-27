@@ -1,18 +1,8 @@
 use super::super::helpers::{presenter, request, test_engine};
 use crate::config::Config;
-use crate::engine::runner::{DisplayEvent, display_events};
 use crate::ui::TerminalRenderer;
-use rho_engine::engine::runner::StreamEvent;
 use rho_engine::provider::adapter::MockAdapter;
 use std::sync::Arc;
-
-#[test]
-fn renderer_events_preserve_reasoning_text_order_without_duplicates() {
-    let e1 = display_events(&StreamEvent::Reasoning("think".to_string()));
-    let e2 = display_events(&StreamEvent::Text("answer".to_string()));
-    assert_eq!(e1, vec![DisplayEvent::Reasoning("think".to_string())]);
-    assert_eq!(e2, vec![DisplayEvent::Text("answer".to_string())]);
-}
 
 #[tokio::test]
 async fn final_text_streams_once_and_usage_can_be_unavailable() {

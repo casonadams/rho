@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use rho_harness_core::locking::lock;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::io::Write;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -60,9 +61,9 @@ static TEST_CLIPBOARD_TEXT: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn get_text() -> Result<Option<String>> {
     if cfg!(test) {
-        return Ok(TEST_CLIPBOARD_TEXT.lock().unwrap_or_else(|p| p.into_inner()).clone());
+        return Ok(lock(&TEST_CLIPBOARD_TEXT).clone());
     }
-    let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _single_flight = lock(&CLIPBOARD_LOCK);
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && let Ok(text) = clipboard.get_text()
         && !text.is_empty()
@@ -129,10 +130,10 @@ fn set_os_clipboard_text(_text: &str) -> Result<()> {
 
 pub fn set_text(text: &str) -> Result<()> {
     if cfg!(test) {
-        *TEST_CLIPBOARD_TEXT.lock().unwrap_or_else(|p| p.into_inner()) = Some(text.to_string());
+        *lock(&TEST_CLIPBOARD_TEXT) = Some(text.to_string());
         return Ok(());
     }
-    let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _single_flight = lock(&CLIPBOARD_LOCK);
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && clipboard.set_text(text).is_ok()
     {
@@ -146,7 +147,7 @@ pub fn get_image() -> Result<Option<ClipboardImage>> {
     if cfg!(test) {
         return Ok(None);
     }
-    let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _single_flight = lock(&CLIPBOARD_LOCK);
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && let Ok(img) = clipboard.get_image()
     {

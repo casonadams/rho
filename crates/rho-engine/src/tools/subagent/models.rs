@@ -1,6 +1,7 @@
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::tracking::ContextPolicy;
-use std::sync::Arc;
+use crate::locking::{read, write};
+use std::sync::{Arc, RwLock};
 
 /// Resolves a configured `<provider>/<model>` name to a handle; the error text is shown to the caller.
 pub type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String> + Send + Sync>;
@@ -8,7 +9,7 @@ pub type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String>
 /// The session model and resolver subagents run on, and how their windows compact, shared by every
 /// copy of the tool so a model, thinking or context change reaches all of them.
 #[derive(Clone, Default)]
-pub struct SubagentModels(Arc<std::sync::RwLock<ModelSource>>);
+pub struct SubagentModels(Arc<RwLock<ModelSource>>);
 
 #[derive(Clone, Default)]
 pub(super) struct ModelSource {
@@ -20,7 +21,7 @@ pub(super) struct ModelSource {
 
 impl SubagentModels {
     pub(super) fn new(session: Option<ModelHandle>) -> Self {
-        Self(Arc::new(std::sync::RwLock::new(ModelSource {
+        Self(Arc::new(RwLock::new(ModelSource {
             default: session.map(short_lived),
             resolver: None,
             context: None,
@@ -30,7 +31,7 @@ impl SubagentModels {
     /// Moves subagents to the session model (short-lived where it has a cache lifetime), `resolver`
     /// and `context`.
     pub fn replace(&self, session: Option<ModelHandle>, resolver: SubagentModelResolver, context: ContextPolicy) {
-        *self.write() = ModelSource {
+        *write(&self.0) = ModelSource {
             default: session.map(short_lived),
             resolver: Some(resolver),
             context: Some(context),
@@ -38,19 +39,15 @@ impl SubagentModels {
     }
 
     pub fn set_context_policy(&self, context: ContextPolicy) {
-        self.write().context = Some(context);
+        write(&self.0).context = Some(context);
     }
 
     pub(super) fn set_resolver(&self, resolver: SubagentModelResolver) {
-        self.write().resolver = Some(resolver);
+        write(&self.0).resolver = Some(resolver);
     }
 
     pub(super) fn current(&self) -> ModelSource {
-        self.0.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
-    }
-
-    fn write(&self) -> std::sync::RwLockWriteGuard<'_, ModelSource> {
-        self.0.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+        read(&self.0).clone()
     }
 }
 

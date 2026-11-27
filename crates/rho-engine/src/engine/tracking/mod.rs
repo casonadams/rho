@@ -7,8 +7,7 @@ mod tests;
 mod types;
 mod usage;
 
-pub use context::ContextLimitSource;
-pub use context::{ContextBudget, ContextPolicy, ContextTracker};
+pub use context::{CompactionTiming, ContextBudget, ContextLimitSource, ContextPolicy, ContextTracker};
 pub use in_flight::{InFlightGuard, InFlightUsage};
 pub use quota::{QuotaKey, QuotaTracker};
 pub use speed::SpeedTracker;

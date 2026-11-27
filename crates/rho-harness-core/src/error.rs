@@ -65,10 +65,33 @@ impl AppError {
         matches!(self, Self::ContextOverflow(_) | Self::CompactionDue { .. })
     }
 
+    /// The turn stopped before an overflow, so it can also go on uncompacted.
+    pub fn is_early_stop(&self) -> bool {
+        matches!(self, Self::CompactionDue { .. })
+    }
+
     pub fn is_transient(&self) -> bool {
         matches!(
             self,
             Self::Network(_) | Self::RateLimited { .. } | Self::ProviderUnavailable { .. }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppError;
+
+    #[test]
+    fn only_a_full_context_needs_compaction_and_only_an_early_stop_can_run_on() {
+        let cases = [
+            (AppError::CompactionDue { used: 1 }, true, true),
+            (AppError::ContextOverflow("too long".into()), true, false),
+            (AppError::Network("reset".into()), false, false),
+        ];
+        for (error, needs_compaction, early_stop) in cases {
+            assert_eq!(error.needs_compaction(), needs_compaction, "{error:?}");
+            assert_eq!(error.is_early_stop(), early_stop, "{error:?}");
+        }
     }
 }

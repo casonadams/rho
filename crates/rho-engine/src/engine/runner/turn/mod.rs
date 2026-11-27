@@ -1,3 +1,4 @@
+mod calls;
 mod checkpoint;
 mod completion;
 mod prepare;
@@ -26,7 +27,7 @@ use rho_harness_core::error::Result;
 use rho_harness_core::presentation::presenter::Presenter;
 use stream::{RunEnd, StreamRunResult, TurnStreamState};
 
-use super::sink::TerminalApprovalSink;
+use super::sink::{TerminalApprovalSink, TurnArtifacts};
 
 impl AgentEngine {
     async fn handle_stream_run_result(
@@ -37,54 +38,26 @@ impl AgentEngine {
         turn_started_at: Instant,
     ) -> Result<TurnOutput> {
         sink.record_tool_events().await?;
-        match res {
-            StreamRunResult::Complete(state) => {
-                let elapsed = Self::elapsed_generation_ms(&state);
-                let ttft_ms = Self::ttft_ms(&state);
-                sink.finish_spinner();
-                sink.flush_display();
-                let prompt_response = state.final_response.unwrap_or_default();
-                self.finish_turn(
-                    crate::engine::runner::sink::TurnArtifacts {
-                        response: prompt_response,
-                        tool_calls_count: state.total_tool_calls,
-                        completed_tools: sink.completed(),
-                        generation_elapsed_ms: elapsed,
-                        turn_started_at,
-                        ttft_ms,
-                        cache_miss_tokens: Some(state.cache_miss_tokens),
-                    },
-                    lifecycle,
-                )
-                .await
-            }
-            StreamRunResult::ContentFiltered(state) => {
-                let elapsed = Self::elapsed_generation_ms(&state);
-                let ttft_ms = Self::ttft_ms(&state);
-                sink.finish_spinner();
-                sink.flush_display();
-                let prompt_response = state.whole_turn(crate::engine::metrics::types::PromptResponse::new(
-                    "",
-                    crate::engine::metrics::types::StructuralUsage::default(),
-                ));
-                let mut out = self
-                    .finish_turn(
-                        crate::engine::runner::sink::TurnArtifacts {
-                            response: prompt_response,
-                            tool_calls_count: state.total_tool_calls,
-                            completed_tools: sink.completed(),
-                            generation_elapsed_ms: elapsed,
-                            turn_started_at,
-                            ttft_ms,
-                            cache_miss_tokens: Some(state.cache_miss_tokens),
-                        },
-                        lifecycle,
-                    )
-                    .await?;
-                out.status = crate::engine::runner::turn::types::RunStatus::ContentFiltered;
-                Ok(out)
-            }
+        let filtered = res.is_filtered();
+        let (state, response) = res.into_response();
+        let generation_elapsed_ms = state.elapsed_generation_ms();
+        let ttft_ms = state.ttft_ms();
+        sink.finish_spinner();
+        sink.flush_display();
+        let artifacts = TurnArtifacts {
+            response,
+            tool_calls_count: state.total_tool_calls,
+            completed_tools: sink.completed(),
+            generation_elapsed_ms,
+            turn_started_at,
+            ttft_ms,
+            cache_miss_tokens: Some(state.cache_miss_tokens),
+        };
+        let mut out = self.finish_turn(artifacts, lifecycle).await?;
+        if filtered {
+            out.status = RunStatus::ContentFiltered;
         }
+        Ok(out)
     }
 
     /// Runs the turn loop until the turn is over, starting it again with the turns it has left

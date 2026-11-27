@@ -73,11 +73,10 @@ impl WorkspaceDir {
 
     #[must_use]
     pub fn get(&self) -> std::path::PathBuf {
-        self.0.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        crate::locking::read(&self.0).clone()
     }
 
     pub fn set(&self, path: impl Into<std::path::PathBuf>) {
-        let mut guard = self.0.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *guard = path.into();
+        *crate::locking::write(&self.0) = path.into();
     }
 }

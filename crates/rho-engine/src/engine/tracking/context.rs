@@ -13,6 +13,15 @@ pub enum ContextLimitSource {
     Estimated,
 }
 
+/// When a turn stops to compact its context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactionTiming {
+    /// Once a request's context passes the compaction threshold.
+    Early,
+    /// Only when the provider reports an overflow; for a turn whose context could not be compacted.
+    OnOverflow,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ContextTracker {
     probe_error: Arc<Mutex<Option<String>>>,
@@ -44,7 +53,7 @@ pub struct ContextBudget {
     limit: u64,
     compaction_at: u64,
     announce: bool,
-    stops_for_compaction: bool,
+    timing: CompactionTiming,
     notified_percent: Arc<Mutex<Option<u64>>>,
 }
 
@@ -71,17 +80,28 @@ impl ContextBudget {
         }
     }
 
-    /// Whether a request whose prompt used `used` tokens leaves too little room for the next one.
+    /// Whether a request whose prompt used `used` tokens leaves too little room for the next one;
+    /// never with [`CompactionTiming::OnOverflow`].
     pub fn compaction_due(&self, used: u64) -> bool {
-        self.stops_for_compaction && used > self.compaction_at
+        self.timing == CompactionTiming::Early && used > self.compaction_at
     }
 
-    /// The budget, stopping for compaction only with `stops`; a turn whose context could not be
-    /// compacted keeps its notices and runs on until an overflow.
+    /// The budget with `timing`; a turn whose context could not be compacted keeps its notices
+    /// and runs on until an overflow.
     #[must_use]
-    pub fn with_compaction_stops(mut self, stops: bool) -> Self {
-        self.stops_for_compaction = stops;
+    pub fn with_compaction_timing(mut self, timing: CompactionTiming) -> Self {
+        self.timing = timing;
         self
+    }
+
+    fn new(limit: usize, source: ContextLimitSource, compaction_at: usize, notified: Arc<Mutex<Option<u64>>>) -> Self {
+        Self {
+            limit: limit as u64,
+            compaction_at: compaction_at as u64,
+            announce: source != ContextLimitSource::Estimated,
+            timing: CompactionTiming::Early,
+            notified_percent: notified,
+        }
     }
 }
 
@@ -129,25 +149,9 @@ impl ContextPolicy {
     }
 }
 
-impl ContextBudget {
-    fn new(limit: usize, source: ContextLimitSource, compaction_at: usize, notified: Arc<Mutex<Option<u64>>>) -> Self {
-        Self {
-            limit: limit as u64,
-            compaction_at: compaction_at as u64,
-            announce: source != ContextLimitSource::Estimated,
-            stops_for_compaction: true,
-            notified_percent: notified,
-        }
-    }
-}
-
 impl ContextTracker {
     pub fn new() -> Self {
-        Self {
-            probe_error: Arc::default(),
-            token_cache: Arc::new(Mutex::new(MessageTokenCache::new())),
-            notified_percent: Arc::default(),
-        }
+        Self::default()
     }
 
     /// The session's budget against a `limit`-token window that compacts above `compaction_at`;
@@ -191,7 +195,7 @@ impl ContextTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContextLimitSource, ContextPolicy, ContextTracker};
+    use super::{CompactionTiming, ContextLimitSource, ContextPolicy, ContextTracker};
     use crate::provider::{DiscoveredModel, ModelCatalog, ProviderModels};
     use rho_harness_core::provider::ModelRoute;
 
@@ -249,7 +253,11 @@ mod tests {
         let budget = policy.budget(&ModelRoute::new("local", "small"));
         assert!(!budget.compaction_due(28_000));
         assert!(budget.compaction_due(28_001));
-        assert!(!budget.with_compaction_stops(false).compaction_due(28_001));
+        assert!(
+            !budget
+                .with_compaction_timing(CompactionTiming::OnOverflow)
+                .compaction_due(28_001)
+        );
     }
 
     #[test]

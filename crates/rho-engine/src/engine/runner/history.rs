@@ -1,20 +1,5 @@
 use rho_harness_core::model::ChatMessage;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum DisplayEvent {
-    Text(String),
-    Reasoning(String),
-    ToolCall { name: String, arguments: serde_json::Value },
-}
-
-pub fn display_events(event: &super::turn::runner::StreamEvent) -> Vec<DisplayEvent> {
-    match event {
-        super::turn::runner::StreamEvent::Text(t) => vec![DisplayEvent::Text(t.clone())],
-        super::turn::runner::StreamEvent::Reasoning(r) => vec![DisplayEvent::Reasoning(r.clone())],
-        super::turn::runner::StreamEvent::Arguments { .. } => Vec::new(),
-    }
-}
-
 pub fn continuation_history(visible_history: &[ChatMessage], checkpoint: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut history = Vec::with_capacity(visible_history.len() + checkpoint.len());
     history.extend_from_slice(visible_history);

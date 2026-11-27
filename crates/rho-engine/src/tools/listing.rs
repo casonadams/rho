@@ -4,7 +4,7 @@
 
 use crate::locking::lock;
 use std::cmp::Ordering;
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 use crate::tools::types::ToolResult;
 
@@ -48,7 +48,7 @@ impl<T, F: Fn(&T, &T) -> Ordering> SortedCollector<T, F> {
     }
 
     pub fn finish(self, seen: usize) -> Collected<T> {
-        let mut items = self.items.into_inner().unwrap_or_else(PoisonError::into_inner);
+        let mut items = crate::locking::into_inner(self.items);
         items.sort_by(&self.cmp);
         items.truncate(self.cap);
         Collected { items, seen }

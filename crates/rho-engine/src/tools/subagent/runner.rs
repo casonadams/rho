@@ -13,7 +13,7 @@ use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::round::{Round, RoundEnd, RoundInput, build_subagent_prompt, ended_with_question};
 use super::snapshot::Snapshot;
 use crate::engine::compactor::llm::ModelHandle;
-use crate::engine::compactor::{MAX_COMPACTIONS_PER_TURN, compact_messages};
+use crate::engine::compactor::{compact_messages, may_compact_again};
 use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
@@ -23,7 +23,7 @@ use crate::engine::runner::turn::runner::{
 };
 use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
-use crate::engine::tracking::{ContextBudget, ContextPolicy};
+use crate::engine::tracking::{CompactionTiming, ContextBudget, ContextPolicy};
 use crate::mailbox::{AgentId, Mailbox};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
@@ -650,7 +650,7 @@ impl SubagentRunner {
         if !error.needs_compaction() {
             return false;
         }
-        let compacted = if *compactions < MAX_COMPACTIONS_PER_TURN {
+        let compacted = if may_compact_again(*compactions) {
             self.compacted(messages).await
         } else {
             None
@@ -663,8 +663,11 @@ impl SubagentRunner {
                 round.context = self.context_budget();
                 true
             }
-            None if matches!(error, AppError::CompactionDue { .. }) => {
-                round.context = round.context.take().map(|budget| budget.with_compaction_stops(false));
+            None if error.is_early_stop() => {
+                round.context = round
+                    .context
+                    .take()
+                    .map(|budget| budget.with_compaction_timing(CompactionTiming::OnOverflow));
                 round.run.transcript = messages.to_vec();
                 true
             }

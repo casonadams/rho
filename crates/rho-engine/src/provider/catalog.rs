@@ -2,6 +2,7 @@
 
 use super::discovery::{DiscoveredModel, discover_models};
 use crate::auth::AuthStore;
+use crate::locking::{read, write};
 use rho_harness_core::config::Config;
 use rho_harness_core::provider::{Connection, ModelRoute};
 use std::collections::{BTreeMap, HashMap};
@@ -56,31 +57,22 @@ impl ModelCatalog {
     }
 
     pub fn set(&self, provider: &str, models: ProviderModels) {
-        self.inner
-            .providers
-            .write()
-            .unwrap()
-            .insert(catalog_key(provider), models);
+        write(&self.inner.providers).insert(catalog_key(provider), models);
         self.notify();
     }
 
     pub fn get(&self, provider: &str) -> Option<ProviderModels> {
-        self.inner
-            .providers
-            .read()
-            .unwrap()
-            .get(&catalog_key(provider))
-            .cloned()
+        read(&self.inner.providers).get(&catalog_key(provider)).cloned()
     }
 
     pub fn snapshot(&self) -> BTreeMap<String, ProviderModels> {
-        self.inner.providers.read().unwrap().clone()
+        read(&self.inner.providers).clone()
     }
 
     /// Records the window a provider actually allocated for a model, overriding its listed value.
     pub fn record_observed_context(&self, provider: &str, model: &str, tokens: usize) {
         let key = (catalog_key(provider), model.to_string());
-        let previous = self.inner.observed_context.write().unwrap().insert(key, tokens);
+        let previous = write(&self.inner.observed_context).insert(key, tokens);
         if previous != Some(tokens) {
             self.notify();
         }
@@ -89,10 +81,10 @@ impl ModelCatalog {
     pub fn context_tokens(&self, provider: &str, model: &str) -> Option<usize> {
         let provider = catalog_key(provider);
         let key = (provider.clone(), model.to_string());
-        if let Some(tokens) = self.inner.observed_context.read().unwrap().get(&key) {
+        if let Some(tokens) = read(&self.inner.observed_context).get(&key) {
             return Some(*tokens);
         }
-        match self.inner.providers.read().unwrap().get(&provider)? {
+        match read(&self.inner.providers).get(&provider)? {
             ProviderModels::Ready(models) => models.iter().find(|m| m.id == model)?.context_tokens,
             _ => None,
         }
@@ -104,7 +96,7 @@ impl ModelCatalog {
         let model = model.trim();
         !model.is_empty()
             && matches!(
-                self.inner.providers.read().unwrap().get(&catalog_key(provider)),
+                read(&self.inner.providers).get(&catalog_key(provider)),
                 Some(ProviderModels::Ready(models)) if models.iter().any(|m| m.id == model)
             )
     }
@@ -131,11 +123,7 @@ impl ModelCatalog {
     /// dropping providers that are no longer reachable (for example after a logout).
     pub fn spawn_refresh_all(&self, config: &Config, auth: &AuthStore) {
         let providers = reachable_providers(config, auth);
-        self.inner
-            .providers
-            .write()
-            .unwrap()
-            .retain(|name, _| providers.contains(name));
+        write(&self.inner.providers).retain(|name, _| providers.contains(name));
         self.notify();
         let catalog = self.clone();
         let config = config.clone();

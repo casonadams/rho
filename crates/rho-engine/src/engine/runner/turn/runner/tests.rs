@@ -468,7 +468,7 @@ fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
 
 #[tokio::test]
 async fn a_full_context_stops_the_turn_for_compaction_unless_no_request_follows() {
-    for (budget, stops_for_compaction) in [(2, true), (1, false)] {
+    for (budget, stops_early) in [(2, true), (1, false)] {
         let model = Arc::new(MockAdapter::from_turns(vec![probe_then_usage(0, 190_000)]));
         let (runner, _temp, _, _) = test_agent_env(model);
         let context = crate::engine::tracking::ContextTracker::new().budget(
@@ -491,7 +491,7 @@ async fn a_full_context_stops_the_turn_for_compaction_unless_no_request_follows(
 
         assert_eq!(
             matches!(error, AppError::CompactionDue { used: 190_000 }),
-            stops_for_compaction,
+            stops_early,
             "budget {budget}: {error:?}"
         );
     }

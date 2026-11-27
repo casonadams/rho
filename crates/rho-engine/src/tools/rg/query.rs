@@ -15,7 +15,7 @@ use rho_harness_core::args::RgOutputMode;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
@@ -165,7 +165,7 @@ impl RgQuery {
             Collector::Lines(collector) => format_lines(&collector.finish(totals.matches), &totals, request),
             Collector::Files(collector) => format_files(&collector.finish(totals.files), &totals, self.mode, request),
         };
-        let failures = failures.into_inner().unwrap_or_else(PoisonError::into_inner);
+        let failures = crate::locking::into_inner(failures);
         if let Some(note) = failures.note() {
             result.content.push_str("\n\n");
             result.content.push_str(&note);

@@ -68,9 +68,47 @@ pub struct ToolPreview {
     pub started: Instant,
 }
 
+impl ToolPreview {
+    /// The preview of `call_id` with a fresh carry, timed from `previous` when that shows the same call.
+    pub fn for_call(call_id: &str, previous: Option<Self>) -> Self {
+        let started = previous
+            .filter(|preview| preview.call_id == call_id)
+            .map_or_else(Instant::now, |preview| preview.started);
+        Self {
+            call_id: call_id.to_string(),
+            carry: String::new(),
+            started,
+        }
+    }
+}
+
 pub struct ToolFinishDetails<'a> {
     pub name: &'a str,
     pub arguments: &'a Value,
     pub output: &'a str,
     pub is_error: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolPreview;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_preview_keeps_its_start_only_for_the_same_call() {
+        let started = Instant::now().checked_sub(Duration::from_secs(5)).unwrap();
+        let previous = || ToolPreview {
+            call_id: "a".into(),
+            carry: "partial".into(),
+            started,
+        };
+
+        let same = ToolPreview::for_call("a", Some(previous()));
+        assert_eq!(same.started, started);
+        assert!(same.carry.is_empty());
+
+        let other = ToolPreview::for_call("b", Some(previous()));
+        assert_eq!(other.call_id, "b");
+        assert!(other.started > started);
+    }
 }

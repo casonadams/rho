@@ -91,7 +91,7 @@ impl AgentEngine {
     }
 
     pub fn tool_names(&self) -> Vec<String> {
-        self.tool_names.read().unwrap().clone()
+        crate::locking::read(&self.tool_names).clone()
     }
 
     pub fn mcp_diagnostics(&self) -> &[crate::mcp::McpDiagnostic] {

@@ -329,16 +329,7 @@ impl TerminalApprovalSink {
             || arguments.clone(),
         );
         self.with_state(|state| {
-            let started = state
-                .tool_preview
-                .take()
-                .filter(|preview| preview.call_id == call_id)
-                .map_or_else(Instant::now, |preview| preview.started);
-            state.tool_preview = Some(ToolPreview {
-                call_id: call_id.to_string(),
-                carry: String::new(),
-                started,
-            });
+            state.tool_preview = Some(ToolPreview::for_call(call_id, state.tool_preview.take()));
         });
         self.presenter.preview_tool_run(name, &arguments);
     }
@@ -496,8 +487,8 @@ mod tests {
         }
     }
 
-    fn new_test_sink(temp: &tempfile::TempDir, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
-        let session = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
+    fn new_test_sink(temp: &crate::test_support::TestDir, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
+        let session = rho_harness_core::session::SessionManager::new(temp, None).unwrap();
         TerminalApprovalSink::new(
             presenter,
             TerminalSinkConfig {
@@ -510,7 +501,7 @@ mod tests {
 
     #[test]
     fn tool_transitions_disarm_intermediate_spinners_without_emitting_idle() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let idle_count = Arc::new(AtomicUsize::new(0));
         let active_tools = Arc::new(AtomicUsize::new(0));
         let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
@@ -541,7 +532,7 @@ mod tests {
 
     #[test]
     fn overlapping_calls_to_the_same_tool_each_get_their_own_pending_entry() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
             idle_count: Arc::default(),
             active_tools: Arc::default(),
@@ -573,7 +564,7 @@ mod tests {
 
     #[test]
     fn tool_results_are_still_recorded_after_a_panic_poisoned_the_sink_state() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
             idle_count: Arc::default(),
             active_tools: Arc::default(),
@@ -597,7 +588,7 @@ mod tests {
 
     #[test]
     fn denied_tool_calls_count_as_denials_in_run_metrics() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
             idle_count: Arc::default(),
             active_tools: Arc::default(),
@@ -605,7 +596,7 @@ mod tests {
         });
         let tracker = crate::engine::metrics::RunTracker::default();
         tracker.start("model", crate::engine::metrics::PromptCacheKey::default());
-        let session = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
+        let session = rho_harness_core::session::SessionManager::new(&temp, None).unwrap();
         let sink = TerminalApprovalSink::new(
             &presenter,
             TerminalSinkConfig {
@@ -631,7 +622,7 @@ mod tests {
             (["Done.", " Next"], "Done. Next"),
         ];
         for (deltas, expected) in cases {
-            let temp = tempfile::tempdir().unwrap();
+            let temp = crate::test_support::TestDir::new();
             let thinking = Arc::new(Mutex::new(Vec::new()));
             let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
                 idle_count: Arc::default(),
@@ -650,11 +641,11 @@ mod tests {
     #[test]
     fn secrets_split_across_streamed_chunks_are_redacted() {
         use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let recording = RecordingSink::new();
         let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::recording(recording.clone()));
         let session = rho_harness_core::session::SessionManager::new_with_secrets(
-            temp.path(),
+            &temp,
             None,
             vec!["credential-sentinel".to_string()],
         )
@@ -692,11 +683,11 @@ mod tests {
     #[test]
     fn secrets_split_across_a_running_tools_output_chunks_are_redacted() {
         use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let recording = RecordingSink::new();
         let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::recording(recording.clone()));
         let session = rho_harness_core::session::SessionManager::new_with_secrets(
-            temp.path(),
+            &temp,
             None,
             vec!["credential-sentinel".to_string()],
         )
@@ -726,7 +717,7 @@ mod tests {
 
     #[test]
     fn dropping_sink_flushes_buffered_reasoning() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = crate::test_support::TestDir::new();
         let thinking = Arc::new(Mutex::new(Vec::new()));
         let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
             idle_count: Arc::default(),

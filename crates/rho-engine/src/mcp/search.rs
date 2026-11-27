@@ -1,4 +1,5 @@
 use super::client::McpToolDefinition;
+use crate::locking::{read, write};
 use crate::tools::{EngineTool, GenericTool, ToolResult};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -57,20 +58,20 @@ pub struct ToolSearchCatalog {
 impl ToolSearchCatalog {
     pub fn new(tools: Vec<McpToolEntry>) -> Self {
         let catalog = Self::default();
-        catalog.state.write().unwrap().tools = tools;
+        write(&catalog.state).tools = tools;
         catalog
     }
 
     pub fn is_empty(&self) -> bool {
-        self.state.read().unwrap().tools.is_empty()
+        read(&self.state).tools.is_empty()
     }
 
     pub fn deferred_count(&self) -> usize {
-        self.state.read().unwrap().tools.iter().filter(|t| !t.direct).count()
+        read(&self.state).tools.iter().filter(|t| !t.direct).count()
     }
 
     pub fn replace_server_tools(&self, server: &str, entries: Vec<McpToolEntry>) {
-        let mut state = self.state.write().unwrap();
+        let mut state = write(&self.state);
         let direct: HashSet<String> = state
             .tools
             .iter()
@@ -86,19 +87,15 @@ impl ToolSearchCatalog {
     }
 
     pub fn set_server_state(&self, server: &str, server_state: ServerState) {
-        self.state
-            .write()
-            .unwrap()
-            .servers
-            .insert(server.to_string(), server_state);
+        write(&self.state).servers.insert(server.to_string(), server_state);
     }
 
     pub fn server_states(&self) -> BTreeMap<String, ServerState> {
-        self.state.read().unwrap().servers.clone()
+        read(&self.state).servers.clone()
     }
 
     pub fn find(&self, server: Option<&str>, tool: &str) -> Option<McpToolEntry> {
-        let state = self.state.read().unwrap();
+        let state = read(&self.state);
         let found = match server {
             Some(server) => state
                 .tools
@@ -119,7 +116,7 @@ impl ToolSearchCatalog {
             return Vec::new();
         }
 
-        let state = self.state.read().unwrap();
+        let state = read(&self.state);
         let mut scored: Vec<(usize, &McpToolEntry)> = state
             .tools
             .iter()
@@ -133,7 +130,7 @@ impl ToolSearchCatalog {
     }
 
     pub fn catalog_summary(&self) -> String {
-        let state = self.state.read().unwrap();
+        let state = read(&self.state);
         let mut by_server: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         for t in state.tools.iter().filter(|t| !t.direct) {
             by_server.entry(&t.server_name).or_default().push(&t.name);
@@ -170,7 +167,7 @@ impl ToolSearchCatalog {
 
     pub fn format_search_results(&self, query: &str, matches: &[McpToolEntry]) -> String {
         let mut out = if matches.is_empty() {
-            let state = self.state.read().unwrap();
+            let state = read(&self.state);
             let names: Vec<String> = state
                 .tools
                 .iter()
