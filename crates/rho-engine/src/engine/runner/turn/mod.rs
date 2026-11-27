@@ -83,7 +83,7 @@ impl AgentEngine {
             {
                 RunEnd::MadeRoom(paused) => {
                     state = *paused;
-                    loop_state.current_budget = loop_state.current_budget.saturating_sub(state.next_run());
+                    loop_state.current_budget = loop_state.current_budget.saturating_sub(state.end_run());
                 }
                 RunEnd::Finished(result) => {
                     return self
@@ -98,8 +98,7 @@ impl AgentEngine {
         let turn_started_at = Instant::now();
         let oauth_secrets = self.router.auth().lock().await.oauth_secret_values();
         self.session_manager.add_secrets_async(oauth_secrets).await?;
-        let mut prep = self.prepare_turn(request.prompt, &presenter).await?;
-        prep.loop_state.turn_started_at = turn_started_at;
+        let mut prep = self.prepare_turn(request.prompt, &presenter, turn_started_at).await?;
         let lifecycle = self.lifecycle_hook(presenter.clone());
         let _in_flight_guard = self.usage.in_flight_guard();
         self.drive_turn(&prep.sink, &prep.preamble, &request, &lifecycle, &mut prep.loop_state)

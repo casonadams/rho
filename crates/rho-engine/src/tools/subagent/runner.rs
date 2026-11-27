@@ -219,7 +219,7 @@ impl SubagentRunner {
     }
 
     #[must_use]
-    pub fn with_context_policy(mut self, policy: Option<ContextPolicy>) -> Self {
+    pub(crate) fn with_context_policy(mut self, policy: Option<ContextPolicy>) -> Self {
         self.context_policy = policy;
         self
     }

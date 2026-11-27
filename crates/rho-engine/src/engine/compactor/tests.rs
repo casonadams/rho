@@ -900,15 +900,7 @@ mod recovery {
     }
 
     fn engine_with(dir: &std::path::Path, model: Arc<MockAdapter>, app_config: Config) -> crate::engine::AgentEngine {
-        mock_engine(
-            model,
-            MockEngineConfig {
-                base_dir: dir,
-                app_config,
-                session_manager: None,
-                built_in_tools: None,
-            },
-        )
+        mock_engine(model, MockEngineConfig::new(dir, app_config))
     }
 
     #[tokio::test]
@@ -1000,22 +992,23 @@ mod recovery {
         );
     }
 
-    #[tokio::test]
-    async fn a_turn_compacts_once_its_context_passes_the_threshold_without_waiting_for_an_overflow() {
+    /// A step whose prompt used 9k tokens, past where a 10k window with a 2k reserve compacts.
+    fn step_near_the_window(id: usize) -> Vec<Result<ModelStreamEvent, AppError>> {
         use rho_harness_core::model::{ToolCall, ToolFunction};
-        let dir = crate::test_support::TestDir::new();
-        let model = Arc::new(MockAdapter::default());
-        model.add_turn(vec![
+        vec![
             Ok(ModelStreamEvent::ToolCall(ToolCall::new(
-                "call-1",
+                format!("call-{id}"),
                 ToolFunction::new("missing", serde_json::json!({})),
             ))),
             Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
                 input_tokens: 9_000,
                 ..Default::default()
             })),
-        ]);
-        model.add_turn(vec![Ok(ModelStreamEvent::Text("done without overflowing".to_string()))]);
+        ]
+    }
+
+    /// An engine on a 10k window that compacts past 8k.
+    fn small_window_engine(dir: &std::path::Path, model: Arc<MockAdapter>) -> crate::engine::AgentEngine {
         let config = Config {
             keep_recent_tokens: 5,
             context_limit: Some(10_000),
@@ -1023,7 +1016,16 @@ mod recovery {
             auth_file: dir.join("auth.json"),
             ..Config::default()
         };
-        let engine = engine_with(&dir, model.clone(), config);
+        engine_with(dir, model, config)
+    }
+
+    #[tokio::test]
+    async fn a_turn_compacts_once_its_context_passes_the_threshold_without_waiting_for_an_overflow() {
+        let dir = crate::test_support::TestDir::new();
+        let model = Arc::new(MockAdapter::default());
+        model.add_turn(step_near_the_window(1));
+        model.add_turn(vec![Ok(ModelStreamEvent::Text("done without overflowing".to_string()))]);
+        let engine = small_window_engine(&dir, model.clone());
         let session_id = engine.session_manager.session_id.clone();
         populate_recovery_history(&engine.session_manager, &session_id).await;
 
@@ -1055,31 +1057,15 @@ mod recovery {
 
     #[tokio::test]
     async fn past_its_compaction_limit_an_early_stop_runs_on_from_its_saved_work() {
-        use rho_harness_core::model::{ToolCall, ToolFunction, UserContent};
+        use rho_harness_core::model::UserContent;
         let dir = crate::test_support::TestDir::new();
         let model = Arc::new(MockAdapter::default());
         let steps = crate::engine::compactor::MAX_COMPACTIONS_PER_TURN + 1;
         for i in 0..steps {
-            model.add_turn(vec![
-                Ok(ModelStreamEvent::ToolCall(ToolCall::new(
-                    format!("call-{i}"),
-                    ToolFunction::new("missing", serde_json::json!({})),
-                ))),
-                Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
-                    input_tokens: 9_000,
-                    ..Default::default()
-                })),
-            ]);
+            model.add_turn(step_near_the_window(i));
         }
         model.add_turn(vec![Ok(ModelStreamEvent::Text("ran on".to_string()))]);
-        let config = Config {
-            keep_recent_tokens: 5,
-            context_limit: Some(10_000),
-            reserve_tokens: 2_000,
-            auth_file: dir.join("auth.json"),
-            ..Config::default()
-        };
-        let engine = engine_with(&dir, model.clone(), config);
+        let engine = small_window_engine(&dir, model.clone());
 
         let output = engine
             .run_turn(TurnRequest::new("Long task"), Arc::new(CapturingPresenter::default()))
@@ -1294,15 +1280,7 @@ mod auto_compact {
             ..Config::default()
         };
         let model = Arc::new(MockAdapter::text("turn response"));
-        mock_engine(
-            model,
-            MockEngineConfig {
-                base_dir: dir,
-                app_config,
-                session_manager: None,
-                built_in_tools: None,
-            },
-        )
+        mock_engine(model, MockEngineConfig::new(dir, app_config))
     }
 
     async fn assert_compaction_node_present(sm: &rho_harness_core::session::SessionManager) {
@@ -1356,10 +1334,7 @@ mod auto_compact {
         tokens: u64,
     ) {
         record_test_turn_usage(engine, tokens);
-        engine
-            .check_proactive_compaction(presenter, history, 0, false)
-            .await
-            .unwrap();
+        engine.compact_if_full(presenter, history, 0, false).await.unwrap();
     }
 
     fn threshold_engine(dir: &std::path::Path) -> crate::engine::AgentEngine {
@@ -1370,15 +1345,7 @@ mod auto_compact {
             ..Config::default()
         };
         let model = Arc::new(MockAdapter::text("response"));
-        mock_engine(
-            model,
-            MockEngineConfig {
-                base_dir: dir,
-                app_config,
-                session_manager: None,
-                built_in_tools: None,
-            },
-        )
+        mock_engine(model, MockEngineConfig::new(dir, app_config))
     }
 
     async fn seed_threshold_history(engine: &crate::engine::AgentEngine) -> Vec<rho_harness_core::model::ChatMessage> {
@@ -1455,12 +1422,7 @@ mod auto_compact {
         };
         let engine = mock_engine(
             Arc::new(MockAdapter::text("response")),
-            MockEngineConfig {
-                base_dir: &dir,
-                app_config,
-                session_manager: None,
-                built_in_tools: None,
-            },
+            MockEngineConfig::new(&dir, app_config),
         );
         let history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
@@ -1501,7 +1463,7 @@ mod auto_compact {
             .record_turn(crate::engine::tracking::TurnUsage::single(usage), 100);
 
         engine
-            .check_proactive_compaction(presenter.as_ref(), &history, 0, false)
+            .compact_if_full(presenter.as_ref(), &history, 0, false)
             .await
             .unwrap();
         let notices = presenter.notices.lock().unwrap().clone();

@@ -49,7 +49,7 @@ pub(in crate::engine) struct LoadedHistory {
 struct TurnPrompt<'a> {
     typed: &'a str,
     sent: String,
-    tokens: usize,
+    added_tokens: usize,
 }
 
 pub(super) struct TurnLoopState {
@@ -166,9 +166,21 @@ impl AgentEngine {
         }
     }
 
+    /// Compacts the session on rho's own initiative, with a notice when it folded something; true
+    /// when it did.
+    pub(super) async fn auto_compact(&self, presenter: &dyn Presenter) -> Result<bool> {
+        let _spinner = presenter.start_spinner("Compacting...");
+        let stats = self.compact_session(None).await?;
+        let folded = !stats.summary.is_empty();
+        if folded {
+            presenter.print_notice(&stats.auto_notice());
+        }
+        Ok(folded)
+    }
+
     /// Compacts the session when `history` plus `additional_tokens` passes the compaction threshold;
-    /// true when it did, so the session's history may have changed.
-    pub(crate) async fn check_proactive_compaction(
+    /// true when compaction ran, which may change the session's history even if nothing folded.
+    pub(in crate::engine) async fn compact_if_full(
         &self,
         presenter: &dyn Presenter,
         history: &[ChatMessage],
@@ -183,20 +195,16 @@ impl AgentEngine {
         if total_tokens <= self.compaction_at() {
             return Ok(false);
         }
-        let _spinner = presenter.start_spinner("Compacting...");
-        let stats = self.compact_session(None).await?;
-        if !stats.summary.is_empty() {
-            presenter.print_notice(&stats.auto_notice());
-        }
+        self.auto_compact(presenter).await?;
         Ok(true)
     }
 
-    /// The history the turn starts from, compacted first when it and the turn's `prompt_tokens`
+    /// The history the turn starts from, compacted first when it and the turn's `added_tokens`
     /// would pass the compaction threshold.
-    async fn load_turn_history(&self, presenter: &dyn Presenter, prompt_tokens: usize) -> Result<LoadedHistory> {
+    async fn load_turn_history(&self, presenter: &dyn Presenter, added_tokens: usize) -> Result<LoadedHistory> {
         let loaded = self.load_initial_history().await?;
         let compacted = self
-            .check_proactive_compaction(presenter, &loaded.messages, prompt_tokens, loaded.outdates_usage)
+            .compact_if_full(presenter, &loaded.messages, added_tokens, loaded.outdates_usage)
             .await?;
         if !compacted {
             return Ok(loaded);
@@ -213,6 +221,7 @@ impl AgentEngine {
         preamble: String,
         loaded: LoadedHistory,
         presenter: &Arc<dyn Presenter>,
+        turn_started_at: std::time::Instant,
     ) -> Result<PreparedTurn> {
         let LoadedHistory {
             messages: history,
@@ -226,7 +235,7 @@ impl AgentEngine {
             )
             .await?;
         let checkpoint = self.session_manager.load_checkpoint().await?;
-        self.start_turn_metrics(prompt.tokens, &history, outdates_usage);
+        self.start_turn_metrics(prompt.added_tokens, &history, outdates_usage);
         self.run_tracker.pruned(decision);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
@@ -234,9 +243,9 @@ impl AgentEngine {
             checkpoint,
             current_prompt: prompt.sent,
             current_budget: self.config.max_turns,
-            thinking_level: None,
+            thinking_level: self.resolve_turn_thinking_level(prompt.typed).await,
             compaction: TurnCompaction::default(),
-            turn_started_at: std::time::Instant::now(),
+            turn_started_at,
         };
         Ok(PreparedTurn {
             preamble,
@@ -245,7 +254,12 @@ impl AgentEngine {
         })
     }
 
-    pub(super) async fn prepare_turn(&self, prompt: &str, presenter: &Arc<dyn Presenter>) -> Result<PreparedTurn> {
+    pub(super) async fn prepare_turn(
+        &self,
+        prompt: &str,
+        presenter: &Arc<dyn Presenter>,
+        turn_started_at: std::time::Instant,
+    ) -> Result<PreparedTurn> {
         self.require_model()?;
         let context = self.project_context().await?;
         let mut preamble = context.build_system_prompt();
@@ -255,17 +269,19 @@ impl AgentEngine {
             &crate::engine::notes::with_notes(&notes, prompt),
             context.git_status.as_deref(),
         );
-        let tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
-            rho_harness_core::tokens::estimate_text_tokens(&sent, &self.config.model),
-        );
-        let loaded = self.load_turn_history(presenter.as_ref(), tokens).await?;
+        let added_tokens =
+            rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
+                rho_harness_core::tokens::estimate_text_tokens(&sent, &self.config.model),
+            );
+        let loaded = self.load_turn_history(presenter.as_ref(), added_tokens).await?;
         let turn_prompt = TurnPrompt {
             typed: prompt,
             sent,
-            tokens,
+            added_tokens,
         };
-        let mut ready = self.build_ready_turn(turn_prompt, preamble, loaded, presenter).await?;
-        ready.loop_state.thinking_level = self.resolve_turn_thinking_level(prompt).await;
+        let ready = self
+            .build_ready_turn(turn_prompt, preamble, loaded, presenter, turn_started_at)
+            .await?;
         self.turn_notes.consume(notes.len());
         Ok(ready)
     }

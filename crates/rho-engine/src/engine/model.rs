@@ -121,11 +121,20 @@ impl LocalContextProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
     use crate::provider::{DiscoveredModel, ProviderModels};
-    use crate::test_support::serve_http;
+    use crate::test_support::{TestDir, serve_http};
+    use std::sync::Arc;
 
     const MODEL: &str = "inkling-2-mini:latest";
+
+    fn engine(dir: &TestDir, config: Config) -> AgentEngine {
+        mock_engine(
+            Arc::new(MockAdapter::text("unused")),
+            MockEngineConfig::new(dir, config),
+        )
+    }
 
     fn catalog_with_trained_window() -> ModelCatalog {
         let catalog = ModelCatalog::default();
@@ -152,7 +161,7 @@ mod tests {
 
     #[tokio::test]
     async fn completed_local_turn_replaces_trained_window_with_allocated_one() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = TestDir::new();
         let model = MockAdapter::new("inkling-2-mini", ProviderId::Local.as_str());
         model.add_turn(vec![
             Ok(ModelStreamEvent::Text("done".into())),
@@ -163,15 +172,7 @@ mod tests {
             model: MODEL.to_string(),
             ..Config::default()
         };
-        let mut engine = crate::engine::eval::mock::mock_engine(
-            std::sync::Arc::new(model),
-            crate::engine::eval::mock::MockEngineConfig {
-                base_dir: dir.path(),
-                app_config: config,
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
+        let mut engine = mock_engine(Arc::new(model), MockEngineConfig::new(&dir, config));
         let catalog = catalog_with_trained_window();
         engine.router = crate::provider::ModelRouter::new(engine.shared_auth_store(), catalog.clone());
         engine.ollama_host = serve_http(vec![("200 OK", ps_body(262_144))]).await;
@@ -182,7 +183,7 @@ mod tests {
         engine
             .run_turn(
                 crate::engine::runner::TurnRequest::new("hi"),
-                std::sync::Arc::new(crate::engine::eval::presenter::NoopPresenter),
+                Arc::new(crate::engine::eval::presenter::NoopPresenter),
             )
             .await
             .unwrap();
@@ -202,16 +203,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_switch_leaves_the_engine_on_its_previous_model() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut engine = crate::engine::eval::mock::mock_engine(
-            std::sync::Arc::new(MockAdapter::text("unused")),
-            crate::engine::eval::mock::MockEngineConfig {
-                base_dir: dir.path(),
-                app_config: Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
+        let dir = TestDir::new();
+        let mut engine = engine(&dir, Config::default());
         let before = (engine.config.model.clone(), engine.config.provider.clone());
 
         let result = engine.switch_model("some-model", "no-such-provider").await;
@@ -222,16 +215,8 @@ mod tests {
 
     #[tokio::test]
     async fn switching_to_an_aliased_prefixed_model_builds_its_canonical_route() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut engine = crate::engine::eval::mock::mock_engine(
-            std::sync::Arc::new(MockAdapter::text("unused")),
-            crate::engine::eval::mock::MockEngineConfig {
-                base_dir: dir.path(),
-                app_config: Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
+        let dir = TestDir::new();
+        let mut engine = engine(&dir, Config::default());
 
         engine.switch_model("local/qwen2.5-coder:7b", "ollama").await.unwrap();
 
@@ -245,16 +230,8 @@ mod tests {
 
     #[tokio::test]
     async fn switching_models_starts_the_context_notices_over() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut engine = crate::engine::eval::mock::mock_engine(
-            std::sync::Arc::new(MockAdapter::text("unused")),
-            crate::engine::eval::mock::MockEngineConfig {
-                base_dir: dir.path(),
-                app_config: Config::default(),
-                session_manager: None,
-                built_in_tools: None,
-            },
-        );
+        let dir = TestDir::new();
+        let mut engine = engine(&dir, Config::default());
         let notices_at = |engine: &AgentEngine, used: u64| {
             let mut seen = None;
             engine
@@ -306,19 +283,14 @@ mod tests {
 
     #[test]
     fn the_context_policy_carries_every_compaction_setting() {
-        let dir = crate::test_support::TestDir::new();
-        let engine = crate::engine::eval::mock::mock_engine(
-            std::sync::Arc::new(MockAdapter::default()),
-            crate::engine::eval::mock::MockEngineConfig {
-                base_dir: &dir,
-                app_config: Config {
-                    context_limit: Some(50_000),
-                    reserve_tokens: 5_000,
-                    keep_recent_tokens: 7_000,
-                    ..Config::default()
-                },
-                session_manager: None,
-                built_in_tools: None,
+        let dir = TestDir::new();
+        let engine = engine(
+            &dir,
+            Config {
+                context_limit: Some(50_000),
+                reserve_tokens: 5_000,
+                keep_recent_tokens: 7_000,
+                ..Config::default()
             },
         );
         let policy = engine.context_policy();

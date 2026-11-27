@@ -19,21 +19,26 @@ pub struct MockEngineConfig<'a> {
     pub built_in_tools: Option<BuiltinTools>,
 }
 
+impl<'a> MockEngineConfig<'a> {
+    /// An engine under `base_dir` with `app_config`, its own session, and no tools.
+    pub fn new(base_dir: &'a Path, app_config: Config) -> Self {
+        Self {
+            base_dir,
+            app_config,
+            session_manager: None,
+            built_in_tools: None,
+        }
+    }
+}
+
 #[cfg(test)]
 pub fn mock_engine_in_dir(label: &str, model: Arc<dyn ModelAdapter>) -> (AgentEngine, TestDir) {
     let dir = temp_dir(label);
-    let engine = mock_engine(
-        model,
-        MockEngineConfig {
-            base_dir: &dir,
-            app_config: Config {
-                auth_file: dir.join("auth.json"),
-                ..Config::default()
-            },
-            session_manager: None,
-            built_in_tools: None,
-        },
-    );
+    let config = Config {
+        auth_file: dir.join("auth.json"),
+        ..Config::default()
+    };
+    let engine = mock_engine(model, MockEngineConfig::new(&dir, config));
     (engine, dir)
 }
 

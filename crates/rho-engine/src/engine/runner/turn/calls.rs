@@ -22,7 +22,7 @@ impl TurnCalls {
     }
 
     /// Ends the run in progress to start another; returns its request count.
-    pub(super) fn next_run(&mut self) -> usize {
+    pub(super) fn end_run(&mut self) -> usize {
         let requests = self.run.len();
         self.earlier.append(&mut self.run);
         requests
@@ -57,10 +57,10 @@ mod tests {
         let mut calls = TurnCalls::default();
         calls.record(CompletionCall::new(0, StructuralUsage::default()));
         calls.record(CompletionCall::new(1, StructuralUsage::default()));
-        assert_eq!(calls.next_run(), 2);
+        assert_eq!(calls.end_run(), 2);
         let numbered = calls.record(CompletionCall::new(0, StructuralUsage::default()));
         assert_eq!(numbered.call_index, 2);
-        assert_eq!(calls.next_run(), 1);
+        assert_eq!(calls.end_run(), 1);
 
         let mut last = PromptResponse::new("done", StructuralUsage::default());
         last.requests = 1;

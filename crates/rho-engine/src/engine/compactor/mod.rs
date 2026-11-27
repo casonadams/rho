@@ -27,19 +27,10 @@ pub(crate) enum MadeRoom<T> {
 }
 
 /// One turn's compactions so far and when it next stops to compact; shared by every agent loop.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct TurnCompaction {
     compactions: usize,
     timing: CompactionTiming,
-}
-
-impl Default for TurnCompaction {
-    fn default() -> Self {
-        Self {
-            compactions: 0,
-            timing: CompactionTiming::Early,
-        }
-    }
 }
 
 impl TurnCompaction {

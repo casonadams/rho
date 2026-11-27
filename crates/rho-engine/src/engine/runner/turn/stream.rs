@@ -43,9 +43,9 @@ impl TurnStreamState {
     }
 
     /// Ends the run in progress to start another after a compaction; returns its request count.
-    pub(super) fn next_run(&mut self) -> usize {
+    pub(super) fn end_run(&mut self) -> usize {
         self.restart_model_call();
-        self.calls.next_run()
+        self.calls.end_run()
     }
 
     pub(super) fn elapsed_generation_ms(&self) -> u64 {
@@ -235,20 +235,15 @@ impl AgentEngine {
     /// Compacts the session mid-turn, which also moves the turn's saved steps into its history; true
     /// when it folded something. The turn resumes its saved work, or resends its prompt if none.
     async fn compact_mid_turn(&self, presenter: &dyn Presenter, loop_state: &mut TurnLoopState) -> Result<bool> {
-        let _spinner = presenter.start_spinner("Compacting...");
         let started_with = loop_state.checkpoint.as_ref().map_or(0, Vec::len);
         let saved_now = self.session_manager.load_checkpoint().await?.map_or(0, |c| c.len());
-        let stats = self.compact_session(None).await?;
+        let folded = self.auto_compact(presenter).await?;
         loop_state.checkpoint = None;
         loop_state.visible_history = self.session_manager.active_messages().await?;
         if saved_now > started_with {
             loop_state.current_prompt = RESUME_PROMPT.to_string();
         }
-        if stats.summary.is_empty() {
-            return Ok(false);
-        }
-        presenter.print_notice(&stats.auto_notice());
-        Ok(true)
+        Ok(folded)
     }
 
     /// Readies the turn to go on after `error` stopped it for a full context; false when it cannot.
@@ -385,10 +380,10 @@ mod tests {
     }
 
     #[test]
-    fn a_new_run_forgets_the_first_token_of_the_run_it_replaced() {
+    fn ending_a_run_forgets_its_first_token() {
         let mut state = TurnStreamState::new();
         state.mark_first_token(true);
-        state.next_run();
+        state.end_run();
         assert_eq!(state.ttft_ms(), None);
     }
 
@@ -397,7 +392,7 @@ mod tests {
         let mut state = TurnStreamState::new();
         state.calls.record(CompletionCall::new(0, StructuralUsage::default()));
         state.final_response = Some(PromptResponse::new("hidden", StructuralUsage::default()));
-        state.next_run();
+        state.end_run();
 
         let (_, response) = StreamRunResult::ContentFiltered(Box::new(state)).into_response();
 

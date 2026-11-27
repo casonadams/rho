@@ -14,9 +14,10 @@ pub enum ContextLimitSource {
 }
 
 /// When a turn stops to compact its context.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompactionTiming {
     /// Once the next request's prompt would pass the compaction threshold.
+    #[default]
     Early,
     /// Only when the provider reports an overflow; for a turn that could not compact early.
     OnOverflow,
@@ -98,7 +99,7 @@ impl ContextBudget {
             limit: limit as u64,
             compaction_at: compaction_at as u64,
             announce: source != ContextLimitSource::Estimated,
-            timing: CompactionTiming::Early,
+            timing: CompactionTiming::default(),
             notified_percent: notified,
         }
     }
@@ -174,7 +175,7 @@ impl ContextTracker {
 
     /// The session's budget against a `limit`-token window that compacts above `compaction_at`;
     /// its notices carry over between turns until the next compaction.
-    pub fn budget(&self, limit: usize, source: ContextLimitSource, compaction_at: usize) -> ContextBudget {
+    pub(crate) fn budget(&self, limit: usize, source: ContextLimitSource, compaction_at: usize) -> ContextBudget {
         ContextBudget::new(limit, source, compaction_at, Arc::clone(&self.notified_percent))
     }
 
@@ -310,6 +311,11 @@ mod tests {
         }
     }
 
+    /// `tracker`'s budget for a 200k provider window that compacts past 183,616 tokens.
+    fn provider_budget(tracker: &ContextTracker) -> super::ContextBudget {
+        tracker.budget(200_000, ContextLimitSource::Provider, 183_616)
+    }
+
     fn delivered(budget: &super::ContextBudget, used: u64, accept: bool) -> Option<String> {
         let mut seen = None;
         budget.notice(used, |notice| {
@@ -322,7 +328,7 @@ mod tests {
     #[test]
     fn budget_notices_each_crossing_once_until_compaction() {
         let tracker = ContextTracker::new();
-        let budget = tracker.budget(200_000, ContextLimitSource::Provider, 183_616);
+        let budget = provider_budget(&tracker);
         let notices =
             |used: &[u64]| -> Vec<Option<String>> { used.iter().map(|&u| delivered(&budget, u, true)).collect() };
         assert_eq!(
@@ -336,19 +342,14 @@ mod tests {
         );
         tracker.reset_notices();
         assert_eq!(
-            delivered(
-                &tracker.budget(200_000, ContextLimitSource::Provider, 183_616),
-                100_000,
-                true
-            )
-            .as_deref(),
+            delivered(&provider_budget(&tracker), 100_000, true).as_deref(),
             Some("[context: 100k of 200k tokens used (50%); compaction starts near 184k]")
         );
     }
 
     #[test]
     fn a_notice_that_could_not_be_delivered_is_offered_again() {
-        let budget = ContextTracker::new().budget(200_000, ContextLimitSource::Provider, 183_616);
+        let budget = provider_budget(&ContextTracker::new());
         assert!(delivered(&budget, 120_000, false).is_some());
         assert!(delivered(&budget, 121_000, true).is_some());
         assert_eq!(delivered(&budget, 122_000, true), None);
@@ -369,7 +370,7 @@ mod tests {
             panic!("poison");
         })
         .join();
-        let budget = tracker.budget(200_000, ContextLimitSource::Provider, 183_616);
+        let budget = provider_budget(&tracker);
         assert!(delivered(&budget, 120_000, true).is_some());
         tracker.reset_notices();
         assert!(delivered(&budget, 120_000, true).is_some());
@@ -377,7 +378,7 @@ mod tests {
 
     #[test]
     fn the_lock_is_not_held_while_delivering() {
-        let budget = ContextTracker::new().budget(200_000, ContextLimitSource::Provider, 183_616);
+        let budget = provider_budget(&ContextTracker::new());
         let mut nested = None;
         budget.notice(120_000, |_| {
             nested = delivered(&budget, 130_000, true);

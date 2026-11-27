@@ -1,6 +1,7 @@
 use super::*;
 use crate::mailbox::AgentId;
 use crate::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
+use crate::test_support::TestDir;
 use futures::StreamExt;
 use rho_harness_core::model::ToolFunction;
 
@@ -28,16 +29,16 @@ impl<'a> RunnerStepContext<'a> {
 
 fn test_agent_env(
     model: Arc<crate::provider::adapter::MockAdapter>,
-) -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
+) -> (AgentRunner, TestDir, TestStepBuffers, RepeatedCallTracker) {
     test_agent_env_with(model, Arc::new(crate::engine::eval::presenter::NoopPresenter))
 }
 
 fn test_agent_env_with(
     model: Arc<crate::provider::adapter::MockAdapter>,
     pres: Arc<dyn rho_harness_core::presentation::Presenter>,
-) -> (AgentRunner, tempfile::TempDir, TestStepBuffers, RepeatedCallTracker) {
-    let temp = tempfile::tempdir().unwrap();
-    let sm = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
+) -> (AgentRunner, TestDir, TestStepBuffers, RepeatedCallTracker) {
+    let temp = TestDir::new();
+    let sm = rho_harness_core::session::SessionManager::new(&temp, None).unwrap();
     let cfg = crate::engine::runner::sink::TerminalSinkConfig {
         model_label: "test".into(),
         run_tracker: Default::default(),
@@ -493,41 +494,52 @@ fn the_next_prompt_counts_the_reply_once_and_every_message_added_after_it() {
     }
 }
 
+/// A 200k provider window that compacts past 183,616 tokens.
+fn provider_budget() -> crate::engine::tracking::ContextBudget {
+    crate::engine::tracking::ContextTracker::new().budget(
+        200_000,
+        crate::engine::tracking::ContextLimitSource::Provider,
+        183_616,
+    )
+}
+
+/// The test runner with one `probe` tool answering `result`, on [`provider_budget`].
+fn probe_runner(model: Arc<MockAdapter>, result: &str) -> (AgentRunner, TestDir) {
+    let (runner, temp, _, _) = test_agent_env(model);
+    let runner = AgentRunner {
+        tools: vec![Arc::new(ScriptedTool {
+            name: "probe",
+            result: crate::tools::ToolResult::success(result),
+        })],
+        ..runner
+    }
+    .context_budget(Some(provider_budget()));
+    (runner, temp)
+}
+
 #[tokio::test]
 async fn a_turn_stops_for_compaction_when_its_next_prompt_would_pass_the_threshold() {
+    type Outcome = fn(&Result<(), AppError>) -> bool;
+    let stops: Outcome = |r| matches!(r, Err(AppError::CompactionDue { used }) if *used > 183_616);
+    let finishes: Outcome = |r| r.is_ok();
+    let runs_out: Outcome = |r| matches!(r, Err(AppError::ModelBudgetExhausted { max_turns: 1 }));
     let large_result: String = (0..4_000).map(|i| format!("line {i} ")).collect();
     let cases = [
-        ("a full prompt", 190_000, "ok", 2, true),
-        ("no request follows", 190_000, "ok", 1, false),
-        ("a large tool result", 180_000, large_result.as_str(), 2, true),
-        ("room left", 180_000, "ok", 2, false),
+        ("a full prompt", 190_000, "ok", 2, stops),
+        ("no request follows", 190_000, "ok", 1, runs_out),
+        ("a large tool result", 180_000, large_result.as_str(), 2, stops),
+        ("room left", 180_000, "ok", 2, finishes),
     ];
-    for (case, used, result, budget, stops_early) in cases {
-        let model = Arc::new(MockAdapter::from_turns(vec![probe_then_usage(0, used)]));
-        let (runner, _temp, _, _) = test_agent_env(model);
-        let context = crate::engine::tracking::ContextTracker::new().budget(
-            200_000,
-            crate::engine::tracking::ContextLimitSource::Provider,
-            183_616,
-        );
-        let runner = AgentRunner {
-            tools: vec![Arc::new(ScriptedTool {
-                name: "probe",
-                result: crate::tools::ToolResult::success(result),
-            })],
-            ..runner
-        }
-        .context_budget(Some(context))
-        .budget(budget)
-        .prompt("go");
+    for (case, used, result, budget, expected) in cases {
+        let model = Arc::new(MockAdapter::from_turns(vec![
+            probe_then_usage(0, used),
+            vec![ModelStreamEvent::Text("done".into())],
+        ]));
+        let (runner, _temp) = probe_runner(model, result);
 
-        let error = run_agent_loop(runner, &acking_emitter()).await.unwrap_err();
+        let outcome = run_agent_loop(runner.budget(budget).prompt("go"), &acking_emitter()).await;
 
-        assert_eq!(
-            matches!(error, AppError::CompactionDue { used: next } if next >= used),
-            stops_early,
-            "{case}: {error:?}"
-        );
+        assert!(expected(&outcome), "{case}: {outcome:?}");
     }
 }
 
@@ -539,23 +551,9 @@ async fn the_next_tool_results_tell_the_model_once_its_context_crosses_a_notice_
         probe_then_usage(2, 145_000),
         vec![ModelStreamEvent::Text("done".into())],
     ]));
-    let (runner, _temp, _, _) = test_agent_env(model.clone());
+    let (runner, _temp) = probe_runner(model.clone(), "ok");
     let store = crate::engine::runner::turn::MemoryStore::new("budgeted", Vec::new());
-    let budget = crate::engine::tracking::ContextTracker::new().budget(
-        200_000,
-        crate::engine::tracking::ContextLimitSource::Provider,
-        183_616,
-    );
-    let runner = AgentRunner {
-        tools: vec![Arc::new(ScriptedTool {
-            name: "probe",
-            result: crate::tools::ToolResult::success("ok"),
-        })],
-        ..runner
-    }
-    .store(Arc::new(store.clone()))
-    .context_budget(Some(budget))
-    .prompt("go");
+    let runner = runner.store(Arc::new(store.clone())).prompt("go");
 
     run_agent_loop(runner, &acking_emitter()).await.unwrap();
 
@@ -600,9 +598,9 @@ impl ToolObserver for SeenCalls {
 async fn the_tool_observer_hears_refused_and_finished_calls() {
     let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
     let scope = crate::permission::policy::parse_scope_from_str("[permission.bash]\n\"rm *\" = \"deny\"\n").unwrap();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TestDir::new();
     let hook = Arc::new(crate::permission::PermissionHook::with_policy(
-        Some(dir.path().to_path_buf()),
+        Some(dir.to_path_buf()),
         Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None)),
         crate::permission::policy::build_policy(None, Some(scope)),
     ));
@@ -675,11 +673,11 @@ fn result_text(message: &ChatMessage) -> String {
 
 #[tokio::test]
 async fn permission_checks_see_json_encoded_arguments_decoded() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None));
     let policy = crate::permission::policy::build_policy(None, None);
     let hook = Arc::new(crate::permission::PermissionHook::with_policy(
-        Some(dir.path().to_path_buf()),
+        Some(dir.to_path_buf()),
         presenter,
         policy,
     ));
@@ -889,7 +887,7 @@ fn tool_then(turns: Vec<Vec<ModelStreamEvent>>) -> Arc<MockAdapter> {
     Arc::new(MockAdapter::from_turns(all))
 }
 
-async fn run_prompt(model: Arc<MockAdapter>) -> (AgentRunner, Result<(), AppError>, tempfile::TempDir) {
+async fn run_prompt(model: Arc<MockAdapter>) -> (AgentRunner, Result<(), AppError>, TestDir) {
     let (runner, temp, _, _) = test_agent_env(model);
     let runner = runner.prompt("do it");
     let emitter = acking_emitter();
@@ -1065,7 +1063,7 @@ async fn finished_steps_survive_a_turn_that_is_killed_mid_flight() {
     drain.abort();
     let _ = drain.await;
 
-    let reopened = rho_harness_core::session::SessionManager::new(temp.path(), Some(&session_id)).unwrap();
+    let reopened = rho_harness_core::session::SessionManager::new(&temp, Some(&session_id)).unwrap();
     let checkpoint = reopened
         .load_checkpoint()
         .await
@@ -1351,15 +1349,15 @@ fn todo_then_answer(args: serde_json::Value) -> Arc<MockAdapter> {
 
 #[tokio::test]
 async fn a_resumed_session_shows_the_todo_list_it_ended_with() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TestDir::new();
     let plan = serde_json::json!({ "todos": [
         { "content": "Fix the bug", "status": "in_progress" },
         { "content": "Add a test", "status": "pending" },
     ] });
 
-    let (session_id, written) = todo_turn(dir.path(), None, todo_then_answer(plan)).await;
-    let (_, resumed) = todo_turn(dir.path(), Some(&session_id), todo_then_answer(serde_json::json!({}))).await;
-    let (_, fresh) = todo_turn(dir.path(), None, todo_then_answer(serde_json::json!({}))).await;
+    let (session_id, written) = todo_turn(&dir, None, todo_then_answer(plan)).await;
+    let (_, resumed) = todo_turn(&dir, Some(&session_id), todo_then_answer(serde_json::json!({}))).await;
+    let (_, fresh) = todo_turn(&dir, None, todo_then_answer(serde_json::json!({}))).await;
 
     assert_eq!(written, "0/2 done\n[>] Fix the bug\n[ ] Add a test");
     assert_eq!(resumed, written);

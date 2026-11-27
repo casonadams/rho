@@ -26,7 +26,7 @@ async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round()
     ]);
     let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
-        .with_context_policy(window(1_000_000, 1));
+        .with_context_policy(Some(window(1_000_000, 1)));
 
     let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
@@ -66,7 +66,7 @@ async fn a_subagent_compacts_once_its_context_passes_the_threshold_without_waiti
     ]);
     let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
-        .with_context_policy(window(10_000, 1));
+        .with_context_policy(Some(window(10_000, 1)));
 
     let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
@@ -88,7 +88,7 @@ async fn a_subagent_with_nothing_to_compact_runs_on_instead_of_stopping_early() 
     ]);
     let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".to_string())];
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
-        .with_context_policy(window(10_000, 1_000_000));
+        .with_context_policy(Some(window(10_000, 1_000_000)));
 
     let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
@@ -131,7 +131,7 @@ async fn an_overflow_on_the_first_call_compacts_and_still_gives_the_model_the_in
         .collect();
     history.push(ChatMessage::user("the plan is settled"));
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5)
-        .with_context_policy(window(1_000_000, 1));
+        .with_context_policy(Some(window(1_000_000, 1)));
 
     let round = runner
         .run_round(history, round::RoundInput::Prompt("check the lexer"))

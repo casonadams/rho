@@ -162,7 +162,7 @@ impl AgentRunner {
     }
 
     /// Tells the model how full its context window is, once per notice percentage it crosses.
-    pub fn context_budget(mut self, budget: Option<crate::engine::tracking::ContextBudget>) -> Self {
+    pub(crate) fn context_budget(mut self, budget: Option<crate::engine::tracking::ContextBudget>) -> Self {
         self.context_budget = budget;
         self
     }
