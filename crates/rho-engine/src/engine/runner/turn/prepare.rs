@@ -166,27 +166,29 @@ impl AgentEngine {
         }
     }
 
-    /// Compacts the session when `history` plus `additional_tokens` passes the compaction threshold.
+    /// Compacts the session when `history` plus `additional_tokens` passes the compaction threshold;
+    /// true when it did, so the session's history may have changed.
     pub(crate) async fn check_proactive_compaction(
         &self,
         presenter: &dyn Presenter,
         history: &[ChatMessage],
         additional_tokens: usize,
         outdates_usage: bool,
-    ) -> Result<Option<crate::engine::CompactionStats>> {
+    ) -> Result<bool> {
         let reported = self.usage.latest().filter(|_| !outdates_usage);
         let history_tokens = reported
             .map(|u| self.consumed_context(&u) as usize)
             .unwrap_or_else(|| self.context.estimate_messages_tokens(history, &self.config.model));
         let total_tokens = history_tokens.saturating_add(additional_tokens);
-        if total_tokens > self.compaction_at() {
-            let _spinner = presenter.start_spinner("Compacting...");
-            let stats = self.compact_session(None).await?;
-            presenter.print_notice(&stats.auto_notice());
-            Ok(Some(stats))
-        } else {
-            Ok(None)
+        if total_tokens <= self.compaction_at() {
+            return Ok(false);
         }
+        let _spinner = presenter.start_spinner("Compacting...");
+        let stats = self.compact_session(None).await?;
+        if !stats.summary.is_empty() {
+            presenter.print_notice(&stats.auto_notice());
+        }
+        Ok(true)
     }
 
     /// The history the turn starts from, compacted first when it and the turn's `prompt_tokens`
@@ -196,7 +198,7 @@ impl AgentEngine {
         let compacted = self
             .check_proactive_compaction(presenter, &loaded.messages, prompt_tokens, loaded.outdates_usage)
             .await?;
-        if compacted.is_none() {
+        if !compacted {
             return Ok(loaded);
         }
         Ok(LoadedHistory {

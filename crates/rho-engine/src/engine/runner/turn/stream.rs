@@ -232,31 +232,27 @@ impl AgentEngine {
         }
     }
 
-    /// Compacts the session mid-turn; true when it folded something. The turn then resumes its
-    /// saved work, or sends its prompt again when none was saved.
+    /// Compacts the session mid-turn, which also moves the turn's saved steps into its history; true
+    /// when it folded something. The turn resumes its saved work, or resends its prompt if none.
     async fn compact_mid_turn(&self, presenter: &dyn Presenter, loop_state: &mut TurnLoopState) -> Result<bool> {
         let _spinner = presenter.start_spinner("Compacting...");
         let started_with = loop_state.checkpoint.as_ref().map_or(0, Vec::len);
         let saved_now = self.session_manager.load_checkpoint().await?.map_or(0, |c| c.len());
-        match self.compact_session(None).await {
-            Ok(stats) if !stats.summary.is_empty() => {
-                loop_state.checkpoint = None;
-                loop_state.visible_history = self.session_manager.active_messages().await?;
-                if saved_now > started_with {
-                    loop_state.current_prompt = RESUME_PROMPT.to_string();
-                }
-                presenter.print_notice(&stats.auto_notice());
-                Ok(true)
-            }
-            Ok(_) => Ok(false),
-            Err(e) => {
-                presenter.print_notice(&format!("[Auto-compaction failed: {e}]"));
-                Ok(false)
-            }
+        let stats = self.compact_session(None).await?;
+        loop_state.checkpoint = None;
+        loop_state.visible_history = self.session_manager.active_messages().await?;
+        if saved_now > started_with {
+            loop_state.current_prompt = RESUME_PROMPT.to_string();
         }
+        if stats.summary.is_empty() {
+            return Ok(false);
+        }
+        presenter.print_notice(&stats.auto_notice());
+        Ok(true)
     }
 
     /// Readies the turn to go on after `error` stopped it for a full context; false when it cannot.
+    /// A turn that runs on goes on from its saved steps, which already hold its prompt.
     async fn make_room(
         &self,
         error: &AppError,
@@ -266,7 +262,8 @@ impl AgentEngine {
         let mut compaction = loop_state.compaction;
         let made = compaction
             .make_room(error, async || {
-                Ok::<_, AppError>(self.compact_mid_turn(presenter, loop_state).await?.then_some(()))
+                let folded = self.compact_mid_turn(presenter, loop_state).await?;
+                Ok::<_, AppError>(folded.then_some(()))
             })
             .await?;
         loop_state.compaction = compaction;
@@ -274,7 +271,9 @@ impl AgentEngine {
             Some(MadeRoom::Compacted(())) => Ok(true),
             Some(MadeRoom::RunOn) => {
                 loop_state.checkpoint = self.session_manager.load_checkpoint().await?;
-                loop_state.current_prompt.clear();
+                if loop_state.checkpoint.is_some() {
+                    loop_state.current_prompt.clear();
+                }
                 Ok(true)
             }
             None => Ok(false),
@@ -299,10 +298,11 @@ impl AgentEngine {
     ) -> Result<RunEnd> {
         sink.finish_spinner();
         sink.flush_display();
-        if self.make_room(&error, presenter, loop_state).await? {
-            return Ok(RunEnd::MadeRoom(Box::new(state)));
+        match self.make_room(&error, presenter, loop_state).await {
+            Ok(true) => Ok(RunEnd::MadeRoom(Box::new(state))),
+            Ok(false) => self.handle_fatal_stream_error(error, sink).await,
+            Err(compaction_error) => self.handle_fatal_stream_error(compaction_error, sink).await,
         }
-        self.handle_fatal_stream_error(error, sink).await
     }
 
     pub(super) async fn run_turn_stream(

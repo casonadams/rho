@@ -494,9 +494,8 @@ impl SubagentRunner {
         }
     }
 
-    /// Runs the subagent's turns on the shared turn loop and turns how it ended into a round end. When
-    /// a turn fills the model's context, the older conversation is compacted into a summary and the
-    /// round continues with the turns it has left.
+    /// Runs the round's turns, compacting its context when full, and turns how they ended into a
+    /// round end.
     async fn drive(
         &self,
         transcript: Vec<ChatMessage>,

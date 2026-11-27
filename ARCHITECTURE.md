@@ -106,7 +106,7 @@ provider stream (claude/antigravity/chatgpt/ollama)
 tool calls ── permission gate ──▶ execute ──▶ results appended
    │                                             │
    ▼                                             ▼
-compactor/ (auto-compact on context overflow)  session store (JSONL)
+compactor/ (auto-compact near the window)      session store (JSONL)
    ▼
 TurnOutput { final_text, usage, tool_calls }
 ```

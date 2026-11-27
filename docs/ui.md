@@ -261,8 +261,9 @@ Selecting `/thinking auto` (or setting `thinking_level = "auto"` in `config.toml
   reply and the tool results added since), so the turn compacts and carries on
   with its saved work instead of waiting for the provider to reject a request.
   A request rejected as too long is compacted and retried the same way. A turn
-  compacts at most three times; after that, or when an early compaction cannot
-  run, it carries on until the window is actually full. Subagents follow the
+  compacts at most three times; after that, or when an early compaction finds
+  nothing to fold, it carries on until the window is actually full, and an
+  overflow then ends the turn. Subagents follow the
   same rule against their own model's window. A `todo` list
   with unfinished items is copied into the summary as a `<todos>` block, so the
   agent keeps its plan. After pruning

@@ -466,6 +466,33 @@ fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
     ]
 }
 
+#[test]
+fn the_next_prompt_counts_the_reply_once_and_every_message_added_after_it() {
+    let call = CompletionCall::new(
+        0,
+        StructuralUsage {
+            input_tokens: 1_000,
+            output_tokens: 50,
+            ..Default::default()
+        },
+    );
+    let long = "word ".repeat(2_000);
+    let delivered = ChatMessage::user(long.clone());
+    let added = rho_harness_core::tokens::estimate_message_tokens(&delivered, "m") as u64;
+    let cases = [
+        ("nothing added", vec![], 1_050),
+        (
+            "the streamed reply is already in its output tokens",
+            vec![ChatMessage::assistant(long)],
+            1_050,
+        ),
+        ("a delivered message", vec![delivered], 1_050 + added),
+    ];
+    for (case, appended, expected) in cases {
+        assert_eq!(next_prompt_tokens(&call, &appended, "m"), expected, "{case}");
+    }
+}
+
 #[tokio::test]
 async fn a_turn_stops_for_compaction_when_its_next_prompt_would_pass_the_threshold() {
     let large_result: String = (0..4_000).map(|i| format!("line {i} ")).collect();
